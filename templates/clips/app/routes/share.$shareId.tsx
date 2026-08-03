@@ -966,7 +966,9 @@ export default function ShareRoute() {
                 hasPassword={Boolean(recording.hasPassword)}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
-                  <IconShare3 className="h-4 w-4" />
+                  {recording.visibility !== "public" ? (
+                    <IconShare3 className="h-4 w-4" />
+                  ) : null}
                   {t("sharePage.share")}
                 </Button>
               </ShareRecordingPopover>

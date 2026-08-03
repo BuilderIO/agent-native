@@ -397,14 +397,16 @@ Datenbankverbindungsvariablen (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, pro App `<
 
 Diese müssen festgelegt werden, bevor eine App zu einer echten Produktbereitstellung hochgestuft wird. Fehlende Werte führen entweder zu einem Fail-Closing (das Framework verweigert den Start/verweigert die Bearbeitung von Anfragen) oder sie fallen mit einer lauten Warnung auf ein schwächeres Verhalten zurück.
 
-| Variable                 | Beschreibung                                                                                                                                                                                                                                                                                                                                 |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ Zeichen zufällige Zeichenfolge. Signiert Sitzungscookies. AND ist der Fallback HMAC für `OAUTH_STATE_SECRET` und `SECRETS_ENCRYPTION_KEY`. Unbedingt erforderlich: Das Framework löst beim Start aus, wenn es in der Produktion fehlt.                                                                                                   |
-| `BETTER_AUTH_URL`        | Öffentlicher Ursprung dieser App (z. B. `https://mail.example.com`). Wird für die Cookie-Domäne und die OAuth-Weiterleitungskonstruktion verwendet.                                                                                                                                                                                          |
-| `ANTHROPIC_API_KEY`      | API-Schlüssel für den eingebetteten Produktionsagenten. **Bei mandantenfähigen Bereitstellungen** weigert sich das Framework, darauf zurückzugreifen, wenn der Benutzer keinen benutzerspezifischen Schlüssel hat – Bring-Your-Own-Key ist erforderlich. Selbstgehostete Einzelmandanteninstallationen verwenden ihn als globalen Schlüssel. |
-| `OAUTH_STATE_SECRET`     | Dedizierte HMAC-Taste für OAuth-Staatsumschläge (Google, Atlassian, Zoom). Fällt auf `BETTER_AUTH_SECRET` zurück, wenn es nicht festgelegt ist, es wird jedoch ein dedizierter Wert empfohlen, damit durch Drehen eines Werts der andere nicht ungültig wird. Generieren über `openssl rand -hex 32`.                                        |
-| `A2A_SECRET`             | Gemeinsames HMAC für App-übergreifendes A2A JSON-RPC. Ohne sie geben jeder A2A-Endpunkt und der `/_agent-native/integrations/process-task`-Self-Fire-Endpunkt 503 in der Produktion zurück.                                                                                                                                                  |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM Schlüssel für den Tresor für verschlüsselte ruhende Geheimnisse. Fällt auf `BETTER_AUTH_SECRET` zurück. Hard-Fails in der Produktion, wenn beide nicht festgelegt sind.                                                                                                                                                          |
+| Variable                                    | Beschreibung                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | Zufällige Zeichenfolge mit 32+ Zeichen. Signiert Sitzungscookies und dient als Fallback für `OAUTH_STATE_SECRET` und app-lokale verschlüsselte Werte. Außerdem ist sie ein Legacy-Lesekandidat für vorhandenen gemeinsamen Vault-Chiffretext. In Produktion zwingend erforderlich.                                                           |
+| `BETTER_AUTH_URL`                           | Öffentlicher Ursprung dieser App (z. B. `https://mail.example.com`). Wird für die Cookie-Domäne und die OAuth-Weiterleitungskonstruktion verwendet.                                                                                                                                                                                          |
+| `ANTHROPIC_API_KEY`                         | API-Schlüssel für den eingebetteten Produktionsagenten. **Bei mandantenfähigen Bereitstellungen** weigert sich das Framework, darauf zurückzugreifen, wenn der Benutzer keinen benutzerspezifischen Schlüssel hat – Bring-Your-Own-Key ist erforderlich. Selbstgehostete Einzelmandanteninstallationen verwenden ihn als globalen Schlüssel. |
+| `OAUTH_STATE_SECRET`                        | Dedizierte HMAC-Taste für OAuth-Staatsumschläge (Google, Atlassian, Zoom). Fällt auf `BETTER_AUTH_SECRET` zurück, wenn es nicht festgelegt ist, es wird jedoch ein dedizierter Wert empfohlen, damit durch Drehen eines Werts der andere nicht ungültig wird. Generieren über `openssl rand -hex 32`.                                        |
+| `A2A_SECRET`                                | Gemeinsames HMAC für App-übergreifendes A2A JSON-RPC. Wenn kein dedizierter Workspace-Schlüssel gesetzt ist, nutzt der gemeinsame Vault einen zweckgebunden abgeleiteten Schlüssel aus diesem Wert; eine Rotation rotiert daher auch den Vault-Schlüssel.                                                                                    |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Bevorzugter stabiler AES-256-GCM-Schlüssel für den gemeinsamen Workspace-Vault. Setzen Sie denselben Wert in jeder lesenden App; er bleibt getrennt von der app-lokalen OAuth-Verschlüsselung.                                                                                                                                               |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Optionaler vorheriger Workspace-Schlüssel für das Rotationsfenster. Zusammen mit dem neuen Schlüssel bereitstellen, Lesezugriffe migrieren lassen und danach entfernen.                                                                                                                                                                      |
+| `SECRETS_ENCRYPTION_KEY`                    | Alter kombinierter Schlüssel für App-lokale Verschlüsselung und den Vault. Er bleibt unterstützt; für neue Multi-App-Bereitstellungen sollte der dedizierte Workspace-Schlüssel verwendet werden.                                                                                                                                            |
 
 ### Authentifizierung und Identität {#env-auth}
 
@@ -424,7 +426,7 @@ Innerhalb eines Arbeitsbereichs wird der Root-`.env` automatisch in jede App gel
 
 ### Generieren starker Geheimnisse {#env-generate-secrets}
 
-Generieren Sie für jedes Geheimnis, das mit „32+ char random“ gekennzeichnet ist (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), neue Werte mit:
+Generieren Sie für jedes Geheimnis, das mit „32+ char random“ gekennzeichnet ist (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), neue Werte mit:
 
 ```bash
 openssl rand -hex 32
@@ -443,7 +445,14 @@ laufen über typisierte App-Actions, sofern die App nicht ausdrücklich rohe Sch
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -454,9 +463,11 @@ export default createAgentChatPlugin({
   aktuellen Benutzer/die aktuelle Organisation beschränkt; Schemaänderungen werden blockiert.
 - `databaseTools: "off"` oder `false` – entfernt Rohdatenbank-Tools aus
   Agentenoberfläche, sodass die actions der App der einzige Datenzugriffspfad sind.
-- `extensionTools: false` – entfernt Framework-Erweiterungsverwaltung actions und
-  schnelle Anleitung (`create-extension`, `update-extension` usw.) für Apps, die
-  Sie möchten nicht, dass der Agent Sandbox-Mini-Apps erstellt.
+- `extensionTools: true` – aktiviert für die App die actions und Anweisungen
+  zur Framework-Erweiterungsverwaltung (`create-extension`,
+  `update-extension` usw.). Setzen Sie die Option in beiden Plugins, um auch
+  authentifizierte REST-Erstellung zu erlauben. Erweiterungen sind
+  standardmäßig deaktiviert.
 
 ## Produktionscode-Ausführung {#production-code-execution}
 
@@ -483,13 +494,13 @@ Die `run-code`-Sandbox ist eine Isolierung auf Prozessebene, kein Betriebssystem
 
 ## UI in der Produktion aktualisieren {#updating-ui-in-production}
 
-Eine der Kernfunktionen von Agent-Native besteht darin, dass der Agent den Quellcode Ihrer App ändern kann – Komponenten, Routen, Stile usw. Während der lokalen Entwicklung funktioniert dies reibungslos, da der Agent vollen Zugriff auf das Dateisystem hat.
+Der gewöhnliche Agent einer bereitgestellten App arbeitet über App-Tools – Actions, Datenbank, MCP und konfigurierte Integrationen – statt automatisch Zugriff auf den Quellcode zu erhalten. Quelländerungen gehören in den Entwicklungsworkflow des Repositorys. Ein eingebetteter, lokaler oder Builder-Frame kann das Repository bearbeiten, wenn ihm bewusst Workspace- und Schreibwerkzeuge gewährt werden.
 
 In einer standardmäßigen Produktionsbereitstellung mit weggelassenem [production code execution](#production-code-execution) hat der Agent Zugriff auf App-Tools (actions, Datenbank, MCP), aber nicht auf das Dateisystem. Das bedeutet, dass der Agent Daten lesen und schreiben, actions ausführen und mit externen Diensten interagieren kann – aber er kann Ihre React-Komponenten nicht bearbeiten oder neue Routen auf einer bereitgestellten Instanz hinzufügen.
 
 ### Builder.io: Visuelle Bearbeitung in der Produktion {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) löst dieses Problem durch die Bereitstellung einer verwalteten Cloud-Umgebung, in der der Agent die Möglichkeit behält, den UI Ihrer App in der Produktion zu ändern. Verbinden Sie Ihr Repo mit Builder.io und fordern Sie direkt UI-Änderungen an – keine erneute Bereitstellung erforderlich.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) ist ein separater verwalteter codefähiger Workflow, in dem ein Agent die UI Ihrer App in Produktion ändern kann. Verbinden Sie Ihr Repository mit Builder.io und fordern Sie UI-Änderungen direkt an – keine erneute Bereitstellung erforderlich.
 
 **So funktioniert es:**
 

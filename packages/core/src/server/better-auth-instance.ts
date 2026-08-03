@@ -38,6 +38,9 @@ import {
   pgPoolOptions,
   neonPoolMax,
   attachNeonPoolErrorLogger,
+  sharedDbPool,
+  onSharedDbPoolsClosed,
+  onSharedDbPoolReplaced,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
@@ -45,7 +48,10 @@ import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
+import {
+  readAnalyticsAnonymousId,
+  signupAttributionFromCookieHeader,
+} from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
@@ -81,6 +87,7 @@ export async function trackSignupEvent({
   email,
   name,
   attribution,
+  anonymousId,
 }: {
   authProvider: string;
   authUserId?: string;
@@ -94,6 +101,7 @@ export async function trackSignupEvent({
    * `undefined` values are dropped; a missing object is a clean no-op.
    */
   attribution?: Record<string, string | undefined>;
+  anonymousId?: string;
 }): Promise<void> {
   identify(email, {
     email,
@@ -116,7 +124,7 @@ export async function trackSignupEvent({
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
     },
-    { userId: email },
+    { userId: email, ...(anonymousId ? { anonymousId } : {}) },
   );
   await flushSignupTracking();
 }
@@ -803,15 +811,34 @@ export async function getBetterAuthInternalAdapter(
 export async function resetBetterAuth(): Promise<void> {
   _auth = undefined;
   _initPromise = undefined;
-  if (_neonAuthPool) {
-    try {
-      await _neonAuthPool.end();
-    } catch {
-      // Pool may have already closed (process exiting, etc.) — don't block reset.
-    }
-    _neonAuthPool = undefined;
-  }
+  // The Postgres pool belongs to the process (see `sharedDbPool`), not to Better
+  // Auth — ending it here would take the framework's and every store's database
+  // access down with it. `closeDbExec()` owns that.
+  _neonAuthPool = undefined;
   await closePgliteClients();
+}
+
+// A `closeDbExec()` releases the pool this instance's adapter is bound to, so
+// the next `getAuth()` must build a fresh one. Registered from the pooled
+// branches rather than at module load: core's specs widely mock
+// `db/client.js`, and an import-time call into the mock breaks every one of
+// them that doesn't stub this export.
+let _poolCloseHookRegistered = false;
+function resetAuthOnPoolClose(driver?: string, url?: string): void {
+  if (_poolCloseHookRegistered) return;
+  _poolCloseHookRegistered = true;
+  onSharedDbPoolsClosed(() => {
+    _auth = undefined;
+    _initPromise = undefined;
+    _neonAuthPool = undefined;
+  });
+  if (driver && url) {
+    onSharedDbPoolReplaced(driver, url, () => {
+      _auth = undefined;
+      _initPromise = undefined;
+      _neonAuthPool = undefined;
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -906,11 +933,11 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
-        const { subject, html, text } = renderResetPasswordEmail({
+        const { subject, html, text, appSender } = renderResetPasswordEmail({
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text });
+        await sendEmail({ to: user.email, subject, html, text, appSender });
       },
     },
     emailVerification: {
@@ -933,11 +960,11 @@ async function createBetterAuthInstance(
         const verifyUrl = verifyBasePath
           ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
           : url;
-        const { subject, html, text } = renderVerifySignupEmail({
+        const { subject, html, text, appSender } = renderVerifySignupEmail({
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text });
+        await sendEmail({ to: user.email, subject, html, text, appSender });
       },
     },
     socialProviders,
@@ -981,12 +1008,14 @@ async function createBetterAuthInstance(
             // cookie header. Never let attribution parsing throw or block
             // signup — on any error fall back to `direct`.
             let attribution: Record<string, string> | undefined;
+            let anonymousId: string | undefined;
             try {
               const cookieHeader =
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
               attribution = signupAttributionFromCookieHeader(cookieHeader);
+              anonymousId = readAnalyticsAnonymousId(cookieHeader);
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;
@@ -997,6 +1026,7 @@ async function createBetterAuthInstance(
               email,
               name: user.name,
               attribution,
+              anonymousId,
             });
             try {
               await acceptPendingInvitationsForEmail(email);
@@ -1152,10 +1182,12 @@ async function buildDatabaseConfig(
       // session lookup on essentially every authenticated request, so an
       // un-capped pool here is a primary contributor to "Max client
       // connections reached" across concurrent serverless instances.
-      _neonAuthPool = new Pool({
-        connectionString: url,
-        max: neonPoolMax(),
-      });
+      resetAuthOnPoolClose("neon", url);
+      _neonAuthPool = sharedDbPool(
+        "neon",
+        url,
+        () => new Pool({ connectionString: url, max: neonPoolMax() }),
+      );
       attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
       const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
@@ -1174,7 +1206,10 @@ async function buildDatabaseConfig(
     // un-capped pool here is a primary contributor to "Max client connections
     // reached" across concurrent serverless instances.
     const { default: postgres } = await import("postgres");
-    const sql = postgres(url, pgPoolOptions(url));
+    resetAuthOnPoolClose("postgres-js", url);
+    const sql = sharedDbPool("postgres-js", url, () =>
+      postgres(url, pgPoolOptions(url)),
+    );
     const { drizzle } = await import("drizzle-orm/postgres-js");
     const db = drizzle(buildResilientPostgresJsClient(sql), {
       schema: pgAuthSchema,

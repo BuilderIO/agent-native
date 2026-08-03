@@ -7,6 +7,7 @@ export const organizations = table("organizations", {
   createdAt: integer("created_at").notNull(),
   allowedDomain: text("allowed_domain"),
   a2aSecret: text("a2a_secret"),
+  workspaceUrl: text("workspace_url"),
 });
 
 export const orgMembers = table("org_members", {

@@ -22,12 +22,13 @@ function resolveScope() {
 async function syncToCollab(
   dashboardId: string,
   config: Record<string, unknown>,
+  requestSource?: string,
 ): Promise<void> {
   const docId = `dash-${dashboardId}`;
   const configStr = JSON.stringify(config);
   try {
     if (await hasCollabState(docId)) {
-      await applyText(docId, configStr, "content", "agent");
+      await applyText(docId, configStr, "content", requestSource);
     } else {
       await seedFromText(docId, configStr);
     }
@@ -42,7 +43,7 @@ export default defineAction({
     id: z.string().describe("The dashboard ID to rename"),
     name: z.string().describe("The new dashboard name"),
   }),
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const name = args.name.trim();
     if (!name) throw new Error("name is required");
 
@@ -53,7 +54,11 @@ export default defineAction({
     const updated = await upsertDashboardWithRetry(args.id, ctx, (existing) => {
       return { kind: existing.kind, body: { ...existing.config, name } };
     });
-    await syncToCollab(args.id, updated.config);
+    await syncToCollab(
+      args.id,
+      updated.config,
+      actionContext?.caller === "frontend" ? undefined : "agent",
+    );
     return { id: updated.id, name: updated.title };
   },
 });

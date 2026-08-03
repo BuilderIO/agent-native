@@ -1,3 +1,4 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
@@ -12,6 +13,7 @@ import {
   IconDownload,
   IconMessageCircle,
   IconBrandGoogle,
+  IconArrowUpRight,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +41,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -48,6 +51,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
+import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
@@ -138,6 +142,9 @@ export function SqlChartCard({
   );
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [openConfirmAfterMenuClose, setOpenConfirmAfterMenuClose] =
+    useState(false);
   const [expanded, setExpanded] = useState(false);
   const [extRefreshKey, setExtRefreshKey] = useState(0);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
@@ -206,6 +213,28 @@ export function SqlChartCard({
     }
   }, [dashboardId, exportToGoogleSheets, filters, panel, t]);
 
+  const handlePromoteCustomBlock = useCallback(() => {
+    const extensionId = panel.config?.extensionId;
+    if (!dashboardId || !extensionId) return;
+    const dashboardName =
+      typeof extensionContext?.dashboardName === "string"
+        ? extensionContext.dashboardName
+        : undefined;
+    sendToAgentChat(
+      buildCustomBlockPromotionRequest(
+        {
+          dashboardId,
+          dashboardName,
+          panelId: panel.id,
+          panelTitle: panel.title,
+          extensionId,
+          nativeGapReason: panel.config?.customBlock?.nativeGapReason,
+        },
+        t("sqlDashboard.promoteCustomBlockMessage", { title: panel.title }),
+      ),
+    );
+  }, [dashboardId, extensionContext, panel, t]);
+
   const handleCardClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       const target = event.target;
@@ -261,6 +290,20 @@ export function SqlChartCard({
     setExportCsv(null);
   }, [panel.id]);
 
+  useEffect(() => {
+    if (menuOpen || !openConfirmAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenConfirmAfterMenuClose(false);
+      setConfirmOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen, openConfirmAfterMenuClose]);
+
+  const requestDeleteConfirmation = useCallback(() => {
+    setOpenConfirmAfterMenuClose(true);
+    setMenuOpen(false);
+  }, []);
+
   // Section panels render as a flush header row (no card chrome, full width)
   // so they read as dividers between groups of panels rather than as another
   // tile in the grid.
@@ -276,7 +319,7 @@ export function SqlChartCard({
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
           {editable ? (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-              <DropdownMenu>
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
@@ -301,9 +344,9 @@ export function SqlChartCard({
                   )}
                   {onEdit && <DropdownMenuSeparator />}
                   <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setConfirmOpen(true);
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      requestDeleteConfirmation();
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
@@ -386,7 +429,7 @@ export function SqlChartCard({
           />
         )}
         <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
@@ -401,6 +444,19 @@ export function SqlChartCard({
               <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel className="font-normal">
+                <span className="block text-xs font-medium text-foreground">
+                  {t("sqlDashboard.customBlock")}
+                </span>
+                <span className="block text-[10px] leading-tight text-muted-foreground">
+                  {t(
+                    panel.config?.customBlock?.authoredBy === "agent"
+                      ? "sqlDashboard.customBlockAgentProvenance"
+                      : "sqlDashboard.customBlockProvenance",
+                  )}
+                </span>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() =>
                   onSelectForChat?.({ openSidebar: true, focus: true })
@@ -419,6 +475,15 @@ export function SqlChartCard({
                 <IconRefresh className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.refresh")}
               </DropdownMenuItem>
+              {editable && panel.config?.extensionId ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={handlePromoteCustomBlock}>
+                    <IconArrowUpRight className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.promoteToAppCode")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
               {editable ? (
                 <>
                   <DropdownMenuSeparator />
@@ -429,9 +494,9 @@ export function SqlChartCard({
                     </DropdownMenuItem>
                   ) : null}
                   <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setConfirmOpen(true);
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      requestDeleteConfirmation();
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
@@ -542,7 +607,7 @@ export function SqlChartCard({
               </ViewSqlPopover>
             ) : null}
             {showPanelMenu ? (
-              <DropdownMenu>
+              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
@@ -611,9 +676,9 @@ export function SqlChartCard({
                   </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        setConfirmOpen(true);
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        requestDeleteConfirmation();
                       }}
                     >
                       <IconTrash className="h-4 w-4 mr-2" />

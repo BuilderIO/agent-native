@@ -425,6 +425,18 @@ const jaJP = {
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",
     createYourOwn: "ゼロから始める",
+    communityTitle: "コミュニティテンプレート",
+    communityDescription:
+      "作者が管理する独立したアプリです。公開 GitHub リポジトリからインストールし、ホスト版がある場合は事前に試せます。",
+    submitCommunityTemplate: "テンプレートを申請",
+    communityEmpty:
+      "コミュニティ掲載を受け付けています。目的を絞った Agent Native アプリを公開リポジトリで公開し、カタログに申請してください。",
+    publishGuide: "公開ガイドを読む",
+    communityTrust:
+      "コミュニティテンプレートは第三者のコードです。実行前にリポジトリ、ライセンス、依存関係、インストールスクリプトを確認してください。",
+    copyCommunityInstallCommand: "インストールコマンドをコピー",
+    viewRepository: "リポジトリを見る",
+    tryCommunityDemo: "デモを試す",
   },
   buildFromScratch: {
     title: "ゼロから構築",
@@ -1645,6 +1657,7 @@ const jaJP = {
     formsOverview: "概要",
     formsBuildingPublishing: "作成と公開",
     formsResponses: "回答とインサイト",
+    docsComponents: "Docs Components",
     formsDevelopers: "開発者ガイド",
   },
 } satisfies typeof enUS;

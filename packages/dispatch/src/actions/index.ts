@@ -6,6 +6,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import createBrowserChatSession from "./create-browser-chat-session.js";
 import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
 import createPylonTicket from "./create-pylon-ticket.js";
@@ -30,6 +31,7 @@ import getWorkspaceInfo from "./get-workspace-info.js";
 import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
+import listAgentRunFailures from "./list-agent-run-failures.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
 import listConnectedAgents from "./list-connected-agents.js";
@@ -65,6 +67,7 @@ import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
 import queryStagedDataset from "./query-staged-dataset.js";
+import readSlackThreadContext from "./read-slack-thread-context.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
 import remixWorkspaceTemplate from "./remix-workspace-template.js";
@@ -111,6 +114,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-workspace-resource-grant": createWorkspaceResourceGrant,
   "create-workspace-resource": createWorkspaceResource,
   "create-dream-report": createDreamReport,
+  "create-browser-chat-session": createBrowserChatSession,
   create_embed_session: createEmbedSession,
   "delete-staged-dataset": deleteStagedDataset,
   "delete-destination": deleteDestination,
@@ -130,6 +134,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "grant-workspace-resources-to-app": grantWorkspaceResourcesToApp,
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
   "list-agent-thread-sources": listAgentThreadSources,
+  "list-agent-run-failures": listAgentRunFailures,
   "list-available-workspace-templates": listAvailableWorkspaceTemplates,
   "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
@@ -165,6 +170,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "provider-api-register": providerApiRegister,
   "provider-api-request": providerApiRequest,
   "query-staged-dataset": queryStagedDataset,
+  "read-slack-thread-context": readSlackThreadContext,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,

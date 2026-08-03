@@ -22,12 +22,12 @@ export const parityEvalScenarios: ParityEvalScenario[] = [
       "Using fixture Content database rows only, duplicate multiple selected rows and delete multiple selected rows through the action surface. Report the ordered duplicated item/document IDs, deleted IDs, and the verified remaining row count. Do not loop single-row duplicate or document delete actions for the multi-row operations.",
     successSignals: [
       "Uses duplicate-database-items once for the multi-row duplicate.",
-      "Uses delete-database-items once for the multi-row delete.",
+      "Uses remove-database-items once for multi-row membership removal.",
       "Reports ordered duplicated item and document IDs.",
       "Reports deleted IDs and verified remaining row count.",
       "Does not use private provider credentials.",
     ],
-    expectedTools: ["duplicate-database-items", "delete-database-items"],
+    expectedTools: ["duplicate-database-items", "remove-database-items"],
   },
   {
     id: "database-source-scope",

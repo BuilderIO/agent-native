@@ -4,6 +4,7 @@ import {
   getOverviewScreenContentKey,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
+  overviewDeleteTargetsElement,
   pendingEditTargetsSelectedElement,
   resolveEscapePopSelectionAction,
   shouldClearSelectionForReviewThreadTarget,
@@ -290,5 +291,56 @@ describe("shouldEscapeToOverview", () => {
   it("is false while drawing or pinning", () => {
     expect(shouldEscapeToOverview({ ...base, drawMode: true })).toBe(false);
     expect(shouldEscapeToOverview({ ...base, pinMode: true })).toBe(false);
+  });
+});
+
+describe("overviewDeleteTargetsElement", () => {
+  const element = {
+    tagName: "DIV",
+    selector: ".card",
+  } as unknown as Parameters<
+    typeof overviewDeleteTargetsElement
+  >[0]["selectedElement"];
+
+  it("routes Delete to the element when a layer inside a screen is selected", () => {
+    expect(
+      overviewDeleteTargetsElement({
+        selectedElement: null,
+        selectedLayerIds: ["html:card-one"],
+        fileIds: ["screen-1", "screen-2"],
+      }),
+    ).toBe(true);
+  });
+
+  it("routes Delete to the element for a canvas element selection", () => {
+    expect(
+      overviewDeleteTargetsElement({
+        selectedElement: element,
+        selectedLayerIds: [],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
+
+  it("leaves a screen-frame selection to the screen-delete confirmation", () => {
+    expect(
+      overviewDeleteTargetsElement({
+        selectedElement: null,
+        selectedLayerIds: ["screen-1", "__pseudo-row"],
+        fileIds: ["screen-1", "screen-2"],
+      }),
+    ).toBe(false);
+  });
+
+  it("treats the screen root element as the screen, not an element", () => {
+    expect(
+      overviewDeleteTargetsElement({
+        selectedElement: {
+          tagName: "BODY",
+        } as unknown as typeof element,
+        selectedLayerIds: ["screen-1"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(false);
   });
 });

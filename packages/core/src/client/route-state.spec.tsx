@@ -27,6 +27,12 @@ function appStateKey(url: RequestInfo | URL): string {
   return String(url).split("/_agent-native/application-state/")[1] ?? "";
 }
 
+function batchedKeys(url: RequestInfo | URL): string[] | null {
+  const query = String(url).split("/_agent-native/application-state?keys=")[1];
+  if (query === undefined) return null;
+  return query.split(",").map(decodeURIComponent);
+}
+
 function makeAppStateFetch(initialState: Record<string, unknown>) {
   const state = { ...initialState };
   const writes: Array<{ key: string; body: unknown; init: RequestInit }> = [];
@@ -45,6 +51,17 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
         delete state[key];
         deletes.push({ key, init: init ?? {} });
         return jsonResponse({ ok: true });
+      }
+      const keys = batchedKeys(url);
+      if (keys) {
+        const values: Record<string, unknown> = {};
+        for (const batchKey of keys) {
+          if (batchKey in state) values[batchKey] = state[batchKey];
+        }
+        return jsonResponse({
+          values,
+          missing: keys.filter((batchKey) => !(batchKey in values)),
+        });
       }
       return jsonResponse(state[key] ?? null);
     },
@@ -163,12 +180,17 @@ describe("route-state client helpers", () => {
         key: "navigate:tab-1",
         init: {
           method: "DELETE",
-          headers: { "X-Request-Source": "tab-1" },
+          headers: {
+            "X-Agent-Native-CSRF": "1",
+            "X-Request-Source": "tab-1",
+          },
           keepalive: undefined,
           signal: undefined,
         },
       },
     ]);
+    // Reads are batched, so which keys share a request is not a behavioural
+    // contract — that only the tab-scoped command was consumed is (above).
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);

@@ -699,6 +699,13 @@ export function resolveMcpIntegrationScope(
   return defaultScope === "org" && hasOrg && canCreateOrgMcp ? "org" : "user";
 }
 
+export function shouldOfferMcpOrganizationScope(
+  hasOrg: boolean,
+  canCreateOrgMcp: boolean,
+): boolean {
+  return hasOrg && canCreateOrgMcp;
+}
+
 export function filterMcpIntegrations(
   query: string,
   integrations: DefaultMcpIntegration[] = getDefaultMcpIntegrations(),

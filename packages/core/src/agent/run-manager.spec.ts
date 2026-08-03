@@ -121,7 +121,15 @@ vi.mock("./run-store.js", () => ({
   },
 }));
 
+vi.mock("../tracking/registry.js", () => ({
+  track: vi.fn(),
+}));
+vi.mock("../observability/tracking-identity.js", () => ({
+  trackingIdentityProperties: vi.fn(() => ({ app: "test-app" })),
+}));
+
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { track } from "../tracking/registry.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
@@ -141,10 +149,13 @@ import {
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
   resolveSqlSubscriptionPollMs,
+  resolveSqlSubscriptionRetryMs,
   startRun,
   subscribeToRun,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
   SQL_SUBSCRIPTION_IDLE_POLL_MS,
+  SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
+  SQL_SUBSCRIPTION_RETRY_BASE_MS,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
   type ActiveRun,
 } from "./run-manager.js";
@@ -262,6 +273,7 @@ describe("run manager soft timeout", () => {
     vi.mocked(reapIfStale).mockResolvedValue(null as any);
     vi.mocked(reconcileTerminalRunFromEvents).mockReset();
     vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValue(false);
+    vi.mocked(track).mockClear();
   });
 
   afterEach(() => {
@@ -279,6 +291,19 @@ describe("run manager soft timeout", () => {
     expect(resolveSqlSubscriptionPollMs(1_000, 999)).toBe(
       SQL_SUBSCRIPTION_IDLE_POLL_MS,
     );
+  });
+
+  it("uses bounded exponential backoff for SQL subscription retries", () => {
+    expect(resolveSqlSubscriptionRetryMs(1)).toBe(
+      SQL_SUBSCRIPTION_RETRY_BASE_MS,
+    );
+    expect(resolveSqlSubscriptionRetryMs(2)).toBe(
+      SQL_SUBSCRIPTION_RETRY_BASE_MS * 2,
+    );
+    expect(resolveSqlSubscriptionRetryMs(3)).toBe(
+      SQL_SUBSCRIPTION_RETRY_BASE_MS * 4,
+    );
+    expect(resolveSqlSubscriptionRetryMs(100)).toBe(2_000);
   });
 
   it("registers the run with the explicit request waitUntil callback", () => {
@@ -1898,7 +1923,7 @@ describe("run manager soft timeout", () => {
     });
   });
 
-  it("does not capture provider connection failures while preserving the terminal event", async () => {
+  it("does not capture provider connection failures and marks them recoverable", async () => {
     const provider = vi.fn(() => "evt_run");
     const unregister = registerErrorCaptureProvider(
       "run-manager-provider-connection-test",
@@ -1932,6 +1957,48 @@ describe("run manager soft timeout", () => {
     expect(events).toContainEqual({
       type: "error",
       error: "Connection error.",
+      errorCode: "provider_network_error",
+    });
+  });
+
+  it("classifies raw retry-wrapped OpenAI TLS failures as provider network errors", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-tls-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+    const message =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error";
+
+    try {
+      const run = startRun(
+        "run-provider-tls-no-capture",
+        "thread-provider-tls-no-capture",
+        async () => {
+          throw new Error(message);
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-tls-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: message,
+      errorCode: "provider_network_error",
     });
   });
 
@@ -2093,6 +2160,107 @@ describe("run manager soft timeout", () => {
 
     expect(abortReason).toBe("user");
     expect(run.abortReason).toBe("user");
+  });
+
+  it("retries a transient SQL subscription polling failure and preserves terminal events", async () => {
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockRejectedValueOnce(new Error("transient pool timeout"))
+      .mockResolvedValueOnce([
+        {
+          seq: 0,
+          eventData: JSON.stringify({ type: "text", text: "recovered" }),
+        },
+        {
+          seq: 1,
+          eventData: JSON.stringify({ type: "done" }),
+        },
+      ]);
+
+    const stream = subscribeToRun("run-sql-retry", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    const first = await reader.read();
+    if (!first.done) chunks.push(decoder.decode(first.value));
+    await vi.waitFor(() => expect(getRunEventsSince).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(SQL_SUBSCRIPTION_RETRY_BASE_MS);
+
+    for (let i = 0; i < 3; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(getRunEventsSince).toHaveBeenCalledTimes(2);
+    expect(output).toContain(
+      'data: {"type":"text","text":"recovered","seq":0}',
+    );
+    expect(output).toContain('data: {"type":"done","seq":1}');
+    expect(output).not.toContain("run_subscription_poll_failed");
+  });
+
+  it("fails a SQL subscription loudly after bounded consecutive polling failures", async () => {
+    const capture = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-sql-subscription-test",
+      capture,
+    );
+    vi.mocked(getRunEventsSince)
+      .mockClear()
+      .mockRejectedValue(new Error("database unavailable"));
+
+    try {
+      const stream = subscribeToRun("run-sql-persistent-failure", 4);
+      const reader = stream!.getReader();
+      const decoder = new TextDecoder();
+      const chunks: string[] = [];
+
+      const first = await reader.read();
+      if (!first.done) chunks.push(decoder.decode(first.value));
+      await vi.waitFor(() =>
+        expect(getRunEventsSince).toHaveBeenCalledTimes(1),
+      );
+      await vi.advanceTimersByTimeAsync(
+        SQL_SUBSCRIPTION_RETRY_BASE_MS +
+          SQL_SUBSCRIPTION_RETRY_BASE_MS * 2 +
+          SQL_SUBSCRIPTION_RETRY_BASE_MS * 4,
+      );
+
+      for (let i = 0; i < 3; i++) {
+        const next = await reader.read();
+        if (next.done) break;
+        chunks.push(decoder.decode(next.value));
+      }
+
+      expect(getRunEventsSince).toHaveBeenCalledTimes(
+        SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
+      );
+      expect(chunks.join("")).toContain(
+        '"errorCode":"run_subscription_poll_failed"',
+      );
+      expect(chunks.join("")).toContain('"recoverable":true');
+      expect(capture).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            phase: "sql-subscription-poll",
+            consecutiveFailures: String(
+              SQL_SUBSCRIPTION_MAX_CONSECUTIVE_FAILURES,
+            ),
+          }),
+          extra: expect.objectContaining({
+            runId: "run-sql-persistent-failure",
+            fromSeq: 4,
+            lastSeq: 4,
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("closes SQL subscriptions cleanly for aborted runs without terminal events", async () => {
@@ -3016,6 +3184,40 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  // checkSqlAbort must fail closed: a rejected getRunAbortState read used to
+  // be swallowed as "not aborted", so a real cross-isolate Stop could go
+  // unseen for the rest of the run. Sustained read failures must self-abort
+  // instead of retrying silently forever.
+  it("fails closed and self-aborts after sustained getRunAbortState read failures", async () => {
+    vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+
+    let abortFired = false;
+    const run = startRun(
+      "run-abort-check-unreadable",
+      "thread-abort-check-unreadable",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => {
+            abortFired = true;
+            resolve();
+          });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    // First two failed checks (at the 3s poll interval) stay below the
+    // heartbeat handler's own escalation threshold — no self-abort yet.
+    await vi.advanceTimersByTimeAsync(4500);
+    expect(abortFired).toBe(false);
+
+    // Third consecutive failure crosses the threshold: fail closed.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(abortFired).toBe(true);
+    expect(run.abortReason).toBe("abort_check_unavailable");
+  });
+
   // Fix 3: ordered event persistence
   it("chains event persistence so inserts commit in seq order", async () => {
     const persistOrder: number[] = [];
@@ -3067,7 +3269,9 @@ describe("run manager soft timeout", () => {
   describe("no-progress backstop", () => {
     it("exports foreground and background backstop constants", () => {
       expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBe(150_000);
-      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBe(12 * 60_000);
+      expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBe(
+        RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+      );
       expect(DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS).toBeLessThan(
         BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
       );
@@ -3116,7 +3320,7 @@ describe("run manager soft timeout", () => {
       ).toBe(12_000);
     });
 
-    it("keeps the background regime on its own budget and its own override", () => {
+    it("uses the server-owned bound for background no-progress while preserving its override", () => {
       expect(
         resolveRunNoProgressTimeoutMs({
           softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
@@ -3398,7 +3602,7 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
     });
 
-    it("uses the wider durable-background no-progress window by default", async () => {
+    it("stops a stalled durable-background run at the server-owned no-progress bound", async () => {
       let aborted = false;
       let abortReason: unknown;
 
@@ -3427,17 +3631,264 @@ describe("run manager soft timeout", () => {
       run.subscribers.add(() => {});
 
       await vi.advanceTimersByTimeAsync(RUN_NO_PROGRESS_HARD_TIMEOUT_MS + 1);
-      expect(aborted).toBe(false);
-
-      await vi.advanceTimersByTimeAsync(
-        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS -
-          RUN_NO_PROGRESS_HARD_TIMEOUT_MS +
-          1_500,
-      );
 
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");
       expect(run.status).toBe("completed");
+    });
+  });
+
+  describe("terminal tracking event", () => {
+    it("does not emit when status persistence and reconciliation both fail", async () => {
+      vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+        new Error("status persistence failed"),
+      );
+      vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+      const run = startRun(
+        "run-tracking-persistence-failed",
+        "thread-tracking-persistence-failed",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
+        "run-tracking-persistence-failed",
+      );
+      expect(track).not.toHaveBeenCalled();
+    });
+
+    it("emits after reconciliation positively confirms terminal persistence", async () => {
+      vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
+      vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+
+      const run = startRun(
+        "run-tracking-reconciled",
+        "thread-tracking-reconciled",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
+        "run-tracking-reconciled",
+      );
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-reconciled",
+          status: "completed",
+          terminal_reason: "done",
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("emits exactly one agent_run_terminal event on a normal completion", async () => {
+      startRun(
+        "run-tracking-done",
+        "thread-tracking-done",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-done",
+          thread_id: "thread-tracking-done",
+          turn_id: "run-tracking-done",
+          status: "completed",
+          terminal_reason: "done",
+          dispatch_mode: "foreground",
+          duration_ms: expect.any(Number),
+          app: "test-app",
+        }),
+        expect.anything(),
+      );
+      const [, properties] = vi.mocked(track).mock.calls[0];
+      expect(properties).not.toHaveProperty("error_code");
+      expect(properties).not.toHaveProperty("error_detail");
+      expect(properties).not.toHaveProperty("abort_reason");
+    });
+
+    it("emits an aborted event with the abort reason, not a false completion", async () => {
+      startRun(
+        "run-tracking-abort",
+        "thread-tracking-abort",
+        async (send, signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      expect(abortRun("run-tracking-abort")).toBe(true);
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-abort",
+          status: "aborted",
+          terminal_reason: "aborted:user",
+          abort_reason: "user",
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("emits an errored event carrying error_code and error_detail", async () => {
+      startRun(
+        "run-tracking-error",
+        "thread-tracking-error",
+        async () => {
+          throw new Error("boom");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-error",
+          status: "errored",
+          terminal_reason: "error:unknown",
+          error_code: "unknown",
+          error_detail: "boom",
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("reports a soft-timeout continuation boundary as truncated, not completed", async () => {
+      startRun(
+        "run-tracking-truncated",
+        "thread-tracking-truncated",
+        async (send, signal) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 1_000 },
+      );
+
+      await vi.advanceTimersByTimeAsync(1_001);
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-truncated",
+          status: "truncated",
+          terminal_reason: "run_timeout",
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("forwards model, engine, and attempt_count when the caller supplies them", async () => {
+      startRun(
+        "run-tracking-model",
+        "thread-tracking-model",
+        async (send) => {
+          send({ type: "text", text: "answer" });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          model: "gpt-5-6-sol",
+          engineName: "openai",
+          attemptCount: 2,
+        },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-model",
+          model: "gpt-5-6-sol",
+          engine: "openai",
+          attempt_count: 2,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("omits model/engine from the event rather than emitting them empty when unknown", async () => {
+      startRun(
+        "run-tracking-no-model",
+        "thread-tracking-no-model",
+        async (send) => {
+          send({ type: "text", text: "answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      const [, properties] = vi.mocked(track).mock.calls[0];
+      expect(properties).not.toHaveProperty("model");
+      expect(properties).not.toHaveProperty("engine");
+      expect(properties).not.toHaveProperty("attempt_count");
+    });
+
+    it("carries a model resolved mid-run via mutation of the same options object", async () => {
+      // Mirrors the seam webhook-handler.ts uses: the effective model isn't
+      // known until deep inside the run callback (after stored-model /
+      // platform-default resolution), so the caller mutates the same
+      // `StartRunOptions` object it already handed to `startRun` instead of
+      // restructuring model resolution to happen earlier. `startRun` only
+      // reads `options.model` in its `.finally()`, after the run callback
+      // has settled, so a mutation made anywhere inside that callback is
+      // guaranteed to land before it's read.
+      const runOptions: Parameters<typeof startRun>[4] = { softTimeoutMs: 0 };
+      startRun(
+        "run-tracking-late-model",
+        "thread-tracking-late-model",
+        async (send) => {
+          runOptions.model = "resolved-late-model";
+          send({ type: "text", text: "answer" });
+        },
+        undefined,
+        runOptions,
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_terminal",
+        expect.objectContaining({
+          run_id: "run-tracking-late-model",
+          model: "resolved-late-model",
+        }),
+        expect.anything(),
+      );
     });
   });
 });

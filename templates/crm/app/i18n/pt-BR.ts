@@ -63,6 +63,10 @@ const messages = {
     title: "Configurações do CRM",
     description:
       "O SQL nativo mantém os registros do CRM locais e portáveis. HubSpot e Salesforce usam conexões do espaço de trabalho; seus espelhos guardam apenas campos permitidos, metadados com escopo e referências limitadas de evidência.",
+    languageTitle: "Idioma",
+    languageDescription:
+      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
+    languageLabel: "Idioma da interface",
   },
   connection: {
     tab: "Conexão",

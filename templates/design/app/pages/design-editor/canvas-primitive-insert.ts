@@ -13,6 +13,7 @@ import {
 } from "./canvas-primitives";
 import { BOARD_TEXT_AUTO_COLOR_MARKER } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
+import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
 
 export function nextDuplicatedFilename(
@@ -188,6 +189,11 @@ export function appendCanvasPrimitiveToHtml(
   options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
 ): string | null {
   if (typeof window === "undefined") return null;
+  // A live/localhost screen stores its route URL here, not a document.
+  // Appending to it parses the URL as body text and returns a whole HTML file,
+  // which the caller then persists OVER the URL — the screen stops being live
+  // and the route is gone. There is no correct append for this shape.
+  if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
@@ -473,6 +479,29 @@ export function appendCanvasPrimitiveToHtml(
 
     doc.body.appendChild(element);
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract one newly-created primitive from a temporary document as markup the
+ * live iframe bridge can insert. URL-backed screens keep their route URL in the
+ * Design file, so their creation path must serialize a node without ever
+ * rewriting that file content.
+ */
+export function extractCanvasPrimitiveHtml(
+  content: string,
+  nodeId: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
+    return (
+      doc.querySelector(`[data-agent-native-node-id="${safeNodeId}"]`)
+        ?.outerHTML ?? null
+    );
   } catch {
     return null;
   }

@@ -15,6 +15,7 @@ import {
   getIntegrationRequestContext,
 } from "../server/request-context.js";
 import { isValidCron, nextOccurrence, describeCron } from "./cron.js";
+import { classifyJobResource } from "./frontmatter.js";
 import {
   parseJobFrontmatter,
   buildJobContent,
@@ -178,7 +179,9 @@ async function runList(args: Record<string, any>): Promise<string> {
   const jobs = await Promise.all(
     metas.map(async (r) => {
       const full = await resourceGetByPath(r.owner, r.path);
-      const { meta } = parseJobFrontmatter(full?.content || "");
+      if (!full) return null;
+      if (classifyJobResource(full.content).kind === "automation") return null;
+      const { meta } = parseJobFrontmatter(full.content);
       return {
         name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
         path: r.path,
@@ -198,12 +201,13 @@ async function runList(args: Record<string, any>): Promise<string> {
       };
     }),
   );
+  const scheduledJobs = jobs.filter((job) => job !== null);
 
-  if (jobs.length === 0) {
+  if (scheduledJobs.length === 0) {
     return "No recurring jobs configured. Use manage-jobs with action 'create' to create one.";
   }
 
-  return JSON.stringify(jobs, null, 2);
+  return JSON.stringify(scheduledJobs, null, 2);
 }
 
 async function runUpdate(args: Record<string, any>): Promise<string> {
@@ -221,6 +225,11 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   }
 
   const { meta, body } = parseJobFrontmatter(resource.content);
+  if (classifyJobResource(resource.content).kind === "automation") {
+    return JSON.stringify({
+      error: `"${name}" is an automation. Use manage-automations to update it.`,
+    });
+  }
 
   // Reject when the caller doesn't own the shared job and isn't an org
   // admin. Without this check, any user could rewrite a shared job whose
@@ -296,6 +305,11 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   // remove a shared job. Otherwise any user could break another tenant's
   // recurring schedule.
   const { meta } = parseJobFrontmatter(resource.content);
+  if (classifyJobResource(resource.content).kind === "automation") {
+    return JSON.stringify({
+      error: `"${name}" is an automation. Use manage-automations to delete it.`,
+    });
+  }
   const denied = await authorizeJobMutation(resource.owner, meta);
   if (denied) {
     return JSON.stringify({ error: denied });
@@ -375,6 +389,11 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
           },
           required: ["action"],
         },
+      },
+      planMode: {
+        effect: (args) => (args.action === "list" ? "read" : "write"),
+        allowedValues: { action: ["list"] },
+        description: "Plan mode allows listing recurring jobs.",
       },
       run: async (args) => {
         switch (args.action) {

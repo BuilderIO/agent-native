@@ -15,7 +15,8 @@ attendee-scoped meetings without widening their audience.
 ## Features
 
 - Company chat that answers from cited, reviewed knowledge — not hallucinations.
-- Source connectors for Slack, Granola, GitHub, Clips, and generic webhooks.
+- Source connectors for Slack, Granola, GitHub, Clips, and generic webhooks,
+  including source-owner-published blessed FAQs and docs.
 - Deterministic privacy screening before storage, with an optional approved
   privacy classifier for richer review decisions.
 - Hybrid full-text and semantic search over allowed captures and knowledge,
@@ -25,6 +26,8 @@ attendee-scoped meetings without widening their audience.
 - Sensitive sources are suppressed or quarantined before search, citations,
   distillation, and source editors can see their content.
 - Read-only, citation-backed retrieval exposed to other apps over A2A.
+- Per-source answer policy for trust, eligibility, authority, freshness,
+  review, and conflict handling.
 
 ## Privacy posture
 

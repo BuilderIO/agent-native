@@ -254,6 +254,8 @@ interface McpCallOptions {
   token?: string | "";
   /** Extra arbitrary headers. */
   extraHeaders?: Record<string, string>;
+  /** Exercise the legacy initialize path instead of modern per-request metadata. */
+  protocolEra?: "modern" | "legacy";
 }
 
 interface McpCallResult {
@@ -275,6 +277,7 @@ async function mcpCall(
   params: Record<string, any> | undefined,
   opts: McpCallOptions = {},
 ): Promise<McpCallResult> {
+  const modern = opts.protocolEra !== "legacy" && method !== "initialize";
   const url = `${flags.baseUrl}/_agent-native/mcp`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -287,15 +290,39 @@ async function mcpCall(
   if (opts.fullCatalogHeader) {
     headers["x-agent-native-mcp-full-catalog"] = opts.fullCatalogHeader;
   }
+  if (modern) {
+    headers["mcp-protocol-version"] = "2026-07-28";
+    headers["mcp-method"] = method;
+    if (typeof params?.name === "string") headers["mcp-name"] = params.name;
+    if (method === "resources/read" && typeof params?.uri === "string") {
+      headers["mcp-name"] = params.uri;
+    }
+  }
   const tokenToUse =
     opts.token === "" ? undefined : (opts.token ?? flags.token);
   if (tokenToUse) headers.Authorization = `Bearer ${tokenToUse}`;
 
+  const requestParams = {
+    ...(params ?? {}),
+    ...(modern
+      ? {
+          _meta: {
+            ...((params?._meta as Record<string, unknown> | undefined) ?? {}),
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {
+              name: opts.clientInfoName ?? "e2e-mcp-test",
+              version: "1.0.0",
+            },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        }
+      : {}),
+  };
   const body = {
     jsonrpc: "2.0",
     id: Math.floor(Math.random() * 1_000_000),
     method,
-    params: params ?? {},
+    params: requestParams,
   };
 
   const res = await fetch(url, {
@@ -342,10 +369,13 @@ async function mcpCall(
 }
 
 async function initialize(opts: McpCallOptions = {}): Promise<McpCallResult> {
+  if (opts.protocolEra !== "legacy") {
+    return mcpCall("server/discover", {}, opts);
+  }
   return mcpCall(
     "initialize",
     {
-      protocolVersion: "2025-06-18",
+      protocolVersion: "2025-11-25",
       capabilities: {},
       clientInfo: {
         name: opts.clientInfoName ?? "e2e-mcp-test",
@@ -1403,6 +1433,19 @@ async function groupF_Stability(): Promise<void> {
       },
     );
   }
+  const legacy = await initialize({ ...opts, protocolEra: "legacy" });
+  if (legacy.status >= 200 && legacy.status < 300) {
+    pass("F2", "legacy initialize remains interoperable", {
+      status: legacy.status,
+    });
+  } else {
+    fail(
+      "F2",
+      "legacy initialize remains interoperable",
+      `initialize returned HTTP ${legacy.status}`,
+      { body: legacy.rawBody.slice(0, 600) },
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1466,15 +1509,22 @@ async function main(): Promise<void> {
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": "server/discover",
           },
           body: JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
-            method: "initialize",
+            method: "server/discover",
             params: {
-              protocolVersion: "2025-06-18",
-              capabilities: {},
-              clientInfo: { name: "probe", version: "0" },
+              _meta: {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {
+                  name: "probe",
+                  version: "0",
+                },
+                "io.modelcontextprotocol/clientCapabilities": {},
+              },
             },
           }),
         });
@@ -1509,11 +1559,11 @@ async function main(): Promise<void> {
     }
     if (initProbe.status >= 400) {
       logErr(
-        `initialize returned HTTP ${initProbe.status}: ${initProbe.rawBody.slice(0, 400)}`,
+        `MCP negotiation returned HTTP ${initProbe.status}: ${initProbe.rawBody.slice(0, 400)}`,
       );
       process.exit(2);
     }
-    logInfo(`  Token accepted (initialize HTTP ${initProbe.status})`);
+    logInfo(`  Token accepted (MCP negotiation HTTP ${initProbe.status})`);
   }
 
   // Run all groups

@@ -427,8 +427,6 @@ export default function ShareMeetingRoute() {
                 <TranscriptBubbles
                   segments={transcript.segments}
                   isLive={false}
-                  recordingId={null}
-                  onSeek={() => {}}
                 />
               </div>
             ) : transcript.fullText ? (
@@ -437,12 +435,7 @@ export default function ShareMeetingRoute() {
               </div>
             ) : (
               <div className="flex min-h-40 flex-col overflow-hidden rounded-lg border border-border">
-                <TranscriptBubbles
-                  segments={[]}
-                  isLive={false}
-                  recordingId={null}
-                  onSeek={() => {}}
-                />
+                <TranscriptBubbles segments={[]} isLive={false} />
               </div>
             )}
           </section>

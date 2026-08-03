@@ -39,6 +39,13 @@ export interface Automation {
   lastError: string | null;
   nextRun: string | null;
   createdBy: string | null;
+  model: string | null;
+  mcpTools: string[];
+  originScopeId: string | null;
+  deliveryPlatform: string | null;
+  deliveryDestination: string | null;
+  deliveryThreadRef: string | null;
+  deliveryTenantId: string | null;
   canUpdate: boolean;
 }
 

@@ -393,6 +393,42 @@ describe("shareable resource access helpers", () => {
     });
   });
 
+  it("passes a capability principal to a dynamic public access resolver", async () => {
+    const capabilityType = "qa-doc-capability-editor";
+    const capability = "capability:qa-doc:edit:doc-public-edit";
+    registerShareableResource({
+      type: capabilityType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Capability Editable Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource, ctx) =>
+        resource.id === "doc-public-edit" && ctx.authCapability === capability
+          ? "editor"
+          : "viewer",
+    });
+    await insertDoc({
+      id: "doc-public-edit",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ authCapability: capability }, async () => {
+      await expect(
+        resolveAccess(capabilityType, "doc-public-edit"),
+      ).resolves.toMatchObject({ role: "editor" });
+    });
+    await runWithRequestContext(
+      { authCapability: "capability:qa-doc:edit:wrong-doc" },
+      async () => {
+        await expect(
+          resolveAccess(capabilityType, "doc-public-edit"),
+        ).resolves.toMatchObject({ role: "viewer" });
+      },
+    );
+  });
+
   it("resolves access when the Drizzle table has additive columns missing from the database", async () => {
     const driftDocs = table("qa_drift_docs", {
       id: text("id").primaryKey(),

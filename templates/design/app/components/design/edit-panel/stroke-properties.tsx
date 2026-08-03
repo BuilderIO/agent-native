@@ -352,7 +352,7 @@ export function StrokeProperties({
       title={t("editPanel.sections.stroke")}
       actions={
         <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
+          label={t("editPanel.labels.addStroke")}
           onClick={() => {
             if (strokeIsMixed) {
               commitStylePatch(
@@ -537,7 +537,7 @@ function TextStrokeProperties({
       title={t("editPanel.sections.stroke")}
       actions={
         <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
+          label={t("editPanel.labels.addStroke")}
           onClick={() => {
             // Kebab-case keys required: camelCase webkit props get mangled by
             // normalizeStyleProperty (camel→kebab drops the leading dash) and

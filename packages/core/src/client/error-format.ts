@@ -95,6 +95,7 @@ function isProviderAuthenticationError(
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
       text,
     ) ||
+    lower.includes("missing authentication header") ||
     lower.includes("invalid x-api-key") ||
     lower.includes("invalid api key") ||
     lower.includes("incorrect api key") ||
@@ -137,6 +138,17 @@ export function normalizeChatError(
     return {
       message:
         "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+      details: text,
+    };
+  }
+
+  // A model/parameter combination this provider will never accept. Retrying is
+  // pointless and the raw sentence names an API surface the reader has no way
+  // to act on, so say what they can actually change.
+  if (code === "provider_config_error") {
+    return {
+      message:
+        "This model can't use tools with the current settings. Switch models in Settings, then retry.",
       details: text,
     };
   }

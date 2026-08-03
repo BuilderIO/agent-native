@@ -34,13 +34,14 @@ export function listTrackingProviders(): string[] {
 export function track(
   name: string,
   properties?: Record<string, unknown>,
-  meta?: { userId?: string },
+  meta?: { userId?: string; anonymousId?: string },
 ): void {
   const event: TrackingEvent = {
     name,
     properties,
     timestamp: new Date().toISOString(),
     userId: meta?.userId,
+    anonymousId: meta?.anonymousId,
   };
 
   for (const provider of getRegistry().values()) {

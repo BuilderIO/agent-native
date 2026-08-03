@@ -30,6 +30,7 @@ export interface WorkspaceConnectionProviderSummary {
 export interface DataSourceProviderStatus {
   provider: string;
   label: string;
+  setupLink?: string;
   // null when the workspace-connection lookup failed: unreadable, not absent.
   configured: boolean | null;
   configuredKeys: string[];
@@ -74,6 +75,91 @@ const dataSourceWorkspaceProviderIds: Record<string, string> = {
   sentry: "sentry",
   slack: "slack",
 };
+
+const workspaceOAuthSourceIds = new Set([
+  "notion",
+  "hubspot",
+  "jira",
+  "sentry",
+]);
+
+export function isWorkspaceOAuthSource(source: DataSource): boolean {
+  return workspaceOAuthSourceIds.has(source.id);
+}
+
+export function shouldShowWorkspaceOAuthSetup(
+  source: DataSource,
+  status: SharedConnectionStatus | null,
+  canManageOrg: boolean,
+): boolean {
+  return (
+    canManageOrg &&
+    (status?.kind === "needs_credentials" || status?.kind === "needs_grant") &&
+    isWorkspaceOAuthSource(source)
+  );
+}
+
+export function shouldShowWorkspaceOAuthAdminNotice(
+  source: DataSource,
+  ready: boolean,
+  canManageOrg: boolean,
+  orgLoaded = true,
+  hasOrg = true,
+): boolean {
+  return (
+    orgLoaded &&
+    hasOrg &&
+    !canManageOrg &&
+    !ready &&
+    isWorkspaceOAuthSource(source)
+  );
+}
+
+export function shouldOfferWorkspaceOAuthReconnect(
+  source: DataSource,
+  status: SharedConnectionStatus | null,
+  canManageOrg: boolean,
+  connectionTestFailed: boolean,
+): boolean {
+  return (
+    canManageOrg &&
+    connectionTestFailed &&
+    status?.kind === "ready" &&
+    isWorkspaceOAuthSource(source)
+  );
+}
+
+export type FocusedDataSourceResolution =
+  | { status: "none" }
+  | { status: "found"; source: DataSource }
+  | { status: "unknown"; requestedId: string };
+
+export function focusedDataSourceFromSearchParams(
+  searchParams: URLSearchParams,
+): FocusedDataSourceResolution {
+  const requestedSourceId = searchParams.get("source")?.trim().toLowerCase();
+  if (!requestedSourceId) return { status: "none" };
+
+  // Keep links emitted before PostgreSQL's provider id was aligned with the
+  // UI source id working instead of silently dropping their focus.
+  const sourceId =
+    requestedSourceId === "postgres" ? "postgresql" : requestedSourceId;
+  const source = dataSources.find((candidate) => candidate.id === sourceId);
+  return source
+    ? { status: "found", source }
+    : { status: "unknown", requestedId: requestedSourceId };
+}
+
+export function dataSourceOAuthReturnPath(
+  source: DataSource | undefined,
+  returnToAsk: boolean,
+): string {
+  const params = new URLSearchParams();
+  if (source) params.set("source", source.id);
+  if (returnToAsk) params.set("returnTo", "ask");
+  const query = params.toString();
+  return query ? `/data-sources?${query}` : "/data-sources";
+}
 
 export function getGoogleDriveConnection(
   data: DataSourceStatusResponse | undefined,

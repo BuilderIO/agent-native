@@ -588,7 +588,14 @@ export default defineAction({
         const consoleErrors: string[] = [];
         const fontLoadFailures: string[] = [];
         page.on("console", (msg) => {
+          // Alpine reports failed expressions at warn level, and that warning
+          // is the only place the expression and element appear — its paired
+          // `pageerror` is a bare "Invalid or unexpected token".
           if (msg.type() === "error") {
+            consoleErrors.push(msg.text().slice(0, 300));
+            return;
+          }
+          if (msg.type() === "warning" && /Alpine/.test(msg.text())) {
             consoleErrors.push(msg.text().slice(0, 300));
           }
         });

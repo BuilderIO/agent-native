@@ -362,6 +362,55 @@ export function CreateAppFlow({
   }
 
   const submitWithSelectedAccess = () => submit(prompt);
+  const isCreatingBuilderBranch =
+    isSubmitting && !isInBuilderFrame() && !isDevMode;
+
+  if (branchUrl) {
+    return (
+      <div
+        className={`flex min-h-[260px] flex-col items-center justify-center gap-5 px-6 py-8 text-center ${className}`}
+      >
+        <span className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <IconCheck className="size-5" aria-hidden="true" />
+        </span>
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold text-foreground">
+            Your Builder branch is ready
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Continue building and editing your app in Builder.
+          </p>
+        </div>
+        <Button asChild className="w-full sm:w-auto">
+          <a href={branchUrl} target="_blank" rel="noreferrer">
+            Open Builder branch <IconArrowUpRight aria-hidden="true" />
+          </a>
+        </Button>
+      </div>
+    );
+  }
+
+  if (isCreatingBuilderBranch) {
+    return (
+      <div
+        className={`flex min-h-[260px] flex-col items-center justify-center gap-4 px-6 py-8 text-center ${className}`}
+        aria-live="polite"
+      >
+        <IconLoader2
+          className="size-7 animate-spin text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold text-foreground">
+            Creating your Builder branch
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            This usually takes a few seconds.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col gap-3 ${className}`}>

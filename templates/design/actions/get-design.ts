@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -26,11 +26,19 @@ export default defineAction({
     const row = access.resource;
     const db = getDb();
 
-    // Fetch associated files
+    // Fetch associated files in a stable order. This array feeds the overview
+    // canvas's screen stack and each screen's index within its layout group, so
+    // unordered rows (Postgres returns heap order, which an UPDATE can change)
+    // meant the same design could lay itself out differently on two loads.
+    // Note this is deterministic, not creation-ordered: files written in one
+    // batch share a `createdAt` to the millisecond and fall back to the id
+    // tiebreak. Nothing may depend on the index matching the order a generator
+    // wrote in — see the order-independence case in variant-lineup.test.ts.
     const files = await db
       .select()
       .from(schema.designFiles)
-      .where(eq(schema.designFiles.designId, id));
+      .where(eq(schema.designFiles.designId, id))
+      .orderBy(asc(schema.designFiles.createdAt), asc(schema.designFiles.id));
 
     return {
       id: row.id,

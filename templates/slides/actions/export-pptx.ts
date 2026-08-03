@@ -108,18 +108,39 @@ interface ImageElement {
   h: number;
 }
 
+export function assertServerPptxExportable(
+  html: string,
+  slideNumber: number,
+): void {
+  // Absolute positioning alone is not an editing-object contract: uploaded
+  // backgrounds are intentionally absolute but the normal-flow exporter can
+  // still include them. Only reject objects persisted by the freeform editor.
+  const hasPersistedFreeformObject =
+    /\bdata-slide-object-id\s*=/i.test(html) ||
+    /\bclass\s*=\s*["'][^"']*\bfmd-freeform-object\b/i.test(html);
+  if (!hasPersistedFreeformObject) return;
+
+  const error = new Error(
+    `Slide ${slideNumber} contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved. The server export stopped instead of silently reflowing those objects.`,
+  );
+  error.name = "UnsupportedPositionedSlideExportError";
+  throw error;
+}
+
 /**
  * Parse slide HTML and extract text/image elements with positioning.
  * We know the exact HTML structure from the slide templates.
  */
-function parseSlideHtml(
+export function parseSlideHtml(
   html: string,
   aspectRatio?: AspectRatio,
+  slideNumber = 1,
 ): {
   texts: TextElement[];
   images: ImageElement[];
   bgColor: string;
 } {
+  assertServerPptxExportable(html, slideNumber);
   const texts: TextElement[] = [];
   const images: ImageElement[] = [];
   let bgColor = "000000";
@@ -335,7 +356,7 @@ export async function fetchImageAsBase64(url: string): Promise<string | null> {
 
 export default defineAction({
   description:
-    "Export a deck as a PowerPoint (.pptx) file. Returns a download URL for the generated file.",
+    "Export a normal-flow deck as a PowerPoint (.pptx) file. Decks with freeform positioned objects must use the Slides editor's Export > PowerPoint flow so browser-rendered geometry is preserved. Returns a download URL for the generated file.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
     includeNotes: z
@@ -382,7 +403,7 @@ export default defineAction({
     pptx.author = "Agent Native Slides";
     pptx.title = row.title;
 
-    for (const slide of slides) {
+    for (const [slideIndex, slide] of slides.entries()) {
       const pptxSlide = pptx.addSlide();
       const slideContent =
         slide && typeof slide === "object" && typeof slide.content === "string"
@@ -391,6 +412,7 @@ export default defineAction({
       const { texts, images, bgColor } = parseSlideHtml(
         slideContent,
         aspectRatio,
+        slideIndex + 1,
       );
 
       pptxSlide.background = { color: bgColor };

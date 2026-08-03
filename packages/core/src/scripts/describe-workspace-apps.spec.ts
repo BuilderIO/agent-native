@@ -69,6 +69,13 @@ describe("describe-workspace-apps", () => {
     expect(tool.description).toContain("never hand-maintain");
   });
 
+  it("makes the receiving specialist agent the default cross-app path", () => {
+    expect(tool.description).toContain("natural-language call-agent message");
+    expect(tool.description).toContain(
+      "not a substitute for the specialist agent",
+    );
+  });
+
   it("reports each peer's purpose and its live callable actions", async () => {
     discoverAgents.mockResolvedValue([agent()]);
 
@@ -147,6 +154,7 @@ describe("describe-workspace-apps", () => {
     expect(output).toContain("Run a bounded analytics query.");
     expect(output).toContain("send-report (mutating)");
     expect(output).toContain('agent="analytics"');
+    expect(output).toContain('message="<objective>"');
     expect(findAgent).toHaveBeenCalledWith("analytics", "coach");
   });
 

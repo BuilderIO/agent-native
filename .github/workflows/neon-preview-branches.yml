@@ -9,13 +9,13 @@ permissions:
   contents: read
 
 # Map each Netlify site to its Neon project. When a PR opens, we create a Neon
-# branch per project and set the site's NETLIFY_DATABASE_URL(_UNPOOLED) as a
+# branch per project and set the site's DATABASE_URL(_UNPOOLED) as a
 # BRANCH-scoped value for the PR's head branch (context: branch). Netlify uses a
 # branch-specific value for that branch's deploy previews and it takes
 # precedence over the shared deploy-preview context value, so concurrent PRs on
 # different branches never clobber each other. The framework reads
-# NETLIFY_DATABASE_URL unchanged; the branch value is snapshotted into the
-# deploy at build time and available to the function at runtime.
+# DATABASE_URL directly; the branch value is available to the function at
+# runtime.
 #
 # On PR close we delete only this branch's value (not the whole variable, which
 # other branches and production still use) and this PR's Neon branch.
@@ -58,6 +58,9 @@ jobs:
           - template: slides
             neon_project: hidden-thunder-16834477
             netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
+          - template: factory
+            neon_project: flat-mountain-45852069
+            netlify_site: 6bffaa23-ad14-480c-8954-99f53ecabf05
     steps:
       - name: Create Neon branch
         uses: neondatabase/create-branch-action@fb620d43d4c565abaf088b848a4e28e5c4ea4d9c # v6
@@ -109,8 +112,8 @@ jobs:
             fi
           }
 
-          set_netlify_branch_env "NETLIFY_DATABASE_URL" "$NEON_DB_URL_POOLED"
-          set_netlify_branch_env "NETLIFY_DATABASE_URL_UNPOOLED" "$NEON_DB_URL_UNPOOLED"
+          set_netlify_branch_env "DATABASE_URL" "$NEON_DB_URL_POOLED"
+          set_netlify_branch_env "DATABASE_URL_UNPOOLED" "$NEON_DB_URL_UNPOOLED"
 
   delete-branches:
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
@@ -146,6 +149,9 @@ jobs:
           - template: slides
             neon_project: hidden-thunder-16834477
             netlify_site: fd5deb5b-5539-47e1-830c-e5fb5e105efd
+          - template: factory
+            neon_project: flat-mountain-45852069
+            netlify_site: 6bffaa23-ad14-480c-8954-99f53ecabf05
     steps:
       - name: Delete Neon branch
         uses: neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776 # v3
@@ -190,5 +196,5 @@ jobs:
             fi
           }
 
-          delete_netlify_branch_value "NETLIFY_DATABASE_URL"
-          delete_netlify_branch_value "NETLIFY_DATABASE_URL_UNPOOLED"
+          delete_netlify_branch_value "DATABASE_URL"
+          delete_netlify_branch_value "DATABASE_URL_UNPOOLED"

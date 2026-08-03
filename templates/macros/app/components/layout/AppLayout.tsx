@@ -1,7 +1,7 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -232,9 +232,6 @@ function SidebarContent({
       <TooltipContent side="right">{t("root.search")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -257,13 +254,17 @@ function SidebarContent({
               src={appPath("/agent-native-icon-light.svg")}
               alt=""
               aria-hidden="true"
-              className="block h-4 w-auto shrink-0 dark:hidden"
+              width={28}
+              height={16}
+              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
             />
             <img
               src={appPath("/agent-native-icon-dark.svg")}
               alt=""
               aria-hidden="true"
-              className="hidden h-4 w-auto shrink-0 dark:block"
+              width={28}
+              height={16}
+              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
             />
             <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
               {t("navigation.brand")}
@@ -352,7 +353,6 @@ function SidebarContent({
       <SidebarFooterActions
         collapsed={collapsed}
         feedback={feedbackButton}
-        translate={translateButton}
         search={searchButton}
         collapse={collapseButton}
       />

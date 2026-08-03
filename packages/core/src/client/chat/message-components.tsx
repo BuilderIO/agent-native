@@ -75,7 +75,12 @@ import {
   renderMarkdownToClipboardHtml,
 } from "./markdown-renderer.js";
 import { getAssistantRunDurationMs } from "./repo-helpers.js";
-import { getRunErrorMetadata } from "./run-recovery.js";
+import {
+  getRunErrorMetadata,
+  runErrorHeadline,
+  runErrorKey,
+  type RunErrorInfo,
+} from "./run-recovery.js";
 import {
   ToolCallFallback,
   ToolActivityPresentation,
@@ -83,6 +88,7 @@ import {
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
   ChatRunDurationContext,
+  formatWorkedDuration,
   RanToolsSummary,
   ReasoningCell,
   WorkedForSummary,
@@ -295,6 +301,13 @@ export const CheckpointContext = React.createContext<{
 
 export const MessageActionsContext = React.createContext<{
   onForkChat?: () => void | boolean | Promise<void | boolean>;
+  onRetryRunError?: () => void;
+  /**
+   * Key of the run error the transient recovery banner is already showing. The
+   * turn that owns that run stays quiet so one failure is never announced
+   * twice; every other failed turn keeps its own inline marker.
+   */
+  bannerRunErrorKey?: string | null;
 } | null>(null);
 
 /**
@@ -949,6 +962,7 @@ export function assistantMessageHasCompletedCustomUi(
       type?: unknown;
       result?: unknown;
       isError?: unknown;
+      outcome?: unknown;
       activity?: unknown;
       chatUI?: unknown;
       mcpApp?: unknown;
@@ -957,7 +971,8 @@ export function assistantMessageHasCompletedCustomUi(
       record.type !== "tool-call" ||
       record.activity === true ||
       record.result === undefined ||
-      record.isError === true
+      record.isError === true ||
+      record.outcome === "unknown"
     ) {
       continue;
     }
@@ -1086,13 +1101,20 @@ export function shouldShowAssistantWorkSummary({
   isComplete,
   hasCollapsibleWork,
   hasUnresolvedTool,
+  chatRunning,
 }: {
   isLast: boolean;
   isComplete: boolean;
   hasCollapsibleWork: boolean;
   hasUnresolvedTool: boolean;
+  chatRunning: boolean;
 }): boolean {
-  if (!hasCollapsibleWork || hasUnresolvedTool) return false;
+  if (!hasCollapsibleWork) return false;
+
+  // An unresolved tool means "still working" only while the turn is actually
+  // running. On a stalled or interrupted turn it used to hide the summary
+  // forever, so the longest turns showed no "Worked for Xm Ys" at all.
+  if (hasUnresolvedTool) return !(isLast && chatRunning);
 
   // Keep completed historical work wrapped while a later turn is running.
   // Removing the wrapper exposes/remounts ReasoningCell and resets its
@@ -1335,42 +1357,75 @@ export function workGroupDurationMs(
   return wholeTurnDurationMs ?? null;
 }
 
-/**
- * A failed turn keeps its error marker for the life of the transcript. Only the
- * newest turn gets the actionable recovery card, so without this the record of
- * a failure vanished the moment the user sent anything else.
- */
-export function shouldShowPersistentRunError({
-  isLast,
-  hasRunError,
+export function shouldShowInlineRunError({
+  runError,
+  bannerRunErrorKey,
 }: {
-  isLast: boolean;
-  hasRunError: boolean;
+  runError: RunErrorInfo | null;
+  bannerRunErrorKey: string | null | undefined;
 }): boolean {
-  return hasRunError && !isLast;
+  if (!runError) return false;
+  return runErrorKey(runError) !== bannerRunErrorKey;
 }
 
-/**
- * Compact, permanent record that this turn ended in an error. Deliberately not
- * actionable: retry belongs to the newest turn only, but the fact that a turn
- * failed is part of the transcript forever.
- */
-function AssistantRunErrorMarker({
-  message,
-  errorCode,
+export function InlineRunErrorNotice({
+  info,
+  durationMs,
+  onRetry,
 }: {
-  message: string;
-  errorCode?: string;
+  info: RunErrorInfo;
+  durationMs?: number | null;
+  onRetry?: (() => void) | undefined;
 }) {
+  const [open, setOpen] = useState(false);
+  const headline = runErrorHeadline(info);
+  const label =
+    durationMs != null && durationMs >= 1000
+      ? `${headline} after ${formatWorkedDuration(durationMs)}`
+      : headline;
+
   return (
-    <p
-      role="status"
-      className="mt-1 flex items-start gap-1.5 text-[13px] text-muted-foreground"
-      title={errorCode ? `${errorCode}: ${message}` : message}
-    >
-      <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-      <span>This turn ended with an error: {message}</span>
-    </p>
+    <div className="my-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconAlertTriangle className="size-3.5 shrink-0 text-amber-500" />
+        <span className="truncate">{label}</span>
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="mt-1 rounded-md border border-border/60 bg-background/70 p-2 text-[11px] leading-relaxed text-muted-foreground">
+          <p className="whitespace-pre-wrap break-words">{info.message}</p>
+          {info.errorCode && (
+            <div className="mt-1 font-mono">code: {info.errorCode}</div>
+          )}
+          {info.runId && <div className="font-mono">run: {info.runId}</div>}
+          {info.details && (
+            <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono">
+              {info.details}
+            </pre>
+          )}
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
+            >
+              <IconRefresh className="size-3" />
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1398,6 +1453,12 @@ export function AssistantMessage() {
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
   const serverRunActive = React.useContext(ServerRunActiveContext);
+  const messageRunError = getRunErrorMetadata(msg);
+  const messageActions = React.useContext(MessageActionsContext);
+  const showInlineRunError = shouldShowInlineRunError({
+    runError: messageRunError,
+    bannerRunErrorKey: messageActions?.bannerRunErrorKey,
+  });
   const showMissingFinalResponse = useSettledFlag(
     shouldShowMissingFinalResponse({
       isCurrentTurnRunning: isLast && chatRunning,
@@ -1513,10 +1574,6 @@ export function AssistantMessage() {
 
   // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
-  // Rendered on every turn that failed, not just the newest one. The
-  // actionable recovery card is derived from the last message alone, so
-  // sending anything after a failure used to erase all trace of it.
-  const runError = getRunErrorMetadata(msg);
   const hasCodeAgentTools =
     Array.isArray(msgContent) &&
     msgContent.some(
@@ -1560,6 +1617,7 @@ export function AssistantMessage() {
                   isComplete,
                   hasCollapsibleWork,
                   hasUnresolvedTool,
+                  chatRunning,
                 });
                 if (!showSummary) return <>{children}</>;
                 return (
@@ -1613,7 +1671,18 @@ export function AssistantMessage() {
             }
           }}
         </MessagePrimitive.GroupedParts>
-        {showMissingFinalResponse && (
+        {showInlineRunError && messageRunError && (
+          <InlineRunErrorNotice
+            info={messageRunError}
+            durationMs={capturedDurationMs ?? persistedDurationMs}
+            onRetry={
+              isLast && messageRunError.recoverable
+                ? messageActions?.onRetryRunError
+                : undefined
+            }
+          />
+        )}
+        {showMissingFinalResponse && !showInlineRunError && (
           <p role="status" className="text-muted-foreground">
             The agent stopped without sending a final message. Ask it to
             continue or retry.
@@ -1632,16 +1701,6 @@ export function AssistantMessage() {
         {isLast && hasUnresolvedTool && !chatRunning && (
           <RunningActivityStatus label="Thinking" />
         )}
-        {shouldShowPersistentRunError({
-          isLast,
-          hasRunError: !!runError,
-        }) &&
-          runError && (
-            <AssistantRunErrorMarker
-              message={runError.message}
-              errorCode={runError.errorCode}
-            />
-          )}
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">

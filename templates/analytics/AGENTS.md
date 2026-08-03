@@ -1,9 +1,8 @@
 # Analytics — Agent Guide
 
-Analytics is an agent-native BI workspace. The agent manages data sources,
-queries, dashboards, charts, and warehouse integrations through actions and
-SQL-backed state. Dashboards are the canonical user-facing artifact; legacy
-analyses remain readable only for compatibility.
+Analytics is an agent-native BI workspace for data sources, queries, dashboards,
+charts, and warehouse integrations. Dashboards are the canonical user-facing
+artifact; legacy analyses remain readable only for compatibility.
 
 **This agent is Claude with BigQuery/Gong/HubSpot/Prometheus access.** Reason
 over fetched data here; do not suggest another AI tool.
@@ -17,15 +16,12 @@ ladder.
 ## How To Answer A Data Question
 
 1. **Search existing work first.** Call `search-analytics-query-catalog` before
-   writing any new query. This is grep for analytics: someone has likely already
-   saved this query, and its SQL names the exact source, table, and columns.
-   Adapt the closest match to the requested filters and window, run it once, and
-   stop.
+   writing a query. Adapt the closest saved SQL to the requested filters and
+   window, run it once, and stop.
 2. **One bounded call.** List, filter, count, and cohort questions ("which X,
    excluding Y") are a single SQL statement, or one `run-code` script that
-   filters server-side. Never page through a cohort across separate tool calls
-   and never fan out per item to apply a filter — that is what turns a
-   ten-second answer into a twenty-minute one.
+   filters server-side. Never page through a cohort or fan out per item to apply
+   a filter.
 3. **Escalate only on a miss.** If the catalog returns nothing usable, make at
    most one discovery pass (`list-data-dictionary`, `search-bigquery-schema`,
    `data-source-status`), then query. Don't cross-check or add breakdowns
@@ -34,25 +30,31 @@ ladder.
    chart — never deflect to "check the dashboard." Keep native data widgets to
    already-summarized data (≤50 rows); above that, state the total and show the
    top rows.
-5. **Chunk only for reading.** Group into 5-10 with per-item notes only when 30+
+5. **Deliver exports in chat.** See `analysis-workspace`; never return only a
+   path or tell the user to find a download elsewhere.
+6. **Chunk only for reading.** Group into 5-10 with per-item notes only when 30+
    items each need qualitative reading no query can do (call transcripts, ticket
    threads). Chunking a question a query could answer is the most expensive
    mistake available here. See `adhoc-analysis`.
 
-Use `ask-question` (multiple choice, at most once per turn) only when metric
-definition, date range, or grain is genuinely ambiguous and a wrong guess would
+Use `ask-question` at most once when an ambiguous metric, range, or grain would
 change the numbers.
 
 ## Core Rules
 
+- A sibling app asking over A2A sends a question or shaped input, never SQL. It
+  lacks this app's schema, data dictionary, dashboards, and dialect knowledge,
+  so raw-query actions (`sql`, `code`, `script`, `expression`) are not
+  sibling-invocable. Prefer natural-language delegation so this app retains its
+  instructions, source selection, and tools. Shaped reads are stable contracts,
+  not workarounds for delegation; this app still owns the query.
+- For open-ended delegated requests, choose a safe default and label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; only present values you actually retrieved, and state uncertainty.
 - Every analytical answer carries audit context: source(s), time window,
   filters, row count/sample size, join method, caveats.
-- Use actions for sources, queries, charts, dashboards, and sharing. Don't
-  bypass access checks with raw SQL for ownable resources. In dev call actions
-  with `pnpm action <name>`; in production call native tools. Use
-  `share-resource` / `set-resource-visibility` for sharing.
+- Use actions for sources, queries, charts, dashboards, and sharing. Don't bypass
+  access checks with raw SQL for ownable resources.
 - Provider actions are shortcuts, not limits — escalate to
   `provider-api-catalog` / `provider-api-docs` / `provider-api-request` when a
   canned action is too narrow. See `provider-api`.
@@ -66,14 +68,13 @@ change the numbers.
 - The `demo` source (Node Exporter) is demo data against a public endpoint.
   Never cite it as real analytics evidence unless the user asks about the demo
   dashboard.
-- Store large payloads (images, PDFs, exports, replay chunks, base64, `data:`
-  URLs) in file/blob storage — never in SQL tables, `application_state`,
-  `settings`, or `resources`. Persist URLs, ids, or handles.
+- Store large payloads in file/blob storage, never SQL or app state. Persist
+  only URLs, ids, or handles.
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
-- External MCP callers should default to `ask_app` for multi-step work; the
-  curated read-only fallback catalog is bounded and user/org-scoped, and writes
-  stay `ask_app`-only. Backend reads always return real identities.
+- External MCP callers default to `ask_app` for interpretation, source choice,
+  analysis, or multi-step work. Direct reads require exact, complete input;
+  writes stay `ask_app`-only.
 - Dashboard email reports and analytics alert rules are SQL-backed,
   self-describing action surfaces — don't hand-wire routes around them. Reports
   cap at five recipients. See `dashboard-ops`.

@@ -9,6 +9,7 @@
 
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { agentNativePath } from "./api-path.js";
+import { readClientAppState } from "./application-state.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -91,6 +92,11 @@ export interface AgentChatMessage {
    * their own isolated thread rather than cluttering an existing conversation.
    */
   newTab?: boolean;
+  /**
+   * When true with newTab, reuses the active tab only when the receiver knows
+   * it is a new foreground chat with no messages.
+   */
+  reuseEmptyTab?: boolean;
   /**
    * When true with newTab, creates the tab in the background without
    * focusing it or opening the sidebar. The message runs silently.
@@ -231,11 +237,30 @@ const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
  * {@link sendToAgentChatAndConfirm} instead of listening for this directly.
  */
 export const AGENT_CHAT_SUBMIT_RESULT_EVENT = "agentNative.chatSubmitResult";
+export const AGENT_CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
 
 export interface AgentChatSubmitResult {
   submitMessageId: string;
   delivered: boolean;
   reason?: string;
+}
+
+export interface AgentChatSubmitTarget {
+  submitMessageId: string;
+  tabId: string;
+}
+
+/** Report the actual tab selected by the receiving chat surface for a submit. */
+export function reportAgentChatSubmitTarget(
+  submitMessageId: string | undefined,
+  tabId: string,
+): void {
+  if (!submitMessageId || !tabId || typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<AgentChatSubmitTarget>(AGENT_CHAT_SUBMIT_TARGET_EVENT, {
+      detail: { submitMessageId, tabId },
+    }),
+  );
 }
 
 /** Report a submit's definitive outcome so `sendToAgentChatAndConfirm` (or any
@@ -295,7 +320,7 @@ export function generateTabId(): string {
 }
 
 /** Unique id for one submitted message, used to dedup live + replayed sends. */
-function generateSubmitMessageId(): string {
+export function generateAgentChatSubmitMessageId(): string {
   return `submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
@@ -574,15 +599,9 @@ export async function refreshAgentChatContext(): Promise<AgentChatContextState> 
     return agentChatContextState;
   }
   try {
-    const res = await fetch(
-      agentNativePath(
-        `/_agent-native/application-state/${AGENT_CHAT_CONTEXT_STATE_KEY}`,
-      ),
-    );
-    if (!res.ok || res.status === 204) return agentChatContextState;
-    const text = await res.text();
-    if (!text) return agentChatContextState;
-    const state = normalizeAgentChatContextState(JSON.parse(text));
+    const raw = await readClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY);
+    if (raw === null) return agentChatContextState;
+    const state = normalizeAgentChatContextState(raw);
     if (!state) return agentChatContextState;
     return publishAgentChatContextItems(state.items, {
       persist: false,
@@ -887,6 +906,7 @@ export interface ParsedSubmitChat {
   /** Raw effort hint; the receiver validates it against the model. */
   effort?: unknown;
   newTab?: boolean;
+  reuseEmptyTab?: boolean;
   background?: boolean;
   tabId?: string;
   images?: string[];
@@ -928,6 +948,8 @@ export function parseSubmitChatMessage(
     engine: nonEmptyString(raw.engine),
     effort: raw.effort,
     newTab: typeof raw.newTab === "boolean" ? raw.newTab : undefined,
+    reuseEmptyTab:
+      typeof raw.reuseEmptyTab === "boolean" ? raw.reuseEmptyTab : undefined,
     background:
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
@@ -989,7 +1011,8 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     return tabId;
   }
 
-  const submitMessageId = opts.submitMessageId ?? generateSubmitMessageId();
+  const submitMessageId =
+    opts.submitMessageId ?? generateAgentChatSubmitMessageId();
   const payload = {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: {
@@ -1123,7 +1146,7 @@ export function sendToAgentChatAndConfirm(
     });
   }
 
-  const submitMessageId = generateSubmitMessageId();
+  const submitMessageId = generateAgentChatSubmitMessageId();
   const timeoutMs = Math.max(
     0,
     options?.timeoutMs ?? DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS,

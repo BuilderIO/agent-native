@@ -179,9 +179,6 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
             {t("navigation.ops")}
           </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => navigate("/extensions")}>
-            {t("navigation.extensions")}
-          </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/settings")}>
             {t("navigation.settings")}
           </CommandMenu.Item>

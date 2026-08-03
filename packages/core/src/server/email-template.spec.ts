@@ -82,6 +82,33 @@ describe("renderEmail", () => {
     expect(html).not.toMatch(/>https?:\/\//);
   });
 
+  it("renders a dark secondary CTA and closing paragraphs", () => {
+    const { html, text } = renderEmail({
+      heading: 'Alice shared "Standup" with you',
+      paragraphs: [],
+      cta: { label: "Open Recording", url: "https://clips.example/r/rec-1" },
+      secondaryCta: {
+        label: "Summarize with AI",
+        url: "https://clips.example/r/rec-1?panel=agent",
+      },
+      closingParagraphs: [
+        `Reply to reach ${emailLink("alice@example.com", "mailto:alice@example.com")} directly.`,
+      ],
+    });
+
+    expect(html).toMatch(/>\s*Open Recording\s*<\/a>/);
+    expect(html).toMatch(/>\s*Summarize with AI\s*<\/a>/);
+    expect(html.indexOf("Summarize with AI")).toBeGreaterThan(
+      html.indexOf("Open Recording"),
+    );
+    expect(html).toContain("background:#141417; border:1px solid #3f3f46;");
+    expect(html).toContain(">alice@example.com</a>");
+    expect(text).toContain(
+      "Summarize with AI: https://clips.example/r/rec-1?panel=agent",
+    );
+    expect(text).toContain("Reply to reach alice@example.com directly.");
+  });
+
   it("renders a safe treated link block after the CTA", () => {
     const url = "https://clips.example/r/rec-1?view=agent&mode=summary";
     const { html, text } = renderEmail({

@@ -1115,6 +1115,14 @@ function ProviderCatalog({
             const readinessCallout = providerReadinessCallout(provider, t);
             const ReadinessIcon = readinessCallout.icon;
             const readinessItems = providerReadinessItems(provider, t);
+            const providerNeedsSetup =
+              provider.configured !== true &&
+              provider.rawProviderApi?.available === true &&
+              (provider.providerHealth?.status === "needs_grant" ||
+                provider.providerHealth?.status === "unhealthy" ||
+                provider.providerHealth?.status === "missing_credentials");
+            const providerSetupHref =
+              provider.setupLink ?? dispatchIntegrationsHref(provider.id);
             return (
               <div
                 key={provider.id}
@@ -1378,7 +1386,8 @@ function ProviderCatalog({
                         {t("sources.noSharedWorkspaceConnection")}
                       </p>
                     )}
-                    {!provider.sourceProviderSupported ? (
+                    {!provider.sourceProviderSupported &&
+                    provider.rawProviderApi?.available !== true ? (
                       <p className="text-xs leading-5 text-muted-foreground">
                         {t("sources.connectionMetadataOnlyDetail")}
                       </p>
@@ -1400,11 +1409,13 @@ function ProviderCatalog({
                     <IconSettings2 className="size-4" />
                     {expanded ? t("sources.hideDetails") : t("sources.details")}
                   </Button>
-                  {grantState === "needs_grant" ? (
+                  {grantState === "needs_grant" || providerNeedsSetup ? (
                     <Button size="sm" variant="outline" asChild>
-                      <a href={dispatchIntegrationsHref(provider.id)}>
+                      <a href={providerSetupHref}>
                         <IconExternalLink className="size-4" />
-                        {t("sources.grantInDispatch")}
+                        {grantState === "needs_grant"
+                          ? t("sources.grantInDispatch")
+                          : t("sources.connectProvider")}
                       </a>
                     </Button>
                   ) : null}

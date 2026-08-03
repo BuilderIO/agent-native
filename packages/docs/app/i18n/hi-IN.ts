@@ -423,6 +423,18 @@ const hiIN = {
     body: "आप हर चीज़ customize कर सकते हैं।",
     community: "Blank app चाहिए? Framework guide से scratch से शुरू करें।",
     createYourOwn: "Scratch से शुरू करें",
+    communityTitle: "कम्युनिटी टेम्पलेट",
+    communityDescription:
+      "स्वतंत्र ऐप जिन्हें उनके लेखक बनाए रखते हैं। सार्वजनिक GitHub रिपॉज़िटरी से इंस्टॉल करें या उपलब्ध होने पर होस्ट किया गया संस्करण आज़माएँ।",
+    submitCommunityTemplate: "अपना टेम्पलेट सबमिट करें",
+    communityEmpty:
+      "कम्युनिटी लिस्टिंग खुली हैं। किसी स्पष्ट काम पर केंद्रित Agent Native ऐप को सार्वजनिक रिपॉज़िटरी में प्रकाशित करके कैटलॉग के लिए सबमिट करें।",
+    publishGuide: "पब्लिशिंग गाइड पढ़ें",
+    communityTrust:
+      "कम्युनिटी टेम्पलेट तृतीय-पक्ष कोड हैं। चलाने से पहले रिपॉज़िटरी, लाइसेंस, डिपेंडेंसी और इंस्टॉल स्क्रिप्ट की समीक्षा करें।",
+    copyCommunityInstallCommand: "इंस्टॉल कमांड कॉपी करें",
+    viewRepository: "रिपॉज़िटरी देखें",
+    tryCommunityDemo: "डेमो आज़माएँ",
   },
   buildFromScratch: {
     title: "शुरू से बनाएँ",
@@ -1638,6 +1650,7 @@ const hiIN = {
     formsOverview: "अवलोकन",
     formsBuildingPublishing: "निर्माण और प्रकाशन",
     formsResponses: "प्रतिक्रियाएं और इनसाइट्स",
+    docsComponents: "Docs Components",
     formsDevelopers: "डेवलपर गाइड",
   },
 } satisfies typeof enUS;

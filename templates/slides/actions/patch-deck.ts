@@ -126,6 +126,7 @@ const PatchDeckFieldsOp = z.object({
       aspectRatio: z.enum(ASPECT_RATIO_VALUES).optional(),
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
+      starred: z.boolean().optional(),
     })
     .passthrough(),
 });
@@ -139,6 +140,31 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+
+// The browser uses the full operation union above. Agents additionally use
+// this action for one bounded, deck-wide layout repair: one patch-slide per
+// slide in a single SQL transaction, followed by a fresh read for verification.
+const AgentPatchDeckInputSchema = z.object({
+  deckId: z.string().describe("Deck ID"),
+  operations: z
+    .array(
+      z.union([
+        PatchSlideOp,
+        z.object({
+          op: z.literal("patch-deck-fields"),
+          fields: z.object({
+            title: z
+              .string()
+              .describe("The concise, specific title to apply to the deck"),
+          }),
+        }),
+      ]),
+    )
+    .min(1)
+    .describe(
+      "One patch-slide operation per slide that needs a structural HTML repair. Use patch-deck-fields only for a deck title change.",
+    ),
+});
 
 const CreativeContextReuseLabelSchema = z.object({
   itemId: z.string().min(1).optional(),
@@ -284,9 +310,34 @@ export function applyOperation(deck: any, op: Operation): void {
         deck.aspectRatio = fields.aspectRatio;
       if (fields.shareToken !== undefined) deck.shareToken = fields.shareToken;
       if (fields.visibility !== undefined) deck.visibility = fields.visibility;
+      if (fields.starred !== undefined) deck.starred = fields.starred;
       break;
     }
   }
+}
+
+/**
+ * Resolve the last operation in a sequence. For example, when typing a new name
+ * this will be the latest name of the deck in a sequence of keystrokes.
+ */
+export function resolveDeckColumnUpdates(
+  current: { title: string; designSystemId: string | null },
+  operations: Operation[],
+): { title: string; designSystemId: string | null } {
+  const fieldOps = operations
+    .filter(
+      (op): op is z.infer<typeof PatchDeckFieldsOp> =>
+        op.op === "patch-deck-fields",
+    )
+    .reverse();
+  const titleOp = fieldOps.find((op) => typeof op.fields.title === "string");
+  const dsOp = fieldOps.find((op) => "designSystemId" in op.fields);
+  return {
+    title: titleOp?.fields.title ?? current.title,
+    designSystemId: dsOp
+      ? (dsOp.fields.designSystemId ?? null)
+      : current.designSystemId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +348,9 @@ export default defineAction({
   description:
     "Granular deck patch used by the browser editor for concurrent-safe writes. " +
     "Each operation touches only the target slide or field — concurrent writers " +
-    "on different slides never overwrite each other's work.",
+    "on different slides never overwrite each other's work. For a deck-wide " +
+    "layout repair, send one patch-slide operation per affected slide in one " +
+    "call, then call get-deck to verify the persisted HTML before reporting success.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     operations: z
@@ -318,6 +371,7 @@ export default defineAction({
         "Optional exact Creative Context provenance for context-backed slide patch operations.",
       ),
   }),
+  agentInputSchema: AgentPatchDeckInputSchema,
   run: async ({ deckId, operations, creativeContext }) => {
     await assertAccess("deck", deckId, "editor");
 
@@ -335,6 +389,21 @@ export default defineAction({
       const deck: any = JSON.parse(row.data);
       const existingContext = storedCreativeContext(deck.creativeContext);
 
+      const existingSlideIds = new Set(
+        (Array.isArray(deck.slides) ? deck.slides : []).map(
+          (slide: { id?: unknown }) => slide.id,
+        ),
+      );
+      const missingSlideIds = operations
+        .filter((operation) => operation.op === "patch-slide")
+        .map((operation) => operation.slideId)
+        .filter((slideId) => !existingSlideIds.has(slideId));
+      if (missingSlideIds.length > 0) {
+        throw new Error(
+          `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
+        );
+      }
+
       for (const op of operations) {
         applyOperation(deck, op);
       }
@@ -342,23 +411,11 @@ export default defineAction({
       const now = new Date().toISOString();
       deck.updatedAt = now;
 
-      // For patch-deck-fields ops that include a title, also update the
-      // SQL title column (kept in sync with deck.title for list queries).
-      const titleOp = operations.find(
-        (op): op is z.infer<typeof PatchDeckFieldsOp> =>
-          op.op === "patch-deck-fields" && typeof op.fields.title === "string",
-      );
-      const sqlTitle = titleOp?.fields.title ?? row.title;
-
-      // For patch-deck-fields ops that include designSystemId, update the
-      // SQL designSystemId column (used by list queries and sharing checks).
-      const dsOp = operations.find(
-        (op): op is z.infer<typeof PatchDeckFieldsOp> =>
-          op.op === "patch-deck-fields" && "designSystemId" in op.fields,
-      );
-      const sqlDesignSystemId = dsOp
-        ? (dsOp.fields.designSystemId ?? null)
-        : row.designSystemId;
+      const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
+        resolveDeckColumnUpdates(
+          { title: row.title, designSystemId: row.designSystemId },
+          operations,
+        );
 
       let generationRecord:
         | {
@@ -504,7 +561,20 @@ export default defineAction({
 
       notifyClients(deckId);
 
-      return { ok: true, deckId, updatedAt: now };
+      return {
+        ok: true,
+        deckId,
+        updatedAt: now,
+        updatedSlideIds: [
+          ...new Set(
+            operations.flatMap((operation) =>
+              operation.op === "patch-slide" || operation.op === "add-slide"
+                ? [operation.slideId]
+                : [],
+            ),
+          ),
+        ],
+      };
     });
   },
 });

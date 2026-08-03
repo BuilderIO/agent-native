@@ -767,6 +767,48 @@ export async function searchThreads(
 }
 
 /**
+ * Scope a thread should carry after a run inside a resource: adopt when it has
+ * none, otherwise keep what it has. An unscoped thread reads as general, and a
+ * general chat renders inside every resource — so never retag, never clear.
+ */
+export function resolveRunThreadScope(
+  existing: ChatThreadScope | null,
+  incoming: ChatThreadScope | null | undefined,
+): ChatThreadScope | null {
+  if (existing) return existing;
+  return incoming ?? null;
+}
+
+/**
+ * Claim an unscoped thread for `scope`, returning the scope it actually ends up
+ * with. `withThreadDataLock` only serializes one process, so two workers can
+ * both read the same unscoped row; the `scope_type IS NULL` guard makes the
+ * first writer win and the loser reports the winner instead of retagging.
+ */
+export async function adoptThreadScopeIfUnscoped(
+  id: string,
+  scope: ChatThreadScope,
+): Promise<ChatThreadScope | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND scope_type IS NULL`,
+    args: [
+      scope.type,
+      scope.id,
+      scope.label ?? null,
+      Math.max(Date.now(), 1),
+      id,
+    ],
+  });
+  if (result.rowsAffected > 0) {
+    emitChatThreadChange(id);
+    return scope;
+  }
+  return (await getThread(id))?.scope ?? null;
+}
+
+/**
  * Detach or rebind a chat's scope. Used by the UI's "Detach from <resource>"
  * action and by templates that need to retag a chat after a rename. Pass
  * `null` to clear the scope (chat becomes general).
@@ -1056,11 +1098,10 @@ export async function setThreadQueuedMessages(
     try {
       data = JSON.parse(thread.threadData);
     } catch {}
-    if (queuedMessages.length === 0) {
-      delete data.queuedMessages;
-    } else {
-      data.queuedMessages = queuedMessages;
-    }
+    // Keep an explicit empty tombstone. Other mounted chat surfaces only
+    // reconcile queue state when this field is present; deleting it lets a
+    // stale local queue survive the clear and submit the same prompt again.
+    data.queuedMessages = queuedMessages;
     await updateThreadData(
       threadId,
       JSON.stringify(data),

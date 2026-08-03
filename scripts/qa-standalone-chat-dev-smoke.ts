@@ -496,10 +496,14 @@ async function startDev(): Promise<RunningDev> {
     } catch (err) {
       lastError = err;
       const message = err instanceof Error ? err.message : String(err);
+      // autoMountAuth installs a permanent fallback guard after this failure;
+      // restarting here makes the smoke pass even though a real `pnpm dev`
+      // session remains locked until the developer restarts it manually.
+      const authLocked = message.includes("app locked");
       const retryable =
-        message.includes("app locked") ||
-        message.includes("database is locked") ||
-        message.includes("SQLITE_BUSY");
+        !authLocked &&
+        (message.includes("database is locked") ||
+          message.includes("SQLITE_BUSY"));
       if (!retryable || attempt === devStartAttempts - 1) throw err;
       log(
         `dev startup race (attempt ${attempt + 1}/${devStartAttempts}), retrying…`,

@@ -1,0 +1,10 @@
+[build]
+command = "NITRO_PRESET=netlify pnpm --filter factory build"
+publish = "templates/factory/dist"
+functions = "templates/factory/.netlify/functions-internal"
+
+[build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"

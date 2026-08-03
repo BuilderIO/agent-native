@@ -23,8 +23,9 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import {
-  resolveEmbedSessionFromRequest,
+  isEmbedCapabilityScope,
   requestHasEmbedAuthMarker,
+  resolveEmbedSessionFromRequest,
 } from "./embed-session.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 
@@ -105,7 +106,10 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
+import {
+  readAnalyticsAnonymousId,
+  signupAttributionFromCookieHeader,
+} from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
@@ -351,6 +355,7 @@ export function getCookieDomain(): string | undefined {
 export const COOKIE_NAME = AUTH_COOKIE_NAMESPACE.frameworkCookieName;
 export const BETTER_AUTH_COOKIE_PREFIX =
   AUTH_COOKIE_NAMESPACE.betterAuthCookiePrefix;
+const AUTH_DISABLED_OPT_OUT_COOKIE = `${COOKIE_NAME}_auth_disabled_opt_out`;
 
 /**
  * Cookie domain attribute spread into every `setCookie`/`deleteCookie`.
@@ -2047,8 +2052,11 @@ function isAuthDisabled(): boolean {
   return value === "1" || value === "true";
 }
 
-function getAuthDisabledSession(): AuthSession | null {
+function getAuthDisabledSession(event: H3Event): AuthSession | null {
   if (!isAuthDisabled()) return null;
+  if (getCookieValues(event, AUTH_DISABLED_OPT_OUT_COOKIE).includes("1")) {
+    return null;
+  }
   if (!authDisabledWarningLogged) {
     authDisabledWarningLogged = true;
     console.warn(
@@ -2056,6 +2064,17 @@ function getAuthDisabledSession(): AuthSession | null {
     );
   }
   return { email: AUTO_DEV_ACCOUNT_EMAIL };
+}
+
+function optOutOfAuthDisabledSession(event: H3Event): void {
+  if (!isAuthDisabled()) return;
+  setCookie(event, AUTH_DISABLED_OPT_OUT_COOKIE, "1", {
+    httpOnly: true,
+    ...crossSiteCookieAttrs(event),
+    ...cookieDomainAttrs(),
+    path: "/",
+    maxAge: sessionMaxAge,
+  });
 }
 
 async function hasAutoDevAccountUser(
@@ -2314,7 +2333,7 @@ async function resolveSessionUncached(
   // an_session cookie prevents a stale cookie (common when an ACCESS_TOKEN is
   // configured) from shadowing the embed identity.
   const embedSession = await resolveEmbedSessionFromRequest(event);
-  if (embedSession) {
+  if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
     return {
       email: embedSession.email,
       token: embedSession.token,
@@ -2394,7 +2413,7 @@ async function resolveSessionUncached(
   // 9. AUTH_DISABLED fallback — only when no session resolved above.
   // Must run after BYOA customGetSession so infrastructure/custom auth keeps
   // caller identity instead of collapsing to the shared preview user.
-  const authDisabledSession = getAuthDisabledSession();
+  const authDisabledSession = getAuthDisabledSession(event);
   if (authDisabledSession) return authDisabledSession;
 
   return null;
@@ -2452,8 +2471,9 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
 }
 
 /**
- * Build a redirect `Response` that carries whatever `Set-Cookie` headers were
- * just staged on the event (e.g. by `setFrameworkSessionCookie`).
+ * Build a redirect `Response` that carries the security-sensitive headers just
+ * staged on the event (e.g. by `setFrameworkSessionCookie` or query-session
+ * promotion).
  *
  * h3 v2's `setCookie` appends the cookie onto `event.res.headers`. When a
  * handler returns a plain object/string, h3's `prepareResponse` merges those
@@ -2471,7 +2491,7 @@ export function setFrameworkSessionCookie(event: H3Event, token: string): void {
  * any non-Response continuation path; h3 only skips the merge for the
  * Response branch, so there's no double-emit.)
  */
-function redirectWithStagedCookies(
+export function redirectWithStagedCookies(
   event: H3Event,
   location: string,
   status = 302,
@@ -2479,6 +2499,8 @@ function redirectWithStagedCookies(
   const headers = new Headers({ Location: location });
   const staged = event.res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
+  const referrerPolicy = event.res?.headers?.get?.("Referrer-Policy");
+  if (referrerPolicy) headers.set("Referrer-Policy", referrerPolicy);
   return new Response("", { status, headers });
 }
 
@@ -2717,6 +2739,9 @@ async function mountBetterAuthRoutes(
         const signupAttribution = signupAttributionFromCookieHeader(
           getHeader(event, "cookie") ?? null,
         );
+        const signupAnonymousId = readAnalyticsAnonymousId(
+          getHeader(event, "cookie") ?? null,
+        );
         const state = encodeOAuthState({
           redirectUri,
           desktop,
@@ -2725,6 +2750,7 @@ async function mountBetterAuthRoutes(
           returnUrl,
           flowId,
           signupAttribution,
+          signupAnonymousId,
         });
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -2779,11 +2805,17 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          const { redirectUri, desktop, returnUrl, flowId, signupAttribution } =
-            decodeOAuthState(
-              query.state as string | undefined,
-              getAppUrl(event, "/_agent-native/google/callback"),
-            );
+          const {
+            redirectUri,
+            desktop,
+            returnUrl,
+            flowId,
+            signupAttribution,
+            signupAnonymousId,
+          } = decodeOAuthState(
+            query.state as string | undefined,
+            getAppUrl(event, "/_agent-native/google/callback"),
+          );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
@@ -2904,6 +2936,7 @@ async function mountBetterAuthRoutes(
               authUserId: typeof user.id === "string" ? user.id : undefined,
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
+              signupAnonymousId,
             },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {
@@ -3045,6 +3078,9 @@ async function mountBetterAuthRoutes(
       const isSendVerificationEmail =
         reqPath.includes("send-verification-email") &&
         getMethod(event) === "POST";
+      const isSignOut =
+        reqPath.includes("sign-out") && getMethod(event) === "POST";
+      if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
 
@@ -3354,6 +3390,7 @@ async function mountBetterAuthRoutes(
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      optOutOfAuthDisabledSession(event);
 
       try {
         await auth.api.signOut({ headers: event.headers });
@@ -3421,6 +3458,7 @@ async function mountBetterAuthRoutes(
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
         clearFrameworkSessionCookies(event);
+        optOutOfAuthDisabledSession(event);
         try {
           await auth.api.signOut({ headers: event.headers });
         } catch {
@@ -3589,6 +3627,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      optOutOfAuthDisabledSession(event);
 
       try {
         const auth = await getBetterAuth();
@@ -3746,6 +3785,7 @@ export async function autoMountAuth(
         const bearerToken = getBearerSessionToken(event);
         if (bearerToken) await removeSession(bearerToken);
         clearFrameworkSessionCookies(event);
+        optOutOfAuthDisabledSession(event);
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };
       }),

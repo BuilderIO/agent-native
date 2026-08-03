@@ -724,11 +724,11 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     });
     const names: string[] = out.result.tools.map((t: any) => t.name);
     expect(names).toEqual([
-      "list_apps",
-      "open_app",
       "ask_app",
       "ask_app_status",
       "create_embed_session",
+      "list_apps",
+      "open_app",
     ]);
     expect(names).not.toContain("db-exec");
     expect(names).not.toContain("seed-kitchen-sink");

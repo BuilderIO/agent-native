@@ -202,6 +202,22 @@ describe("analytics data request classification", () => {
     expect(looksLikeAnalyticsDataRequest(text)).toBe(true);
   });
 
+  it("strips tagged and legacy A2A transport hints before classifying intent", () => {
+    const request =
+      "Choose one useful current customer metric and return its value.";
+    const transportHint =
+      "If you create a dashboard, return a concise answer instead of full transcripts.";
+    const tagged = `${request}\n\n<a2a-caller-hint>\n${transportHint}\n</a2a-caller-hint>`;
+    const legacy = `${request}\n\n[Note: this request comes from another app via A2A. ${transportHint}]`;
+
+    for (const text of [tagged, legacy]) {
+      expect(stripInjectedAnalyticsGuardContext(text)).toBe(request);
+      expect(looksLikeCoverageSensitiveAnalyticsRequest(text)).toBe(false);
+      expect(looksLikeDashboardConstructionRequest(text)).toBe(false);
+      expect(looksLikeAnalyticsDataRequest(text)).toBe(true);
+    }
+  });
+
   it("respects explicit real-data markers", () => {
     expect(
       looksLikeAnalyticsDataRequest(

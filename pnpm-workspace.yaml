@@ -10,6 +10,10 @@ minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@bacons/apple-targets"
   - "@agent-native/core"
+  - "@modelcontextprotocol/client"
+  - "@modelcontextprotocol/core"
+  - "@modelcontextprotocol/node"
+  - "@modelcontextprotocol/server"
   - "dom-to-pptx"
   - "fast-xml-parser"
   - "typescript"

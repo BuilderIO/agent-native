@@ -67,6 +67,10 @@ import {
 // the surrounding metadata and indentation while still bounding tool context.
 const GET_EXTENSION_MAX_RESULT_CHARS = 500_000;
 const GET_EXTENSION_HISTORY_MAX_RESULT_CHARS = 2_000_000;
+const LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS = 60_000;
+const EXTENSION_CONTENT_MATCH_LIMIT = 8;
+const DEFAULT_EXTENSION_CONTENT_CONTEXT_CHARS = 1_500;
+const MAX_EXTENSION_CONTENT_CONTEXT_CHARS = 4_000;
 
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {
@@ -153,7 +157,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "get-extension": {
       tool: {
         description:
-          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content once per run so you can make a targeted update-extension edit; repeated unchanged reads return compact metadata unless forceContent=true.",
+          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Small extensions include their full Alpine.js content once per run. Large extensions return compact metadata first; pass contentQuery with a function, variable, section marker, or literal text to retrieve bounded source excerpts for a targeted update-extension edit. Repeated unchanged full reads return compact metadata unless forceContent=true.",
         parameters: {
           type: "object",
           properties: {
@@ -170,7 +174,17 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             forceContent: {
               type: "boolean",
               description:
-                "Return full content even if this run already read the same unchanged body. Use sparingly; prefer update-extension edits after the first read.",
+                "Return full content even when the extension is large or this run already read the same unchanged body. Use only for a broad rewrite; prefer contentQuery plus focused update-extension edits.",
+            },
+            contentQuery: {
+              type: "string",
+              description:
+                "Literal, case-insensitive source text to find. Returns bounded excerpts around up to 8 matches without loading the full extension.",
+            },
+            contentContextChars: {
+              type: "number",
+              description:
+                "Characters of context before and after each contentQuery match. Defaults to 1500 and is capped at 4000.",
             },
           },
           required: ["id"],
@@ -184,6 +198,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             ? true
             : coerceBoolean(args.includeContent);
         const forceContent = coerceBoolean(args?.forceContent);
+        const contentQuery = String(args?.contentQuery ?? "").trim();
+        const contentContextChars = normalizeExtensionContentContextChars(
+          args?.contentContextChars,
+        );
         const localExtension = await getLocalExtension(id);
         if (localExtension) {
           return {
@@ -193,6 +211,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               new Set(),
               includeContent,
               forceContent,
+              contentQuery,
+              contentContextChars,
             ),
           };
         }
@@ -206,6 +226,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             hiddenIds,
             includeContent,
             forceContent,
+            contentQuery,
+            contentContextChars,
           ),
         };
       },
@@ -623,7 +645,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "update-extension": {
       tool: {
         description:
-          'Update an existing sandboxed Alpine.js mini-app extension. Pass exactly three fields: `id`, `operation`, and `payloadJson`. `payloadJson` is a JSON object encoded as a string so model gateways cannot fill its optional members with invalid empty placeholders. For operation="edit", pass {"edits":[...]} or {"patches":[...]} and optional format=true. For operation="replace", pass exactly one of content, contentFromAttachment, or contentFromWorkspaceFile; use this operation only for a user-requested broad visual rewrite or complete replacement body. For operation="metadata", pass name, description, or icon. Change sharing through set-resource-visibility instead. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly.',
+          'Update an existing sandboxed Alpine.js mini-app extension. Pass exactly three fields: `id`, `operation`, and `payloadJson`. `payloadJson` is a JSON object encoded as a string so model gateways cannot fill its optional members with invalid empty placeholders. For operation="edit", pass {"edits":[...]} or {"patches":[...]} and optional format=true — prefer several small, targeted edits over one large one; a single edit/replace body over roughly 8KB risks the model truncating its own payloadJson mid-generation, which arrives here as an empty or malformed call that must be retried from scratch. For operation="replace", pass exactly one of content, contentFromAttachment, or contentFromWorkspaceFile; use this operation only for a user-requested broad visual rewrite or complete replacement body. Do not inline large static datasets (full metric histories, big arrays) into the HTML/JS body — store them with extension-data-set and fetch them at runtime via extensionData.list()/get() instead, so edits stay small regardless of dataset size. For operation="metadata", pass name, description, or icon. Change sharing through set-resource-visibility instead. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly.',
         parameters: {
           type: "object",
           properties: {
@@ -1402,12 +1424,50 @@ async function summarizeExtensionForAgentRead(
   hiddenIds: Set<string>,
   includeContent: boolean,
   forceContent: boolean,
+  contentQuery: string,
+  contentContextChars: number,
 ) {
+  const fingerprint = contentFingerprint(row.content);
+
+  if (contentQuery) {
+    const summary = await summarizeExtension(row, hiddenIds, false);
+    return {
+      ...summary,
+      contentMatches: findExtensionContentMatches(
+        row.content,
+        contentQuery,
+        contentContextChars,
+      ),
+      contentOmitted: {
+        reason: "targeted-content-read",
+        contentHash: fingerprint,
+        contentLength: row.content.length,
+        next: 'Use the returned excerpts to call update-extension with operation="edit" and focused edits. Call get-extension again with a different contentQuery when another source area is needed.',
+      },
+    };
+  }
+
   if (!includeContent) {
     return summarizeExtension(row, hiddenIds, false);
   }
 
-  const fingerprint = contentFingerprint(row.content);
+  if (
+    !forceContent &&
+    row.content.length > LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS
+  ) {
+    const summary = await summarizeExtension(row, hiddenIds, false);
+    return {
+      ...summary,
+      contentOmitted: {
+        reason: "large-content-requires-targeted-read",
+        contentHash: fingerprint,
+        contentLength: row.content.length,
+        inlineContentLimit: LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS,
+        next: "Call get-extension again with contentQuery set to the relevant function, variable, section marker, or literal text. Use forceContent=true only for a broad rewrite that truly needs the entire body.",
+      },
+    };
+  }
+
   const runCtx = getRequestRunContext();
   const reads = runCtx ? (runCtx.extensionContentReads ??= {}) : undefined;
   const alreadySent = !forceContent && reads?.[row.id] === fingerprint;
@@ -1426,6 +1486,58 @@ async function summarizeExtensionForAgentRead(
       contentLength: row.content.length,
       next: 'Use the content already returned earlier in this run and call update-extension with operation="edit" plus focused edits/patches inside payloadJson. Set forceContent=true only if you truly need the full body again.',
     },
+  };
+}
+
+function normalizeExtensionContentContextChars(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_EXTENSION_CONTENT_CONTEXT_CHARS;
+  }
+  return Math.min(
+    MAX_EXTENSION_CONTENT_CONTEXT_CHARS,
+    Math.max(250, Math.floor(numeric)),
+  );
+}
+
+function findExtensionContentMatches(
+  content: string,
+  query: string,
+  contextChars: number,
+) {
+  const lowerContent = content.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const matches: Array<{
+    matchStart: number;
+    matchEnd: number;
+    excerptStart: number;
+    excerptEnd: number;
+    excerpt: string;
+  }> = [];
+  let searchFrom = 0;
+
+  while (matches.length < EXTENSION_CONTENT_MATCH_LIMIT) {
+    const matchStart = lowerContent.indexOf(lowerQuery, searchFrom);
+    if (matchStart < 0) break;
+    const matchEnd = matchStart + query.length;
+    const excerptStart = Math.max(0, matchStart - contextChars);
+    const excerptEnd = Math.min(content.length, matchEnd + contextChars);
+    matches.push({
+      matchStart,
+      matchEnd,
+      excerptStart,
+      excerptEnd,
+      excerpt: content.slice(excerptStart, excerptEnd),
+    });
+    searchFrom = matchEnd;
+  }
+
+  return {
+    query,
+    matches,
+    hasMore:
+      matches.length === EXTENSION_CONTENT_MATCH_LIMIT &&
+      lowerContent.indexOf(lowerQuery, searchFrom) >= 0,
   };
 }
 

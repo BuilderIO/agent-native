@@ -46,6 +46,7 @@ import {
   IconAlertTriangle,
   IconUsersGroup,
   IconHelpCircle,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -81,6 +82,7 @@ import {
   useDeleteOrg,
   useSwitchOrg,
   useSetOrgDomain,
+  useSetOrgWorkspaceUrl,
   useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
@@ -459,6 +461,8 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               domain={org.allowedDomain}
               ownerEmail={org.email}
             />
+
+            <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
 
             {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
           </div>
@@ -1473,6 +1477,132 @@ function DomainSettingsSection({
         </div>
       )}
       <ErrorText error={setOrgDomain.error} />
+    </div>
+  );
+}
+
+function WorkspaceUrlSettingsSection({
+  workspaceUrl,
+}: {
+  workspaceUrl: string | null;
+}) {
+  const setWorkspaceUrl = useSetOrgWorkspaceUrl();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(workspaceUrl ?? "");
+
+  function save() {
+    const trimmed = draft.trim();
+    if (trimmed === (workspaceUrl ?? "")) {
+      setEditing(false);
+      return;
+    }
+    setWorkspaceUrl.mutate(trimmed || null, {
+      onSuccess: () => setEditing(false),
+    });
+  }
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Your workspace
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        If your team runs its own workspace, members who land on a different
+        deployment — opening a template from the catalog, for instance — get
+        pointed here instead of an app that looks empty.
+      </p>
+      {!editing ? (
+        <div className="flex items-center gap-2">
+          {workspaceUrl ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
+                <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                {workspaceUrl}
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setDraft(workspaceUrl);
+                      setEditing(true);
+                    }}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPencil size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit workspace URL</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    intent="danger"
+                    emphasis="ghost"
+                    disabled={setWorkspaceUrl.isPending}
+                    onClick={() => setWorkspaceUrl.mutate(null)}
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                  >
+                    <IconX size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Remove workspace URL</TooltipContent>
+              </Tooltip>
+            </>
+          ) : (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+            >
+              <IconExternalLink size={14} />
+              Set workspace URL
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") save();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            placeholder="workspace.example.com"
+            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+            autoFocus
+          />
+          <Button
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            disabled={setWorkspaceUrl.isPending}
+            onClick={save}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {setWorkspaceUrl.isPending ? (
+              <IconLoader2 size={14} className="animate-spin" />
+            ) : (
+              "Save"
+            )}
+          </Button>
+          <Button
+            type="button"
+            intent="neutral"
+            emphasis="outline"
+            onClick={() => setEditing(false)}
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+      <ErrorText error={setWorkspaceUrl.error} />
     </div>
   );
 }

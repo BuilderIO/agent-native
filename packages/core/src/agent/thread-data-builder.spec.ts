@@ -76,6 +76,52 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  // Each failed engine attempt emits its own `clear`, so three failures in a
+  // row is the ordinary shape. Skipping only the last one still applied the
+  // other two and destroyed the answer the user had already been shown.
+  it("ignores a whole trailing run of clears, not just the last one", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Here is the answer" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+      { seq: 3, event: { type: "clear" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-trailing-clear-streak");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Here is the answer" },
+    ]);
+  });
+
+  // The second-order effect: with the text spliced out and no tool call to keep
+  // `content` non-empty, the builder returned null and the user's message was
+  // persisted with no assistant reply at all.
+  it("still persists an assistant message after a trailing clear streak", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Partial answer" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+    ];
+
+    expect(buildAssistantMessage(events, "run-no-reply")).not.toBeNull();
+  });
+
+  // A clear with real events after it still applies — the successor chunk
+  // re-emits what it wiped, which is the whole point of the event.
+  it("applies a clear that is followed by more content", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Discarded draft" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+      { seq: 3, event: { type: "text", text: "Real answer" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-mid-clear");
+
+    expect(message?.content).toEqual([{ type: "text", text: "Real answer" }]);
+  });
+
   it("rebuilds streamed thinking as persisted reasoning parts", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "thinking", text: "First, " } },
@@ -370,13 +416,58 @@ describe("buildAssistantMessage", () => {
       suppressInternalContinuation: true,
     });
 
+    // Friendly copy, same as the live client (client/sse-event-processor.ts) —
+    // not the raw gateway dump this used to append verbatim.
     expect(message?.content).toEqual([
       {
         type: "text",
-        text: 'checking...\n\nError: Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+        text:
+          "checking...\n\nError: The model gateway returned no error details and the chat couldn't recover. " +
+          "Wait a moment and retry, or start a new chat if it keeps happening.\n\n" +
+          "[Start new chat](agent-native:new-chat)",
       },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(
+      (message?.metadata.custom as { runError?: { details?: string } })
+        ?.runError?.details,
+    ).toBe(
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+    );
+  });
+
+  it("never persists a raw provider connection dump as user-visible text", () => {
+    // Reproduces the Slack-reported repro: switching to a non-Anthropic model
+    // surfaces a raw SSL handshake failure. classifyProviderError tags this
+    // shape as errorCode "provider_network_error" upstream; the persisted
+    // text must go through the same friendly-copy layer as the live client
+    // instead of appending the raw diagnostic string.
+    const rawSslError =
+      "write EPROTO 140:error:1417C0C7:SSL routines:tls_process_client_certificate:" +
+      "sslv3 alert bad certificate:../ssl/record/rec_layer_s3.c:1584:SSL alert number 42";
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "switching provider..." } },
+      {
+        seq: 1,
+        event: {
+          type: "error",
+          error: rawSslError,
+          errorCode: "provider_network_error",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-ssl-alert");
+
+    const textPart = message?.content.find((part) => part.type === "text");
+    expect(textPart?.text).toBe(
+      "switching provider...\n\nError: The model provider could not be reached. Check your connection and retry.",
+    );
+    expect(textPart?.text).not.toContain(rawSslError);
+    expect(
+      (message?.metadata.custom as { runError?: { details?: string } })
+        ?.runError?.details,
+    ).toBe(rawSslError);
   });
 
   it("persists recoverable errors by default for non-continuation server paths", () => {
@@ -913,6 +1004,34 @@ describe("mergeThreadDataForClientSave", () => {
     });
 
     expect(merged.queuedMessages).toBeUndefined();
+  });
+
+  it("does not restore a queued message after the server claimed it", () => {
+    const existing = {
+      _claimedQueuedMessageIds: ["queued-1"],
+      queuedMessages: [],
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "run the report" }],
+        },
+      ],
+    };
+    const staleIncoming = {
+      queuedMessages: [
+        { id: "queued-1", text: "run the report" },
+        { id: "queued-2", text: "send the summary" },
+      ],
+      messages: existing.messages,
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, staleIncoming);
+
+    expect(merged._claimedQueuedMessageIds).toEqual(["queued-1"]);
+    expect(merged.queuedMessages).toEqual([
+      { id: "queued-2", text: "send the summary" },
+    ]);
   });
 
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
@@ -1465,6 +1584,21 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
+  it("persists the durable queue identity on a submitted user message", () => {
+    const message = buildUserMessage({
+      text: "Run the report",
+      runId: "run-submit",
+      queuedMessageId: "queued-1",
+    });
+
+    expect(message.metadata).toEqual({
+      custom: {
+        submittedRunId: "run-submit",
+        agentNativeQueuedMessageId: "queued-1",
+      },
+    });
+  });
+
   it("persists submitted text attachments in assistant-ui attachment shape", () => {
     const message = buildUserMessage({
       text: "Summarize this",

@@ -20,12 +20,12 @@ Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가�
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="키트의 위치" summary={"프레임워크 런타임은 지속적인 보장을 제공합니다. Toolkit은 그 보장을 재사용 가능한 제품 시스템으로 바꿉니다. 앱은 도메인별 데이터, 라우트, 시각적 정체성을 더합니다."}>
+<Diagram id="doc-block-toolkits-boundary" title="세 계층의 관계" summary={"Core는 프레임워크 기반입니다. Toolkit은 선택적 재사용 인프라와 UI입니다. Templates는 Core 위에 구축되고 흔히 Toolkit을 사용하는 선택적 앱입니다."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">런타임</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     액션, SQL, 인증, 앱 상태, 접근 검사, 실시간 전송
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -35,7 +35,7 @@ Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">앱</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     도메인 스키마, 라우트, 액션, 브랜딩, 전문 워크플로
   </div>
 </div>
@@ -59,6 +59,8 @@ Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가�
 ```
 
 </Diagram>
+
+Core가 프레임워크입니다. Toolkit은 프레임워크를 위한 선택적 재사용 부품 모음입니다. Templates는 Core 위의 선택적 앱이며 Toolkit을 사용할 수 있고 완전한 시작점으로 포크할 수 있습니다. 앱은 Toolkit이나 template 없이 Core를 직접 사용할 수도 있습니다.
 
 ## 카탈로그 {#catalog}
 

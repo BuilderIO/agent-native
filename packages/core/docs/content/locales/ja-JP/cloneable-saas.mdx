@@ -33,6 +33,123 @@ description: "動作する SaaS 製品から始め、エージェントも含め
 
 [Apps](/apps) で完全なカタログを参照するか、カタログに直接ジャンプしてください。たとえば、ワークスペース スタイルのアプリが必要な場合は、[Dispatch](/docs/template-dispatch) から始めるのが最適です。
 
+## コミュニティテンプレート {#community-templates}
+
+CLI ピッカーに名前が表示されるテンプレートは**ファーストパーティ**です。
+Agent Native がフレームワークとともに保守、テスト、文書化、リリースします。
+**コミュニティテンプレート**の保守とバージョン管理は、そのリポジトリの
+所有者が行います。同じフレームワーク機能を利用できますが、コミュニティ
+一覧への掲載は、Agent Native による推奨やサポートの保証ではありません。
+
+`create` を実行し、**コミュニティテンプレート** を選び、公開 GitHub
+リポジトリのシンプルな URL を貼り付けます。
+
+```bash
+https://github.com/owner/repo
+```
+
+リポジトリのルートが単一の Agent Native アプリなら、CLI は別のピッカーを
+表示せず直接インストールします。Agent Native ワークスペースなら、CLI は
+`apps/*` の有効な直接の子を検出し、`dispatch` を除外して、インストールする
+アプリを尋ねます。
+
+空でない `agent-native.workspaceCore` マーカーがあるリポジトリは、ルート
+package も `@agent-native/core` に依存していてもワークスペースとして扱われ
+ます。不正なマーカーは拒否されます。
+
+スクリプトでは同じシンプルな URL を `--template` に渡すか、短い
+`community:` 形式を使用します。再現可能な開始点が必要な場合は、`#` の後に
+branch、tag、または commit を固定します。ref を省略すると、CLI は `main`、
+次に `master` を試します。
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+ワークスペースリポジトリのソースアプリを非対話形式で選ぶには、
+`?app=<app-name>` を使用します。このセレクターは省略可能な `#ref` の前に
+置きます。zsh などの shell は `?` を glob として扱うため、値全体を引用符で
+囲んでください。
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+ワークスペース外では、`create` は選択したソースアプリをスタンドアロンに
+します。既存のワークスペースに追加する場合は、`add-app` ピッカーには
+ファーストパーティテンプレートしか表示されないため、コミュニティリポジトリを
+明示的に渡します。ソースワークスペースから対話形式で選ぶ場合は `?app` を
+省略し、スクリプト化する場合は指定します。
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+公開 GitHub リポジトリだけが使用できます。非公開リポジトリ、GitHub 以外の
+ホスト、GitHub の tree URL やサブディレクトリ URL、ネストしたアプリパスは
+サポートされません。ルートアプリには、`dependencies`、`devDependencies`、
+または `peerDependencies` に `@agent-native/core` を記載した、読み取り可能な
+`package.json` が必要です。ワークスペースリポジトリでは、選択可能な各
+ソースアプリが `apps/<app-name>/` の直下で同じ要件を満たす必要があります。
+`dispatch` は選択できません。
+
+コミュニティワークスペースアプリは、monorepo の任意の一部分ではなく、
+移植可能な単独の単位である必要があります。
+
+- デフォルトの `catalog:` 依存関係は、ソースリポジトリのルートにある
+  `pnpm-workspace.yaml` から解決されます。名前付き catalog 参照は
+  サポートされません。
+- `@agent-native/core`、`@agent-native/dispatch`、
+  `@agent-native/toolkit` への `workspace:*` 参照は公開済みバージョンに
+  書き換えられます。他の sibling workspace package はコピーされないため、
+  公開して具体的なバージョンを使用してください。
+- ソース `workspaceCore` への依存関係は削除されます。継承された標準の
+  workspace auth と agent-chat plugin は、スタンドアロンインストールでは
+  切り離され、対象ワークスペースでは再接続されます。ソース
+  `workspaceCore` package のその他の import は明確なエラーになります。
+  そのコードをアプリへ移すか、具体的な依存関係として公開してください。
+
+各アプリの残りもその `package.json` と一緒に配置します。使用する場合の
+`agent-native.json`、ソース、actions、エージェントの指示、データベース
+設定です。カタログ掲載に適したリポジトリには、さらに次のものを含めます。
+
+- ライセンスと、メンテナーまたはサポートへのリンク
+- セットアップ手順、必要な環境変数、正確な CLI コマンドを記載した README
+- プレースホルダーだけを含み、secret、顧客データ、実行時データベース、
+  生成されたビルド出力を含まない `.env.example`
+- 正常に動作するインストールと開発コマンド、typecheck、テンプレートに
+  適したテスト
+
+インストーラーは解決した `source` と `ref` を、インストールしたアプリの
+`package.json` にある `agent-native.communityTemplate` に記録します。
+ワークスペースリポジトリから選択したアプリは、ソースアプリも
+`agent-native.communityTemplate.app` に記録します。`agent-native template
+sync` は引き続きファーストパーティ専用です。コミュニティテンプレートを
+更新する場合は、新しい upstream ref を確認し、自分で変更をマージします。
+
+アプリ、action、state、security、公開に関する完全なチェックリストは
+[Creating Templates](/docs/creating-templates) を参照してください。
+
+> **依存関係をインストールしたり実行したりする前に、コミュニティコードを
+> 確認してください。** コミュニティテンプレートは第三者のリポジトリから
+> ダウンロードされます。Agent Native はそれらを sandbox 化、監査、保守
+> しません。CLI はソースをダウンロードするだけで、依存関係のインストールや
+> テンプレートスクリプトの実行は行いません。ソース、ライセンス、依存関係、
+> package install scripts を確認し、信頼できる ref を固定してください。
+
+ホストされたデモは任意です。提供する場合は、一般公開された試用リンクにし、
+sign-in、seed data、provider の要件を記載してください。インストール元の
+正本はリポジトリであり、テンプレートとデモの両方に対する責任はリポジトリ
+所有者にあります。
+
+掲載を希望しますか？リポジトリ URL、1 文の説明、メンテナーとライセンスの
+詳細、テスト済みの CLI コマンド、任意のホスト済みデモ URL を添えて、
+[コミュニティテンプレートを送信](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)
+してください。
+
 ## 箱から出してすぐに手に入るもの {#what-you-get}
 
 すべてのサンプルアプリには、通常、構築に数か月かかるパーツが付属しています。
@@ -100,28 +217,28 @@ description: "動作する SaaS 製品から始め、エージェントも含め
 
 1. **サンプルアプリを選択します。** CLI ピッカーを使用するか、ドキュメントを参照して開始するアプリを選択します。
 2. **ブランド化します。** 名前、色、ロゴ、コピーを変更します。ほとんどのサンプルアプリは、これを単一の構成ファイルで公開します。
-3. **カスタマイズします。** エージェントに、必要な列の追加、受信トレイのグループ方法の変更、内部 API への接続、新しいビューの追加を依頼します。エージェントはコードを編集します。差分を確認してください。
+3. **カスタマイズします。** 自分のリポジトリと開発ワークフローでソースを変更します。エージェントの frame に workspace と書き込みツールが意図的に与えられていれば支援でき、それ以外では埋め込みエージェントが actions、データ、設定済みの統合を通じてアプリを操作します。
 4. **出荷します。** デプロイ コマンドを実行します。これで、独自のドメインに独自の実稼働 SaaS ができました。
 
-ステップ 2 ～ 4 には通常、数か月ではなく数日かかります。ステップ 3 は無制限です。フォークされた SaaS は、エージェントと会話することで、簡単な英語で時間の経過とともに進化します。
+ステップ 2 ～ 4 には通常、数か月ではなく数日かかります。ステップ 3 はオープンです。アプリは自分のものとして進化させられ、埋め込みエージェントはデプロイ済み製品を操作し続けます。コードアクセスが明示的に有効ならソース変更も支援できます。
 
 ## これが実用的な理由 {#why}
 
 従来のコードベースのフォーク モデルは大規模になると崩壊します。すべてのユーザーが自分の受信トレイを維持するのはメンテナンスの悪夢のように思えます。フレームワークを機能させるには、次の 2 つのフレームワークの決定が必要です。
 
-1. **メンテナンスはエージェントが行います。** 列を追加したり、新しい統合を接続したりするためのコードを作成するのではなく、エージェントに依頼します。つまり、「独自のフォークされた受信箱」は機能であり、負担ではありません。
+1. **アプリがフレームワーク契約を維持します。** ソースがドメイン動作を所有し、Core はアプリの進化に合わせて actions、SQL、状態、同期の一貫性を保ちます。
 2. **ユーザーごとのコードを使用しないユーザーごとのカスタマイズ。** Skills、メモリ、命令、接続された MCP サーバー、およびサブエージェントはすべて SQL に存在します。すべてのユーザーは独自のカスタマイズ レイヤーを取得します。共有コードベースはそれらすべてを一度にホストします。
 
 結果: 通常の SaaS 導入の経済性を維持しながら、各ユーザーに Claude コード レベルの柔軟性をもたらします。
 
-<Diagram id="doc-block-1m85zma" title={"ユーザーごとのカスタマイズがスケールする理由"} summary={"動く app から始めるモデルは 2 つのアイデアによって実用的になります。エージェントがメンテナンスを行い、ユーザーごとのカスタマイズはユーザーごとのコードではなく SQL で行われます。"}>
+<Diagram id="doc-block-1m85zma" title={"ユーザーごとのカスタマイズがスケールする理由"} summary={"動く app から始めるモデルは 2 つのアイデアによって実用的になります。アプリがフレームワーク契約を維持し、ユーザーごとのカスタマイズはユーザーごとのコードではなく SQL で行われます。"}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>共有d codebase</strong
     ><small class="diagram-muted">1つのアプリを1回デプロイ</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">アプリがフレームワーク契約を維持</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>

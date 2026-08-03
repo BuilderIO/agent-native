@@ -10,10 +10,7 @@ export function DashboardPanelSkeleton({
   return (
     <Skeleton
       {...props}
-      className={cn(
-        "dashboard-panel-skeleton bg-muted-foreground/14",
-        className,
-      )}
+      className={cn("analytics-dashboard-panel-skeleton", className)}
     />
   );
 }

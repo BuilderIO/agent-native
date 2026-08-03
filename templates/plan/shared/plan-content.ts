@@ -2944,6 +2944,41 @@ export const agentPlanContentPatchesSchema = z
       "replace-block / replace-blocks / append-block.",
   );
 
+/**
+ * Model-facing patch vocabulary for edits to an existing hosted plan. Full
+ * block/content replacement remains valid at runtime for the browser editor
+ * and explicit callers, but advertising it to an agent makes it too easy to
+ * resend the whole document and hit the provider's streamed-JSON limit.
+ */
+const AGENT_INCREMENTAL_PATCH_EXCLUDED_OPS = new Set([
+  "set-prototype",
+  "replace-block",
+  "replace-blocks",
+  "replace-wireframe-screen",
+]);
+
+const agentIncrementalPlanContentPatchOptions =
+  agentPlanContentPatchOptions.filter((option) => {
+    const op = (option.shape as { op: { value: string } }).op.value;
+    return !AGENT_INCREMENTAL_PATCH_EXCLUDED_OPS.has(op);
+  });
+
+export const agentPlanIncrementalContentPatchesSchema = z
+  .array(
+    z.discriminatedUnion(
+      "op",
+      agentIncrementalPlanContentPatchOptions as unknown as Parameters<
+        typeof z.discriminatedUnion
+      >[1],
+    ),
+  )
+  .max(80)
+  .describe(
+    "Small targeted edits to an existing plan. Prefer append-block, update-rich-text, " +
+      "patch-wireframe-html, patch-prototype-html, or update-block. Do not " +
+      "resend the full plan; use get-visual-plan for context and keep each call incremental.",
+  );
+
 export function applyPlanContentPatches(
   content: PlanContent,
   patches: PlanContentPatch[],

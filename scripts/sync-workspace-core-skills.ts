@@ -58,6 +58,7 @@ const workspaceSkillIncludes = [
   "audit-log",
   "authentication",
   "automations",
+  "browser-sessions",
   "capture-learnings",
   "changelog",
   "client-methods",
@@ -245,10 +246,14 @@ const requiredRegistryConventionSkills = [
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
   "babysit-pr",
+  "concurrent-agents",
+  "delegating-work",
+  "fix-at-the-boundary",
   "multi-frontier-desktop",
   "new-branch",
   "ship",
   "ship-desktop",
+  "verifying-changes",
 ];
 
 const check = process.argv.includes("--check");

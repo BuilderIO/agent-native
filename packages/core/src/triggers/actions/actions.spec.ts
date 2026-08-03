@@ -5,8 +5,19 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
+const executeMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../db/client.js")>()),
+  getDbExec: () => ({ execute: executeMock }),
+}));
 
 vi.mock("../../resources/store.js", () => ({
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
+  organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
   resourceList: resourceListMock,
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
@@ -48,6 +59,7 @@ describe("automation actions", () => {
     resourcePutMock.mockResolvedValue(undefined);
     resourceDeleteMock.mockResolvedValue(true);
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
+    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
   });
 
   it("exposes a frontend-only GET list and a frontend-only mutation", () => {
@@ -91,14 +103,33 @@ describe("automation actions", () => {
     });
   });
 
-  it("truthfully returns no organization automations", async () => {
-    await expect(
-      listAutomations.run(
-        { scope: "organization" },
-        { ...ctx, orgId: "org-1" },
+  it("lists organization automations for a current member", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/digest.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "automation-1",
+      owner: "__organization__:org-1",
+      path: "jobs/digest.md",
+      content: automationContent.replace(
+        "createdBy: alice@example.com",
+        'createdBy: alice@example.com\norgId: "org-1"\nrunAs: creator',
       ),
-    ).resolves.toEqual([]);
-    expect(resourceListMock).not.toHaveBeenCalled();
+    });
+
+    const automations = await listAutomations.run(
+      { scope: "organization" },
+      { ...ctx, orgId: "org-1" },
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "__organization__:org-1",
+      "jobs/",
+    );
+    expect(automations).toHaveLength(1);
+    expect(automations[0]).toMatchObject({
+      name: "digest",
+      scope: "organization",
+      canUpdate: true,
+    });
   });
 
   it("does not expose a stale next run for a disabled automation", async () => {
@@ -150,17 +181,31 @@ describe("automation actions", () => {
     expect(refreshEventSubscriptionsMock).toHaveBeenCalled();
   });
 
-  it("rejects organization mutations because automations are personal today", async () => {
-    await expect(
-      manageAutomation.run(
-        {
-          operation: "update",
-          name: "digest",
-          scope: "organization",
-          enabled: false,
-        },
-        { ...ctx, orgId: "org-1" },
+  it("updates organization automations as their current creator", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      id: "automation-1",
+      owner: "__organization__:org-1",
+      path: "jobs/digest.md",
+      content: automationContent.replace(
+        "createdBy: alice@example.com",
+        'createdBy: alice@example.com\norgId: "org-1"\nrunAs: creator',
       ),
-    ).rejects.toThrow("Automations are personal today");
+    });
+
+    await manageAutomation.run(
+      {
+        operation: "update",
+        name: "digest",
+        scope: "organization",
+        enabled: false,
+      },
+      { ...ctx, orgId: "org-1" },
+    );
+
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      "__organization__:org-1",
+      "jobs/digest.md",
+      expect.stringContaining("runAs: creator"),
+    );
   });
 });

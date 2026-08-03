@@ -106,7 +106,7 @@ export default function ImageGenPanel({
     }
 
     contextParts.push(
-      "\nGenerate 3 variations, show the image URLs/previews to the user, and let them pick their favorite. Then insert the chosen generated image into the slide content in the right place.",
+      '\nGenerate 3 variations. Show each as an inline rendered image preview using markdown image syntax (![Variation 1](url)), not a plain text link — the chat renders "![]()" as an actual image but "[]()" as a bare link. Let the user pick their favorite, then insert the chosen generated image into the slide content in the right place.',
     );
 
     const label = prompt.trim()

@@ -12,6 +12,7 @@ import {
   IconClock,
   IconHierarchy2,
   IconPlugConnected,
+  IconDownload,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -46,7 +47,7 @@ import { useUploadResource } from "../uploads/use-upload-resource.js";
 import { cn } from "../utils.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
 import {
-  isMcpIntegrationCatalogAvailable,
+  isCustomMcpIntegrationEnabled,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
@@ -70,6 +71,7 @@ import {
   useCreateResource,
   useUpdateResource,
   useDeleteResource,
+  resourceDownloadUrl,
   withMcpServersFolder,
   withAgentScratchFolder,
   type ResourceScope,
@@ -261,6 +263,7 @@ function buildAgentResourceContent({
 function CreateMenu({
   scope,
   resourceFilter,
+  personalMcpOnly = false,
   onCreateFile,
   onCreateResource,
   onCreateMcpServer,
@@ -275,6 +278,7 @@ function CreateMenu({
 }: {
   scope: ResourceScope;
   resourceFilter?: ResourceView;
+  personalMcpOnly?: boolean;
   onCreateFile: (name: string) => void;
   onCreateResource: (
     path: string,
@@ -310,10 +314,7 @@ function CreateMenu({
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
   const showMcpIntegrations = useMemo(
-    () =>
-      mcpIntegrations
-        ? mcpIntegrations.length > 0
-        : isMcpIntegrationCatalogAvailable(),
+    () => hasAvailableMcpIntegrations(mcpIntegrations),
     [mcpIntegrations],
   );
   const [value, setValue] = useState("");
@@ -323,8 +324,11 @@ function CreateMenu({
   const [agentInstructions, setAgentInstructions] = useState(
     `# Role\n\nDefine how this agent should work.\n\n## Focus\n\n- What kinds of tasks it should handle\n- What tone or approach it should use\n- Important constraints or preferences\n`,
   );
-  const defaultMcpScope: McpServerScope =
-    scope === "shared" && canCreateOrgMcp ? "org" : "user";
+  const defaultMcpScope: McpServerScope = personalMcpOnly
+    ? "user"
+    : scope === "shared" && canCreateOrgMcp
+      ? "org"
+      : "user";
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
   const skillHoverTimerRef = useRef<number | null>(null);
@@ -364,7 +368,7 @@ function CreateMenu({
 
   useEffect(() => {
     if (open) {
-      setView(initialView);
+      setView(personalMcpOnly ? "menu" : initialView);
       setValue("");
       setAgentName("");
       setAgentDescription("");
@@ -377,7 +381,7 @@ function CreateMenu({
       setSkillUploadFileName("");
       setSkillFlyoutOpen(false);
     }
-  }, [initialView, open]);
+  }, [initialView, open, personalMcpOnly]);
 
   useEffect(() => {
     if (view !== "menu" && view !== "agent-form") {
@@ -610,6 +614,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
     desc: string;
     action: () => void;
     hoverAction?: () => void;
+    personalMcp?: boolean;
   }[] = [
     {
       icon: <IconPlus className="h-3.5 w-3.5" />,
@@ -663,6 +668,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
             icon: <IconPlugConnected className="h-3.5 w-3.5" />,
             label: t("mcpIntegrations.menuLabel"),
             desc: t("mcpIntegrations.menuDescription"),
+            personalMcp: true,
             action: () => {
               setOpen(false);
               setMcpDialogOpen(true);
@@ -672,6 +678,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
       : []),
   ];
   const visibleMenuItems = menuItems.filter((item) => {
+    if (personalMcpOnly) return item.personalMcp;
     if (!resourceFilter || resourceFilter === "files") return true;
     if (resourceFilter === "agents")
       return item.label === "Create Custom Agent";
@@ -1185,6 +1192,35 @@ export function resolveInitialResourceScope(
   return canEditOrg ? "shared" : "personal";
 }
 
+export function hasAvailableMcpIntegrations(
+  integrations: readonly DefaultMcpIntegration[] | undefined,
+): boolean {
+  return (integrations?.length ?? 0) > 0 || isCustomMcpIntegrationEnabled();
+}
+
+export function resolveResourceCreateMenuMode(
+  scope: ResourceScope,
+  canEditOrg: boolean,
+  resourceFilter: ResourceView | undefined,
+  hasMcpIntegrations: boolean,
+): "full" | "personal-mcp" | "hidden" {
+  if (scope !== "shared" || canEditOrg) return "full";
+  if (hasMcpIntegrations && (!resourceFilter || resourceFilter === "files")) {
+    return "personal-mcp";
+  }
+  return "hidden";
+}
+
+export function shouldRenderResourceSectionCreateMenu(
+  mode: ReturnType<typeof resolveResourceCreateMenuMode>,
+  resourceFilter: ResourceView | undefined,
+): boolean {
+  return (
+    mode === "full" &&
+    (resourceFilter === "agents" || resourceFilter === "skills")
+  );
+}
+
 export function ResourcesPanel({
   showMcpServers = true,
   scope: requestedScope,
@@ -1317,6 +1353,13 @@ export function ResourcesPanel({
   const hasOrgForMcp = !!(mcpServersQuery.data?.orgId ?? org?.orgId);
   const canCreateOrgMcp =
     hasOrgForMcp && (orgRole === "owner" || orgRole === "admin");
+  const hasMcpIntegrations = hasAvailableMcpIntegrations(mcpIntegrations);
+  const activeCreateMenuMode = resolveResourceCreateMenuMode(
+    activeScope,
+    canEditOrg,
+    resourceFilter,
+    hasMcpIntegrations,
+  );
 
   // Virtual MCP server currently selected in the tree (or null for a real
   // resource / nothing). Resolved by scanning both trees' mcp folders for
@@ -1563,22 +1606,29 @@ export function ResourcesPanel({
       e.preventDefault();
       e.stopPropagation();
       setDragOver(false);
+      if (activeCreateMenuMode !== "full") return;
       if (e.dataTransfer.files.length > 0) {
         handleUploadFiles(e.dataTransfer.files, activeScope);
       }
     },
-    [activeScope, handleUploadFiles],
+    [activeCreateMenuMode, activeScope, handleUploadFiles],
   );
 
   const renderScopeCreateMenu = (targetScope: ResourceScope) => {
-    if (resourceFilter !== "agents" && resourceFilter !== "skills") {
+    const mode = resolveResourceCreateMenuMode(
+      targetScope,
+      canEditOrg,
+      resourceFilter,
+      hasMcpIntegrations,
+    );
+    if (!shouldRenderResourceSectionCreateMenu(mode, resourceFilter)) {
       return null;
     }
-    if (targetScope === "shared" && !canEditOrg) return null;
     return (
       <CreateMenu
         scope={targetScope}
         resourceFilter={resourceFilter}
+        personalMcpOnly={mode === "personal-mcp"}
         onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
         onCreateResource={(path, content, mimeType, opts) =>
           handleCreateResourceFromToolbar(
@@ -1599,13 +1649,20 @@ export function ResourcesPanel({
   };
 
   const renderEmptyStateAction = (targetScope: ResourceScope) => {
-    if (targetScope === "shared" && !canEditOrg) return null;
+    const mode = resolveResourceCreateMenuMode(
+      targetScope,
+      canEditOrg,
+      resourceFilter,
+      hasMcpIntegrations,
+    );
+    if (mode === "hidden") return null;
 
     const label = resourceFilter
       ? EMPTY_RESOURCE_ACTION_LABELS[resourceFilter]
       : "Add resource";
 
     if (
+      mode === "personal-mcp" ||
       !resourceFilter ||
       resourceFilter === "files" ||
       resourceFilter === "agents" ||
@@ -1615,6 +1672,7 @@ export function ResourcesPanel({
         <CreateMenu
           scope={targetScope}
           resourceFilter={resourceFilter}
+          personalMcpOnly={mode === "personal-mcp"}
           onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
           onCreateResource={(path, content, mimeType, opts) =>
             handleCreateResourceFromToolbar(
@@ -1631,7 +1689,9 @@ export function ResourcesPanel({
           showToast={showToast}
           mcpIntegrations={mcpIntegrations}
           triggerVariant="outline"
-          triggerLabel={label}
+          triggerLabel={
+            mode === "personal-mcp" ? t("mcpIntegrations.menuLabel") : label
+          }
           initialView={resourceFilter === "files" ? "file" : "menu"}
         />
       );
@@ -1758,6 +1818,25 @@ export function ResourcesPanel({
                   </TooltipProvider>
                 </div>
               )}
+            {!selectedMcpServer &&
+              resourceQuery.data &&
+              (resourceQuery.data.mimeType.startsWith("text/") ||
+                resourceQuery.data.mimeType === "application/json") && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={resourceDownloadUrl(resourceQuery.data.id)}
+                        aria-label="Download resource"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      >
+                        <IconDownload className="h-3.5 w-3.5" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>Download resource</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             {!selectedBuiltinCapability && !selectedResourceReadOnly && (
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
@@ -1799,45 +1878,49 @@ export function ResourcesPanel({
       ) : (
         /* Floating action buttons — absolute top-right over tree view */
         <div className="absolute top-1 right-1 z-10 flex items-center gap-1">
-          {(!resourceFilter || resourceFilter === "files") && (
-            <CreateMenu
-              scope={activeScope}
-              resourceFilter={resourceFilter}
-              onCreateFile={(name) =>
-                handleCreateFromToolbar(activeScope, name)
-              }
-              onCreateResource={(path, content, mimeType, opts) =>
-                handleCreateResourceFromToolbar(
-                  activeScope,
-                  path,
-                  content,
-                  mimeType,
-                  opts,
-                )
-              }
-              onCreateMcpServer={handleCreateMcpServer}
-              canCreateOrgMcp={canCreateOrgMcp}
-              hasOrg={hasOrgForMcp}
-              showToast={showToast}
-              mcpIntegrations={mcpIntegrations}
-            />
-          )}
+          {activeCreateMenuMode !== "hidden" &&
+            (!resourceFilter || resourceFilter === "files") && (
+              <CreateMenu
+                scope={activeScope}
+                resourceFilter={resourceFilter}
+                personalMcpOnly={activeCreateMenuMode === "personal-mcp"}
+                onCreateFile={(name) =>
+                  handleCreateFromToolbar(activeScope, name)
+                }
+                onCreateResource={(path, content, mimeType, opts) =>
+                  handleCreateResourceFromToolbar(
+                    activeScope,
+                    path,
+                    content,
+                    mimeType,
+                    opts,
+                  )
+                }
+                onCreateMcpServer={handleCreateMcpServer}
+                canCreateOrgMcp={canCreateOrgMcp}
+                hasOrg={hasOrgForMcp}
+                showToast={showToast}
+                mcpIntegrations={mcpIntegrations}
+              />
+            )}
           {(!resourceFilter || resourceFilter === "files") && (
             <>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      aria-label="Upload file"
-                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    >
-                      <IconUpload className="h-3.5 w-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Upload file</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              {activeCreateMenuMode === "full" && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        aria-label="Upload file"
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                      >
+                        <IconUpload className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Upload file</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
                   <TooltipTrigger asChild>

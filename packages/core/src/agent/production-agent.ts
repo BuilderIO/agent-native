@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import Ajv, { type ValidateFunction } from "ajv";
+import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import {
   defineEventHandler,
   getHeader,
@@ -13,6 +13,7 @@ import type { EventHandler as H3EventHandler } from "h3";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
+  describeToolParameterSignature,
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
@@ -83,6 +84,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
+import { isProviderConnectionErrorMessage } from "./engine/error-detail.js";
 import {
   resolveEngine,
   registerBuiltinEngines,
@@ -183,6 +185,7 @@ import {
 } from "./tool-result-images.js";
 import {
   createToolSearchEntry,
+  searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
 } from "./tool-search.js";
 import type {
@@ -603,6 +606,9 @@ export interface ActionEntry {
    *  Plan mode. Use for tools that perform substantive work even without
    *  mutating state. */
   allowInPlanMode?: boolean;
+  /** First-class Plan-mode effect policy. Mixed tools should classify each
+   *  invocation so read variants remain available while writes fail closed. */
+  planMode?: import("../action.js").ActionPlanModeConfig<any>;
   /** If true, this action can run concurrently with other same-turn
    *  read-only/parallel-safe tool calls. Only use for actions that handle
    *  their own write ordering and idempotency. */
@@ -665,7 +671,7 @@ export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
 
 Hard rules:
-- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, call external agents, or change external systems.
+- Use only read-only tools. Do not edit files, write resources, run mutating bash commands, mutate SQL rows, navigate the UI, send notifications, create jobs, create tools, send messages or tasks to external agents, or change external systems.
 - If a needed detail is unclear, ask a concise clarifying question before proposing a plan.
 - When ready, present a concrete plan with the files/tools you expect to touch, the intended changes, validation steps, and notable risks.
 - Do not treat approval as implicit while Plan mode is still active. Tell the user to switch to Act mode with the mode selector or /act before implementation.`;
@@ -676,18 +682,6 @@ const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
   "set-url-path",
 ]);
 
-const PLAN_MODE_ALLOWED_ACTIONS: Record<string, readonly string[]> = {
-  resources: ["list", "read"],
-  "chat-history": ["search"],
-  "agent-teams": ["status", "read-result", "list"],
-  "manage-jobs": ["list"],
-  "manage-automations": ["list-events", "list"],
-  "manage-notifications": ["list"],
-  "manage-progress": ["list"],
-  "manage-agent-engine": ["list"],
-};
-
-const PLAN_MODE_WEB_REQUEST_METHODS = new Set(["GET", "HEAD"]);
 const SOURCE_SWEEP_AGENT_TEAM_ALLOWED_ACTIONS = [
   "status",
   "read-result",
@@ -703,49 +697,85 @@ function getToolAction(name: string, args: unknown): string {
   return String(raw ?? "").toLowerCase();
 }
 
-function getWebRequestMethod(args: unknown): string {
-  const raw =
-    args && typeof args === "object" && "method" in args
-      ? (args as Record<string, unknown>).method
-      : undefined;
-  return String(raw ?? "GET").toUpperCase();
-}
-
-function restrictActionEnum(
+function projectPlanModeParameters(
   parameters: ActionTool["parameters"] | undefined,
-  allowedActions: readonly string[],
+  planMode: import("../action.js").ActionPlanModeConfig<any> | undefined,
 ): ActionTool["parameters"] | undefined {
-  if (!parameters) return parameters;
-  const actionParam = parameters.properties.action;
-  if (!actionParam) return parameters;
+  if (!parameters || !planMode) return parameters;
+  const allowedProperties = planMode.allowedProperties
+    ? new Set(planMode.allowedProperties)
+    : undefined;
+  const omittedProperties = new Set(planMode.omittedProperties ?? []);
+  const properties = Object.fromEntries(
+    Object.entries(parameters.properties).filter(
+      ([key]) =>
+        (!allowedProperties || allowedProperties.has(key)) &&
+        !omittedProperties.has(key),
+    ),
+  ) as typeof parameters.properties;
+  let changed = false;
+  for (const [key, values] of Object.entries(planMode.allowedValues ?? {})) {
+    const parameter = properties[key];
+    if (!parameter) continue;
+    properties[key] = { ...parameter, enum: [...values] };
+    changed = true;
+  }
+  if (
+    !changed &&
+    !allowedProperties &&
+    omittedProperties.size === 0 &&
+    (planMode.requiredProperties?.length ?? 0) === 0
+  ) {
+    return parameters;
+  }
+  const required = Array.from(
+    new Set([
+      ...(parameters.required?.filter((key) => key in properties) ?? []),
+      ...(planMode.requiredProperties?.filter((key) => key in properties) ??
+        []),
+    ]),
+  );
   return {
     ...parameters,
-    properties: {
-      ...parameters.properties,
-      action: {
-        ...actionParam,
-        enum: [...allowedActions],
-      },
-    },
+    properties,
+    ...(required.length > 0 ? { required } : {}),
   };
 }
 
-function restrictWebRequestMethods(
-  parameters: ActionTool["parameters"] | undefined,
-): ActionTool["parameters"] | undefined {
-  if (!parameters) return parameters;
-  const methodParam = parameters.properties.method;
-  if (!methodParam) return parameters;
-  return {
-    ...parameters,
-    properties: {
-      ...parameters.properties,
-      method: {
-        ...methodParam,
-        enum: [...PLAN_MODE_WEB_REQUEST_METHODS],
-      },
+function matchesPlanModeInputPolicy(
+  input: unknown,
+  planMode: import("../action.js").ActionPlanModeConfig<any>,
+): boolean {
+  const hasPropertyPolicy =
+    planMode.allowedProperties !== undefined ||
+    (planMode.omittedProperties?.length ?? 0) > 0 ||
+    planMode.allowedValues !== undefined;
+  if (!hasPropertyPolicy) return true;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return false;
+  }
+  const values = input as Record<string, unknown>;
+  const allowedProperties = planMode.allowedProperties
+    ? new Set(planMode.allowedProperties)
+    : undefined;
+  const omittedProperties = new Set(planMode.omittedProperties ?? []);
+  if (
+    Object.keys(values).some(
+      (key) =>
+        (allowedProperties && !allowedProperties.has(key)) ||
+        omittedProperties.has(key),
+    )
+  ) {
+    return false;
+  }
+  return Object.entries(planMode.allowedValues ?? {}).every(
+    ([key, allowed]) => {
+      const value = values[key];
+      return (
+        value == null || (typeof value === "string" && allowed.includes(value))
+      );
     },
-  };
+  );
 }
 
 function planModeBlockedMessage(toolName: string, reason?: string): string {
@@ -764,17 +794,23 @@ export function isPlanModeToolCallAllowed(
   if (entry.allowInPlanMode === false) return false;
   if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
 
-  if (name === "web-request") {
-    return PLAN_MODE_WEB_REQUEST_METHODS.has(getWebRequestMethod(input));
-  }
-
   if (name === "bash") {
     return isPlanModeReadOnlyBashCall(input);
   }
 
-  const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
-  if (allowedActions) {
-    return allowedActions.includes(getToolAction(name, input));
+  if (entry.planMode) {
+    if (!matchesPlanModeInputPolicy(input, entry.planMode)) {
+      return false;
+    }
+    try {
+      const effect =
+        typeof entry.planMode.effect === "function"
+          ? entry.planMode.effect(input)
+          : entry.planMode.effect;
+      return effect === "read";
+    } catch {
+      return false;
+    }
   }
 
   return entry.readOnly === true;
@@ -790,45 +826,35 @@ function isPlanModeReadOnlyBashCall(input: unknown): boolean {
 function createPlanModeGuardedAction(
   name: string,
   entry: ActionEntry,
-  allowedActions: readonly string[],
 ): ActionEntry {
+  const allowedValues = entry.planMode?.allowedValues;
+  const allowedDescription = allowedValues
+    ? Object.entries(allowedValues)
+        .map(
+          ([key, values]) =>
+            `\`${key}\`: ${values.map((value) => `"${value}"`).join(", ")}`,
+        )
+        .join("; ")
+    : "";
+  const guidance =
+    entry.planMode?.description ??
+    (allowedDescription
+      ? `only these argument values are available: ${allowedDescription}.`
+      : "only calls classified as read-only are available.");
   return {
     ...entry,
     readOnly: true,
     tool: {
       ...entry.tool,
-      description:
-        `${entry.tool.description}\n\nPlan mode: only these read-only actions are available: ` +
-        allowedActions.map((action) => `"${action}"`).join(", ") +
-        ".",
-      parameters: restrictActionEnum(entry.tool.parameters, allowedActions),
+      description: `${entry.tool.description}\n\nPlan mode: ${guidance}`,
+      parameters: projectPlanModeParameters(
+        entry.tool.parameters,
+        entry.planMode,
+      ),
     },
     run: async (args, context) => {
-      const action = getToolAction(name, args);
-      if (!allowedActions.includes(action)) {
-        return planModeBlockedMessage(
-          name,
-          `action="${action || "(missing)"}"`,
-        );
-      }
-      return entry.run(args, context);
-    },
-  };
-}
-
-function createPlanModeWebRequestAction(entry: ActionEntry): ActionEntry {
-  return {
-    ...entry,
-    readOnly: true,
-    tool: {
-      ...entry.tool,
-      description: `${entry.tool.description}\n\nPlan mode: only GET and HEAD requests are allowed.`,
-      parameters: restrictWebRequestMethods(entry.tool.parameters),
-    },
-    run: async (args, context) => {
-      const method = getWebRequestMethod(args);
-      if (!PLAN_MODE_WEB_REQUEST_METHODS.has(method)) {
-        return planModeBlockedMessage("web-request", `method="${method}"`);
+      if (!isPlanModeToolCallAllowed(name, args, entry)) {
+        return planModeBlockedMessage(name, "call is not read-only");
       }
       return entry.run(args, context);
     },
@@ -893,23 +919,24 @@ export function createPlanModeActionRegistry(
       continue;
     }
 
-    const allowedActions = PLAN_MODE_ALLOWED_ACTIONS[name];
-    if (allowedActions) {
-      filtered[name] = createPlanModeGuardedAction(name, entry, allowedActions);
-      continue;
-    }
-
-    if (name === "web-request") {
-      filtered[name] = createPlanModeWebRequestAction(entry);
-      continue;
-    }
-
     if (name === "bash") {
       filtered[name] = createPlanModeBashAction(entry);
       continue;
     }
 
-    if (entry.readOnly === true) {
+    if (entry.planMode) {
+      if (typeof entry.planMode.effect === "function") {
+        filtered[name] = createPlanModeGuardedAction(name, entry);
+      } else if (entry.planMode.effect === "read") {
+        filtered[name] = createPlanModeGuardedAction(name, entry);
+      } else {
+        filtered[name] = createPlanModeBlockedAction(
+          name,
+          entry,
+          "write or unknown effect",
+        );
+      }
+    } else if (entry.readOnly === true) {
       filtered[name] = entry;
     } else {
       filtered[name] = createPlanModeBlockedAction(
@@ -957,6 +984,7 @@ export interface ProductionAgentOptions {
     threadId: string | undefined;
     message: string;
     attachments?: AgentChatAttachment[];
+    queuedMessageId?: string;
   }) => void | Promise<void>;
   /**
    * Optional per-template request normalizer. Runs after owner resolution and
@@ -1041,7 +1069,12 @@ export interface ProductionAgentOptions {
    * `maxResultChars` takes precedence; this sets the fallback for actions
    * that don't declare their own limits.
    */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  toolLimits?: {
+    timeoutMs?: number;
+    maxResultChars?: number;
+    /** Absolute cap applied after action-level overrides. */
+    hardMaxResultChars?: number;
+  };
 }
 
 export async function resolveAgentOwnerEmail(
@@ -1280,11 +1313,7 @@ export function isRetryableError(err: unknown): boolean {
     msg.includes("gateway error") ||
     msg.includes("socket hang up") ||
     msg.includes("connection reset") ||
-    // Anthropic SDK APIConnectionError default message is exactly
-    // "Connection error." — Builder gateway often forwards it as a stop
-    // event with no structured code. Without this match the run fails in
-    // ~3s and the client recovery loop storms POSTs.
-    msg.includes("connection error") ||
+    isProviderConnectionErrorMessage(msg) ||
     msg.includes("too many requests") ||
     msg.includes("timeout") ||
     msg.includes("gateway timeout") ||
@@ -2020,7 +2049,34 @@ export interface AgentLoopUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   model: string;
+  /**
+   * True once the engine reported at least one real `usage` event for this
+   * run. The token fields above start at 0 and are only ever incremented —
+   * when this is not true, those zeros are placeholders for "never
+   * reported", not a measured empty usage, and callers must not treat them
+   * as real counts.
+   */
+  usageReported?: boolean;
+  /**
+   * Wall-clock epoch ms of the first non-heartbeat engine-stream event seen
+   * across this run (all retries/continuations). Undefined means no event
+   * ever arrived — e.g. the run was killed for silence before the model
+   * produced anything.
+   */
+  firstEngineEventAtMs?: number;
 }
+
+/** Machine-readable terminal state for one agent-loop attempt. */
+export type AgentLoopOutcome =
+  | { state: "completed" }
+  | { state: "input_required"; code: string; message: string }
+  | {
+      state: "failed";
+      code: string;
+      retryable: boolean;
+      message: string;
+    }
+  | { state: "canceled"; message?: string };
 
 export interface AgentLoopToolCallSummary {
   name: string;
@@ -2110,7 +2166,7 @@ export type AgentLoopContinuationReason =
 
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: AgentLoopContinuationReason | "rate_limited",
   options: { actionPreparationTool?: string } = {},
 ) {
   const note =
@@ -2122,11 +2178,13 @@ export function appendAgentLoopContinuation(
           ? "The previous stream ended before the agent sent a final completion signal."
           : reason === "gateway_timeout"
             ? "The previous LLM call hit an upstream gateway timeout before the response finished streaming."
-            : reason === "network_interrupted"
-              ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
-              : reason === "no_progress"
-                ? "The previous run stopped producing progress events while the connection stayed open."
-                : "The previous run reached an internal execution budget.";
+            : reason === "rate_limited"
+              ? "The previous LLM call was temporarily rate limited after exhausting its short provider retry budget."
+              : reason === "network_interrupted"
+                ? "The previous LLM call was cut off by a transport-level interruption (socket dropped, connection reset, or stream closed unexpectedly)."
+                : reason === "no_progress"
+                  ? "The previous run stopped producing progress events while the connection stayed open."
+                  : "The previous run reached an internal execution budget.";
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
@@ -2196,7 +2254,7 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
-    text.includes("connection error") ||
+    isProviderConnectionErrorMessage(text) ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
     text.includes("stream closed") ||
@@ -2207,6 +2265,34 @@ export function isResumableEngineError(err: unknown): boolean {
     text.includes("too much time has passed without sending any data") ||
     text.includes("terminated")
   );
+}
+
+/**
+ * True only for transient provider throttling that may recover after one
+ * cooled-down background continuation. This is deliberately narrower than
+ * `isRetryableError`: daily/account caps are terminal, and generic retryable
+ * transport errors keep using the normal resumable-error path.
+ *
+ * The engine has already spent its short in-call retry budget before this
+ * helper is consulted. Callers must add their own small continuation cap so a
+ * sustained provider limit cannot turn into an unbounded request storm.
+ */
+export function isTransientProviderRateLimitError(err: unknown): boolean {
+  if (!(err instanceof EngineError)) return false;
+  const code = (err.errorCode ?? "").toLowerCase();
+  const text = errorSearchText(err);
+
+  if (
+    code === "rate_limit_exceeded" ||
+    text.includes("daily gateway request cap")
+  ) {
+    return false;
+  }
+  if (err.statusCode === 429 || err.statusCode === 529) {
+    return true;
+  }
+  if (code === "http_429" || code === "http_529") return true;
+  return false;
 }
 
 /**
@@ -2783,6 +2869,9 @@ export interface ExecuteAgentToolCallOptions {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  /** Bounded cross-app lineage used to prevent recursive delegation cycles. */
+  delegationDepth?: number;
+  visitedApps?: string[];
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
@@ -2946,6 +3035,40 @@ export function filterInitialEngineTools(
   return tools.filter((tool) => names.has(tool.name));
 }
 
+export function preloadPlanModeEngineTools(options: {
+  request: string;
+  registry: Record<string, ActionEntry>;
+  initialTools: EngineTool[];
+  availableTools: EngineTool[];
+  limit?: number;
+}): EngineTool[] {
+  const query = options.request.trim();
+  if (!query) return options.initialTools;
+
+  const activeNames = new Set(options.initialTools.map((tool) => tool.name));
+  const preloadLimit = Math.max(0, Math.min(options.limit ?? 3, 5));
+  if (preloadLimit === 0) return options.initialTools;
+
+  const ranked = searchToolRegistry(
+    options.registry,
+    { query, limit: 25, includeSchemas: true },
+    { defaultLimit: 25, maxLimit: 25 },
+  );
+  const preloadNames = ranked.results
+    .filter(
+      (result) =>
+        result.callable &&
+        result.planAvailability !== "act-only" &&
+        !activeNames.has(result.name),
+    )
+    .slice(0, preloadLimit)
+    .map((result) => result.name);
+  if (preloadNames.length === 0) return options.initialTools;
+
+  for (const name of preloadNames) activeNames.add(name);
+  return options.availableTools.filter((tool) => activeNames.has(tool.name));
+}
+
 export function buildFirstRequestPayloadDetail(input: {
   isFirstRequest: boolean;
   systemPrompt: string;
@@ -2971,6 +3094,10 @@ const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "docs-search",
   "get-framework-context",
   "read-attachment",
+  // A pasted public URL is already a complete read target. Keep the generic
+  // GET/HEAD tool on the first request so agents can inspect self-describing
+  // pages without needing an app-specific connector or a tool-search turn.
+  "web-request",
   // The `<available-apps>` prompt block names these two BY NAME on the same
   // request, and "which app should I use for this?" is answered on turn one or
   // not at all. Omitting them made the model read the instruction, find no
@@ -2995,7 +3122,9 @@ function extractToolSearchResultNames(value: unknown): string[] {
   const names: string[] = [];
   for (const item of result.results) {
     if (!item || typeof item !== "object") continue;
-    const name = (item as Record<string, unknown>).name;
+    const record = item as Record<string, unknown>;
+    if (record.callable === false) continue;
+    const name = record.name;
     if (typeof name === "string" && name.trim()) names.push(name);
   }
   return names;
@@ -3405,14 +3534,46 @@ function dedupeAssistantToolCallsById(
   return deduped;
 }
 
+/**
+ * Property names an Ajv `errorsText` line blames, e.g.
+ * `input/operations must be array; input must have required property 'id'`.
+ */
+function schemaErrorPropertyNames(error: string): string[] {
+  const names = new Set<string>();
+  for (const match of error.matchAll(/\binput\/([A-Za-z0-9_$-]+)/g)) {
+    names.add(match[1]);
+  }
+  for (const match of error.matchAll(
+    /must have required property '([^']+)'/g,
+  )) {
+    names.add(match[1]);
+  }
+  return [...names];
+}
+
+/**
+ * Raw-JSON-schema actions used to be told only that their arguments were wrong,
+ * never what shape was expected — so a model re-sent the same guess until the
+ * identical-error breaker ended the turn with the write never executed. Zod
+ * actions have echoed the expected signature since `wrapWithValidation`; this
+ * gives the raw path the same answer from the same helper.
+ */
 function toolInputSchemaErrorResult(
   toolName: string,
   input: unknown,
   error: string,
+  parameters?: ActionTool["parameters"],
 ): string {
+  const signature = describeToolParameterSignature(
+    parameters,
+    schemaErrorPropertyNames(error),
+  );
   return (
     `Invalid action parameters for ${toolName}: ${sanitizeToolErrorText(error)}. ` +
     `Received: ${stringifyToolInput(input)}. ` +
+    (signature
+      ? `Expected: ${signature} (where * = required, ? = optional). `
+      : "") +
     "The tool was not executed; retry with arguments that match the tool schema."
   );
 }
@@ -3425,6 +3586,9 @@ const rawToolInputAjv = new Ajv({
   coerceTypes: true,
   useDefaults: false,
   removeAdditional: false,
+  // `parentSchema`/`data` on each error are what let us drop the branches of a
+  // `oneOf` the caller never meant to match.
+  verbose: true,
 });
 
 const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
@@ -3465,17 +3629,83 @@ function isStructurallyEmptyToolValue(value: unknown): boolean {
   );
 }
 
-function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
-  let validator = optionalPlaceholderValidatorCache.get(schema);
-  if (!validator) {
-    try {
-      validator = optionalPlaceholderAjv.compile(schema);
-      optionalPlaceholderValidatorCache.set(schema, validator);
-    } catch {
-      return false;
-    }
+function compileToolValueValidator(schema: object): ValidateFunction | null {
+  const cached = optionalPlaceholderValidatorCache.get(schema);
+  if (cached) return cached;
+  try {
+    const validator = optionalPlaceholderAjv.compile(schema);
+    optionalPlaceholderValidatorCache.set(schema, validator);
+    return validator;
+  } catch {
+    return null;
   }
-  return Boolean(validator(value));
+}
+
+function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
+  const validator = compileToolValueValidator(schema);
+  return validator ? Boolean(validator(value)) : false;
+}
+
+/**
+ * True only when the sub-schema compiled AND rejected the value. A sub-schema
+ * that cannot be compiled standalone — a `$ref` into the root `$defs`, say — is
+ * unknown, not invalid; counting it as invalid would let one unreadable
+ * sub-schema delete the caller's intentional empty values everywhere else in
+ * the same object.
+ */
+function schemaRejectsToolValue(schema: object, value: unknown): boolean {
+  const validator = compileToolValueValidator(schema);
+  return validator ? !validator(value) : false;
+}
+
+/** The `const`/single-value-`enum` a discriminated-union branch pins a key to. */
+function schemaDiscriminatorValue(
+  schema: AgentNativeJsonSchema | undefined,
+): unknown {
+  if (!schema) return undefined;
+  if (schema.const !== undefined) return schema.const;
+  if (Array.isArray(schema.enum) && schema.enum.length === 1) {
+    return schema.enum[0];
+  }
+  return undefined;
+}
+
+/**
+ * Index of the `oneOf`/`anyOf` branch whose discriminator constants all match
+ * `value`, or -1 when the union is not discriminated or nothing matches.
+ */
+function discriminatedBranchIndex(
+  branches: readonly AgentNativeJsonSchema[],
+  value: unknown,
+): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return -1;
+  const record = value as Record<string, unknown>;
+  return branches.findIndex((branch) => {
+    const properties = branch.properties;
+    if (!properties) return false;
+    const discriminators = Object.entries(properties).filter(
+      ([, spec]) => schemaDiscriminatorValue(spec) !== undefined,
+    );
+    if (discriminators.length === 0) return false;
+    return discriminators.every(
+      ([key, spec]) => record[key] === schemaDiscriminatorValue(spec),
+    );
+  });
+}
+
+/**
+ * The object schema that actually governs `value` — the union branch its
+ * discriminator selects, or the schema itself. Undefined when a union cannot be
+ * resolved, since guessing a branch would strip the wrong keys.
+ */
+function resolveObjectSchemaBranch(
+  schema: RawJsonSchema,
+  value: unknown,
+): RawJsonSchema | undefined {
+  const branches = schema.oneOf ?? schema.anyOf;
+  if (!branches?.length) return schema;
+  const index = discriminatedBranchIndex(branches, value);
+  return index >= 0 ? branches[index] : undefined;
 }
 
 /**
@@ -3483,7 +3713,72 @@ function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
  * instead of omitting it. One schema-invalid empty value proves that pattern;
  * only then strip the other optional empty/default sentinels from the call.
  * Calls whose empty values are all schema-valid keep their intentional clears.
+ *
+ * The proof is evaluated per object, and the walk descends through array items
+ * and discriminated-union branches: gateways pre-fill the leaf object they are
+ * building (`operations[0].fields`), which a top-level-only sweep never reaches.
  */
+function stripOptionalToolPlaceholders(
+  schema: RawJsonSchema | undefined,
+  value: unknown,
+): { value: unknown; changed: boolean } {
+  if (!schema) return { value, changed: false };
+
+  if (Array.isArray(value)) {
+    const itemSchema = schema.items;
+    if (!itemSchema) return { value, changed: false };
+    let changed = false;
+    const items = value.map((item) => {
+      const result = stripOptionalToolPlaceholders(itemSchema, item);
+      if (result.changed) changed = true;
+      return result.value;
+    });
+    return changed
+      ? { value: items, changed: true }
+      : { value, changed: false };
+  }
+
+  if (!value || typeof value !== "object") return { value, changed: false };
+
+  const objectSchema = resolveObjectSchemaBranch(schema, value);
+  const properties = objectSchema?.properties;
+  if (!properties) return { value, changed: false };
+
+  const required = new Set(
+    Array.isArray(objectSchema.required) ? objectSchema.required : [],
+  );
+  const record = value as Record<string, unknown>;
+  const placeholders: string[] = [];
+  let hasSchemaInvalidPlaceholder = false;
+  let normalized: Record<string, unknown> | null = null;
+
+  for (const [key, entry] of Object.entries(record)) {
+    const propertySchema = properties[key];
+    if (!propertySchema || typeof propertySchema !== "object") continue;
+    if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
+      placeholders.push(key);
+      if (schemaRejectsToolValue(propertySchema, entry)) {
+        hasSchemaInvalidPlaceholder = true;
+      }
+      continue;
+    }
+    const nested = stripOptionalToolPlaceholders(propertySchema, entry);
+    if (nested.changed) {
+      normalized ??= { ...record };
+      normalized[key] = nested.value;
+    }
+  }
+
+  if (hasSchemaInvalidPlaceholder) {
+    normalized ??= { ...record };
+    for (const key of placeholders) delete normalized[key];
+  }
+
+  return normalized
+    ? { value: normalized, changed: true }
+    : { value, changed: false };
+}
+
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
@@ -3492,26 +3787,8 @@ function normalizeOptionalToolPlaceholders(
     return { input, changed: false };
   }
   if (Array.isArray(input)) return { input, changed: false };
-
-  const required = new Set(
-    Array.isArray(schema.required) ? schema.required : [],
-  );
-  const placeholders: string[] = [];
-  let hasSchemaInvalidPlaceholder = false;
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (required.has(key) || !isStructurallyEmptyToolValue(value)) continue;
-    const propertySchema = schema.properties[key];
-    if (!propertySchema || typeof propertySchema !== "object") continue;
-    placeholders.push(key);
-    if (!schemaAcceptsToolValue(propertySchema, value)) {
-      hasSchemaInvalidPlaceholder = true;
-    }
-  }
-  if (!hasSchemaInvalidPlaceholder) return { input, changed: false };
-
-  const normalized = { ...(input as Record<string, unknown>) };
-  for (const key of placeholders) delete normalized[key];
-  return { input: normalized, changed: true };
+  const result = stripOptionalToolPlaceholders(schema, input);
+  return { input: result.value, changed: result.changed };
 }
 
 /**
@@ -3583,6 +3860,54 @@ function shouldValidateRawToolParameters(entry: ActionEntry): boolean {
   return !maybeSchema?.["~standard"] && Boolean(entry.tool.parameters);
 }
 
+/**
+ * With `allErrors`, a failing union reports every branch, so a five-branch
+ * union answers "your `patch-deck-fields` op has a bad enum" with eight
+ * complaints about `slideId`/`orderedIds` from the four branches the caller
+ * never meant. The model reads the loudest, wrong advice and re-sends the same
+ * arguments until the identical-error breaker ends the turn. When the
+ * discriminator names a branch, report only that branch's errors.
+ *
+ * Both union keywords are load-bearing for the same Zod schema: Zod v4's own
+ * `toJSONSchema` emits `oneOf` for a discriminated union, while the manual
+ * fallback converter in `action.ts` emits `anyOf`.
+ *
+ * Scoped by `instancePath` as well as `schemaPath`: every element of an array
+ * shares one `items` schema, so `operations[0]` and `operations[1]` produce
+ * branch errors under the same `schemaPath` and only the instance path says
+ * which element they belong to.
+ */
+function isWithinInstancePath(candidate: string, root: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+function narrowUnionBranchErrors(
+  errors: ErrorObject[] | null | undefined,
+): ErrorObject[] | null | undefined {
+  if (!errors?.length) return errors;
+  let kept = errors;
+  for (const error of errors) {
+    const keyword = error.keyword;
+    if (keyword !== "oneOf" && keyword !== "anyOf") continue;
+    const branches = (error.parentSchema as RawJsonSchema | undefined)?.[
+      keyword
+    ];
+    if (!branches?.length) continue;
+    const index = discriminatedBranchIndex(branches, error.data);
+    if (index < 0) continue;
+    const branchPrefix = `${error.schemaPath}/`;
+    kept = kept.filter((candidate) => {
+      if (candidate === error) return false;
+      if (!isWithinInstancePath(candidate.instancePath, error.instancePath)) {
+        return true;
+      }
+      if (!candidate.schemaPath.startsWith(branchPrefix)) return true;
+      return candidate.schemaPath.startsWith(`${branchPrefix}${index}/`);
+    });
+  }
+  return kept.length ? kept : errors;
+}
+
 function validateRawToolInput(
   entry: ActionEntry,
   input: unknown,
@@ -3597,7 +3922,7 @@ function validateRawToolInput(
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
   if (validator(input === undefined ? {} : input)) return null;
-  return rawToolInputAjv.errorsText(validator.errors, {
+  return rawToolInputAjv.errorsText(narrowUnionBranchErrors(validator.errors), {
     separator: "; ",
     dataVar: "input",
   });
@@ -3621,6 +3946,8 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   /** Observe usage as each model response reports it, including aborted loops. */
   onUsage?: (usage: AgentLoopUsage) => void;
+  /** Observe the attempt's typed terminal state separately from chat events. */
+  onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
   orgId?: string | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
@@ -3639,6 +3966,9 @@ export async function runAgentLoop(opts: {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  /** Bounded cross-app lineage used to prevent recursive delegation cycles. */
+  delegationDepth?: number;
+  visitedApps?: string[];
   /**
    * Attachments submitted with this turn (pasted text, files, images), passed
    * through to each tool's `ActionRunContext.attachments` so actions can
@@ -3678,7 +4008,12 @@ export async function runAgentLoop(opts: {
    * App-level default limits applied to every tool call unless the individual
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  toolLimits?: {
+    timeoutMs?: number;
+    maxResultChars?: number;
+    /** Absolute cap applied after action-level overrides. */
+    hardMaxResultChars?: number;
+  };
   /**
    * Stable approval keys granted by a human for actions declared
    * `needsApproval`. A call whose key is present here runs even though the
@@ -3707,6 +4042,16 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  let outcomeReported = false;
+  const reportOutcome = (outcome: AgentLoopOutcome) => {
+    if (outcomeReported) return;
+    outcomeReported = true;
+    try {
+      opts.onOutcome?.(outcome);
+    } catch {
+      // Outcome observers are telemetry/protocol adapters and cannot alter the run.
+    }
+  };
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
@@ -3837,6 +4182,7 @@ export async function runAgentLoop(opts: {
   // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
   // trailing `done` would overwrite the boundary the continuation logic reads.
   let endedAtLoopLimit = false;
+  let terminalActionStop: { message: string; errorCode?: string } | null = null;
   // Overridden (raised tokens, lowered effort) only after an empty-final-
   // response retry below — kept separate from `opts.maxOutputTokens`/
   // `opts.reasoningEffort` so the very first attempt is unaffected and later
@@ -4197,6 +4543,7 @@ export async function runAgentLoop(opts: {
             if (event.type !== "gateway-heartbeat") {
               hasReceivedFirstEngineEvent = true;
               lastModelStreamProgressAt = Date.now();
+              usage.firstEngineEventAtMs ??= lastModelStreamProgressAt;
             }
             // In-loop processor seam (stream hook). Each chunk is offered to every
             // processor's `processOutputStream` before the loop handles it. A
@@ -4310,6 +4657,7 @@ export async function runAgentLoop(opts: {
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              usage.usageReported = true;
               opts.onUsage?.(eventUsage);
             } else if (event.type === "stop") {
               terminalStopReason = event.reason;
@@ -4723,11 +5071,14 @@ export async function runAgentLoop(opts: {
         const result =
           `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
           `Last error: ${sanitizedResult}`;
+        // This message is streamed to the USER, not back to the model — the
+        // model's copy is `result` above. Describe the failure and what they
+        // can do; never instruct them to "fix the arguments".
         requestedActionStop ??= {
           message:
-            `Stopped because ${toolCall.name} failed ${count} times with the same arguments and error. ` +
-            `Last error: ${sanitizedResult} ` +
-            "Fix the underlying issue or change the arguments before retrying.",
+            `I stopped because the ${toolCall.name} action failed ${count} times in a row the same way, ` +
+            "so retrying it again would not have worked. Anything completed before this is saved. " +
+            `Error: ${sanitizedResult}`,
           errorCode: "repeated_identical_tool_error",
         };
         return result;
@@ -4925,10 +5276,17 @@ export async function runAgentLoop(opts: {
         runToolTimeoutCeilingMs > 0
           ? Math.min(requestedToolTimeoutMs, runToolTimeoutCeilingMs)
           : requestedToolTimeoutMs;
-      const toolMaxResultChars =
+      const configuredToolMaxResultChars =
         actionEntry.maxResultChars ??
         opts.toolLimits?.maxResultChars ??
         DEFAULT_TOOL_RESULT_CHARS;
+      const toolMaxResultChars =
+        typeof opts.toolLimits?.hardMaxResultChars === "number"
+          ? Math.min(
+              configuredToolMaxResultChars,
+              opts.toolLimits.hardMaxResultChars,
+            )
+          : configuredToolMaxResultChars;
 
       // TOOL-CALL JOURNAL HARD-BLOCK (resume safety, tool-layer enforcement).
       // The prompt-level resume journal already TELLS a resuming model not to
@@ -5114,6 +5472,7 @@ export async function runAgentLoop(opts: {
             toolCall.name,
             toolCallSchemaError.input,
             toolCallSchemaError.error,
+            actionEntry?.tool.parameters,
           ),
         );
         send({
@@ -5146,6 +5505,7 @@ export async function runAgentLoop(opts: {
             toolCall.name,
             toolCall.input,
             rawToolInputError,
+            actionEntry.tool.parameters,
           ),
         );
         send({
@@ -5285,11 +5645,14 @@ export async function runAgentLoop(opts: {
           networkProtocol: opts.networkProtocol,
           networkId: opts.networkId,
           networkPeer: opts.networkPeer,
+          delegationDepth: opts.delegationDepth,
+          visitedApps: opts.visitedApps,
           attachments: opts.attachments,
           signal,
           // Audit attribution: the action name + the agent thread/turn that
           // triggered this call, so a mutation can be traced to its run.
           actionName: toolCall.name,
+          ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
           ...(opts.threadId ? { threadId: opts.threadId } : {}),
           ...(opts.runId ? { runId: opts.runId } : {}),
           ...(opts.turnId ? { turnId: opts.turnId } : {}),
@@ -5464,23 +5827,26 @@ export async function runAgentLoop(opts: {
         result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
       }
 
-      // Auto-refresh the UI after a successful mutating tool call. Any action
-      // that isn't explicitly read-only is assumed to mutate. The client's
-      // useDbSync listener sees a change event with source:"action" and
-      // invalidates ["action"] queries so list-* / get-* refetch. This makes
-      // refresh after agent writes reliable without the model needing to
-      // remember to call `refresh-screen` itself.
-      if (!isError && actionEntry.readOnly !== true) {
+      // Auto-refresh the UI after a successful mutating tool call. Any call
+      // that isn't read-only — by its own per-call Plan-mode effect, else the
+      // action's readOnly flag — is assumed to mutate. The client's useDbSync
+      // listener sees a change event with source:"action" and invalidates
+      // ["action"] queries so list-* / get-* refetch. This makes refresh after
+      // agent writes reliable without the model needing to remember to call
+      // `refresh-screen` itself.
+      if (!isError) {
         try {
-          const { notifyActionChange } =
+          const { actionCallIsReadOnly, notifyActionChange } =
             await import("../server/action-change.js");
-          const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-          const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-          await notifyActionChange({
-            actionName: toolCall.name,
-            ...(owner ? { owner } : {}),
-            ...(orgId ? { orgId } : {}),
-          });
+          if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
+            const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+            await notifyActionChange({
+              actionName: toolCall.name,
+              ...(owner ? { owner } : {}),
+              ...(orgId ? { orgId } : {}),
+            });
+          }
         } catch {
           // poll module may be unavailable in non-server contexts — ignore
         }
@@ -5580,6 +5946,7 @@ export async function runAgentLoop(opts: {
         message: string;
         errorCode?: string;
       };
+      terminalActionStop = stop;
       send({ type: "text", text: stop.message });
       break;
     }
@@ -5590,6 +5957,9 @@ export async function runAgentLoop(opts: {
   // ended on a guardrail, not a clean turn. The result hook still fires below
   // so processors can observe the (halted) final text.
   if (tripwire) {
+    // TypeScript cannot see assignments performed by the processor callback
+    // inside the loop, so preserve the runtime narrowing explicitly here.
+    const terminalTripwire = tripwire as TripWire;
     if (processorChain) {
       try {
         await processorChain.runResult(
@@ -5602,10 +5972,24 @@ export async function runAgentLoop(opts: {
         // A result-hook abort is a no-op: the run is already halting.
       }
     }
+    reportOutcome({
+      state: "failed",
+      code:
+        terminalTripwire.processor === "run-input-token-budget"
+          ? "budget_exhausted"
+          : terminalTripwire.processor
+            ? `guardrail:${terminalTripwire.processor}`
+            : "guardrail",
+      // Re-running the same request with the same deterministic guardrail
+      // would reproduce the stop. A caller can issue a smaller follow-up, but
+      // must not automatically replay this turn.
+      retryable: false,
+      message: terminalTripwire.message,
+    });
     return usage;
   }
 
-  if (!signal.aborted && !endedAtLoopLimit) {
+  if (!signal.aborted && !endedAtLoopLimit && !terminalActionStop) {
     // In-loop processor seam (result hook). Fires once at clean run end with the
     // final assistant text so processors (e.g. a proof-of-done gate) can record
     // a verdict. A result-hook abort cannot un-finish a completed run, so a
@@ -5650,6 +6034,32 @@ export async function runAgentLoop(opts: {
       }
     }
   }
+
+  if (signal.aborted) {
+    reportOutcome({ state: "canceled", message: "Agent run was aborted." });
+  } else if (endedAtLoopLimit) {
+    reportOutcome({
+      state: "failed",
+      code: "loop_limit",
+      retryable: false,
+      message: `Agent stopped after ${maxIterations} iterations.`,
+    });
+  } else if (terminalActionStop?.errorCode === "needs-approval") {
+    reportOutcome({
+      state: "input_required",
+      code: "needs_approval",
+      message: terminalActionStop.message,
+    });
+  } else if (terminalActionStop) {
+    reportOutcome({
+      state: "failed",
+      code: terminalActionStop.errorCode ?? "tool_failed",
+      retryable: false,
+      message: terminalActionStop.message,
+    });
+  } else {
+    reportOutcome({ state: "completed" });
+  }
   return usage;
 }
 
@@ -5684,7 +6094,7 @@ function isRecoverableContinuationError(event: {
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
-    message.includes("connection error") ||
+    isProviderConnectionErrorMessage(message) ||
     message.includes("temporarily unavailable")
   );
 }
@@ -5921,6 +6331,10 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
     usage.model = next.model;
+    if (next.usageReported) usage.usageReported = true;
+    // Keep the earliest attempt's first event — a later continuation
+    // attempt starting fresh must not overwrite genuine first-token timing.
+    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
   };
 
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
@@ -6008,7 +6422,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
       type: "error",
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,
       errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-      recoverable: true,
+      recoverable: false,
     });
   }
   return usage;
@@ -6237,9 +6651,9 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       .join(" "),
   ).catch(() => {});
 
-  // A failed durable abort read is fail-closed: never let a worker execute
-  // after cancellation just because the database was temporarily unreadable.
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  // A failed durable abort read must surface as infrastructure failure. It is
+  // not evidence that the user stopped the turn.
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6250,7 +6664,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }).catch(() => {});
   }
 
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6263,7 +6677,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
   await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId).catch(() => true)) {
+  if (await turnAborted(threadId, turnId)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6719,11 +7133,7 @@ export async function chainServerDrivenContinuation(opts: {
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
-    if (
-      await d
-        .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => true)
-    ) {
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
       await d.markRunAborted(runId, "user").catch(() => {});
       return;
     }
@@ -6772,11 +7182,7 @@ export async function chainServerDrivenContinuation(opts: {
         insertErr instanceof Error ? insertErr.message : insertErr,
       );
     }
-    if (
-      await d
-        .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => true)
-    ) {
+    if (await d.isTurnAborted(effectiveThreadId, effectiveTurnId)) {
       if (nextRowInserted)
         await d.markRunAborted(nextRunId, "user").catch(() => {});
       await d.markRunAborted(runId, "user").catch(() => {});
@@ -6977,7 +7383,9 @@ function progressStepFromAgentChatEvent(event: AgentChatEvent): string | null {
         ? `Calling ${event.agent}.`
         : event.status === "done"
           ? `Finished ${event.agent}.`
-          : `${event.agent} failed.`;
+          : event.status === "pending"
+            ? `${event.agent} is still working.`
+            : `${event.agent} failed.`;
     case "agent_task":
       return event.status === "running"
         ? "Started background task."
@@ -7075,6 +7483,7 @@ export function createProductionAgentHandler(
       threadId,
       attachments,
       displayMessage,
+      queuedMessageId,
       internalContinuation,
       turnId: requestTurnId,
       model: requestModel,
@@ -7814,10 +8223,19 @@ export function createProductionAgentHandler(
         ? createPlanModeActionRegistry(resolvedActions)
         : resolvedActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const requestTools = filterInitialEngineTools(
+    const initialRequestTools = filterInitialEngineTools(
       availableRequestTools,
       options.initialToolNames,
     );
+    const requestTools =
+      requestMode === "plan"
+        ? preloadPlanModeEngineTools({
+            request: requestMessage,
+            registry: requestActions,
+            initialTools: initialRequestTools,
+            availableTools: availableRequestTools,
+          })
+        : initialRequestTools;
     // System sections are emitted by the prompt builder once per request. Tool
     // schemas become known just after prompt setup, so append their measured
     // contribution here and reuse the immutable result for every loop pass.
@@ -7940,9 +8358,7 @@ export function createProductionAgentHandler(
           : runId;
     if (
       isBackgroundWorker &&
-      (await isTurnAborted(effectiveThreadId, effectiveTurnId).catch(
-        () => true,
-      ))
+      (await isTurnAborted(effectiveThreadId, effectiveTurnId))
     ) {
       await markRunAborted(runId, "user").catch(() => {});
       return { ok: true, stopped: true };
@@ -8016,6 +8432,9 @@ export function createProductionAgentHandler(
         threadId,
         message: messageToPersist,
         attachments: requestAttachments,
+        ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+          ? { queuedMessageId: queuedMessageId.trim() }
+          : {}),
       });
     }
 
@@ -8986,6 +9405,13 @@ export function createProductionAgentHandler(
         dispatchMode: foregroundSelfChainEligible
           ? "foreground-self-chain"
           : "foreground",
+        // Resolved AFTER stored-model/experiment overrides — the same value
+        // actually sent to the engine, not the raw client-requested model.
+        // No userId here: `ownerEmail` is the only identity known at this
+        // scope and is PII (email), which the terminal event must not carry.
+        model: effectiveModel,
+        engineName: engine.name,
+        attemptCount: backgroundContinuationCount,
       },
     );
 

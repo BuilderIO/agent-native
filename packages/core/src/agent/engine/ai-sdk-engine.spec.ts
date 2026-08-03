@@ -342,6 +342,111 @@ describe("AISDKEngine error tagging", () => {
     expect(stopEvent?.statusCode).toBe(429);
     expect(stopEvent?.providerRetryable).toBe(true);
   });
+
+  it("records streamed 401s before the success cleanup can clear them", async () => {
+    const recordProviderCredentialAuthFailure = vi.fn(async () => {});
+    const clearProviderCredentialAuthFailure = vi.fn(async () => {});
+    vi.doMock("../../server/credential-provider.js", () => ({
+      clearProviderCredentialAuthFailure,
+      readDeployCredentialEnv: vi.fn(),
+      recordProviderCredentialAuthFailure,
+    }));
+    class MockApiCallError extends Error {
+      statusCode = 401;
+      isRetryable = false;
+      constructor() {
+        super("Unauthorized");
+      }
+    }
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: "error", error: new MockApiCallError() };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    await drain(engine.stream(BASE_STREAM_OPTIONS));
+
+    expect(recordProviderCredentialAuthFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "OPENAI_API_KEY",
+        status: 401,
+        code: "http_401",
+      }),
+    );
+    expect(clearProviderCredentialAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it("tags a retry-wrapped Cannot connect to API failure as a provider network error", async () => {
+    const lastError = Object.assign(
+      new Error(
+        "Cannot connect to API: ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error",
+      ),
+      { isRetryable: true },
+    );
+    const retryError = Object.assign(
+      new Error(`Failed after 2 attempts. Last error: ${lastError.message}`),
+      { lastError },
+    );
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        throw retryError;
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const event of engine.stream(BASE_STREAM_OPTIONS)) {
+        events.push(event);
+      }
+    }).rejects.toThrow(retryError.message);
+
+    const stopEvent = events.find((event) => event.type === "stop");
+    expect(stopEvent?.error).toBe(retryError.message);
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+  });
+
+  it("preserves status fields from a retry wrapper's last provider error", async () => {
+    const lastError = Object.assign(new Error("Too Many Requests"), {
+      statusCode: 429,
+      isRetryable: true,
+    });
+    const retryError = Object.assign(
+      new Error("Failed after 2 attempts. Last error: Too Many Requests"),
+      { lastError },
+    );
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        throw retryError;
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const event of engine.stream(BASE_STREAM_OPTIONS)) {
+        events.push(event);
+      }
+    }).rejects.toThrow(retryError.message);
+
+    const stopEvent = events.find((event) => event.type === "stop");
+    expect(stopEvent?.errorCode).toBe("http_429");
+    expect(stopEvent?.statusCode).toBe(429);
+    expect(stopEvent?.providerRetryable).toBe(true);
+  });
 });
 
 describe("AISDKEngine OpenAI model selection", () => {
@@ -367,17 +472,26 @@ describe("AISDKEngine OpenAI model selection", () => {
     );
   });
 
-  it("passes an empty apiKey when env fallback is disabled", async () => {
+  it("never reaches the deploy key when env fallback is disabled", async () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-deploy");
-    mockAiSdk();
+    const { streamText } = mockAiSdk();
     const { createOpenAI } = mockOpenAIProvider();
 
     const { createAISDKEngine } = await import("./ai-sdk-engine.js");
     const engine = createAISDKEngine("openai", { allowEnvFallback: false });
 
-    await drain(engine.stream(BASE_STREAM_OPTIONS));
+    const events: any[] = [];
+    for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
 
-    expect(createOpenAI).toHaveBeenCalledWith({ apiKey: "" });
+    // Previously this constructed the provider with `apiKey: ""` so the AI SDK
+    // could not read the ambient deploy key itself. That kept the deploy key
+    // out, but shipped a guaranteed-401 unauthenticated request. Failing closed
+    // keeps the deploy key out just as firmly and reports the real cause.
+    expect(createOpenAI).not.toHaveBeenCalled();
+    expect(streamText).not.toHaveBeenCalled();
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
+      "missing_credentials",
+    );
   });
 
   it("keeps Chat Completions for custom OpenAI-compatible base URLs", async () => {
@@ -417,7 +531,10 @@ describe("AISDKEngine OpenAI model selection", () => {
     inputSchema: { type: "object" as const, properties: {} },
   };
 
-  it("drops the reasoning-effort override when tools are present on a forced Chat Completions base URL", async () => {
+  // Omitting the field is NOT enough: OpenAI applies the model's own default
+  // effort when `reasoning_effort` is absent and rejects the call identically.
+  // Only the explicit "none" clears it.
+  it("sends reasoning effort 'none' when tools are present on a forced Chat Completions base URL", async () => {
     const { streamText } = mockAiSdk();
     mockOpenAIProvider();
 
@@ -436,7 +553,7 @@ describe("AISDKEngine OpenAI model selection", () => {
     );
 
     const call = streamText.mock.calls[0]?.[0];
-    expect(call.providerOptions?.openai?.reasoningEffort).toBeUndefined();
+    expect(call.providerOptions?.openai?.reasoningEffort).toBe("none");
   });
 
   it("still applies reasoning effort on a forced Chat Completions base URL when there are no tools", async () => {
@@ -662,5 +779,75 @@ describe("AISDKEngine streamed tool-input reconciliation", () => {
 
     expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
     expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
+  });
+});
+
+describe("AISDKEngine missing-credential fail-closed", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  // Production: the clips app ran `ai-sdk:openrouter` with no OPENROUTER_API_KEY.
+  // The provider factory was built with no apiKey, the SDK sent no Authorization
+  // header, and the gateway's 401 "Missing Authentication header" was classified
+  // `http_401` — a transport error naming the wrong cause, retried every 30
+  // minutes forever. 18/18 scheduled runs failed this way.
+  it("fails closed with missing_credentials instead of sending an unauthenticated request", async () => {
+    const { streamText } = mockAiSdk();
+    const createOpenRouter = vi.fn();
+    vi.doMock("@openrouter/ai-sdk-provider", () => ({ createOpenRouter }));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openrouter", { allowEnvFallback: false });
+
+    const events: any[] = [];
+    for await (const e of engine.stream(BASE_STREAM_OPTIONS as any)) {
+      events.push(e);
+    }
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.error).toContain("OPENROUTER_API_KEY");
+    // The whole point: no request was ever built or sent.
+    expect(createOpenRouter).not.toHaveBeenCalled();
+    expect(streamText).not.toHaveBeenCalled();
+  });
+
+  it("still runs when a key is present", async () => {
+    const { streamText } = mockAiSdk();
+    const provider = vi.fn().mockReturnValue({ id: "m" });
+    vi.doMock("@openrouter/ai-sdk-provider", () => ({
+      createOpenRouter: vi.fn().mockReturnValue(provider),
+    }));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openrouter", { apiKey: "sk-or-test" });
+    await drain(engine.stream(BASE_STREAM_OPTIONS as any));
+
+    expect(streamText).toHaveBeenCalled();
+  });
+
+  // A self-hosted or local gateway may legitimately accept no credential.
+  it("allows a keyless provider when a baseUrl is configured", async () => {
+    const { streamText } = mockAiSdk();
+    const provider = vi.fn().mockReturnValue({ id: "m" });
+    vi.doMock("@openrouter/ai-sdk-provider", () => ({
+      createOpenRouter: vi.fn().mockReturnValue(provider),
+    }));
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openrouter", {
+      allowEnvFallback: false,
+      baseUrl: "http://localhost:4000/v1",
+    });
+    await drain(engine.stream(BASE_STREAM_OPTIONS as any));
+
+    expect(streamText).toHaveBeenCalled();
   });
 });

@@ -540,6 +540,7 @@ export class RecorderEngine {
    */
   private uploadAbort: AbortController | null = null;
   private uploadMode: UploadMode = "buffered";
+  private uploadGenerationId: string | null = null;
   /**
    * Streaming-path buffer. MediaRecorder blobs accumulate here until at least
    * STREAM_CHUNK_BYTES is available, then a 256 KiB-aligned slice is PUT to API
@@ -1102,6 +1103,7 @@ export class RecorderEngine {
     this.opts.uploadUrl = target.uploadUrl;
     this.opts.abortUrl = target.abortUrl;
     this.opts.uploadMode = target.uploadMode ?? "buffered";
+    this.uploadGenerationId = null;
   }
 
   // -------------------------------------------------------------------------
@@ -1178,6 +1180,7 @@ export class RecorderEngine {
     this.lastFinalizeMeta = null;
     this.uploadAbort = new AbortController();
     this.uploadMode = this.opts.uploadMode ?? "buffered";
+    this.uploadGenerationId = null;
     this.pendingStreamBlobs = [];
     this.pendingStreamBytes = 0;
     this.cameraDisconnectNotified = false;
@@ -1540,6 +1543,10 @@ export class RecorderEngine {
           compression,
           requestStreaming: this.uploadMode === "streaming",
           mimeType: uploadMimeType,
+          useGenerationFence: true,
+          ...(this.uploadGenerationId
+            ? { uploadGenerationId: this.uploadGenerationId }
+            : {}),
         }),
         signal,
       });
@@ -1566,6 +1573,7 @@ export class RecorderEngine {
     }
     const reset = (await resetRes.json().catch(() => null)) as {
       uploadMode?: unknown;
+      uploadGenerationId?: unknown;
     } | null;
     if (reset?.uploadMode !== "streaming" && reset?.uploadMode !== "buffered") {
       throw new Error(
@@ -1574,6 +1582,11 @@ export class RecorderEngine {
     }
     const uploadMode = reset.uploadMode;
     this.uploadMode = uploadMode;
+    this.uploadGenerationId =
+      typeof reset.uploadGenerationId === "string" &&
+      reset.uploadGenerationId.length > 0
+        ? reset.uploadGenerationId
+        : null;
     return uploadMode;
   }
 
@@ -1752,8 +1765,10 @@ export class RecorderEngine {
       this.uploadAbort = null;
     }
     this.cleanupTracks();
+    const uploadGenerationId = this.uploadGenerationId;
     this.chunkIndex = 0;
     this.uploadFailure = null;
+    this.uploadGenerationId = null;
     this.startedAtMs = null;
     this.pausedAccumMs = 0;
     this.pausedStartedMs = null;
@@ -1764,7 +1779,13 @@ export class RecorderEngine {
 
     if (this.opts.abortUrl) {
       try {
-        await fetch(this.opts.abortUrl, { method: "POST" });
+        await fetch(this.opts.abortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(uploadGenerationId ? { uploadGenerationId } : {}),
+          }),
+        });
       } catch {
         // ignore — best effort
       }
@@ -2136,6 +2157,7 @@ export class RecorderEngine {
       height: extra.height,
       hasAudio: extra.hasAudio,
       hasCamera: extra.hasCamera,
+      uploadGenerationId: this.uploadGenerationId ?? undefined,
     });
 
     const body = await blob.arrayBuffer();

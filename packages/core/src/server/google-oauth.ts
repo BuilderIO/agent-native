@@ -17,9 +17,13 @@ import {
   type H3Event,
 } from "h3";
 
+import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
+import {
+  readAnalyticsAnonymousId,
+  signupAttributionFromCookieHeader,
+} from "./attribution.js";
 import {
   addSession,
   getSession,
@@ -460,6 +464,7 @@ export interface OAuthStatePayload {
   returnUrl?: string;
   flowId?: string;
   signupAttribution?: Record<string, string | undefined>;
+  signupAnonymousId?: string;
 }
 
 /**
@@ -524,6 +529,7 @@ export interface EncodeOAuthStateOptions {
   returnUrl?: string;
   flowId?: string;
   signupAttribution?: Record<string, string | undefined>;
+  signupAnonymousId?: string;
 }
 
 function sanitizeStateAttribution(
@@ -537,6 +543,10 @@ function sanitizeStateAttribution(
     if (typeof raw === "string") out[key] = raw;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizeStateAnonymousId(value: unknown): string | undefined {
+  return normalizeAnalyticsAnonymousId(value);
 }
 
 /**
@@ -598,6 +608,10 @@ export function encodeOAuthState(
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
   if (opts.signupAttribution) payload.ft = opts.signupAttribution;
+  const signupAnonymousId = normalizeAnalyticsAnonymousId(
+    opts.signupAnonymousId,
+  );
+  if (signupAnonymousId) payload.ai = signupAnonymousId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -649,6 +663,7 @@ export function decodeOAuthState(
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
         signupAttribution: sanitizeStateAttribution(parsed.ft),
+        signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
       };
     } catch {}
   }
@@ -702,6 +717,7 @@ export async function createOAuthSession(
       authUserId?: string;
       name?: string | null;
       attribution?: Record<string, string | undefined>;
+      signupAnonymousId?: string;
     };
   },
 ): Promise<OAuthSessionResult> {
@@ -727,12 +743,16 @@ export async function createOAuthSession(
       const attribution =
         opts.trackSignup.attribution ??
         signupAttributionFromCookieHeader(getHeader(event, "cookie") ?? null);
+      const anonymousId =
+        opts.trackSignup.signupAnonymousId ??
+        readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
         attribution,
+        anonymousId,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so

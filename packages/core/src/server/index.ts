@@ -514,6 +514,7 @@ export {
   type BuilderDesignSystemProxyFields,
   type BuilderDesignSystemProxyFieldsOptions,
   type BuilderDesignSystemProxyReference,
+  type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
   getBuilderBranchProjectId,

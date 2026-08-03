@@ -560,6 +560,9 @@ const messages = {
     useColor: "Usar {{color}}",
     logo: "Logotipo",
     logoPreview: "Prévia do logotipo",
+    logoUsage:
+      "Exibido aos destinatários nos e-mails de compartilhamento e nas páginas públicas dos clipes.",
+    emailHeaderPreview: "Cabeçalho do e-mail de compartilhamento",
     dropReplace: "Solte uma nova imagem para substituir",
     dropHere: "Solte um PNG / JPG / SVG aqui",
     uploading: "Enviando…",
@@ -657,10 +660,6 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
 ### Adicionado
 
 - Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd+K) e nas Configurações.`,
-    profile: "Perfil",
-    email: "E-mail",
-    displayName: "Nome de exibição",
-    displayNamePlaceholder: "Seu nome",
     playback: "Reprodução",
     defaultPlaybackSpeed: "Velocidade padrão de reprodução",
     playbackDescription:
@@ -803,6 +802,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Ainda não há organização. Crie uma no seletor de organização para começar.",
     description: "Administração da organização: marca, membros, convites.",
     adminsOnlyBranding: "Somente administradores podem editar a marca.",
+    brandingLoadFailed:
+      "Não foi possível carregar a identidade da organização.",
     members: "Membros",
     pendingInvites: "Convites pendentes",
     noPendingInvites: "Nenhum convite pendente.",
@@ -946,6 +947,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     replyingTo: "Respondendo a",
     commentAt: "Comentário em",
     writeReply: "Escreva uma resposta...",
+    editComment: "Editar comentário",
     commentButton: "Comentar",
     composerPlaceholder: "Adicionar um comentário…",
     mentionSomeone: "Mencionar alguém",
@@ -1351,7 +1353,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     downloadDesktopApp: "Download desktop app (Localizado)",
     technicalDetails: "Technical details (Localizado)",
     whatToCheck: "What to check (Localizado)",
-    downloadRecording: "Download recording (Localizado)",
+    downloadRecording: "Download (Localizado)",
     openRecorderInTab: "Open recorder in tab (Localizado)",
     connectStorageToFinish:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
@@ -1529,6 +1531,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localizado)",
     connectGoogleCalendar: "Connect Google Calendar (Localizado)",
+    googleMayShowWarning: "Revisar o acesso do Google",
+    googleNotVerifiedTitle: "Verifique o app antes de conectar",
+    googleWarningBeforeAdvanced:
+      "Confirme se o nome do app e o acesso solicitado ao Calendar correspondem à implantação do Clips em que você confia. Se o Google mostrar um aviso de app não verificado ou a identidade parecer desconhecida, pare e entre em contato com o administrador do workspace.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localizado)",
     getDesktopApp: "Get desktop app (Localizado)",

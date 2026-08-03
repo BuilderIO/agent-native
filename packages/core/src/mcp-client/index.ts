@@ -221,6 +221,12 @@ function mcpToolToActionEntry(
       parameters: tool.inputSchema as any,
     },
     http: false,
+    planMode: {
+      effect: (args) =>
+        evaluateMcpToolCallPolicy({ mode: "read-only" }, tool, args).effect,
+      description:
+        "Plan mode allows MCP calls classified as read-only from annotations, operation names, and runtime arguments.",
+    },
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
     run: async (args: Record<string, unknown>) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it

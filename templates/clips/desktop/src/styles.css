@@ -812,10 +812,14 @@ body[data-clips-route="recording-pill"] #root {
   vector-effect: non-scaling-stroke;
 }
 
+/* One variable owns the meter's height and the bars scale off it — every rule
+   that resizes the meter sets `--meter-height`, not `height`. Two rules setting
+   `height` independently is how the box and the bars drifted apart before. */
 .live-audio-bars {
+  --meter-height: 26px;
   display: inline-flex;
   width: 48px;
-  height: 26px;
+  height: var(--meter-height);
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -823,15 +827,14 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .live-audio-bars-compact {
-  width: 24px;
-  height: 24px;
-  gap: 3.5px;
+  --meter-height: 22px;
+  width: 21px;
+  gap: 3px;
 }
 
 .live-audio-bar {
   display: block;
-  width: 3.5px;
-  min-height: 3.5px;
+  width: 3px;
   border-radius: 999px;
   background: rgba(132, 204, 22, 0.98);
   box-shadow: 0 0 5px rgba(132, 204, 22, 0.35);
@@ -5577,7 +5580,7 @@ body[data-clips-route="recording-pill"] #root {
   gap: 6px;
   height: auto;
   width: auto;
-  padding: 12px 10px;
+  padding: 10px 8px;
   cursor: pointer;
 }
 
@@ -5592,8 +5595,8 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pill-vertical .pill-wave-meter {
-  height: 24px;
-  width: 24px;
+  --meter-height: 22px;
+  width: 21px;
 }
 
 /* Wrapper around logo + waveform. */
@@ -5617,7 +5620,7 @@ body[data-clips-route="recording-pill"] #root {
 /* Layout only. `display` must stay flex here — a `block` override collapses
    the meter's bars into a single stacked column instead of a waveform. */
 .pill-wave-meter {
-  height: 26px;
+  --meter-height: 26px;
   width: 48px;
   flex-shrink: 0;
 }
@@ -5649,7 +5652,8 @@ body[data-clips-route="recording-pill"] #root {
   opacity: 0.6;
 }
 
-.pill-expand-btn {
+.pill-expand-btn,
+.pill-close-btn {
   margin-left: 4px;
   display: inline-flex;
   height: 28px;
@@ -5664,7 +5668,8 @@ body[data-clips-route="recording-pill"] #root {
   transition: background 120ms;
 }
 
-.pill-expand-btn:hover {
+.pill-expand-btn:hover,
+.pill-close-btn:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -5857,6 +5862,44 @@ body[data-clips-route="recording-pill"] #root {
   height: 1px;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.1);
+}
+
+.pill-finished-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin: 8px 12px 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.16);
+}
+
+.pill-finished-text {
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #86efac;
+}
+
+.pill-finished-open {
+  flex-shrink: 0;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 6px;
+  background: #22c55e;
+  color: #052e16;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms;
+}
+
+.pill-finished-open:hover {
+  background: #4ade80;
 }
 
 .pill-transcript-area {

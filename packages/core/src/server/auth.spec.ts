@@ -36,6 +36,7 @@ describe("server/auth", () => {
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
+    vi.doUnmock("./embed-session.js");
     vi.resetModules();
   });
 
@@ -196,6 +197,48 @@ describe("server/auth", () => {
       ).toBe(true);
       logSpy.mockRestore();
       errorSpy.mockRestore();
+    });
+
+    it("lets logout opt the current browser out of AUTH_DISABLED inside an HTTPS iframe", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const logoutHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/logout",
+      )?.[1];
+      const event = createJsonPostEvent(
+        "/_agent-native/auth/logout",
+        {},
+        { "x-forwarded-proto": "https" },
+      );
+
+      await logoutHandler(event);
+
+      const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("_auth_disabled_opt_out=1");
+      expect(setCookie).toContain("HttpOnly");
+      expect(setCookie).toContain("SameSite=None");
+      expect(setCookie).toContain("Secure");
+      expect(setCookie).toContain("Partitioned");
     });
 
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {
@@ -397,7 +440,7 @@ describe("server/auth", () => {
             host: "agent-workspace.builder.io",
             "x-forwarded-proto": "https",
             referer: `${previewOrigin}/?builder.preview=interact`,
-            cookie: `an_ft=${firstTouch}`,
+            cookie: `an_ft=${firstTouch}; an_aid=anon_preview_1`,
           },
         }),
       );
@@ -417,6 +460,7 @@ describe("server/auth", () => {
         first_touch_path: "/docs/actions",
         landing_referrer: "https://example.com/post",
       });
+      expect(state.signupAnonymousId).toBe("anon_preview_1");
 
       const rejected = await authUrlHandler(
         createMockEvent({
@@ -2482,6 +2526,40 @@ describe("server/auth", () => {
   });
 
   describe("getSession", () => {
+    it("does not promote a capability embed into the ticket owner's AuthSession", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.AUTH_DISABLED;
+
+      vi.doMock("./embed-session.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        resolveEmbedSessionFromRequest: vi.fn(async () => ({
+          email: "ticket-owner@example.com",
+          token: "signed-capability",
+          targetPath: "/visual-edit/design_1",
+          scope: "capability:visual-edit:design:design_1",
+        })),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [] })),
+        }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+
+      await expect(getSession(createMockEvent())).resolves.toBeNull();
+    });
+
     it("returns a shared session when AUTH_DISABLED=1", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
@@ -2530,6 +2608,79 @@ describe("server/auth", () => {
       const event = createMockEvent();
 
       expect(await getSession(event)).toEqual({ email: "dev@local.test" });
+    });
+
+    it("does not return the AUTH_DISABLED session after this browser explicitly logs out", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { COOKIE_NAME, getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1`,
+        },
+      });
+
+      await expect(getSession(event)).resolves.toBeNull();
+    });
+
+    it("prefers a real Better Auth session over the AUTH_DISABLED browser opt-out", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => ({
+          api: {
+            getSession: vi.fn(async () => ({
+              user: {
+                id: "real-user",
+                email: "real@example.com",
+                name: "Real User",
+              },
+              session: { token: "real-session" },
+            })),
+          },
+        }),
+      }));
+
+      const { COOKIE_NAME, getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          cookie: `${COOKIE_NAME}_auth_disabled_opt_out=1`,
+        },
+      });
+
+      await expect(getSession(event)).resolves.toMatchObject({
+        email: "real@example.com",
+        userId: "real-user",
+        token: "real-session",
+      });
     });
 
     it("prefers custom getSession over AUTH_DISABLED", async () => {
@@ -3806,7 +3957,7 @@ describe("server/auth", () => {
       const event = createMockEvent({
         headers: {
           "x-forwarded-proto": "https",
-          cookie: `an_ft=${firstTouch}`,
+          cookie: `an_ft=${firstTouch}; an_aid=anon_google_1`,
         },
       });
 
@@ -3832,6 +3983,7 @@ describe("server/auth", () => {
           first_touch_path: "/p/example",
           landing_referrer: "t.co",
         },
+        anonymousId: "anon_google_1",
       });
     });
 
@@ -3881,6 +4033,7 @@ describe("server/auth", () => {
             utm_source: "newsletter",
             first_touch_path: "/docs/actions",
           },
+          signupAnonymousId: "anon_state_1",
         },
       });
 
@@ -3895,6 +4048,7 @@ describe("server/auth", () => {
           utm_source: "newsletter",
           first_touch_path: "/docs/actions",
         },
+        anonymousId: "anon_state_1",
       });
     });
 
@@ -4242,6 +4396,27 @@ describe("server/auth", () => {
       const html = await (response as Response).text();
       expect(html).toContain("agentnative://oauth-complete");
       expect(html).toContain('window.location.href="/"');
+    });
+  });
+
+  describe("redirectWithStagedCookies", () => {
+    it("copies staged cookies and the no-referrer policy onto the redirect response", async () => {
+      const { redirectWithStagedCookies } = await import("./auth.js");
+      const event = createMockEvent();
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=example-session; Path=/; HttpOnly; SameSite=Lax",
+      );
+      event.res.headers.set("Referrer-Policy", "no-referrer");
+
+      const response = redirectWithStagedCookies(event, "/design/design_1");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("/design/design_1");
+      expect(response.headers.get("set-cookie")).toContain(
+        "an_session=example-session",
+      );
+      expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
     });
   });
 

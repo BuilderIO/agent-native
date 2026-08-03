@@ -46,6 +46,7 @@ import {
   putComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
+  getStateMany,
 } from "../application-state/handlers.js";
 import { mountBrowserSessionRoutes } from "../browser-sessions/routes.js";
 import { mountDbAdminRoutes } from "../db-admin/routes.js";
@@ -152,10 +153,16 @@ import {
 import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
+import {
+  resolveDeployEnvironment,
+  resolveServerRelease,
+} from "./deploy-environment.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
+import { shouldReportError } from "./error-noise-filter.js";
 import {
   getH3App,
   awaitBootstrap,
@@ -176,7 +183,11 @@ import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
 import { createRealtimeTokenHandler } from "./realtime-token.js";
-import { runWithRequestContext } from "./request-context.js";
+import {
+  getRequestContext,
+  hasRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 import {
   findUnsupportedScopedKeyNames,
   saveKeyValuesToScopedSecrets,
@@ -1191,6 +1202,13 @@ function redactValues(text: string, values: Array<string | null | undefined>) {
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface CoreRoutesPluginOptions {
+  /**
+   * Allow authenticated extension creation through
+   * POST /_agent-native/extensions (and the legacy /tools alias).
+   * Existing extension runtime, read, edit, and deep-link routes stay mounted
+   * when this is false. Default: false.
+   */
+  extensionTools?: boolean;
   /** Route path for the SSE endpoint. Default: "/_agent-native/events" */
   sseRoute?: string;
   /** Disable the SSE endpoint entirely. */
@@ -1279,6 +1297,7 @@ export async function readLegacyCoreRouteInitSettings(
  *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
+ *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -1288,6 +1307,53 @@ export async function readLegacyCoreRouteInitSettings(
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
+/**
+ * Route every Nitro route error through the provider-agnostic `captureError()`
+ * registry, filtered by the shared noise rules.
+ *
+ * This lives here rather than in `sentry-plugin.ts` because that plugin bails
+ * out when no `SENTRY_DSN` is configured — wiring the hook there meant an app
+ * running PostHog (or any other backend) with no Sentry project reported no
+ * route errors at all, while still looking configured.
+ */
+function wireRouteErrorCapture(nitroApp: any): void {
+  nitroApp.hooks?.hook?.(
+    "error",
+    (error: unknown, ctx?: { event?: H3Event }) => {
+      try {
+        const event = ctx?.event;
+        const route = (() => {
+          try {
+            return event?.url?.pathname;
+            // coercion-ok: a missing route tag must not suppress the error
+          } catch {
+            return undefined;
+          }
+        })();
+        const userAgent = (() => {
+          try {
+            return event ? getHeader(event, "user-agent") : undefined;
+            // coercion-ok: a missing UA tag must not suppress the error
+          } catch {
+            return undefined;
+          }
+        })();
+
+        if (!shouldReportError(error, { tags: { route } })) return;
+
+        captureError(error, {
+          route,
+          method: event ? getMethod(event) : undefined,
+          userAgent,
+        });
+        // coercion-ok: rethrowing here would replace the app's real error
+      } catch {
+        // Error reporting must never escape into Nitro's error path.
+      }
+    },
+  );
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1365,14 +1431,29 @@ export function createCoreRoutesPlugin(
       // already registered the same key win.
       registerFrameworkSecrets();
       registerBuiltinProviders();
-      registerErrorCaptureProvider("agent-native-analytics", (error, context) =>
+      // Named for the destination it actually reaches: every configured
+      // tracking provider (PostHog, Mixpanel, Amplitude, Agent Native
+      // Analytics, webhook), not just one of them.
+      registerErrorCaptureProvider("tracking", (error, context) => {
+        // Attribute to the in-flight request's user so server exceptions and
+        // that same person's browser events share one `distinct_id`.
+        const requestContext = hasRequestContext()
+          ? getRequestContext()
+          : undefined;
         captureException(error, {
           ...context,
           handled: false,
           runtime: "node",
           source: "server",
-        }),
-      );
+          release: resolveServerRelease(),
+          environment: resolveDeployEnvironment(),
+          ...(requestContext?.userEmail
+            ? { userId: requestContext.userEmail }
+            : {}),
+          ...(requestContext?.orgId ? { orgId: requestContext.orgId } : {}),
+        });
+      });
+      wireRouteErrorCapture(nitroApp);
       registerBuiltinNotificationChannels();
 
       try {
@@ -3315,10 +3396,17 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
+            // One context for the whole sweep so the per-request secret memo is
+            // shared, and one batched read per scope to fill it. Without this
+            // every key pays its own four-scope waterfall.
+            const requestContext = { userEmail, orgId };
+            await runWithRequestContext(requestContext, () =>
+              prefetchSecrets(allowedEnvKeyNames),
+            );
             return Promise.all(
               envKeys.map(async (cfg) => {
                 const configured = await runWithRequestContext(
-                  { userEmail, orgId },
+                  requestContext,
                   () => resolveSecret(cfg.key).then(Boolean),
                 );
                 return {
@@ -3841,7 +3929,9 @@ export function createCoreRoutesPlugin(
           await import("../extensions/routes.js");
         ensureExtensionsTables().catch(() => {});
         registerExtensionsShareable();
-        const extensionsHandler = createExtensionsHandler();
+        const extensionsHandler = createExtensionsHandler({
+          extensionTools: options.extensionTools,
+        });
         getH3App(nitroApp).use(`${P}/extensions`, extensionsHandler);
         // Legacy alias — the previous public API was /_agent-native/tools/*.
         // Mounted in addition to /extensions/* so any deployed iframes mid-flight
@@ -4236,7 +4326,14 @@ export function createCoreRoutesPlugin(
               (event.url?.pathname || "").replace(/^\/+/, "").split("/")[0] ||
               "";
             // Skip — compose handler above already handled it
-            if (key === "compose" || key === "") return;
+            if (key === "compose") return;
+            // Collection root: `GET ?keys=a,b,c` batches many single-key reads
+            // into one request (and one identity resolution) — the chat rail
+            // alone reads ~6 keys on every mount.
+            if (key === "") {
+              if (getMethod(event) === "GET") return getStateMany(event);
+              return;
+            }
             if (event.context) {
               event.context.params = { ...event.context.params, key };
             }

@@ -2359,6 +2359,20 @@ export interface SettingsPanelProps {
   sectionRequestKey?: number;
 }
 
+export interface AgentSettingsTabsOptions {
+  /**
+   * Include the shared Extensions management tab. Extensions are an optional
+   * app capability and stay hidden unless the host opts in.
+   */
+  extensionTools?: boolean;
+}
+
+export function areExtensionSettingsEnabled(
+  options: AgentSettingsTabsOptions = {},
+): boolean {
+  return options.extensionTools === true;
+}
+
 // Agent capability modes. The internal values ("production"/"development") are
 // kept for back-compat with the AGENT_MODE wiring; only the visible labels
 // changed to "App mode" / "Code mode" so this control reads as the agent
@@ -2642,7 +2656,7 @@ function SettingsPanelContent({
             id={settingsSectionDomId("automations")}
             icon={<IconBolt size={14} />}
             title="Automations"
-            subtitle="Event-triggered and scheduled automations."
+            subtitle="Scheduled and event-triggered agent tasks."
             open={openSection === "automations"}
             onToggle={() => toggle("automations")}
           >
@@ -2974,8 +2988,11 @@ export function AgentSettingsContent({
   );
 }
 
-export function useAgentSettingsTabs(): SettingsTabItem[] {
+export function useAgentSettingsTabs(
+  options: AgentSettingsTabsOptions = {},
+): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const extensionToolsEnabled = areExtensionSettingsEnabled(options);
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3031,14 +3048,18 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
           />
         ),
       },
-      {
-        id: "extensions",
-        label: "Extensions",
-        icon: IconTool,
-        group: "workspace",
-        keywords: "extensions widgets mini apps tools sandboxed apps",
-        content: <ExtensionsSettingsContent />,
-      },
+      ...(extensionToolsEnabled
+        ? [
+            {
+              id: "extensions",
+              label: "Extensions",
+              icon: IconTool,
+              group: "workspace" as const,
+              keywords: "extensions widgets mini apps tools sandboxed apps",
+              content: <ExtensionsSettingsContent />,
+            },
+          ]
+        : []),
       {
         ...agent,
         icon: IconHierarchy2,
@@ -3048,5 +3069,5 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         content: <Navigate to="/agent#settings" replace />,
       },
     ];
-  }, [baseProps]);
+  }, [baseProps, extensionToolsEnabled]);
 }

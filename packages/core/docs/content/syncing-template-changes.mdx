@@ -11,6 +11,13 @@ description: "agent-native template pulls later upstream first-party template ch
 
 `agent-native template` is the missing half. It re-fetches the template at a newer version, re-applies the exact transforms `create` applied, and merges the result into your app file by file.
 
+Community templates are intentionally outside this sync flow. Their
+`agent-native.communityTemplate` metadata records where the installed source
+came from, but it is not first-party scaffold provenance and `agent-native
+template sync` will not pull from that repository. Install a pinned community
+ref when you need a stable starting point, then review and port later upstream
+changes manually.
+
 ## Quick start {#quick-start}
 
 ```bash

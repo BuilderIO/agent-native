@@ -21,7 +21,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { notifyActionChange } from "./action-change.js";
+import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
@@ -31,6 +31,10 @@ import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import {
+  resolveEmbedSessionFromRequest,
+  resolvedEmbedCapabilityScope,
+} from "./embed-session.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
@@ -58,10 +62,12 @@ function currentBuildId(): string {
  * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
+import { isLoopbackRequest } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
 
 async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   const required =
@@ -309,6 +315,19 @@ function isAuthResolutionFailure(error: unknown): boolean {
   );
 }
 
+async function resolveRequestAuthCapability(
+  event: any,
+): Promise<string | undefined> {
+  try {
+    return resolvedEmbedCapabilityScope(
+      await resolveEmbedSessionFromRequest(event),
+    );
+  } catch {
+    // Invalid or unavailable embed auth must fail closed as no capability.
+    return undefined;
+  }
+}
+
 /**
  * Mount discovered actions as HTTP endpoints.
  *
@@ -348,8 +367,14 @@ export function mountActionRoutes(
           "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
         );
 
-        // Allow the declared method
-        if (effectiveMethod !== method) {
+        // Browser action calls are RPCs over the framework transport. The
+        // action's HTTP method remains authoritative for direct HTTP callers,
+        // but frontend callers must not have to duplicate it in every hook.
+        const isFrontendMutation =
+          isFrontendActionRequest(event) &&
+          FRONTEND_MUTATION_METHODS.has(method) &&
+          FRONTEND_MUTATION_METHODS.has(effectiveMethod);
+        if (effectiveMethod !== method && !isFrontendMutation) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
         }
@@ -403,6 +428,7 @@ export function mountActionRoutes(
         // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
+        const authCapability = await resolveRequestAuthCapability(event);
         // An app-supplied auth adapter runs first: it can accept caller
         // identities the framework's getSession chain doesn't understand (e.g.
         // an A2A JWT). A resolved caller is seeded onto the event context so any
@@ -493,8 +519,12 @@ export function mountActionRoutes(
             userEmail,
             userName,
             orgId,
+            authCapability,
             timezone,
             requestOrigin: getRequestURL(event).origin,
+            // Captured here because this is the last layer that still holds
+            // the h3 event; everything below reads it off the request store.
+            isLoopbackRequest: isLoopbackRequest(event),
           },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a
@@ -573,14 +603,16 @@ export function mountActionRoutes(
               // their action queries. The calling tab already refetches via
               // useActionMutation's onSuccess, so this is mainly cross-tab
               // sync (and parity with the agent's tool-call path).
-              // Explicit entry.readOnly (true OR false) wins over the method
-              // heuristic. defineAction already auto-infers GET → readOnly=true,
-              // so for actions registered through that path entry.readOnly is
-              // always set and the fallback just guards legacy wrap paths.
-              const isReadOnly =
-                typeof entry.readOnly === "boolean"
-                  ? entry.readOnly
-                  : method === "GET";
+              // A per-call Plan-mode effect wins over entry.readOnly, which
+              // wins (true OR false) over the method heuristic. defineAction
+              // already auto-infers GET → readOnly=true, so for actions
+              // registered through that path entry.readOnly is always set and
+              // the fallback just guards legacy wrap paths.
+              const isReadOnly = actionCallIsReadOnly(
+                entry,
+                params,
+                method === "GET",
+              );
               if (!isReadOnly) {
                 try {
                   await notifyActionChange({

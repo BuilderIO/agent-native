@@ -32,6 +32,13 @@ import { NEW_CHAT_ACTION_HREF } from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
+import {
+  LEGACY_CHART_SHORTHAND_LANG,
+  LegacyChartShorthandChart,
+  LegacyChartShorthandFallback,
+  parseLegacyChartShorthand,
+  wrapLegacyChartShorthandLines,
+} from "./legacy-chart-shorthand.js";
 
 // ─── Lazy markdown loader ────────────────────────────────────────────────────
 // react-markdown + remark-gfm are deferred so they stay off the critical path
@@ -282,6 +289,19 @@ export const markdownComponents = {
         const parsed = parseEmbedBody(body);
         return (
           <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
+        );
+      }
+      if (
+        new RegExp(`\\blanguage-${LEGACY_CHART_SHORTHAND_LANG}\\b`).test(
+          className,
+        )
+      ) {
+        const body = extractCodeText(childProps.children).replace(/\n$/, "");
+        const parsed = parseLegacyChartShorthand(body);
+        return parsed ? (
+          <LegacyChartShorthandChart parsed={parsed} />
+        ) : (
+          <LegacyChartShorthandFallback text={body} />
         );
       }
       const langMatch = className.match(/\blanguage-([\w+-]+)\b/);
@@ -589,7 +609,7 @@ export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
       components={markdownComponents}
       urlTransform={markdownUrlTransform}
     >
-      {blockText}
+      {wrapLegacyChartShorthandLines(blockText)}
     </ReactMarkdown>
   );
 });
@@ -642,7 +662,7 @@ export function SmoothMarkdownText({
                 components={markdownComponents}
                 urlTransform={markdownUrlTransform}
               >
-                {split.tail}
+                {wrapLegacyChartShorthandLines(split.tail)}
               </ReactMarkdown>
             ) : null}
           </>
@@ -653,7 +673,7 @@ export function SmoothMarkdownText({
             components={markdownComponents}
             urlTransform={markdownUrlTransform}
           >
-            {visibleText}
+            {wrapLegacyChartShorthandLines(visibleText)}
           </ReactMarkdown>
         )
       ) : (

@@ -7,11 +7,21 @@ description: "So funktionieren agentennative Apps: actions zuerst, SQL-Datenbank
 
 Wie agentennative Apps unter der Haube funktionieren – die Prinzipien und die Architektur. Diese Seite ist der Vertrag; Die Vision und die Argumente für den Aufbau auf diese Weise finden Sie unter [What Is Agent-Native?](/docs/what-is-agent-native).
 
+## Die drei Ebenen {#three-layers}
+
+Agent Native ist ein Framework, keine einzelne Vorlage:
+
+- **Core - das Framework:** der grundlegende Laufzeit- und Datenvertrag für jede App.
+- **Toolkit - optionale wiederverwendbare Bausteine:** gemeinsame UI- und Produktsysteme, die Apps übernehmen, kombinieren oder forken können.
+- **Templates - optionale Apps:** vollständige, auf Core aufgebaute Domänen-Apps, die häufig Toolkit verwenden und als Ausgangspunkt geforkt und genutzt werden können.
+
+Core ist die Grundlage. Toolkit und Templates sind optional.
+
 ## Die Architektur {#the-architecture}
 
 Bei jeder agentennativen App arbeiten drei Dinge zusammen:
 
-- **Agent** – Autonome KI, die Daten liest, Daten schreibt, actions ausführt und Code ändert. Anpassbar mit skills und Anleitung.
+- **Agent** – Autonome KI, die Daten liest, Daten schreibt, actions ausführt und konfigurierte Tools nutzt. Anpassbar mit skills und Anleitung.
 - **Anwendung** – Die Produktoberfläche um den Agenten. Dabei kann es sich zunächst um einen reinen Aktionsmodus, einen umfassenden Chat, eine kleine Steuerungsebene oder um eine vollständige React-UI mit Dashboards, Abläufen und Visualisierungen handeln.
 - **Computer** – Datenbank, Browser, Codeausführung. Agenten arbeiten direkt mit SQL und integrierten Tools; MCP-Server sind optionale Add-Ons, nicht die Grundlage.
 
@@ -23,7 +33,8 @@ Bei jeder agentennativen App arbeiten drei Dinge zusammen:
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >liest und schreibt Daten, führt Actions aus, ändert Code</small
+        >liest und schreibt Daten, führt Actions aus, nutzt konfigurierte
+        Tools</small
       >
     </div>
     <div class="diagram-card">
@@ -114,14 +125,13 @@ Ein `customer-research`-Skill kann dem Agenten mitteilen, welche Quellen überpr
 wie man Beweise zusammenfasst, während `search-crm` und `create-brief` actions abgerufen werden
 und schreiben Sie die tatsächlichen Daten.
 
-Sechs Regeln bestimmen die Architektur:
+Fünf Regeln bestimmen die Architektur:
 
 1. **Daten befinden sich in SQL** – der gesamte App-Status befindet sich in der Datenbank über Drizzle ORM
 2. **Die gesamte KI läuft über den Agent** – keine Inline-LLM-Aufrufe
 3. **Actions für Agentenoperationen** – komplexe Arbeiten werden als actions ausgeführt
 4. **Live-Synchronisierung hält UI synchron** – Datenbankänderungen werden über SSE gestreamt, wobei Polling als universeller Fallback dient
-5. **Der Agent kann Code ändern** – die App entwickelt sich weiter, während Sie sie verwenden
-6. **Anwendungsstatus in SQL** – Der kurzlebige UI-Status befindet sich in der Datenbank und ist sowohl für den Agenten als auch für UI lesbar.
+5. **Anwendungsstatus liegt in SQL** – flüchtiger UI-Status lebt in der Datenbank und ist für Agent und UI lesbar
 
 ## Die Vier-Bereiche-Checkliste {#four-area-checklist}
 
@@ -399,17 +409,14 @@ Implementieren Sie einen Domänenvorgang einmal als Aktion. Das Framework macht 
 
 Die vollständige Protokoll-/Oberflächenmatrix (MCP-Server und OAuth, MCP-Apps, A2A, Deep Links, native Chat-Widgets, AgentChatRuntime-Konnektoren, Agent Web und der Adapterhorizont für ACP und A2UI) sowie Informationen zur Auswahl einer Produktform – Headless, Rich Chat, eingebetteter Sidecar oder vollständige App – finden Sie unter [Agent Surfaces](/docs/agent-surfaces).
 
-## Agent ändert Code {#agent-modifies-code}
+## App-Code und Anpassung {#agent-modifies-code}
 
-Dies ist eine Funktion, kein Fehler. Der Agent kann den Quellcode der App sicher bearbeiten: Komponenten, Routen, Stile usw.
-
-Es gibt keine gemeinsame Codebasis, die zerstört werden könnte. Sie besitzen die App und der Agent entwickelt sie im Laufe der Zeit für Sie weiter:
-
-1. Starten Sie mit einer Vorlage (z. B. der Analytics-Vorlage)
-2. Passen Sie es an, indem Sie den Agenten fragen
-3. „Neuen Diagrammtyp für Kohortenanalyse hinzufügen“ – der Agent erstellt ihn
-4. „Mit unserem Stripe-Konto verbinden“ – der Agent schreibt die Integration
-5. Ihre App wird ohne manuelle Entwicklung immer besser
+Der eingebettete Agent bearbeitet Quellcode nicht standardmäßig. Das ist nur
+möglich, wenn der Host ihm bewusst Repository-/Workspace-Schreibwerkzeuge
+bereitstellt. In einer gewöhnlichen bereitgestellten App arbeitet der Agent
+über Actions, SQL-gestützten Zustand und konfigurierte Integrationen. Templates
+sind vollständige Apps, die Sie in Ihrem eigenen Repository und
+Entwicklungsablauf forken und anpassen können.
 
 ## Standardmäßig portabel {#hosting-agnostic}
 
@@ -433,7 +440,7 @@ Diese basieren auf demselben Vertrag und haben ihre eigenen Tiefgänge:
 
 ## Was Sie kostenlos bekommen {#what-you-get-for-free}
 
-Die Übernahme des Frameworks ist vor allem deshalb wertvoll, weil Sie nichts mehr erstellen müssen. Sobald Ihre App die sechs Regeln befolgt, erben Sie Folgendes:
+Die Übernahme des Frameworks ist vor allem deshalb wertvoll, weil Sie nichts mehr erstellen müssen. Sobald Ihre App die fünf Regeln befolgt, erben Sie Folgendes:
 
 - **Eine Aktion = jede Oberfläche.** Jede mit `defineAction()` definierte Aktion ist gleichzeitig ein Agent-Tool, ein typsicherer Frontend-Hook (`useActionQuery` / `useActionMutation`), ein Framework-eigener HTTP-Transport, ein CLI-Befehl, ein MCP-Tool für externe Clients und ein A2A-Tool für andere agentennative Apps. Optionale `link`- und `mcpApp`-Metadaten fügen Deep Links und MCP Apps UI ohne eine zweite Implementierung hinzu.
 - **Ein vollständiger Arbeitsbereich pro Benutzer.** Skills, gemeinsam genutzter `LEARNINGS.md`, persönlicher `memory/MEMORY.md`, `AGENTS.md`, benutzerdefinierte Subagenten, geplante Jobs, verbundene MCP-Server – alle SQL-gestützt, keine Entwicklungsbox erforderlich. Siehe [Agent-Ressourcen](/docs/agent-resources).

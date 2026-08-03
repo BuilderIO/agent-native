@@ -11,6 +11,8 @@ description: "agent-native template は、テンプレートから生成され�
 
 `agent-native template` は、その欠けている半分です。テンプレートを新しいバージョンで再取得し、`create` が適用したのと同じ変換を再適用し、その結果をファイルごとにアプリにマージします。
 
+コミュニティテンプレートは意図的にこの同期フローの対象外です。`agent-native.communityTemplate` メタデータはインストール元だけを記録し、`agent-native template sync` はそのリポジトリから変更を取得しません。安定した開始点には固定リビジョンをインストールし、その後の変更は確認して手動で移植してください。
+
 ## クイックスタート {#quick-start}
 
 ```bash

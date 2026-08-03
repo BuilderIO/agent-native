@@ -18,7 +18,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
-import { fetchImageAsBase64 } from "./export-pptx";
+import {
+  assertServerPptxExportable,
+  fetchImageAsBase64,
+  parseSlideHtml,
+} from "./export-pptx";
 
 describe("fetchImageAsBase64", () => {
   beforeEach(() => {
@@ -62,5 +66,59 @@ describe("fetchImageAsBase64", () => {
     await expect(
       fetchImageAsBase64("http://127.0.0.1/image.png"),
     ).resolves.toBe(null);
+  });
+});
+
+describe("parseSlideHtml", () => {
+  it("allows normal-flow slide HTML", () => {
+    expect(() =>
+      parseSlideHtml(
+        '<div class="fmd-slide"><h1>Title</h1></div>',
+        undefined,
+        1,
+      ),
+    ).not.toThrow();
+  });
+
+  it("fails loudly instead of reflowing freeform objects", () => {
+    expect(() =>
+      parseSlideHtml(
+        `<div class="fmd-slide">
+          <div
+            data-slide-object-id="freeform-1"
+            style="position: absolute; left: 120px; top: 80px"
+          >Text</div>
+        </div>`,
+        undefined,
+        3,
+      ),
+    ).toThrowError(
+      /Slide 3 contains freeform positioned objects.*Export > PowerPoint.*stopped instead of silently reflowing/s,
+    );
+  });
+
+  it("allows an absolute uploaded background without a persisted object id", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        `<div class="fmd-slide">
+          <img
+            class="fmd-img-uploaded"
+            src="https://cdn.example/background.png"
+            style="position: absolute; inset: 0; width: 100%; height: 100%"
+          />
+          <h1>Title</h1>
+        </div>`,
+        2,
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects the persisted freeform class even if its object id is absent", () => {
+    expect(() =>
+      assertServerPptxExportable(
+        `<div class="fmd-slide"><div class="fmd-freeform-object" style="position: absolute">Text</div></div>`,
+        4,
+      ),
+    ).toThrowError(/Slide 4 contains freeform positioned objects/);
   });
 });

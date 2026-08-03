@@ -313,6 +313,12 @@ describe("remote integration plugin routes", () => {
         computerCapabilities: {
           browser: { observe: true, control: true },
         },
+        browserSession: {
+          version: 1,
+          handle: "bsn_00000000-0000-4000-8000-000000000000",
+          origin: "https://example.com",
+          title: "Example",
+        },
       },
     });
     getRemoteComputerCapabilitiesMock.mockReturnValueOnce({
@@ -337,6 +343,12 @@ describe("remote integration plugin routes", () => {
         computerCapabilities: {
           browser: { observe: true, control: true },
         },
+        browserSession: {
+          version: 1,
+          handle: "bsn_00000000-0000-4000-8000-000000000000",
+          origin: "https://example.com",
+          title: "Example",
+        },
       },
       { authorization: "Bearer anr_raw-token" },
     );
@@ -346,6 +358,26 @@ describe("remote integration plugin routes", () => {
       ownerEmail: "alice@example.com",
       orgId: "org-1",
       operationClasses: ["browser.observe", "browser.control"],
+    });
+    expect(updateRemoteDeviceDetailsMock).toHaveBeenCalledWith({
+      id: "device-1",
+      metadata: {
+        computerCapabilities: {
+          browser: {
+            observe: true,
+            control: true,
+            provider: null,
+            version: null,
+          },
+          desktop: undefined,
+        },
+        browserSession: {
+          version: 1,
+          handle: "bsn_00000000-0000-4000-8000-000000000000",
+          origin: "https://example.com",
+          title: "Example",
+        },
+      },
     });
     expect(claimNextRemoteCommandMock).not.toHaveBeenCalled();
     expect(result.body).toEqual({

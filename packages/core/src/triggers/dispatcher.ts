@@ -6,179 +6,66 @@
  * loop) when matching events fire.
  */
 
+import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import {
-  getStoredModelForEngine,
-  normalizeModelForEngine,
-  resolveEngine,
-} from "../agent/engine/index.js";
-import {
-  runAgentLoop,
-  actionsToEngineTools,
-  filterInitialEngineTools,
-  getOwnerActiveApiKey,
-  type ActionEntry,
-} from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import { attachToolSearch } from "../agent/tool-search.js";
-import type { AgentChatEvent } from "../agent/types.js";
-import { createThread } from "../chat-threads/store.js";
+  automationMatchesEventOwner,
+  resolveAutomationExecutionIdentity,
+  type AutomationExecutionIdentity,
+} from "../automations/service.js";
 import { subscribe, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
-import { resourceListAllOwners, resourcePut } from "../resources/store.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  isBackgroundAutomationRunActive,
+  runBackgroundAutomation,
+  type BackgroundAutomationContext,
+  type BackgroundAutomationDeps,
+} from "../jobs/background-automation-runner.js";
+import {
+  buildJobResourceContent,
+  parseJobResource,
+} from "../jobs/frontmatter.js";
+import {
+  resourceListAllOwners,
+  resourcePut,
+  type Resource,
+} from "../resources/store.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import type { TriggerFrontmatter } from "./types.js";
-
-// Re-use the job frontmatter parser — triggers extend the same format.
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
 
 export function parseTriggerFrontmatter(content: string): {
   meta: TriggerFrontmatter;
   body: string;
 } {
-  const match = content.match(FRONTMATTER_RE);
-  if (!match) {
-    return {
-      meta: {
-        schedule: "",
-        enabled: false,
-        triggerType: "schedule",
-        mode: "agentic",
-      },
-      body: content,
-    };
-  }
-
-  const yamlBlock = match[1];
-  const body = match[2].trim();
-
-  const meta: TriggerFrontmatter = {
-    schedule: "",
-    enabled: true,
-    triggerType: "schedule",
-    mode: "agentic",
+  const { meta, body } = parseJobResource(content);
+  return {
+    meta: {
+      ...meta,
+      triggerType: meta.triggerType ?? "schedule",
+      mode: meta.mode ?? "agentic",
+    },
+    body,
   };
-
-  for (const line of yamlBlock.split("\n")) {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-    const key = line.slice(0, colonIdx).trim();
-    let value = line.slice(colonIdx + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
-    switch (key) {
-      case "schedule":
-        meta.schedule = value;
-        break;
-      case "enabled":
-        meta.enabled = value !== "false";
-        break;
-      case "triggerType":
-        meta.triggerType =
-          value === "event" || value === "schedule" ? value : "schedule";
-        break;
-      case "event":
-        meta.event = value;
-        break;
-      case "condition":
-        meta.condition = value;
-        break;
-      case "mode":
-        meta.mode =
-          value === "deterministic" || value === "agentic" ? value : "agentic";
-        break;
-      case "domain":
-        meta.domain = value;
-        break;
-      case "delegatedPolicyId":
-        meta.delegatedPolicyId = value || undefined;
-        break;
-      case "createdBy":
-        meta.createdBy = value;
-        break;
-      case "orgId":
-        meta.orgId = value;
-        break;
-      case "runAs":
-        meta.runAs =
-          value === "shared" || value === "creator" ? value : undefined;
-        break;
-      case "lastRun":
-        meta.lastRun = value;
-        break;
-      case "lastStatus":
-        meta.lastStatus = value as TriggerFrontmatter["lastStatus"];
-        break;
-      case "lastError":
-        meta.lastError = value;
-        break;
-      case "nextRun":
-        meta.nextRun = value;
-        break;
-    }
-  }
-
-  return { meta, body };
 }
 
 export function buildTriggerContent(
   meta: TriggerFrontmatter,
   body: string,
 ): string {
-  const lines = ["---"];
-  lines.push(`schedule: "${meta.schedule}"`);
-  lines.push(`enabled: ${meta.enabled}`);
-  lines.push(`triggerType: ${meta.triggerType}`);
-  if (meta.event) lines.push(`event: ${meta.event}`);
-  if (meta.condition)
-    lines.push(`condition: "${meta.condition.replace(/"/g, '\\"')}"`);
-  lines.push(`mode: ${meta.mode}`);
-  if (meta.domain) lines.push(`domain: ${meta.domain}`);
-  if (
-    meta.delegatedPolicyId &&
-    !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(meta.delegatedPolicyId)
-  ) {
-    throw new Error(
-      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
-    );
-  }
-  if (meta.delegatedPolicyId)
-    lines.push(`delegatedPolicyId: ${meta.delegatedPolicyId}`);
-  if (meta.createdBy) lines.push(`createdBy: ${meta.createdBy}`);
-  if (meta.orgId) lines.push(`orgId: ${meta.orgId}`);
-  if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
-  if (meta.lastRun) lines.push(`lastRun: ${meta.lastRun}`);
-  if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
-  if (meta.lastError)
-    lines.push(`lastError: "${meta.lastError.replace(/"/g, '\\"')}"`);
-  if (meta.nextRun) lines.push(`nextRun: ${meta.nextRun}`);
-  lines.push("---");
-  lines.push("");
-  lines.push(body);
-  return lines.join("\n");
+  return buildJobResourceContent(meta, body);
 }
 
 // ─── Dispatcher deps (same pattern as SchedulerDeps) ────────────────────────
 
-export interface TriggerDispatcherDeps {
-  getActions: () => Record<string, ActionEntry>;
-  getSystemPrompt: (owner: string) => Promise<string>;
+export interface TriggerDispatcherDeps extends BackgroundAutomationDeps {
   /**
    * Tool names to expose on the FIRST engine request for a trigger run. See
    * `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) — same
    * semantics. Omit to keep the full `getActions()` set visible up front
    * (current behavior).
    */
-  getInitialToolNames?: () => string[] | undefined;
-  apiKey?: string;
-  model?: string;
-  /** App/template id used for org-scoped per-app model defaults. */
-  appId?: string;
+  getInitialToolNames?: (
+    automation?: BackgroundAutomationContext,
+  ) => string[] | undefined;
 }
 
 // Track active subscriptions (eventName -> subscription id) to avoid
@@ -256,20 +143,11 @@ async function handleEvent(
     const matchingTriggers = jobResources.filter((r) => {
       if (!r.path.endsWith(".md")) return false;
       const { meta } = parseTriggerFrontmatter(r.content);
-      // Scope: only dispatch triggers owned by the event's owner,
-      // or shared triggers. Prevents cross-tenant trigger execution.
-      if (
-        eventMeta.owner &&
-        r.owner !== eventMeta.owner &&
-        r.owner !== "__shared__"
-      ) {
-        return false;
-      }
       return (
         meta.triggerType === "event" &&
         meta.event === eventName &&
         meta.enabled &&
-        meta.lastStatus !== "running"
+        !isBackgroundAutomationRunActive(meta)
       );
     });
 
@@ -277,20 +155,82 @@ async function handleEvent(
       const { meta, body } = parseTriggerFrontmatter(resource.content);
       if (!body.trim()) continue;
 
+      let identity: AutomationExecutionIdentity;
+      if (resource.owner === "__shared__") {
+        // Compatibility for old workspace-wide event resources. New personal
+        // and organization automations always require an event owner.
+        const userEmail = meta.createdBy || resource.owner;
+        identity = {
+          userEmail,
+          orgId: meta.orgId,
+          eventOwner: userEmail.toLowerCase(),
+        };
+      } else {
+        let resolved;
+        try {
+          resolved = await resolveAutomationExecutionIdentity(
+            resource.owner,
+            meta,
+          );
+        } catch {
+          meta.lastRun = new Date().toISOString();
+          meta.lastStatus = "skipped";
+          meta.lastError =
+            "Could not verify the automation execution identity.";
+          await resourcePut(
+            resource.owner,
+            resource.path,
+            buildTriggerContent(meta, body),
+          );
+          continue;
+        }
+        if (!resolved.ok) {
+          meta.lastRun = new Date().toISOString();
+          meta.lastStatus = "skipped";
+          meta.lastError = resolved.reason;
+          await resourcePut(
+            resource.owner,
+            resource.path,
+            buildTriggerContent(meta, body),
+          );
+          continue;
+        }
+        if (!automationMatchesEventOwner(resolved.identity, eventMeta.owner)) {
+          continue;
+        }
+        identity = resolved.identity;
+      }
+
       // Resolve API key for condition evaluation
-      const owner = meta.createdBy || resource.owner;
+      const owner = identity.userEmail;
       const userApiKey = await getOwnerActiveApiKey(owner);
       const apiKey = userApiKey || _deps.apiKey;
       if (!apiKey) {
-        console.warn(
-          `[triggers] No API key for trigger "${resource.path}" — skipping`,
+        meta.lastRun = new Date().toISOString();
+        meta.lastStatus = "error";
+        meta.lastError = "No API key is available for this automation";
+        await resourcePut(
+          resource.owner,
+          resource.path,
+          buildTriggerContent(meta, body),
         );
+        console.warn(`[triggers] ${meta.lastError}: "${resource.path}"`);
         continue;
       }
 
       // Evaluate condition
       const matches = await evaluateCondition(meta.condition, payload, apiKey);
-      if (!matches) continue;
+      if (!matches) {
+        meta.lastRun = new Date().toISOString();
+        meta.lastStatus = "skipped";
+        meta.lastError = undefined;
+        await resourcePut(
+          resource.owner,
+          resource.path,
+          buildTriggerContent(meta, body),
+        );
+        continue;
+      }
 
       // Dispatch. Guard against concurrent duplicate dispatch of the same
       // trigger (TOCTOU on lastStatus) with an in-process lock keyed on the
@@ -306,7 +246,7 @@ async function handleEvent(
             body,
             payload,
             eventMeta,
-            apiKey,
+            identity,
           );
         } finally {
           _dispatchingTriggers.delete(dispatchKey);
@@ -322,93 +262,21 @@ async function handleEvent(
   }
 }
 
-/**
- * Validate that the run-as user still exists and (if scoped to an org) is
- * still a member of that org. Mirrors the recurring-jobs scheduler check
- * (audit 12 #10): event-triggered automations must stop firing when the
- * creator is removed/demoted.
- */
-async function isTriggerRunAsStillValid(
-  jobUserEmail: string,
-  jobOrgId: string | undefined,
-): Promise<{ ok: boolean; reason?: string }> {
-  if (jobUserEmail === "__shared__") return { ok: true };
-  try {
-    const { getDbExec } = await import("../db/client.js");
-    const db = getDbExec();
-    const userResult = await db.execute({
-      sql: `SELECT 1 FROM "user" WHERE email = ? LIMIT 1`,
-      args: [jobUserEmail],
-    });
-    if (!userResult.rows || userResult.rows.length === 0) {
-      return { ok: false, reason: `user "${jobUserEmail}" no longer exists` };
-    }
-    if (jobOrgId) {
-      const memberResult = await db.execute({
-        sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
-        args: [jobOrgId, jobUserEmail],
-      });
-      if (!memberResult.rows || memberResult.rows.length === 0) {
-        return {
-          ok: false,
-          reason: `user "${jobUserEmail}" is no longer a member of org "${jobOrgId}"`,
-        };
-      }
-    }
-    return { ok: true };
-  } catch (err: any) {
-    const msg = err?.message?.toLowerCase() ?? "";
-    if (
-      msg.includes("does not exist") ||
-      msg.includes("no such table") ||
-      msg.includes("undefined table")
-    ) {
-      return { ok: true };
-    }
-    console.warn(
-      `[triggers] User/membership validation failed for "${jobUserEmail}":`,
-      err?.message,
-    );
-    return { ok: true };
-  }
-}
-
 async function dispatchAgentic(
-  resource: { id: string; path: string; owner: string; content: string },
+  resource: Resource,
   meta: TriggerFrontmatter,
   body: string,
   payload: unknown,
   eventMeta: EventMeta,
-  apiKey: string,
+  identity: AutomationExecutionIdentity,
 ): Promise<void> {
   if (!_deps) return;
 
   const triggerName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
   const now = new Date();
 
-  const jobUserEmail = meta.createdBy || resource.owner;
-  const jobOrgId = meta.orgId ?? undefined;
-
-  // SECURITY (audit 12 #10): re-validate the run-as user/membership on
-  // every dispatch. Sharing revocation, user deletion, and org-member
-  // removal must take effect for already-scheduled triggers. Skip the
-  // dispatch on failure; leave the trigger entry alone for admin review.
-  const validity = await isTriggerRunAsStillValid(jobUserEmail, jobOrgId);
-  if (!validity.ok) {
-    console.warn(
-      `[triggers] Skipping trigger "${triggerName}": ${validity.reason}. ` +
-        `User/membership no longer valid — leaving entry for admin review.`,
-    );
-    meta.lastRun = now.toISOString();
-    meta.lastStatus = "skipped";
-    meta.lastError = validity.reason;
-    await resourcePut(
-      resource.owner,
-      resource.path,
-      buildTriggerContent(meta, body),
-    );
-    return;
-  }
+  const jobUserEmail = identity.userEmail;
+  const jobOrgId = identity.orgId;
 
   // Mark as running
   meta.lastRun = now.toISOString();
@@ -420,46 +288,52 @@ async function dispatchAgentic(
     buildTriggerContent(meta, body),
   );
 
-  await runWithRequestContext(
-    { userEmail: jobUserEmail, orgId: jobOrgId },
-    async () => {
-      try {
-        const baseActions = _deps!.getActions();
-        const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
-        const initialToolNames = _deps!.getInitialToolNames?.();
-        // Only attach tool-search (and pay its schema cost) when the caller
-        // actually supplied an initial subset to filter down to — otherwise
-        // this is byte-for-byte the prior unfiltered behavior.
-        const actions = initialToolNames
-          ? attachToolSearch({ ...baseActions })
-          : baseActions;
-        const availableTools = actionsToEngineTools(actions);
-        const tools = filterInitialEngineTools(
-          availableTools,
-          initialToolNames,
-        );
+  let payloadStr: string;
+  try {
+    payloadStr = JSON.stringify(payload, null, 2);
+  } catch {
+    payloadStr = String(payload);
+  }
 
-        const engine = await resolveEngine({
-          apiKey,
-          appId: _deps!.appId,
-        });
-        const modelCandidate =
-          _deps!.model ??
-          (await getStoredModelForEngine(engine, { appId: _deps!.appId })) ??
-          engine.defaultModel;
-        const model = normalizeModelForEngine(engine, modelCandidate);
-        const thread = await createThread(jobUserEmail, {
-          title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
-        });
-
-        let payloadStr: string;
-        try {
-          payloadStr = JSON.stringify(payload, null, 2);
-        } catch {
-          payloadStr = String(payload);
+  const automation: BackgroundAutomationContext = {
+    name: triggerName,
+    meta,
+    body,
+    resource,
+  };
+  const requestContext =
+    meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
+      ? {
+          isIntegrationCaller: true as const,
+          integration: {
+            taskId: `automation:${triggerName}:${eventMeta.eventId}`,
+            scopeId: meta.originScopeId,
+            principalType: "service" as const,
+            incoming: {
+              platform: meta.deliveryPlatform,
+              externalThreadId: `${meta.deliveryTenantId || "unknown"}:${meta.deliveryDestination}:${meta.deliveryThreadRef || "root"}`,
+              text: "",
+              tenantId: meta.deliveryTenantId,
+              integrationScopeId: meta.originScopeId,
+              platformContext: {
+                channelId: meta.deliveryDestination,
+                threadTs: meta.deliveryThreadRef,
+                teamId: meta.deliveryTenantId,
+              },
+              threadRef: meta.deliveryThreadRef,
+              timestamp: now.getTime(),
+            },
+          },
         }
+      : undefined;
 
-        const triggerText = `[Automation Trigger: ${triggerName}]
+  try {
+    await runBackgroundAutomation(
+      {
+        automation,
+        ownerEmail: jobUserEmail,
+        orgId: jobOrgId,
+        prompt: `[Automation Trigger: ${triggerName}]
 Event: ${meta.event}
 Event ID: ${eventMeta.eventId}
 Fired at: ${eventMeta.emittedAt}
@@ -469,98 +343,38 @@ ${payloadStr}
 
 Execute the following automation instructions:
 
-${body}`;
+${body}`,
+        threadTitle: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
+        runIdPrefix: `automation-${triggerName}`,
+        usageLabel: `automation:${triggerName}`,
+        usageRefId: eventMeta.eventId,
+        requestContext,
+        actionCaller: "automation",
+        actionAutomation: {
+          triggerId: resource.id,
+          triggerName,
+          policyId: meta.delegatedPolicyId,
+        },
+      },
+      _deps,
+    );
 
-        const messages = [
-          {
-            role: "user" as const,
-            content: [{ type: "text" as const, text: triggerText }],
-          },
-        ];
-
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
-
-        const events: AgentChatEvent[] = [];
-        let triggerUsage: Awaited<ReturnType<typeof runAgentLoop>> | null =
-          null;
-
-        try {
-          // Wrapper, not raw `runAgentLoop`: an automation runs with nobody
-          // watching, so a transport-level cut (gateway 45s, socket hang up)
-          // has to be resumed inside this invocation or the trigger silently
-          // does nothing. `undefined` budget + the hosted default keeps the
-          // soft timeout under the serverless wall on hosts that have one and
-          // disabled locally.
-          triggerUsage = await runAgentLoopDirectWithSoftTimeout(
-            {
-              engine,
-              model,
-              systemPrompt,
-              tools,
-              availableTools,
-              messages,
-              actions,
-              send: (event) => events.push(event),
-              signal: controller.signal,
-              threadId: thread.id,
-              actionCaller: "automation",
-              automation: {
-                triggerId: resource.id,
-                triggerName,
-                policyId: meta.delegatedPolicyId,
-              },
-            },
-            undefined,
-            { useHostedDefault: true },
-          );
-        } finally {
-          clearTimeout(timeout);
-        }
-
-        if (
-          triggerUsage &&
-          (triggerUsage.inputTokens > 0 ||
-            triggerUsage.outputTokens > 0 ||
-            triggerUsage.cacheReadTokens > 0 ||
-            triggerUsage.cacheWriteTokens > 0)
-        ) {
-          try {
-            const { recordUsage } = await import("../usage/store.js");
-            await recordUsage({
-              ownerEmail: jobUserEmail,
-              inputTokens: triggerUsage.inputTokens,
-              outputTokens: triggerUsage.outputTokens,
-              cacheReadTokens: triggerUsage.cacheReadTokens,
-              cacheWriteTokens: triggerUsage.cacheWriteTokens,
-              model: triggerUsage.model,
-              label: `automation:${triggerName}`,
-              app: _deps!.appId,
-              refId: eventMeta.eventId,
-            });
-          } catch {
-            // Usage attribution must not break automation dispatch.
-          }
-        }
-
-        meta.lastStatus = "success";
-        await resourcePut(
-          resource.owner,
-          resource.path,
-          buildTriggerContent(meta, body),
-        );
-
-        console.log(`[triggers] "${triggerName}" completed successfully`);
-      } catch (err: any) {
-        meta.lastStatus = "error";
-        meta.lastError = err?.message?.slice(0, 200) || "Unknown error";
-        await resourcePut(
-          resource.owner,
-          resource.path,
-          buildTriggerContent(meta, body),
-        );
-        console.error(`[triggers] "${triggerName}" failed:`, err?.message);
-      }
-    },
-  );
+    meta.lastStatus = "success";
+    await resourcePut(
+      resource.owner,
+      resource.path,
+      buildTriggerContent(meta, body),
+    );
+    console.log(`[triggers] "${triggerName}" completed successfully`);
+  } catch (err) {
+    meta.lastStatus = "error";
+    meta.lastError =
+      err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
+    await resourcePut(
+      resource.owner,
+      resource.path,
+      buildTriggerContent(meta, body),
+    );
+    console.error(`[triggers] "${triggerName}" failed:`, meta.lastError);
+  }
 }

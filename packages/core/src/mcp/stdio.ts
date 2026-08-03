@@ -24,8 +24,6 @@
  * of the serverless bundle.
  */
 
-import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
-
 import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
@@ -143,19 +141,10 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   }
   const target = `${origin}${mcpSubpath}`;
 
-  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-  const { StreamableHTTPClientTransport } =
-    await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
-  const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
-  const { StdioServerTransport } =
-    await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const {
-    ListToolsRequestSchema,
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ReadResourceRequestSchema,
-    ListResourceTemplatesRequestSchema,
-  } = await import("@modelcontextprotocol/sdk/types.js");
+  const { Client, StreamableHTTPClientTransport } =
+    await import("@modelcontextprotocol/client");
+  const { Server } = await import("@modelcontextprotocol/server");
+  const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
 
   // --- Upstream HTTP client -------------------------------------------------
   const clientTransport = new StreamableHTTPClientTransport(new URL(target), {
@@ -163,69 +152,72 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   });
   const client = new Client(
     { name: "agent-native-mcp-proxy", version: "1.0.0" },
-    { capabilities: {} },
+    {
+      capabilities: {},
+      versionNegotiation: { mode: "auto" },
+    },
   );
   await client.connect(clientTransport);
   log(`Proxying stdio ⇄ ${target} (app: ${appId})`);
 
   // --- Downstream stdio server ---------------------------------------------
   const upstreamCapabilities = client.getServerCapabilities();
-  const capabilities: ServerCapabilities = { tools: {} };
+  const capabilities: NonNullable<
+    ReturnType<typeof client.getServerCapabilities>
+  > = { tools: {} };
   if (upstreamCapabilities?.resources) capabilities.resources = {};
   if (upstreamCapabilities?.extensions) {
     capabilities.extensions = upstreamCapabilities.extensions;
   }
 
-  const server = new Server(
-    { name: `agent-native-${appId}`, version: "1.0.0" },
-    { capabilities },
+  const stdio = serveStdio(
+    () => {
+      const server = new Server(
+        { name: `agent-native-${appId}`, version: "1.0.0" },
+        { capabilities },
+      );
+
+      server.setRequestHandler("tools/list", async (request: any) => {
+        return client.listTools(request.params);
+      });
+
+      server.setRequestHandler("tools/call", async (request: any) => {
+        // Forward the call verbatim; the upstream appends the deep-link block.
+        return client.callTool(request.params);
+      });
+
+      if (upstreamCapabilities?.resources) {
+        server.setRequestHandler("resources/list", async (request: any) => {
+          return client.listResources(request.params);
+        });
+
+        server.setRequestHandler(
+          "resources/templates/list",
+          async (request: any) => {
+            return client.listResourceTemplates(request.params);
+          },
+        );
+
+        server.setRequestHandler("resources/read", async (request: any) => {
+          return client.readResource(request.params);
+        });
+      }
+      return server;
+    },
+    { legacy: "serve" },
   );
-
-  server.setRequestHandler(ListToolsRequestSchema, async (request: any) => {
-    return client.listTools(request.params);
-  });
-
-  server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-    // Forward the call verbatim; the upstream appends the deep-link block.
-    return client.callTool(request.params);
-  });
-
-  if (upstreamCapabilities?.resources) {
-    server.setRequestHandler(
-      ListResourcesRequestSchema,
-      async (request: any) => {
-        return client.listResources(request.params);
-      },
-    );
-
-    server.setRequestHandler(
-      ListResourceTemplatesRequestSchema,
-      async (request: any) => {
-        return client.listResourceTemplates(request.params);
-      },
-    );
-
-    server.setRequestHandler(
-      ReadResourceRequestSchema,
-      async (request: any) => {
-        return client.readResource(request.params);
-      },
-    );
-  }
-
-  const stdioTransport = new StdioServerTransport();
-  await server.connect(stdioTransport);
 
   // Keep the proxy alive until the client/transport closes.
   await new Promise<void>((resolve) => {
     const done = () => resolve();
-    stdioTransport.onclose = done;
     clientTransport.onclose = done;
+    process.stdin.once("end", done);
     process.once("SIGINT", done);
     process.once("SIGTERM", done);
   });
 
   try {
+    await stdio.close();
     await client.close();
   } catch {
     // best-effort
@@ -264,44 +256,44 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
 
   const { autoDiscoverActions } = await import("../server/action-discovery.js");
   const { createMCPServerForRequest } = await import("./build-server.js");
-  const { StdioServerTransport } =
-    await import("@modelcontextprotocol/sdk/server/stdio.js");
+  const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
 
   const actions = await autoDiscoverActions(cwd);
   log(
     `Standalone: discovered ${Object.keys(actions).length} action(s) in ${cwd}`,
   );
 
-  const server = await createMCPServerForRequest(
-    {
-      name: appId.charAt(0).toUpperCase() + appId.slice(1),
-      appId,
-      description: `Agent-native ${appId} app (standalone MCP)`,
-      actions,
-      // No askAgent in standalone — there is no running engine/runtime here.
-      // builtin cross-app tools stay on so `list_apps` / `open_app` /
-      // `create_workspace_app` / `list_templates` still work from disk.
-    },
-    // No verified identity in standalone (no inbound auth header). Runs with
-    // platform-default scope, same as a tokenless local HTTP mount.
-    undefined,
-    {
-      origin,
-      clientName: "agent-native-mcp-standalone",
-      // Compact by default; opt into the full catalog with the env flag.
-      fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",
-    },
+  const stdio = serveStdio(
+    () =>
+      createMCPServerForRequest(
+        {
+          name: appId.charAt(0).toUpperCase() + appId.slice(1),
+          appId,
+          description: `Agent-native ${appId} app (standalone MCP)`,
+          actions,
+          // No askAgent in standalone — there is no running engine/runtime here.
+          // builtin cross-app tools stay on so `list_apps` / `open_app` /
+          // `create_workspace_app` / `list_templates` still work from disk.
+        },
+        // No verified identity in standalone (no inbound auth header). Runs with
+        // platform-default scope, same as a tokenless local HTTP mount.
+        undefined,
+        {
+          origin,
+          clientName: "agent-native-mcp-standalone",
+          // Compact by default; opt into the full catalog with the env flag.
+          fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",
+        },
+      ),
+    { legacy: "serve" },
   );
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-
   await new Promise<void>((resolve) => {
-    const done = () => resolve();
-    transport.onclose = done;
-    process.once("SIGINT", done);
-    process.once("SIGTERM", done);
+    process.stdin.once("end", resolve);
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
   });
+  await stdio.close();
 }
 
 /**

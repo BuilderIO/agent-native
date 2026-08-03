@@ -156,6 +156,7 @@ describe("embedded Agent-Native host fixture", () => {
       onboarding: false,
       integrations: false,
       terminal: false,
+      coreRoutes: { extensionTools: true },
     });
     await plugin(nitroApp);
 

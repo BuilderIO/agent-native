@@ -1,7 +1,7 @@
 import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
 import DocContent from "../components/DocContent";
-import { getDoc, type DocEntry } from "../components/docs-content";
+import { loadDoc, type DocEntry } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -39,7 +39,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (target) {
     throw redirect(docsPathForSlug(target, DEFAULT_DOCS_LOCALE), 301);
   }
-  const doc = getDoc(slug);
+  const doc = await loadDoc(slug);
   if (!doc) {
     throw new Response("Not Found", { status: 404 });
   }
@@ -49,13 +49,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
 export const meta = ({
   data,
   loaderData,
-  params,
 }: {
   data?: DocEntry;
   loaderData?: DocEntry;
-  params: { slug: string };
 }) => {
-  const doc = data ?? loaderData ?? getDoc(params.slug);
+  const doc = data ?? loaderData;
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   return withDocsSocialImage(

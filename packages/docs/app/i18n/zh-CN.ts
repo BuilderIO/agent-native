@@ -418,6 +418,18 @@ const zhCN = {
     body: "你可以自定义一切。",
     community: "想要空白应用？从框架指南开始从零构建。",
     createYourOwn: "从零开始",
+    communityTitle: "社区模板",
+    communityDescription:
+      "由作者独立维护的应用。可从公开 GitHub 仓库安装；如有托管版本，也可以先在线体验。",
+    submitCommunityTemplate: "提交你的模板",
+    communityEmpty:
+      "社区目录现已开放。请将专注于明确场景的 Agent Native 应用发布到公开仓库并提交收录。",
+    publishGuide: "阅读发布指南",
+    communityTrust:
+      "社区模板属于第三方代码。运行前请检查仓库、许可证、依赖项和安装脚本。",
+    copyCommunityInstallCommand: "复制安装命令",
+    viewRepository: "查看仓库",
+    tryCommunityDemo: "体验演示",
   },
   buildFromScratch: {
     title: "从零开始构建",
@@ -1621,6 +1633,7 @@ const zhCN = {
     formsOverview: "概览",
     formsBuildingPublishing: "构建与发布",
     formsResponses: "回复与洞察",
+    docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },
 } satisfies typeof enUS;

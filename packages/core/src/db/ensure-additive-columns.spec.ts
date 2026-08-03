@@ -265,6 +265,33 @@ describe("ensureAdditiveColumns", () => {
       ).toBe(false);
     });
 
+    it("reports an error when the batched column probe fails instead of skipping every table silently", async () => {
+      const { ensureAdditiveColumns } =
+        await import("./ensure-additive-columns.js");
+      const calls: string[] = [];
+      const client = {
+        execute: async (sqlArg: string | { sql: string }) => {
+          const text = typeof sqlArg === "string" ? sqlArg : sqlArg.sql;
+          calls.push(text);
+          if (/information_schema\.columns/i.test(text)) {
+            throw new Error("connection terminated");
+          }
+          return { rows: [], rowsAffected: 0 };
+        },
+      } as any;
+
+      const result = await ensureAdditiveColumns({
+        db: client,
+        tables: [pgSessionRecordings, pgErrors],
+      });
+
+      // The whole point: a clean result here would be indistinguishable from
+      // "every declared column already exists".
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].error).toMatch(/connection terminated/);
+      expect(calls.some((c) => /ALTER TABLE/i.test(c))).toBe(false);
+    });
+
     it("no-ops when the table itself does not exist (creation path owns it)", async () => {
       const { ensureAdditiveColumns } =
         await import("./ensure-additive-columns.js");

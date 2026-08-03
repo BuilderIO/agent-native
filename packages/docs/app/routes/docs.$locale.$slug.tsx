@@ -6,7 +6,7 @@ import {
 } from "react-router";
 
 import DocContent from "../components/DocContent";
-import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
+import { loadDoc, type DocEntry } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -67,19 +67,11 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
 export const meta = ({
   data,
   loaderData,
-  params,
 }: {
   data?: DocEntry;
   loaderData?: DocEntry;
-  params: { locale?: string; slug?: string };
 }) => {
-  const locale = isDocsLocale(params.locale)
-    ? params.locale
-    : DEFAULT_DOCS_LOCALE;
-  const doc =
-    data ??
-    loaderData ??
-    (params.slug ? getDoc(params.slug, locale) : undefined);
+  const doc = data ?? loaderData;
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
   return withDocsSocialImage(

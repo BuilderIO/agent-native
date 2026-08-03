@@ -11,13 +11,14 @@ import {
   validateGenerationCreativeContext,
 } from "@agent-native/creative-context/server";
 import type { CreativeContextElementProvenance } from "@agent-native/creative-context/types";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { resolveDefaultDesignSystemId } from "../server/workspace-defaults.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 
@@ -74,7 +75,7 @@ const SlideSchema = z.object({
 
 // Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
 const SlidesSchema = z.preprocess(
-  (v) => (typeof v === "string" ? JSON.parse(v) : v),
+  (v) => (v === undefined ? [] : typeof v === "string" ? JSON.parse(v) : v),
   z.array(SlideSchema),
 );
 
@@ -286,17 +287,8 @@ export default defineAction({
     if (resolvedDesignSystemId) {
       await assertAccess("design-system", resolvedDesignSystemId, "viewer");
     } else {
-      const defaults = await db
-        .select({ id: schema.designSystems.id })
-        .from(schema.designSystems)
-        .where(
-          and(
-            eq(schema.designSystems.ownerEmail, ownerEmail),
-            eq(schema.designSystems.isDefault, true),
-          ),
-        )
-        .limit(1);
-      resolvedDesignSystemId = defaults[0]?.id;
+      resolvedDesignSystemId =
+        (await resolveDefaultDesignSystemId(ownerEmail)) ?? undefined;
     }
 
     const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

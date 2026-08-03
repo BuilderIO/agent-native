@@ -58,6 +58,8 @@ Read the matching skill before deeper work:
   from `get-capture` output.
 - Sources support exactly six providers: `manual`, `generic`, `clips`, `slack`,
   `granola`, `github`. `create-source` rejects anything else.
+- Use a blessed `generic` source for approved FAQs, docs, and handbooks. See
+  `ingestion-and-connectors` for answer policy, updates, and deletion semantics.
 - Reuse existing workspace integration grants (check `list-connection-providers`
   readiness) instead of duplicating provider tokens into Brain. Source sync
   actions are convenience readers, not integration limits — for an endpoint,
@@ -87,7 +89,7 @@ Read the matching skill before deeper work:
 | `ask-brain` | Cited-answer endpoint with `federatedCoverage`. |
 | `get-knowledge` / `list-knowledge` | Read or list distilled knowledge. |
 | `get-capture` / `list-captures` | Read or list raw captures (redacted by default). |
-| `import-capture` / `import-transcript` | Ingest a capture or meeting transcript. |
+| `import-capture` / `import-transcript` | Ingest and queue a capture or transcript for distillation. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue distillation; close the queue row. |
 | `write-knowledge` | Write/update knowledge; may return a pending proposal. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Human review of gated writes. |

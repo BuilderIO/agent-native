@@ -21,7 +21,6 @@ packages/core/docs/content/locales/ar-SA/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ar-SA/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ar-SA/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/ar-SA/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/ar-SA/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch deck"
@@ -48,7 +47,6 @@ packages/core/docs/content/locales/de-DE/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/de-DE/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/de-DE/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/de-DE/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
@@ -68,7 +66,6 @@ packages/core/docs/content/locales/es-ES/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/es-ES/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/es-ES/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/es-ES/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/es-ES/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch deck"
@@ -95,7 +92,6 @@ packages/core/docs/content/locales/fr-FR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/fr-FR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/fr-FR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/fr-FR/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/fr-FR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch deck"
@@ -122,7 +118,6 @@ packages/core/docs/content/locales/hi-IN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/hi-IN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/hi-IN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/hi-IN/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/hi-IN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch deck"
@@ -149,7 +144,6 @@ packages/core/docs/content/locales/ja-JP/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ja-JP/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ja-JP/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/ja-JP/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/ja-JP/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch deck"
@@ -177,7 +171,6 @@ packages/core/docs/content/locales/ko-KR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ko-KR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ko-KR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/ko-KR/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/ko-KR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch deck"
@@ -198,7 +191,6 @@ packages/core/docs/content/locales/pt-BR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/pt-BR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/pt-BR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/pt-BR/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/pt-BR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch deck"
@@ -225,7 +217,6 @@ packages/core/docs/content/locales/zh-CN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-CN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-CN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/zh-CN/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/zh-CN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch deck"
@@ -252,7 +243,6 @@ packages/core/docs/content/locales/zh-TW/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-TW/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-TW/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|, recompute
-packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|A2A, email
 packages/core/docs/content/locales/zh-TW/template-calendar.mdx|"find a 1-hour slot next week"
 packages/core/docs/content/locales/zh-TW/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch deck"

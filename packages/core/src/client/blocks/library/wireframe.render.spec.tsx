@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { BlockRenderContext } from "../types.js";
 import {
   hasDrawableRoughBounds,
+  hasDrawableRoughGeometry,
   HTML_ROUGH_SELECTOR,
 } from "./wireframe-kit.js";
 import type { WireframeData } from "./wireframe.config.js";
@@ -100,6 +101,17 @@ describe("wireframe auto-height frame", () => {
     expect(hasDrawableRoughBounds(Number.NaN, 20, 1)).toBe(false);
     expect(hasDrawableRoughBounds(5, 5, 2)).toBe(true);
     expect(hasDrawableRoughBounds(3, 3, 1)).toBe(true);
+  });
+
+  it("skips rough paths with non-finite layout coordinates", () => {
+    expect(hasDrawableRoughGeometry(0, 0, 20, 20, 1)).toBe(true);
+    expect(hasDrawableRoughGeometry(Number.NaN, 0, 20, 20, 1)).toBe(false);
+    expect(
+      hasDrawableRoughGeometry(0, Number.POSITIVE_INFINITY, 20, 20, 1),
+    ).toBe(false);
+    expect(
+      hasDrawableRoughGeometry(0, 0, Number.NEGATIVE_INFINITY, 20, 1),
+    ).toBe(false);
   });
 
   it("roughens standard wireframe primitives by default", () => {

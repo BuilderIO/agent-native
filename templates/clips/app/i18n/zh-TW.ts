@@ -528,6 +528,8 @@ const messages = {
     useColor: "使用 {{color}}",
     logo: "識別",
     logoPreview: "標誌預覽",
+    logoUsage: "在分享郵件和公開的剪輯頁面中向收件者顯示。",
+    emailHeaderPreview: "分享郵件頁首",
     dropReplace: "刪除一個新圖片來替換",
     dropHere: "在此處放置 PNG / JPG / SVG",
     uploading: "正在上傳...",
@@ -613,10 +615,6 @@ const messages = {
     collapse: "收起",
     changelogMarkdown:
       "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd+K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd+K）和設定。",
-    profile: "個人資料",
-    email: "信箱",
-    displayName: "顯示名稱",
-    displayNamePlaceholder: "你的姓名",
     playback: "播放",
     defaultPlaybackSpeed: "預設播放速度",
     playbackDescription: "開啟錄製時會自動應用。",
@@ -746,6 +744,7 @@ const messages = {
     noOrganization: "還沒有組織。請從組織切換器建立一個以開始使用。",
     description: "組織管理：品牌、成員、邀請。",
     adminsOnlyBranding: "只有管理員可以編輯品牌。",
+    brandingLoadFailed: "無法載入組織品牌資訊。",
     members: "成員",
     pendingInvites: "待處理邀請",
     noPendingInvites: "沒有待處理邀請。",
@@ -883,6 +882,7 @@ const messages = {
     replyingTo: "正在回覆",
     commentAt: "評論於",
     writeReply: "寫回覆...",
+    editComment: "編輯評論",
     commentButton: "留言",
     composerPlaceholder: "新增留言…",
     mentionSomeone: "提及某人",
@@ -1266,7 +1266,7 @@ const messages = {
     downloadDesktopApp: "下載桌面應用程式",
     technicalDetails: "技術詳細資料",
     whatToCheck: "檢查項目",
-    downloadRecording: "下載錄製",
+    downloadRecording: "下載",
     openRecorderInTab: "在分頁中開啟錄製工具",
     connectStorageToFinish:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
@@ -1437,6 +1437,10 @@ const messages = {
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",
+    googleMayShowWarning: "檢查 Google 存取權",
+    googleNotVerifiedTitle: "連線前請驗證應用程式",
+    googleWarningBeforeAdvanced:
+      "請確認應用程式名稱和要求的 Calendar 存取權與你信任的 Clips 部署相符。如果 Google 顯示未驗證應用程式警告，或應用程式身分看起來陌生，請停止操作並聯絡工作區管理員。",
     desktopReminder:
       "連線 Google Calendar，保持 Clips Desktop 開啟，會議開始時從提醒或選單列點選 Start notes。",
     getDesktopApp: "取得桌面應用程式",

@@ -9,7 +9,7 @@ import {
   type CreativeContextProjectionAdapters,
 } from "@agent-native/creative-context/server";
 import { listContextSources } from "@agent-native/creative-context/store";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
@@ -52,10 +52,21 @@ function isProjectedLayout(value: unknown): value is ProjectedLayoutTemplate {
 async function ownedDesignSystems() {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
+  const orgId = getRequestOrgId();
   return getDb()
     .select()
     .from(schema.designSystems)
-    .where(eq(schema.designSystems.ownerEmail, ownerEmail))
+    .where(
+      orgId
+        ? and(
+            eq(schema.designSystems.ownerEmail, ownerEmail),
+            eq(schema.designSystems.orgId, orgId),
+          )
+        : and(
+            eq(schema.designSystems.ownerEmail, ownerEmail),
+            isNull(schema.designSystems.orgId),
+          ),
+    )
     .orderBy(
       desc(schema.designSystems.isDefault),
       desc(schema.designSystems.updatedAt),
@@ -67,6 +78,7 @@ async function ensureLayoutTarget() {
   if (existing[0]) return existing[0];
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
+  const orgId = getRequestOrgId();
   const now = new Date().toISOString();
   const row = {
     id: nanoid(),
@@ -78,7 +90,8 @@ async function ensureLayoutTarget() {
       "Prefer approved Creative Context layout templates unchanged before adapting or generating a new layout.",
     isDefault: true,
     ownerEmail,
-    orgId: getRequestOrgId(),
+    orgId,
+    visibility: orgId ? ("org" as const) : ("private" as const),
     createdAt: now,
     updatedAt: now,
   };

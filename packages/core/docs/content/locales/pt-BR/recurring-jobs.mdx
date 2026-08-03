@@ -7,6 +7,12 @@ description: "Avisos agendados em Cron que o agente executa por conta própria �
 
 Um **trabalho recorrente** é um prompt executado em uma programação cron. É assim que o agente faz as coisas por conta própria: “todas as manhãs às 7h, resume meus e-mails noturnos”, “todas as segundas-feiras posto os números de inscrição da semana passada para Slack”, “a cada hora verifica se há rascunhos obsoletos e os exclui”.
 
+<Callout tone="info">
+
+**Recurring Jobs** é o nome antigo para automações **Scheduled**. **Automations** abrange **Scheduled** e **Event**. `jobs/` e `manage-jobs` permanecem para integrações antigas apenas agendadas. Use `manage-automations` e **Automations** em `/agent#jobs` para novos trabalhos pessoais ou da organização, incluindo modelo e listas MCP.
+
+</Callout>
+
 Os trabalhos recorrentes são acionados em um relógio. Para reagir a _eventos_ (uma reserva criada, um e-mail recebido) — mesmo formato de arquivo `jobs/` mais condições — consulte [Automations](/docs/automations).
 
 Os trabalhos ficam no [Recursos do Agente](/docs/agent-resources) em `jobs/<name>.md` — apenas um arquivo Markdown com frontmatter YAML. Sem registro, sem fiação. Solte o arquivo e a estrutura o pegará.
@@ -154,8 +160,8 @@ O agendador é um plugin de estrutura (a rotina interna `processRecurringJobs()`
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >o executor compartilhado valida a identidade e resolve modelo, lista MCP,
+      continuação, entrega e uso</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -216,7 +222,7 @@ Uma única ferramenta `manage-jobs` é registrada em cada modelo. O parâmetro `
 | `update` | `name` (obrigatório); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Editar um trabalho existente                                                     |
 | `delete` | `name` (obrigatório)                                                             | Exclua um trabalho — sempre confirme primeiro com o usuário                      |
 
-**Escopo pessoal versus escopo compartilhado.** Cada trabalho reside no escopo pessoal (é executado como e é visível apenas para o criador) ou no escopo compartilhado/organizacional (é executado em nome do criador, mas é visível para os membros da organização). Os parâmetros `scope` e `runAs` controlam isso no momento da criação. Os administradores da organização podem atualizar ou excluir qualquer trabalho compartilhado; membros não administradores só podem gerenciar os seus próprios.
+**Escopo pessoal versus compartilhado.** Cada automação está no escopo pessoal ou da organização e executa como seu criador. Administradores podem gerenciar definições compartilhadas, mas não alterar a identidade do criador. Antes de cada execução da organização, o framework verifica se o criador existe e continua membro.
 
 ## Diferente do pacote de agendamento {#vs-scheduling-package}
 

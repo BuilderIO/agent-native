@@ -30,6 +30,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -55,6 +56,7 @@ import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { useWhisperSettings } from "./hooks/useWhisperSettings";
 import { startBubbleFramePump } from "./lib/bubble-pump";
+import { shouldKeepBubbleSession } from "./lib/bubble-session";
 import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
@@ -217,7 +219,6 @@ interface ShareLinkNotice {
   recordingId: string;
   origin: string;
   url: string;
-  copied: boolean;
 }
 
 interface ScreenMemoryExportResult {
@@ -911,6 +912,9 @@ export function App() {
     [],
   );
   const [retryingUploadId, setRetryingUploadId] = useState<string | null>(null);
+  const [retryingUploadStatus, setRetryingUploadStatus] = useState<
+    string | null
+  >(null);
   const [exportingUploadId, setExportingUploadId] = useState<string | null>(
     null,
   );
@@ -2197,26 +2201,23 @@ export function App() {
   const nativeFullscreenRecordingActive =
     mode !== "camera" && shouldUseNativeFullscreenRecording(source);
   // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
-  // captures the dep-snapshot value) can still see the CURRENT flow state
-  // at the moment it actually runs. Without this, if `recordingFlowActive`
-  // briefly flips false on a re-render mid-flow (e.g. finally-block
-  // recovery path), the cleanup function snapshots `bubbleActive=false`
-  // from THAT render and stops the camera stream even though recording is
-  // still in flight.
+  // captures the dep-snapshot value) can still see the current flow state.
+  // Update it in a layout effect: passive effect cleanup runs before passive
+  // effect setup, so mirroring this in a passive effect leaves cleanup behind.
   const recordingFlowGateRef = useRef(false);
   // Stop detaches the recorder state before optimization/upload finishes so a
   // fresh camera session can recover immediately. Keep that post-stop phase
   // separate so React cleanup does not close the finalizing progress window.
   const recordingStopFinalizingRef = useRef(false);
-  useEffect(() => {
-    recordingFlowGateRef.current = isRecording || recordingFlowActive;
-  }, [isRecording, recordingFlowActive]);
-  const bubbleActive =
-    wantsCamera &&
-    (popoverVisible ||
-      isRecording ||
-      recordingFlowActive ||
-      recordingFlowGateRef.current);
+  const recordingInFlight = isRecording || recordingFlowActive;
+  useLayoutEffect(() => {
+    recordingFlowGateRef.current = recordingInFlight;
+  }, [recordingInFlight]);
+  const bubbleActive = shouldKeepBubbleSession({
+    wantsCamera,
+    popoverVisible,
+    recordingInFlight,
+  });
 
   bubbleActiveRef.current = bubbleActive;
   // The toolbar is recording chrome, not pre-record chrome. Showing it while
@@ -2589,14 +2590,16 @@ export function App() {
     try {
       const url = recordingShareUrl(recordingId, origin);
       const copied = await copyRecordingShareLink(recordingId, origin);
-      setShareLinkNotice({ recordingId, origin, url, copied });
-      // The popover hides right after an automatic copy, so the banner below is
-      // only seen on the next open — the OS notification is the live signal.
-      if (copied && notify) {
-        await sendNativeNotification({
-          title: "Link copied",
-          body: "Your clip link is ready to paste.",
-        });
+      if (copied) {
+        setShareLinkNotice(null);
+        if (notify) {
+          await sendNativeNotification({
+            title: "Link copied",
+            body: "Your clip link is ready to paste.",
+          });
+        }
+      } else {
+        setShareLinkNotice({ recordingId, origin, url });
       }
       return copied;
     } catch (err) {
@@ -2635,6 +2638,15 @@ export function App() {
           recordingId: upload.recordingId,
           serverUrl: targetServerUrl,
           authToken,
+          onRecoveryDecision: ({ action, progress }) => {
+            setRetryingUploadStatus(
+              action === "resume"
+                ? `Resuming · ${Math.round(progress * 100)}% already uploaded`
+                : action === "restart"
+                  ? "Restarting upload"
+                  : "Finishing upload",
+            );
+          },
         });
       }
       await loadPendingUploads();
@@ -2655,6 +2667,7 @@ export function App() {
       await loadPendingUploads();
     } finally {
       setRetryingUploadId(null);
+      setRetryingUploadStatus(null);
     }
   }
 
@@ -3281,6 +3294,7 @@ export function App() {
     <PendingUploadBanner
       uploads={pendingUploads}
       retryingUploadId={retryingUploadId}
+      retryingUploadStatus={retryingUploadStatus}
       exportingUploadId={exportingUploadId}
       dismissingUploadId={dismissingUploadId}
       onExport={exportPendingUpload}
@@ -4053,6 +4067,7 @@ function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
 function PendingUploadBanner({
   uploads,
   retryingUploadId,
+  retryingUploadStatus,
   exportingUploadId,
   dismissingUploadId,
   onExport,
@@ -4063,6 +4078,7 @@ function PendingUploadBanner({
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
+  retryingUploadStatus: string | null;
   exportingUploadId: string | null;
   dismissingUploadId: string | null;
   onExport: (upload: PendingDesktopUpload) => void;
@@ -4185,7 +4201,7 @@ function PendingUploadBanner({
               onClick={() => onRetry(latest)}
             >
               <IconRefresh size={14} stroke={2} />
-              {retrying ? "Retrying" : "Retry"}
+              {retrying ? (retryingUploadStatus ?? "Retrying") : "Retry"}
             </button>
           </>
         )}
@@ -4305,16 +4321,12 @@ function ShareLinkBanner({
   return (
     <div className="share-link-banner">
       <div className="local-save-copy">
-        <div className="local-save-title">
-          {notice.copied ? "Share link copied" : "Share link ready"}
-        </div>
+        <div className="local-save-title">Share link ready</div>
         <div className="local-save-sub">{notice.url}</div>
       </div>
-      {notice.copied ? null : (
-        <button type="button" onClick={onCopy}>
-          Copy
-        </button>
-      )}
+      <button type="button" onClick={onCopy}>
+        Copy
+      </button>
       <button type="button" className="local-save-dismiss" onClick={onDismiss}>
         Dismiss
       </button>

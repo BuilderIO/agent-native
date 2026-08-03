@@ -20,12 +20,12 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="工具包如何融入" summary={"框架运行时提供持久保证。Toolkit 将这些保证转化为可复用的产品系统。应用再加入领域特定的数据、路由和视觉标识。"}>
+<Diagram id="doc-block-toolkits-boundary" title="三个层次如何配合" summary={"Core 是框架基础。Toolkit 是可选的可复用基础设施和 UI。Templates 是构建在 Core 上、通常使用 Toolkit 的可选应用。"}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">运行时</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     操作、SQL、认证、应用状态、访问检查、实时传输
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -35,7 +35,7 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">应用</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     领域架构、路由、操作、品牌、专门工作流
   </div>
 </div>
@@ -59,6 +59,8 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
 ```
 
 </Diagram>
+
+Core 就是框架。Toolkit 是框架可选的可复用部件集合。Templates 是构建在 Core 上的可选应用；它们可以使用 Toolkit，也可以分叉作为完整起点。应用也可以不采用 Toolkit 或模板而直接使用 Core。
 
 ## 目录 {#catalog}
 

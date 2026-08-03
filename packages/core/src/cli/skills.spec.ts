@@ -1171,6 +1171,41 @@ describe("agent-native skills", () => {
     expect(result.mcpUrl).toBe("https://design.agent-native.com/mcp");
   });
 
+  it("does not replace a symlinked project skill folder", async () => {
+    const root = tmpDir();
+    const sourceDir = path.join(root, "skills", "visual-edit");
+    const skillDir = path.join(root, ".agents", "skills", "visual-edit");
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceDir, "SKILL.md"),
+      "local visual-edit source\n",
+      "utf8",
+    );
+    fs.mkdirSync(path.dirname(skillDir), { recursive: true });
+    fs.symlinkSync(path.relative(path.dirname(skillDir), sourceDir), skillDir);
+
+    await expect(
+      addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "visual-edit",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        { baseDir: root, runCommand: async () => 0 },
+      ),
+    ).rejects.toThrow(
+      "Refusing to replace symlinked Agent Native skill folder",
+    );
+
+    expect(fs.lstatSync(skillDir).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8")).toBe(
+      "local visual-edit source\n",
+    );
+  });
+
   it("accepts shorthand aliases for the built-in Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");

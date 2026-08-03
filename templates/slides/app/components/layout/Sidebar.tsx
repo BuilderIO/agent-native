@@ -1,6 +1,6 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -91,9 +91,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       <TooltipContent side="right">{t("root.searchDecks")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -102,9 +99,72 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
     />
   );
 
+  const brand = (
+    <div
+      className={cn(
+        "flex items-center gap-2",
+        collapsed ? "size-8 justify-center" : "min-w-0 flex-1",
+      )}
+    >
+      <img
+        src={appPath("/agent-native-icon-light.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+      />
+      <img
+        src={appPath("/agent-native-icon-dark.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+      />
+      {!collapsed && (
+        <span className="truncate text-sm font-semibold tracking-tight">
+          {t("navigation.brand")}
+        </span>
+      )}
+    </div>
+  );
+  const brandControl = onToggleCollapsed ? (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+          className={cn(
+            "flex min-w-0 items-center rounded-md text-foreground outline-none transition-colors hover:bg-sidebar-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed
+              ? "size-8 justify-center"
+              : "w-full gap-2 px-1 py-1 text-start",
+          )}
+          data-sidebar-brand-toggle
+        >
+          {brand}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : (
+    brand
+  );
+
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-e border-border bg-sidebar py-2 text-sidebar-foreground transition-[width] duration-200 ease-out">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
+        <div className="flex h-12 w-full shrink-0 items-center justify-center border-b border-border">
+          {brandControl}
+        </div>
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -156,7 +216,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         <SidebarFooterActions
           collapsed
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
         />
@@ -166,24 +225,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
   return (
     <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="flex items-center gap-2">
-          <img
-            src={appPath("/agent-native-icon-light.svg")}
-            alt=""
-            aria-hidden="true"
-            className="block h-4 w-auto dark:hidden"
-          />
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="hidden h-4 w-auto dark:block"
-          />
-          <span className="text-sm font-semibold tracking-tight">
-            {t("navigation.brand")}
-          </span>
-        </div>
+      <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
+        {brandControl}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -241,7 +284,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
           </div>
           <SidebarFooterActions
             feedback={feedbackButton}
-            translate={translateButton}
             search={searchButton}
             collapse={collapseButton}
             className="px-0 py-0"

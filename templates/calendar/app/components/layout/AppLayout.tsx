@@ -386,7 +386,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
               collapsed={!isMobile && sidebarCollapsed}
-              onCollapsedChange={setSidebarCollapsed}
+              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
             />
             <AgentSidebar
               position="right"

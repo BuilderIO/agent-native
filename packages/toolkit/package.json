@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.10.10",
+  "version": "0.12.1",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -88,6 +88,34 @@
       "development": "./dist/chat-history/*.js",
       "import": "./dist/chat-history/*.js",
       "default": "./dist/chat-history/*.js"
+    },
+    "./canvas-annotations": {
+      "types": "./dist/canvas-annotations/index.d.ts",
+      "browser": "./dist/canvas-annotations/index.js",
+      "development": "./dist/canvas-annotations/index.js",
+      "import": "./dist/canvas-annotations/index.js",
+      "default": "./dist/canvas-annotations/index.js"
+    },
+    "./canvas-annotations/*": {
+      "types": "./dist/canvas-annotations/*.d.ts",
+      "browser": "./dist/canvas-annotations/*.js",
+      "development": "./dist/canvas-annotations/*.js",
+      "import": "./dist/canvas-annotations/*.js",
+      "default": "./dist/canvas-annotations/*.js"
+    },
+    "./canvas-interactions": {
+      "types": "./dist/canvas-interactions/index.d.ts",
+      "browser": "./dist/canvas-interactions/index.js",
+      "development": "./dist/canvas-interactions/index.js",
+      "import": "./dist/canvas-interactions/index.js",
+      "default": "./dist/canvas-interactions/index.js"
+    },
+    "./canvas-interactions/*": {
+      "types": "./dist/canvas-interactions/*.d.ts",
+      "browser": "./dist/canvas-interactions/*.js",
+      "development": "./dist/canvas-interactions/*.js",
+      "import": "./dist/canvas-interactions/*.js",
+      "default": "./dist/canvas-interactions/*.js"
     },
     "./composer": {
       "types": "./dist/composer/index.d.ts",

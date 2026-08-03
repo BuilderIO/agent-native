@@ -122,6 +122,32 @@ describe("action discovery", () => {
     expect(registry["act-only-read"].allowInPlanMode).toBe(false);
   });
 
+  it("preserves Plan-mode effect metadata", () => {
+    const classify = (args: any) =>
+      args.action === "list" ? ("read" as const) : ("write" as const);
+    const registry = loadActionsFromStaticRegistry({
+      "mixed-records": {
+        default: {
+          tool: { description: "Manage records", parameters: {} },
+          planMode: {
+            effect: classify,
+            allowedValues: { action: ["list"] },
+            allowedProperties: ["action"],
+            requiredProperties: ["action"],
+          },
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["mixed-records"].planMode).toEqual({
+      effect: classify,
+      allowedValues: { action: ["list"] },
+      allowedProperties: ["action"],
+      requiredProperties: ["action"],
+    });
+  });
+
   it("preserves per-tool timeout and result limits", () => {
     const registry = loadActionsFromStaticRegistry({
       "slow-provider": {

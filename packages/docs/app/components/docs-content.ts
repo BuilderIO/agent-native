@@ -4,7 +4,6 @@
  * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
  */
 
-import { docsBodyToMarkdownMirror } from "../../lib/docs-markdown-export";
 import {
   docSourceFilenamesForSlug,
   docSourceSlugFromFilename,
@@ -17,20 +16,20 @@ import {
   type DocsLocale,
 } from "./docs-locale";
 
-// Import all default-locale docs from core as raw strings. During the migration
-// `.mdx` wins when both source files exist for a slug; `.md` remains a fallback.
-const docSourceModules = {
+// Keep default docs route-lazy. Eagerly importing and parsing the whole corpus
+// makes every SSR cold start pay for documents unrelated to the requested page.
+// During the migration `.mdx` wins when both source files exist for a slug;
+// `.md` remains a fallback.
+const docSourceLoaders = {
   ...import.meta.glob("../../../core/docs/content/*.md", {
     query: "?raw",
     import: "default",
-    eager: true,
   }),
   ...import.meta.glob("../../../core/docs/content/*.mdx", {
     query: "?raw",
     import: "default",
-    eager: true,
   }),
-} as Record<string, string>;
+} as Record<string, () => Promise<string>>;
 
 // Optional locale-specific docs live under packages/core/docs/content/locales/.
 // Keep these lazy. Translated Markdown should load per locale + route, not all
@@ -52,7 +51,6 @@ export interface DocEntry {
   description: string;
   search: string;
   body: string; // markdown body (without frontmatter)
-  searchBody: string; // portable markdown body used for search snippets/indexing
   headings: { id: string; label: string; level: number }[];
 }
 
@@ -127,6 +125,7 @@ function extractHeadings(
 
 const docs = new Map<string, DocEntry>();
 const localizedDocs = new Map<DocsLocale, Map<string, DocEntry>>();
+const docPromises = new Map<string, Promise<DocEntry | undefined>>();
 const localizedDocPromises = new Map<string, Promise<DocEntry | undefined>>();
 
 function docEntryFromPath(path: string, raw: string): DocEntry {
@@ -140,16 +139,8 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
     description: data.description || "",
     search: data.search || "",
     body,
-    searchBody: docsBodyToMarkdownMirror(body),
     headings,
   };
-}
-
-// Build the docs maps once.
-for (const path of preferMdxDocSourceFiles(Object.keys(docSourceModules))) {
-  const raw = docSourceModules[path];
-  const entry = docEntryFromPath(path, raw);
-  docs.set(entry.slug, entry);
 }
 
 function normalizeDocsLocale(locale: unknown): DocsLocale {
@@ -162,6 +153,12 @@ function localizedDocKey(locale: DocsLocale, slug: string): string | undefined {
     if (localizedDocLoaders[key]) return key;
   }
   return undefined;
+}
+
+function defaultDocKey(slug: string): string | undefined {
+  return preferMdxDocSourceFiles(Object.keys(docSourceLoaders)).find(
+    (path) => docSourceSlugFromFilename(path) === slug,
+  );
 }
 
 function cacheLocalizedDoc(locale: DocsLocale, entry: DocEntry) {
@@ -187,7 +184,28 @@ export async function loadDoc(
   locale: unknown = DEFAULT_DOCS_LOCALE,
 ): Promise<DocEntry | undefined> {
   const docsLocale = normalizeDocsLocale(locale);
-  if (docsLocale === DEFAULT_DOCS_LOCALE) return docs.get(slug);
+  if (docsLocale === DEFAULT_DOCS_LOCALE) {
+    const cached = docs.get(slug);
+    if (cached) return cached;
+
+    const key = defaultDocKey(slug);
+    if (!key) return undefined;
+    const existingPromise = docPromises.get(key);
+    if (existingPromise) return existingPromise;
+
+    const promise = docSourceLoaders[key]()
+      .then((raw) => {
+        const entry = docEntryFromPath(key, raw);
+        docs.set(entry.slug, entry);
+        return entry;
+      })
+      .catch((error) => {
+        docPromises.delete(key);
+        throw error;
+      });
+    docPromises.set(key, promise);
+    return promise;
+  }
 
   const cached = localizedDocs.get(docsLocale)?.get(slug);
   if (cached) return cached;
@@ -215,7 +233,9 @@ export async function loadDoc(
 
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
   const docsLocale = normalizeDocsLocale(locale);
-  if (docsLocale === DEFAULT_DOCS_LOCALE) return docs.has(slug);
+  if (docsLocale === DEFAULT_DOCS_LOCALE) {
+    return Boolean(docs.has(slug) || defaultDocKey(slug));
+  }
   return Boolean(
     localizedDocs.get(docsLocale)?.has(slug) ||
     localizedDocKey(docsLocale, slug),
@@ -236,8 +256,16 @@ export async function loadAllDocs(
   locale: unknown = DEFAULT_DOCS_LOCALE,
 ): Promise<DocEntry[]> {
   const docsLocale = normalizeDocsLocale(locale);
-  if (docsLocale === DEFAULT_DOCS_LOCALE) return Array.from(docs.values());
+  if (docsLocale === DEFAULT_DOCS_LOCALE) {
+    await Promise.all(
+      preferMdxDocSourceFiles(Object.keys(docSourceLoaders)).map((path) =>
+        loadDoc(docSourceSlugFromFilename(path), docsLocale),
+      ),
+    );
+    return Array.from(docs.values());
+  }
 
+  await loadAllDocs(DEFAULT_DOCS_LOCALE);
   const prefix = `../../../core/docs/content/locales/${docsLocale}/`;
   await Promise.all(
     preferMdxDocSourceFiles(
@@ -251,16 +279,18 @@ export async function loadAllDocs(
 }
 
 /** Build a search index from all markdown content */
-function buildSearchIndexFromDocs(
+async function buildSearchIndexFromDocs(
   docsList: DocEntry[],
   locale: unknown = DEFAULT_DOCS_LOCALE,
-) {
+): Promise<SearchEntry[]> {
+  const { docsBodyToMarkdownMirror } =
+    await import("../../lib/docs-markdown-export");
   const entries: SearchEntry[] = [];
   const docsLocale = normalizeDocsLocale(locale);
 
   for (const doc of docsList) {
     const path = docsPathForSlug(doc.slug, docsLocale);
-    const lines = nonFencedMarkdownLines(doc.searchBody);
+    const lines = nonFencedMarkdownLines(docsBodyToMarkdownMirror(doc.body));
     const lastLineNumber = lines.at(-1)?.lineNumber ?? 0;
     const sections: { id: string; label: string; startLine: number }[] = [];
 
@@ -347,8 +377,10 @@ function buildSearchIndexFromDocs(
 
 export function buildSearchIndex(
   locale: unknown = DEFAULT_DOCS_LOCALE,
-): SearchEntry[] {
-  return buildSearchIndexFromDocs(getAllDocs(locale), locale);
+): Promise<SearchEntry[]> {
+  return loadAllDocs(locale).then((docsList) =>
+    buildSearchIndexFromDocs(docsList, locale),
+  );
 }
 
 export async function buildSearchIndexAsync(

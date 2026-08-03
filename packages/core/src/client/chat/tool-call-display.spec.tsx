@@ -231,7 +231,30 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
-  it("shows activity tool cards as running even between continuation posts", () => {
+  it("shows activity tool cards as running while the chat runs", () => {
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ToolCallFallback
+            toolName="generate-design"
+            args={{}}
+            argsText=""
+            activity
+            isActiveTail
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("generate design");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
+    ).toBe("true");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+  });
+
+  it("never spins an activity placeholder when no chat is running", () => {
     act(() => {
       root.render(
         <ChatRunningContext.Provider value={false}>
@@ -246,11 +269,30 @@ describe("ToolCallDisplay native renderers", () => {
     });
 
     expect(container.textContent).toContain("generate design");
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(container.querySelector(".animate-spin")).toBeNull();
     expect(
       container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
-    ).toBe("true");
-    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+    ).toBeNull();
+  });
+
+  it("reports an interrupted tool as unknown rather than failed", () => {
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ToolCallFallback
+            toolName="send-email"
+            args={{}}
+            argsText="{}"
+            result="Interrupted before this tool returned a result."
+            outcome="unknown"
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("may or may not have completed");
+    expect(container.querySelector(".text-destructive")).toBeNull();
+    expect(container.querySelector(".animate-spin")).toBeNull();
   });
 
   it("does not animate a tool row that mounts already resolved", () => {

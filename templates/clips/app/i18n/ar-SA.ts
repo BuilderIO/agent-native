@@ -551,6 +551,8 @@ const messages = {
     useColor: "استخدم {{color}}",
     logo: "الشعار",
     logoPreview: "معاينة الشعار",
+    logoUsage: "يظهر للمستلمين في رسائل المشاركة وعلى صفحات المقاطع العامة.",
+    emailHeaderPreview: "ترويسة بريد المشاركة",
     dropReplace: "أسقط صورة جديدة للاستبدال",
     dropHere: "أسقط PNG / JPG / SVG هنا",
     uploading: "جارٍ التحميل…",
@@ -647,10 +649,6 @@ const messages = {
 ### تمت الإضافة
 
 - يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
-    profile: "الملف الشخصي",
-    email: "البريد الإلكتروني",
-    displayName: "اسم العرض",
-    displayNamePlaceholder: "اسمك",
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -792,6 +790,7 @@ const messages = {
     noOrganization: "لا توجد مؤسسة بعد. أنشئ واحدة من مبدل المؤسسات للبدء.",
     description: "إدارة المؤسسة: العلامة التجارية، الأعضاء، الدعوات.",
     adminsOnlyBranding: "يمكن للمسؤولين فقط تعديل العلامة التجارية.",
+    brandingLoadFailed: "تعذّر تحميل هوية المؤسسة.",
     members: "الأعضاء",
     pendingInvites: "الدعوات المعلقة",
     noPendingInvites: "لا توجد دعوات معلقة.",
@@ -935,6 +934,7 @@ const messages = {
     replyingTo: "الرد على",
     commentAt: "تعليق عند",
     writeReply: "اكتب ردًا...",
+    editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
     mentionSomeone: "أذكر شخصًا",
@@ -1336,7 +1336,7 @@ const messages = {
     downloadDesktopApp: "Download desktop app (مترجم)",
     technicalDetails: "Technical details (مترجم)",
     whatToCheck: "What to check (مترجم)",
-    downloadRecording: "Download recording (مترجم)",
+    downloadRecording: "Download (مترجم)",
     openRecorderInTab: "Open recorder in tab (مترجم)",
     connectStorageToFinish:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
@@ -1511,6 +1511,10 @@ const messages = {
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
+    googleMayShowWarning: "مراجعة صلاحيات Google",
+    googleNotVerifiedTitle: "تحقق من التطبيق قبل الاتصال",
+    googleWarningBeforeAdvanced:
+      "تأكد من أن اسم التطبيق وصلاحيات Calendar المطلوبة تتطابق مع بيئة Clips التي تثق بها. إذا عرض Google تحذيرًا بأن التطبيق غير موثّق أو بدت الهوية غير مألوفة، فتوقف وتواصل مع مسؤول مساحة العمل.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",

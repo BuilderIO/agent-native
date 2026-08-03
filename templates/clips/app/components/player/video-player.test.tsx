@@ -61,6 +61,7 @@ describe("VideoPlayer playback", () => {
   let onPause = vi.fn<() => void>();
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -90,6 +91,7 @@ describe("VideoPlayer playback", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -155,6 +157,146 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps owner playback on the same-origin media request path", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            role="owner"
+            videoUrl="/api/video/recording-1"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    expect(video.hasAttribute("crossorigin")).toBe(false);
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="videoPlayer.playClip"]',
+        )
+        ?.click();
+    });
+
+    expect(video.paused).toBe(false);
+  });
+
+  it("starts after an intro cut instead of rewinding into the excluded range", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 0, endMs: 3_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    Object.defineProperty(video, "duration", {
+      configurable: true,
+      value: 10,
+    });
+
+    act(() => {
+      video.dispatchEvent(new Event("loadeddata"));
+    });
+    expect(video.currentTime).toBe(3);
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="videoPlayer.playClip"]',
+        )
+        ?.click();
+    });
+
+    expect(video.currentTime).toBe(3);
+    expect(video.paused).toBe(false);
+  });
+
+  it("stops a hung play attempt and leaves playback retryable", () => {
+    const video = getVideo();
+    const playSpy = vi
+      .spyOn(video, "play")
+      .mockReturnValue(new Promise<void>(() => {}));
+    const pauseSpy = vi.spyOn(video, "pause");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const centerPlay = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+
+    act(() => {
+      centerPlay?.click();
+    });
+    expect(container.textContent).toContain("Starting playback");
+
+    act(() => {
+      vi.advanceTimersByTime(15_000);
+    });
+
+    expect(container.textContent).not.toContain("Starting playback");
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "Playback is taking too long to start. Try again.",
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[clips] playback issue: play-start-timeout",
+      expect.objectContaining({ recordingId: "recording-1" }),
+    );
+
+    const retry = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+    act(() => {
+      retry?.click();
+    });
+
+    expect(playSpy).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Starting playback");
+  });
+
+  it.each(["AbortError", "NotAllowedError"])(
+    "keeps %s play rejections as retryable non-errors",
+    async (name) => {
+      const video = getVideo();
+      vi.spyOn(video, "play").mockRejectedValue(
+        new DOMException("Expected playback rejection", name),
+      );
+      const centerPlay = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="videoPlayer.playClip"]',
+      );
+
+      await act(async () => {
+        centerPlay?.click();
+        await Promise.resolve();
+      });
+      act(() => {
+        vi.advanceTimersByTime(15_000);
+      });
+
+      expect(container.textContent).not.toContain("Starting playback");
+      expect(container.textContent).not.toContain("Could not start playback");
+      expect(container.textContent).not.toContain(
+        "Playback is taking too long to start",
+      );
+      expect(
+        container.querySelector('button[aria-label="videoPlayer.playClip"]'),
+      ).not.toBeNull();
+    },
+  );
 
   it("rewinds an ended autoplay player when replay is requested", () => {
     const video = getVideo();

@@ -558,6 +558,8 @@ const messages = {
     useColor: "{{color}} を使用してください",
     logo: "ロゴ",
     logoPreview: "ロゴのプレビュー",
+    logoUsage: "共有メールと公開クリップページで受信者に表示されます。",
+    emailHeaderPreview: "共有メールのヘッダー",
     dropReplace: "新しい画像をドロップして置き換えます",
     dropHere: "ここに PNG / JPG / SVG をドロップしてください",
     uploading: "アップロード中…",
@@ -655,10 +657,6 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
 ### 追加
 
 - Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
-    profile: "プロフィール",
-    email: "メール",
-    displayName: "表示名",
-    displayNamePlaceholder: "あなたの名前",
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
@@ -798,6 +796,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "組織はまだありません。開始するには組織スイッチャーから作成してください。",
     description: "組織管理: ブランド、メンバー、招待。",
     adminsOnlyBranding: "ブランドを編集できるのは管理者のみです。",
+    brandingLoadFailed: "組織のブランド情報を読み込めませんでした。",
     members: "メンバー",
     pendingInvites: "保留中の招待",
     noPendingInvites: "保留中の招待はありません。",
@@ -938,6 +937,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     replyingTo: "返信先",
     commentAt: "コメント位置",
     writeReply: "返信を書く...",
+    editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
     mentionSomeone: "メンバーをメンション",
@@ -1344,7 +1344,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     downloadDesktopApp: "Download desktop app (ローカライズ済み)",
     technicalDetails: "Technical details (ローカライズ済み)",
     whatToCheck: "What to check (ローカライズ済み)",
-    downloadRecording: "Download recording (ローカライズ済み)",
+    downloadRecording: "Download (ローカライズ済み)",
     openRecorderInTab: "Open recorder in tab (ローカライズ済み)",
     connectStorageToFinish:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
@@ -1524,6 +1524,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
     connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
+    googleMayShowWarning: "Google アクセスを確認",
+    googleNotVerifiedTitle: "接続前にアプリを確認してください",
+    googleWarningBeforeAdvanced:
+      "アプリ名と要求される Calendar へのアクセスが、信頼する Clips のデプロイと一致することを確認してください。Google に未確認アプリの警告が表示された場合や、見覚えのない識別情報が表示された場合は中止し、ワークスペース管理者に連絡してください。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (ローカライズ済み)",
     getDesktopApp: "Get desktop app (ローカライズ済み)",

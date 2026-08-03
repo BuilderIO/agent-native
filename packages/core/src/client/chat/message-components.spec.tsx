@@ -12,18 +12,20 @@ import {
   lastAssistantWorkPartIndex,
   workGroupDurationMs,
   getAssistantToolSummaryInfo,
+  InlineRunErrorNotice,
   isCollapsibleAssistantWorkPart,
   latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
+  shouldShowInlineRunError,
   shouldShowMissingFinalResponse,
-  shouldShowPersistentRunError,
   useSettledFlag,
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
 } from "./message-components.js";
+import { runErrorKey } from "./run-recovery.js";
 
 describe("ThinkingIndicator", () => {
   let container: HTMLDivElement;
@@ -400,6 +402,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: false,
+        chatRunning: true,
       }),
     ).toBe(true);
   });
@@ -411,19 +414,148 @@ describe("shouldShowAssistantWorkSummary", () => {
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: false,
+        chatRunning: true,
       }),
     ).toBe(false);
   });
 
-  it("does not group work that still has an unresolved tool", () => {
+  it("does not group the running turn whose tool is still in flight", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
+        chatRunning: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("still shows the duration summary for a stalled turn that is not running", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
+        chatRunning: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("groups historical work with a dangling tool", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: false,
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: true,
+        chatRunning: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("shouldShowInlineRunError", () => {
+  const runError = {
+    message: "Provider timed out.",
+    errorCode: "connection_error",
+    runId: "run-9",
+  };
+
+  it("marks a failed turn regardless of where it sits in the thread", () => {
+    // No isLast input: an error persisted on an earlier turn stays visible once
+    // the user sends the next message.
+    expect(
+      shouldShowInlineRunError({ runError, bannerRunErrorKey: null }),
+    ).toBe(true);
+    expect(
+      shouldShowInlineRunError({ runError, bannerRunErrorKey: undefined }),
+    ).toBe(true);
+  });
+
+  it("stays quiet when the banner already shows this same run", () => {
+    expect(
+      shouldShowInlineRunError({
+        runError,
+        bannerRunErrorKey: runErrorKey(runError),
       }),
     ).toBe(false);
+  });
+
+  it("still marks a turn while the banner shows a different run", () => {
+    expect(
+      shouldShowInlineRunError({
+        runError,
+        bannerRunErrorKey: runErrorKey({ ...runError, runId: "run-10" }),
+      }),
+    ).toBe(true);
+  });
+
+  it("shows nothing when the turn carries no run error", () => {
+    expect(
+      shouldShowInlineRunError({ runError: null, bannerRunErrorKey: null }),
+    ).toBe(false);
+  });
+});
+
+describe("InlineRunErrorNotice", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("collapses to one line with the run duration and expands on click", () => {
+    act(() => {
+      root.render(
+        <InlineRunErrorNotice
+          info={{
+            message: "Provider timed out.",
+            errorCode: "connection_error",
+            runId: "run-9",
+            recoverable: true,
+          }}
+          durationMs={125_000}
+        />,
+      );
+    });
+
+    const toggle = container.querySelector("button");
+    expect(toggle?.textContent).toBe(
+      "The agent stopped before finishing after 2m 5s",
+    );
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Provider timed out.");
+
+    act(() => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Provider timed out.");
+    expect(container.textContent).toContain("connection_error");
+  });
+
+  it("uses the error headline when the run is not recoverable", () => {
+    act(() => {
+      root.render(
+        <InlineRunErrorNotice info={{ message: "Boom." }} durationMs={null} />,
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe(
+      "The agent hit an error",
+    );
   });
 });
 
@@ -699,25 +831,5 @@ describe("workGroupDurationMs", () => {
       ]),
     ).toBe(0);
     expect(lastAssistantWorkPartIndex([{ type: "text" }])).toBe(-1);
-  });
-});
-
-describe("shouldShowPersistentRunError", () => {
-  it("marks an older failed turn", () => {
-    expect(
-      shouldShowPersistentRunError({ isLast: false, hasRunError: true }),
-    ).toBe(true);
-  });
-
-  it("defers to the recovery card on the newest turn", () => {
-    expect(
-      shouldShowPersistentRunError({ isLast: true, hasRunError: true }),
-    ).toBe(false);
-  });
-
-  it("stays silent for a turn that did not fail", () => {
-    expect(
-      shouldShowPersistentRunError({ isLast: false, hasRunError: false }),
-    ).toBe(false);
   });
 });

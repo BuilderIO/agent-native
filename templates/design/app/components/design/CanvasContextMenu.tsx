@@ -52,7 +52,7 @@ import type { CanvasLayerHitCandidate } from "./types";
 // EMPTY canvas (no selection):
 //   Paste here
 //   [sep]
-//   Show/Hide UI ⇧⌘\ · Show/Hide comments ⇧C
+//   Show/Hide UI ⇧\ · Show/Hide comments ⇧C
 //
 // Real Figma has no Duplicate/Delete/Select-all/Zoom items on either canvas
 // menu (all keyboard-only there) — those are intentionally NOT rendered here
@@ -461,7 +461,7 @@ const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
   rotateClockwise: "",
   flipHorizontal: "⇧H",
   flipVertical: "⇧V",
-  toggleUi: "⇧⌘\\",
+  toggleUi: "⇧\\",
   toggleComments: "⇧C",
 };
 

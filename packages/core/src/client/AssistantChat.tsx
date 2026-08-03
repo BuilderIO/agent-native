@@ -24,6 +24,7 @@ import type {
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
+  IconClock,
   IconMessage,
   IconX,
   IconPlayerStopFilled,
@@ -127,6 +128,7 @@ import {
   getLoopLimitMetadata,
   getRunErrorMetadata,
   getRequestModeMetadata,
+  runErrorKey,
   type BuilderSetupCardLayout,
   type LoopLimitInfo,
   type RunErrorInfo,
@@ -228,7 +230,7 @@ export interface AssistantChatSendOptions {
   submitMessageId?: string;
 }
 
-function createUserMessageRunConfig(
+export function createUserMessageRunConfig(
   references?: Reference[],
   requestMode?: AgentRequestMode,
   recoveryAction?: AgentRecoveryAction,
@@ -236,6 +238,11 @@ function createUserMessageRunConfig(
   approvedToolCalls?: string[],
   queuedMessageId?: string,
   hideUserMessage?: boolean,
+  modelSnapshot?: {
+    model?: string;
+    engine?: string;
+    effort?: ReasoningEffort;
+  },
 ) {
   const custom: {
     references?: Reference[];
@@ -243,7 +250,13 @@ function createUserMessageRunConfig(
     trackInRunsTray?: boolean;
     agentNativeQueuedMessageId?: string;
     approvedToolCalls?: string[];
+    model?: string;
+    engine?: string;
+    effort?: ReasoningEffort;
   } = {};
+  if (modelSnapshot?.model) custom.model = modelSnapshot.model;
+  if (modelSnapshot?.engine) custom.engine = modelSnapshot.engine;
+  if (modelSnapshot?.effort) custom.effort = modelSnapshot.effort;
   if (references && references.length > 0) {
     custom.references = references;
   }
@@ -1659,7 +1672,26 @@ type QueuedMessage = {
   recoveryAction?: AgentRecoveryAction;
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
+  /**
+   * Model/engine/effort snapshotted at enqueue time, for the same reason
+   * `requestMode` is: the picker is global and live, so a queue that flushes
+   * after the user switches models would otherwise silently run the message
+   * under a model it was never composed for. Entries persisted before this
+   * existed simply lack the fields and fall back to the live selection.
+   */
+  model?: string;
+  engine?: string;
+  effort?: ReasoningEffort;
 };
+
+export function hoistQueuedMessageToFront<T extends { id: string }>(
+  messages: readonly T[],
+  id: string,
+): T[] {
+  const target = messages.find((message) => message.id === id);
+  if (!target) return [...messages];
+  return [target, ...messages.filter((message) => message.id !== id)];
+}
 
 export function queuedMessageImageSources(
   message: Pick<QueuedMessage, "attachments" | "images">,
@@ -2250,6 +2282,7 @@ const AssistantChatInner = forwardRef<
     planModeDisabledReason,
     selectedModel,
     defaultModel,
+    selectedEngine,
     selectedEffort,
     availableModels,
     modelListLoading,
@@ -3396,7 +3429,11 @@ const AssistantChatInner = forwardRef<
           }
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
-              detail: { isRunning: false, tabId: tabId || threadId },
+              detail: {
+                isRunning: false,
+                tabId: tabId || threadId,
+                reason: "failed",
+              },
             }),
           );
           return;
@@ -4179,6 +4216,11 @@ const AssistantChatInner = forwardRef<
               undefined,
               next.id,
               next.hideUserMessage,
+              {
+                model: next.model,
+                engine: next.engine,
+                effort: next.effort,
+              },
             ),
           } as Parameters<typeof threadRuntime.append>[0]);
           appended = true;
@@ -4480,7 +4522,11 @@ const AssistantChatInner = forwardRef<
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("agentNative.chatRunning", {
-            detail: { isRunning: false, tabId: tabId || threadId },
+            detail: {
+              isRunning: false,
+              tabId: tabId || threadId,
+              reason: "stopped",
+            },
           }),
         );
       }
@@ -4502,6 +4548,9 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
+  // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
+  // front and abort the active run, letting auto-dequeue re-send it once the
+  // run clears. Plain Enter still queues — this is the only send-now gesture.
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4672,6 +4721,12 @@ const AssistantChatInner = forwardRef<
           : execMode === "build"
             ? "act"
             : undefined);
+      // Same reasoning for the model picker — see `QueuedMessage.model`.
+      const modelSnapshot = {
+        model: selectedModel,
+        engine: selectedEngine,
+        effort: selectedEffort,
+      };
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
@@ -4692,6 +4747,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            ...modelSnapshot,
           },
         ]);
         stopActiveRunRef.current({ preserveQueuedMessages: true });
@@ -4712,6 +4768,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            ...modelSnapshot,
           },
         ]);
       } else {
@@ -4763,6 +4820,9 @@ const AssistantChatInner = forwardRef<
       markOptimisticRunning,
       appendThreadMessage,
       requestMissingKeySetup,
+      selectedEffort,
+      selectedEngine,
+      selectedModel,
       updateComposerContextItems,
     ],
   );
@@ -4826,13 +4886,7 @@ const AssistantChatInner = forwardRef<
    */
   const handleQueuedMessageSendNow = useCallback(
     (id: string) => {
-      applyLocalQueuedMessages((prev) => {
-        const index = prev.findIndex((msg) => msg.id === id);
-        if (index < 0) return prev;
-        const next = [...prev];
-        const [promoted] = next.splice(index, 1);
-        return [promoted!, ...next];
-      });
+      applyLocalQueuedMessages((prev) => hoistQueuedMessageToFront(prev, id));
       stopActiveRunRef.current({ preserveQueuedMessages: true });
     },
     [applyLocalQueuedMessages],
@@ -5133,7 +5187,6 @@ const AssistantChatInner = forwardRef<
     () => ({ apiUrl, devMode: cpDevMode, threadId, checkpointRunIds }),
     [apiUrl, cpDevMode, threadId, checkpointRunIds],
   );
-  const messageActionsCtx = useMemo(() => ({ onForkChat }), [onForkChat]);
   const lastMessageLoopLimit = useMemo(() => {
     const last = messages[messages.length - 1];
     if (!last || last.role !== "assistant") return null;
@@ -5148,6 +5201,20 @@ const AssistantChatInner = forwardRef<
     () => latestNonRecoveryUserMessageText(messages),
     [messages],
   );
+  const retryAfterRunError = useCallback(() => {
+    setRunErrorInfo(null);
+    addToQueue(
+      lastUserText
+        ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
+        : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "queued",
+      "retry",
+    );
+  }, [addToQueue, lastUserText]);
   const latestMessageRole = latestMessage?.role;
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
@@ -5181,7 +5248,7 @@ const AssistantChatInner = forwardRef<
     : lastMessageLoopLimit;
   const visibleRunError = runErrorInfo ?? lastMessageRunError;
   const visibleRunErrorKey = visibleRunError
-    ? `${visibleRunError.runId ?? ""}:${visibleRunError.errorCode ?? ""}:${visibleRunError.message}`
+    ? runErrorKey(visibleRunError)
     : null;
   const shouldShowRunError =
     !!visibleRunError &&
@@ -5194,6 +5261,16 @@ const AssistantChatInner = forwardRef<
         !visibleRunError.runId ||
         userStoppedRunRef.current.runId === visibleRunError.runId)
     );
+  // The banner covers one run; every failed turn it does not cover keeps its own
+  // inline marker, so a failure stays visible after the next prompt.
+  const messageActionsCtx = useMemo(
+    () => ({
+      onForkChat,
+      onRetryRunError: retryAfterRunError,
+      bannerRunErrorKey: shouldShowRunError ? visibleRunErrorKey : null,
+    }),
+    [onForkChat, retryAfterRunError, shouldShowRunError, visibleRunErrorKey],
+  );
   const hasActiveChatWork =
     showRunningInUI ||
     isAutoResuming ||
@@ -5564,20 +5641,7 @@ const AssistantChatInner = forwardRef<
                                         "continue",
                                       );
                                     }}
-                                    onRetry={() => {
-                                      setRunErrorInfo(null);
-                                      addToQueue(
-                                        lastUserText
-                                          ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
-                                          : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
-                                        undefined,
-                                        undefined,
-                                        undefined,
-                                        undefined,
-                                        "queued",
-                                        "retry",
-                                      );
-                                    }}
+                                    onRetry={retryAfterRunError}
                                     onFork={onForkChat}
                                     onDismiss={() => {
                                       if (visibleRunErrorKey) {
@@ -5617,6 +5681,16 @@ const AssistantChatInner = forwardRef<
                                   <RunningActivityStatus
                                     label={runningStatusLabel}
                                   />
+                                </MessageScrollerItem>
+                              )}
+                              {visibleQueuedMessages.length > 0 && (
+                                <MessageScrollerItem>
+                                  <div className="flex items-center justify-end gap-1.5 pr-0.5 text-xs text-muted-foreground">
+                                    <IconClock className="h-3 w-3" />
+                                    <span>
+                                      {visibleQueuedMessages.length} queued
+                                    </span>
+                                  </div>
                                 </MessageScrollerItem>
                               )}
                               {modelSwitchNotice && (

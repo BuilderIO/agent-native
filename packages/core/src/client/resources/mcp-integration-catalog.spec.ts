@@ -15,6 +15,7 @@ import {
   mcpIntegrationAuthLabel,
   mergeDefaultMcpIntegrations,
   resolveMcpIntegrationScope,
+  shouldOfferMcpOrganizationScope,
 } from "./mcp-integration-catalog.js";
 
 describe("MCP integration catalog", () => {
@@ -333,6 +334,12 @@ describe("MCP integration catalog", () => {
     expect(resolveMcpIntegrationScope("org", true, false)).toBe("user");
     expect(resolveMcpIntegrationScope("org", true, true)).toBe("org");
     expect(resolveMcpIntegrationScope("user", true, true)).toBe("user");
+  });
+
+  it("offers organization scope only when the user can select it", () => {
+    expect(shouldOfferMcpOrganizationScope(false, false)).toBe(false);
+    expect(shouldOfferMcpOrganizationScope(true, false)).toBe(false);
+    expect(shouldOfferMcpOrganizationScope(true, true)).toBe(true);
   });
 
   it("can hide all default presets while leaving custom setup available", () => {

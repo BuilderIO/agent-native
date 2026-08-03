@@ -416,6 +416,18 @@ const messages = {
     body: "你可以自訂一切。",
     community: "想要空白應用？從框架指南開始從零建置。",
     createYourOwn: "從零開始",
+    communityTitle: "社群範本",
+    communityDescription:
+      "由作者獨立維護的應用程式。可從公開 GitHub 儲存庫安裝；如有託管版本，也可以先線上體驗。",
+    submitCommunityTemplate: "提交你的範本",
+    communityEmpty:
+      "社群目錄現已開放。請將專注於明確情境的 Agent Native 應用程式發佈到公開儲存庫並提交收錄。",
+    publishGuide: "閱讀發佈指南",
+    communityTrust:
+      "社群範本屬於第三方程式碼。執行前請檢查儲存庫、授權、相依套件和安裝指令碼。",
+    copyCommunityInstallCommand: "複製安裝指令",
+    viewRepository: "查看儲存庫",
+    tryCommunityDemo: "體驗示範",
   },
   buildFromScratch: {
     title: "從零開始建置",
@@ -1619,6 +1631,7 @@ const messages = {
     formsOverview: "總覽",
     formsBuildingPublishing: "建置與發布",
     formsResponses: "回應與洞察",
+    docsComponents: "Docs Components",
     formsDevelopers: "開發者指南",
   },
 };

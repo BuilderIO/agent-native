@@ -7,10 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import {
-  applyAnalyticsPlanModePolicy,
-  INITIAL_TOOL_NAMES,
-} from "../lib/agent-chat-plan-mode";
+import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import {
@@ -53,10 +50,19 @@ export const BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE =
   "BUILT-IN FIRST-PARTY SOURCE — Analytics always provides one built-in first-party source alongside connected external providers such as BigQuery, HubSpot, Gong, Slack, and the other configured integrations. This does not replace or restrict external sources. When `search-analytics-query-catalog` identifies a first-party dashboard/chart definition, preserve its event semantics and use `query-agent-native-analytics` over `analytics_events` or `session_recordings` as appropriate. When the user names an external provider, or the catalog identifies one as authoritative, query that provider instead. Do not report the first-party source as disconnected merely because an external provider is not configured. If the authoritative query returns no rows, report that grounded result with its scope and time window. ";
 
 export const ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE =
-  "OBSERVABILITY INCIDENT WORKFLOW — For a named user's session or error question, resolve the user's email from context, then use list-session-recordings with userId over a bounded recent window to discover the relevant sessions. Do not require hasErrors=true for this initial lookup: replay/network/stuck-run evidence can exist while the recording's JavaScript errorCount is zero. Use hasErrors=true only when the user specifically asks for recordings with captured JavaScript errors or the recording metadata confirms that filter is appropriate. Use list-error-issues with userId or sessionRecordingId to identify a grouped issue, then get-error-issue for stack, breadcrumbs, occurrences, and linked recordings. For console diagnostics or failed network requests, create-session-replay-agent-link first and use its scoped diagnostics endpoint for detailed error text, stacks, request metadata, and bounded 5xx snippets; enumerate with kind/limit and fromMs/toMs or offset when needed. Use get-session-replay-summary and get-session-replay-timeline for the page-navigation and click sequence, and use get-session-replay-events only for additional bounded replay-event details. If no grouped error exists, correlate first-party observability events such as agent_chat_stuck_detected with query-agent-native-analytics in execution mode. In Plan mode, query-agent-native-analytics is intentionally unavailable: do not claim a live event correlation or root cause from it, and describe the event lookup as a planned next step. Prefer these first-party actions over generic SQL. Report the matching evidence and do not claim a root cause without a corroborating error, event, or replay signal. ";
+  "OBSERVABILITY INCIDENT WORKFLOW — For a named user's session or error question, resolve the user's email from context, then use list-session-recordings with userId over a bounded recent window to discover the relevant sessions. Do not require hasErrors=true for this initial lookup: replay/network/stuck-run evidence can exist while the recording's JavaScript errorCount is zero. Use hasErrors=true only when the user specifically asks for recordings with captured JavaScript errors or the recording metadata confirms that filter is appropriate. Use list-error-issues with userId or sessionRecordingId to identify a grouped issue, then get-error-issue for stack, breadcrumbs, occurrences, and linked recordings. For console diagnostics or failed network requests, create-session-replay-agent-link first and use its scoped diagnostics endpoint for detailed error text, stacks, request metadata, and bounded 5xx snippets; enumerate with kind/limit and fromMs/toMs or offset when needed. Use get-session-replay-summary and get-session-replay-timeline for the page-navigation and click sequence, and use get-session-replay-events only for additional bounded replay-event details. If no grouped error exists, correlate first-party observability events such as agent_chat_stuck_detected with query-agent-native-analytics. This and other read-only investigation tools remain available in Plan mode; run the query instead of deferring it to execution mode. Prefer these first-party actions over generic SQL. Report the matching evidence and do not claim a root cause without a corroborating error, event, or replay signal. ";
 
 export const NON_ANALYTICS_REQUEST_GUIDANCE =
   "NON-ANALYTICS REQUESTS — If the user is not asking for a live metric, source record, or derived analytics claim, answer normally in chat. Greetings, general-knowledge questions, math, writing, coding, and conceptual questions do not need a data-source call. Do not use the no-grounded-data fallback for those requests. ";
+
+export const ANALYTICS_CUSTOM_BLOCK_GUIDANCE =
+  "<analytics-artifact-guidance>\n" +
+  "Analytics has one user-facing artifact type: dashboards. Build with native dashboard panels and Data Programs first. A sandboxed extension embedded in a dashboard is presented to users as a Custom Block, not as a separate Analytics artifact. " +
+  "Use native chart, table, metric, section, funnel, heatmap, callout, filter, and layout capabilities whenever they can represent the request faithfully. Reusable ROI, engagement, cross-sell, and win/loss dashboards should compose these native panels around real SQL or Data Program results. Use a Data Program when the durable need is reusable fetching, transformation, or computed data that native panels can render. Do not create a Custom Block merely because a request says custom, asks for a dashboard, or would take more effort with native components. " +
+  'Create a Custom Block only when the user explicitly asks for a genuinely bespoke or one-off visualization or interaction, the native dashboard model cannot represent it faithfully, and its intended scope is this dashboard. Create it with `create-extension`, immediately embed it as a `chartType: "extension"` panel with `config.extensionId`, and set `config.customBlock` to `{ authoredBy: "agent", intent: "one-off", scope: "dashboard", nativeGapReason: "custom-visualization" | "custom-interaction" | "custom-layout" | "other" }`. Choose the narrow categorical reason; never put prompt text, customer data, or other free text in this metadata. Use the host theme CSS variables and match the dashboard typography, card spacing, and density so the sandboxed content reads as an agent-authored patch to Analytics instead of a foreign mini-app. Describe it as a sandboxed, agent-authored dashboard patch. Never leave it standalone or direct the user to an Extensions page. ' +
+  "A Custom Block is a fast runtime patch, not the durable destination for reusable product behavior. If the request should work across dashboards or users, changes app chrome or business logic, adds a reusable chart type, needs native accessibility/export/governance, or explicitly asks for app code, a PR, or a native feature, call `connect-builder` with the request verbatim instead of creating a Custom Block. If scope is ambiguous, ask whether the user wants a one-off block for this dashboard or a reusable app feature before choosing. " +
+  "When the user chooses Promote to app code, preserve the existing Custom Block and pass its dashboard id, panel id, extension id, and requested native placement through `connect-builder`; do not delete or replace the block until the native implementation is reviewed and deployed. Legacy analyses and existing extension-backed dashboards remain readable and editable for compatibility.\n" +
+  "</analytics-artifact-guidance>";
 
 // Deterministic backstop for the soft NON_ANALYTICS_REQUEST_GUIDANCE prompt
 // above: if a model still parrots the canned no-grounded-data fallback on a
@@ -94,11 +100,7 @@ Data-dictionary definitions are available through \`search-analytics-query-catal
 </data-dictionary-routing>`;
 }
 
-export {
-  applyAnalyticsPlanModePolicy,
-  INITIAL_TOOL_NAMES,
-  PLAN_MODE_ACT_ONLY_TOOLS,
-} from "../lib/agent-chat-plan-mode";
+export { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 
 function latestUserText(
   messages: AgentLoopFinalResponseGuardContext["messages"],
@@ -172,7 +174,9 @@ interface DataSourceStatusSummary {
   externalSourceLabels: string[];
   availableExternalSources: Array<{
     aliases: string[];
-    configured: boolean;
+    configured: boolean | null;
+    label?: string;
+    setupLink?: string;
   }>;
   setupLink: string;
 }
@@ -242,7 +246,7 @@ function hasMissingRequestedExternalSource(
   const configuredAliases = [
     ...configuredSourceLabels.map((label) => [label]),
     ...availableExternalSources
-      .filter(({ configured }) => configured)
+      .filter(({ configured }) => configured === true)
       .map(({ aliases }) => aliases),
   ];
   const sourceAliases = [
@@ -256,12 +260,21 @@ function hasMissingRequestedExternalSource(
     .filter(({ terms }) =>
       terms.some((term) => containsNormalizedPhrase(userText, term)),
     )
-    .some(
-      ({ aliases }) =>
-        !configuredAliases.some((configured) =>
-          sourceAliasesOverlap(configured, aliases),
-        ),
-    );
+    .some(({ aliases }) => {
+      const matchingStatuses = availableExternalSources.filter((source) =>
+        sourceAliasesOverlap(source.aliases, aliases),
+      );
+      if (
+        matchingStatuses.some(
+          ({ configured }) => configured === true || configured === null,
+        )
+      ) {
+        return false;
+      }
+      return !configuredAliases.some((configured) =>
+        sourceAliasesOverlap(configured, aliases),
+      );
+    });
 }
 
 function dataSourceStatusSummary(
@@ -270,7 +283,7 @@ function dataSourceStatusSummary(
   const externalSourceLabels = new Set<string>();
   const availableExternalSources = new Map<
     string,
-    { aliases: string[]; configured: boolean }
+    DataSourceStatusSummary["availableExternalSources"][number]
   >();
   let checked = false;
   let setupLink = ANALYTICS_DATA_SOURCES_LINK;
@@ -278,7 +291,8 @@ function dataSourceStatusSummary(
   const addAvailableExternalSource = (
     provider: unknown,
     label: unknown,
-    configured: boolean,
+    configured: boolean | null,
+    providerSetupLink?: unknown,
   ) => {
     const aliases = [provider, label]
       .filter((value): value is string => typeof value === "string")
@@ -288,11 +302,35 @@ function dataSourceStatusSummary(
     if (!key) return;
     const existing = availableExternalSources.get(key);
     if (existing) {
-      existing.configured ||= configured;
+      existing.configured =
+        existing.configured === true || configured === true
+          ? true
+          : existing.configured === null || configured === null
+            ? null
+            : false;
       existing.aliases = [...new Set([...existing.aliases, ...aliases])];
+      if (!existing.label && typeof label === "string" && label.trim()) {
+        existing.label = label.trim();
+      }
+      if (
+        !existing.setupLink &&
+        typeof providerSetupLink === "string" &&
+        providerSetupLink.trim()
+      ) {
+        existing.setupLink = providerSetupLink.trim();
+      }
       return;
     }
-    availableExternalSources.set(key, { aliases, configured });
+    availableExternalSources.set(key, {
+      aliases,
+      configured,
+      ...(typeof label === "string" && label.trim()
+        ? { label: label.trim() }
+        : {}),
+      ...(typeof providerSetupLink === "string" && providerSetupLink.trim()
+        ? { setupLink: providerSetupLink.trim() }
+        : {}),
+    });
   };
 
   for (const result of toolResults ?? []) {
@@ -373,7 +411,12 @@ function dataSourceStatusSummary(
       if (typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
       }
-      addAvailableExternalSource(record.provider, label, true);
+      addAvailableExternalSource(
+        record.provider,
+        label,
+        true,
+        record.setupLink,
+      );
     }
 
     // Backward compatibility for status responses that predate the compact
@@ -393,12 +436,15 @@ function dataSourceStatusSummary(
         .toLowerCase();
       if (providerId === "first-party") continue;
       const label = record.label ?? record.provider;
+      const configured =
+        typeof record.configured === "boolean" ? record.configured : null;
       addAvailableExternalSource(
         record.provider,
         label,
-        record.configured === true,
+        configured,
+        record.setupLink,
       );
-      if (record.configured !== true) continue;
+      if (configured !== true) continue;
       if (typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
       }
@@ -418,8 +464,17 @@ function dataSourceStatusSummary(
       const record = provider as Record<string, unknown>;
       const providerId = record.id ?? record.provider;
       const label = record.label ?? providerId;
+      const grantState =
+        typeof record.grantState === "string" ? record.grantState : null;
       const configured =
-        record.configured === true || record.grantState === "connected";
+        record.configured === true || grantState === "connected"
+          ? true
+          : record.configured === false ||
+              grantState === "granted" ||
+              grantState === "needs_grant" ||
+              grantState === "not_connected"
+            ? false
+            : null;
       addAvailableExternalSource(providerId, label, configured);
       if (configured && typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
@@ -432,6 +487,34 @@ function dataSourceStatusSummary(
     externalSourceLabels: [...externalSourceLabels],
     availableExternalSources: [...availableExternalSources.values()],
     setupLink,
+  };
+}
+
+function requestedExternalSourceSetup(
+  userText: string,
+  summary: DataSourceStatusSummary,
+): { label: string; setupLink: string } | null {
+  let source:
+    | DataSourceStatusSummary["availableExternalSources"][number]
+    | undefined;
+  let bestMatchLength = -1;
+  for (const candidate of summary.availableExternalSources) {
+    if (candidate.configured !== false || !candidate.setupLink) continue;
+    const matchLength = Math.max(
+      -1,
+      ...candidate.aliases
+        .filter((alias) => containsNormalizedPhrase(userText, alias))
+        .map((alias) => normalizeSourceLabel(alias).length),
+    );
+    if (matchLength > bestMatchLength) {
+      source = candidate;
+      bestMatchLength = matchLength;
+    }
+  }
+  if (!source?.setupLink) return null;
+  return {
+    label: source.label ?? source.aliases[0] ?? "data source",
+    setupLink: source.setupLink,
   };
 }
 
@@ -475,8 +558,23 @@ export function realDataFinalGuard(
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
   const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
+  const requestedSourceSetup = requestedExternalSourceSetup(
+    userText,
+    sourceStatus,
+  );
+  const setupLink = requestedSourceSetup?.setupLink ?? sourceStatus.setupLink;
+  const setupLabel = requestedSourceSetup
+    ? `Connect ${requestedSourceSetup.label}`
+    : "Connect data sources";
+  const setupMarkdown = `[${setupLabel}](${setupLink})`;
+  const hasUnknownExternalSourceStatus =
+    sourceStatus.availableExternalSources.some(
+      ({ configured }) => configured === null,
+    );
   const noConnectedExternalSources =
-    sourceStatus.checked && sourceStatus.externalSourceLabels.length === 0;
+    sourceStatus.checked &&
+    sourceStatus.externalSourceLabels.length === 0 &&
+    !hasUnknownExternalSourceStatus;
   const externalSourceRequest = looksLikeExternalSourceRequest(userText);
   const missingRequestedExternalSource = hasMissingRequestedExternalSource(
     userText,
@@ -601,11 +699,11 @@ export function realDataFinalGuard(
     }
     if (
       needsDataSourceLink &&
-      !includesDataSourcesLink(context.text, sourceStatus.setupLink)
+      !includesDataSourcesLink(context.text, setupLink)
     ) {
       return {
-        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}). Do not use the generic no-grounded-data fallback.`,
-        fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
+        fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
         maxRetries: 2,
       };
     }
@@ -615,11 +713,11 @@ export function realDataFinalGuard(
   if (failedQueryMessage) {
     if (
       needsDataSourceLink &&
-      !includesDataSourcesLink(context.text, sourceStatus.setupLink)
+      !includesDataSourcesLink(context.text, setupLink)
     ) {
       return {
-        retryMessage: `${failedQueryMessage} Explain which external source is missing and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}).`,
-        fallbackMessage: `${failedQueryMessage} [Connect data sources](${sourceStatus.setupLink})`,
+        retryMessage: `${failedQueryMessage} Explain which external source is missing and include this exact markdown link: ${setupMarkdown}.`,
+        fallbackMessage: `${failedQueryMessage} ${setupMarkdown}`,
         maxRetries: 2,
       };
     }
@@ -635,8 +733,8 @@ export function realDataFinalGuard(
       (noConnectedExternalSources && externalSourceRequest))
   ) {
     return {
-      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}). Do not use the generic no-grounded-data fallback.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
+      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
       maxRetries: 2,
       expandToolSurface: true,
     };
@@ -655,8 +753,8 @@ export function realDataFinalGuard(
   }
   if (noConnectedExternalSources) {
     return {
-      retryMessage: `The user asked for live analytics, but data-source-status found no connected external providers. The built-in first-party source is still available for first-party Analytics data. If this request needs an external source, respond naturally in the context of the user's question, explain what is missing, and include [Connect data sources](${sourceStatus.setupLink}). Do not use a generic canned no-data response.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+      retryMessage: `The user asked for live analytics, but data-source-status found no connected external providers. The built-in first-party source is still available for first-party Analytics data. If this request needs an external source, respond naturally in the context of the user's question, explain what is missing, and include ${setupMarkdown}. Do not use a generic canned no-data response.`,
+      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
       maxRetries: 2,
       expandToolSurface: true,
     };
@@ -726,9 +824,7 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
-  actions: applyAnalyticsPlanModePolicy(
-    loadActionsFromStaticRegistry(actionsRegistry),
-  ),
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   corpusTools: "lazy",
   finalResponseGuard: realDataFinalGuard,
@@ -740,6 +836,9 @@ export default createAgentChatPlugin({
   // Operators deploying to trusted internal environments can set
   // AGENT_PROD_CODE_EXECUTION=trusted to also enable bash/read/edit/write.
   codeExecution: { production: "sandboxed" },
+  // Analytics deliberately keeps the sandbox runtime as a dashboard-scoped
+  // Custom Block escape hatch even though generic apps default it off.
+  extensionTools: true,
   // Long-running A2A analysis belongs on the durable worker so provider
   // pagination, cross-source joins, and corpus reduction can outlive the
   // standard serverless request budget without orphaning the task.
@@ -749,8 +848,9 @@ export default createAgentChatPlugin({
   connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
   externalAgents: {
     // Keep the direct MCP surface deliberately curated. External agents
-    // should use ask_app for multi-step investigation; cataloged actions are
-    // bounded fallback reads for callers that already know what they need.
+    // should use ask_app by default; cataloged actions are optional stable
+    // semantic reads for callers with an exact, fully known contract. They are
+    // never a fallback for slow or failed delegation.
     authenticatedReads: "off",
     writes: "ask_app_only",
   },
@@ -766,7 +866,7 @@ export default createAgentChatPlugin({
       analyticsSourceGuidanceOpening() +
       "DASHBOARD CREATION RULE — You may create dashboard artifacts, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'save this analysis', 'add a chart for...'). Treat a requested saved analysis or deep-dive report as a dashboard request. Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
       "DASHBOARD MUTATION RULE — For dashboard edits, default to `mutate-dashboard` with the typed `dashboard.*` script API so the main payload is a string and avoids native-array serialization traps. It can move panels by id, edit titles/SQL/config, insert, duplicate, remove, and patch dashboard fields in one atomic save. The script API is constrained: no variables/imports/loops/functions, only JSON-compatible arguments on documented dashboard methods. Do not count shifting `/panels/<index>` positions for ordinary dashboard edits unless the user specifically asks for low-level JSON-pointer operations. " +
-      'DASHBOARD EXTENSION BOX RULE — Analytics dashboards support extension boxes. For ordinary requests such as "put X in this dashboard," insert a `chartType: "extension"` panel with `config.extensionId`; this author-selected embed is shared with the dashboard, appears in scheduled reports, and receives dashboard/panel/current-filter context. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot. Slot ids use `analytics.dashboard.<dashboard-id>.panel.<panel-id>` and require `add-extension-slot-target` plus `install-extension`; installs are per-user, so viewers can see different content and report identities may see an empty slot. Use `get-sql-dashboard` panel summaries to inspect an existing box. ' +
+      'CUSTOM BLOCK RULE — Analytics can embed sandboxed extensions as dashboard-scoped Custom Blocks, but native panels and Data Programs come first. Do not create one for an ordinary "put X in this dashboard" request. Use `config.extensionId` only for an explicitly requested one-off or bespoke visualization that the native dashboard model cannot represent faithfully. For each new block, set `config.customBlock` with `authoredBy: "agent"`, `intent: "one-off"`, `scope: "dashboard"`, and a categorical `nativeGapReason` of `custom-visualization`, `custom-interaction`, `custom-layout`, or `other`; never store prompt or customer text there. The embed is shared with the dashboard, appears in scheduled reports, and receives dashboard/panel/current-filter context. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot. Slot ids use `analytics.dashboard.<dashboard-id>.panel.<panel-id>` and require `add-extension-slot-target` plus `install-extension`; installs are per-user, so viewers can see different content and report identities may see an empty slot. Use `get-sql-dashboard` panel summaries to inspect an existing Custom Block. ' +
       'EXTENSION DATA-REPAIR RULE — When fixing data in an existing extension-backed dashboard or migrated surface such as Risk Meeting, inspect the current dashboard and extension first, then call `update-extension` with exactly `id`, `operation="edit"`, and a `payloadJson` string containing focused patches/edits that change only the data-loading seam. Never send empty placeholder fields. Preserve the existing layout, CSS, copy, and interactions; never reconstruct the full HTML body for a data-only fix. A request that combines a visual rewrite such as compacting, removing sections, renaming, or changing padding with a data repair is a broad rewrite; after inspecting the current extension, use `operation="replace"` with the complete replacement in `payloadJson`. If a focused edit fails, change the target instead of retrying identical arguments. ' +
       'FIRST-PARTY DASHBOARD TIME RULE — AI-generated `source: "first-party"` panels are dashboard-time-bound by default: set `config.timeScope` to `dashboard` and include a matching dashboard time predicate. `{{timeRange}}` requires a matching `filters` entry with `id: "timeRange"` and `type: "select"`; `{{<id>Start}}`/`{{<id>End}}` require a matching `type: "date-range"` filter with that id. Allowed `timeScope` values are `dashboard`, `fixed-window`, `cohort-history`, and `all-time`; use `all-time` only when the user requests full available history and put all-time, lifetime, or historical in the title or description. Server validation rejects unbound first-party SQL. ' +
       "DASHBOARD READ RULE — `get-sql-dashboard` is compact by default: use its `panels` summaries plus `layout.panelOrder`, `layout.firstPanelIds`, and `layout.groups[].rows[].rowNumber/panelIds` for orientation and verification. Pass `includeConfig: true` only when you truly need full panel SQL/config. " +
@@ -784,19 +884,7 @@ export default createAgentChatPlugin({
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions; use `search-bigquery-schema` for BigQuery metadata before inventing datasets, tables, or columns. " +
       "Before finalizing any analytics answer, make the evidence trail explicit enough to audit: answer the user's question, name the source(s), time window, sample size or row count, filters, join/match method, caveats/gaps, and recommended next action when useful. Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
       "</data-source-guidance>";
-    const artifactGuidance =
-      "<analytics-artifact-guidance>\n" +
-      "Analytics has one user-facing artifact type: dashboards. Dashboards are JSON configs rendered by the built-in dashboard components, and an extension is a dashboard block—not a separate Analytics result. " +
-      'If the user\'s requested dashboard, saved analysis/report, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within the native dashboard components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension`, then immediately call `update-dashboard` to embed it as one or more `chartType: "extension"` panels with `config.extensionId`. ' +
-      "After creating the dashboard, briefly tell the user that a dashboard block uses an embedded extension because the request needed bespoke UI/code. Never leave a newly created extension standalone, never create a separate saved analysis for the same request, and never direct the user to an Extensions page from Analytics. Legacy analyses may be read or updated only for compatibility with an existing deep link.\n" +
-      // The extension-first default above is deliberate, but it must not swallow
-      // an explicit ask for a code change: without this carve-out the agent
-      // silently substitutes an extension for "open a PR adding a dual-axis
-      // chart type" and the user never learns the handoff exists.
-      "That extension-first default governs what you build on your own initiative. It does not override an explicit request for a source-code change: when the user asks for the capability natively in the product, asks to change app chrome or a shared component, or asks for a PR, branch, or code change in so many words, call `connect-builder` with their request verbatim instead of substituting an extension. When you have just built an extension for something that plainly belongs in the product — a chart type or interaction other dashboards would reuse — add one sentence offering the `connect-builder` handoff, and only call it if they take you up on it.\n" +
-      "</analytics-artifact-guidance>";
-
-    return `${sourceGuidance}\n\n${artifactGuidance}\n\n${analyticsDataDictionaryRoutingContext()}`;
+    return `${sourceGuidance}\n\n${ANALYTICS_CUSTOM_BLOCK_GUIDANCE}\n\n${analyticsDataDictionaryRoutingContext()}`;
   },
   mentionProviders: {
     dashboards: {

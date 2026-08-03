@@ -28,6 +28,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import {
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
@@ -916,6 +917,7 @@ function emitNetlifyIntegrationRecoveryFunction(
 const basePath = ${JSON.stringify(basePath)};
 const SWEEP_PATH = ${JSON.stringify(sweepPath)};
 const SWEEP_SUBJECT = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT)};
+globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
 
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };

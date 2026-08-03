@@ -57,6 +57,10 @@ const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
   { value: "pie", labelKey: "panelEditor.chartTypePie" },
   { value: "metric", labelKey: "panelEditor.chartTypeMetric" },
   { value: "table", labelKey: "panelEditor.chartTypeTable" },
+  { value: "funnel", labelKey: "panelEditor.chartTypeFunnel" },
+  { value: "heatmap", labelKey: "panelEditor.chartTypeHeatmap" },
+  { value: "callout", labelKey: "panelEditor.chartTypeCallout" },
+  { value: "section", labelKey: "panelEditor.chartTypeSection" },
   { value: "extension", labelKey: "panelEditor.chartTypeExtension" },
 ];
 
@@ -204,6 +208,7 @@ export function formToPanel(
   const isExtension = form.chartType === "extension";
   if (isExtension && form.extensionMode === "slot") {
     delete config.extensionId;
+    delete config.customBlock;
     config.extensionSlotId =
       form.extensionSlotId.trim() || dashboardExtensionSlotId(dashboardId, id);
   } else if (isExtension) {
@@ -212,6 +217,7 @@ export function formToPanel(
   } else {
     delete config.extensionId;
     delete config.extensionSlotId;
+    delete config.customBlock;
   }
   const isSection = form.chartType === "section";
   return {
@@ -288,6 +294,7 @@ function PanelEditorContent({
 
   const isEdit = !!panel;
   const isExtensionPanel = form.chartType === "extension";
+  const isSectionPanel = form.chartType === "section";
   const isProgramSource = form.source === "program";
   const { programId, paramsText: initialParamsText } = useMemo(
     () =>
@@ -330,10 +337,13 @@ function PanelEditorContent({
   const canSave = isExtensionPanel
     ? form.title.trim().length > 0 &&
       (form.extensionMode === "slot" || form.extensionId.trim().length > 0)
-    : isProgramSource
-      ? form.title.trim().length > 0 && selectedProgramId.trim().length > 0
-      : form.title.trim().length > 0 && form.sql.trim().length > 0;
-  const canFormat = !isExtensionPanel && canFormatPanelSql(form.source);
+    : isSectionPanel
+      ? form.title.trim().length > 0
+      : isProgramSource
+        ? form.title.trim().length > 0 && selectedProgramId.trim().length > 0
+        : form.title.trim().length > 0 && form.sql.trim().length > 0;
+  const canFormat =
+    !isExtensionPanel && !isSectionPanel && canFormatPanelSql(form.source);
 
   const handleSubmit = async () => {
     if (!canSave || saving) return;
@@ -341,7 +351,7 @@ function PanelEditorContent({
     setError(null);
     try {
       let sqlForSave = form.sql;
-      if (isProgramSource) {
+      if (isProgramSource && !isSectionPanel) {
         try {
           sqlForSave = serializeProgramDescriptor(
             selectedProgramId,
@@ -386,16 +396,16 @@ function PanelEditorContent({
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`mutate-dashboard\` action with code like \`dashboard.insertPanel({"id":"new-panel","title":"New Panel","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atBottom();\` ` +
         `to append, or \`.nextTo("panel-id")\`, \`.atRow(2)\`, \`.atRowStart(2)\`, \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. Prefer \`.nextTo("panel-id")\` or \`.atRow(rowNumber)\` for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'|'extension'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'funnel'|'heatmap'|'callout'|'section'|'extension'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
         `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `For demo panels, sql uses the same Prometheus JSON descriptor shape as source 'prometheus': {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. ` +
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
         `For program panels (arbitrary provider data joins/cohorts not expressible in the other sources), first save-data-program (or reuse an existing one via list-data-programs), then set sql to a JSON descriptor: {"programId":"<id>","params":{...}}. See the data-programs skill for the emit(rows, schema) contract and the Risk Meeting worked example. ` +
-        `For extension panels, use config.extensionId by default so every dashboard viewer and scheduled report renders the author-selected shared extension. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
-        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), rightYKeys, rightYFormatter, description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. ` +
-        `For line/area/bar series that share an x-axis but not a unit (a count next to a rate), put the smaller-unit series on a second y-axis with config.rightYKeys (a subset of yKeys) and an optional config.rightYFormatter — do not build an extension for a dual-axis chart. ` +
+        `Native dashboard panels and Data Programs come first. Add an extension panel only when the user explicitly asks for a genuinely bespoke, one-off Custom Block for this dashboard and native panels cannot represent it faithfully. For a reusable/native capability call connect-builder instead. New agent-authored Custom Blocks use config.extensionId plus config.customBlock={authoredBy:"agent",intent:"one-off",scope:"dashboard",nativeGapReason:"custom-visualization"|"custom-interaction"|"custom-layout"|"other"}; never put prompt/customer text in that metadata. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
+        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), rightYKeys, rightYFormatter, description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. For funnel panels, use config.xKey for the stage label, config.yKey for the non-negative count/value, and keep the SQL ORDER BY in the intended funnel order. ` +
+        `For line/area/bar series that share an x-axis but not a unit (a count next to a rate), put the smaller-unit series on a second y-axis with config.rightYKeys (a subset of yKeys) and an optional config.rightYFormatter — do not build an extension for a dual-axis chart. Use heatmap, callout, and section panels when their native contracts fit; do not create a Custom Block for a supported native panel. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
@@ -453,7 +463,7 @@ function PanelEditorContent({
           </Select>
         </div>
 
-        {!isExtensionPanel ? (
+        {!isExtensionPanel && !isSectionPanel ? (
           <div className="grid gap-1.5">
             <Label htmlFor="panel-source">{t("panelEditor.source")}</Label>
             <Select
@@ -598,7 +608,7 @@ function PanelEditorContent({
             </div>
           )}
         </div>
-      ) : isProgramSource ? (
+      ) : isSectionPanel ? null : isProgramSource ? (
         <div className="grid gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="panel-program">

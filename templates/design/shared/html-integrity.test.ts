@@ -267,12 +267,15 @@ describe("Design HTML structural integrity", () => {
     ).toBe("attribute-unterminated");
   });
 
-  it("reads a spaced closing tag as a close, not a second open", () => {
-    expect(
-      inspectDesignHtmlDocumentIntegrity(
-        "<!doctype html><html><head></head><body><div>x< /div></body></html>",
-      ),
-    ).toEqual({ valid: true });
+  it("reads a spaced closing tag as the character data it is", () => {
+    // `< /div>` is text per the spec, not a close tag, so the <div> is never
+    // closed and the parser closes it at </body>.
+    const result = inspectDesignHtmlDocumentIntegrity(
+      "<!doctype html><html><head></head><body><div>x< /div></body></html>",
+    );
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("element-unclosed");
+    expect(result.detail?.[0]).toMatchObject({ tag: "div" });
   });
 
   it("detects an unterminated comment", () => {
@@ -429,9 +432,12 @@ describe("Design HTML structural integrity", () => {
     const build = (count: number) =>
       `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<style>.a{color:red}</style><script>var a=1</script>".repeat(count)}</body></html>`;
     const time = (html: string) => {
-      const start = performance.now();
-      expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
-      return performance.now() - start;
+      const samples = Array.from({ length: 5 }, () => {
+        const start = performance.now();
+        expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
+        return performance.now() - start;
+      });
+      return Math.min(...samples);
     };
     time(build(400));
     const small = time(build(800));
@@ -445,9 +451,12 @@ describe("Design HTML structural integrity", () => {
     const build = (count: number) =>
       `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<div>x</div>".repeat(count)}</body></html>`;
     const time = (html: string) => {
-      const start = performance.now();
-      expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
-      return performance.now() - start;
+      const samples = Array.from({ length: 5 }, () => {
+        const start = performance.now();
+        expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
+        return performance.now() - start;
+      });
+      return Math.min(...samples);
     };
     time(build(1000));
     const small = time(build(2000));
@@ -462,6 +471,210 @@ describe("Design HTML structural integrity", () => {
     );
     expect(result.valid).toBe(true);
     expect(result.advisory?.[0]?.issue).toBe("runtime-missing");
+  });
+
+  it("rejects an Alpine expression whose last string literal is never closed", () => {
+    // The HTML attribute is well-formed, so every structural rule passes and the
+    // screen renders — Alpine then throws "Invalid or unexpected token" and drops
+    // every binding on the component.
+    const broken = SCREEN.replace(
+      "<body",
+      `<body x-data="{ items: [] }"><span :class="item.color==='cobalt'?'bg-[var(--color-cobalt)]':'bg-[var(--color-accent)]"></span><span`,
+    );
+    const result = inspectDesignHtmlDocumentIntegrity(broken);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("expression-invalid");
+    expect(result.detail?.[0]?.attribute).toBe(":class");
+    expect(result.detail?.[0]?.tag).toBe("span");
+    expect(result.detail?.[0]?.reason).toMatch(/[Uu]nterminated string/);
+  });
+
+  it.each([
+    ["x-on handler", `<button @click="open = 'yes"></button>`],
+    ["x-data object", `<div x-data="{ tab: 'latency }"></div>`],
+    ["x-bind alias", `<div x-bind:class="a ? 'b' : 'c"></div>`],
+    ["template literal", '<div x-text="`total: ${count}"></div>'],
+    ["unclosed call", `<div x-show="hasAny(items"></div>`],
+    ["unclosed object", `<div x-data="{ open: false"></div>`],
+  ])("rejects a broken expression in %s", (_label, fragment) => {
+    expect(() => assertDesignHtmlWellFormed({ content: fragment })).toThrow(
+      DESIGN_HTML_INTEGRITY_ERROR_CODE,
+    );
+  });
+
+  it.each([
+    [
+      "ternary chain",
+      `<span :class="a==='x'?'p-2':b==='y'?'p-3':'p-4'"></span>`,
+    ],
+    ["nested quotes", `<div x-data="{ label: 'it\\'s here' }"></div>`],
+    [
+      "object binding",
+      `<span :class="{ 'is-on': open, 'is-off': !open }"></span>`,
+    ],
+    [
+      "template literal",
+      '<div x-text="`${a} of ${b.map(v => `${v}!`)}`"></div>',
+    ],
+    [
+      "regex holding a quote",
+      `<div x-text="s.replace(/'/g, '\\u2019')"></div>`,
+    ],
+    ["division", `<div x-text="total / count / 2"></div>`],
+    ["encoded apostrophe", `<div x-text="&#39;done&#39;"></div>`],
+    ["comparison operators", `<div x-show="a < b && c > d"></div>`],
+    // Not JavaScript, and reading them as such is how a check like this starts
+    // rejecting working markup.
+    ["x-for", `<template x-for="(item, i) in items"><li></li></template>`],
+    [
+      "x-transition class list",
+      `<div x-transition:enter="ease-out duration-300"></div>`,
+    ],
+    ["x-ref name", `<div x-ref="panel'"></div>`],
+  ])("accepts %s", (_label, fragment) => {
+    expect(() =>
+      assertDesignHtmlWellFormed({ content: fragment }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    // Balanced delimiters throughout, so only a real parser rejects these.
+    ["trailing garbage", `<div x-text="a) open("></div>`],
+    ["doubled operator", `<div x-show="a ==== b"></div>`],
+    ["empty object value", `<div x-data="{ open: }"></div>`],
+    ["stray comma", `<div x-text="a ,, b"></div>`],
+    ["reserved word", `<div x-data="{ open: class }"></div>`],
+  ])("rejects %s that delimiter counting cannot see", (_label, fragment) => {
+    expect(() => assertDesignHtmlWellFormed({ content: fragment })).toThrow(
+      DESIGN_HTML_INTEGRITY_ERROR_CODE,
+    );
+  });
+
+  it("points at the offending character, not the start of the attribute", () => {
+    const result = inspectDesignHtmlDocumentIntegrity(
+      `<div x-text="okay + + +"></div>`,
+    );
+    expect(result.valid).toBe(false);
+    // The value starts at column 14; the defect is later in the expression.
+    expect(result.detail?.[0]?.column).toBeGreaterThan(14);
+  });
+
+  it("rejects an inline script whose string literal is never closed", () => {
+    const broken = SCREEN.replace(
+      "</head>",
+      `<script>const label = 'Total;\nconsole.log(label);</script></head>`,
+    );
+    const result = inspectDesignHtmlDocumentIntegrity(broken);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("script-invalid");
+    expect(result.detail?.[0]?.reason).toMatch(/[Uu]nterminated string/);
+  });
+
+  it.each([
+    ["JSON importmap", `<script type="importmap">{ "imports": {} }</script>`],
+    ["ld+json", `<script type="application/ld+json">{ "@type": "X" }</script>`],
+    [
+      "x-template",
+      `<script type="text/x-template"><div>{{ a }}</div></script>`,
+    ],
+    ["external script", `<script src="https://example.com/a.js"></script>`],
+    ["empty body", `<script></script>`],
+    ["top-level await", `<script type="module">await go();</script>`],
+  ])("does not read %s as a broken script", (_label, tag) => {
+    expect(() =>
+      assertDesignHtmlWellFormed({ content: `<div>${tag}</div>` }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["import", `<script>import "./a.js";</script>`],
+    ["top-level await", `<script>await go();</script>`],
+  ])(
+    "rejects %s in a classic script, which the browser refuses to run",
+    (_label, tag) => {
+      expect(() =>
+        assertDesignHtmlWellFormed({ content: `<div>${tag}</div>` }),
+      ).toThrow(DESIGN_HTML_INTEGRITY_ERROR_CODE);
+    },
+  );
+
+  it.each([
+    ["an unknown MIME type", `<script type="text/worker">{{{ not js</script>`],
+    [
+      "a vendor data block",
+      `<script type="application/vnd.acme+config">a: [1,</script>`,
+    ],
+    [
+      "a charset parameter",
+      `<script type="text/javascript; charset=utf-8">const a = 1;</script>`,
+    ],
+  ])("treats %s the way the browser does", (_label, tag) => {
+    // Anything outside the executable JavaScript MIME types is inert data.
+    expect(() =>
+      assertDesignHtmlWellFormed({ content: `<div>${tag}</div>` }),
+    ).not.toThrow();
+  });
+
+  it("rejects a top-level return in a classic script", () => {
+    // A <script> body is a Program, so the browser refuses it with "Illegal
+    // return statement" and the element never runs.
+    expect(() =>
+      assertDesignHtmlWellFormed({
+        content: `<div><script>return; initUi()</script></div>`,
+      }),
+    ).toThrow(DESIGN_HTML_INTEGRITY_ERROR_CODE);
+  });
+
+  it.each([
+    ["inside a function", `<script>function go(){ return 1; } go();</script>`],
+    [
+      "an Alpine handler, which Alpine compiles inside a function",
+      `<button @click="doThing(); return"></button>`,
+    ],
+  ])("still accepts a return %s", (_label, markup) => {
+    expect(() =>
+      assertDesignHtmlWellFormed({ content: `<div>${markup}</div>` }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["nested inline elements", "<div><span>x"],
+    ["block inside block", "<section><article>x"],
+  ])("rejects %s left unclosed at EOF in a fragment", (_label, fragment) => {
+    // The parser invents <body> for a fragment; treating that as an implied
+    // close excuses every unclosed element and voids the whole check.
+    expect(() => assertDesignHtmlWellFormed({ content: fragment })).toThrow(
+      DESIGN_HTML_INTEGRITY_ERROR_CODE,
+    );
+  });
+
+  it("rejects two documents concatenated by a bad write", () => {
+    // The HTML parser merges the second <html> into the first and reports
+    // nothing, so the doubled roots exist only in the source.
+    const result = inspectDesignHtmlDocumentIntegrity(`${SCREEN}${SCREEN}`);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("document-root");
+  });
+
+  it("does not read root tags inside a template's content as extra roots", () => {
+    // A `<template>`'s children hang off `content`, not `childNodes`; missing
+    // them made every close tag inside an x-for template look orphaned.
+    const withTemplate = SCREEN.replace(
+      '<h1 class="text-3xl">Hi</h1>',
+      `<template x-for="row in rows"><div class="p-2"><button class="btn"><span>x</span></button></div></template>`,
+    );
+    expect(inspectDesignHtmlDocumentIntegrity(withTemplate)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("caps broken-expression reports even when the walk later halts", () => {
+    const many = `${"<span :class=\"a==='x'?'p-2':'p-3\"></span>".repeat(
+      6,
+    )}<div class="x`;
+    const result = inspectDesignHtmlDocumentIntegrity(many);
+    expect(result.valid).toBe(false);
+    expect(result.detail!.length).toBeLessThanOrEqual(3);
   });
 
   it("caps cascading reports so one defect cannot flood a tool result", () => {

@@ -31,6 +31,8 @@ import { type RouteConfig, route, index } from "@react-router/dev/routes";
  */
 export const dispatchRoutes: RouteConfig = [
   index("./pages/_index.js"),
+  route("browser-connect", "./pages/browser-connect.js"),
+  route("browser-chat", "./pages/browser-chat.js"),
   route("chat", "./pages/chat.js"),
   route("chat/:threadId", "./pages/chat.js"),
   route("overview", "./pages/overview.js"),

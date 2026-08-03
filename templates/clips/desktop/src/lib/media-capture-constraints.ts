@@ -3,7 +3,7 @@ import {
   enumerateAudioInputDevices,
   isLikelyPhoneMicLabel,
   type AudioInputFallback,
-} from "./media-device-selection";
+} from "../../../shared/media-device-selection";
 
 export const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: { ideal: true },

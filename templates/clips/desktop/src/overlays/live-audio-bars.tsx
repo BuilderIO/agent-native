@@ -102,7 +102,9 @@ export function LiveAudioBars({
           className="live-audio-bar"
           key={index}
           style={{
-            height: `${Math.round(meterBarHeight(levels[index] ?? 0, index))}%`,
+            height: `calc(var(--meter-height) * ${(
+              meterBarHeight(levels[index] ?? 0, index) / 100
+            ).toFixed(3)})`,
           }}
         />
       ))}

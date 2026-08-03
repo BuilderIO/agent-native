@@ -40,6 +40,9 @@ const mockDb = vi.hoisted(() => ({
 const mockCountRecordingViews = vi.hoisted(() =>
   vi.fn(async (_recordingId: string) => 0),
 );
+const mockResolvePlayerVideoUrl = vi.hoisted(() =>
+  vi.fn(() => "/api/video/rec-1"),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -118,7 +121,8 @@ vi.mock("../server/lib/agent-recording-access.js", () => ({
 }));
 
 vi.mock("../server/lib/player-video-url.js", () => ({
-  resolvePlayerVideoUrl: vi.fn(),
+  resolvePlayerVideoUrl: (...args: unknown[]) =>
+    mockResolvePlayerVideoUrl(...args),
 }));
 
 vi.mock("../server/lib/media-verification-state.js", () => ({
@@ -222,6 +226,7 @@ describe("get-recording-player-data view count", () => {
     mockPlayerQuery.build = emptyPlayerQuery;
     mockCountRecordingViews.mockClear();
     mockCountRecordingViews.mockResolvedValue(0);
+    mockResolvePlayerVideoUrl.mockClear();
     mockShareLimit.mockResolvedValue([]);
     mockResolveAccess.mockResolvedValue({
       role: "owner",
@@ -233,6 +238,7 @@ describe("get-recording-player-data view count", () => {
         expiresAt: null,
         status: "ready",
         chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
       },
     });
   });
@@ -257,5 +263,21 @@ describe("get-recording-player-data view count", () => {
 
     expect(result.viewCount).toBe(0);
     expect(result.recording.id).toBe("rec-1");
+  });
+
+  it("keeps owner media behind the same-origin video proxy", async () => {
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(mockResolvePlayerVideoUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-1",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+      }),
+      {
+        addPasswordToken: false,
+        proxyRemoteMedia: true,
+      },
+    );
+    expect(result.recording.videoUrl).toBe("/api/video/rec-1");
   });
 });

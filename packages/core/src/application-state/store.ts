@@ -2,7 +2,6 @@ import {
   getDbExec,
   getDialect,
   isLocalDatabase,
-  isConnectionError,
   isPostgres,
   intType,
   type DbExec,
@@ -102,21 +101,40 @@ export async function appStateGet(
   sessionId: string,
   key: string,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
-      args: [sessionId, key],
-    });
-    if (rows.length === 0) return null;
-    return JSON.parse(rows[0].value as string);
-  } catch (err) {
-    // Transient WS / connection drops (Neon serverless) — caller polls every
-    // 2s and will see the value on the next tick. Swallow rather than 500.
-    if (isConnectionError(err)) return null;
-    throw err;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT value FROM application_state WHERE session_id = ? AND key = ?`,
+    args: [sessionId, key],
+  });
+  if (rows.length === 0) return null;
+  return JSON.parse(rows[0].value as string);
+}
+
+/**
+ * Read several application-state keys for one session in a single SQL query,
+ * returning ONLY the rows that exist. A key absent from the result has no row;
+ * a key present with a `null` value has a row that stores `null`. Callers that
+ * must not conflate the two (the batched HTTP read) depend on that difference,
+ * so this deliberately does not pad missing keys.
+ */
+export async function appStateGetManyEntries(
+  sessionId: string,
+  keys: readonly string[],
+): Promise<Array<{ key: string; value: Record<string, unknown> | null }>> {
+  const uniqueKeys = [...new Set(keys)];
+  if (uniqueKeys.length === 0) return [];
+  await ensureTable();
+  const client = getDbExec();
+  const placeholders = uniqueKeys.map(() => "?").join(", ");
+  const { rows } = await client.execute({
+    sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key IN (${placeholders})`,
+    args: [sessionId, ...uniqueKeys],
+  });
+  return rows.map((row) => ({
+    key: row.key as string,
+    value: JSON.parse(row.value as string),
+  }));
 }
 
 /**
@@ -128,27 +146,13 @@ export async function appStateGetMany(
   sessionId: string,
   keys: readonly string[],
 ): Promise<Record<string, Record<string, unknown> | null>> {
-  const uniqueKeys = [...new Set(keys)];
   const values: Record<string, Record<string, unknown> | null> = {};
-  for (const key of uniqueKeys) values[key] = null;
-  if (uniqueKeys.length === 0) return values;
+  for (const key of new Set(keys)) values[key] = null;
 
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const placeholders = uniqueKeys.map(() => "?").join(", ");
-    const { rows } = await client.execute({
-      sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key IN (${placeholders})`,
-      args: [sessionId, ...uniqueKeys],
-    });
-    for (const row of rows) {
-      values[row.key as string] = JSON.parse(row.value as string);
-    }
-    return values;
-  } catch (err) {
-    if (isConnectionError(err)) return values;
-    throw err;
+  for (const entry of await appStateGetManyEntries(sessionId, keys)) {
+    values[entry.key] = entry.value;
   }
+  return values;
 }
 
 export async function appStatePut(

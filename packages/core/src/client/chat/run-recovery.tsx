@@ -108,6 +108,20 @@ export function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
   };
 }
 
+/**
+ * Identity of one failure, shared by the banner and the inline turn marker so
+ * the same run is never announced twice.
+ */
+export function runErrorKey(info: RunErrorInfo): string {
+  return `${info.runId ?? ""}:${info.errorCode ?? ""}:${info.message}`;
+}
+
+export function runErrorHeadline(info: RunErrorInfo): string {
+  return info.recoverable === true
+    ? "The agent stopped before finishing"
+    : "The agent hit an error";
+}
+
 export function getRequestModeMetadata(
   message: unknown,
 ): "act" | "plan" | null {
@@ -610,9 +624,7 @@ export function RunErrorRecoveryCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">
-            {canRecover
-              ? "The agent stopped before finishing"
-              : "The agent hit an error"}
+            {runErrorHeadline(info)}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}

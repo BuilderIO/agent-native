@@ -8,8 +8,8 @@ import {
   MCP_TOOL_PREFIX,
 } from "./manager.js";
 
-// Fake MCP Client + StdioClientTransport. These stand in for the real
-// @modelcontextprotocol/sdk exports via vi.mock below.
+// Fake MCP Client + transports. These stand in for the split MCP v2 packages
+// via vi.mock below.
 
 type FakeTool = {
   name: string;
@@ -151,16 +151,13 @@ class FakeHttp {
   }
 }
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.doMock("@modelcontextprotocol/client", () => ({
   Client: FakeClient,
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
-  StdioClientTransport: FakeStdio,
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: FakeHttp,
+}));
+
+vi.doMock("@modelcontextprotocol/client/stdio", () => ({
+  StdioClientTransport: FakeStdio,
 }));
 
 describe("parseMcpToolName", () => {
@@ -282,6 +279,9 @@ describe("McpClientManager", () => {
       [MCP_APP_EXTENSION_ID]: {
         mimeTypes: [MCP_APP_MIME_TYPE],
       },
+    });
+    expect(fakeClients[0]?.capabilities.versionNegotiation).toEqual({
+      mode: "auto",
     });
   });
 
@@ -705,7 +705,7 @@ describe("McpClientManager", () => {
     // errors through `this.onerror?.(...)`. On AWS Lambda the long-lived
     // socket gets reaped ~60s after the function returns, surfacing as a
     // `socket hang up` unhandled rejection — see `processStream()` in
-    // @modelcontextprotocol/sdk/client/streamableHttp.js. The manager must
+    // @modelcontextprotocol/client. The manager must
     // attach a transport.onerror handler BEFORE client.connect() so those
     // errors are captured even when Client's wiring hasn't run yet.
     const seenOnError: Array<((error: unknown) => void) | undefined> = [];

@@ -72,6 +72,28 @@ function canReadOwner(
   );
 }
 
+function resourceDownloadDisposition(path: string): string {
+  const basename = path.replaceAll("\\", "/").split("/").pop()?.trim() || "";
+  const filename = Array.from(basename)
+    .slice(0, 180)
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 31 || codePoint === 127 ? "_" : character;
+    })
+    .join("");
+  const safeFilename =
+    filename && filename !== "." && filename !== ".." ? filename : "download";
+  const asciiFilename = safeFilename
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/["\\]/g, "_");
+  const encodedFilename = encodeURIComponent(safeFilename).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+  return `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+}
+
 function mergeScopedResources(
   primary: ResourceMeta[],
   inherited: ResourceMeta[],
@@ -397,26 +419,9 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
   }
 }
 
-/** Last path segment, or a safe default when the path is empty or a directory. */
-export function resourceDownloadFilename(path: string | undefined): string {
-  const segment = (path ?? "").split("/").filter(Boolean).pop();
-  return segment && segment.trim() ? segment.trim() : "download";
-}
-
-/**
- * Build a `Content-Disposition: attachment` value. The filename is repeated in
- * RFC 5987 form so non-ASCII names survive; the plain form strips quotes and
- * control characters so a crafted resource path cannot inject header syntax.
- */
-export function contentDispositionAttachment(filename: string): string {
-  const ascii = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
-}
-
 /** GET /_agent-native/resources/:id — get single resource with content.
- *  If the request comes from an <img>/<video>/etc tag (Accept includes the
- *  resource's mime type, or query param `?raw` is set), return the raw binary
- *  with the correct Content-Type so the browser can render it inline. */
+ *  `?raw` returns the bytes inline; `?download=1` returns the same bytes as a
+ *  safe attachment. */
 export async function handleGetResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -437,14 +442,11 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  // Serve raw binary when ?raw query param is set (used by <img> tags etc.).
-  // `?download` additionally asks the browser to save rather than render:
-  // without it a CSV or JSON opens in a tab, which is not a download.
   const query = getQuery(event);
-  const wantsDownload = query.download !== undefined;
-  const wantsRaw = query.raw !== undefined || wantsDownload;
+  const wantsRaw = query.raw !== undefined;
+  const wantsDownload = query.download === "1";
 
-  if (wantsRaw && resource.content) {
+  if ((wantsRaw || wantsDownload) && typeof resource.content === "string") {
     const isText =
       resource.mimeType.startsWith("text/") ||
       resource.mimeType === "application/json";
@@ -454,11 +456,13 @@ export async function handleGetResource(event: any) {
 
     setResponseHeader(event, "Content-Type", resource.mimeType);
     setResponseHeader(event, "Content-Length", String(buf.length));
+    setResponseHeader(event, "Cache-Control", "private, no-store");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
     if (wantsDownload) {
       setResponseHeader(
         event,
         "Content-Disposition",
-        contentDispositionAttachment(resourceDownloadFilename(resource.path)),
+        resourceDownloadDisposition(resource.path),
       );
     }
     return new Response(buf);

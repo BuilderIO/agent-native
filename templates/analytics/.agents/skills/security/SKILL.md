@@ -163,7 +163,9 @@ private UI after the shell loads. See the `authentication` skill and
 proves *someone* is signed in. To restrict an operation to some teammates, set
 `authorize` on the `defineAction`. It wraps `run`, so it applies at every
 dispatch site (agent tool, HTTP, frontend, MCP, A2A, CLI) — unlike
-`needsApproval`, which is honoured only in the agent loop.
+`needsApproval`, which is honored by the agent loop and MCP 2026 hosts that
+support elicitation, but is not an authorization boundary for every dispatch
+site.
 
 ```ts
 import { coachAccess } from "../lib/access.js"; // defineAppRoles(...)
@@ -203,7 +205,16 @@ export default defineAction({
 });
 ```
 
-When the gate is truthy and the call is not yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's stable `approvalKey`; only then does the action run. A predicate gates conditionally (e.g. only external recipients) and **fails closed** — a throw is treated as "approval required".
+When the gate is truthy and the call is not yet approved, the agent loop emits
+an `approval_required` event and **stops the turn — `run()` never executes**.
+The human approves via the chat UI's Approve affordance, which re-issues the
+turn with the call's stable `approvalKey`; only then does the action run. MCP
+2026 hosts receive an `input_required` approval request bound to the exact
+caller, action, and arguments. The signed response state is backed by a durable,
+single-use grant, so denial, expiry, replay, missing host support, or invalid
+state fails closed before `run()`. A predicate gates conditionally (e.g. only
+external recipients) and **fails closed** — a throw is treated as "approval
+required".
 
 Rules:
 

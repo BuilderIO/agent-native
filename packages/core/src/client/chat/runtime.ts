@@ -1668,7 +1668,7 @@ function applyRuntimeEventToContent(
   }
   if (typed.type === "error") {
     const normalized = normalizeChatError(typed.error, typed.code);
-    settleInterruptedToolCalls(content);
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
       text: formatChatErrorText(typed.error, undefined, typed.code),
@@ -1689,6 +1689,7 @@ function applyRuntimeEventToContent(
     } as ChatModelRunResult;
   }
   if (typed.type === "done") {
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     return {
       content: [...content],
       status:

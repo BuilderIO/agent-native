@@ -318,6 +318,20 @@ export function useSetOrgDomain() {
   });
 }
 
+export function useSetOrgWorkspaceUrl() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (url: string | null) =>
+      apiFetch(`${ORG_BASE}/workspace-url`, {
+        method: "PUT",
+        body: JSON.stringify({ url }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
 export interface AppRoleAssignment {
   email: string;
   role: string;

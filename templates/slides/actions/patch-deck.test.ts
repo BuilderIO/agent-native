@@ -1,6 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-import { applyOperation, withDeckLock, type Operation } from "./patch-deck";
+import {
+  applyOperation,
+  resolveDeckColumnUpdates,
+  withDeckLock,
+  type Operation,
+} from "./patch-deck";
+import patchDeckAction from "./patch-deck";
 
 // ---------------------------------------------------------------------------
 // normalizeSlidePadding is a pass-through in tests
@@ -247,6 +253,35 @@ describe("applyOperation — patch-deck-fields", () => {
   });
 });
 
+describe("patch-deck agent schema", () => {
+  it("advertises only bounded deck and slide patch operations", () => {
+    const parameters = patchDeckAction.tool.parameters as any;
+    const operations = parameters.properties.operations.items.anyOf;
+    const deckFields = operations.find(
+      (operation: any) =>
+        operation.properties?.op?.const === "patch-deck-fields",
+    );
+    const slidePatch = operations.find(
+      (operation: any) => operation.properties?.op?.const === "patch-slide",
+    );
+
+    expect(operations).toHaveLength(2);
+    expect(deckFields.properties.fields.properties.title).toMatchObject({
+      type: "string",
+    });
+    expect(deckFields.properties.fields.properties).not.toHaveProperty(
+      "aspectRatio",
+    );
+    expect(deckFields.properties.fields.properties).not.toHaveProperty(
+      "visibility",
+    );
+    expect(slidePatch.properties.slideId).toMatchObject({ type: "string" });
+    expect(slidePatch.properties.fields.properties.content).toMatchObject({
+      type: "string",
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // withDeckLock serialisation test
 // ---------------------------------------------------------------------------
@@ -302,5 +337,53 @@ describe("withDeckLock", () => {
     resolveA();
     await a;
     expect(order).toContain("a-end");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveDeckColumnUpdates — SQL columns must match the deck JSON
+// ---------------------------------------------------------------------------
+
+describe("resolveDeckColumnUpdates", () => {
+  const current = { title: "Old", designSystemId: null };
+
+  const renameOp = (title: string): Operation => ({
+    op: "patch-deck-fields",
+    fields: { title },
+  });
+
+  it("takes the last title in a debounced rename burst", () => {
+    // One keystroke per op — the column must land on the final value, or the
+    // deck list shows a truncated name once the JSON and column disagree.
+    const burst = ["N", "Ne", "New", "New ", "New Name"].map(renameOp);
+    expect(resolveDeckColumnUpdates(current, burst).title).toBe("New Name");
+  });
+
+  it("takes the last designSystemId in a batch", () => {
+    const ops: Operation[] = [
+      { op: "patch-deck-fields", fields: { designSystemId: "ds-1" } },
+      { op: "patch-deck-fields", fields: { designSystemId: "ds-2" } },
+    ];
+    expect(resolveDeckColumnUpdates(current, ops).designSystemId).toBe("ds-2");
+  });
+
+  it("keeps current values when no field op touches them", () => {
+    const ops: Operation[] = [
+      { op: "delete-slide", slideId: "s1" },
+      { op: "patch-deck-fields", fields: { visibility: "org" } },
+    ];
+    expect(
+      resolveDeckColumnUpdates({ title: "Keep", designSystemId: "ds-9" }, ops),
+    ).toEqual({ title: "Keep", designSystemId: "ds-9" });
+  });
+
+  it("treats an explicit null designSystemId as a clear", () => {
+    const ops: Operation[] = [
+      { op: "patch-deck-fields", fields: { designSystemId: null } },
+    ];
+    expect(
+      resolveDeckColumnUpdates({ title: "T", designSystemId: "ds-1" }, ops)
+        .designSystemId,
+    ).toBeNull();
   });
 });

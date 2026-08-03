@@ -968,6 +968,90 @@ export default {
     });
   });
 
+  it("accepts frontend mutation RPCs without widening direct HTTP action methods", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "delete-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  run: async (params, context) => ({
+    ok: true,
+    echo: params,
+    caller: context?.caller,
+  }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "delete-item", absPath: actionPath, method: "delete" }],
+      ),
+    );
+
+    const frontendPost = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-agent-native-frontend": "1",
+        },
+        body: JSON.stringify({ id: "item-1" }),
+      }),
+      {},
+      {},
+    );
+    expect(frontendPost.status).toBe(200);
+    await expect(frontendPost.json()).resolves.toEqual({
+      ok: true,
+      echo: { id: "item-1" },
+      caller: "frontend",
+    });
+
+    const directPost = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "item-2" }),
+      }),
+      {},
+      {},
+    );
+    expect(directPost.status).toBe(405);
+    await expect(directPost.json()).resolves.toEqual({
+      error: "Method not allowed. Use DELETE.",
+    });
+
+    const directDelete = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "item-3" }),
+      }),
+      {},
+      {},
+    );
+    expect(directDelete.status).toBe(200);
+    await expect(directDelete.json()).resolves.toEqual({
+      ok: true,
+      echo: { id: "item-3" },
+      caller: "http",
+    });
+
+    const strictSource = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [{ name: "head-item", absPath: actionPath, method: "head" }],
+    );
+    expect(strictSource).not.toContain(
+      'app.on("POST", "/_agent-native/actions/head-item"',
+    );
+  });
+
   it("allows browser action-client headers in generated worker preflight responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1596,7 +1680,7 @@ describe("runNitroBuildPipeline", () => {
   });
 });
 
-describe("durable-background Netlify function emit (single-template, flag-gated)", () => {
+describe("durable-background Netlify function emit (single-template, default-on)", () => {
   const dirs: string[] = [];
   let previousFlag: string | undefined;
   let previousWorkspaceFlag: string | undefined;
@@ -1722,6 +1806,9 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain(
       'const SWEEP_PATH = "/_agent-native/integrations/retry-stuck-tasks"',
     );
+    expect(entry).toContain(
+      "globalThis.__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__ = true",
+    );
     expect(entry).toContain('createHmac("sha256", secret)');
     expect(entry).toContain(
       "if (!enabled()) return new Response(null, { status: 204 })",
@@ -1784,11 +1871,8 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
   });
 
-  it("is OFF BY DEFAULT (flag unset) so the -background function is NOT emitted", () => {
-    // Default-off (opt-in) matches the runtime gate (isFlagEnabled) — durable is
-    // opt-in until the async worker path is proven live, so the 15-min
-    // `-background` function is emitted only when an app explicitly opts in.
-    expect(isDurableBackgroundDeployEnabled()).toBe(false);
+  it("is ON BY DEFAULT so the -background function is emitted", () => {
+    expect(isDurableBackgroundDeployEnabled()).toBe(true);
   });
 
   it("is ON only when explicitly opted in via a truthy flag", () => {
@@ -1798,19 +1882,17 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     }
   });
 
-  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
-    for (const value of [
-      "0",
-      "false",
-      "no",
-      "off",
-      "FALSE",
-      " Off ",
-      "",
-      "maybe",
-    ]) {
+  it("is OFF for explicit falsy flag values", () => {
+    for (const value of ["0", "false", "no", "off", "FALSE", " Off "]) {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
       expect(isDurableBackgroundDeployEnabled()).toBe(false);
+    }
+  });
+
+  it("stays ON for empty or unrecognized flag values", () => {
+    for (const value of ["", "maybe"]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+      expect(isDurableBackgroundDeployEnabled()).toBe(true);
     }
   });
 
@@ -1926,6 +2008,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
     // No .netlify/functions-internal/server/main.mjs present.
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
 
     expect(() =>
       emitSingleTemplateNetlifyBackgroundFunction(cwd),
@@ -1990,6 +2073,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
 
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
     emitSingleTemplateNetlifyKeepWarmFunction(cwd);
 
     const entry = fs.readFileSync(
@@ -2017,7 +2101,13 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain("const BACKGROUND_WARM_PATH = null");
   });
 
-  function prepareSingleTemplateNetlifyOutput(cwd: string): void {
+  function prepareSingleTemplateNetlifyOutput(
+    cwd: string,
+    options: { emitBackground?: boolean } = {},
+  ): void {
+    if (options.emitBackground !== false) {
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    }
     writeSingleTemplateNetlifyRedirects(cwd);
   }
 
@@ -2336,7 +2426,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   it("fails when durable background is enabled but the Netlify background function is missing", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
-    prepareSingleTemplateNetlifyOutput(cwd);
+    prepareSingleTemplateNetlifyOutput(cwd, { emitBackground: false });
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /durable background is enabled/,

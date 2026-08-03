@@ -84,7 +84,9 @@ pnpm action create-event \
   --addZoom=true
 ```
 
-Required: `--title`, `--start`, `--end` (all ISO datetime format).
+Required for ordinary events: `--title`, `--start`, `--end` (ISO datetime
+format). Out-of-office events default the title to `Out of office` when it is
+omitted.
 Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail`.
 
 When multiple Google accounts are connected, choose the destination account's
@@ -111,11 +113,22 @@ a Zoom/Meet/Teams link in the location or description, or asks for
 Native Google Calendar status events are supported:
 
 ```bash
-# Out of office
+# Full-day out of office. Start and end are inclusive human dates; Calendar
+# writes Google-compatible local-midnight timed bounds in this timezone.
 pnpm action create-event \
-  --title "OOO" \
-  --start 2026-04-03T09:00:00 \
-  --end 2026-04-03T17:00:00 \
+  --start 2026-04-03 \
+  --end 2026-04-07 \
+  --startTimeZone America/New_York \
+  --fullDay true \
+  --eventType outOfOffice \
+  --autoDeclineMode declineAllConflictingInvitations \
+  --declineMessage "Declined because I am out of office"
+
+# Partial-day out of office
+pnpm action create-event \
+  --start 2026-04-03T13:00:00-04:00 \
+  --end 2026-04-03T17:00:00-04:00 \
+  --startTimeZone America/New_York \
   --eventType outOfOffice
 
 # Focus time
@@ -140,6 +153,13 @@ render as native working locations in the UI instead of generic all-day events.
 They are transparent/non-blocking for availability. Google allows timed working
 locations or single-day all-day working locations; multi-day all-day ranges must
 be represented as separate daily working-location events.
+
+`--fullDay true` is semantic only for out-of-office creation. It does not send
+Google an all-day `date` event, which Google rejects for this event type.
+Instead, the action converts inclusive dates to timed local-midnight bounds,
+sets provider `allDay` false, and preserves the chosen IANA timezone across DST.
+The default auto-decline mode covers all conflicting invitations; override it
+with `declineOnlyNewConflictingInvitations` or `declineNone` when requested.
 
 For a visible occurrence in a recurring working-location series, default to
 `scope: "single"` and pass the occurrence's event `id`, not its

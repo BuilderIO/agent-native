@@ -23,6 +23,7 @@ import {
   parseSubmitChatMessage,
   removeAgentChatContextItem,
   reportAgentChatSubmitResult,
+  reportAgentChatSubmitTarget,
   setAgentChatContextItem,
   type AgentChatContextItem,
 } from "./agent-chat.js";
@@ -41,6 +42,10 @@ import {
   type ChatHistoryItem,
   type ChatHistorySection,
 } from "./chat/ChatHistoryList.js";
+import {
+  fetchBuilderStatus,
+  fetchEnvironmentStatus,
+} from "./client-status-requests.js";
 import {
   Popover,
   PopoverAnchor,
@@ -1114,14 +1119,10 @@ export function MultiTabAssistantChat({
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
       ),
-      fetch(agentNativePath("/_agent-native/env-status"))
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
+      fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
+      fetchBuilderStatus<{ configured?: boolean }>(),
     ])
-      .then(([enginesData, envKeys, builderStatus]) => {
+      .then(([enginesData, envResult, builderResult]) => {
         if (!enginesData?.engines) {
           // Leaves `availableModels` empty for the session, so an override with
           // no engine of its own has nothing to resolve against.
@@ -1130,10 +1131,16 @@ export function MultiTabAssistantChat({
           );
           return;
         }
+        if (
+          envResult.state !== "available" ||
+          builderResult.state !== "available"
+        ) {
+          return;
+        }
+        const envKeys = envResult.value;
+        const builderStatus = builderResult.value;
         const configuredKeys = new Set(
-          (envKeys as Array<{ key: string; configured: boolean }>)
-            .filter((k) => k.configured)
-            .map((k) => k.key),
+          envKeys.filter((k) => k.configured).map((k) => k.key),
         );
         const builderConnected = builderStatus?.configured === true;
         const currentEngineName: string | undefined =
@@ -1610,6 +1617,7 @@ export function MultiTabAssistantChat({
         engine,
         effort,
         newTab,
+        reuseEmptyTab,
         background,
         submit,
         images,
@@ -1676,6 +1684,7 @@ export function MultiTabAssistantChat({
 
       const sendToTab = (threadId: string) => {
         if (isAgentChatSubmitCancelled(submitMessageId)) return;
+        reportAgentChatSubmitTarget(submitMessageId, threadId);
         if (modelOverride) {
           threadModelRef.current.set(threadId, modelOverride);
           bumpModelSelectionVersion();
@@ -1691,6 +1700,23 @@ export function MultiTabAssistantChat({
 
       if (newTab) {
         const previousTabId = activeThreadIdRef.current;
+        const previousChat = previousTabId
+          ? chatRefs.current.get(previousTabId)
+          : undefined;
+        // A blank active chat is already an isolated destination. Reuse it for
+        // foreground creation requests so the action does not leave a ghost tab.
+        if (
+          reuseEmptyTab &&
+          !background &&
+          previousTabId &&
+          previousChat &&
+          (newThreadIds.current.has(previousTabId) ||
+            isNewThread(previousTabId)) &&
+          previousChat.exportThreadSnapshot() === null
+        ) {
+          sendToTab(previousTabId);
+          return;
+        }
         createThread(requestedTabId)
           .then((newId) => {
             if (isAgentChatSubmitCancelled(submitMessageId)) return;
@@ -1746,6 +1772,7 @@ export function MultiTabAssistantChat({
     bumpModelSelectionVersion,
     clearContextInTab,
     createThread,
+    isNewThread,
     postMessageSubmissionsDisabled,
     props.execMode,
     removeContextInTab,
@@ -2582,6 +2609,9 @@ export function MultiTabAssistantChat({
                   autoRetryOwnerId={browserTabId}
                   hasInFlightWork={() =>
                     chatRefs.current.get(tabId)?.hasInFlightWork() ?? false
+                  }
+                  isAwaitingResponse={() =>
+                    chatRefs.current.get(tabId)?.isRunning() ?? false
                   }
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);

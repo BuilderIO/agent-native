@@ -9,6 +9,14 @@ Os modelos são aplicativos nativos do agente completos e bifurcáveis que resol
 
 Use `@agent-native/core` para o contrato de runtime: actions, plugins de servidor, helpers de banco de dados, estado do app, helpers de rotas e chat do agente. Use `@agent-native/toolkit` para UI reutilizável e helpers de construção de apps, como primitivas compartilhadas, hooks de toast/mobile, seletores de data e slots simples de shell do app. Mantenha variantes específicas do template locais quando elas codificarem comportamento de produto ou identidade visual.
 
+Considere as três camadas ao decidir onde uma capacidade pertence:
+
+- **Core - o framework:** o contrato obrigatório de runtime e dados que qualquer app pode usar.
+- **Toolkit - peças reutilizáveis opcionais:** UI e sistemas de produto compartilhados que os apps podem adotar, compor ou bifurcar.
+- **Templates - apps opcionais:** produtos de domínio completos construídos sobre Core, normalmente usando Toolkit, que podem ser bifurcados como pontos de partida.
+
+Toolkit e Templates são opcionais. Um template não é o próprio framework, e Toolkit não substitui Core.
+
 Um bom modelo:
 
 - Resolve um fluxo de trabalho de ponta a ponta, com dados iniciais úteis ou um fluxo de estado vazio.
@@ -495,11 +503,23 @@ Antes de compartilhar:
 4. Documente as variáveis de ambiente necessárias e as etapas de integração.
 5. Inclua exemplos ou linhas iniciais por meio de migrações aditivas, e não de arquivos de dados de tempo de execução rastreados.
 
-Os modelos de comunidade podem ser criados a partir de um repositório GitHub:
+Os modelos da comunidade são instalados diretamente de um repositório público do GitHub. Coloque o aplicativo Agent Native na raiz:
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+Adicione `#branch`, `#tag` ou `#commit` para fixar uma revisão específica:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+A CLI baixa apenas o código-fonte. Ela não instala dependências nem executa scripts do modelo. Modelos da comunidade são código de terceiros; revise o repositório, a licença, as dependências e os scripts antes de executar `pnpm install`.
+
+Para entrar no catálogo, inclua um aplicativo completo na raiz, um repositório público com licença e README de configuração, uma dependência de `@agent-native/core`, e verificações de tipo e testes aprovados. Uma demo hospedada e uma captura de tela são opcionais.
+
+[Envie um modelo da comunidade](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml) quando o repositório estiver pronto. Esses modelos permanecem separados do catálogo próprio e são mantidos por seus autores.
 
 ## Contribuindo para a estrutura monorepo {#contributing}
 

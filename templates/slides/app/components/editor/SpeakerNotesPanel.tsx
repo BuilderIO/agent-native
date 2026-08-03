@@ -7,6 +7,7 @@ interface SpeakerNotesPanelProps {
   onChange: (notes: string) => void;
   slideIndex: number;
   slideCount: number;
+  readOnly?: boolean;
 }
 
 const MIN_NOTES_HEIGHT = 72;
@@ -22,6 +23,7 @@ export function SpeakerNotesPanel({
   onChange,
   slideIndex,
   slideCount,
+  readOnly = false,
 }: SpeakerNotesPanelProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(() => {
@@ -105,7 +107,8 @@ export function SpeakerNotesPanel({
           <textarea
             value={notes || ""}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={t("raw.addSpeakerNotes")}
+            readOnly={readOnly}
+            placeholder={readOnly ? undefined : t("raw.addSpeakerNotes")}
             className="h-full w-full resize-none bg-transparent font-mono text-xs text-muted-foreground outline-none placeholder:text-muted-foreground/70"
           />
         </div>

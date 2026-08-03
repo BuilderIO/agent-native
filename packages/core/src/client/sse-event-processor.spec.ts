@@ -10,6 +10,8 @@ import {
   SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
   SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
   SSE_NO_PROGRESS_TIMEOUT_MS,
+  settleInterruptedToolCalls,
+  type ContentPart,
 } from "./sse-event-processor.js";
 
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
@@ -768,7 +770,7 @@ describe("SSE replay render pacing", () => {
       expect.objectContaining({
         toolCallId: "analytics-a",
         result: "Stopped before this action started.",
-        isError: true,
+        outcome: "unknown",
       }),
       expect.objectContaining({
         toolCallId: "analytics-b",
@@ -1564,6 +1566,39 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  // `error-detail.ts` now names two deterministic failures that used to persist
+  // as `unknown` (a model/tools config rejection and a missing auth header) so
+  // they stop reaching users as raw provider text. Naming them must not make
+  // them auto-continue — a retry cannot fix either one, and this is the check
+  // that keeps a future addition to the recoverable list from doing so.
+  it("names a deterministic failure without making it recoverable", async () => {
+    for (const [errorCode, error] of [
+      [
+        "provider_config_error",
+        "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+      ],
+      ["authentication_error", "Missing Authentication header"],
+    ]) {
+      const caught = await (async () => {
+        try {
+          for await (const _ of readSSEStream(
+            eventStream([{ type: "error", error, errorCode }]),
+            [],
+            { value: 0 },
+            undefined,
+          )) {
+            // no-op
+          }
+        } catch (err) {
+          return err;
+        }
+        return undefined;
+      })();
+
+      expect(caught).not.toBeInstanceOf(AgentAutoContinueSignal);
+    }
+  });
+
   it("carries activity trail on auto-continuation signals", async () => {
     const err = await (async () => {
       try {
@@ -2023,7 +2058,7 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
-            isError: true,
+            outcome: "unknown",
             result: "Stopped before this action started.",
           }),
           {
@@ -3302,6 +3337,40 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("auto-continues provider network errors", async () => {
+    const message =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "provider_network_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-provider-network",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "provider_network_error",
+      message:
+        "The model provider could not be reached. Check your connection and retry.",
+      details: message,
+      recoverable: true,
+    });
+  });
+
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -3967,6 +4036,54 @@ describe("SSE client watchdog ordering", () => {
   });
 });
 
+describe("settleInterruptedToolCalls", () => {
+  const pendingTool = (): ContentPart => ({
+    type: "tool-call",
+    toolCallId: "tc_1",
+    toolName: "send-email",
+    argsText: "{}",
+    args: {},
+  });
+
+  it("records an interrupted side effect as unknown, not failed", () => {
+    const content: ContentPart[] = [pendingTool()];
+
+    expect(settleInterruptedToolCalls(content)).toBe(true);
+
+    const part = content[0] as Extract<ContentPart, { type: "tool-call" }>;
+    expect(part.result).toBeDefined();
+    expect(part.outcome).toBe("unknown");
+    expect(part.isError).toBeUndefined();
+  });
+
+  it("leaves a server-reported failure marked as an error", () => {
+    const failed: ContentPart = {
+      ...pendingTool(),
+      result: "Boom",
+      isError: true,
+    };
+    const content: ContentPart[] = [failed];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect((content[0] as typeof failed).isError).toBe(true);
+    expect((content[0] as typeof failed).outcome).toBeUndefined();
+  });
+
+  it("only settles activity placeholders when asked", () => {
+    const content: ContentPart[] = [{ ...pendingTool(), activity: true }];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect(
+      settleInterruptedToolCalls(content, undefined, {
+        includeActivity: true,
+      }),
+    ).toBe(true);
+    expect(
+      (content[0] as Extract<ContentPart, { type: "tool-call" }>).outcome,
+    ).toBe("unknown");
+  });
+});
+
 describe("work timestamps and unmatched completions", () => {
   it("stamps each tool call with its own start and end", async () => {
     const results = (await drain(
@@ -4072,7 +4189,9 @@ describe("work timestamps and unmatched completions", () => {
     expect(cards.length).toBeGreaterThan(0);
     for (const card of cards) {
       expect(card.result).toBeDefined();
-      expect(card.isError).toBe(true);
+      // Force-settled, not failed: the side effect may well have landed.
+      expect(card.outcome).toBe("unknown");
+      expect(card.isError).toBeUndefined();
       expect(typeof card.completedAt).toBe("number");
     }
   });

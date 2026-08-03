@@ -84,9 +84,17 @@ import { prepareRewindRecordingStart } from "./rewind-recording-start";
 import { singleFlight } from "./single-flight";
 import {
   startTranscriptionCapture,
+  shouldStartLocalRecordingTranscription,
   type CapturedTranscript,
   type TranscriptionCapture,
 } from "./transcription-capture";
+import {
+  buildStreamingReplayPlan,
+  planStreamingRecovery,
+  retryAttemptIdAfterRestartSignal,
+  retryAttemptIdAfterResumeResponse,
+  type UploadResumeResponse,
+} from "./upload-recovery";
 import {
   parseFinalizeReceipt,
   verifyFinalizeReceipt,
@@ -309,6 +317,7 @@ export interface PendingBrowserRecordingUpload {
   retryCount: number;
   chunkCount: number;
   mimeType: string;
+  uploadAttemptId?: string | null;
 }
 
 function streamFromTracks(tracks: MediaStreamTrack[]): MediaStream {
@@ -982,6 +991,16 @@ function buildRetryHeaders(mimeType: string, authToken?: string): Headers {
   return headers;
 }
 
+class UploadRestartRequiredError extends Error {
+  constructor(
+    message: string,
+    readonly recoveryEnabled?: boolean,
+  ) {
+    super(message);
+    this.name = "UploadRestartRequiredError";
+  }
+}
+
 async function postBackupChunk(
   url: string,
   blob: Blob,
@@ -998,6 +1017,24 @@ async function postBackupChunk(
   });
   const body = await res.text().catch(() => "");
   if (!res.ok) {
+    const details = (() => {
+      try {
+        return JSON.parse(body) as {
+          restartRequired?: unknown;
+          recoveryEnabled?: unknown;
+        };
+      } catch {
+        return null;
+      }
+    })();
+    if (details?.restartRequired === true) {
+      throw new UploadRestartRequiredError(
+        `The prior upload session expired (${res.status})`,
+        typeof details.recoveryEnabled === "boolean"
+          ? details.recoveryEnabled
+          : undefined,
+      );
+    }
     throw new Error(
       `Upload retry failed (${res.status}): ${body.slice(0, 200)}`,
     );
@@ -1008,7 +1045,9 @@ async function postBackupChunk(
 async function resetBrowserRecordingBackupUpload(
   meta: BrowserRecordingBackupMeta,
   authToken?: string,
-): Promise<UploadMode> {
+  attemptId?: string,
+  uploadGenerationId?: string,
+): Promise<{ uploadMode: UploadMode; uploadGenerationId?: string }> {
   const res = await fetch(
     `${meta.serverUrl.replace(/\/+$/, "")}/api/uploads/${meta.recordingId}/reset-chunks`,
     {
@@ -1022,6 +1061,8 @@ async function resetBrowserRecordingBackupUpload(
       body: JSON.stringify({
         requestStreaming: true,
         mimeType: meta.mimeType,
+        ...(attemptId ? { attemptId } : {}),
+        ...(uploadGenerationId ? { uploadGenerationId } : {}),
       }),
     },
   );
@@ -1033,14 +1074,61 @@ async function resetBrowserRecordingBackupUpload(
   }
   const body = (await res.json().catch(() => null)) as {
     uploadMode?: unknown;
+    uploadGenerationId?: unknown;
   } | null;
-  return body?.uploadMode === "streaming" ? "streaming" : "buffered";
+  if (attemptId && typeof body?.uploadGenerationId !== "string") {
+    throw new Error("Upload retry setup returned no upload generation");
+  }
+  return {
+    uploadMode: body?.uploadMode === "streaming" ? "streaming" : "buffered",
+    ...(typeof body?.uploadGenerationId === "string"
+      ? { uploadGenerationId: body.uploadGenerationId }
+      : {}),
+  };
+}
+
+async function getBrowserRecordingUploadResume(
+  meta: BrowserRecordingBackupMeta,
+  attemptId: string,
+  authToken?: string,
+): Promise<UploadResumeResponse> {
+  const resumeUrl = new URL(
+    `${meta.serverUrl.replace(/\/+$/, "")}/api/uploads/${meta.recordingId}/resume`,
+  );
+  resumeUrl.searchParams.set("attemptId", attemptId);
+  const res = await fetch(resumeUrl, {
+    method: "GET",
+    headers: buildRetryHeaders("application/json", authToken),
+    credentials: "include",
+  });
+  const body = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(
+      `Upload resume check failed (${res.status}): ${body.slice(0, 200)}`,
+    );
+  }
+  let parsed: UploadResumeResponse;
+  try {
+    parsed = JSON.parse(body) as UploadResumeResponse;
+  } catch {
+    throw new Error("Upload resume check returned an unreadable response");
+  }
+  if (parsed.resumable && parsed.attemptId !== attemptId) {
+    throw new Error("Upload resume check returned a mismatched retry token");
+  }
+  return parsed;
 }
 
 async function replayBrowserBackupToResumableSession(
   meta: BrowserRecordingBackupMeta,
   chunks: BrowserRecordingBackupChunk[],
   authToken?: string,
+  attemptId?: string,
+  uploadGenerationId?: string,
+  resumeFrom: { bytesReceived: number; nextChunkIndex: number } = {
+    bytesReceived: 0,
+    nextChunkIndex: 0,
+  },
 ): Promise<FinalizeReceipt | null> {
   // The backup is stored in raw MediaRecorder blobs, which have arbitrary
   // boundaries. A resumable provider needs every non-final request aligned,
@@ -1055,33 +1143,38 @@ async function replayBrowserBackupToResumableSession(
     throw new Error("Local recording backup is empty");
   }
 
-  const fullChunks = Math.floor(recording.size / STREAM_CHUNK_BYTES);
-  const totalPosts = fullChunks + 1;
-  let offset = 0;
+  const replayPlan = buildStreamingReplayPlan({
+    localBytes: recording.size,
+    chunkBytes: STREAM_CHUNK_BYTES,
+    ...resumeFrom,
+  });
+  const totalPosts = Math.floor(recording.size / STREAM_CHUNK_BYTES) + 1;
 
-  for (let index = 0; index < fullChunks; index += 1) {
-    const body = recording.slice(
-      offset,
-      offset + STREAM_CHUNK_BYTES,
-      meta.mimeType,
-    );
+  for (const request of replayPlan.filter((item) => !item.final)) {
+    const body = recording.slice(request.start, request.end, meta.mimeType);
     await postBackupChunk(
-      chunkUrl(meta.serverUrl, meta.recordingId, index, false, {
+      chunkUrl(meta.serverUrl, meta.recordingId, request.index, false, {
         total: String(totalPosts),
         mimeType: meta.mimeType,
+        ...(attemptId ? { attemptId } : {}),
+        ...(uploadGenerationId ? { uploadGenerationId } : {}),
       }),
       body,
       authToken,
     );
-    offset += STREAM_CHUNK_BYTES;
   }
 
   // The final post always closes the session. When the file is exactly
   // aligned it is intentionally empty; the route sends the provider's close
   // request with the bytes committed by the previous chunks.
-  const finalBody = recording.slice(offset, recording.size, meta.mimeType);
+  const finalRequest = replayPlan[replayPlan.length - 1]!;
+  const finalBody = recording.slice(
+    finalRequest.start,
+    finalRequest.end,
+    meta.mimeType,
+  );
   return postBackupChunk(
-    chunkUrl(meta.serverUrl, meta.recordingId, fullChunks, true, {
+    chunkUrl(meta.serverUrl, meta.recordingId, finalRequest.index, true, {
       total: String(totalPosts),
       mimeType: meta.mimeType,
       durationMs: String(Math.round(meta.durationMs || 0)),
@@ -1089,6 +1182,8 @@ async function replayBrowserBackupToResumableSession(
       ...(meta.height ? { height: String(meta.height) } : {}),
       hasAudio: meta.hasAudio ? "1" : "0",
       hasCamera: meta.hasCamera ? "1" : "0",
+      ...(attemptId ? { attemptId } : {}),
+      ...(uploadGenerationId ? { uploadGenerationId } : {}),
     }),
     finalBody,
     authToken,
@@ -1099,6 +1194,10 @@ export async function retryBrowserRecordingBackup(input: {
   recordingId: string;
   serverUrl?: string;
   authToken?: string;
+  onRecoveryDecision?: (decision: {
+    action: "resume" | "restart" | "reconcile";
+    progress: number;
+  }) => void;
 }): Promise<{ recordingId: string; viewUrl: string }> {
   let meta = await getBrowserRecordingBackupMeta(input.recordingId);
   if (!meta) {
@@ -1110,25 +1209,147 @@ export async function retryBrowserRecordingBackup(input: {
   }
   const chunks = await getBrowserRecordingBackupChunks(input.recordingId);
   const validatedChunks = validateBrowserRecordingBackupChunks(meta, chunks);
+  let activeAttemptId: string | undefined =
+    meta.uploadAttemptId || crypto.randomUUID();
+  let activeUploadGenerationId: string | undefined;
 
   try {
     await putBrowserRecordingBackupMeta({
       ...meta,
+      uploadAttemptId: activeAttemptId,
       lastAttemptAt: new Date().toISOString(),
       lastError: null,
     });
-    const uploadMode = await resetBrowserRecordingBackupUpload(
+    const recordingBytes = validatedChunks.reduce(
+      (total, chunk) => total + chunk.blob.size,
+      0,
+    );
+    const resumeResponse = await getBrowserRecordingUploadResume(
       meta,
+      activeAttemptId,
       input.authToken,
     );
+    const recoveryPlan = planStreamingRecovery({
+      response: resumeResponse,
+      localBytes: recordingBytes,
+      chunkBytes: STREAM_CHUNK_BYTES,
+    });
+    activeAttemptId = retryAttemptIdAfterResumeResponse(
+      activeAttemptId,
+      resumeResponse,
+    );
+    activeUploadGenerationId = resumeResponse.resumable
+      ? resumeResponse.uploadGenerationId
+      : undefined;
+    if (recoveryPlan.action === "reconcile") {
+      input.onRecoveryDecision?.({ action: "reconcile", progress: 1 });
+      if (
+        await recoverAcceptedRecordingAfterFinalizeError({
+          serverUrl: meta.serverUrl,
+          recordingId: meta.recordingId,
+          authToken: input.authToken,
+        })
+      ) {
+        return {
+          recordingId: meta.recordingId,
+          viewUrl: `/r/${meta.recordingId}`,
+        };
+      }
+      throw new Error(
+        `Upload is ${recoveryPlan.status}, but its accepted media could not be verified`,
+      );
+    }
+
+    let uploadMode: UploadMode = "streaming";
+    let resumeFrom = { bytesReceived: 0, nextChunkIndex: 0 };
+    if (recoveryPlan.action === "resume") {
+      resumeFrom = recoveryPlan;
+      input.onRecoveryDecision?.({
+        action: "resume",
+        progress: recoveryPlan.progress,
+      });
+      console.info("[clips-recorder] resuming saved upload", {
+        recordingId: meta.recordingId,
+        localBytes: recordingBytes,
+        serverAcknowledgedBytes: recoveryPlan.bytesReceived,
+        nextChunkIndex: recoveryPlan.nextChunkIndex,
+        progress: recoveryPlan.progress,
+      });
+    } else {
+      input.onRecoveryDecision?.({ action: "restart", progress: 0 });
+      console.info("[clips-recorder] restarting saved upload", {
+        recordingId: meta.recordingId,
+        localBytes: recordingBytes,
+        reason: recoveryPlan.reason,
+      });
+      const reset = await resetBrowserRecordingBackupUpload(
+        meta,
+        input.authToken,
+        activeAttemptId,
+        activeUploadGenerationId,
+      );
+      uploadMode = reset.uploadMode;
+      activeUploadGenerationId = reset.uploadGenerationId;
+    }
 
     if (uploadMode === "streaming") {
+      let receipt: FinalizeReceipt | null = null;
       try {
-        const receipt = await replayBrowserBackupToResumableSession(
+        receipt = await replayBrowserBackupToResumableSession(
           meta,
           validatedChunks,
           input.authToken,
+          activeAttemptId,
+          activeUploadGenerationId,
+          resumeFrom,
         );
+      } catch (err) {
+        if (err instanceof UploadRestartRequiredError) {
+          activeAttemptId = retryAttemptIdAfterRestartSignal(
+            activeAttemptId,
+            err.recoveryEnabled,
+          );
+          if (err.recoveryEnabled === false) {
+            activeUploadGenerationId = undefined;
+          }
+          input.onRecoveryDecision?.({ action: "restart", progress: 0 });
+          console.info("[clips-recorder] restarting expired upload session", {
+            recordingId: meta.recordingId,
+            localBytes: recordingBytes,
+          });
+          const reset = await resetBrowserRecordingBackupUpload(
+            meta,
+            input.authToken,
+            activeAttemptId,
+            activeUploadGenerationId,
+          );
+          uploadMode = reset.uploadMode;
+          activeUploadGenerationId = reset.uploadGenerationId;
+          if (uploadMode === "streaming") {
+            receipt = await replayBrowserBackupToResumableSession(
+              meta,
+              validatedChunks,
+              input.authToken,
+              activeAttemptId,
+              activeUploadGenerationId,
+            );
+          }
+        } else if (
+          await recoverAcceptedRecordingAfterFinalizeError({
+            serverUrl: meta.serverUrl,
+            recordingId: meta.recordingId,
+            authToken: input.authToken,
+          })
+        ) {
+          return {
+            recordingId: meta.recordingId,
+            viewUrl: `/r/${meta.recordingId}`,
+          };
+        } else {
+          throw err;
+        }
+      }
+      if (uploadMode === "streaming") {
         const receiptStatus = verifyFinalizeReceipt(receipt, meta);
         if (receiptStatus === "processing") {
           scheduleBrowserBackupCleanupAfterProcessing({
@@ -1141,26 +1362,12 @@ export async function retryBrowserRecordingBackup(input: {
             viewUrl: `/r/${meta.recordingId}`,
           };
         }
-      } catch (err) {
-        if (
-          await recoverAcceptedRecordingAfterFinalizeError({
-            serverUrl: meta.serverUrl,
-            recordingId: meta.recordingId,
-            authToken: input.authToken,
-          })
-        ) {
-          return {
-            recordingId: meta.recordingId,
-            viewUrl: `/r/${meta.recordingId}`,
-          };
-        }
-        throw err;
+        await deleteBrowserRecordingBackup(meta.recordingId);
+        return {
+          recordingId: meta.recordingId,
+          viewUrl: `/r/${meta.recordingId}`,
+        };
       }
-      await deleteBrowserRecordingBackup(meta.recordingId);
-      return {
-        recordingId: meta.recordingId,
-        viewUrl: `/r/${meta.recordingId}`,
-      };
     }
 
     const totalPosts = validatedChunks.length + 1;
@@ -1169,6 +1376,10 @@ export async function retryBrowserRecordingBackup(input: {
         chunkUrl(meta.serverUrl, meta.recordingId, chunk.index, false, {
           total: String(totalPosts),
           mimeType: meta.mimeType,
+          ...(activeAttemptId ? { attemptId: activeAttemptId } : {}),
+          ...(activeUploadGenerationId
+            ? { uploadGenerationId: activeUploadGenerationId }
+            : {}),
         }),
         chunk.blob,
         input.authToken,
@@ -1188,6 +1399,10 @@ export async function retryBrowserRecordingBackup(input: {
         ...(meta.height ? { height: String(meta.height) } : {}),
         hasAudio: meta.hasAudio ? "1" : "0",
         hasCamera: meta.hasCamera ? "1" : "0",
+        ...(activeAttemptId ? { attemptId: activeAttemptId } : {}),
+        ...(activeUploadGenerationId
+          ? { uploadGenerationId: activeUploadGenerationId }
+          : {}),
       },
     );
     try {
@@ -1228,8 +1443,28 @@ export async function retryBrowserRecordingBackup(input: {
     return { recordingId: meta.recordingId, viewUrl: `/r/${meta.recordingId}` };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (
+      await recoverAcceptedRecordingAfterFinalizeError({
+        serverUrl: meta.serverUrl,
+        recordingId: meta.recordingId,
+        authToken: input.authToken,
+      })
+    ) {
+      return {
+        recordingId: meta.recordingId,
+        viewUrl: `/r/${meta.recordingId}`,
+      };
+    }
     await markBrowserRecordingBackupError(meta.recordingId, message).catch(
       () => {},
+    );
+    await interruptRecordingUpload(
+      meta.serverUrl,
+      meta.recordingId,
+      message,
+      input.authToken,
+      activeAttemptId,
+      activeUploadGenerationId,
     );
     throw err;
   }
@@ -1607,6 +1842,55 @@ async function abortRecordingUpload(
   } catch (err) {
     console.warn("[clips-recorder] abort upload failed:", err);
   }
+}
+
+async function interruptRecordingUpload(
+  serverUrl: string,
+  recordingId: string,
+  detail: string,
+  authToken?: string,
+  attemptId?: string,
+  uploadGenerationId?: string,
+): Promise<void> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(
+        `${serverUrl.replace(/\/+$/, "")}/api/uploads/${recordingId}/interrupt`,
+        {
+          method: "POST",
+          headers: buildRetryHeaders("application/json", authToken),
+          credentials: "include",
+          body: JSON.stringify({
+            detail,
+            ...(attemptId ? { attemptId } : {}),
+            ...(uploadGenerationId ? { uploadGenerationId } : {}),
+          }),
+        },
+      );
+      if (res.ok) {
+        console.info("[clips-recorder] upload interruption recorded", {
+          recordingId,
+          attempt,
+        });
+        return;
+      }
+      const body = await res.text().catch(() => "");
+      lastError = new Error(
+        `Upload interruption failed (${res.status}): ${body.slice(0, 200)}`,
+      );
+      if (!isRetriableChunkStatus(res.status)) break;
+    } catch (err) {
+      lastError = err;
+    }
+    if (attempt < CHUNK_UPLOAD_MAX_ATTEMPTS) {
+      await wait(CHUNK_UPLOAD_RETRY_BASE_MS * 2 ** (attempt - 1));
+    }
+  }
+  console.warn(
+    "[clips-recorder] upload interruption could not be recorded:",
+    lastError,
+  );
 }
 
 async function trashRecording(
@@ -2426,10 +2710,11 @@ async function tryStartRewindFullscreenRecording(
             ) {
               return { recordingId: id, viewUrl };
             }
-            await abortRecordingUpload(
+            await interruptRecordingUpload(
               params.serverUrl,
               id,
               err instanceof Error ? err.message : String(err),
+              params.authToken,
             );
             throw err;
           }
@@ -2539,6 +2824,8 @@ async function startNativeFullscreenRecording(
   let nativeTranscriptFailureSaved = false;
   const wantsSystemAudio = params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
+  const canTranscribeLocally =
+    shouldStartLocalRecordingTranscription(wantsAudio);
   let micDeviceLabel: string | null = params.micLabel || null;
   const saveTranscriptFailure = async (
     failureReason: string,
@@ -2554,7 +2841,7 @@ async function startNativeFullscreenRecording(
     );
   };
   const startNativeTranscriptionBeforeRecording = async () => {
-    if (localOnly || !wantsRecordedAudio || transcriptionCapture) return;
+    if (localOnly || !canTranscribeLocally || transcriptionCapture) return;
     transcriptionCapture = await startTranscriptionCapture(
       {
         deviceId: params.micId,
@@ -2564,7 +2851,7 @@ async function startNativeFullscreenRecording(
       { voiceProcessing: false },
     );
     if (
-      wantsRecordedAudio &&
+      canTranscribeLocally &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
@@ -3098,10 +3385,11 @@ async function startNativeFullscreenRecording(
             ) {
               return { recordingId: id, viewUrl };
             }
-            await abortRecordingUpload(
+            await interruptRecordingUpload(
               params.serverUrl,
               id,
               err instanceof Error ? err.message : String(err),
+              params.authToken,
             );
             throw err;
           }
@@ -3387,6 +3675,8 @@ async function startRecordingInner(
   const wantsAudio = params.micOn;
   const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
+  const canTranscribeLocally =
+    shouldStartLocalRecordingTranscription(wantsAudio);
   const audioCue = createAudioCue();
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
@@ -4203,7 +4493,7 @@ async function startRecordingInner(
     // delaying capture, so the first ~1s the user expected to record was lost
     // (and the recording felt cut at the end). It's a separate capture from the
     // recorded audio tracks, so starting it slightly late is safe.
-    transcriptionCapture = wantsRecordedAudio
+    transcriptionCapture = canTranscribeLocally
       ? await startTranscriptionCapture(
           {
             deviceId: params.micId,
@@ -4228,7 +4518,7 @@ async function startRecordingInner(
       );
       void transcriptionCapture.pause().catch(() => {});
     } else if (
-      wantsRecordedAudio &&
+      canTranscribeLocally &&
       !transcriptionCapture &&
       shouldSaveLocalTranscriptionStartupFailure()
     ) {
@@ -4448,7 +4738,12 @@ async function startRecordingInner(
           await markBrowserRecordingBackupError(id, failed.message).catch(
             () => {},
           );
-          await abortRecordingUpload(params.serverUrl, id, failed.message);
+          await interruptRecordingUpload(
+            params.serverUrl,
+            id,
+            failed.message,
+            params.authToken,
+          );
         } finally {
           await clearRecordingState();
           await publishFinalizingResult({
@@ -4554,7 +4849,12 @@ async function startRecordingInner(
               await markBrowserRecordingBackupError(id, error.message).catch(
                 () => {},
               );
-              await abortRecordingUpload(params.serverUrl, id, error.message);
+              await interruptRecordingUpload(
+                params.serverUrl,
+                id,
+                error.message,
+                params.authToken,
+              );
               throw error;
             }
             await deleteBrowserRecordingBackup(id).catch((err) => {

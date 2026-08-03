@@ -3,7 +3,7 @@ import {
   localBuilderDesignSystemId,
   type BuilderDesignSystemIndexResult,
 } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
@@ -36,15 +36,19 @@ export async function upsertBuilderProxyDesignSystem({
     .select({
       id: schema.designSystems.id,
       ownerEmail: schema.designSystems.ownerEmail,
+      orgId: schema.designSystems.orgId,
     })
     .from(schema.designSystems)
     .where(eq(schema.designSystems.id, baseLocalDesignSystemId))
     .limit(1);
+  const existingBelongsToScope =
+    existing?.ownerEmail === ownerEmail &&
+    (existing?.orgId ?? null) === (orgId ?? null);
   const localDesignSystemId =
-    existing && existing.ownerEmail !== ownerEmail
+    existing && !existingBelongsToScope
       ? `${baseLocalDesignSystemId}-${nanoid(8)}`
       : baseLocalDesignSystemId;
-  if (existing && existing.ownerEmail === ownerEmail) {
+  if (existingBelongsToScope) {
     await db
       .update(schema.designSystems)
       .set({
@@ -60,7 +64,17 @@ export async function upsertBuilderProxyDesignSystem({
     const [ownedSystem] = await db
       .select({ id: schema.designSystems.id })
       .from(schema.designSystems)
-      .where(eq(schema.designSystems.ownerEmail, ownerEmail))
+      .where(
+        orgId
+          ? and(
+              eq(schema.designSystems.ownerEmail, ownerEmail),
+              eq(schema.designSystems.orgId, orgId),
+            )
+          : and(
+              eq(schema.designSystems.ownerEmail, ownerEmail),
+              isNull(schema.designSystems.orgId),
+            ),
+      )
       .limit(1);
     await db.insert(schema.designSystems).values({
       id: localDesignSystemId,
@@ -72,6 +86,7 @@ export async function upsertBuilderProxyDesignSystem({
       isDefault: !ownedSystem,
       ownerEmail,
       orgId: orgId ?? null,
+      visibility: orgId ? "org" : "private",
       createdAt: now,
       updatedAt: now,
     });

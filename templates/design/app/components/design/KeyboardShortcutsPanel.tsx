@@ -25,6 +25,7 @@ import {
 } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { isApplePlatform } from "@/hooks/useDesignHotkeys";
 
 interface KeyboardShortcutsPanelProps {
   onClose: () => void;
@@ -113,9 +114,10 @@ function KeycapGroup({
 
 function ShortcutBindings({ bindings }: { bindings: readonly string[] }) {
   const t = useT();
-  const applePlatform =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.platform);
+  // Shared with the hotkey matcher: navigator.platform alone is deprecated and
+  // blank in some browsers, which labelled Ctrl on Macs that the hotkey layer
+  // already treated as Apple.
+  const applePlatform = isApplePlatform();
   const accessibleBindings = bindings.map((binding) =>
     binding
       .split("+")

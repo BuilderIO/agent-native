@@ -207,6 +207,12 @@ function appendActionQueryParam(
     }
     return;
   }
+  if (typeof value === "object") {
+    // defineAction restores JSON strings when the schema expects an object.
+    // Preserve nested GET params instead of collapsing them to "[object Object]".
+    qs.append(key, JSON.stringify(value));
+    return;
+  }
   qs.append(key, String(value));
 }
 
@@ -749,7 +755,9 @@ export function useActionQuery<
 // ---------------------------------------------------------------------------
 
 /**
- * Mutate via an action exposed as POST (default), PUT, or DELETE.
+ * Mutate through the framework's frontend action transport. Mutations use
+ * POST by default and do not need to repeat the action's direct HTTP method.
+ * An explicit PUT or DELETE remains supported for compatibility.
  *
  * When the action type registry is generated, the return type and parameter
  * types are inferred automatically.

@@ -7,6 +7,12 @@ description: "Cron 調度提示代理自行執行 - 每日摘要、每週報告�
 
 **重複作業**是按 cron 計畫執行的提示。這就是代理自己做事的方式：“每天早上 7 點總結我隔夜收到的電子郵件”，“每週一將上週的註冊號碼發布到 Slack”，“每小時清理陳舊的草稿並將其刪除。”
 
+<Callout tone="info">
+
+**Recurring Jobs** 是 **Scheduled** 自動化的舊稱。**Automations** 是 **Scheduled** 和 **Event** 的總稱。`jobs/` 和 `manage-jobs` 為舊 schedule-only 整合保留。新的個人或組織工作（包括模型和 MCP 允許清單）請使用 `manage-automations` 和 `/agent#jobs` 中的 **Automations**。
+
+</Callout>
+
 重複性工作按時進行。要對*事件*（建立的預訂、收到的電子郵件）做出反應 - 相同的 `jobs/` 檔案格式加上條件 - 請參閱 [Automations](/docs/automations)。
 
 作業位於 `jobs/<name>.md` 的 [代理資源](/docs/agent-resources) 中 — 只是一個帶有 YAML frontmatter 的 Markdown 檔案。無需註冊，無需接線。將檔案放入，框架就會拾取它。
@@ -154,8 +160,7 @@ Summarize overnight emails.`,
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >共用執行器驗證身分並解析模型、MCP 允許清單、繼續執行、 傳遞和用量</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -216,7 +221,7 @@ Summarize overnight emails.`,
 | `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs`、`mcpTools` | 編輯現有作業                                      |
 | `delete` | `name`（必填）                                                              | 刪除作業 - 始終先與使用者確認                     |
 
-**個人與共用範圍。**每個作業都位於個人範圍（作為建立者執行且僅對建立者可見）或共用/組織範圍（代表建立者執行但對組織成員可見）。 `scope` 和 `runAs` 參數在建立時對此進行控制。組織管理員可以更新或刪除任何共用作業；非管理員成員只能管理自己的成員。
+**個人與共用範圍。**每個自動化都位於個人或組織範圍，並以建立者身分執行。管理員可以管理共用定義，但不能變更建立者身分。每次組織執行前，框架都會驗證建立者仍然存在且仍是組織成員。
 
 ## 與調度包不同 {#vs-scheduling-package}
 

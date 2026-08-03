@@ -96,6 +96,19 @@ Shared body.`,
         path: "jobs/other.md",
         content: "hidden",
       },
+      {
+        id: "other-org-legacy",
+        owner: "__shared__",
+        path: "jobs/other-org-legacy.md",
+        content: `---
+schedule: "0 10 * * *"
+enabled: true
+createdBy: bob@example.com
+orgId: org-2
+---
+
+Hidden legacy organization job.`,
+      },
     ]);
 
     const result = await listAutomationsForOwner(event, owner);
@@ -115,6 +128,62 @@ Shared body.`,
       event: "test.event.fired",
       canUpdate: false,
     });
+  });
+
+  it("lists and updates automations for the active organization only", async () => {
+    const organizationOwner = "__organization__:org-1";
+    const organizationResource = {
+      id: "organization",
+      owner: organizationOwner,
+      path: "jobs/organization.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: bob@example.com
+orgId: "org-1"
+runAs: creator
+---
+
+Organization body.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValue([
+      organizationResource,
+      {
+        id: "other-organization",
+        owner: "__organization__:org-2",
+        path: "jobs/other.md",
+        content: "hidden",
+      },
+    ]);
+    dbExecuteMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+
+    const result = await listAutomationsForOwner(event, owner);
+
+    expect(result.map((item) => item.name)).toEqual(["organization"]);
+    expect(result[0]).toMatchObject({
+      owner: organizationOwner,
+      canUpdate: true,
+      triggerType: "event",
+    });
+
+    resourceGetByPathMock.mockResolvedValue(organizationResource);
+    await setAutomationEnabledForOwner(event, owner, {
+      owner: organizationOwner,
+      path: "jobs/organization.md",
+      enabled: false,
+    });
+    expect(resourceGetByPathMock).toHaveBeenCalledWith(
+      organizationOwner,
+      "jobs/organization.md",
+    );
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      organizationOwner,
+      "jobs/organization.md",
+      expect.stringContaining("enabled: false"),
+    );
   });
 
   it("toggles a personal automation and refreshes event subscriptions", async () => {
@@ -148,6 +217,32 @@ Check the event.`,
     );
     expect(refreshEventSubscriptionsMock).toHaveBeenCalled();
     expect(result.enabled).toBe(false);
+  });
+
+  it("preserves a legacy scheduled job classification when toggled", async () => {
+    resourceGetByPathMock.mockResolvedValue({
+      id: "legacy",
+      owner,
+      path: "jobs/legacy.md",
+      content: `---
+schedule: "0 9 * * *"
+enabled: true
+model: "claude-sonnet-4-5"
+---
+
+Run the legacy job.`,
+    });
+
+    await setAutomationEnabledForOwner(event, owner, {
+      owner,
+      path: "jobs/legacy.md",
+      enabled: false,
+    });
+
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain("enabled: false");
+    expect(updatedContent).toContain('model: "claude-sonnet-4-5"');
+    expect(updatedContent).not.toContain("triggerType:");
   });
 
   it("rejects shared automation updates from non-creators who are not org admins", async () => {

@@ -26,6 +26,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
+import { FRAME_SIZE_PRESET_CATEGORIES } from "./inspector/frame-size-presets";
+
 /** Framer's default breakpoint widths, offered by the "+" affordance. */
 export const FRAMER_BREAKPOINT_PRESETS: ReadonlyArray<{
   labelKey: "desktop" | "tablet" | "phone";
@@ -43,6 +45,35 @@ export function availableBreakpointPresets(
   return FRAMER_BREAKPOINT_PRESETS.filter(
     (preset) => !existingWidths.includes(preset.widthPx),
   );
+}
+
+/**
+ * Device widths offered beyond the three Framer defaults, drawn from the frame
+ * tool's own preset catalog so both surfaces agree on what a "Tablet" is.
+ *
+ * Without these the "+" popover empties out as soon as Desktop/Tablet/Phone are
+ * added — `availableBreakpointPresets` filters by exact width — leaving a bare
+ * number input and no way to pick a real device size. Only width matters for a
+ * breakpoint, so widths are de-duplicated (many devices share one) and the
+ * first device at each width names it. Device names are untranslated product
+ * literals, matching frame-size-presets' documented policy.
+ */
+export function extraBreakpointWidthPresets(
+  existingWidths: readonly number[],
+): Array<{ name: string; widthPx: number }> {
+  const taken = new Set<number>(existingWidths);
+  FRAMER_BREAKPOINT_PRESETS.forEach((preset) => taken.add(preset.widthPx));
+  const seen = new Set<number>();
+  const out: Array<{ name: string; widthPx: number }> = [];
+  for (const category of FRAME_SIZE_PRESET_CATEGORIES) {
+    for (const preset of category.presets) {
+      if (taken.has(preset.width) || seen.has(preset.width)) continue;
+      if (preset.width < 320 || preset.width > 3840) continue;
+      seen.add(preset.width);
+      out.push({ name: preset.name, widthPx: preset.width });
+    }
+  }
+  return out.sort((a, b) => b.widthPx - a.widthPx);
 }
 
 /** Default English label for a preset/custom width (used for add-breakpoint). */
@@ -128,6 +159,7 @@ export function BreakpointDeviceControl({
   const ordered = [...breakpoints].sort((a, b) => b.widthPx - a.widthPx);
   const existingWidths = ordered.map((bp) => bp.widthPx);
   const presets = availableBreakpointPresets(existingWidths);
+  const devicePresets = extraBreakpointWidthPresets(existingWidths);
   const baseActive = activeWidthPx === undefined;
 
   const submitCustomWidth = () => {
@@ -323,7 +355,38 @@ export function BreakpointDeviceControl({
                   </span>
                 </button>
               ))}
-              {presets.length > 0 ? (
+              {devicePresets.length > 0 ? (
+                <>
+                  {presets.length > 0 ? (
+                    <div className="my-1 h-px bg-border" />
+                  ) : null}
+                  <div className="max-h-48 overflow-y-auto overscroll-contain">
+                    {devicePresets.map((preset) => (
+                      <button
+                        key={preset.widthPx}
+                        type="button"
+                        className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left !text-[12px] hover:bg-muted"
+                        onClick={() => {
+                          onAdd(
+                            preset.widthPx,
+                            breakpointLabelForWidth(preset.widthPx),
+                          );
+                          setAddOpen(false);
+                        }}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <DeviceIcon widthPx={preset.widthPx} />
+                          <span className="truncate">{preset.name}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground/60">
+                          {preset.widthPx}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {presets.length > 0 || devicePresets.length > 0 ? (
                 <div className="my-1 h-px bg-border" />
               ) : null}
               <form

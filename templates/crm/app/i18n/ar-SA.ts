@@ -61,6 +61,9 @@ const messages = {
     title: "إعدادات CRM",
     description:
       "يبقي SQL الأصلي سجلات CRM محلية وقابلة للنقل. يستخدم HubSpot وSalesforce اتصالات مساحة العمل؛ ولا تخزن مرايا هذه الاتصالات سوى الحقول المسموح بها وبيانات وصفية محدودة النطاق ومراجع أدلة محدودة.",
+    languageTitle: "اللغة",
+    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
+    languageLabel: "لغة الواجهة",
   },
   connection: {
     tab: "الاتصال",

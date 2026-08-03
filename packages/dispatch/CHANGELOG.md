@@ -1,5 +1,112 @@
 # @agent-native/dispatch
 
+## 0.16.6
+
+### Patch Changes
+
+- eecd3ad: Expose the measured agent failure taxonomy and let thread diagnostics separate interactive runs from scheduled `job-` runs.
+- eecd3ad: Add a read-only `read-slack-thread-context` action for Slack-linked issue triage. It resolves child permalinks to their parent thread, returns message attachments and related links, and reports incomplete pagination instead of silently treating a partial thread as complete.
+
+## 0.16.5
+
+### Patch Changes
+
+- Updated dependencies [89e5910]
+  - @agent-native/toolkit@0.12.1
+
+## 0.16.4
+
+### Patch Changes
+
+- 4f3a651: Harden delegated agent transport and provider selection, and support stable workspace-vault key rotation without changing app-local OAuth encryption.
+
+## 0.16.3
+
+### Patch Changes
+
+- c0e7d64: Add a cross-app failed-run inbox to Thread Debug so operators can find and
+  inspect recent agent failures without first copying a request ID.
+- c0e7d64: Make cross-app delegation ask the receiving specialist agent by default, keep
+  typed remote terminal states intact, retry idempotent transient transport
+  failures, prevent recursive agent cycles, and bound delegated context growth.
+  Proven durable-background delegated runs also keep the full bounded
+  continuation allowance while sharing one cumulative wall-clock deadline, so a
+  slow successful child task cannot strand its caller before the caller finishes
+  its own tool work. After a provider exhausts its short in-call 429/529 retry
+  budget, a proven background delegation now gets one cooled-down continuation,
+  with a hard cap that prevents sustained throttling from becoming a request
+  storm.
+
+  Receiving agents keep ownership of source selection, schema interpretation,
+  queries, joins, and their local tools. Direct read actions remain available for
+  exact bounded contracts, but are no longer advertised as a workaround for an
+  unreliable agent call.
+
+  Dispatch now opts into the same durable background run contract it emits at
+  deploy time, so delegated control-plane work is not cut off by the foreground
+  40-second budget while already running in the 15-minute worker.
+
+  Workspace vault ciphertext now prefers the workspace A2A-derived encryption
+  key over each app's independent auth secret. Existing app-auth-encrypted rows
+  remain readable by their owning app and are compare-and-swap migrated on read,
+  so sibling agents can reliably resolve the same organization credentials
+  without exposing or copying their values. Automatic engine selection also
+  pairs the chosen provider with that provider's credential instead of reusing
+  an unrelated active key.
+
+  Documentation now distinguishes framework Core, optional Toolkit, and optional
+  Templates, and makes source editing an explicit workspace/write-tool capability
+  rather than assuming every embedded agent has filesystem access.
+
+- Updated dependencies [c0e7d64]
+- Updated dependencies [c0e7d64]
+  - @agent-native/toolkit@0.12.0
+
+## 0.16.2
+
+### Patch Changes
+
+- Updated dependencies [cc35067]
+  - @agent-native/toolkit@0.11.2
+
+## 0.16.1
+
+### Patch Changes
+
+- 901769d: Make new workspace app creation clearly show Builder branch progress and a focused success handoff.
+- Updated dependencies [901769d]
+- Updated dependencies [901769d]
+  - @agent-native/toolkit@0.11.1
+
+## 0.16.0
+
+### Minor Changes
+
+- 24a5a20: Add secure Chrome extension pairing and an embedded Dispatch browser chat that
+  stages or submits canonical browser page context.
+
+### Patch Changes
+
+- 24a5a20: Keep scheduled automations classified correctly across scheduler writes, unify Jobs and Automations management, and give Scheduled and Event triggers one identity-checked execution lifecycle with organization scope and enforced MCP allowlists.
+- Updated dependencies [24a5a20]
+  - @agent-native/toolkit@0.11.0
+
+## 0.15.29
+
+### Patch Changes
+
+- 279e855: Return a typed forbidden response when non-admin organization members request workspace usage metrics.
+- Updated dependencies [279e855]
+  - @agent-native/toolkit@0.10.12
+
+## 0.15.28
+
+### Patch Changes
+
+- Updated dependencies [0aada94]
+- Updated dependencies [0aada94]
+  - @agent-native/toolkit@0.10.11
+
 ## 0.15.27
 
 ### Patch Changes

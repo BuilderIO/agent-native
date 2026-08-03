@@ -140,6 +140,22 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
+  // PostHog — product analytics, error tracking, and LLM analytics. One key
+  // arms all three; `POSTHOG_ERROR_TRACKING=false` opts out of exceptions
+  // while keeping analytics.
+  if (!getRequiredSecret("POSTHOG_API_KEY")) {
+    registerRequiredSecret({
+      key: "POSTHOG_API_KEY",
+      label: "PostHog project API key",
+      description:
+        "Sends product analytics, server exceptions, and LLM traces to PostHog. Set POSTHOG_HOST for self-hosted or EU projects.",
+      docsUrl: "https://posthog.com/docs/getting-started/install",
+      scope: "workspace",
+      kind: "api-key",
+      required: false,
+    });
+  }
+
   // Web-search tool backends — optional; the tool selects the first
   // configured manual key at call time, then falls back to Builder Connect.
   const webSearchKeys: Array<{

@@ -544,19 +544,24 @@ function opCanChangePanelSql(op: JsonOp): boolean {
 async function syncToCollab(
   dashboardId: string,
   config: Record<string, unknown>,
+  requestSource?: string,
 ): Promise<void> {
   const docId = `dash-${dashboardId}`;
   const configStr = JSON.stringify(config);
   try {
     const exists = await hasCollabState(docId);
     if (exists) {
-      await applyText(docId, configStr, "content", "agent");
+      await applyText(docId, configStr, "content", requestSource);
     } else {
       await seedFromText(docId, configStr);
     }
   } catch {
     // Collab sync is best-effort — the SQL write is the source of truth
   }
+}
+
+function isAgentCaller(caller: string | undefined): boolean {
+  return caller === "tool" || caller === "mcp" || caller === "a2a";
 }
 
 // Reads + writes now go through the SQL-backed dashboards store, which
@@ -614,7 +619,7 @@ export default defineAction({
       height: 680,
     }),
   },
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const dashboardId = resolveDashboardId(args);
     const modeCount = [args.ops, args.panelOrder, args.config].filter(
       (value) => value !== undefined,
@@ -638,7 +643,11 @@ export default defineAction({
       const sqlError = await validatePanelSql(args.config);
       if (sqlError) throw new Error(sqlError);
       await upsertDashboard(dashboardId, "sql", args.config, ctx);
-      await syncToCollab(dashboardId, args.config);
+      await syncToCollab(
+        dashboardId,
+        args.config,
+        isAgentCaller(actionContext?.caller) ? "agent" : undefined,
+      );
       const panelCount = countPanels(args.config);
       return dashboardResult(
         dashboardId,
@@ -667,7 +676,11 @@ export default defineAction({
         },
       );
       const root = saved.config as Record<string, unknown>;
-      await syncToCollab(dashboardId, root);
+      await syncToCollab(
+        dashboardId,
+        root,
+        isAgentCaller(actionContext?.caller) ? "agent" : undefined,
+      );
       return dashboardResult(
         dashboardId,
         root,
@@ -709,7 +722,11 @@ export default defineAction({
       },
     );
     const root = saved.config as Record<string, unknown>;
-    await syncToCollab(dashboardId, root);
+    await syncToCollab(
+      dashboardId,
+      root,
+      isAgentCaller(actionContext?.caller) ? "agent" : undefined,
+    );
 
     const panelCount = countPanels(root);
     return dashboardResult(

@@ -424,6 +424,18 @@ const ptBR = {
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",
     createYourOwn: "Começar do zero",
+    communityTitle: "Modelos da comunidade",
+    communityDescription:
+      "Aplicativos independentes mantidos por seus autores. Instale a partir de um repositório público do GitHub ou experimente uma versão hospedada quando disponível.",
+    submitCommunityTemplate: "Enviar seu modelo",
+    communityEmpty:
+      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent Native focado em um repositório público e envie-o para o catálogo.",
+    publishGuide: "Ler o guia de publicação",
+    communityTrust:
+      "Modelos da comunidade são código de terceiros. Revise o repositório, a licença, as dependências e os scripts de instalação antes de executá-lo.",
+    copyCommunityInstallCommand: "Copiar comando de instalação",
+    viewRepository: "Ver repositório",
+    tryCommunityDemo: "Experimentar demo",
   },
   buildFromScratch: {
     title: "Criar do zero",
@@ -1644,6 +1656,7 @@ const ptBR = {
     formsOverview: "Visão geral",
     formsBuildingPublishing: "Construção e publicação",
     formsResponses: "Respostas e insights",
+    docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },
 } satisfies typeof enUS;

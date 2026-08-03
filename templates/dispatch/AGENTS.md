@@ -54,11 +54,23 @@ ladder.
   Hosted production sources appear only when Dispatch has their
   <APP>_DATABASE_URL connection variables (or an equivalent
   AGENT_NATIVE_THREAD_DEBUG_DATABASES configuration).
+- For reliability triage, call `list-agent-run-failures` first, then inspect a
+  returned run with `get-agent-thread-debug` using the same source id. Do not
+  infer run failure from thread text search. Cross-app results may be partial;
+  preserve the returned per-source health instead of treating an unavailable
+  source as zero failures.
+- For a Slack-linked issue, call `read-slack-thread-context` with the exact
+  permalink before diagnosing it. It resolves child links to the parent thread,
+  preserves attachments and related URLs, and reports whether pagination is
+  complete. Never treat an unreadable Slack thread as an empty one.
 
 ## Application State
 
 - `navigation` exposes current Dispatch view, selected integration/resource,
   approval, route, or settings panel.
+- On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
+  `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
+  and `threadId` expose the visible failure or thread filters and selection.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
 

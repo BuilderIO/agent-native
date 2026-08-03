@@ -14,12 +14,17 @@ import {
   _resetAgentChatContextForTests,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
+import { invalidateClientStatusRequests } from "./client-status-requests.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
 import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
 import type { ChatThreadSummary } from "./use-chat-threads.js";
+
+afterEach(() => {
+  invalidateClientStatusRequests();
+});
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -150,6 +155,7 @@ vi.mock("./use-action.js", () => actionMocks);
 
 /** Serve the three requests refreshEngines makes so the catalog is non-empty. */
 function stubCatalog(engines: unknown[], configuredKeys: string[]) {
+  invalidateClientStatusRequests();
   actionMocks.callAction.mockResolvedValue({ engines } as never);
   vi.stubGlobal(
     "fetch",
@@ -189,6 +195,10 @@ async function mountWithCatalog(engines: unknown[], configuredKeys: string[]) {
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-selected-engine") ?? null,
+    catalogOf: () =>
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-catalog") ?? null,
     async cleanup() {
       await act(async () => localRoot.unmount());
       el.remove();
@@ -211,6 +221,7 @@ vi.mock("./AssistantChat.js", async () => {
         selectedModel?: string;
         selectedEngine?: string;
         selectedEffort?: string;
+        availableModels?: Array<{ engine: string; configured: boolean }>;
       };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -230,6 +241,9 @@ vi.mock("./AssistantChat.js", async () => {
           data-selected-model={props.selectedModel}
           data-selected-engine={props.selectedEngine}
           data-reasoning-effort={props.selectedEffort}
+          data-model-catalog={props.availableModels
+            ?.map((group) => `${group.engine}:${group.configured}`)
+            .join(",")}
         >
           {props.emptyStateAddon}
           {props.composerSlot}
@@ -256,6 +270,8 @@ function resetThreadMocks() {
   threadMocks.createThread.mockImplementation(
     async (requestedId?: string) => requestedId ?? "thread-2",
   );
+  threadMocks.isNewThread.mockReset();
+  threadMocks.isNewThread.mockReturnValue(false);
   threadMocks.pinThread.mockReset();
   threadMocks.pinThread.mockImplementation(async () => true);
   threadMocks.renameThread.mockReset();
@@ -393,6 +409,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
+  it("keeps the last model readiness when status refresh is unavailable", async () => {
+    const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
+      "ANTHROPIC_API_KEY",
+    ]);
+    const initialCatalog = view.catalogOf();
+    expect(initialCatalog).toContain("anthropic:true");
+    expect(initialCatalog).toContain("ai-sdk:openai:false");
+
+    invalidateClientStatusRequests();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new Error("down"))),
+    );
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(view.catalogOf()).toBe(initialCatalog);
+    await view.cleanup();
+  });
+
   // claude-sonnet-5 is also advertised under anthropic, so a model-only match
   // would bill this turn to Anthropic directly instead of the gateway.
   it("honors a submitted engine the catalog offers but does not pair with the model", async () => {
@@ -521,6 +560,82 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       undefined,
       { requestMode: "plan" },
     );
+  });
+
+  it("reuses a known-new empty active chat for opted-in foreground sends", () => {
+    threadMocks.isNewThread.mockReturnValue(true);
+    const targetEvents: Event[] = [];
+    const onTarget = (event: Event) => targetEvents.push(event);
+    window.addEventListener("agentNative.chatSubmitTarget", onTarget);
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create a presentation",
+        submit: true,
+        newTab: true,
+        reuseEmptyTab: true,
+        tabId: "unused-new-thread",
+        submitMessageId: "submit-reused",
+      });
+    });
+
+    expect(threadMocks.createThread).not.toHaveBeenCalled();
+    expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
+      "Create a presentation",
+      undefined,
+      { submitMessageId: "submit-reused" },
+    );
+    expect((targetEvents[0] as CustomEvent).detail).toEqual({
+      submitMessageId: "submit-reused",
+      tabId: "thread-1",
+    });
+    window.removeEventListener("agentNative.chatSubmitTarget", onTarget);
+  });
+
+  it("creates a foreground tab when the active chat has messages", async () => {
+    threadMocks.isNewThread.mockReturnValue(true);
+    chatHandleMocks.exportThreadSnapshot.mockReturnValueOnce({
+      threadData: "{}",
+      title: "Existing chat",
+      preview: "Existing request",
+      messageCount: 1,
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create another presentation",
+        submit: true,
+        newTab: true,
+        reuseEmptyTab: true,
+        tabId: "thread-foreground",
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledWith("thread-foreground");
+  });
+
+  it("does not reuse a restoring chat that only appears empty", async () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create a presentation",
+        submit: true,
+        newTab: true,
+        reuseEmptyTab: true,
+        tabId: "thread-restoring",
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledWith("thread-restoring");
   });
 
   it("starts background new-tab sends without focusing the new tab", async () => {

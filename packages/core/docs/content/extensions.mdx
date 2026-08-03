@@ -1,11 +1,18 @@
 ---
 title: "Extensions"
-description: "Mini-apps your users build inside your template — a custom KPI tile in Analytics, a meeting-prep checklist in Calendar, a contact CRM widget in Mail. No deploys, no code edits, no schema changes."
+description: "An optional toolkit capability for one-off, sandboxed custom blocks. App code remains the default for durable product behavior."
 ---
 
 # Extensions
 
-Extensions are **mini-apps your users build inside your template**.
+Extensions are an **optional toolkit capability for sandboxed custom blocks**.
+They are disabled by default. A template must opt in before its agent can create
+or manage them; Analytics uses this capability for explicitly requested,
+one-off custom visualizations.
+
+For durable behavior, edit the app code. A custom block is an agent-authored
+patch: useful when speed and local specificity matter, but not the default way
+to add a reusable product feature.
 
 When the agent needs a one-time interactive answer inside the chat itself, use
 [Generative UI](/docs/generative-ui) instead. Generative UI uses the same
@@ -23,9 +30,11 @@ The framing matters: an extension isn't a generic "do whatever you want" sandbox
 its own page or inside a named [slot](#slots) exposed by the template. It
 cannot inject elements into arbitrary native components — for example, beside
 every attendee in Calendar — unless the template exposes a slot there. For
-deeper customization, ask the agent to edit the template's source code. Full
-code customization is a core Agent Native capability; extensions are the
-fast, no-deploy layer.
+deeper customization, change the template in your own repository and
+development workflow. An embedded, development, or Builder frame may assist
+when it is intentionally granted workspace and write tooling; otherwise the
+embedded app agent works through app tools. Extensions remain the fast,
+no-deploy layer for runtime customization.
 
 </Callout>
 
@@ -37,10 +46,12 @@ Three things make extensions work:
 - **Full access to the template's data.** Extensions can call the same actions the agent calls — `list-emails` in Mail, `list-decks` in Slides, `list-recordings` in Clips — so they have everything the host app has.
 - **Built-in storage.** Each extension has its own per-user / per-org key-value store, so it can save state without you adding a new SQL table.
 
-If a template should not expose user-authored extensions, set
-`extensionTools: false` on `createAgentChatPlugin()`. That removes the
-agent-facing extension actions and prompt guidance while leaving the rest of the
-app agent intact.
+Extensions are disabled by default. To expose user-authored extensions, set
+`extensionTools: true` on both `createAgentChatPlugin()` and
+`createCoreRoutesPlugin()`. The first adds the agent-facing actions and prompt
+guidance; the second permits authenticated creation through
+`POST /_agent-native/extensions`. The sandbox runtime and existing read, edit,
+and deep-link routes remain available for compatibility either way.
 
 <Diagram id="doc-block-l8xkep" title="The sandbox bridge" summary={"Extension HTML runs in an isolated iframe and reaches the host only through a fixed set of bridge helpers — every call is scoped and access-checked."}>
 
@@ -643,39 +654,34 @@ Extensions are private to the user who created them by default. To share:
 
 Shared extensions have their own URLs and plug into the same share dialog as documents, decks, and dashboards. Slot installs are always personal — sharing an extension means others _can_ install it; it doesn't auto-pin it to their UI.
 
-## Should I use an extension or edit the app code? {#vs-app-code}
+## Should I use an extension or the app source workflow? {#vs-app-code}
 
-The framework lets the agent edit the app's source code directly — components,
-routes, styles, and business logic. Use this question when either path could
-solve the request:
+Use this question when either path could solve the request:
 
-- **Start with an extension** for a self-contained, relatively one-off widget:
-  a custom visualization or interaction, a dashboard tile, a standalone
-  utility, or an add-on in an existing slot. It is fast, requires no source
-  change, build, or deploy, and can be private or shared.
-- **Use app code** for a core feature of the template, a change to native UI,
-  layout, routes, or business logic, or anything that should be reused broadly
-  across dashboards or users. If the host has no suitable slot or the request
-  needs a new slot, use code.
-- **Promote repeated extensions.** If people keep rebuilding the same
-  extension, or maintaining copies in many places would be worse than one
-  shared implementation, move it into app code as a reusable native feature.
+- **Use the source workflow** for product behavior, native UI, layout, routes,
+  business logic, or anything that should be reused across dashboards or users.
+- **Use a custom block only when the app opts in** and the user explicitly wants
+  a bespoke, one-off visualization or interaction in an existing extension
+  surface. It is fast and requires no build or deploy, but remains a sandboxed
+  agent-authored patch.
+- **Promote durable custom blocks.** If a block becomes useful beyond its
+  original one-off context, use **Promote to app code** to hand it to the normal
+  source-change workflow. Keep the original block in place until the code
+  change is reviewed and deployed.
 
-|                       | Extension                                         | App code edit                        |
-| --------------------- | ------------------------------------------------- | ------------------------------------ |
-| **Created by**        | Agent (or user) at runtime                        | Agent editing source files           |
-| **Stored in**         | The database                                      | The git repository                   |
-| **Requires a build**  | No                                                | Yes                                  |
-| **Requires a deploy** | No                                                | Yes                                  |
-| **Scope**             | One user (or shared with org)                     | The entire product, every user       |
-| **Best for**          | Personal widgets, custom KPIs, per-team utilities | Core features that ship to all users |
+|                       | Extension                      | App source workflow                      |
+| --------------------- | ------------------------------ | ---------------------------------------- |
+| **Created by**        | Agent (or user) at runtime     | User or intentionally code-enabled agent |
+| **Stored in**         | The database                   | The git repository                       |
+| **Requires a build**  | No                             | Yes                                      |
+| **Requires a deploy** | No                             | Yes                                      |
+| **Scope**             | One user (or shared with org)  | The entire product, every user           |
+| **Best for**          | Explicit one-off custom blocks | Durable product behavior                 |
 
-Rule of thumb: **if an extension can solve the problem, generally start there.**
-Use code when the extension boundary does not fit or when broad reuse and
-product-wide availability justify a native implementation. For example, a
-one-off custom visualization on a dashboard is a good extension; a new pie,
-multi-bar, or line chart type that should be available across dashboards
-belongs in the template code.
+Rule of thumb: **use an extension for runtime customization.** In an app that explicitly enables
+extensions, a one-off custom visualization on a dashboard can be a Custom
+Block; a new pie, multi-bar, or line chart type that should be available across
+dashboards belongs in the template source and normal development workflow.
 
 If what you actually need is a cached, refreshable data source for an existing chart or table — not a new interactive widget — see [Data Programs](/docs/data-programs) instead; it shares this page's sandbox and security posture but has no UI of its own.
 

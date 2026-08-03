@@ -38,6 +38,13 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       isError?: boolean;
+      /**
+       * Set when the stream ended while this tool was still in flight. We know
+       * it started and NOT whether its side effect landed, so it is deliberately
+       * separate from `isError` — an email that WAS delivered must never render
+       * as a failure just because the transport dropped before `tool_done`.
+       */
+      outcome?: "unknown";
       completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
@@ -140,18 +147,6 @@ export const INTERRUPTED_ACTIVITY_RESULT =
   "Stopped before this action started.";
 
 /**
- * True for the sentinels `settleInterruptedToolCalls` writes. These are not
- * results: the tool may have run to completion, may have half-run, or may never
- * have started, and the transcript must say so instead of rendering the card
- * like a clean success.
- */
-export function isUnknownToolOutcome(result: string | undefined): boolean {
-  return (
-    result === INTERRUPTED_TOOL_RESULT || result === INTERRUPTED_ACTIVITY_RESULT
-  );
-}
-
-/**
  * Maximum number of assistant-ui repository updates we deliver in one browser
  * event-loop turn. Durable-run replay can put hundreds of SSE frames into the
  * stream queue before the client attaches; draining all of them through
@@ -181,7 +176,10 @@ export function settleInterruptedToolCalls(
         part.activity === true
           ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
           : result;
-      part.isError = true;
+      // Interrupted is not failed: the side effect may well have landed. Never
+      // set `isError` here — that is reserved for a result the server told us
+      // failed.
+      part.outcome = "unknown";
       part.completedAt ??= Date.now();
       changed = true;
     }
@@ -250,7 +248,12 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
   if (ev.type === "tool_done") return -1;
   if (ev.type === "agent_call") {
     if (ev.status === "start") return 1;
-    if (ev.status === "done" || ev.status === "error") return -1;
+    if (
+      ev.status === "done" ||
+      ev.status === "pending" ||
+      ev.status === "error"
+    )
+      return -1;
   }
   return 0;
 }
@@ -1134,7 +1137,8 @@ function completedToolNamesAfterLastAssistantText(
       part.type === "tool-call" &&
       part.activity !== true &&
       part.result !== undefined &&
-      part.isError !== true
+      part.isError !== true &&
+      part.outcome !== "unknown"
     ) {
       names.add(part.toolName);
     }
@@ -1158,7 +1162,8 @@ function hasCompletedCustomUi(content: ContentPart[]): boolean {
       part?.type !== "tool-call" ||
       part.activity === true ||
       part.result === undefined ||
-      part.isError === true
+      part.isError === true ||
+      part.outcome === "unknown"
     ) {
       continue;
     }
@@ -1568,7 +1573,11 @@ export function processEvent(
         args: {},
         activity: true,
       });
-    } else if (ev.status === "done" || ev.status === "error") {
+    } else if (
+      ev.status === "done" ||
+      ev.status === "pending" ||
+      ev.status === "error"
+    ) {
       for (let i = content.length - 1; i >= 0; i--) {
         const part = content[i];
         if (
@@ -1577,7 +1586,12 @@ export function processEvent(
           (!ev.agentCallId || part.toolCallId === ev.agentCallId) &&
           part.result === undefined
         ) {
-          part.result = ev.status === "error" ? "Error calling agent" : "Done";
+          part.result =
+            ev.status === "error"
+              ? "Error calling agent"
+              : ev.status === "pending"
+                ? "Remote agent task is still pending"
+                : "Done";
           part.structuredMeta = {
             ...part.structuredMeta,
             ...(ev.durationMs != null

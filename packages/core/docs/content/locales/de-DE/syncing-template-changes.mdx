@@ -11,6 +11,8 @@ description: "agent-native template zieht spätere Upstream-Änderungen an Ersta
 
 `agent-native template` ist die fehlende Hälfte. Es ruft die Vorlage erneut in einer neueren Version ab, wendet exakt die Transformationen erneut an, die `create` angewendet hat, und führt das Ergebnis Datei für Datei in Ihre App zusammen.
 
+Community-Vorlagen sind absichtlich nicht Teil dieses Sync-Ablaufs. Ihre `agent-native.communityTemplate`-Metadaten zeichnen nur die installierte Quelle auf; `agent-native template sync` lädt keine Änderungen aus diesem Repository. Installiere für einen stabilen Ausgangspunkt eine feste Revision und übertrage spätere Änderungen nach Prüfung manuell.
+
 ## Schnellstart {#quick-start}
 
 ```bash

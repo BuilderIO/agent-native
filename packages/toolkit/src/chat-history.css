@@ -168,8 +168,8 @@
 }
 
 .an-chat-history-rail__new-chat {
-  flex: 0 0 auto;
-  margin-inline-end: auto;
+  justify-content: flex-start;
+  flex: 1 1 auto;
   gap: 8px;
   height: auto;
   min-width: 0;

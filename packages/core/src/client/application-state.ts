@@ -93,19 +93,117 @@ function jsonBody(value: unknown): string {
   return body;
 }
 
+/**
+ * Result of a batched read. `values` holds only the keys the server has a row
+ * for; every other requested key is in `missing`. A key stored with a `null`
+ * value lands in `values` with `null` and NOT in `missing` — that is how
+ * "never written" stays distinguishable from "written as null/empty".
+ */
+export interface ClientAppStateBatch {
+  values: Record<string, unknown>;
+  missing: string[];
+}
+
+/** Server caps a batch at 100 keys; stay under it when splitting. */
+const MAX_BATCH_KEYS = 100;
+
+export async function readClientAppStateMany(
+  keys: readonly string[],
+  options: ClientAppStateReadOptions = {},
+): Promise<ClientAppStateBatch> {
+  const unique = [...new Set(keys)];
+  for (const key of unique) appStateUrl(key); // validates the key shape
+  if (unique.length === 0) return { values: {}, missing: [] };
+
+  const merged: ClientAppStateBatch = { values: {}, missing: [] };
+  for (let i = 0; i < unique.length; i += MAX_BATCH_KEYS) {
+    const chunk = unique.slice(i, i + MAX_BATCH_KEYS);
+    const url = `${agentNativePath("/_agent-native/application-state")}?keys=${chunk
+      .map(encodeURIComponent)
+      .join(",")}`;
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      signal: options.signal,
+    });
+    const batch = await parseAppStateResponse<ClientAppStateBatch | null>(
+      response,
+      `Read application state [${chunk.join(", ")}]`,
+    );
+    if (!batch || typeof batch !== "object" || !batch.values) {
+      throw new Error(
+        `Read application state [${chunk.join(", ")}] returned an unexpected payload.`,
+      );
+    }
+    Object.assign(merged.values, batch.values);
+    merged.missing.push(...(batch.missing ?? []));
+  }
+  return merged;
+}
+
+// Reads issued in the same tick are coalesced into one batched request. Every
+// mounted composer, question card and suggestion hook reads its own key on
+// mount, which used to be one HTTP request (and one full identity resolution)
+// each — ~55 on an analytics dashboard load.
+let pendingBatch:
+  | { keys: Set<string>; promise: Promise<ClientAppStateBatch> }
+  | undefined;
+
+function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
+  if (pendingBatch) {
+    pendingBatch.keys.add(key);
+    return pendingBatch.promise;
+  }
+  const keys = new Set([key]);
+  const promise = new Promise<ClientAppStateBatch>((resolve, reject) => {
+    setTimeout(() => {
+      pendingBatch = undefined;
+      readClientAppStateMany([...keys]).then(resolve, reject);
+    }, 0);
+  });
+  pendingBatch = { keys, promise };
+  return promise;
+}
+
+function awaitWithAbort<T>(
+  promise: Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (!signal) return promise;
+  const abortReason = () =>
+    signal.reason ?? new Error("The operation was aborted");
+  if (signal.aborted) return Promise.reject(abortReason());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(abortReason());
+    };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        if (signal.aborted) reject(abortReason());
+        else resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function readClientAppState<T = unknown>(
   key: string,
   options: ClientAppStateReadOptions = {},
 ): Promise<T | null> {
-  const response = await fetch(appStateUrl(key), {
-    method: "GET",
-    cache: "no-store",
-    signal: options.signal,
-  });
-  return parseAppStateResponse<T | null>(
-    response,
-    `Read application state "${key}"`,
-  );
+  appStateUrl(key); // validates the key shape before it joins a batch
+  if (options.signal?.aborted) {
+    throw options.signal.reason ?? new Error("Aborted");
+  }
+  const batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+  return (batch.values[key] ?? null) as T | null;
 }
 
 export async function writeClientAppState<T = unknown>(
@@ -129,9 +227,14 @@ export async function deleteClientAppState(
 ): Promise<void> {
   const response = await fetch(appStateUrl(key), {
     method: "DELETE",
-    headers: options.requestSource
-      ? { "X-Request-Source": options.requestSource }
-      : undefined,
+    // DELETE carries no JSON body, so this custom header is the only
+    // same-origin marker the CSRF check can see from an embedded frame.
+    headers: {
+      "X-Agent-Native-CSRF": "1",
+      ...(options.requestSource
+        ? { "X-Request-Source": options.requestSource }
+        : {}),
+    },
     keepalive: options.keepalive,
     signal: options.signal,
   });

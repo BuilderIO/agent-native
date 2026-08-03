@@ -1,15 +1,26 @@
 ---
-title: "Operating the workspace: jobs, Dreams, and the operator console"
-description: "Recurring jobs, the Dreams memory review loop, the /operations console's Monitoring and Database tabs, and where to look for thread history, change history, and usage."
+title: "Operating the workspace: automations, Dreams, and the operator console"
+description: "Scheduled automations, the Dreams memory review loop, the /operations console's Monitoring and Database tabs, and where to look for thread history, change history, and usage."
 ---
 
-# Operating the workspace: jobs, Dreams, and the operator console
+# Operating the workspace: automations, Dreams, and the operator console
 
-Once Dispatch is coordinating a workspace, this is where you keep it healthy day to day: recurring jobs, the Dreams review loop that watches how agents are actually doing, and the operator console for monitoring, database admin, thread debugging, audit history, and usage. It's for whoever runs the workspace.
+Once Dispatch is coordinating a workspace, this is where you keep it healthy day to day: scheduled automations, the Dreams review loop that watches how agents are actually doing, and the operator console for monitoring, database admin, thread debugging, audit history, and usage. It's for whoever runs the workspace.
 
-## Scheduled jobs hub {#jobs}
+## Automations hub {#jobs}
 
-Cross-app [recurring jobs](/docs/recurring-jobs) live here: "every weekday at 7, pull yesterday's key metrics from analytics and draft a morning summary email." The **Automations** page shows enabled state, last run, next run, and last error for every job, sourced from the underlying `jobs/*.md` schedules, and lets you enable or disable a job without editing files by hand. A failed job's row links straight to **Troubleshoot in Thread Debug**. To create one, describe what you want automated in the composer — personal or organization scope — and the agent turns it into a job with `manage-automations`.
+Cross-app scheduled automations live here: "every weekday at 7, pull
+yesterday's key metrics from analytics and draft a morning summary email." The
+**Automations** page shows enabled state, last run, next run, and last error,
+sourced from the underlying `jobs/*.md` resources, and lets you enable or
+disable scheduled work without editing files by hand. A failed row links
+straight to **Troubleshoot in Thread Debug**.
+
+Describe new scheduled work in the composer and the agent creates it. Personal
+automations use the trigger-aware `manage-automations` workflow. Existing
+organization-scoped schedules remain legacy recurring jobs managed through
+`manage-jobs`; event-triggered and trigger-aware automations do not support
+organization scope today.
 
 ## Dreams {#dreams}
 
@@ -156,5 +167,6 @@ Use these for concrete thread, change-history, and usage investigations instead 
 - [**Dispatch**](/docs/template-dispatch) — the workspace control plane overview
 - [**Secrets, integrations, and workspace connections**](/docs/template-dispatch-vault-integrations) — the vault and provider integrations
 - [**Messaging, routing, and approvals**](/docs/template-dispatch-messaging-routing) — channels and the approval queue
-- [**Recurring Jobs**](/docs/recurring-jobs) — scheduled tasks Dispatch runs
+- [**Automations**](/docs/automations) — scheduled and event-triggered tasks
+- [**Recurring Jobs**](/docs/recurring-jobs) — legacy scheduled-job compatibility and organization scope
 - [**Observability**](/docs/observability) — the dashboard the Monitoring tab reuses

@@ -1,0 +1,118 @@
+import { defineAction } from "@agent-native/core/action";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb } from "../server/db/index.js";
+import { triageConfig, triageItems } from "../server/db/schema.js";
+import {
+  requireWorkspaceMember,
+  workspaceMemberIdentityFromContext,
+} from "../server/lib/require-workspace-member.js";
+import { itemDedupeKey } from "../server/triage/ids.js";
+import { pollSlackChannel } from "../server/triage/slack-poller.js";
+
+export default defineAction({
+  description:
+    "Poll the configured Slack channel and append new messages to the Factory queue. This action only observes and never posts, replies, starts work, or changes a provider.",
+  schema: z.object({
+    channelId: z.string().trim().min(1).max(128).optional(),
+  }),
+  http: { method: "POST" },
+  run: async ({ channelId: requestedChannelId }, context) => {
+    const { userEmail, orgId } = await requireWorkspaceMember(
+      workspaceMemberIdentityFromContext(context),
+    );
+    const db = getDb();
+    const config = (
+      await db
+        .select()
+        .from(triageConfig)
+        .where(eq(triageConfig.id, orgId))
+        .limit(1)
+    )[0];
+    const channelId = requestedChannelId ?? config?.slackChannelId;
+    if (!channelId) {
+      throw new Error("Configure a Slack channel before polling.");
+    }
+
+    const result = await pollSlackChannel({
+      workspace:
+        config?.slackWorkspace === "secondary" ? "secondary" : "primary",
+      channelId,
+      priorLastSlackTs: config?.lastSlackTs ?? "0",
+      historyCursor: config?.slackHistoryCursor,
+      ownerEmail: userEmail,
+      orgId,
+    });
+    const now = new Date().toISOString();
+
+    await db.transaction(async (tx) => {
+      for (const envelope of result.envelopes) {
+        const id = itemDedupeKey(envelope, orgId);
+        await tx
+          .insert(triageItems)
+          .values({
+            id,
+            source: envelope.source,
+            externalId: envelope.externalId,
+            sourceUrl: envelope.sourceUrl ?? null,
+            title: envelope.title,
+            summary: envelope.summary ?? null,
+            status: "received",
+            risk: "unknown",
+            channelId: envelope.channelId ?? null,
+            threadTs: envelope.threadTs ?? null,
+            repository: envelope.repository ?? null,
+            pullRequestNumber: envelope.pullRequestNumber ?? null,
+            headSha: envelope.headSha ?? null,
+            coverage: envelope.coverage,
+            dedupeKey: id,
+            metadataJson: JSON.stringify(envelope.metadata ?? {}),
+            lastSeenAt: now,
+            createdAt: now,
+            updatedAt: now,
+            ownerEmail: userEmail,
+            orgId,
+          })
+          .onConflictDoUpdate({
+            target: triageItems.id,
+            set: {
+              sourceUrl: envelope.sourceUrl ?? null,
+              title: envelope.title,
+              summary: envelope.summary ?? null,
+              channelId: envelope.channelId ?? null,
+              threadTs: envelope.threadTs ?? null,
+              coverage: envelope.coverage,
+              metadataJson: JSON.stringify(envelope.metadata ?? {}),
+              lastSeenAt: now,
+              updatedAt: now,
+            },
+          });
+      }
+
+      if (config) {
+        await tx
+          .update(triageConfig)
+          .set({
+            lastSlackTs: result.nextLastSlackTs,
+            slackHistoryCursor: result.nextHistoryCursor,
+            updatedAt: now,
+          })
+          .where(
+            and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)),
+          );
+      }
+    });
+
+    return {
+      ok: true,
+      source: "slack",
+      channelId,
+      observed: result.envelopes.length,
+      hasMore: result.hasMore,
+      nextLastSlackTs: result.nextLastSlackTs,
+      nextHistoryCursor: result.nextHistoryCursor,
+      coverage: result.hasMore ? "partial" : "complete",
+    };
+  },
+});

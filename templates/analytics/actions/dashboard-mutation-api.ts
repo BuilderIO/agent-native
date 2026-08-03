@@ -49,7 +49,7 @@ type PanelPatch = {
   title?: string;
   sql?: string;
   source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout" | "extension";
+  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "funnel" | "section" | "heatmap" | "callout" | "extension";
   width?: number;
   columns?: number;
   tab?: string;

@@ -33,6 +33,106 @@ description: "從一個可用的 SaaS 產品開始，將它變成您的產品 - 
 
 檢視 [Apps](/apps) 下的完整目錄，或直接跳到其中一個 - 例如，如果您想要一款工作區風格的應用，[Dispatch](/docs/template-dispatch) 是一個很好的起點。
 
+## 社群模板 {#community-templates}
+
+CLI 選擇器中按名稱提供的模板是**第一方模板**：Agent Native 會隨框架一起
+維護、測試、記錄和發佈它們。**社群模板**由其儲存庫擁有者負責維護和版本
+管理。它可以使用相同的框架能力，但進入社群清單並不表示 Agent Native 對其
+背書或承諾提供支援。
+
+執行 `create`，選擇**社群模板**，然後貼上公開 GitHub 儲存庫的簡單 URL：
+
+```bash
+https://github.com/owner/repo
+```
+
+如果儲存庫根目錄是單一 Agent Native 應用程式，CLI 會直接安裝，不再顯示
+其他選擇器。如果儲存庫是 Agent Native 工作區，CLI 會發現 `apps/*` 的有效
+直接子項，排除 `dispatch`，並詢問要安裝哪個應用程式。
+
+非空的 `agent-native.workspaceCore` 標記會使儲存庫被視為工作區，即使根
+package 也相依於 `@agent-native/core`；格式錯誤的標記會被拒絕。
+
+在指令碼中，將相同的簡單 URL 傳給 `--template`，或使用較短的
+`community:` 形式。如果需要可重現的起點，請在 `#` 後固定 branch、tag
+或 commit。如果未提供 ref，CLI 會先嘗試 `main`，再嘗試 `master`：
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+若要以非互動方式選擇工作區儲存庫中的來源應用程式，請使用
+`?app=<app-name>`。選擇器位於選用的 `#ref` 之前。請為整個值加上引號，
+因為 zsh 等 shell 會將 `?` 視為 glob：
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+在工作區外，`create` 會將所選來源應用程式建立為獨立應用程式。若要將其
+新增到現有工作區，請明確傳入社群儲存庫，因為 `add-app` 選擇器只列出
+第一方模板。省略 `?app` 可從來源工作區進行互動式選擇；包含它則可用於
+指令碼化安裝：
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+只接受公開 GitHub 儲存庫。不支援私人儲存庫、非 GitHub 主機、GitHub tree
+或子目錄 URL，以及巢狀應用程式路徑。根應用程式必須包含可讀取的
+`package.json`，其中在 `dependencies`、`devDependencies` 或
+`peerDependencies` 中列出 `@agent-native/core`。在工作區儲存庫中，每個
+可選擇的來源應用程式都必須直接位於 `apps/<app-name>/` 並滿足相同要求；
+`dispatch` 永遠不可選擇。
+
+社群工作區應用程式必須是可攜式的獨立單元，而不是 monorepo 的任意切片：
+
+- 預設 `catalog:` 相依性參照會從來源儲存庫根目錄的
+  `pnpm-workspace.yaml` 解析；不支援具名 catalog 參照；
+- 對 `@agent-native/core`、`@agent-native/dispatch` 和
+  `@agent-native/toolkit` 的 `workspace:*` 參照會改寫為已發佈版本。其他
+  同層工作區 package 不會被複製；請發佈它們並使用具體版本；
+- 來源 `workspaceCore` 相依性會被移除。繼承的標準工作區 auth 和
+  agent-chat plugin 會在獨立安裝時解除綁定，或重新綁定到目標工作區。對
+  來源 `workspaceCore` package 的任何其他 import 都會明確失敗；請將該
+  程式碼移入應用程式，或將其發佈為具體相依性。
+
+每個完整應用程式的其餘內容都應與其 `package.json` 放在一起，包括使用時
+的 `agent-native.json`、原始碼、actions、代理程式指示和資料庫設定。準備
+列入目錄的儲存庫還應包括：
+
+- 授權以及維護者或支援連結；
+- 包含設定步驟、必要環境變數和準確 CLI 命令的 README；
+- 只包含預留位置的 `.env.example`，不得包含 secrets、客戶資料、執行階段
+  資料庫或產生的建置輸出；
+- 可正常運作的安裝和開發命令、typecheck，以及適合該模板的測試。
+
+安裝程式會將解析後的 `source` 和 `ref` 記錄在已安裝應用程式的
+`package.json` 中的 `agent-native.communityTemplate` 下。從工作區儲存庫
+選擇的應用程式還會將來源應用程式記錄為
+`agent-native.communityTemplate.app`。`agent-native template sync` 仍然
+只適用於第一方模板；更新社群模板時，請檢查較新的 upstream ref 並自行合併
+其變更。
+
+有關應用程式、action、state、安全性和發佈的完整檢查清單，請參閱
+[Creating Templates](/docs/creating-templates)。
+
+> **安裝相依項目或執行社群程式碼之前，請先進行審查。** 社群模板從第三方
+> 儲存庫下載；Agent Native 不會對其進行 sandbox、稽核或維護。CLI 只下載
+> 原始碼，不會安裝相依項目或執行模板指令碼。請檢查原始碼、授權、相依項目
+> 和 package install scripts，並優先使用已固定且可信的 ref。
+
+託管 demo 是選用的。如果提供，請使用公開的試用連結，並說明登入、範例資料
+或 provider 要求。儲存庫仍然是安裝內容的事實來源，儲存庫擁有者仍然對
+模板和 demo 負責。
+
+希望加入清單？請提交[社群模板](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)，
+並附上儲存庫 URL、一句話描述、維護者和授權資訊、已測試的 CLI 命令，以及
+選用的託管 demo URL。
+
 ## 開箱即用的東西 {#what-you-get}
 
 每個範例應用程式都附帶通常需要數月才能建置的部件：
@@ -100,28 +200,28 @@ description: "從一個可用的 SaaS 產品開始，將它變成您的產品 - 
 
 1. **選取一個範例應用程式。**使用 CLI 選取器，或瀏覽檔案並選取一個開始。
 2. **打造品牌。**更改名稱、顏色、徽標和文案。大多數範例應用程式都將其公開在單一設定檔案中。
-3. **自訂它。** 要求代理新增您需要的列，更改收件箱分組的方式，連線到您的內部 API，新增新檢視。代理編輯程式碼；您檢視差異。
+3. **自訂它。** 在自己的儲存庫與開發工作流程中變更原始碼。如果代理 frame 被有意授予工作區與寫入工具，它可以提供協助；否則嵌入式代理會透過 actions、資料和已設定的整合來操作應用程式。
 4. **發貨。**執行部署指令。您現在在自己的域中擁有自己的正式環境 SaaS。
 
-步驟 2-4 通常需要幾天而不是幾個月的時間。第 3 步是開放式的 - 透過與代理交談，用簡單的英語來說，您的分叉 SaaS 會隨著時間的推移而發展。
+步驟 2-4 通常需要幾天而不是幾個月。第 3 步是開放式的，因為應用程式歸您所有並可持續演進；嵌入式代理仍可操作已部署的產品，並在明確啟用程式碼存取時協助變更原始碼。
 
 ## 為什麼這是實用的 {#why}
 
 傳統的程式碼庫分叉模型會大規模當機：每個使用者維護自己的收件箱聽起來像是一場維護噩夢。兩個框架決策使其發揮作用：
 
-1. **代理進行維護。**您無需編寫程式碼來新增列或連線新的整合 - 您可以詢問代理。所以“你自己的分叉收件箱”是一個功能，而不是一個負擔。
+1. **應用程式保持框架合約。** 原始碼擁有領域行為，而 Core 會隨著應用程式演進保持 actions、SQL、狀態與同步的一致性。
 2. **每使用者自訂，無需每使用者程式碼。** Skills、記憶、指令、連線的 MCP 伺服器和子代理都位於 SQL 中。每個使用者都有自己的定制層；共用程式碼庫同時託管所有這些內容。
 
 結果：Claude - 每個使用者的程式碼級靈活性，以及正常的 SaaS 部署經濟性。
 
-<Diagram id="doc-block-oqiktb" title={"為什麼每使用者自訂可以擴展"} summary={"有兩個想法使從可執行 app 開始的模型保持實用：代理進行維護，每個使用者的自訂位於 SQL 中，而不是每個使用者的程式碼中。"}>
+<Diagram id="doc-block-oqiktb" title={"為什麼每使用者自訂可以擴展"} summary={"有兩個想法使從可執行 app 開始的模型保持實用：應用程式保持框架合約，每個使用者的自訂位於 SQL 中，而不是每個使用者的程式碼中。"}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>分享d codebase</strong
     ><small class="diagram-muted">一個應用，一次部署</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">應用程式保持框架合約</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>

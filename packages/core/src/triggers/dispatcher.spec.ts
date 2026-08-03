@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { buildTriggerContent, initTriggerDispatcher } from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
@@ -9,6 +13,7 @@ const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
+const startRunMock = vi.hoisted(() => vi.fn());
 
 // The dispatcher runs through the resume wrapper. Delegate to the loop mock so
 // every assertion below still reads the options the loop was called with.
@@ -19,6 +24,10 @@ const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? owner.slice("__organization__:".length)
+      : null,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourcePut: resourcePutMock,
 }));
@@ -71,6 +80,11 @@ vi.mock("../usage/store.js", () => ({
   recordUsage: recordUsageMock,
 }));
 
+vi.mock("../agent/run-manager.js", () => ({
+  resolveRunSoftTimeoutMs: vi.fn(() => 0),
+  startRun: startRunMock,
+}));
+
 vi.mock("../agent/engine/index.js", () => ({
   getStoredModelForEngine: vi.fn(async () => undefined),
   normalizeModelForEngine: (
@@ -117,8 +131,10 @@ describe("trigger dispatcher", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: user exists and (when checked) is an org member.
-    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }] });
+    // Default: user exists and (when checked) is an org member. rowsAffected: 1
+    // also lets the background run's self-claim CAS UPDATE (see
+    // background-automation-runner.ts) succeed by default.
+    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -147,6 +163,35 @@ Respond to the event.`,
       cacheWriteTokens: 10,
       model: "test-model",
     });
+    startRunMock.mockImplementation(
+      (
+        runId: string,
+        threadId: string,
+        runFn: (
+          send: (event: unknown) => void,
+          signal: AbortSignal,
+        ) => Promise<void>,
+        onComplete?: (run: { status: string }) => void | Promise<void>,
+      ) => {
+        const abort = new AbortController();
+        const activeRun = {
+          runId,
+          threadId,
+          status: "running",
+          abort,
+        };
+        void Promise.resolve().then(async () => {
+          try {
+            await runFn(vi.fn(), abort.signal);
+            activeRun.status = "completed";
+          } catch {
+            activeRun.status = "errored";
+          }
+          await onComplete?.(activeRun);
+        });
+        return activeRun;
+      },
+    );
     recordUsageMock.mockResolvedValue(undefined);
   });
 
@@ -503,5 +548,246 @@ Respond to the event.`,
     expect(getSystemPrompt).toHaveBeenCalledWith(
       "alice+triggers@agent-native.test",
     );
+  });
+
+  it("passes automation context to action suppliers and enforces persisted MCP tools", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-event-mcp",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/event-mcp.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.mcp.required
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+model: persisted-model
+mcpTools: ["mcp__calendar__list_events"]
+---
+
+Read the calendar.`,
+      },
+    ]);
+    const mcpEntry = {
+      tool: {
+        description: "List calendar events",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => "ok",
+    };
+    let observedRequestIdentity:
+      | { userEmail?: string; orgId?: string }
+      | undefined;
+    const getActions = vi.fn(() => {
+      observedRequestIdentity = {
+        userEmail: getRequestUserEmail(),
+        orgId: getRequestOrgId(),
+      };
+      return { mcp__calendar__list_events: mcpEntry };
+    });
+    const getInitialToolNames = vi.fn(() => ["manage-jobs"]);
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+
+    await initTriggerDispatcher({
+      getActions,
+      getInitialToolNames,
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.mcp.required",
+    )?.[1];
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-mcp",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(getActions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "event-mcp",
+        meta: expect.objectContaining({
+          mcpTools: ["mcp__calendar__list_events"],
+        }),
+      }),
+    );
+    expect(getInitialToolNames).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "event-mcp" }),
+    );
+    expect(observedRequestIdentity).toEqual({
+      userEmail: "alice+triggers@agent-native.test",
+      orgId: undefined,
+    });
+    expect(runAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "persisted-model",
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "mcp__calendar__list_events" }),
+        ]),
+      }),
+    );
+    // dispatch_mode is now set via the runner's own pre-claim (insertRun +
+    // claimBackgroundRun) before startRun is even called, not through
+    // startRun's options — see background-automation-runner.spec.ts.
+    expect(startRunMock.mock.calls[0]?.[4]).not.toHaveProperty("dispatchMode");
+  });
+
+  it("fails loudly before execution when a requested event MCP tool is unavailable", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-event-mcp-missing",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/event-mcp-missing.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.mcp.missing
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+mcpTools: ["mcp__calendar__missing_tool"]
+---
+
+Read the calendar.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.mcp.missing",
+    )?.[1];
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-mcp-missing",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(startRunMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
+    expect(persisted).toContain("lastStatus: error");
+    expect(persisted).toContain("Configured MCP tools are unavailable");
+    expect(persisted).toContain("mcp__calendar__missing_tool");
+  });
+
+  it("routes organization events only to their creator and fails closed when membership is unreadable", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-org-event",
+        owner: "__organization__:org-1",
+        path: "jobs/org-event.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.org.creator
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+orgId: "org-1"
+runAs: creator
+---
+
+Handle the organization event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.org.creator",
+    )?.[1];
+
+    await handler(
+      { ok: true },
+      {
+        owner: "bob+triggers@agent-native.test",
+        eventId: "event-org-other-member",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(startRunMock).not.toHaveBeenCalled();
+
+    dbExecuteMock
+      .mockResolvedValueOnce({ rows: [{ "1": 1 }] })
+      .mockRejectedValueOnce(new Error("connection timeout"));
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-org-creator",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(startRunMock).not.toHaveBeenCalled();
+    const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
+    expect(persisted).toContain("lastStatus: skipped");
+    expect(persisted).toContain(
+      "Could not verify the automation execution identity",
+    );
+  });
+
+  it("recovers an event automation left running past the shared stuck window", async () => {
+    const staleRun = new Date(Date.now() - 11 * 60_000).toISOString();
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-stale-event",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/stale-event.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: event.stale.recovery
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+lastStatus: running
+lastRun: "${staleRun}"
+---
+
+Recover and handle the event.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "event.stale.recovery",
+    )?.[1];
+    await handler(
+      { ok: true },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-stale",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(startRunMock).toHaveBeenCalledOnce();
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const persisted = resourcePutMock.mock.calls.at(-1)?.[2] as string;
+    expect(persisted).toContain("lastStatus: success");
   });
 });

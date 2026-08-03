@@ -1,13 +1,48 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildEventTitleUpdate,
   buildRecurrenceRules,
+  dateTimeInTimezoneToIso,
   formatRecurrenceText,
+  getEditableEventTitle,
   getEventEndValidationMessage,
   getRecurrencePreset,
   normalizeAllDayEditEndDate,
   resolveTimeEditScope,
 } from "./event-form-utils";
+
+describe("getEditableEventTitle", () => {
+  it("keeps the display-only unnamed label out of editable state", () => {
+    expect(
+      getEditableEventTitle({
+        title: "(No title)",
+        titleIsGenerated: true,
+      }),
+    ).toBe("");
+  });
+
+  it("preserves a real event title even when it matches a display label", () => {
+    expect(getEditableEventTitle({ title: "(No title)" })).toBe("(No title)");
+  });
+});
+
+describe("buildEventTitleUpdate", () => {
+  it("clears generated provenance when a real title is saved", () => {
+    expect(buildEventTitleUpdate("  Team offsite  ")).toEqual({
+      title: "Team offsite",
+      titleIsGenerated: false,
+    });
+  });
+});
+
+describe("dateTimeInTimezoneToIso", () => {
+  it("uses the first valid instant when a timezone skips local midnight", () => {
+    expect(
+      dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
+    ).toBe("2026-09-06T04:00:00.000Z");
+  });
+});
 
 describe("getEventEndValidationMessage", () => {
   it("clarifies equal timed start and end values", () => {

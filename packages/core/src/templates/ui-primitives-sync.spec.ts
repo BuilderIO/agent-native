@@ -144,6 +144,7 @@ const EXPECTED_ACTIVE_TEMPLATES = [
   "crm",
   "design",
   "dispatch",
+  "factory",
   "forms",
   "macros",
   "mail",

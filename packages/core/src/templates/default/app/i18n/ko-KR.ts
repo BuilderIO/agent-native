@@ -70,6 +70,23 @@ const messages = {
       suggestionGrantKey: "이 앱에 내 OpenAI 키를 부여하세요.",
     },
     pages: {
+      browserChatUnavailableTitle: "브라우저 채팅 세션을 사용할 수 없음",
+      browserChatUnavailableDescription:
+        "Agent-Native 브라우저 확장 프로그램에서 다시 연결하세요.",
+      browserChatPlaceholder: "이 페이지에 대해 질문…",
+      browserChatAttachedPlaceholder: "{{page}}에 대해 질문…",
+      browserConnectTitle: "브라우저 채팅 연결",
+      browserConnectDescription:
+        "Agent-Native Chrome 확장 프로그램이 이 Dispatch 채팅 세션을 열도록 허용합니다. 연결에는 일회용 단기 티켓이 사용됩니다.",
+      browserConnectInvalid:
+        "잘못된 연결 요청입니다. 확장 프로그램에서 다시 시작하세요.",
+      browserConnectConnected:
+        "브라우저 채팅이 연결되었습니다. 이 탭을 닫아도 됩니다.",
+      browserConnectConnecting: "연결 중…",
+      browserConnectButton: "연결",
+      browserConnectOpenFromExtension:
+        "Agent-Native Chrome 확장 프로그램에서 이 페이지를 여세요.",
+      browserConnectFailed: "브라우저 확장 프로그램이 연결되지 않았습니다.",
       appsDescription:
         "작업 공간 앱을 열고 Dispatch에서 새 앱 생성을 시작하세요.",
       appsDescriptionWithWorkspace:
@@ -350,6 +367,16 @@ const messages = {
     deleting: "보관 중...",
     openFullView: "전체 보기 열기",
     removeFromWidgetArea: "이 위젯 영역에서 제거",
+    customBlockSandboxed: "커스텀 블록 · 샌드박스",
+    sandboxedCustomBlock: "샌드박스 SQL 커스텀 블록",
+    sandboxedCustomBlockCreatedBy:
+      "{{email}} 님이 만든 샌드박스 SQL 커스텀 블록",
+    promoteToAppCode: "앱 코드로 승격",
+    historyShowsSourceVersions: "기록에서 소스 버전을 확인할 수 있습니다",
+    createdByHistoryShowsSourceVersions:
+      "{{email}} 님이 만들었습니다. 기록에서 소스 버전을 확인할 수 있습니다.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "{{email}} 님이 만듦 · 기록에서 소스 버전 확인",
     deleteExtensionEllipsis: "확장 프로그램 보관...",
     removeFromMyListEllipsis: "내 목록에서 제거...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

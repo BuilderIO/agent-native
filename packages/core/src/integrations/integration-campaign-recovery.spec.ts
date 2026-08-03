@@ -7,6 +7,7 @@ const dispatchMock = vi.hoisted(() => vi.fn());
 const durableEnabledMock = vi.hoisted(() => vi.fn());
 const failDisabledMock = vi.hoisted(() => vi.fn());
 const getNextTaskMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationTaskOutcomeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./integration-campaigns-store.js", () => ({
   listDueIntegrationCampaignIds: listDueMock,
@@ -22,6 +23,10 @@ vi.mock("./pending-tasks-store.js", () => ({
 vi.mock("./integration-durable-dispatch.js", () => ({
   dispatchPendingIntegrationTask: dispatchMock,
   isIntegrationDurableDispatchEnabledForTask: durableEnabledMock,
+}));
+
+vi.mock("./a2a-continuations-store.js", () => ({
+  getA2AContinuationTaskOutcome: getA2AContinuationTaskOutcomeMock,
 }));
 
 describe("integration campaign recovery", () => {
@@ -43,6 +48,7 @@ describe("integration campaign recovery", () => {
     dispatchMock.mockResolvedValue("background-acknowledged");
     durableEnabledMock.mockReturnValue(true);
     getNextTaskMock.mockResolvedValue(null);
+    getA2AContinuationTaskOutcomeMock.mockResolvedValue("missing");
   });
 
   it("wakes due campaigns without claiming or executing them", async () => {
@@ -138,6 +144,30 @@ describe("integration campaign recovery", () => {
         deliveryReceipt: { status: "delivered", messageRefs: ["reply-1"] },
       }),
     });
+    const { recoverDueIntegrationCampaigns } =
+      await import("./integration-campaign-recovery.js");
+
+    await expect(recoverDueIntegrationCampaigns({})).resolves.toEqual({
+      selected: 1,
+      dispatched: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(dispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "task-1",
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: true,
+      }),
+    );
+    expect(failDisabledMock).not.toHaveBeenCalled();
+  });
+
+  it("still wakes finalized A2A parent reconciliation after scope is disabled", async () => {
+    durableEnabledMock.mockReturnValueOnce(false);
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-delivered",
+    );
     const { recoverDueIntegrationCampaigns } =
       await import("./integration-campaign-recovery.js");
 

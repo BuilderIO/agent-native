@@ -30,7 +30,11 @@ import {
 } from "@/hooks/use-view-preferences";
 import { partitionAllDayEvents } from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { isOutOfOfficeEvent } from "@/lib/out-of-office";
+import {
+  fullDayOutOfOfficeCoversDate,
+  isFullDayOutOfOfficeEvent,
+  isOutOfOfficeEvent,
+} from "@/lib/out-of-office";
 import {
   shouldSuppressAfterPopoverClose,
   shouldSuppressCreatePointerDown,
@@ -596,13 +600,25 @@ export const DayView = memo(function DayView({
     [date],
   );
 
-  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
+  const allDayEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => event.allDay || fullDayOutOfOfficeCoversDate(event, date),
+      ),
+    [date, events],
+  );
   const { workingLocations, regularEvents: regularAllDayEvents } = useMemo(
     () => partitionAllDayEvents(allDayEvents),
     [allDayEvents],
   );
   const outOfOfficeEvents = useMemo(
-    () => events.filter((event) => !event.allDay && isOutOfOfficeEvent(event)),
+    () =>
+      events.filter(
+        (event) =>
+          !event.allDay &&
+          isOutOfOfficeEvent(event) &&
+          !isFullDayOutOfOfficeEvent(event),
+      ),
     [events],
   );
   const timedEvents = useMemo(

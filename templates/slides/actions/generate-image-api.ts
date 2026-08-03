@@ -28,13 +28,15 @@ async function urlToReferenceImage(
 
 export default defineAction({
   description:
-    "Generate an image using Gemini or OpenAI with optional reference images for style matching.",
+    "Generate an image via a connected Builder.io account, or Gemini/OpenAI, with optional reference images for style matching.",
   schema: z.object({
     prompt: z.string().optional().describe("Image description (required)"),
     model: z
       .string()
       .optional()
-      .describe("Provider: 'gemini', 'openai', or 'auto' (default: auto)"),
+      .describe(
+        "Provider: 'builder', 'gemini', 'openai', or 'auto' (default: auto, which prefers a connected Builder.io account, then gemini, then openai)",
+      ),
   }),
   run: async (args) => {
     const prompt = args.prompt;

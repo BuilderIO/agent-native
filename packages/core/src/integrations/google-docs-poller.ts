@@ -1,3 +1,4 @@
+import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
@@ -27,7 +28,11 @@ import {
   listChanges,
   listDocComments,
 } from "./adapters/google-docs.js";
-import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
+import {
+  getIntegrationConfig,
+  integrationConfigWriteEpoch,
+  saveIntegrationConfig,
+} from "./config-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -514,7 +519,17 @@ async function processComment(
               signal,
             },
             undefined,
-            { useHostedDefault: true },
+            // Same omission the scheduled-job runner had: without this, a
+            // poller-driven reply inherits the interactive clamp (40s soft
+            // timeout, a no-progress backstop at 0.75x that, 6 continuations)
+            // even though no client is waiting on a response. Uses the runtime
+            // check rather than a hardcoded `true` — matching webhook-handler.ts
+            // in this same subsystem — because unlike the job runner there is no
+            // hard-abort cap here to bound a wider ceiling.
+            {
+              useHostedDefault: true,
+              backgroundFunction: isInBackgroundFunctionRuntime(),
+            },
           ),
       );
     },
@@ -535,6 +550,9 @@ async function processComment(
         console.error("[google-docs] Error sending response:", err);
       }
     },
+    // No userId here: `options.ownerEmail` is PII (email), which the
+    // terminal event must not carry.
+    { model: options.model, engineName: engine.name },
   );
 }
 
@@ -631,14 +649,34 @@ export async function startGoogleDocsPoller(
   }
 }
 
+/** Backoff for the config probe while google-docs is disabled. */
+const DISABLED_CONFIG_RECHECK_MS = 5 * 60 * 1000;
+
 function startPollLoop(
   options: GoogleDocsPollerOptions,
   intervalMs: number,
 ): void {
+  let disabledUntil = 0;
+  let disabledAtConfigWriteEpoch = -1;
+
   async function poll() {
     try {
+      // The loop starts even when google-docs was never configured (so it picks
+      // up a later enable), which used to mean one `integration_configs` read
+      // every 30s per app forever. While disabled, re-read only every
+      // DISABLED_CONFIG_RECHECK_MS — or immediately after any in-process config
+      // write, so enabling the integration still takes effect on the next tick.
+      const epoch = integrationConfigWriteEpoch();
+      if (Date.now() < disabledUntil && epoch === disabledAtConfigWriteEpoch) {
+        return;
+      }
       const config = await getIntegrationConfig(PLATFORM);
-      if (!config?.configData?.enabled) return;
+      if (!config?.configData?.enabled) {
+        disabledUntil = Date.now() + DISABLED_CONFIG_RECHECK_MS;
+        disabledAtConfigWriteEpoch = epoch;
+        return;
+      }
+      disabledUntil = 0;
       await processChanges(options);
     } catch (err) {
       // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause

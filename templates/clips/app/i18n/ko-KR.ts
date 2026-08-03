@@ -550,6 +550,8 @@ const messages = {
     useColor: "{{color}} 사용",
     logo: "로고",
     logoPreview: "로고 미리보기",
+    logoUsage: "공유 이메일과 공개 클립 페이지에서 수신자에게 표시됩니다.",
+    emailHeaderPreview: "공유 이메일 헤더",
     dropReplace: "교체할 새 이미지를 놓으세요",
     dropHere: "여기에 PNG / JPG / SVG를 놓으세요",
     uploading: "업로드 중…",
@@ -647,10 +649,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
 ### 추가됨
 
 - 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
-    profile: "프로필",
-    email: "이메일",
-    displayName: "표시 이름",
-    displayNamePlaceholder: "이름",
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -788,6 +786,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "아직 조직이 없습니다. 시작하려면 조직 전환기에서 하나를 만드세요.",
     description: "조직 관리: 브랜딩, 멤버, 초대.",
     adminsOnlyBranding: "관리자만 브랜딩을 편집할 수 있습니다.",
+    brandingLoadFailed: "조직 브랜딩을 불러오지 못했습니다.",
     members: "멤버",
     pendingInvites: "대기 중인 초대",
     noPendingInvites: "대기 중인 초대가 없습니다.",
@@ -927,6 +926,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     replyingTo: "답글 대상",
     commentAt: "댓글 위치",
     writeReply: "답글 쓰기...",
+    editComment: "댓글 편집",
     commentButton: "댓글",
     composerPlaceholder: "댓글 추가…",
     mentionSomeone: "멘션하기",
@@ -1329,7 +1329,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     downloadDesktopApp: "Download desktop app (현지화됨)",
     technicalDetails: "Technical details (현지화됨)",
     whatToCheck: "What to check (현지화됨)",
-    downloadRecording: "Download recording (현지화됨)",
+    downloadRecording: "Download (현지화됨)",
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     connectStorageToFinish:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
@@ -1506,6 +1506,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
+    googleMayShowWarning: "Google 액세스 검토",
+    googleNotVerifiedTitle: "연결하기 전에 앱을 확인하세요",
+    googleWarningBeforeAdvanced:
+      "앱 이름과 요청된 Calendar 액세스가 신뢰하는 Clips 배포와 일치하는지 확인하세요. Google에서 확인되지 않은 앱 경고를 표시하거나 신원이 낯설게 보이면 중단하고 워크스페이스 관리자에게 문의하세요.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",

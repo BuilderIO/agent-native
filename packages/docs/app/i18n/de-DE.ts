@@ -427,6 +427,18 @@ const deDE = {
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",
     createYourOwn: "Von Grund auf starten",
+    communityTitle: "Community-Vorlagen",
+    communityDescription:
+      "Unabhängige Apps, die von ihren Autorinnen und Autoren gepflegt werden. Installiere sie aus einem öffentlichen GitHub-Repository oder teste eine gehostete Version, falls verfügbar.",
+    submitCommunityTemplate: "Eigene Vorlage einreichen",
+    communityEmpty:
+      "Die Community-Liste ist offen. Veröffentliche eine fokussierte Agent-Native-App in einem öffentlichen Repository und reiche sie für den Katalog ein.",
+    publishGuide: "Veröffentlichungsleitfaden lesen",
+    communityTrust:
+      "Community-Vorlagen sind Code von Drittanbietern. Prüfe Repository, Lizenz, Abhängigkeiten und Installationsskripte vor der Ausführung.",
+    copyCommunityInstallCommand: "Installationsbefehl kopieren",
+    viewRepository: "Repository ansehen",
+    tryCommunityDemo: "Demo testen",
   },
   buildFromScratch: {
     title: "Von Grund auf bauen",
@@ -1648,6 +1660,7 @@ const deDE = {
     formsOverview: "Überblick",
     formsBuildingPublishing: "Erstellen und Veröffentlichen",
     formsResponses: "Antworten und Erkenntnisse",
+    docsComponents: "Docs Components",
     formsDevelopers: "Entwicklerhandbuch",
   },
 } satisfies typeof enUS;

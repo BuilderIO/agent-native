@@ -46,7 +46,9 @@ import { readBody } from "../server/h3-helpers.js";
 import { setActiveOrgId } from "./active-org.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { invalidateRequestMemberOrgIds } from "./request-org-cache.js";
 import type { OrgRole } from "./types.js";
+import { parseWorkspaceUrl } from "./workspace-url.js";
 
 function getInviteAppUrl(event: H3Event): string {
   return getAppProductionUrl(event);
@@ -108,16 +110,19 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   let allowedDomain: string | null = null;
+  let workspaceUrl: string | null = null;
   let a2aSecretSet = false;
   if (ctx.orgId) {
     try {
       const adRes = await e.execute({
-        sql: `SELECT allowed_domain, a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+        sql: `SELECT allowed_domain, a2a_secret, workspace_url FROM organizations WHERE id = ? LIMIT 1`,
         args: [ctx.orgId],
       });
       if (adRes.rows[0]) {
         allowedDomain =
           String((adRes.rows[0] as any).allowed_domain ?? "") || null;
+        workspaceUrl =
+          String((adRes.rows[0] as any).workspace_url ?? "") || null;
         a2aSecretSet = Boolean(
           String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
         );
@@ -156,6 +161,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     pendingInvitations,
     domainMatches,
     allowedDomain,
+    workspaceUrl,
     // Never serialize the A2A secret here. This route runs on every page load,
     // so the value would sit in JSON any script on the page can read, and it
     // signs the JWTs peers accept as first-party callers. Reveal is an explicit
@@ -500,6 +506,7 @@ export const acceptInvitationHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
+    invalidateRequestMemberOrgIds();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -569,6 +576,7 @@ export const removeMemberHandler = defineEventHandler(
       sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
+    invalidateRequestMemberOrgIds();
 
     return { success: true };
   },
@@ -767,6 +775,8 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
+  invalidateRequestMemberOrgIds();
+
   const nextRes = await e.execute({
     sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
     args: [ctx.email.toLowerCase()],
@@ -870,6 +880,7 @@ export const joinByDomainHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
       args: [nanoid(), orgId, email, Date.now()],
     });
+    invalidateRequestMemberOrgIds();
 
     await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
@@ -953,6 +964,52 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
 
   return { domain: raw };
 });
+
+/**
+ * PUT /_agent-native/org/workspace-url — set or clear the org's own workspace
+ * origin (owner/admin only).
+ *
+ * Members who reach a shared hosted app from the template catalog land in a
+ * different deployment than their team's workspace, with the same org name in
+ * the switcher, and read the empty app as broken rather than as somewhere
+ * else. Setting this points them home from wherever they land.
+ *
+ * Body: { url: string | null } — a full URL or bare host; stored as an origin.
+ */
+export const setWorkspaceUrlHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can set the workspace URL",
+      });
+    }
+
+    const body = await readBody(event);
+    const raw = typeof body?.url === "string" ? body.url.trim() : "";
+
+    let workspaceUrl: string | null = null;
+    if (raw) {
+      const parsed = parseWorkspaceUrl(raw);
+      if (!parsed.ok) {
+        throw createError({ statusCode: 400, message: parsed.reason });
+      }
+      workspaceUrl = parsed.url;
+    }
+
+    const e = await exec();
+    await e.execute({
+      sql: `UPDATE organizations SET workspace_url = ? WHERE id = ?`,
+      args: [workspaceUrl, ctx.orgId],
+    });
+
+    return { url: workspaceUrl };
+  },
+);
 
 /**
  * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret

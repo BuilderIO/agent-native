@@ -6,11 +6,19 @@ const trackedFiles = execFileSync("git", ["ls-files"], {
 })
   .split("\n")
   .filter(Boolean);
+const deletedFiles = new Set(
+  execFileSync("git", ["diff", "--name-only", "--diff-filter=D"], {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean),
+);
 
 const forbidden = trackedFiles.filter(
   (file) =>
-    /(^|\/)\.vercel\/output\//.test(file) ||
-    /(^|\/)\.claude\/settings\.json$/.test(file),
+    !deletedFiles.has(file) &&
+    (/(^|\/)\.vercel\/output\//.test(file) ||
+      /(^|\/)\.claude\/settings\.json$/.test(file)),
 );
 
 if (forbidden.length > 0) {

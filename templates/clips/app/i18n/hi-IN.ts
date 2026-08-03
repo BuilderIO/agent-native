@@ -543,6 +543,8 @@ const messages = {
     useColor: "{{color}} उपयोग करें",
     logo: "लोगो",
     logoPreview: "लोगो पूर्वावलोकन",
+    logoUsage: "साझा ईमेल और सार्वजनिक क्लिप पेजों पर प्राप्तकर्ताओं को दिखाया जाता है।",
+    emailHeaderPreview: "साझा ईमेल हेडर",
     dropReplace: "बदलने के लिए नई छवि छोड़ें",
     dropHere: "यहां PNG / JPG / SVG छोड़ें",
     uploading: "अपलोड हो रहा है…",
@@ -639,10 +641,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
 ### जोड़ा गया
 
 - अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd+K) और सेटिंग्स में उपलब्ध है।`,
-    profile: "प्रोफ़ाइल",
-    email: "ईमेल",
-    displayName: "दिखने वाला नाम",
-    displayNamePlaceholder: "आपका नाम",
     playback: "प्लेबैक",
     defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
     playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
@@ -780,6 +778,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     noOrganization: "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
     description: "संगठन व्यवस्थापन: ब्रांडिंग, सदस्य, आमंत्रण।",
     adminsOnlyBranding: "केवल व्यवस्थापक ब्रांडिंग संपादित कर सकते हैं।",
+    brandingLoadFailed: "संगठन ब्रांडिंग लोड नहीं हो सकी।",
     members: "सदस्य",
     pendingInvites: "लंबित आमंत्रण",
     noPendingInvites: "कोई लंबित आमंत्रण नहीं।",
@@ -919,6 +918,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     replyingTo: "जवाब दे रहे हैं",
     commentAt: "टिप्पणी करें",
     writeReply: "जवाब लिखें...",
+    editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
     mentionSomeone: "किसी का उल्लेख करें",
@@ -1318,7 +1318,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     downloadDesktopApp: "Download desktop app (स्थानीयकृत)",
     technicalDetails: "Technical details (स्थानीयकृत)",
     whatToCheck: "What to check (स्थानीयकृत)",
-    downloadRecording: "Download recording (स्थानीयकृत)",
+    downloadRecording: "Download (स्थानीयकृत)",
     openRecorderInTab: "Open recorder in tab (स्थानीयकृत)",
     connectStorageToFinish:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
@@ -1495,6 +1495,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
+    googleMayShowWarning: "Google एक्सेस की समीक्षा करें",
+    googleNotVerifiedTitle: "कनेक्ट करने से पहले ऐप सत्यापित करें",
+    googleWarningBeforeAdvanced:
+      "पुष्टि करें कि ऐप का नाम और मांगा गया Calendar एक्सेस उस Clips डिप्लॉयमेंट से मेल खाते हैं जिस पर आप भरोसा करते हैं। यदि Google असत्यापित ऐप की चेतावनी दिखाए या पहचान अपरिचित लगे, तो रुकें और अपने वर्कस्पेस एडमिन से संपर्क करें।",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (स्थानीयकृत)",
     getDesktopApp: "Get desktop app (स्थानीयकृत)",

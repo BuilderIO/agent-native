@@ -905,6 +905,59 @@ describe("calendar event creation", () => {
     expect(body).not.toHaveProperty("description");
     expect(body).not.toHaveProperty("location");
   });
+
+  it("serializes full-day OOO semantics as timed Google event bounds", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Out of office",
+        description: "",
+        location: "",
+        start: "2026-07-31T04:00:00.000Z",
+        end: "2026-08-01T04:00:00.000Z",
+        startTimeZone: "America/Indiana/Indianapolis",
+        endTimeZone: "America/Indiana/Indianapolis",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "opaque",
+        eventType: "outOfOffice",
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
+        createdAt: "2026-07-26T14:00:00.000Z",
+        updatedAt: "2026-07-26T14:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        eventType: "outOfOffice",
+        start: {
+          dateTime: "2026-07-31T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        end: {
+          dateTime: "2026-08-01T04:00:00.000Z",
+          timeZone: "America/Indiana/Indianapolis",
+        },
+        outOfOfficeProperties: {
+          autoDeclineMode: "declineAllConflictingInvitations",
+          declineMessage: "Declined because I am out of office",
+        },
+      }),
+      undefined,
+    );
+  });
 });
 
 describe("calendar recurring event updates", () => {

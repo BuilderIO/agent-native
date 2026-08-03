@@ -15,12 +15,14 @@ vi.mock("./emitter.js", () => ({
 }));
 
 import {
+  adoptThreadScopeIfUnscoped,
   createThreadShareLink,
   forkThread,
   getThreadByShareToken,
   grantThreadUserShare,
   listThreads,
   renameThread,
+  resolveRunThreadScope,
   revokeThreadShareLink,
   searchThreads,
   setThreadArchived,
@@ -404,7 +406,7 @@ describe("chat thread store", () => {
     await setThreadQueuedMessages("thread-1", []);
 
     const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toBeUndefined();
+    expect(repo.queuedMessages).toEqual([]);
     expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
       "user-1",
       "assistant-1",
@@ -990,5 +992,98 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
     ).toHaveLength(2);
+  });
+});
+
+describe("resolveRunThreadScope", () => {
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  it("adopts the run's scope when the thread has none", () => {
+    expect(resolveRunThreadScope(null, designA)).toEqual(designA);
+  });
+
+  it("keeps the thread's own scope when a run arrives from another resource", () => {
+    expect(resolveRunThreadScope(designA, designB)).toEqual(designA);
+  });
+
+  it("never clears a scope when the run carries none", () => {
+    expect(resolveRunThreadScope(designA, null)).toEqual(designA);
+    expect(resolveRunThreadScope(designA, undefined)).toEqual(designA);
+  });
+
+  it("leaves a general chat general when the run is also unscoped", () => {
+    expect(resolveRunThreadScope(null, null)).toBeNull();
+  });
+});
+
+describe("adoptThreadScopeIfUnscoped", () => {
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  function mockRow(scopeType: string | null, scopeId: string | null) {
+    const row = {
+      id: "thread-1",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "",
+      thread_data: "{}",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 1,
+      scope_type: scopeType,
+      scope_id: scopeId,
+      scope_label: null,
+      pinned_at: null,
+      archived_at: null,
+      org_id: null,
+      visibility: "private" as const,
+    };
+    executeMock.mockReset();
+    emitChatThreadChangeMock.mockReset();
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
+        // Honour the compare-and-set guard the real statement carries.
+        if (/AND scope_type IS NULL/i.test(sql) && row.scope_type !== null) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row.scope_type = args[0];
+        row.scope_id = args[1];
+        row.scope_label = args[2];
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        return { rows: [row], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+    return row;
+  }
+
+  it("claims an unscoped thread and reports the scope it won", async () => {
+    const row = mockRow(null, null);
+
+    expect(await adoptThreadScopeIfUnscoped("thread-1", designA)).toEqual(
+      designA,
+    );
+    expect(row.scope_id).toBe("design-a");
+  });
+
+  it("reports the winner's scope instead of retagging when another worker won", async () => {
+    const row = mockRow("design", "design-a");
+
+    expect(await adoptThreadScopeIfUnscoped("thread-1", designB)).toEqual({
+      type: "design",
+      id: "design-a",
+    });
+    expect(row.scope_id).toBe("design-a");
   });
 });

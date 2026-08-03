@@ -1612,7 +1612,8 @@ async function workspaceReadMeta(path, opts = {}) {
 /**
  * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
  * temporary staging files.
- * \`content\` must be a string. Returns metadata { path, sizeBytes, updatedAt }.
+ * \`content\` must be a string. Returns metadata
+ * { resourceId, path, contentType, sizeBytes, updatedAt }.
  */
 async function workspaceWrite(path, content, contentType = "text/plain") {
   const rawResult = await _bridgeCall("workspace-files", {

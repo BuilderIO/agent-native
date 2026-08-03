@@ -135,6 +135,8 @@ export interface AgentChatScope {
 
 export interface AgentChatRequest {
   message: string;
+  /** Stable identity of a durable queued message, used to reject replayed delivery. */
+  queuedMessageId?: string;
   /**
    * User-visible text to persist in chat history. `message` may be normalized
    * for the model (for example mention markup or internal continuation text).
@@ -274,8 +276,10 @@ export type AgentChatEvent =
   | {
       type: "agent_call";
       agent: string;
-      status: "start" | "done" | "error";
+      status: "start" | "done" | "pending" | "error";
       agentCallId?: string;
+      /** Remote task to resume when status is pending/input-required. */
+      taskId?: string;
       durationMs?: number;
     }
   | {

@@ -343,7 +343,10 @@ Mail is yours to change. Everything important lives in a handful of places — s
 
 **Changing keyboard shortcuts.** Keybind handlers live in `templates/mail/app/components/email/` — search for `useHotkeys` or `addEventListener("keydown"` to find where each key is wired.
 
-Ask the agent to make any of these changes for you. The agent can edit its own source — see [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Make these changes in the repository's development workflow. The embedded app
+agent can edit source when its frame is intentionally granted workspace and
+write tooling; otherwise it operates the resulting app through its actions and
+data surface. See [Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## What's next
 

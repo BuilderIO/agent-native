@@ -320,7 +320,7 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 | OAuth tokens (Google, GitHub)      | `oauth_tokens` store via `saveOAuthTokens()`               |
 | Session tokens                     | Automatic (Better Auth handles this)                       |
 
-Per-user/per-org credentials and the vault are encrypted at rest with AES-256-GCM. For a per-user/per-org credential, the key precedence is `<APP_NAME>_SECRETS_ENCRYPTION_KEY` (app-scoped — useful in a multi-app workspace where apps shouldn't share one key) → `SECRETS_ENCRYPTION_KEY` → `BETTER_AUTH_SECRET`; production refuses to start without one of these set. The shared workspace vault (`app_secrets`, meant to decrypt the same in sibling apps) checks `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` first, then on a hosted workspace deploy falls back further to material derived from `A2A_SECRET`, and only then to the app-scoped key as a last resort. To encrypt any pre-existing plaintext credential rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive).
+Per-user/per-org credentials and the vault are encrypted at rest with AES-256-GCM. For a per-user/per-org credential, the key precedence is `<APP_NAME>_SECRETS_ENCRYPTION_KEY` (app-scoped — useful in a multi-app workspace where apps shouldn't share one key) → `SECRETS_ENCRYPTION_KEY` → `BETTER_AUTH_SECRET`; production refuses to start without one of these set. The shared workspace vault (`app_secrets`, meant to decrypt the same in sibling apps) prefers `WORKSPACE_SECRETS_ENCRYPTION_KEY`, then the legacy combined `SECRETS_ENCRYPTION_KEY`, then material derived from `A2A_SECRET`, with `BETTER_AUTH_SECRET` and the app-scoped key retained as compatibility candidates. Successful fallback reads compare-and-swap re-encrypt the shared column under the preferred key. During a workspace-key rotation, set `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` to the old value until reads have migrated existing rows. To encrypt any pre-existing plaintext credential rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive).
 
 Never store secrets in `settings`, `application_state`, source code, or action responses. Use the credential / vault APIs above — they handle both encryption and per-user scoping.
 
@@ -365,7 +365,7 @@ Google Docs Pub/Sub push notifications don't go through that generic adapter gat
 - [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
 - [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`) — see [OAuth State Signing](#oauth-state)
 - [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic — see [A2A Identity Verification](#a2a-identity)
-- [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback) — see [Secrets Management](#secrets)
+- [ ] `WORKSPACE_SECRETS_ENCRYPTION_KEY` set consistently for multi-app shared vaults; app-local encryption still has `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` fallbacks — see [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set in production (or set only on QA preview deploys)
 
 ### Webhook secrets (set the ones for integrations you use)

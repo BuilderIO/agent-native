@@ -2,11 +2,11 @@ import { lazy, Suspense } from "react";
 
 import {
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
-  ACTION_CHAT_UI_DOWNLOAD_ARTIFACT_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
 } from "../../../action-ui.js";
 import {
   registerReservedActionChatRenderer,
@@ -22,11 +22,8 @@ import {
   normalizeDataWidgetResult,
   type DataWidgetResult,
 } from "./data-widget-types.js";
-import {
-  DownloadArtifactWidget,
-  normalizeArtifactData,
-} from "./DownloadArtifactWidget.js";
 import { normalizeInlineExtensionToolResult } from "./inline-extension-result.js";
+import { normalizeWorkspaceFileResult } from "./workspace-file-result.js";
 
 const LazyDataChartWidget = lazy(() =>
   import("./DataChartWidget.js").then((module) => ({
@@ -46,6 +43,11 @@ const LazyDataTableWidget = lazy(() =>
 const LazyInlineExtensionWidget = lazy(() =>
   import("./InlineExtensionWidget.js").then((module) => ({
     default: module.InlineExtensionWidget,
+  })),
+);
+const LazyWorkspaceFileWidget = lazy(() =>
+  import("./WorkspaceFileWidget.js").then((module) => ({
+    default: module.WorkspaceFileWidget,
   })),
 );
 
@@ -154,6 +156,15 @@ const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
     </Suspense>
   ) : null;
 
+const BuiltinWorkspaceFileRenderer: ToolRendererComponent = ({ context }) => {
+  const result = normalizeWorkspaceFileResult(context.resultJson);
+  return result ? (
+    <Suspense fallback={<BuiltinToolRendererSkeleton framed={false} />}>
+      <LazyWorkspaceFileWidget result={result} />
+    </Suspense>
+  ) : null;
+};
+
 export function isBuiltinDataWidgetActionRenderer(
   context: ToolRendererContext,
 ): boolean {
@@ -176,6 +187,12 @@ export function resolveBuiltinActionChatRenderer(
     return BuiltinInlineExtensionRenderer;
   }
   if (
+    context.chatUI?.renderer === ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER &&
+    normalizeWorkspaceFileResult(context.resultJson)
+  ) {
+    return BuiltinWorkspaceFileRenderer;
+  }
+  if (
     isBuiltinDataWidgetActionRenderer(context) &&
     normalizeActionDataWidgetResult(context)
   ) {
@@ -183,14 +200,6 @@ export function resolveBuiltinActionChatRenderer(
   }
   return null;
 }
-
-const BuiltinDownloadArtifactRenderer: ToolRendererComponent = ({
-  context,
-}) => {
-  const artifact = normalizeArtifactData(context.resultJson);
-  if (!artifact) return null;
-  return <DownloadArtifactWidget artifact={artifact} />;
-};
 
 export function resolveBuiltinFallbackToolRenderer(
   context: ToolRendererContext,
@@ -212,7 +221,6 @@ for (const [id, renderer] of [
   ["core.data-insights", ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER],
   ["core.data-widget", ACTION_CHAT_UI_DATA_WIDGET_RENDERER],
   ["core.inline-extension", ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER],
-  ["core.download-artifact", ACTION_CHAT_UI_DOWNLOAD_ARTIFACT_RENDERER],
 ] as const) {
   registerReservedActionChatRenderer({
     id,
@@ -220,9 +228,7 @@ for (const [id, renderer] of [
     Component:
       renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER
         ? BuiltinInlineExtensionRenderer
-        : renderer === ACTION_CHAT_UI_DOWNLOAD_ARTIFACT_RENDERER
-          ? BuiltinDownloadArtifactRenderer
-          : BuiltinDataWidgetRenderer,
+        : BuiltinDataWidgetRenderer,
   });
 }
 

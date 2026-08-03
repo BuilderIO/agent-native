@@ -16,6 +16,7 @@ const messages = {
     navInbox: "Posteingang",
     navTasks: "Aufgaben",
     navFields: "Felder",
+    search: "Suchen",
     collapseSidebar: "Seitenleiste einklappen",
     expandSidebar: "Seitenleiste ausklappen",
     navigationTitle: "Navigation",
@@ -28,6 +29,12 @@ const messages = {
     pageTeam: "Team",
     pageExtension: "Erweiterung",
     pageExtensions: "Erweiterungen",
+  },
+  settings: {
+    languageTitle: "Sprache",
+    languageDescription:
+      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
+    languageLabel: "Oberflächensprache",
   },
   agent: {
     emptyState: "Bitte den Agenten, diese App zu prüfen oder zu ändern.",

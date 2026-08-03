@@ -49,10 +49,10 @@ const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "whisper-large-v3-turbo";
 const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
-const OPENAI_MODEL = "whisper-1";
+const OPENAI_MODEL = "gpt-transcribe";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 const OPENAI_CLEANUP_MODEL = "gpt-5.6-luna";
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // OpenAI audio upload hard limit.
 // Hard cap for the dictation-cleanup text path (`sanitizeTranscriptText`
 // below). This endpoint has no `task` field — it's always the Hold-Fn
 // dictation cleanup pass — but a long session (many minutes across
@@ -497,8 +497,8 @@ export function createTranscribeVoiceHandler() {
 }
 
 /**
- * Posts the audio to a Whisper-compatible OpenAI-style endpoint (Groq or
- * OpenAI itself) and returns `{ text }` / `{ error }` shaped like the
+ * Posts the audio to an OpenAI-style transcription endpoint (Groq or OpenAI)
+ * and returns `{ text }` / `{ error }` shaped like the
  * other branches in `createTranscribeVoiceHandler`. Hoisted so the
  * strict-Groq preference path and the auto fallback chain share one
  * implementation.
@@ -538,7 +538,16 @@ async function callWhisperCompat({
   );
   form.append("model", provider.model);
   form.append("response_format", "json");
-  if (language) form.append("language", language);
+  if (language) {
+    if (provider.name === "openai") {
+      form.append(
+        "languages[]",
+        language.split("-")[0]?.toLowerCase() ?? language,
+      );
+    } else {
+      form.append("language", language);
+    }
+  }
   if (instructions) form.append("prompt", instructions);
 
   const controller = new AbortController();

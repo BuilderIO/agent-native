@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -114,9 +114,6 @@ export function Sidebar() {
       <TooltipContent side="right">{t("root.searchForms")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={effectiveCollapsed ? "icon" : "sidebar"}
@@ -181,6 +178,14 @@ export function Sidebar() {
     if (isMobile) setMobileOpen(false);
     focusAgentChat();
     navigateWithAgentChatViewTransition(navigate, "/ask");
+  }
+
+  function handleBrandClick() {
+    if (isMobile) {
+      toggleLogoView();
+      return;
+    }
+    setCollapsed((value) => !value);
   }
 
   const newFormButton = (
@@ -253,6 +258,37 @@ export function Sidebar() {
   const sidebarContent = effectiveCollapsed ? (
     <div className="agent-layout-left-drawer flex h-screen w-12 min-w-0 shrink-0 flex-col items-center overflow-hidden border-e border-border bg-sidebar py-2 transition-[width] duration-200 ease-out">
       <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleBrandClick}
+              aria-label={t("sidebar.expandSidebar")}
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg outline-none transition-[background-color,box-shadow,transform] hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+              data-sidebar-brand-toggle
+            >
+              <img
+                src={appPath("/agent-native-icon-light.svg")}
+                alt=""
+                aria-hidden="true"
+                width={28}
+                height={16}
+                className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+              />
+              <img
+                src={appPath("/agent-native-icon-dark.svg")}
+                alt=""
+                aria-hidden="true"
+                width={28}
+                height={16}
+                className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+              />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {t("sidebar.expandSidebar")}
+          </TooltipContent>
+        </Tooltip>
         <nav className="mt-1 flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -340,7 +376,6 @@ export function Sidebar() {
         <SidebarFooterActions
           collapsed
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
         />
@@ -360,27 +395,38 @@ export function Sidebar() {
             <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label={t("sidebar.openAskFullScreen")}
+                aria-label={
+                  isMobile
+                    ? t("sidebar.openAskFullScreen")
+                    : t("sidebar.collapseSidebar")
+                }
                 className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-muted-foreground/80 active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={toggleLogoView}
+                onClick={handleBrandClick}
+                data-sidebar-brand-toggle
               >
                 <img
                   src={appPath("/agent-native-icon-light.svg")}
                   alt=""
                   aria-hidden="true"
-                  className="block h-4 w-auto shrink-0 dark:hidden"
+                  width={28}
+                  height={16}
+                  className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
                 />
                 <img
                   src={appPath("/agent-native-icon-dark.svg")}
                   alt=""
                   aria-hidden="true"
-                  className="hidden h-4 w-auto shrink-0 dark:block"
+                  width={28}
+                  height={16}
+                  className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
                 />
                 <span className="truncate">{t("navigation.brand")}</span>
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {t("sidebar.openAskFullScreen")}
+              {isMobile
+                ? t("sidebar.openAskFullScreen")
+                : t("sidebar.collapseSidebar")}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -468,7 +514,6 @@ export function Sidebar() {
         </div>
         <SidebarFooterActions
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
           className="px-0 py-0"

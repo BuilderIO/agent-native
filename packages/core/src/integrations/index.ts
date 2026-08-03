@@ -61,6 +61,7 @@ export {
 } from "./plugin.js";
 
 export {
+  createRemoteDevice,
   getRemoteComputerCapabilities,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
@@ -69,8 +70,13 @@ export {
 export {
   claimNextComputerCommand,
   enqueueComputerCommand,
+  getRemoteCommand,
   listRemoteCommandsForOwner,
 } from "./remote-commands-store.js";
+export {
+  createRemoteBrowserActionEntries,
+  type CreateRemoteBrowserActionEntriesOptions,
+} from "./remote-browser-actions.js";
 export {
   assertValidComputerCommandEnvelope,
   computeComputerActionHash,

@@ -10,9 +10,30 @@ interface PreflightResult {
   name: string;
   url: string;
   httpStatus: number | null;
-  protocol: "initialize" | "reachable" | "unavailable";
+  protocol: "discover" | "initialize" | "reachable" | "unavailable";
   status: "verified" | "preflight-only" | "restricted";
   note: string;
+}
+
+const MODERN_PROTOCOL_VERSION = "2026-07-28";
+const LEGACY_PROTOCOL_VERSION = "2025-11-25";
+
+function discoverBody() {
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "server/discover",
+    params: {
+      _meta: {
+        "io.modelcontextprotocol/protocolVersion": MODERN_PROTOCOL_VERSION,
+        "io.modelcontextprotocol/clientInfo": {
+          name: "agent-native-preflight",
+          version: "1.0.0",
+        },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
+  });
 }
 
 function initializeBody() {
@@ -21,7 +42,7 @@ function initializeBody() {
     id: 1,
     method: "initialize",
     params: {
-      protocolVersion: "2025-03-26",
+      protocolVersion: LEGACY_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: "agent-native-preflight", version: "1.0.0" },
     },
@@ -39,21 +60,43 @@ async function probe(
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const isSse = /\/sse(?:[/?]|$)/i.test(integration.url);
-    const response = await fetch(integration.url, {
+    let response = await fetch(integration.url, {
       method: isSse ? "GET" : "POST",
       headers: isSse
         ? { Accept: "text/event-stream" }
         : {
             Accept: "application/json, text/event-stream",
             "Content-Type": "application/json",
+            "MCP-Protocol-Version": MODERN_PROTOCOL_VERSION,
+            "Mcp-Method": "server/discover",
           },
-      ...(isSse ? {} : { body: initializeBody() }),
+      ...(isSse ? {} : { body: discoverBody() }),
       redirect: "manual",
       signal: controller.signal,
     });
-    const body = (await response.text()).slice(0, 2_000);
+    let body = (await response.text()).slice(0, 2_000);
+    let negotiated: "discover" | "initialize" = "discover";
+    if (
+      !isSse &&
+      isProtocolResponse(body) &&
+      (response.ok || response.status === 400) &&
+      !/"supportedVersions"\s*:/.test(body)
+    ) {
+      response = await fetch(integration.url, {
+        method: "POST",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+        body: initializeBody(),
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      body = (await response.text()).slice(0, 2_000);
+      negotiated = "initialize";
+    }
     const protocol = isProtocolResponse(body)
-      ? "initialize"
+      ? negotiated
       : response.status >= 200 && response.status < 500
         ? "reachable"
         : "unavailable";
@@ -69,7 +112,7 @@ async function probe(
       protocol,
       status: restricted
         ? "restricted"
-        : protocol === "initialize" &&
+        : (protocol === "discover" || protocol === "initialize") &&
             response.status >= 200 &&
             response.status < 300
           ? "verified"
@@ -78,9 +121,11 @@ async function probe(
         ? "Reachable, but authorization, redirect, or provider setup is still required."
         : response.status === 401
           ? "MCP endpoint is reachable and requires provider authorization."
-          : protocol === "initialize"
-            ? "Unauthenticated MCP initialize returned a protocol response."
-            : "Endpoint responded, but the unauthenticated probe did not complete MCP initialize.",
+          : protocol === "discover"
+            ? "Unauthenticated MCP discovery returned a modern protocol response."
+            : protocol === "initialize"
+              ? "Modern discovery fell back to a legacy MCP initialize response."
+              : "Endpoint responded, but the unauthenticated probe did not complete MCP discovery.",
     };
   } catch (error) {
     return {

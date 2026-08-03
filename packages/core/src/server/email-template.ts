@@ -42,6 +42,8 @@ export interface RenderEmailArgs {
   paragraphs: string[];
   /** Primary call-to-action rendered as a real button. */
   cta?: EmailCta;
+  /** Optional second button rendered beside the primary CTA, dark-filled. */
+  secondaryCta?: EmailCta;
   /** A treated, copyable URL shown before or after the CTA. */
   linkBlock?: EmailLinkBlock;
   /**
@@ -50,6 +52,8 @@ export interface RenderEmailArgs {
    * by app/template code (never raw user input), and escape any dynamic values.
    */
   heroHtml?: string;
+  /** Body paragraphs rendered after the CTA and link block. Escaped-by-caller. */
+  closingParagraphs?: string[];
   /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /** Optional app name shown beside the framework logo. */
@@ -128,12 +132,18 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   // dynamic values they interpolate.
   const heroHtml = args.heroHtml ?? "";
 
-  const paragraphsHtml = args.paragraphs
-    .map(
-      (p) =>
-        `<p style="margin:0 0 16px 0; font-size:16px; line-height:1.6; color:#d4d4d8;">${p}</p>`,
-    )
-    .join("");
+  const renderParagraphs = (paragraphs: string[] | undefined): string =>
+    (paragraphs ?? [])
+      .map(
+        (p) =>
+          `<p style="margin:0 0 16px 0; font-size:16px; line-height:1.6; color:#d4d4d8;">${p}</p>`,
+      )
+      .join("");
+
+  const paragraphsHtml = renderParagraphs(args.paragraphs);
+  const closingParagraphsHtml = args.closingParagraphs?.length
+    ? `<div style="margin:28px 0 0 0;">${renderParagraphs(args.closingParagraphs)}</div>`
+    : "";
 
   const linkBlockHtml = args.linkBlock
     ? `
@@ -148,16 +158,27 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     `
     : "";
 
+  const ctaButtonCell = (
+    cta: EmailCta,
+    background: string,
+    color: string,
+    border: string,
+  ): string => `
+          <td style="border-radius:10px; background:${background}; border:${border};">
+            <a href="${escapeAttr(cta.url)}"
+               style="display:inline-block; padding:14px 26px; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:15px; font-weight:600; color:${color}; text-decoration:none; border-radius:10px;">
+              ${escapeHtml(cta.label)}
+            </a>
+          </td>`;
+
+  const secondaryCtaHtml = args.secondaryCta
+    ? `<td style="width:12px;">&nbsp;</td>${ctaButtonCell(args.secondaryCta, "#141417", "#fafafa", "1px solid #3f3f46")}`
+    : "";
+
   const ctaHtml = args.cta
     ? `
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0 0;">
-        <tr>
-          <td style="border-radius:10px; background:${ctaBg};">
-            <a href="${escapeAttr(args.cta.url)}"
-               style="display:inline-block; padding:14px 26px; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:15px; font-weight:600; color:${ctaFg}; text-decoration:none; border-radius:10px;">
-              ${escapeHtml(args.cta.label)}
-            </a>
-          </td>
+        <tr>${ctaButtonCell(args.cta, ctaBg, ctaFg, "0")}${secondaryCtaHtml}
         </tr>
       </table>
     `
@@ -211,6 +232,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                 ${args.linkBlock?.placement !== "after-cta" ? linkBlockHtml : ""}
                 ${ctaHtml}
                 ${args.linkBlock?.placement === "after-cta" ? linkBlockHtml : ""}
+                ${closingParagraphsHtml}
                 ${footerHtml}
               </td>
             </tr>
@@ -237,9 +259,17 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     textLines.push(`${args.cta.label}: ${args.cta.url}`);
     textLines.push("");
   }
+  if (args.secondaryCta) {
+    textLines.push(`${args.secondaryCta.label}: ${args.secondaryCta.url}`);
+    textLines.push("");
+  }
   if (args.linkBlock?.placement === "after-cta") {
     textLines.push(args.linkBlock.intro);
     textLines.push(args.linkBlock.url);
+    textLines.push("");
+  }
+  for (const p of args.closingParagraphs ?? []) {
+    textLines.push(stripTags(p));
     textLines.push("");
   }
   if (args.footer) {

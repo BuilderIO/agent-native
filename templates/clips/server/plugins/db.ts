@@ -899,6 +899,16 @@ const migrations = runMigrations(
         `UPDATE recordings SET upload_lease_expires_at = '${uploadLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status IN ('uploading', 'processing')`,
       ].join("; "),
     },
+    {
+      version: 54,
+      name: "recording-upload-attempt-fence",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_attempt_id TEXT`,
+    },
+    {
+      version: 55,
+      name: "recording-upload-generation-fence",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_generation_id TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

@@ -10,12 +10,13 @@ Use Brain actions rather than raw SQL.
 1. Call `get-brain-settings` before answering, searching broadly, or distilling when current settings are not already in context. Apply the returned guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, redaction, and distillation instructions.
 2. Import raw material with `import-capture` (generic) or `import-transcript`
    (meeting-shaped: participants, `sourceUrl`, tags). Both default
-   `enqueueDistillation: true` and auto-create a `manual` source when
-   `sourceId` is omitted — don't call `create-source` first just to import one
-   ad hoc capture.
-3. Call `enqueue-distillation` when a capture needs distillation. Re-running it
-   for a capture that's already queued/processing refreshes the handoff
-   instructions instead of creating a duplicate queue row.
+   `enqueueDistillation: true`, immediately create or reuse a queue item, and
+   auto-create a `manual` source when `sourceId` is omitted — don't call
+   `create-source` first just to import one ad hoc capture.
+3. Call `enqueue-distillation` when an existing capture needs an explicit
+   queue/retry handoff. Re-running it for a capture that's already
+   queued/processing refreshes the handoff instructions instead of creating a
+   duplicate queue row.
 4. Before writing knowledge, call `get-capture` and copy short exact quotes.
    Quotes and offsets always reference the persisted safe capture, never an
    upstream raw payload. `get-capture` redacts `title`/`content`/`metadata` by
@@ -131,13 +132,23 @@ not just documented:
 returning an answer with no usable citation — it returns a policy-explanation
 message instead of a bare summary when that happens.
 
+Each source may also carry an `answerPolicy`, configured through the
+`create-source` / `update-source` `policy` argument. `ask-brain` excludes stale
+or answer-ineligible results, prevents review-required raw captures from
+supporting answers, ranks `blessed` before `standard` before `untrusted`, and
+then ranks by `authority`. It returns the evaluated policy alongside citations
+so external apps can explain why a result was preferred or excluded. Sources
+without this policy retain the compatible `standard`, eligible, authority-50
+behavior.
+
 ## Publish Tiers And Proposal Gating
 
 `write-knowledge` writes at a `publishTier`: `private` (draft, private
 visibility), `team`, or `company` (published, org visibility) — default comes
 from `settings.defaultPublishTier`. A `company`-tier write becomes a
-**proposal** (`mode: "proposal"`, held for human review) instead of publishing
-immediately when ALL of:
+**proposal** (`mode: "proposal"`, held for human review) when any cited source
+has `answerPolicy.reviewRequired: true`. Otherwise the workspace approval
+behavior applies when ALL of:
 
 - `proposalMode !== "never"`, and
 - `tier === "company"`, and
@@ -163,7 +174,7 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | `ask-brain` | Cited-answer endpoint: reviewed knowledge, capped raw-capture fallback, citations, `federatedCoverage`. |
 | `get-knowledge` / `list-knowledge` | Read one or list distilled knowledge records. |
 | `get-capture` / `list-captures` | Read one or list raw captures (redacted by default; `includeRawContent` for exact quotes). |
-| `import-capture` / `import-transcript` | Ingest a generic capture or a meeting transcript; auto-creates a `manual` source. |
+| `import-capture` / `import-transcript` | Ingest a generic capture or meeting transcript, auto-create a `manual` source when needed, and queue distillation by default. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue a capture for distillation; close out the queue row when done. |
 | `write-knowledge` | Write/update durable knowledge; may return a pending proposal — see Publish Tiers above. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Human-review workflow for gated writes. |

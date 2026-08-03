@@ -22,13 +22,14 @@ function resolveScope() {
 async function syncToCollab(
   dashboardId: string,
   config: Record<string, unknown>,
+  requestSource?: string,
 ): Promise<void> {
   const docId = `dash-${dashboardId}`;
   const configStr = JSON.stringify(config);
   try {
     const exists = await hasCollabState(docId);
     if (exists) {
-      await applyText(docId, configStr, "content", "agent");
+      await applyText(docId, configStr, "content", requestSource);
     } else {
       await seedFromText(docId, configStr);
     }
@@ -49,7 +50,7 @@ export default defineAction({
       .describe("The dashboard updatedAt value observed before this restore"),
   }),
   http: { method: "POST" },
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const restored = await restoreDashboardRevision(
       args.dashboardId,
       args.revisionId,
@@ -62,7 +63,11 @@ export default defineAction({
       );
     }
     const { dashboard, snapshotRevisionId } = restored;
-    await syncToCollab(dashboard.id, dashboard.config);
+    await syncToCollab(
+      dashboard.id,
+      dashboard.config,
+      actionContext?.caller === "frontend" ? undefined : "agent",
+    );
     return {
       id: dashboard.id,
       kind: dashboard.kind,

@@ -92,7 +92,7 @@ import {
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -484,12 +484,28 @@ function SortableRow({
   const isFav = favoriteIds.has(favoriteKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
+    useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
   }, [isRenaming, name]);
+
+  useEffect(() => {
+    if (menuOpen || !openDeleteAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenDeleteAfterMenuClose(false);
+      setConfirmDeleteOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [menuOpen, openDeleteAfterMenuClose]);
+
+  const requestDashboardDelete = useCallback(() => {
+    setOpenDeleteAfterMenuClose(true);
+    setMenuOpen(false);
+  }, []);
 
   const submitRename = useCallback(async () => {
     const trimmed = renameValue.trim();
@@ -773,8 +789,7 @@ function SortableRow({
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
-                      setMenuOpen(false);
-                      setConfirmDeleteOpen(true);
+                      requestDashboardDelete();
                     }}
                     className="text-destructive focus:text-destructive"
                   >
@@ -786,8 +801,7 @@ function SortableRow({
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
-                    setMenuOpen(false);
-                    setConfirmDeleteOpen(true);
+                    requestDashboardDelete();
                   }}
                   className="text-destructive focus:text-destructive"
                 >
@@ -2122,9 +2136,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </TooltipContent>
     </Tooltip>
   );
-  const footerTranslate = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const footerCollapse = !mobile ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2203,7 +2214,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <SidebarFooterActions
             collapsed
             feedback={footerFeedback}
-            translate={footerTranslate}
             search={footerSearch}
             collapse={footerCollapse}
           />
@@ -2219,13 +2229,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 src={appPath("/agent-native-icon-light.svg")}
                 alt=""
                 aria-hidden="true"
-                className="block h-5 w-auto shrink-0 dark:hidden"
+                width={35}
+                height={20}
+                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
               />
               <img
                 src={appPath("/agent-native-icon-dark.svg")}
                 alt=""
                 aria-hidden="true"
-                className="hidden h-5 w-auto shrink-0 dark:block"
+                width={35}
+                height={20}
+                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
               />
               <span className="text-lg font-bold tracking-tight">
                 {t("navigation.brand")}
@@ -2284,9 +2298,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && isAskRoute ? (
-                  <AnalyticsChatsSection isAskRoute open />
-                ) : null}
+                <AnalyticsChatsSection
+                  isAskRoute={isAskRoute}
+                  open={askOpen && isAskRoute}
+                />
               </div>
 
               {/* Sessions link */}
@@ -2575,7 +2590,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 <TooltipProvider delayDuration={200}>
                   <SidebarFooterActions
                     feedback={footerFeedback}
-                    translate={footerTranslate}
                     search={footerSearch}
                     collapse={footerCollapse}
                     className="px-0 py-0"

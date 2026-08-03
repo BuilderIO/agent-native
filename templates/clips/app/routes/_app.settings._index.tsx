@@ -3,9 +3,9 @@ import {
   appApiPath,
 } from "@agent-native/core/client/api-path";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import { useSession, useActionQuery } from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { TeamPage, useOrg, useSwitchOrg } from "@agent-native/core/client/org";
+import { useOrg, useSwitchOrg } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   useBuilderConnectFlow,
@@ -30,7 +30,6 @@ import {
   IconLoader2,
   IconServer,
   IconTrash,
-  IconUser,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -71,6 +70,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { OrganizationIdentityCard } from "@/components/workspace/organization-identity-card";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
@@ -166,7 +166,6 @@ const AI_PROVIDER_FIELDS = [
 interface ClipsUserSettings {
   defaultPlaybackSpeed?: string;
   emailNotifications?: boolean;
-  displayName?: string;
   transcriptCleanupEnabled?: boolean;
   includeFullVideoInAi?: boolean;
 }
@@ -393,12 +392,29 @@ async function saveRegisteredSecret(key: string, value: string): Promise<void> {
 }
 
 export default function SettingsIndexRoute() {
-  const { session } = useSession();
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
+  // Organization identity (name, logo, brand color) belongs with membership,
+  // so it rides on the framework's Organization tab rather than a second one.
+  const settingsTabs = useMemo(
+    () =>
+      agentSettingsTabs.map((tab) =>
+        tab.id === "organization"
+          ? {
+              ...tab,
+              content: (
+                <div className="mx-auto w-full max-w-2xl space-y-6">
+                  <OrganizationIdentityCard />
+                  {tab.content}
+                </div>
+              ),
+            }
+          : tab,
+      ),
+    [agentSettingsTabs],
+  );
   const { data: org } = useOrg();
   const switchOrg = useSwitchOrg();
-  const email = session?.email ?? "";
   const storageStatus = useVideoStorageStatus();
   const builderStatus = useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
@@ -430,7 +446,6 @@ export default function SettingsIndexRoute() {
     useState<SlackInstallation | null>(null);
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");
   const [emailNotifications, setEmailNotifications] = useState(true);
-  const [displayName, setDisplayName] = useState("");
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
@@ -496,7 +511,6 @@ export default function SettingsIndexRoute() {
       if (cancelled) return;
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
       setEmailNotifications(v.emailNotifications ?? true);
-      setDisplayName(v.displayName ?? "");
       setTranscriptCleanupEnabled(v.transcriptCleanupEnabled !== false);
       setLoading(false);
     });
@@ -531,7 +545,6 @@ export default function SettingsIndexRoute() {
       await saveSettings({
         defaultPlaybackSpeed: defaultSpeed,
         emailNotifications,
-        displayName: displayName.trim() || undefined,
         transcriptCleanupEnabled,
       });
       toast.success(t("settings.saved"));
@@ -802,12 +815,6 @@ export default function SettingsIndexRoute() {
         hash: "ai-providers",
       },
       {
-        id: "clips-profile",
-        label: t("settings.profile"),
-        keywords: "profile email display name",
-        hash: "profile",
-      },
-      {
         id: "clips-playback",
         label: t("settings.playback"),
         keywords: "playback speed video default",
@@ -839,7 +846,7 @@ export default function SettingsIndexRoute() {
       <SettingsTabsPage
         account={<AccountSettingsCard />}
         whatsNewLabel={t("settings.whatsNew")}
-        extraTabs={agentSettingsTabs}
+        extraTabs={settingsTabs}
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-4xl space-y-6">
@@ -1477,33 +1484,6 @@ export default function SettingsIndexRoute() {
                 </CardContent>
               </Card>
 
-              <Card id="profile" className="scroll-mt-16">
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <IconUser className="size-4 text-primary" />
-                    {t("settings.profile")}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="email">{t("settings.email")}</Label>
-                    <Input id="email" value={email} readOnly disabled />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="display-name">
-                      {t("settings.displayName")}
-                    </Label>
-                    <Input
-                      id="display-name"
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder={t("settings.displayNamePlaceholder")}
-                      disabled={loading}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
               <Card id="playback" className="scroll-mt-16">
                 <CardHeader>
                   <CardTitle className="text-base">
@@ -1603,14 +1583,6 @@ export default function SettingsIndexRoute() {
                 </Button>
               </div>
             </div>
-          </div>
-        }
-        team={
-          <div className="mx-auto w-full max-w-3xl">
-            <TeamPage
-              showTitle={false}
-              createOrgDescription={t("organizationSettings.description")}
-            />
           </div>
         }
         whatsNew={

@@ -73,6 +73,24 @@ const messages = {
       suggestionGrantKey: "Otorgar mi clave OpenAI a esta aplicación",
     },
     pages: {
+      browserChatUnavailableTitle:
+        "La sesión de chat del navegador no está disponible",
+      browserChatUnavailableDescription:
+        "Vuelve a conectarte desde la extensión Agent-Native.",
+      browserChatPlaceholder: "Pregunta sobre esta página…",
+      browserChatAttachedPlaceholder: "Pregunta sobre {{page}}…",
+      browserConnectTitle: "Conectar el chat del navegador",
+      browserConnectDescription:
+        "Permite que la extensión de Chrome Agent-Native abra esta sesión de Dispatch. La conexión usa un ticket único y de corta duración.",
+      browserConnectInvalid:
+        "Esta solicitud de conexión no es válida. Vuelve a empezar desde la extensión.",
+      browserConnectConnected:
+        "El chat del navegador está conectado. Puedes cerrar esta pestaña.",
+      browserConnectConnecting: "Conectando…",
+      browserConnectButton: "Conectar",
+      browserConnectOpenFromExtension:
+        "Abre esta página desde la extensión de Chrome Agent-Native.",
+      browserConnectFailed: "La extensión del navegador no se conectó.",
       appsDescription:
         "Abra las aplicaciones del espacio de trabajo y comience la creación de nuevas aplicaciones desde Dispatch.",
       appsDescriptionWithWorkspace:
@@ -368,6 +386,16 @@ const messages = {
     deleting: "Archivando...",
     openFullView: "Abrir vista completa",
     removeFromWidgetArea: "Eliminar de esta área de widgets",
+    customBlockSandboxed: "Bloque personalizado · aislado",
+    sandboxedCustomBlock: "Bloque SQL personalizado y aislado",
+    sandboxedCustomBlockCreatedBy:
+      "Bloque SQL personalizado y aislado creado por {{email}}",
+    promoteToAppCode: "Promover a código de aplicación",
+    historyShowsSourceVersions: "El historial muestra versiones del código",
+    createdByHistoryShowsSourceVersions:
+      "Creado por {{email}}. El historial muestra versiones del código.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Creado por {{email}} · El historial muestra versiones del código",
     deleteExtensionEllipsis: "Archivar extensión...",
     removeFromMyListEllipsis: "Quitar de mi lista...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

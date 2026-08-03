@@ -203,7 +203,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — 為此提示建立一個單獨的聊天對話串。
 - **`background`** — 使用 `newTab`，執行時無需聚焦新對話串。隱藏執行在 `RunsTray` 中進行跟蹤。
 - **`openSidebar`** — 設定為 `false` 以進行背景/靜默傳送。預設開啟側邊欄，以便使用者看到回應。
-- **`type`** — `"content"`（預設）將工作保留在嵌入式應用程式代理中。 `"code"` 路由到程式碼編輯框架（對於代理編寫的程式碼更改，請參閱 [Frames](/docs/frames)）。
+- **`type`** — `"content"`（預設）將工作保留在使用應用程式工具的嵌入式代理中。`"code"` 會路由到獨立的程式碼能力 frame 以變更程式碼庫原始檔；只有當主機有意授予 repository/workspace 工具時才提供寫入權限。參見 [Frames](/docs/frames)。
 
 `sendToAgentChat` 返回一個穩定的 `tabId`，您可以使用它來跟蹤聊天執行。
 

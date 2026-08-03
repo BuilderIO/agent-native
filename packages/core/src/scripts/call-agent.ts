@@ -3,10 +3,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import {
   A2ATaskTimeoutError,
+  MAX_A2A_CALLER_RESPONSE_CHARS,
   callAgent,
   shouldPreferGlobalA2ASecret,
   signA2AToken,
 } from "../a2a/client.js";
+import { MAX_A2A_DELEGATION_HOPS } from "../a2a/correlation.js";
 import { invokeAgentAction } from "../a2a/invoke.js";
 import type {
   A2AApprovedAction,
@@ -22,30 +24,122 @@ import {
 import type { ActionRunContext } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
+import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
 import { findAgent, discoverAgents } from "../server/agent-discovery.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
+  getRequestRunContext,
   isIntegrationCallerRequest,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
+import { track } from "../tracking/registry.js";
 
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
+const NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS = 15_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
+const A2A_INVOCATION_EVENT = "$a2a_invocation";
+
+type A2AInvocationStatus = "success" | "pending" | "error";
+
+function trackA2AInvocation(args: {
+  invocationId: string;
+  callerApp?: string;
+  targetApp: string;
+  mode: "message" | "task_poll" | "direct_action";
+  status: A2AInvocationStatus;
+  startedAt: number;
+  taskId?: string;
+  terminalCode?: string;
+  correlation: A2ACorrelationMetadata;
+}): void {
+  try {
+    track(
+      A2A_INVOCATION_EVENT,
+      {
+        ...trackingIdentityProperties(),
+        source: "a2a_delegation",
+        invocation_id: args.invocationId,
+        caller_app: args.callerApp ?? "unknown",
+        target_app: args.targetApp,
+        mode: args.mode,
+        status: args.status,
+        duration_ms: Math.max(0, Date.now() - args.startedAt),
+        task_id: args.taskId,
+        terminal_code: args.terminalCode,
+        delegation_depth: args.correlation.delegationDepth,
+        parent_run_id: args.correlation.parentRunId,
+        parent_turn_id: args.correlation.parentTurnId,
+      },
+      { userId: getRequestUserEmail() },
+    );
+  } catch {
+    // Tracking must never affect delegation.
+  }
+}
 
 function buildDelegationCorrelation(
   context: ActionRunContext | undefined,
   selfAppId: string | undefined,
   invocationId?: string,
 ): A2ACorrelationMetadata {
+  const self = normalizeAppHandle(selfAppId);
+  const inheritedVisited = Array.isArray(context?.visitedApps)
+    ? context.visitedApps.map(normalizeAppHandle).filter(Boolean)
+    : [];
+  const visitedApps = self
+    ? [...new Set([...inheritedVisited, self])]
+    : [...new Set(inheritedVisited)];
+  const inheritedDepth = Number.isInteger(context?.delegationDepth)
+    ? Math.max(0, Number(context?.delegationDepth))
+    : 0;
+  // The model this turn is actually running on, so a receiver with no model of
+  // its own can match the user's selection instead of its own default. A
+  // preference only — the receiver bounds it to its own engine's catalog.
+  const callerModel = getRequestRunContext()?.model?.trim();
   return {
     ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
+    ...(callerModel ? { callerModel } : {}),
     ...(context?.threadId ? { callerThreadId: context.threadId } : {}),
     ...(context?.runId ? { parentRunId: context.runId } : {}),
     ...(context?.turnId ? { parentTurnId: context.turnId } : {}),
     ...(invocationId ? { invocationId } : {}),
+    delegationDepth: Math.min(MAX_A2A_DELEGATION_HOPS, inheritedDepth + 1),
+    ...(visitedApps.length > 0 ? { visitedApps } : {}),
+  };
+}
+
+function normalizeAppHandle(value: unknown): string {
+  return typeof value === "string"
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/^agent-native-/, "")
+    : "";
+}
+
+function terminalTaskError(value: unknown): {
+  state: string;
+  taskId?: string;
+  responseText?: string;
+  errorCode?: string;
+} | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.name !== "A2ATaskTerminalError") return null;
+  return {
+    state: String(candidate.state ?? "failed"),
+    ...(typeof candidate.taskId === "string"
+      ? { taskId: candidate.taskId }
+      : {}),
+    ...(typeof candidate.responseText === "string"
+      ? { responseText: candidate.responseText }
+      : {}),
+    ...(typeof candidate.errorCode === "string"
+      ? { errorCode: candidate.errorCode }
+      : {}),
   };
 }
 
@@ -74,13 +168,32 @@ function parseTimeoutMs(value: string | undefined): number | undefined {
   return Math.floor(parsed);
 }
 
+function hasExplicitNonHostedNetlifyOverride(): boolean {
+  return (
+    process.env.NETLIFY_LOCAL === "true" || process.env.NETLIFY === "false"
+  );
+}
+
+function isNetlifyHostedRuntimeForIntegrationCall(): boolean {
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
+  if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
+
+  // NETLIFY is a build-time marker, while deployed Netlify Functions expose
+  // SITE_ID at runtime. Recognize the same runtime-only marker used by the
+  // durable background and run-manager gates so the integration caller hands
+  // slow A2A work to durable delivery before its foreground budget expires.
+  return Boolean(process.env.SITE_ID); // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+}
+
 function isServerlessHost(): boolean {
+  if (hasExplicitNonHostedNetlifyOverride()) return false;
+
   // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
   // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
   // the canonical signal is the `__cf_env`/`__env__` global injected by the
   // Cloudflare runtime adapter.
   return (
-    !!process.env.NETLIFY ||
+    isNetlifyHostedRuntimeForIntegrationCall() ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.VERCEL ||
     "__cf_env" in globalThis ||
@@ -100,7 +213,9 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   // calls very short so multi-agent integration requests queue downstream
   // continuations quickly instead of spending the parent Slack/email processor
   // budget waiting on separately deployed apps one-by-one.
-  if (process.env.NETLIFY) return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
+  if (isNetlifyHostedRuntimeForIntegrationCall()) {
+    return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
+  }
 
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
@@ -175,7 +290,7 @@ function formatDownstreamLlmCredentialFailure(
 
 export const tool: ActionTool = {
   description:
-    "Call a DIFFERENT, separately-deployed app over A2A. When you know the exact exposed read-only action, pass action + input and omit message; this invokes it directly without starting the other app's model and is the fastest path for bounded data reads. Use message only for natural-language investigation, synthesis, mutations, or multi-step work that needs the other agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
     'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
@@ -203,7 +318,7 @@ export const tool: ActionTool = {
       action: {
         type: "string",
         description:
-          "Exact read-only action exposed by the target app. Use with input and omit message/taskId to skip the downstream agent loop.",
+          "Optional exact read-only action for an explicitly known bounded operation. Prefer message when the target agent must interpret data, choose sources or tools, synthesize, mutate, or do multi-step work. Never guess the action schema or send receiver-owned SQL.",
       },
       input: {
         type: "object",
@@ -259,6 +374,16 @@ export async function run(
     return `Error: You cannot use call-agent to call yourself (${selfAppId}). Use your own registered actions/tools instead. call-agent is only for communicating with OTHER separately-deployed apps.`;
   }
 
+  const inheritedDepth = Number.isInteger(context?.delegationDepth)
+    ? Math.max(0, Number(context?.delegationDepth))
+    : 0;
+  if (!taskId && inheritedDepth >= MAX_A2A_DELEGATION_HOPS) {
+    return (
+      `Error: Cross-app delegation stopped at the ${MAX_A2A_DELEGATION_HOPS}-hop limit. ` +
+      "Finish with the results already collected instead of starting another agent."
+    );
+  }
+
   const agent = await findAgent(agentIdOrName, selfAppId);
   if (!agent) {
     const available = (await discoverAgents(selfAppId))
@@ -267,15 +392,42 @@ export async function run(
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
 
+  if (!taskId) {
+    const visited = new Set(
+      (context?.visitedApps ?? []).map(normalizeAppHandle).filter(Boolean),
+    );
+    const self = normalizeAppHandle(selfAppId);
+    if (self) visited.add(self);
+    const targetHandles = [
+      normalizeAppHandle((agent as { id?: string }).id),
+      normalizeAppHandle(agent.name),
+      normalizeAppHandle(agentIdOrName),
+    ].filter(Boolean);
+    const repeated = targetHandles.find((handle) => visited.has(handle));
+    if (repeated) {
+      return (
+        `Error: Cross-app delegation cycle blocked before calling ${agent.name}. ` +
+        `The request already visited ${[...visited].join(" -> ")}.`
+      );
+    }
+  }
+
   const correlation = buildDelegationCorrelation(context, selfAppId);
   const idempotencyKey =
     message && !taskId
       ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
       : undefined;
+  const targetApp =
+    normalizeAppHandle((agent as { id?: string }).id) ||
+    normalizeAppHandle(agent.name) ||
+    normalizeAppHandle(agentIdOrName) ||
+    "unknown";
 
   if (action) {
     const agentCallId = randomUUID();
     const startedAt = Date.now();
+    let terminalStatus: "done" | "error" = "done";
+    let terminalCode: string | undefined;
     if (context?.send) {
       context.send({
         type: "agent_call",
@@ -291,6 +443,10 @@ export async function run(
         input as Record<string, unknown>,
         buildDelegationCorrelation(context, selfAppId, randomUUID()),
       );
+      if (/^Error\b/i.test(output)) {
+        terminalStatus = "error";
+        terminalCode = "direct_action_failed";
+      }
       if (context?.send && output) {
         context.send({
           type: "agent_call_text",
@@ -300,12 +456,26 @@ export async function run(
         });
       }
       return output;
+    } catch (error) {
+      terminalStatus = "error";
+      terminalCode = "direct_action_failed";
+      throw error;
     } finally {
+      trackA2AInvocation({
+        invocationId: agentCallId,
+        callerApp: selfAppId,
+        targetApp,
+        mode: "direct_action",
+        status: terminalStatus === "done" ? "success" : "error",
+        startedAt,
+        terminalCode,
+        correlation,
+      });
       if (context?.send) {
         context.send({
           type: "agent_call",
           agent: agent.name,
-          status: "done",
+          status: terminalStatus,
           agentCallId,
           durationMs: Date.now() - startedAt,
         });
@@ -322,10 +492,18 @@ export async function run(
   const messageWithHint = taskId
     ? ""
     : `${message}${integrationSourceContextHint(sourceContext)}\n\n` +
-      `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
+      `<a2a-caller-hint>\n` +
+      `This request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
       `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
       `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts. ` +
-      `Return a concise caller-ready synthesis rather than raw tool output or full transcripts; preserve source counts, IDs, short supporting quotes, and URLs needed to substantiate the answer.]`;
+      `Return a concise caller-ready synthesis rather than raw tool output or full transcripts; preserve source counts, IDs, short supporting quotes, and URLs needed to substantiate the answer.\n` +
+      `</a2a-caller-hint>`;
+
+  const invocationId = randomUUID();
+  const invocationStartedAt = Date.now();
+  let invocationStatus: A2AInvocationStatus = "error";
+  let invocationTaskId = taskId || undefined;
+  let invocationTerminalCode: string | undefined;
 
   try {
     // If we have a send context, use streaming so the UI shows progressive text
@@ -388,10 +566,15 @@ export async function run(
       let responseText = "";
       let lastSentLength = 0;
       const agentCallId = randomUUID();
+      let terminalStatus: "done" | "pending" | "error" = "done";
       const existingContinuationText = taskId
         ? null
         : await formatExistingIntegrationContinuationIfRetry(agent, message);
-      if (existingContinuationText) return existingContinuationText;
+      if (existingContinuationText) {
+        invocationStatus = "pending";
+        invocationTerminalCode = "existing_continuation";
+        return existingContinuationText;
+      }
 
       context.send({
         type: "agent_call",
@@ -515,6 +698,10 @@ export async function run(
         // Docker can wait for slow-but-valid answers; integration processors
         // still need to finish before their current function execution dies.
         const callTimeoutMs = getIntegrationCallTimeoutMs();
+        const submissionTimeoutMs =
+          callTimeoutMs && isNetlifyHostedRuntimeForIntegrationCall()
+            ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
+            : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
           apiKey,
           userEmail: callerEmail,
@@ -531,6 +718,7 @@ export async function run(
           ...(callTimeoutMs
             ? {
                 timeoutMs: callTimeoutMs,
+                ...(submissionTimeoutMs ? { submissionTimeoutMs } : {}),
               }
             : {}),
         });
@@ -547,6 +735,9 @@ export async function run(
       } catch (pollErr: any) {
         const timeoutTaskId = getA2ATaskTimeoutTaskId(pollErr);
         if (timeoutTaskId) {
+          terminalStatus = "pending";
+          invocationTaskId = timeoutTaskId;
+          invocationTerminalCode = "timeout_pending";
           const queued = await enqueueIntegrationContinuationIfPossible(
             timeoutTaskId,
             agent,
@@ -580,23 +771,70 @@ export async function run(
               );
             }
           }
+        } else if (terminalTaskError(pollErr)?.state === "input-required") {
+          terminalStatus = "pending";
+          const terminal = terminalTaskError(pollErr)!;
+          invocationTaskId = terminal.taskId;
+          invocationTerminalCode = terminal.errorCode ?? "input_required";
+          responseText = formatInputRequiredWaitInstruction(
+            agent.name,
+            terminal,
+            agentIdOrName,
+          );
+        } else if (terminalTaskError(pollErr)) {
+          terminalStatus = "error";
+          const terminal = terminalTaskError(pollErr)!;
+          invocationTaskId = terminal.taskId;
+          invocationTerminalCode = terminal.errorCode ?? terminal.state;
+          const detail = expandRelativeUrls(
+            terminal.responseText ?? pollErr?.message ?? "unknown failure",
+            agent.url,
+          );
+          responseText =
+            `Error: The ${agent.name} agent ended ${terminal.state}` +
+            (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
+            (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+            (detail ? `: ${detail}` : "");
         } else {
+          terminalStatus = "error";
+          invocationTerminalCode = "call_failed";
           const reason = pollErr?.message ?? "unknown error";
           responseText =
             formatDownstreamLlmCredentialFailure(agent.name, pollErr) ??
-            `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+            `Error: The ${agent.name} agent call failed. (${reason})`;
         }
       }
+
+      if (!responseText && terminalStatus === "done") {
+        terminalStatus = "error";
+        invocationTerminalCode = "empty_agent_response";
+      }
+      if (responseText.length > MAX_A2A_CALLER_RESPONSE_CHARS) {
+        terminalStatus = "error";
+        invocationTerminalCode = "a2a_response_too_large";
+        responseText =
+          `Error: The ${agent.name} agent returned more data than the caller can safely consume. ` +
+          "Ask it for a concise synthesis or a retrievable artifact instead.";
+      }
+      invocationStatus =
+        terminalStatus === "done"
+          ? "success"
+          : terminalStatus === "pending"
+            ? "pending"
+            : "error";
 
       context.send({
         type: "agent_call",
         agent: agent.name,
-        status: "done",
+        status: terminalStatus,
         agentCallId,
+        ...(invocationTaskId ? { taskId: invocationTaskId } : {}),
         durationMs: Date.now() - callStartedAt,
       });
 
-      return responseText || "(empty response)";
+      return (
+        responseText || `Error: The ${agent.name} agent returned no result.`
+      );
     }
 
     // No context — use the async + poll call so we don't get cut off at the
@@ -627,7 +865,22 @@ export async function run(
     });
     const sanitized =
       formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;
-    return expandRelativeUrls(sanitized, agent.url) || "(empty response)";
+    const expanded = expandRelativeUrls(sanitized, agent.url);
+    if (!expanded) {
+      invocationStatus = "error";
+      invocationTerminalCode = "empty_agent_response";
+      return "Error: The remote agent returned no result.";
+    }
+    if (expanded.length > MAX_A2A_CALLER_RESPONSE_CHARS) {
+      invocationStatus = "error";
+      invocationTerminalCode = "a2a_response_too_large";
+      return (
+        `Error: The ${agent.name} agent returned more data than the caller can safely consume. ` +
+        "Ask it for a concise synthesis or a retrievable artifact instead."
+      );
+    }
+    invocationStatus = "success";
+    return expanded;
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     const credentialMessage = formatDownstreamLlmCredentialFailure(
@@ -635,8 +888,33 @@ export async function run(
       err,
     );
     if (credentialMessage) return credentialMessage;
+    const terminal = terminalTaskError(err);
+    if (terminal?.state === "input-required") {
+      invocationStatus = "pending";
+      invocationTaskId = terminal.taskId;
+      invocationTerminalCode = terminal.errorCode ?? "input_required";
+      return formatInputRequiredWaitInstruction(
+        agent.name,
+        terminal,
+        agentIdOrName,
+      );
+    }
+    if (terminal) {
+      invocationStatus = "error";
+      invocationTaskId = terminal.taskId;
+      invocationTerminalCode = terminal.errorCode ?? terminal.state;
+      return (
+        `Error calling ${agent.name}: remote task ${terminal.state}` +
+        (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
+        (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+        (terminal.responseText ? `: ${terminal.responseText}` : "")
+      );
+    }
     const timeoutTaskId = getA2ATaskTimeoutTaskId(err);
     if (timeoutTaskId) {
+      invocationStatus = "pending";
+      invocationTaskId = timeoutTaskId;
+      invocationTerminalCode = "timeout_pending";
       return formatExistingTaskWaitInstruction(
         agent.name,
         timeoutTaskId,
@@ -646,9 +924,25 @@ export async function run(
     // Friendlier message for the common timeout case so the calling agent can
     // decide whether to give up or retry.
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
-      return `The ${agent.name} agent is taking longer than expected. Please try again, ask a simpler question, or open the ${agent.name} app directly.`;
+      invocationStatus = "error";
+      invocationTerminalCode = "timeout_without_task";
+      return `Error calling ${agent.name}: the remote request timed out before a task id could be recovered.`;
     }
+    invocationStatus = "error";
+    invocationTerminalCode = "call_failed";
     return `Error calling ${agent.name}: ${msg}`;
+  } finally {
+    trackA2AInvocation({
+      invocationId,
+      callerApp: selfAppId,
+      targetApp,
+      mode: taskId ? "task_poll" : "message",
+      status: invocationStatus,
+      startedAt: invocationStartedAt,
+      taskId: invocationTaskId,
+      terminalCode: invocationTerminalCode,
+      correlation,
+    });
   }
 }
 
@@ -708,6 +1002,28 @@ function formatExistingTaskWaitInstruction(
     `The ${agentName} task is still running under taskId "${taskId}". ` +
     `Do not send ${agentName} a new check-in or follow-up message; that would start duplicate work. ` +
     `Call call-agent again with agent="${agentIdOrName}" and taskId="${taskId}" (omit message) to continue waiting for this same task.`
+  );
+}
+
+function formatInputRequiredWaitInstruction(
+  agentName: string,
+  terminal: {
+    taskId?: string;
+    responseText?: string;
+  },
+  agentIdOrName: string,
+): string {
+  const detail = terminal.responseText?.trim();
+  if (!terminal.taskId) {
+    return (
+      (detail ? `${detail}\n\n` : "") +
+      `Pending: The ${agentName} agent needs input before it can continue.`
+    );
+  }
+  return (
+    (detail ? `${detail}\n\n` : "") +
+    `The ${agentName} agent is waiting for input under taskId "${terminal.taskId}". ` +
+    `After providing or approving the requested input, call call-agent with agent="${agentIdOrName}" and taskId="${terminal.taskId}" (omit message) to continue this same task. Do not start a new message for this work.`
   );
 }
 

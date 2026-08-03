@@ -422,6 +422,18 @@ const arSA = {
     body: "يمكنك تخصيص كل شيء.",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
+    communityTitle: "قوالب المجتمع",
+    communityDescription:
+      "تطبيقات مستقلة يصونها مؤلفوها. ثبّتها من مستودع GitHub عام أو جرّب نسخة مستضافة عندما تكون متاحة.",
+    submitCommunityTemplate: "أرسل قالبك",
+    communityEmpty:
+      "باب الإدراج في المجتمع مفتوح. انشر تطبيق Agent Native مركّزًا في مستودع عام وأرسله إلى الكتالوج.",
+    publishGuide: "اقرأ دليل النشر",
+    communityTrust:
+      "قوالب المجتمع شيفرة من جهات خارجية. راجع المستودع والترخيص والاعتماديات وبرامج التثبيت قبل تشغيلها.",
+    copyCommunityInstallCommand: "نسخ أمر التثبيت",
+    viewRepository: "عرض المستودع",
+    tryCommunityDemo: "تجربة العرض",
   },
   buildFromScratch: {
     title: "ابنِ من الصفر",
@@ -1636,6 +1648,7 @@ const arSA = {
     formsOverview: "نظرة عامة",
     formsBuildingPublishing: "الإنشاء والنشر",
     formsResponses: "الردود والرؤى",
+    docsComponents: "Docs Components",
     formsDevelopers: "دليل المطور",
   },
 } satisfies typeof enUS;

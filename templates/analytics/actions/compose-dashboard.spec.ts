@@ -235,6 +235,35 @@ describe("compose-dashboard", () => {
     );
   });
 
+  it("composes the anonymous pageview-to-signup bridge metric", async () => {
+    const result: any = await composeDashboard.run(
+      {
+        dashboardId: "signup-bridge",
+        metrics: ["signup-entry-pages-90d"],
+      },
+      { userEmail: "alice@example.com", orgId: null, caller: "tool" },
+    );
+
+    expect(result.invalidMetrics).toEqual([]);
+    expect(result.createdMetrics).toEqual(["signup-entry-pages-90d"]);
+
+    const panel = (
+      store.get("signup-bridge")!.config.panels as Array<
+        Record<string, unknown>
+      >
+    )[0]!;
+    expect(panel.sql).toContain(
+      "pageviews.anonymous_id = signups.anonymous_id",
+    );
+    expect(panel.sql).toContain(
+      "pageviews.timestamp::timestamptz < signups.signup_at",
+    );
+    expect(panel.sql).toContain(
+      "pageviews.timestamp::timestamptz >= signups.signup_at - INTERVAL '400 days'",
+    );
+    expect(panel.config).toMatchObject({ timeScope: "cohort-history" });
+  });
+
   it("uses indexed event-date expressions for daily first-party panels", () => {
     for (const metric of [
       "signups-over-time",
@@ -256,8 +285,9 @@ describe("compose-dashboard", () => {
 
   it("groups the recurring bar panel into Monday-based weekly buckets", () => {
     const panel = buildPanel("recurring-users-by-template-bar")!;
-    expect(panel.sql).toContain("date_trunc('week', a.event_date::date)");
-    expect(panel.sql).toContain("COUNT(DISTINCT a.user_key)");
+    expect(panel.sql).toContain("date_trunc('week', event_date::date)");
+    expect(panel.sql).toContain("COUNT(DISTINCT user_key)");
+    expect(panel.sql).toContain("MIN(event_date) OVER");
     expect(panel.config.description).toContain(
       "Weekly distinct signed-in visitors",
     );
@@ -320,9 +350,11 @@ describe("compose-dashboard", () => {
     expect(byTemplate.chartType).toBe("bar");
     expect(byTemplate.title).not.toContain("Rolling");
     expect(byTemplate.title).toContain("Starting Template");
-    expect(byTemplate.sql).toContain("ROW_NUMBER() OVER");
+    expect(byTemplate.sql).toContain("FIRST_VALUE(template) OVER");
     expect(byTemplate.sql).toContain("cohorts AS");
-    expect(byTemplate.sql).toContain("users >= 20");
+    expect(byTemplate.sql).toContain("HAVING COUNT(*) >= 20");
+    expect(byTemplate.sql).toContain("MAX(CASE WHEN event_date > cohort_date");
+    expect(byTemplate.sql).not.toContain("JOIN base");
     expect(byTemplate.sql).not.toContain("b.template = cw.template");
     expect(byTemplate.sql).not.toContain("cohort_windows");
   });

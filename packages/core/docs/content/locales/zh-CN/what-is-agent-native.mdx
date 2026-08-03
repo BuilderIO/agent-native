@@ -212,7 +212,7 @@ Agent-native 为每个用户提供相同的自定义层 - 无需离开应用程�
 
 ## 整个团队的发展 {#whole-team-development}
 
-Agent-native 不仅仅适合开发人员。由于代理可以编辑应用程序自己的代码，因此开发应用程序不再是仅限开发人员的活动：
+Agent-native 不仅仅适合开发人员。嵌入式代理为整个团队提供操作应用程序的共同方式，而源代码更改仍属于正常开发流程。只有当主机有意授予 repository/workspace 写入工具时，它才能编辑源代码：
 
 - **设计师**通过代理直接在运行的应用程序中更新设计
 - **产品经理**通过描述来添加功能和更新流程
@@ -228,10 +228,10 @@ Agent-native 不仅仅适合开发人员。由于代理可以编辑应用程序�
 1. 在[agent-native.com/templates](/templates)上选择模板
 2. 立即将其用作托管应用程序（例如 mail.agent-native.com）
 3. 当您想要自定义时，从模板创建您自己的 app - “连接我们的 Stripe 帐户”、“添加同类图表”
-4. 代理修改代码以满足您的需求
+4. 在自己的代码库和开发流程中定制源代码
 5. 将您的 app 部署到您自己的域 - 或留在agent-native.com
 
-因为它是*您的*应用程序，而不是共享基础设施，所以代理可以安全地改进代码。您的应用程序会随着您的使用而不断改进。完整故事请参见 [Templates](/docs/cloneable-saas)。
+因为它是*您的*应用程序，而不是共享基础设施，所以您拥有源代码，并可在不更改共享 framework 的情况下演进它。嵌入式代理通过 actions 和数据工作，只有在有意授予写入工具时才能协助源代码更改。完整故事请参见 [Templates](/docs/cloneable-saas)。
 
 尚未准备好从整个模板开始？您还可以通过向已使用的编码代理添加**技能**来尝试代理原生 - 使用 `npx @agent-native/core@latest skills add visual-plan` 安装计划技能。请参阅 [Skills Guide](/docs/skills-guide#app-backed-skills)。
 

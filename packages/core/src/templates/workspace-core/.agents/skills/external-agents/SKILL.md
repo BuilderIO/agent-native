@@ -44,6 +44,24 @@ can still use `npx @agent-native/core connect <url>`, which mints a per-user,
 scoped, revocable token from a logged-in browser session; no shared secret is
 copied.
 
+The framework serves MCP `2026-07-28` natively over stateless, per-request HTTP
+and keeps the established stateless path for 2025-era clients. New MCP client
+code uses the split `@modelcontextprotocol/client` package with
+`versionNegotiation: { mode: "auto" }`; do not pin a protocol header or
+hand-send `initialize`. OAuth callback handlers preserve `state` and pass the
+RFC 9207 `iss` parameter to the v2 SDK for validation before exchanging a
+code. The authorization server accepts HTTPS Client ID Metadata Documents after
+strict URL, SSRF, size, redirect, schema, and exact callback validation; URL-like
+client ids never fall back to dynamic registration. Traditional non-URL clients
+continue to use public-client dynamic registration.
+
+Actions marked `needsApproval` use MCP 2026 `input_required` elicitation. The
+approval is bound to the authenticated caller, exact action, exact arguments,
+and expiry, and its durable grant is consumed atomically before the action runs.
+If the host cannot complete the approval exchange, the predicate throws, the
+state is invalid or replayed, or durable storage is unavailable, the action
+fails closed.
+
 Claude and ChatGPT can cache custom connector tool/resource metadata. After
 changing MCP App metadata or the shared `embedApp()` shell, validate with a
 fresh tool call; if the host still behaves like the old descriptor, reconnect

@@ -547,6 +547,8 @@ const messages = {
     useColor: "Use {{color}}",
     logo: "Logo",
     logoPreview: "Logo preview",
+    logoUsage: "Shown to recipients in share emails and on public clip pages.",
+    emailHeaderPreview: "Share email header",
     dropReplace: "Drop a new image to replace",
     dropHere: "Drop a PNG / JPG / SVG here",
     uploading: "Uploading…",
@@ -643,10 +645,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
 ### Added
 
 - See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
-    profile: "Profile",
-    email: "Email",
-    displayName: "Display name",
-    displayNamePlaceholder: "Your name",
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -786,6 +784,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "No organization yet. Create one from the organization switcher to get started.",
     description: "Organization admin: branding, members, invites.",
     adminsOnlyBranding: "Only admins can edit branding.",
+    brandingLoadFailed: "Couldn't load organization branding.",
     members: "Members",
     pendingInvites: "Pending invites",
     noPendingInvites: "No pending invites.",
@@ -926,6 +925,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     replyingTo: "Replying to",
     commentAt: "Comment at",
     writeReply: "Write a reply...",
+    editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
     mentionSomeone: "Mention someone",
@@ -1322,7 +1322,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     downloadDesktopApp: "Download desktop app",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
-    downloadRecording: "Download recording",
+    downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
     connectStorageToFinish:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
@@ -1498,6 +1498,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
+    googleMayShowWarning: "Review Google access",
+    googleNotVerifiedTitle: "Verify the app before connecting",
+    googleWarningBeforeAdvanced:
+      "Confirm the app name and requested Calendar access match the Clips deployment you trust. If Google shows an unverified-app warning or the identity looks unfamiliar, stop and contact your workspace administrator.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
     getDesktopApp: "Get desktop app",

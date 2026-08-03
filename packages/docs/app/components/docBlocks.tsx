@@ -43,6 +43,9 @@ import {
   resolveDocBlockType,
   type DocSegment,
 } from "../../lib/doc-block-segments";
+import { cardsBlock } from "./blocks/cards";
+import { comparisonBlock } from "./blocks/comparison";
+import { stepsBlock } from "./blocks/steps";
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 export {
@@ -69,6 +72,10 @@ function getDocBlockRegistry(): BlockRegistry {
   if (cachedRegistry) return cachedRegistry;
   const registry = new BlockRegistry();
   registerLibraryBlocks(registry);
+  // Docs-specific blocks (not in the shared library)
+  registry.register(stepsBlock);
+  registry.register(cardsBlock);
+  registry.register(comparisonBlock);
   cachedRegistry = registry;
   return registry;
 }
@@ -211,7 +218,7 @@ export function DocBlock({
   if (segment.source === "mdx") {
     data = segment.data;
   } else if (type === "mermaid") {
-    data = { code: segment.body.trim() };
+    data = { source: segment.body.trim() };
   } else {
     const trimmed = segment.body.trim();
     if (!trimmed) {

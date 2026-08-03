@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client";
 import {
   deleteCookie,
   defineEventHandler,
@@ -23,6 +23,7 @@ import {
   finishMcpOAuthAuthorization,
   startMcpOAuthAuthorization,
   type McpOAuthDiscoveryState,
+  validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
 import {
   addOAuthRemoteServer,
@@ -48,7 +49,7 @@ export interface McpOAuthFlow {
   redirectUri: string;
   state: string;
   codeVerifier: string;
-  clientInformation: OAuthClientInformationMixed;
+  clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
   returnUrl?: string;
   expiresAt: number;
@@ -214,21 +215,29 @@ async function handleMcpOAuthCallback(
   const query = getQuery(event);
   const code = text(query.code);
   const state = text(query.state);
+  const iss = text(query.iss);
   const providerError = text(query.error);
   const flow = readMcpOAuthFlowCookie(event);
   clearMcpOAuthFlowCookies(event);
-  if (providerError || !code || !state) {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth authorization was not completed." };
-  }
   const org =
     flow?.scope === "org" ? await getOrgContext(event).catch(() => null) : null;
   if (
+    !state ||
     !flow ||
     !isValidMcpOAuthFlow(flow, session.email, org?.orgId ?? undefined, state)
   ) {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth state is invalid or expired." };
+  }
+  try {
+    validateMcpOAuthCallbackIssuer(flow.discoveryState, iss);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "MCP OAuth authorization response issuer is invalid." };
+  }
+  if (providerError || !code) {
+    setResponseStatus(event, 400);
+    return { error: "MCP OAuth authorization was not completed." };
   }
   if (flow.scope === "org" && !isOrgAdmin(org?.role)) {
     setResponseStatus(event, 403);
@@ -250,6 +259,7 @@ async function handleMcpOAuthCallback(
           codeVerifier: flow.codeVerifier,
           discoveryState: flow.discoveryState,
           authorizationCode: code,
+          iss,
         }),
     );
     const result = await addOAuthRemoteServer(flow.scope, flow.scopeId, {

@@ -219,7 +219,7 @@ Veja [Recursos do Agente](/docs/agent-resources) para o conceito completo.
 
 ## Desenvolvimento de toda a equipe {#whole-team-development}
 
-O agente nativo não é apenas para desenvolvedores. Como o agente pode editar o próprio código do aplicativo, a evolução de um aplicativo deixa de ser uma atividade exclusiva do desenvolvedor:
+O agente nativo não é apenas para desenvolvedores. O agente incorporado oferece à equipe inteira uma forma compartilhada de operar o aplicativo, enquanto mudanças no código-fonte permanecem no fluxo de desenvolvimento normal. Ele só pode editar o código-fonte quando o host concede intencionalmente ferramentas de escrita de repository/workspace:
 
 - **Designers** atualizam designs diretamente no aplicativo em execução por meio do agente
 - **Gerentes de produtos** adicionam funcionalidades e atualizam fluxos descrevendo-os
@@ -235,10 +235,10 @@ Os aplicativos nativos do agente seguem um modelo de começar com um app funcion
 1. Escolha um modelo em [agent-native.com/templates](/templates)
 2. Use-o imediatamente como um aplicativo hospedado (por exemplo, mail.agent-native.com)
 3. Crie seu próprio app a partir do modelo quando quiser personalizar — "conectar nossa conta Stripe", "adicionar um gráfico de coorte"
-4. O agente modifica o código para atender às suas necessidades
+4. Personalize o código-fonte no seu repositório e fluxo de desenvolvimento
 5. Implante seu app em seu próprio domínio — ou permaneça em agent-native.com
 
-Como é _seu_ aplicativo, e não uma infraestrutura compartilhada, o agente pode evoluir o código com segurança. Seu aplicativo continua melhorando à medida que você o usa. Veja [Templates](/docs/cloneable-saas) para a história completa.
+Como é _seu_ aplicativo, e não infraestrutura compartilhada, você possui o código-fonte e pode evoluí-lo sem alterar o framework compartilhado. O agente incorporado trabalha por meio de actions e dados e só pode ajudar no código-fonte com ferramentas de escrita concedidas intencionalmente. Veja [Templates](/docs/cloneable-saas) para a história completa.
 
 Não está pronto para criar um modelo inteiro? Você também pode experimentar o agente nativo adicionando uma **habilidade** a um agente de codificação que você já usa — instale a habilidade Planos com `npx @agent-native/core@latest skills add visual-plan`. Veja o [Skills Guide](/docs/skills-guide#app-backed-skills).
 

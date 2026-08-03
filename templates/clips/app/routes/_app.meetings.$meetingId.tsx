@@ -495,14 +495,6 @@ export default function MeetingDetailRoute() {
     });
   };
 
-  const handleSeek = (ms: number) => {
-    if (!meeting?.recordingId) return;
-    // /r/:recordingId's `t` param is seconds (see parseTimeParam in
-    // r.$recordingId.tsx), while transcript segments use ms timestamps.
-    const seconds = Math.max(0, Math.floor(ms / 1000));
-    navigate(`/r/${meeting.recordingId}?t=${seconds}`);
-  };
-
   const handleJumpToSegment = (segmentIndex: number) => {
     transcriptScrollToRef.current?.(segmentIndex);
   };
@@ -976,8 +968,6 @@ export default function MeetingDetailRoute() {
           <TranscriptBubbles
             segments={segments}
             isLive={isLive}
-            recordingId={meeting.recordingId}
-            onSeek={handleSeek}
             registerScrollTo={(fn) => {
               transcriptScrollToRef.current = fn;
             }}

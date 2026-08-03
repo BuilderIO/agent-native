@@ -1,5 +1,3 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { configureTracking } from "@agent-native/core/client/analytics";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
@@ -7,7 +5,7 @@ import {
 } from "@agent-native/core/client/i18n";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useRef } from "react";
 import {
   Links,
   Meta,
@@ -44,12 +42,9 @@ import appCss from "./global.css?url";
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
-configureTracking({
-  sessionReplay: false,
-  getDefaultProps: (_name, properties) => ({
-    ...properties,
-    app: "agent-native-docs",
-  }),
+const LazyAgentSidebar = lazy(async () => {
+  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  return { default: AgentSidebar };
 });
 
 const THEME_INIT_SCRIPT = `(function(){try{var stored=window.localStorage.getItem('theme');var mode=(stored==='light'||stored==='dark'||stored==='auto')?stored:'auto';var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var resolved=mode==='auto'?(prefersDark?'dark':'light'):mode;var root=document.documentElement;root.classList.remove('light','dark');root.classList.add(resolved);if(mode==='auto'){root.removeAttribute('data-theme')}else{root.setAttribute('data-theme',mode)}root.style.colorScheme=resolved;}catch(e){}})();`;
@@ -431,6 +426,20 @@ export default function Root() {
     };
   }, [mounted]);
 
+  useEffect(() => {
+    void import("@agent-native/core/client/analytics").then(
+      ({ configureTracking }) => {
+        configureTracking({
+          sessionReplay: false,
+          getDefaultProps: (_name, properties) => ({
+            ...properties,
+            app: "agent-native-docs",
+          }),
+        });
+      },
+    );
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <DocsI18nProvider>
@@ -448,23 +457,7 @@ function RootShell({ mounted }: { mounted: boolean }) {
     </DocsChrome>
   );
 
-  return mounted ? (
-    <AgentSidebar
-      storageKey="docs"
-      position="right"
-      defaultOpen={false}
-      defaultSidebarWidth={400}
-      emptyStateText={t("agent.emptyState")}
-      suggestions={[
-        t("agent.suggestionGettingStarted"),
-        t("agent.suggestionActions"),
-        t("agent.suggestionPolling"),
-        t("agent.suggestionDeploy"),
-      ]}
-    >
-      {content}
-    </AgentSidebar>
-  ) : (
+  const fallback = (
     // Mirror AgentSidebar's outer layout (h-screen + overflow-hidden shell
     // with an overflow-auto child) so swapping in the real sidebar after
     // hydration doesn't shift the scrollbar and re-anchor centered content.
@@ -473,6 +466,28 @@ function RootShell({ mounted }: { mounted: boolean }) {
         {content}
       </div>
     </div>
+  );
+
+  if (!mounted) return fallback;
+
+  return (
+    <Suspense fallback={fallback}>
+      <LazyAgentSidebar
+        storageKey="docs"
+        position="right"
+        defaultOpen={false}
+        defaultSidebarWidth={400}
+        emptyStateText={t("agent.emptyState")}
+        suggestions={[
+          t("agent.suggestionGettingStarted"),
+          t("agent.suggestionActions"),
+          t("agent.suggestionPolling"),
+          t("agent.suggestionDeploy"),
+        ]}
+      >
+        {content}
+      </LazyAgentSidebar>
+    </Suspense>
   );
 }
 

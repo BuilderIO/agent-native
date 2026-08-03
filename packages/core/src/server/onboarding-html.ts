@@ -2908,6 +2908,23 @@ ${identitySsoScript}
 	    function __anSafeAttributionValue(value) {
 	      return typeof value === 'string' ? value.trim().slice(0, 120) : '';
 	    }
+	    function __anGenerateAnalyticsAnonymousId() {
+	      try {
+	        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+	      } catch(e) {}
+	      return Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+	    }
+	    function __anSyncAnalyticsAnonymousId() {
+	      try {
+	        var anonymousId = '';
+	        try { anonymousId = localStorage.getItem('agent-native.anonymous_id') || ''; } catch(e) {}
+	        if (!/^[A-Za-z0-9_-]{1,128}$/.test(anonymousId)) {
+	          anonymousId = __anGenerateAnalyticsAnonymousId();
+	          try { localStorage.setItem('agent-native.anonymous_id', anonymousId); } catch(e) {}
+	        }
+	        document.cookie = 'an_aid=' + encodeURIComponent(anonymousId) + '; path=/; max-age=2592000; SameSite=Lax';
+	      } catch(e) {}
+	    }
 	    function __anFirstTouchCookiePresent() {
 	      try {
 	        return document.cookie.split(';').some(function(part) {
@@ -2957,6 +2974,7 @@ ${identitySsoScript}
 	        __anWriteFirstTouchCookie(json);
 	      } catch(e) {}
 	    }
+	    __anSyncAnalyticsAnonymousId();
 	    __anCaptureSignupAttribution();
 	    var __anBuilderPreviewSeen = false;
     function __anRememberBuilderPreview() {
@@ -3246,6 +3264,32 @@ ${
 	    var RESEND_VERIFICATION_COOLDOWN_SECONDS = 60;
 	    var resendVerificationCooldownUntil = 0;
 	    var resendVerificationCooldownTimer = null;
+	    var PENDING_SIGNUP_EMAIL_STORAGE_KEY = 'an.onboarding.pendingSignupEmail';
+	    // The verification link can open in a new tab, so in-memory pending state
+	    // cannot be the only source of the account email. Keep only the address,
+	    // never the password, for the manual-login fallback.
+	    function pendingSignupEmailStorageKey() {
+	      return PENDING_SIGNUP_EMAIL_STORAGE_KEY + ':' + (__anBasePath() || '/');
+	    }
+	    function rememberPendingSignupEmail(email) {
+	      try {
+	        if (email) localStorage.setItem(pendingSignupEmailStorageKey(), email);
+	        else localStorage.removeItem(pendingSignupEmailStorageKey());
+	      // coercion-ok: localStorage is optional; the in-memory and form fallbacks remain available.
+	      } catch (e) {}
+	    }
+	    function readRememberedPendingSignupEmail() {
+	      try {
+	        var email = localStorage.getItem(pendingSignupEmailStorageKey()) || '';
+	        return __anIsValidAuthEmail(email) ? __anNormalizeAuthEmail(email) : '';
+	      // coercion-ok: localStorage is optional; callers fall back to the in-memory or form value.
+	      } catch (e) {
+	        return '';
+	      }
+	    }
+	    function clearRememberedPendingSignupEmail() {
+	      rememberPendingSignupEmail('');
+	    }
 	    function setActiveTab(name, opts) {
 	      if (name !== 'signup' && name !== 'login') return;
 	      var form = document.getElementById(name + '-form');
@@ -3265,6 +3309,7 @@ ${
     function showVerificationStep(email, password) {
       pendingSignupEmail = email || '';
       pendingSignupPassword = password || '';
+      rememberPendingSignupEmail(pendingSignupEmail);
       tabs.forEach(function(x) { x.classList.remove('active'); });
       forms.forEach(function(x) { x.classList.remove('active'); });
       var card = document.querySelector('.card');
@@ -3295,7 +3340,7 @@ ${
     function getPendingSignupEmail() {
       var signupEmail = document.getElementById('s-email');
       var loginEmail = document.getElementById('l-email');
-      return (pendingSignupEmail || (signupEmail && signupEmail.value) || (loginEmail && loginEmail.value) || '').trim();
+      return (pendingSignupEmail || readRememberedPendingSignupEmail() || (signupEmail && signupEmail.value) || (loginEmail && loginEmail.value) || '').trim();
     }
     function getPendingSignupPassword() {
       var signupPassword = document.getElementById('s-pass');
@@ -3348,6 +3393,7 @@ ${
         body: JSON.stringify({ email: email, password: password }),
       });
       if (res.ok) {
+        clearRememberedPendingSignupEmail();
         __anRedirectToSignedInApp();
         return { ok: true };
       }
@@ -3380,6 +3426,7 @@ ${
         });
         var data = await res.json().catch(function() { return {}; });
         if (res.ok && data && data.email && !data.error) {
+          clearRememberedPendingSignupEmail();
           __anRedirectToSignedInApp();
           return;
         }
@@ -3446,7 +3493,7 @@ ${
 	    async function resendVerificationEmail() {
 	      var btn = document.getElementById('resend-verification');
 	      var msg = document.getElementById('verify-msg');
-	      var email = pendingSignupEmail || document.getElementById('s-email').value;
+	      var email = getPendingSignupEmail();
 	      if (!email) return;
 	      if (resendVerificationCooldownUntil > Date.now()) {
 	        updateResendVerificationCooldown();
@@ -3515,6 +3562,9 @@ ${
     setActiveTab(initial, { persist: false });
 	      try {
 	        if (__anIsVerifiedRedirectSuccess()) {
+	          var rememberedEmail = readRememberedPendingSignupEmail();
+	          var loginEmail = document.getElementById('l-email');
+	          if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail;
 	          var msg = document.getElementById('l-msg');
           if (msg) {
             msg.textContent = __anT('emailVerifiedFinishing');
@@ -3573,6 +3623,7 @@ ${
           body: JSON.stringify({ email: email, password: pass }),
         });
         if (loginRes.ok) {
+          clearRememberedPendingSignupEmail();
           msg.textContent = __anT('accountCreatedSigningIn');
           msg.classList.add('show', 'success');
           __anRedirectToSignedInApp();
@@ -3612,6 +3663,7 @@ ${
     var backToSignup = document.getElementById('back-to-signup');
     if (backToSignup) backToSignup.addEventListener('click', function(e) {
       e.preventDefault();
+      clearRememberedPendingSignupEmail();
       setActiveTab('signup', { persist: true });
       var email = document.getElementById('s-email');
       setTimeout(function() { if (email) email.focus(); }, 0);
@@ -3706,6 +3758,7 @@ ${
         }),
       });
       if (res.ok) {
+        clearRememberedPendingSignupEmail();
         __anRedirectToSignedInApp();
         return;
       }

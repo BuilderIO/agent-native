@@ -30,6 +30,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
       ({
+        "editorExport.connectGoogle": "Connect Google",
         "editorExport.openInGoogleSlides": "Open in Google Slides",
         "editorExport.googleSlidesCreated": "Opened in Google Slides",
         "editorExport.googleSlidesCreatedHint":
@@ -140,6 +141,59 @@ describe("<ExportMenu>", () => {
         description: "A copy of this deck was created in your Google Drive.",
       }),
     );
+  });
+
+  it("opens the Google OAuth flow from the export menu", async () => {
+    const openedTab = { location: { href: "" }, close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          url: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    renderMenu();
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Connect Google"));
+
+    expect(window.open).toHaveBeenCalledWith(
+      "",
+      "google-docs-oauth",
+      "popup,width=520,height=720",
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/agent/_agent-native/google-docs/auth-url?return=",
+        ),
+        { credentials: "same-origin" },
+      ),
+    );
+    expect(openedTab.location.href).toBe(
+      "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+    );
+  });
+
+  it("does not navigate the editor when the OAuth popup is blocked", async () => {
+    renderMenu();
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Connect Google"));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Export failed",
+        expect.objectContaining({
+          description: "Could not export Google Slides.",
+        }),
+      ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("falls back to the import dialog when Drive is unavailable", async () => {

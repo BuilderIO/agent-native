@@ -3,8 +3,7 @@ export const ACTION_CHAT_UI_DATA_CHART_RENDERER = "core.data-chart";
 export const ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER = "core.data-insights";
 export const ACTION_CHAT_UI_DATA_WIDGET_RENDERER = "core.data-widget";
 export const ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER = "core.inline-extension";
-export const ACTION_CHAT_UI_DOWNLOAD_ARTIFACT_RENDERER =
-  "core.download-artifact";
+export const ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER = "core.workspace-file";
 
 export interface ActionChatUIConfig {
   /**

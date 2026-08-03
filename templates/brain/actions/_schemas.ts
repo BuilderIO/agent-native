@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+export const booleanishSchema = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return value;
+}, z.boolean());
+
 export const sourceProviderSchema = z.enum([
   "manual",
   "generic",
@@ -8,6 +16,28 @@ export const sourceProviderSchema = z.enum([
   "granola",
   "github",
 ]);
+
+export const sourceAnswerPolicySchema = z.preprocess(
+  parseJsonCliInput,
+  z
+    .object({
+      trustTier: z.enum(["blessed", "standard", "untrusted"]).optional(),
+      answerEligible: booleanishSchema.optional(),
+      authority: z.coerce.number().int().min(0).max(100).optional(),
+      freshnessWindowDays: z
+        .union([z.null(), z.coerce.number().int().min(0).max(3650)])
+        .optional(),
+      reviewRequired: booleanishSchema.optional(),
+      conflictBehavior: z
+        .enum([
+          "prefer-higher-authority",
+          "surface-conflicts",
+          "require-review",
+        ])
+        .optional(),
+    })
+    .strict(),
+);
 
 export const captureKindSchema = z.enum([
   "transcript",
@@ -75,14 +105,6 @@ export const jsonRecordSchema = z.preprocess(
 export const optionalJsonRecordSchema = z
   .preprocess(parseJsonCliInput, z.record(z.string(), z.unknown()).optional())
   .optional();
-
-export const booleanishSchema = z.preprocess((value) => {
-  if (typeof value !== "string") return value;
-  const normalized = value.trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
-  return value;
-}, z.boolean());
 
 export function stringArrayCliSchema({
   min,

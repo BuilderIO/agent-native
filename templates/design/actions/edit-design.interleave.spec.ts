@@ -178,7 +178,10 @@ describe("edit-design conflict retry", () => {
         mode: "replace-file",
         replacementContent: "<main>Replaced</main>",
       } as never),
-    ).rejects.toThrow(SourceWorkspaceEditConflictError);
+    ).rejects.toMatchObject({
+      name: "SourceWorkspaceEditConflictError",
+      statusCode: 409,
+    });
 
     expect(mocks.readLiveSourceFile).toHaveBeenCalledTimes(1);
     expect(mocks.writeInlineSourceFile).toHaveBeenCalledTimes(1);

@@ -31,12 +31,12 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="كيف تتكامل الحزم" summary={"يوفر وقت تشغيل الإطار ضمانات دائمة. يحول Toolkit تلك الضمانات إلى أنظمة منتج قابلة لإعادة الاستخدام. تضيف التطبيقات بيانات المجال والمسارات والهوية البصرية."}>
+<Diagram id="doc-block-toolkits-boundary" title="كيف تتكامل الطبقات الثلاث" summary={"Core هو أساس الإطار. Toolkit بنية تحتية وواجهة مستخدم اختيارية قابلة لإعادة الاستخدام. Templates تطبيقات اختيارية مبنية على Core وغالبًا ما تستخدم Toolkit."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     الإجراءات، SQL، المصادقة، حالة التطبيق، فحوصات الوصول، النقل الفوري
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -46,7 +46,7 @@ being rebuilt in slightly different ways every time.
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">التطبيقات</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     مخطط المجال، المسارات، الإجراءات، العلامة التجارية، تدفقات متخصصة
   </div>
 </div>
@@ -70,6 +70,8 @@ being rebuilt in slightly different ways every time.
 ```
 
 </Diagram>
+
+Core هو الإطار. Toolkit رف اختياري من الأجزاء القابلة لإعادة الاستخدام للإطار. Templates تطبيقات اختيارية مبنية على Core؛ يمكنها استخدام Toolkit ويمكن تفريعها كنقاط بداية كاملة. ويمكن للتطبيق أيضًا استخدام Core مباشرة من دون Toolkit أو قالب.
 
 ## الكتالوج {#catalog}
 

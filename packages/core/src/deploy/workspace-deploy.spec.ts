@@ -1262,6 +1262,9 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(recoveryEntry).toContain(
       'const SWEEP_PATH = "/dispatch/_agent-native/integrations/retry-stuck-tasks"',
     );
+    expect(recoveryEntry).toContain(
+      "globalThis.__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__ = true",
+    );
     const generated = await import(
       `${pathToFileURL(path.join(recoveryDir, "dispatch-integration-recovery.mjs")).href}?t=${Date.now()}`
     );

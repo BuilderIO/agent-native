@@ -10,6 +10,8 @@ declare global {
   var __AGENT_NATIVE_BRAIN_SCHEDULED_RUNTIME__: boolean | undefined;
 }
 
+export const BRAIN_QUEUE_SWEEP_LIMIT = 10;
+
 function productionLike() {
   return (
     process.env.NODE_ENV === "production" || process.env.NETLIFY === "true"
@@ -48,7 +50,11 @@ export default defineEventHandler(async (event) => {
 
   const [sync, queue, expiredSensitivityQuarantines] = await Promise.all([
     syncDueBrainSourcesOnce({ system: true, limit: 5 }),
-    processBrainIngestQueueOnce({ limit: 1, runDistillation: true }),
+    processBrainIngestQueueOnce({
+      limit: BRAIN_QUEUE_SWEEP_LIMIT,
+      runDistillation: true,
+      maxDistillations: 1,
+    }),
     expireSensitivityQuarantines(),
   ]);
   return { ok: true, sync, queue, expiredSensitivityQuarantines };

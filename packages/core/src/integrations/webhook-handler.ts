@@ -35,7 +35,11 @@ import {
   appendDurableContinuationContext,
   runAgentLoopDirectWithSoftTimeout,
 } from "../agent/run-loop-with-resume.js";
-import { startRun, type ActiveRun } from "../agent/run-manager.js";
+import {
+  startRun,
+  type ActiveRun,
+  type StartRunOptions,
+} from "../agent/run-manager.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -63,7 +67,8 @@ import {
 import { runWithRequestContext } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
-import { hasActiveA2AContinuationsForIntegrationTask } from "./a2a-continuations-store.js";
+import { reconcileTerminalA2AParentIfDisabled } from "./a2a-continuation-processor.js";
+import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
 import {
   clearIntegrationAwaitingInput,
   setIntegrationAwaitingInput,
@@ -601,7 +606,7 @@ async function enqueueAndDispatch(
         ),
       )
     : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
-  await dispatchPendingIntegrationTask({
+  const outcome = await dispatchPendingIntegrationTask({
     taskId,
     task: {
       platform: incoming.platform,
@@ -612,6 +617,29 @@ async function enqueueAndDispatch(
     baseUrl,
     portableSettleMs: settleWaitMs,
   });
+
+  // A definitive dispatch failure leaves a queued task nobody is running while
+  // the placeholder above already told the user work had started. Say so
+  // instead of leaving that indicator spinning until the sweep — if it runs.
+  if (outcome === "failed") {
+    console.error(
+      `[integrations] dispatch failed for task ${taskId} (${incoming.platform}/${incoming.externalThreadId})`,
+    );
+    try {
+      await options.adapter.sendResponse(
+        {
+          text: "I couldn't start working on that — the request was accepted but never handed off. Please try again.",
+          platformContext: incoming.platformContext,
+        },
+        incoming,
+      );
+    } catch (err) {
+      console.error(
+        "[integrations] failed to report dispatch failure to user:",
+        err,
+      );
+    }
+  }
 }
 
 /**
@@ -1082,10 +1110,22 @@ async function processIncomingMessage(
           JSON.parse(campaign.row.checkpoint).waitingForA2A === true;
       } catch {}
       if (waitingForA2A) {
-        const activeA2A = await hasActiveA2AContinuationsForIntegrationTask(
-          opts.taskId,
-        );
-        if (activeA2A) {
+        const a2aOutcome = await getA2AContinuationTaskOutcome(opts.taskId);
+        if (a2aOutcome !== "terminal-delivered") {
+          if (
+            a2aOutcome === "terminal-without-delivery" &&
+            (await reconcileTerminalA2AParentIfDisabled(opts.taskId))
+          ) {
+            await releaseApplicableIntegrationBudgets(
+              budgetReservations.reservations,
+            );
+            return { status: "campaign-failed" };
+          }
+          if (a2aOutcome !== "active") {
+            console.warn(
+              `[integrations] Waiting campaign ${campaign.row.id} has A2A outcome ${a2aOutcome} without terminal delivery proof`,
+            );
+          }
           const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
             runId: campaign.runId,
             leaseToken: campaign.leaseToken,
@@ -1211,6 +1251,26 @@ async function processIncomingMessage(
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | null = null;
   let budgetsSettled = false;
 
+  // Populated once `resolvedModel`/`engine` are known inside the run
+  // callback below (stored-model + platform-default resolution can't happen
+  // until then) and read back by run-manager's terminal tracking event via
+  // this same object reference — `startRun` reads `options.model` only in
+  // its `.finally()`, after this callback has settled, so the mutation is
+  // guaranteed to land before it's read.
+  const runOptions: StartRunOptions = {
+    useHostedSoftTimeoutDefault: true,
+    backgroundFunction: isInBackgroundFunctionRuntime(),
+    ...(campaign
+      ? {
+          turnId: campaign.row.turnId,
+          noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
+        }
+      : {}),
+    // No userId here: `ownerEmail` is PII (email), which the terminal event
+    // must not carry.
+    attemptCount: opts.attempts,
+  };
+
   // Wait for the run to complete inside this fresh function execution.
   // We use a Promise so the processor endpoint can await the full lifecycle.
   return new Promise<ProcessIntegrationTaskResult>((resolve) => {
@@ -1283,6 +1343,8 @@ async function processIncomingMessage(
               engine,
               modelCandidate,
             );
+            runOptions.model = resolvedModel;
+            runOptions.engineName = engine.name;
 
             // Wrapper, not raw `runAgentLoop`: an integration turn has no
             // browser to re-POST a continuation, so a transport-level cut
@@ -1847,16 +1909,7 @@ async function processIncomingMessage(
       // chains) with no visible answer. `isInBackgroundFunctionRuntime()` is
       // the runtime proof — never a config guess — so the wider ceiling is
       // taken only where the ~60s synchronous wall genuinely does not apply.
-      {
-        useHostedSoftTimeoutDefault: true,
-        backgroundFunction: isInBackgroundFunctionRuntime(),
-        ...(campaign
-          ? {
-              turnId: campaign.row.turnId,
-              noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
-            }
-          : {}),
-      },
+      runOptions,
     );
   });
 }
@@ -2221,6 +2274,13 @@ function isQueuedA2AContinuationDeferral(text: string): boolean {
   if (!normalized) return true;
   if (hasSubstantiveA2APartialAnswer(text)) return false;
   if (normalized.includes(A2A_CONTINUATION_QUEUED_MARKER)) return true;
+  if (
+    /\bwill\b[^.!?]{0,160}\bpost\b[^.!?]{0,160}\b(?:thread|result|link|content id)\b/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
   return /\b(?:still (?:working|processing)|is working on|taking longer than expected|will (?:post|update|surface|show up)|(?:it'?ll|it will|the result will|the final result will) (?:post|be posted|update|be updated|surface|show up)|will be (?:posted|updated|sent|shared)|final result when it finishes|while you wait|as soon as (?:it|it'?s|it is|the result|the artifact) (?:comes back|is ready|ready)|hang tight|relay from the .* agent)\b/i.test(
     normalized,
   );

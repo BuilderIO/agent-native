@@ -679,6 +679,7 @@ vi.mock("@agent-native/core/resources/store", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: vi.fn(async () => null),
+  writeAppState: vi.fn(async () => undefined),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -1280,7 +1281,11 @@ describe("Brain knowledge quality gates", () => {
       content: "Decision: ship the beta on May 20.",
     } as const;
     await createCapture(input);
-    await createCapture(input);
+    Object.assign(mocks.rows.captures[0], {
+      status: "distilled",
+      distilledAt: "2026-05-16T12:00:00.000Z",
+    });
+    const unchanged = await createCapture(input);
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(enqueue).toHaveBeenCalledWith(
@@ -1289,6 +1294,39 @@ describe("Brain knowledge quality gates", () => {
         next: expect.any(Object),
       }),
     );
+    expect(unchanged).toMatchObject({
+      status: "distilled",
+      distilledAt: "2026-05-16T12:00:00.000Z",
+    });
+  });
+
+  it("invalidates a capture when publisher metadata changes", async () => {
+    seedSource();
+    const enqueue = vi.mocked(enqueueCaptureInvalidation);
+    const input = {
+      sourceId: "source-1",
+      externalId: "capture-ext-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+    } as const;
+
+    await createCapture({
+      ...input,
+      metadata: { sourceUrl: "https://docs.example.test/old" },
+    });
+    await createCapture({
+      ...input,
+      metadata: { sourceUrl: "https://docs.example.test/new" },
+    });
+
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(mocks.rows.captures[0]).toMatchObject({ status: "queued" });
+    expect(
+      JSON.parse(String(mocks.rows.captures[0]?.metadataJson)),
+    ).toMatchObject({
+      sourceUrl: "https://docs.example.test/new",
+    });
   });
 
   it("prevents an in-flight refresh from recreating an upstream-deleted capture", async () => {
@@ -2166,6 +2204,56 @@ describe("Brain knowledge quality gates", () => {
       updatedAt: now,
     });
     expect(mocks.dbExec.execute).toHaveBeenCalledOnce();
+  });
+
+  it("bounds distillation work while draining a larger deterministic batch", async () => {
+    const now = "2026-05-15T12:00:00.000Z";
+    const source = seedSource();
+    const captures = [
+      seedCapture({ id: "capture-batch-1" }),
+      seedCapture({ id: "capture-batch-2" }),
+    ];
+    for (const [index, capture] of captures.entries()) {
+      mocks.rows.ingestQueue.push({
+        id: `queue-batch-${index + 1}`,
+        sourceId: source.id,
+        captureId: capture.id,
+        operation: "distill",
+        status: "queued",
+        priority: 50,
+        attempts: 0,
+        payloadJson: "{}",
+        error: null,
+        runAfter: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const seen: string[] = [];
+    const result = await processBrainIngestQueueOnce({
+      limit: 10,
+      runDistillation: true,
+      maxDistillations: 1,
+      distillationRunner: async (context) => {
+        seen.push(context.capture.id);
+        await markCaptureDistilledAction.run({
+          captureId: context.capture.id,
+          queueId: context.queue.id,
+          claimToken: context.claimToken,
+        });
+      },
+    });
+
+    expect(seen).toEqual(["capture-batch-1"]);
+    expect(result.processed).toEqual(["queue-batch-1"]);
+    expect(mocks.rows.ingestQueue[1]).toMatchObject({
+      id: "queue-batch-2",
+      status: "queued",
+      attempts: 0,
+    });
   });
 
   it("reclaims stale processing work in a fresh worker execution", async () => {
@@ -3791,6 +3879,40 @@ describe("Brain connector smoke coverage", () => {
       },
     });
     expect(result.captures[0]?.metadata).not.toHaveProperty("sourceUrl");
+  });
+
+  it("restores an errored source after a successful connector retry", async () => {
+    const source = seedSource({
+      id: "retrying-granola-source",
+      title: "Granola",
+      provider: "granola",
+      status: "error",
+      lastError: "Temporary provider failure",
+      configJson: JSON.stringify({
+        transcripts: [
+          {
+            externalId: "retry-note-1",
+            title: "Recovered note",
+            text: "Decision: retry failed sources after a bounded delay.",
+          },
+        ],
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      provider: "granola",
+      status: "success",
+      capturesCreated: 1,
+    });
+    expect(
+      mocks.rows.sources.find((row) => row.id === "retrying-granola-source"),
+    ).toMatchObject({
+      status: "active",
+      lastError: null,
+      lastSyncedAt: expect.any(String),
+    });
   });
 
   it("renews configured-item leases while capture processing is in flight", async () => {

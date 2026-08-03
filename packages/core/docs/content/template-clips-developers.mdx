@@ -64,7 +64,7 @@ For local development, run the web app with `pnpm dev` and point the desktop tra
 
 **Chrome extension.** The Agent-Native Clips Chrome extension listing is `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`. If you host your own Clips server, keep the Chrome extension option hidden until your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` after approval to show the extension beside desktop-app download prompts. Set `VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default listing URL. See [Capturing Everywhere](/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension) for what the extension captures.
 
-**Embedded bug reports.** Clips can be embedded into an existing product as a lightweight bug-report launcher. The embedded page collects issue metadata, opens the real recorder in a top-level browser window (browser media capture requires a top-level user gesture), and posts a completion message back to the host product when the recording is saved.
+**Embedded bug reports.** Clips can be embedded into an existing product as a lightweight bug-report launcher. The embedded page collects issue metadata, opens the real recorder in a top-level browser window (browser media capture requires a top-level user gesture), and relays a completion message back to the host product when the recording is saved.
 
 Use `/bug-report` as the iframe URL. The page accepts either plain query parameters or the `bugReport*`-prefixed parameters that the recorder stores:
 
@@ -76,18 +76,25 @@ Use `/bug-report` as the iframe URL. The page accepts either plain query paramet
 ></iframe>
 ```
 
-Supported metadata fields are `projectId`, `title`, `description`, `severity` (`low`, `normal`, `high`, `urgent`), `sourceUrl`, `pageTitle`, `appVersion`, `environment`, `reporterEmail`, `reporterName`, `reporterId`, `metadata` (JSON object), and `returnUrl`. The recorder redirects to `/bug-report/done` after upload and sends this browser message to `window.opener` and the parent frame:
+If the host product already has its own launcher UI, it can open `/record` directly with `bugReport=1`, `intent=bug-report`, `mode=screen`, `surface=browser`, and the same fields prefixed with `bugReport`, such as `bugReportProjectId` and `bugReportReturnUrl`.
+
+Supported metadata fields are `projectId`, `title`, `description`, `severity` (`low`, `normal`, `high`, `urgent`), `sourceUrl`, `pageTitle`, `appVersion`, `environment`, `reporterEmail`, `reporterName`, `reporterId`, `metadata` (JSON object), and `returnUrl`. Keep query metadata small and avoid secrets, customer data, and other sensitive values. The recorder redirects to `/bug-report/done` after upload and sends this browser message to `window.opener`; the `/bug-report` iframe relays the same message to its parent:
 
 ```js
 window.addEventListener("message", (event) => {
+  if (event.origin !== "https://clips.example.com") return;
   if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
-  console.log(event.data.recordingId, event.data.recordingUrl);
+  if (event.data.agentAccessStatus === "ready") {
+    console.log(event.data.agentContextUrl, event.data.agentAccessExpiresAt);
+  }
 });
 ```
 
-Bug-report recordings default to workspace visibility instead of public visibility. The saved `recording_bug_reports` sidecar includes the redacted host metadata, while the recording itself remains the canonical media/transcript resource. URLs have credentials, fragments, and query values removed before storage, and the browser-diagnostics pipeline still omits request/response bodies, headers, and cookies.
+Always validate both `event.origin` and `event.source` in the host. The completion payload includes `recordingId`, `recordingUrl`, `embedUrl`, `agentShareUrl`, `agentContextUrl`, `agentAccessExpiresAt`, and an explicit `agentAccessStatus` of `ready` or `unavailable`. When access is ready, `agentContextUrl` is a temporary, scoped URL that lets an agent read recording metadata, timestamped transcript segments, recommended frames and frame URLs, and browser diagnostics without receiving the user's workspace session. Normal agent links expire after two hours; embedded bug-report completions use a seven-day scoped link so asynchronous support tickets can be triaged. Treat an unavailable or expired link as an access failure, not an empty recording. `embedUrl` remains subject to the recording's normal viewer access.
 
-This first version assumes the reporter can sign in to the Clips workspace that owns the recording. A fully anonymous customer intake should add a signed intake token that can create, upload, and finalize a recording without granting broad recording access; do not expose the existing owner-scoped upload endpoints directly to anonymous users.
+Bug-report recordings default to workspace visibility instead of public visibility. The saved `recording_bug_reports` sidecar includes the redacted host metadata, while the recording itself remains the canonical media/transcript resource. URLs have credentials, fragments, and query values removed before storage, and the browser-diagnostics pipeline still omits request/response bodies, headers, and cookies. A popup recording only sees diagnostics emitted inside the Clips window. Use the Chrome extension or attach diagnostics from the host product separately when the agent needs console and network context from the source tab.
+
+This pilot requires the reporter to already have an active session in the Clips workspace that owns the recording. The current cross-origin popup cannot preserve its completion channel through a first-time sign-in redirect, so users should sign in to Clips in a separate tab before launching it. A fully anonymous customer-support intake should add a signed intake token that can create, upload, and finalize a recording without granting broad recording access; do not expose the existing owner-scoped upload endpoints directly to anonymous users.
 
 ## Data model
 

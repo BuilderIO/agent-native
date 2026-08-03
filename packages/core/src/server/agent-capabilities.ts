@@ -1,6 +1,7 @@
 import { A2AClient } from "../a2a/client.js";
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
 import { type DiscoveredAgent } from "./agent-discovery.js";
+import { getRequestUserEmail } from "./request-context.js";
 
 /** Matches the `<available-apps>` prompt block so both surfaces agree. */
 export const MAX_APPS = 30;
@@ -33,8 +34,27 @@ export async function loadCapabilities(
   agent: DiscoveredAgent,
 ): Promise<PeerCapabilities> {
   try {
+    // Discover as ourselves. An anonymous card lists only publicly-safe
+    // actions, which never overlap the set `actions/invoke` accepts, so an
+    // unauthenticated probe reports every sibling as having no callable
+    // actions and pushes the caller into open-ended delegation.
+    let token: string | undefined;
+    try {
+      const { signA2AToken } = await import("../a2a/client.js");
+      const email = getRequestUserEmail();
+      if (email) {
+        token = await signA2AToken(email, undefined, undefined, {
+          preferGlobalSecret: true,
+          audience: new URL(agent.url).origin,
+        });
+      }
+    } catch {
+      // No signable identity (no secret, no session) — fall back to the
+      // anonymous card rather than failing discovery outright.
+    }
     const card = await new A2AClient(agent.url).getAgentCard({
       timeoutMs: CARD_TIMEOUT_MS,
+      ...(token ? { token } : {}),
     });
     return {
       agent,
@@ -110,10 +130,42 @@ export function formatCapabilitySummary(
     "",
     lines.join("\n\n"),
     "",
-    "Delegate with call-agent: pass action + input for a listed action, or message for open-ended work. Prefer the app that owns the data over rebuilding its capability here.",
+    "Delegate with call-agent using a natural-language message by default. The receiving app owns interpretation and its local tools. Use action + input only for an exact bounded read with a fully known schema, never as a workaround for failed delegation. Prefer the app that owns the data over rebuilding its capability here.",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Render a skill's `input` contract as `input: { field*: type, other?: type }`,
+ * marking required fields with `*`. Returns undefined when the skill publishes
+ * no schema, so callers fall back to the description alone.
+ */
+function formatSkillInput(skill: AgentSkill): string | undefined {
+  const schema = skill.inputSchema as
+    | {
+        properties?: Record<string, { type?: unknown }>;
+        required?: unknown;
+      }
+    | undefined;
+  const properties = schema?.properties;
+  if (!properties || typeof properties !== "object") return undefined;
+  const names = Object.keys(properties);
+  if (names.length === 0) return " — input: {} (no fields)";
+
+  const required = new Set(
+    Array.isArray(schema?.required)
+      ? schema.required.filter(
+          (name): name is string => typeof name === "string",
+        )
+      : [],
+  );
+  const fields = names.map((name) => {
+    const type = properties[name]?.type;
+    const rendered = typeof type === "string" ? type : "any";
+    return `${name}${required.has(name) ? "*" : "?"}: ${rendered}`;
+  });
+  return ` — input: { ${fields.join(", ")} } (* = required)`;
 }
 
 export function formatCapabilityDetail(
@@ -131,14 +183,17 @@ export function formatCapabilityDetail(
 
   const shown = peer.skills.slice(0, MAX_SKILLS_IN_DETAIL);
   const rest = peer.skills.length - shown.length;
-  const lines = shown.map(
-    (skill) =>
-      `- ${skill.id}${skill.readOnly ? "" : " (mutating)"}: ${
-        skill.description
-          ? truncate(skill.description, MAX_DESCRIPTION_CHARS)
-          : skill.name || "(no description)"
-      }`,
-  );
+  const lines = shown.map((skill) => {
+    const summary = skill.description
+      ? truncate(skill.description, MAX_DESCRIPTION_CHARS)
+      : skill.name || "(no description)";
+    // Naming an action without its parameters is what makes a caller invoke it
+    // with `{}` and fail on a required field, which reads as the sibling being
+    // broken rather than as a malformed call.
+    return `- ${skill.id}${skill.readOnly ? "" : " (mutating)"}: ${summary}${
+      formatSkillInput(skill) ?? ""
+    }`;
+  });
 
   return [
     header,

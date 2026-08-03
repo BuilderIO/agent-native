@@ -1225,7 +1225,8 @@ Usage:
   agent-native typecheck        Run TypeScript type checking
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
-                                for a single-app scaffold.
+                                for a single-app scaffold, or choose Community
+                                template to install a public GitHub repository.
   agent-native code             Launch Agent-Native Code workspace. Type a task or
                                 use goals like /migrate and /audit.
   agent-native code serve       Run the Agent-Native Code remote connector.
@@ -1310,8 +1311,9 @@ Options:
   -h, --help                    Show this help message
   -v, --version                 Show version number
   --template <names>            Comma-separated templates to pre-select
-                                (mail,calendar,analytics,...) — or
-                                github:user/repo for community templates
+                                (mail,calendar,analytics,...), or install a
+                                community repo from a plain GitHub URL or
+                                community:owner/repo[?app=id][#ref]
   --headless                    Create the primitive-first action-only scaffold
   --standalone                  Scaffold a single standalone app (no workspace)
   --emit [dir]                  With migrate, emit an own-agent dossier

@@ -13,13 +13,12 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
   nanoid,
   normalizedValueJson,
-  writeBlockFieldContent,
-  writePrimaryBlocksContent,
 } from "./_property-utils.js";
 
 export default defineAction({
@@ -84,17 +83,34 @@ export default defineAction({
       const target = blocksStorageTarget(
         parsePropertyOptions(definition.optionsJson),
       );
-      if (target === "document_body") {
-        await writePrimaryBlocksContent({ documentId, content, now });
-      } else {
-        await writeBlockFieldContent({
-          documentId,
-          propertyId,
-          ownerEmail: database.ownerEmail,
-          content,
-          now,
-        });
-      }
+      await db.transaction(async (tx) => {
+        await lockDatabaseMemberships(tx, [membership.id]);
+        if (target === "document_body") {
+          await tx
+            .update(schema.documents)
+            .set({ content, updatedAt: now })
+            .where(eq(schema.documents.id, documentId));
+        } else {
+          await tx
+            .insert(schema.documentBlockFieldContents)
+            .values({
+              id: nanoid(),
+              ownerEmail: database.ownerEmail,
+              documentId,
+              propertyId,
+              content,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [
+                schema.documentBlockFieldContents.documentId,
+                schema.documentBlockFieldContents.propertyId,
+              ],
+              set: { content, updatedAt: now },
+            });
+        }
+      });
       return {
         documentId,
         databaseId: database.id,
@@ -113,32 +129,34 @@ export default defineAction({
     }
 
     const valueJson = normalizedValueJson(type, value);
-    const [existing] = await db
-      .select({ id: schema.documentPropertyValues.id })
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, documentId),
-          eq(schema.documentPropertyValues.propertyId, propertyId),
-        ),
-      );
-
-    if (existing) {
-      await db
-        .update(schema.documentPropertyValues)
-        .set({ valueJson, updatedAt: now })
-        .where(eq(schema.documentPropertyValues.id, existing.id));
-    } else {
-      await db.insert(schema.documentPropertyValues).values({
-        id: nanoid(),
-        ownerEmail: database.ownerEmail,
-        documentId,
-        propertyId,
-        valueJson,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+    await db.transaction(async (tx) => {
+      await lockDatabaseMemberships(tx, [membership.id]);
+      const [existing] = await tx
+        .select({ id: schema.documentPropertyValues.id })
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, documentId),
+            eq(schema.documentPropertyValues.propertyId, propertyId),
+          ),
+        );
+      if (existing) {
+        await tx
+          .update(schema.documentPropertyValues)
+          .set({ valueJson, updatedAt: now })
+          .where(eq(schema.documentPropertyValues.id, existing.id));
+      } else {
+        await tx.insert(schema.documentPropertyValues).values({
+          id: nanoid(),
+          ownerEmail: database.ownerEmail,
+          documentId,
+          propertyId,
+          valueJson,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
 
     return {
       documentId,

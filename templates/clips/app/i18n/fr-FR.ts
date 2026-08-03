@@ -563,6 +563,9 @@ const messages = {
     useColor: "Utilisez {{color}}",
     logo: "Logo",
     logoPreview: "Aperçu du logo",
+    logoUsage:
+      "Affiché aux destinataires dans les e-mails de partage et sur les pages publiques des clips.",
+    emailHeaderPreview: "En-tête de l'e-mail de partage",
     dropReplace: "Déposez une nouvelle image à remplacer",
     dropHere: "Déposez un PNG / JPG / SVG ici",
     uploading: "Téléchargement…",
@@ -660,10 +663,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
 ### Ajouté
 
 - Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd+K) et dans les paramètres.`,
-    profile: "Profil",
-    email: "E-mail",
-    displayName: "Nom affiché",
-    displayNamePlaceholder: "Votre nom",
     playback: "Lecture",
     defaultPlaybackSpeed: "Vitesse de lecture par défaut",
     playbackDescription:
@@ -808,6 +807,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     description:
       "Administration de l’organisation : marque, membres, invitations.",
     adminsOnlyBranding: "Seuls les administrateurs peuvent modifier la marque.",
+    brandingLoadFailed: "Impossible de charger l'identité de l'organisation.",
     members: "Membres",
     pendingInvites: "Invitations en attente",
     noPendingInvites: "Aucune invitation en attente.",
@@ -952,6 +952,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     replyingTo: "Réponse à",
     commentAt: "Commentaire à",
     writeReply: "Écrire une réponse...",
+    editComment: "Modifier le commentaire",
     commentButton: "Commenter",
     composerPlaceholder: "Ajouter un commentaire…",
     mentionSomeone: "Mentionner quelqu'un",
@@ -1356,7 +1357,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     downloadDesktopApp: "Download desktop app (Localisé)",
     technicalDetails: "Technical details (Localisé)",
     whatToCheck: "What to check (Localisé)",
-    downloadRecording: "Download recording (Localisé)",
+    downloadRecording: "Download (Localisé)",
     openRecorderInTab: "Open recorder in tab (Localisé)",
     connectStorageToFinish:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
@@ -1535,6 +1536,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localisé)",
     connectGoogleCalendar: "Connect Google Calendar (Localisé)",
+    googleMayShowWarning: "Vérifier l’accès Google",
+    googleNotVerifiedTitle: "Vérifiez l’application avant de vous connecter",
+    googleWarningBeforeAdvanced:
+      "Vérifiez que le nom de l’application et l’accès à Calendar demandé correspondent au déploiement Clips auquel vous faites confiance. Si Google affiche un avertissement d’application non vérifiée ou si l’identité vous semble inconnue, arrêtez-vous et contactez l’administrateur de votre espace de travail.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Localisé)",
     getDesktopApp: "Get desktop app (Localisé)",

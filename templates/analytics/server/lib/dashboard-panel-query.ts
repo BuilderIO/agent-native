@@ -400,8 +400,9 @@ export async function runDashboardPanelQuery(args: {
   source: DashboardPanelSource;
   query: string;
   ctx: CredentialContext;
+  timeoutMs?: number;
 }): Promise<DashboardPanelQueryResult | MissingKeyResponse> {
-  const { source, query, ctx } = args;
+  const { source, query, ctx, timeoutMs } = args;
 
   if (source === "bigquery") {
     const missing = await missingCredential(
@@ -452,7 +453,10 @@ export async function runDashboardPanelQuery(args: {
         userEmail: ctx.userEmail,
         orgId: ctx.orgId ?? null,
       },
-      { cache: true },
+      {
+        cache: true,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
     );
   }
 

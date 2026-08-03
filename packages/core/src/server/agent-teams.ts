@@ -57,6 +57,7 @@ import {
   listAppState,
   deleteAppState,
 } from "../application-state/script-helpers.js";
+import { redactArgsToValue, redactTextToSummary } from "../audit/redact.js";
 import { createThread } from "../chat-threads/store.js";
 import type {
   BackgroundAgentRun,
@@ -1112,13 +1113,20 @@ function summarizeAgentChatEvent(event: RunEvent): {
       return {
         kind: "status",
         message: `Running ${payload.tool}`,
-        metadata: { tool: payload.tool, input: payload.input },
+        metadata: {
+          tool: payload.tool,
+          input: redactArgsToValue(payload.input),
+        },
       };
     case "tool_done":
       return {
         kind: "artifact",
         message: payload.result,
-        metadata: { tool: payload.tool },
+        metadata: {
+          tool: payload.tool,
+          input: redactArgsToValue(payload.input),
+          result: redactTextToSummary(payload.result),
+        },
       };
     case "agent_task":
       return {
@@ -1988,7 +1996,16 @@ export async function processAgentTeamRun(
               resolve();
             }
           },
-          { useHostedSoftTimeoutDefault: true, turnId },
+          {
+            useHostedSoftTimeoutDefault: true,
+            turnId,
+            // No userId here: `ownerEmail` is the only identity known at
+            // this scope and is PII (email), which the terminal event must
+            // not carry.
+            model: config.model,
+            engineName: config.engine.name,
+            attemptCount: claimedAttempts,
+          },
         );
       });
 

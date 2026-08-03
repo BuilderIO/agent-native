@@ -549,8 +549,18 @@ export interface BrainConnectionProvider {
   configuredSourceCount: number;
   hasConfiguredSources: boolean;
   sourceProviderSupported: boolean;
+  configured?: boolean | null;
+  setupLink?: string;
   credentialHealth?: BrainCredentialHealth;
   providerHealth?: BrainProviderHealth;
+  rawProviderApi?: {
+    available: boolean;
+    actionNames: string[];
+    docsUrls: string[];
+    specUrls: string[];
+    auth: string | null;
+    examples: unknown[];
+  };
   workspaceConnection?: BrainWorkspaceConnectionSummary;
 }
 

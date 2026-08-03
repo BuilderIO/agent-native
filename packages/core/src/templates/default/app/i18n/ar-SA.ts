@@ -74,6 +74,23 @@ const messages = {
       suggestionGrantKey: "منح مفتاح OpenAI الخاص بي لهذا التطبيق",
     },
     pages: {
+      browserChatUnavailableTitle: "جلسة دردشة المتصفح غير متاحة",
+      browserChatUnavailableDescription:
+        "أعد الاتصال من إضافة Agent-Native للمتصفح.",
+      browserChatPlaceholder: "اسأل عن هذه الصفحة…",
+      browserChatAttachedPlaceholder: "اسأل عن {{page}}…",
+      browserConnectTitle: "ربط دردشة المتصفح",
+      browserConnectDescription:
+        "اسمح لإضافة Agent-Native في Chrome بفتح جلسة Dispatch هذه. يستخدم الاتصال تذكرة قصيرة الأجل لمرة واحدة.",
+      browserConnectInvalid:
+        "طلب الاتصال هذا غير صالح. ابدأ مرة أخرى من الإضافة.",
+      browserConnectConnected:
+        "تم ربط دردشة المتصفح. يمكنك إغلاق علامة التبويب هذه.",
+      browserConnectConnecting: "جارٍ الاتصال…",
+      browserConnectButton: "اتصال",
+      browserConnectOpenFromExtension:
+        "افتح هذه الصفحة من إضافة Agent-Native في Chrome.",
+      browserConnectFailed: "لم تتصل إضافة المتصفح.",
       appsDescription:
         "افتح تطبيقات مساحة العمل وابدأ في إنشاء تطبيق جديد من Dispatch.",
       appsDescriptionWithWorkspace:
@@ -372,6 +389,15 @@ const messages = {
     deleting: "جارٍ الأرشفة...",
     openFullView: "فتح عرض كامل",
     removeFromWidgetArea: "إزالة من منطقة القطعة هذه",
+    customBlockSandboxed: "كتلة مخصصة · معزولة",
+    sandboxedCustomBlock: "كتلة SQL مخصصة ومعزولة",
+    sandboxedCustomBlockCreatedBy: "كتلة SQL مخصصة ومعزولة أنشأها {{email}}",
+    promoteToAppCode: "الترقية إلى رمز التطبيق",
+    historyShowsSourceVersions: "يعرض السجل إصدارات المصدر",
+    createdByHistoryShowsSourceVersions:
+      "أنشأها {{email}}. يعرض السجل إصدارات المصدر.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "أنشأها {{email}} · يعرض السجل إصدارات المصدر",
     deleteExtensionEllipsis: "أرشفة الامتداد...",
     removeFromMyListEllipsis: "إزالة من قائمتي...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",

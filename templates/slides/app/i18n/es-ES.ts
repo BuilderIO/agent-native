@@ -44,6 +44,7 @@ const messages = {
   },
   agent: {
     emptyState: "Pregúntame cualquier cosa sobre tus presentaciones",
+    thisDeck: "Este deck",
     suggestionPitch: "Crea un pitch de 10 diapositivas desde este doc",
     suggestionBrand: "Aplica nuestra marca a este deck",
     suggestionHero: "Genera una imagen principal para esta diapositiva",
@@ -164,6 +165,13 @@ const messages = {
   designSystems: {
     new: "Nuevo sistema de diseño",
     setupBrand: "Configura tu marca",
+    delete: "Eliminar",
+    cancel: "Cancelar",
+    moreActions: "Más acciones",
+    deleteDialogTitle: "¿Eliminar el sistema de diseño?",
+    deleteDialogDescription:
+      "Esto elimina el sistema de diseño de forma permanente. Las presentaciones que lo usan mantienen su aspecto actual, pero dejan de estar vinculadas a él.",
+    deleteError: "No se pudo eliminar el sistema de diseño",
     emptyTitle: "Configura la identidad de tu marca",
     emptyDescription:
       "Crea un sistema de diseño con los colores, la tipografía y los logotipos de tu marca. Cada nueva presentación seguirá tu identidad visual.",
@@ -219,11 +227,9 @@ const messages = {
     slideTools: "Herramientas de diapositiva",
     elementAnimations: "Animaciones de elementos",
     tweaks: "Ajustes finos",
-    drawOnSlide: "Dibujar en la diapositiva",
+    drawOnSlide: "Anotar diapositiva",
     addTextBox: "Añadir cuadro de texto",
     pinComments: "Fijar comentarios",
-    pinCommentsDescription:
-      "Haz clic en puntos de la diapositiva para encolar varias ediciones y enviarlas todas a la vez.",
     undo: "Deshacer",
     undoWithShortcut: "Deshacer ({{shortcut}})",
     redo: "Rehacer",
@@ -262,6 +268,7 @@ const messages = {
     downloadHtml: "Descargar como HTML",
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
+    connectGoogle: "Conectar Google",
     openInGoogleSlides: "Abrir en Google Slides",
     googleSlidesCreated: "Abierto en Google Slides",
     googleSlidesCreatedHint:
@@ -356,6 +363,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Cerrar inspector de estilo",
+    slideBackground: "Fondo de la diapositiva",
+    slide: "Diapositiva",
     deckStyle: "Estilo de la presentación",
     designSystemTweaks: "Ajustes del sistema de diseño",
     closeTweaks: "Cerrar ajustes",
@@ -383,6 +392,23 @@ const messages = {
     spacing: "Spacing",
     x: "X",
     y: "Y",
+    position: "Posición",
+    horizontal: "Horizontal",
+    vertical: "Vertical",
+    top: "Superior",
+    middle: "Medio",
+    bottom: "Inferior",
+    rotation: "Rotación",
+    layoutDimensions: "Diseño y dimensiones",
+    width: "Ancho",
+    height: "Alto",
+    appearance: "Apariencia",
+    opacity: "Opacidad",
+    cornerRadius: "Radio de esquina",
+    strokeWeight: "Grosor",
+    typography: "Tipografía",
+    mixed: "Mezclado",
+    textColor: "Color del texto",
     primary: "Primary",
     secondary: "Secondary",
     accent: "Accent",
@@ -398,6 +424,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Orden",
+    bringToFront: "Traer al frente",
+    sendToBack: "Enviar al fondo",
   },
   animations: {
     appear: "Aparecer",
@@ -518,6 +548,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Descartar advertencia de diseño",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -530,6 +561,31 @@ const messages = {
     figParseFailed:
       "No se pudo iniciar la indexación de Builder para ese archivo de Figma.",
     updated: "Sistema de diseño actualizado",
+    sourceLabel: "Fuente",
+    sourceFigma: "Archivo de Figma",
+    sourceCode: "Archivos de código",
+    sourceGitHub: "Repositorio de GitHub",
+    sourceMixed: "Varias fuentes",
+    sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
+    sourceIndexing: "Indexando",
+    sourceIndexed: "Indexado",
+    sourceUnavailable: "Resultados no disponibles",
+    sourceIndexingDescription:
+      "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
+    sourceIndexedDescription:
+      "{{docs}} documentos · {{tokens}} tokens indexados",
+    sourceIndexedDocsOnly: "{{docs}} documentos indexados",
+    sourceIndexedTokensOnly: "{{tokens}} tokens indexados",
+    sourceUnavailableDescription:
+      "Builder no pudo cargar los resultados más recientes de la fuente.",
+    sourceOpenInBuilder: "Abrir en Builder",
+    loadFailed:
+      "No se pudo cargar este sistema de diseño. Ciérralo y vuelve a intentarlo.",
+    otherSources: "Otros",
+    otherSourcesDescription:
+      "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
+    chooseSourcePrompt: "Elige una fuente para configurar",
+    loading: "Cargando sistema de diseño",
     updateFailed: "No se pudo actualizar",
     generationStarted: "Generación del sistema de diseño iniciada",
     generationStartedDescription:
@@ -615,6 +671,31 @@ const messages = {
     newDeckPlaceholder: "Describe tu deck, visual o diagrama...",
     skipPrompt: "Omitir prompt",
     designSystem: "Sistema de diseño",
+    referenceDeck: "Deck de referencia",
+    referenceDeckPlaceholder: "Imitar el estilo de un deck existente",
+    referenceDeckNone: "No usar ninguno",
+    referenceDeckStarredGroup: "Destacados",
+    referenceDeckOtherGroup: "Otros decks",
+    workspaceDefaultBadge: "Predeterminado del espacio de trabajo",
+    setWorkspaceDefault:
+      "Establecer como predeterminado del espacio de trabajo",
+    clearWorkspaceDefault: "Quitar el predeterminado del espacio de trabajo",
+    workspaceDefaultSet:
+      "Establecido como predeterminado del espacio de trabajo",
+    workspaceDefaultCleared:
+      "Se quitó el predeterminado del espacio de trabajo",
+    duplicateFailed: "No se pudo duplicar esa presentación",
+    workspaceDefaultFailed:
+      "No se pudo actualizar el predeterminado del espacio de trabajo",
+    workspaceDefaultConfirmTitle:
+      "¿Establecer como predeterminado del espacio de trabajo?",
+    workspaceDefaultDeckShareBody:
+      '"{{title}}" es privado. Al establecerlo como predeterminado del espacio de trabajo, se compartirá con todos los miembros de este espacio de trabajo y los decks nuevos lo usarán como referencia de estilo. Los miembros pueden seleccionar otro deck de referencia al crear un deck.',
+    workspaceDefaultSystemShareBody:
+      '"{{title}}" es privado. Al establecerlo como predeterminado del espacio de trabajo, se compartirá con todos los miembros de este espacio de trabajo y los decks nuevos lo usarán. Los miembros que hayan establecido su propio sistema predeterminado lo conservarán.',
+    workspaceDefaultConfirmAction: "Establecer como predeterminado",
+    starDeck: "Destacar deck",
+    unstarDeck: "Quitar de destacados",
     none: "Ninguno",
     defaultSuffix: " (Predeterminado)",
     signInTitle: "Inicia sesión para crear un deck",

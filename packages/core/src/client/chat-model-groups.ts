@@ -47,6 +47,9 @@ function addCurrentModel(
   return next;
 }
 
+// Cheapest → most expensive. The composer mirrors these tokens for the `$`
+// cost labels on picker rows (packages/toolkit/src/composer/TiptapComposer.tsx);
+// the toolkit cannot import core, so a new family must be added in both lists.
 const MODEL_COST_ORDER = [
   "luna",
   "terra",
