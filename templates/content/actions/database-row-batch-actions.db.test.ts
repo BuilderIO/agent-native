@@ -536,6 +536,18 @@ describe("database row batch actions", () => {
       createdAt: now,
       updatedAt: now,
     });
+    await db.insert(schema.contentDatabaseItemKeyClaims).values({
+      id: nextId("stable_key_claim"),
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId,
+      propertyId,
+      keyValueJson: JSON.stringify("Remove me"),
+      itemId: rows[1].itemId,
+      documentId: rows[1].documentId,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       removeDatabaseItemsAction.run({
@@ -595,6 +607,17 @@ describe("database row batch actions", () => {
         .from(schema.documentBlockFieldContents)
         .where(
           eq(schema.documentBlockFieldContents.documentId, rows[1].documentId),
+        ),
+    ).resolves.toEqual([]);
+    await expect(
+      db
+        .select()
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId),
+            eq(schema.contentDatabaseItemKeyClaims.itemId, rows[1].itemId),
+          ),
         ),
     ).resolves.toEqual([]);
 

@@ -240,6 +240,48 @@ export default defineAction({
         );
       }
 
+      const [lockedField] = await tx
+        .select()
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.id, field.id));
+      if (
+        !lockedField ||
+        lockedField.sourceId !== source.id ||
+        lockedField.mappingType === "title" ||
+        lockedField.mappingType === "system" ||
+        lockedField.writeOwner === "derived"
+      ) {
+        throw new Error(
+          "Source field changed or was deleted before it could be bound.",
+        );
+      }
+      if (
+        lockedField.propertyId &&
+        lockedField.propertyId !== lockedProperty.id
+      ) {
+        throw new Error(
+          "This source field is already bound to another column. Unbind it first.",
+        );
+      }
+      const [lockedConflictingField] = await tx
+        .select({ id: schema.contentDatabaseSourceFields.id })
+        .from(schema.contentDatabaseSourceFields)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceFields.sourceId, source.id),
+            eq(
+              schema.contentDatabaseSourceFields.propertyId,
+              lockedProperty.id,
+            ),
+            ne(schema.contentDatabaseSourceFields.id, lockedField.id),
+          ),
+        );
+      if (lockedConflictingField) {
+        throw new Error(
+          "This source already feeds this column from another field. Unbind it first.",
+        );
+      }
+
       const [activeClaim] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)
@@ -264,7 +306,7 @@ export default defineAction({
           mappingType: "property",
           updatedAt: now,
         })
-        .where(eq(schema.contentDatabaseSourceFields.id, field.id));
+        .where(eq(schema.contentDatabaseSourceFields.id, lockedField.id));
       await tx
         .update(schema.contentDatabaseSources)
         .set({ updatedAt: now })
@@ -284,7 +326,7 @@ export default defineAction({
           .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
         const itemValues = sourceFieldPropertyValuesFromRows(
           sourceRows,
-          field.sourceFieldKey,
+          lockedField.sourceFieldKey,
           lockedProperty.type as DocumentPropertyType,
         );
         // Clear this column's values for ALL of this source's rows first — not

@@ -156,34 +156,49 @@ async function collectDocumentSubtreeForDelete(
   };
 }
 
+async function lockDatabasesAndRecollect<
+  T extends { ownedDatabaseIds: string[] },
+>(
+  db: ReturnType<typeof getDb>,
+  ownerEmail: string,
+  collect: () => Promise<T>,
+): Promise<T> {
+  const lockedDatabaseIds = new Set<string>();
+  let collected = await collect();
+  while (true) {
+    const unlockedDatabaseIds = collected.ownedDatabaseIds.filter(
+      (databaseId) => !lockedDatabaseIds.has(databaseId),
+    );
+    if (unlockedDatabaseIds.length === 0) return collected;
+    for (const batch of chunks(unlockedDatabaseIds, DELETE_BATCH_SIZE)) {
+      await db
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            inArray(schema.contentDatabases.id, batch),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          ),
+        );
+      for (const databaseId of batch) lockedDatabaseIds.add(databaseId);
+    }
+    collected = await collect();
+  }
+}
+
 export async function trashDocumentSubtree(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
 ): Promise<string[]> {
-  const initial = await collectDocumentSubtreeForDelete(db, id, ownerEmail);
   // Stable-key upserts lock their canonical database row before creating or
   // updating children. Acquire the same locks, then collect again: an upsert
   // that won the lock before this transaction may have added a child after the
   // first traversal, while one that arrives later must wait until the database
   // has been marked deleted and will fail closed.
-  for (const batch of chunks(initial.ownedDatabaseIds, DELETE_BATCH_SIZE)) {
-    await db
-      .update(schema.contentDatabases)
-      .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
-      .where(
-        and(
-          inArray(schema.contentDatabases.id, batch),
-          eq(schema.contentDatabases.ownerEmail, ownerEmail),
-          isNull(schema.contentDatabases.deletedAt),
-        ),
-      );
-  }
-  const { documentIds } = await collectDocumentSubtreeForDelete(
-    db,
-    id,
-    ownerEmail,
+  const { documentIds } = await lockDatabasesAndRecollect(db, ownerEmail, () =>
+    collectDocumentSubtreeForDelete(db, id, ownerEmail),
   );
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
@@ -334,8 +349,11 @@ export async function deleteDocumentRecursive(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  const { documentIds, ownedDatabaseIds } =
-    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  const { documentIds, ownedDatabaseIds } = await lockDatabasesAndRecollect(
+    db,
+    ownerEmail,
+    () => collectDocumentSubtreeForDelete(db, id, ownerEmail),
+  );
   return deleteCollectedDocuments(
     db,
     documentIds,
@@ -576,23 +594,33 @@ export async function deleteTrashedDocumentSubtree(
     );
   }
 
-  const documentIds = (
-    await db
-      .select({ id: schema.documents.id })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.trashRootId, id),
-          isNotNull(schema.documents.trashedAt),
-        ),
-      )
-  ).map((document) => document.id);
-  const ownedDatabaseIds = await selectOwnedDatabaseIds(
+  const { documentIds, ownedDatabaseIds } = await lockDatabasesAndRecollect(
     db,
-    documentIds,
     ownerEmail,
-  ).then((rows) => rows.map((database) => database.id));
+    async () => {
+      const collectedDocumentIds = (
+        await db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.ownerEmail, ownerEmail),
+              eq(schema.documents.trashRootId, id),
+              isNotNull(schema.documents.trashedAt),
+            ),
+          )
+      ).map((document) => document.id);
+      const collectedDatabaseIds = await selectOwnedDatabaseIds(
+        db,
+        collectedDocumentIds,
+        ownerEmail,
+      ).then((rows) => rows.map((database) => database.id));
+      return {
+        documentIds: collectedDocumentIds,
+        ownedDatabaseIds: collectedDatabaseIds,
+      };
+    },
+  );
 
   await db
     .update(schema.documents)

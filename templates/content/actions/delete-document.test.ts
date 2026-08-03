@@ -150,6 +150,11 @@ describe("deleteDocumentRecursive", () => {
           deleteCalls.push({ table: name, cond });
         },
       }),
+      update: () => ({
+        set: () => ({
+          where: async () => [],
+        }),
+      }),
     };
   });
 
@@ -233,6 +238,51 @@ describe("deleteDocumentRecursive", () => {
     expect(membershipDeletes[0].cond).toEqual({
       __inArray: [schema.contentDatabaseItems.databaseId, ["database-1"]],
     });
+  });
+
+  it("recollects database rows after acquiring the permanent-cleanup lock", async () => {
+    selectRows.contentDatabases = [
+      {
+        id: "database-1",
+        documentId: "database-doc",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.contentDatabaseItems = [
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-1",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.documents = [
+      { id: "row-doc-1", ownerEmail: "owner-a@example.com" },
+    ];
+    db.update = () => ({
+      set: () => ({
+        where: async () => {
+          selectRows.contentDatabaseItems.push({
+            databaseId: "database-1",
+            documentId: "late-row-doc",
+            ownerEmail: "owner-a@example.com",
+          });
+          selectRows.documents.push({
+            id: "late-row-doc",
+            ownerEmail: "owner-a@example.com",
+          });
+        },
+      }),
+    });
+
+    const deleted = await deleteDocumentRecursive(
+      db,
+      "database-doc",
+      "owner-a@example.com",
+    );
+
+    expect(deleted.sort()).toEqual(
+      ["database-doc", "late-row-doc", "row-doc-1"].sort(),
+    );
   });
 
   it("does not collect foreign-owned database item documents", async () => {

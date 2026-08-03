@@ -419,6 +419,40 @@ describe("bind-content-database-source-field (row-union)", () => {
     ).rejects.toThrow(/already feeds this column/i);
   });
 
+  it("serializes concurrent fields from one source competing for one column", async () => {
+    const f = await seedRowUnion();
+    const results = await Promise.allSettled([
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldAOther,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+    ]);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+
+    const mappings = await getDb()
+      .select({ id: schema.contentDatabaseSourceFields.id })
+      .from(schema.contentDatabaseSourceFields)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceFields.sourceId, f.sourceA),
+          eq(schema.contentDatabaseSourceFields.propertyId, f.tagPropertyId),
+        ),
+      );
+    expect(mappings).toHaveLength(1);
+  });
+
   it("rejects a multi-value field into a text column", async () => {
     const f = await seedRowUnion();
     await expect(
