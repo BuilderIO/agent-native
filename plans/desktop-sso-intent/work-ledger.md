@@ -291,3 +291,41 @@ Approve option 2. It is the smallest delta that addresses both the concrete Clip
 ### Replacement successful-user story
 
 A user opens any canonical first-party app in packaged Desktop and uses that app's normal sign-in. Agent Native performs one workspace identity ceremony, returns to the initiating app without exposing Dispatch home, and silently signs subsequent canonical apps into their correct existing local accounts. Settings accurately reports the shared account and supports workspace sign-out or recovery. Standalone browsers, custom apps, local development, Builder credentials, app-local authorization, and provider-specific connection consent remain unchanged.
+
+## Work r34 — production-context route readiness
+
+- Governing artifact: `/Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary diagnosis and replacement work plan 2026-08-02.md`
+- Governing revision: `desktop-sso-diagnosis-plan-r4`
+- Lifecycle state: Work active
+- Authority source: Alice invoked `$work` on 2026-08-03 and required an explicit stop before the next production test.
+- Starting PR head: `2506adc6771af12ada0cd1da6fd20271cd119ce2`
+- Refreshed base: `origin/main@6a771571028d8e2a911eb0d1bcda607c32c555ca`
+- Dedicated lane: `/Users/alicemoore/.codex/worktrees/desktop-workspace-sso/agent-native`, branch `codex/desktop-workspace-sso`, clean at start and equal to the open PR head.
+
+### Bounded repair
+
+- Hosted Dispatch now requests `googleOnly` only when the first configured public origin is exactly `https://dispatch.agent-native.com` and Netlify's deploy context is exactly `production`.
+- Deploy Preview, branch-deploy, missing-context, local, self-hosted, malformed, and lookalike cases fail closed to the compatible password-capable presentation.
+- Explicit `APP_URL` and `BETTER_AUTH_URL` continue to take precedence over the platform `URL`.
+- The existing pending Dispatch changelog entry now states the production behavior and preview fallback without adding a duplicate entry.
+- No Core route, OAuth credential, credential scope, callback, Desktop release workflow, stable updater, production deploy, or merge state changed in this slice.
+
+### Current local evidence
+
+- Focused hosted-auth resolver: 5 tests passed.
+- Full Dispatch template suite: 46 tests passed across 4 files.
+- Dispatch template typecheck: passed.
+- `guard:no-secret-literals`: passed.
+- `guard:no-env-credentials`: passed.
+- Formatting and `git diff --check`: passed.
+- Independent auth/deploy-context review: no actionable finding; exact context/origin fail-closed behavior and explicit-origin precedence were confirmed. A follow-up assertion was added for `BETTER_AUTH_URL` precedence.
+
+### Outstanding acceptance
+
+- Commit and push the bounded repair, then require fresh exact-head normal CI and signed Desktop Canary checks.
+- Build unpublished Dispatch and Mail drafts with Netlify production context without `--prod`; prove C7-C9, including a real `/_agent-native/google/auth-url` 302 from the immutable Dispatch candidate.
+- Verify the exact signed artifact and isolated Canary app/profile through the non-production C6 gates.
+- Refresh current production rollback and route baselines, then notify Alice and stop before any lock or publication.
+- H0-H10 remain unstarted for the repaired exact artifact. PR #2290 remains open and unmerged.
+
+Ledger revision: `desktop-sso-work-r34`.
