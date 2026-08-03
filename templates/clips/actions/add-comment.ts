@@ -66,6 +66,10 @@ export default defineAction({
 
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
 
+    // Floor to the nearest second so nearby comments land on the same
+    // timestamp bucket for scrubber grouping and the playback overlay.
+    const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
+
     await db.insert(schema.recordingComments).values({
       id,
       recordingId: args.recordingId,
@@ -75,7 +79,7 @@ export default defineAction({
       authorEmail,
       authorName: args.authorName ?? null,
       content: args.content,
-      videoTimestampMs: args.videoTimestampMs,
+      videoTimestampMs,
       createdAt: now,
       updatedAt: now,
     });
@@ -83,7 +87,7 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
-      `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
+      `Added comment to recording ${args.recordingId} @ ${videoTimestampMs}ms (thread: ${threadId})`,
     );
 
     return { id, threadId };

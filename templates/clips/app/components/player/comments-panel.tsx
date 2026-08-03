@@ -1,4 +1,7 @@
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconSend,
@@ -12,7 +15,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { type Ref, useEffect, useMemo, useRef, useState } from "react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -860,10 +863,14 @@ function CommentCard({
   }
 
   const commentContent = linkifyCommentContent(comment.content);
+  const avatarUrl = useAvatarUrl(comment.authorEmail);
 
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
       <Avatar className="h-7 w-7 shrink-0">
+        {avatarUrl ? (
+          <AvatarImage src={avatarUrl} alt={displayName(comment)} />
+        ) : null}
         <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
           {initials(displayName(comment))}
         </AvatarFallback>
