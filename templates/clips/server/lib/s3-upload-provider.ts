@@ -370,6 +370,14 @@ function isCompletedClipObjectKey(key: string): boolean {
   return !key.startsWith("clips/.multipart/") && !key.endsWith(".pending");
 }
 
+function isRecordingObjectKey(key: string, recordingId: string): boolean {
+  const safeRecordingId = recordingId.replace(/[^a-zA-Z0-9_-]/g, "-");
+  return (
+    key.startsWith(`clips/${safeRecordingId}/`) ||
+    key.startsWith(`clips/${safeRecordingId}.`)
+  );
+}
+
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
   const res = await signedS3Request(cfg, key, {
     method: "DELETE",
@@ -583,12 +591,22 @@ export async function deleteS3ObjectByUrl(url: string): Promise<boolean> {
 
 export async function fetchS3ObjectByUrl(
   url: string,
-  options?: { range?: string; timeoutMs?: number },
+  options?: {
+    range?: string;
+    timeoutMs?: number;
+    recordingId?: string;
+  },
 ): Promise<Response | null> {
   const cfg = await readS3Config();
   if (!cfg) return null;
   const key = objectKeyFromUrl(cfg, url);
-  if (!key || !isCompletedClipObjectKey(key)) return null;
+  if (
+    !key ||
+    !isCompletedClipObjectKey(key) ||
+    (options?.recordingId && !isRecordingObjectKey(key, options.recordingId))
+  ) {
+    return null;
+  }
   return signedS3Request(cfg, key, {
     method: "GET",
     range: options?.range,
@@ -608,9 +626,11 @@ export const s3FileUploadProvider: FileUploadProvider = {
     if (!cfg) throw new Error("S3 credentials are not configured");
 
     const ext = filename?.split(".").pop() ?? "bin";
+    const basename = filename?.slice(0, -(ext.length + 1)) || "file";
+    const safeBasename = basename.replace(/[^a-zA-Z0-9_-]/g, "-");
     const stamp = Date.now();
     const rand = Math.random().toString(36).slice(2, 10);
-    const objectKey = `clips/${stamp}-${rand}.${ext}`;
+    const objectKey = `clips/${safeBasename}/${stamp}-${rand}.${ext}`;
     const contentType = mimeType || "application/octet-stream";
 
     const bytes =

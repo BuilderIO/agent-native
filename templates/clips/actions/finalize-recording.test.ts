@@ -336,6 +336,44 @@ describe("finalize-recording media serve verification", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("falls back to the public URL when signed S3 credentials cannot read", async () => {
+    seedBufferedRecording();
+    const videoUrl =
+      "https://clips.example.com/api/storage/clips/rec_1/video.webm";
+    mockUploadFile.mockResolvedValue({ url: videoUrl, provider: "s3" });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("denied", { status: 403 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "rec_1",
+        status: "ready",
+        videoUrl,
+        videoSizeBytes: 12,
+      }),
+    );
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith(
+      videoUrl,
+      expect.objectContaining({
+        method: "GET",
+        headers: { Range: "bytes=0-1023" },
+      }),
+    );
+  });
+
   it("keeps the recording processing and schedules durable verification when uploaded media stays unservable", async () => {
     const chunkKeys = seedBufferedRecording();
     vi.mocked(fetch).mockResolvedValue(new Response("", { status: 500 }));

@@ -197,16 +197,19 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
       MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
     );
     try {
-      const response =
-        (await fetchS3ObjectByUrl(videoUrl, {
-          range: "bytes=0-1023",
-          timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
-        })) ??
-        (await fetch(videoUrl, {
+      const signedS3Response = await fetchS3ObjectByUrl(videoUrl, {
+        range: "bytes=0-1023",
+        timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
+      });
+      let response = signedS3Response;
+      if (response?.status !== 200 && response?.status !== 206) {
+        await response?.body?.cancel().catch(() => undefined);
+        response = await fetch(videoUrl, {
           method: "GET",
           headers: { Range: "bytes=0-1023" },
           signal: controller.signal,
-        }));
+        });
+      }
       const statusOk = response.status === 200 || response.status === 206;
       if (statusOk) {
         const servedBytes = servedMediaSizeBytes(response);

@@ -455,20 +455,29 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          upstream =
-            (await runWithRequestContext(
-              {
-                userEmail: rec.ownerEmail ?? undefined,
-                orgId: rec.organizationId ?? undefined,
-              },
-              () =>
-                fetchS3ObjectByUrl(sourceUrl, {
-                  range: rangeHeader?.startsWith("bytes=")
-                    ? rangeHeader
-                    : undefined,
-                  timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
-                }),
-            )) ?? (await fetchProviderMedia(sourceUrl, rangeHeader));
+          const signedS3Response = await runWithRequestContext(
+            {
+              userEmail: rec.ownerEmail ?? undefined,
+              orgId: rec.organizationId ?? undefined,
+            },
+            () =>
+              fetchS3ObjectByUrl(sourceUrl, {
+                range: rangeHeader?.startsWith("bytes=")
+                  ? rangeHeader
+                  : undefined,
+                timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
+                recordingId,
+              }),
+          );
+          if (
+            signedS3Response?.status === 200 ||
+            signedS3Response?.status === 206
+          ) {
+            upstream = signedS3Response;
+          } else {
+            await signedS3Response?.body?.cancel().catch(() => undefined);
+            upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+          }
         } catch (err) {
           setResponseStatus(event, statusCodeForProviderFetchError(err));
           return { error: messageForProviderFetchError(err) };

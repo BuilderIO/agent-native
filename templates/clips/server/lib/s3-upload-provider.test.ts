@@ -178,6 +178,36 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("only signs media keys bound to the requested recording", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi.fn(async () => new Response("media"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/other-recording/video.webm",
+        { recordingId: "rec_1" },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      fetchS3ObjectByUrl(
+        "https://clips.example.com/api/storage/clips/rec_1/video.webm",
+        { recordingId: "rec_1" },
+      ),
+    ).resolves.toEqual(expect.objectContaining({ status: 200 }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves timeout classification for signed reads", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",

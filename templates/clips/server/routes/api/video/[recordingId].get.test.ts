@@ -232,6 +232,7 @@ describe("/api/video/:recordingId route", () => {
     expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(sourceUrl, {
       range: "bytes=0-31",
       timeoutMs: 30_000,
+      recordingId: "rec-1",
     });
     expect(mockRunWithRequestContext).toHaveBeenCalledWith(
       {
@@ -254,6 +255,56 @@ describe("/api/video/:recordingId route", () => {
 
     expect(event.status).toBe(504);
     expect(result).toEqual({ error: "Recording media fetch timed out." });
+  });
+
+  it("does not sign an S3 object that is not bound to the served recording", async () => {
+    const sourceUrl =
+      "https://clips.example.com/api/storage/clips/other-recording/video.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        ownerEmail: "owner@example.com",
+        organizationId: "owner-org",
+        videoUrl: sourceUrl,
+      },
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(403);
+    expect(result).toEqual({
+      error: "Recording media URL points to a private/internal address",
+    });
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      sourceUrl,
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the safe public fetch when a signed S3 read is denied", async () => {
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("denied", { status: 403 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(200);
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
   });
 
   it("serves only the persisted media URL until compression is published", async () => {
