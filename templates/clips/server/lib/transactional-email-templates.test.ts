@@ -539,7 +539,12 @@ describe("sendClipsTransactionalEmail", () => {
       text: expect.stringContaining(
         "Open your Agent-Native Clip: https://workspace.example/clips/r/rec-1",
       ),
-      from: '"Agent-Native Clips" <Clips@Agent-Native.com>',
+      fromName: "Agent-Native Clips",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "hello@agent-native.com",
+      },
       replyTo: "hello@agent-native.com",
       timeoutMs: 60_000,
     });
@@ -565,7 +570,12 @@ describe("sendClipsTransactionalEmail", () => {
         'src="https://workspace.example/api/media/org-logo.png"',
       ),
       text: expect.stringContaining("Alex Rivera shared a Clip with you"),
-      from: '"Alex Rivera (via Agent-Native Clips)" <Clips@Agent-Native.com>',
+      fromName: "Alex Rivera (via Agent-Native Clips)",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "hello@agent-native.com",
+      },
       replyTo: "alex@example.com",
       timeoutMs: 60_000,
     });
@@ -586,7 +596,12 @@ describe("sendClipsTransactionalEmail", () => {
       expect.objectContaining({
         to: "owner@example.test",
         subject: "An AI agent “watched” your Clip",
-        from: '"Agent-Native Clips" <Clips@Agent-Native.com>',
+        fromName: "Agent-Native Clips",
+        appSender: {
+          name: "Agent-Native Clips",
+          slug: "clips",
+          replyTo: "hello@agent-native.com",
+        },
         replyTo: "hello@agent-native.com",
       }),
     );

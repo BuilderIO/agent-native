@@ -53,8 +53,7 @@ async function main(args: string[]): Promise<void> {
     const ids = owned.map((row) => row.id);
 
     const humans = await sql<{ recording_id: string; n: number }[]>`
-      select recording_id,
-             count(distinct coalesce(viewer_key, lower(viewer_email), viewer_id))::int n
+      select recording_id, count(*)::int n
         from recording_views
        where recording_id in ${sql(ids)}
          and viewed_at >= ${startAt} and viewed_at < ${endAt}

@@ -11,11 +11,11 @@ import type { RecapCopy } from "./transactional-email-store.js";
 const CLIPS_BRAND_NAME = "Clips";
 const CLIPS_SENDER_NAME = "Agent-Native Clips";
 /**
- * Shares the verified sending domain with the framework default, so putting it
- * in `From` keeps SPF/DKIM intact — unlike a per-user address, which must stay
- * in `Reply-To`.
+ * Yields `clips@agent-native.com` on first-party deployments and is ignored
+ * where the configured sender is someone else's verified address, so a
+ * self-hosted install keeps sending from an address its provider accepts.
  */
-const CLIPS_SENDER_EMAIL = "Clips@Agent-Native.com";
+const CLIPS_SENDER_SLUG = "clips";
 const UNIDENTIFIED_AGENT_NAME = "An AI agent";
 const EMAIL_SEND_TIMEOUT_MS = 60_000;
 const FRIENDLY_REPLY_TO = "hello@agent-native.com";
@@ -357,12 +357,6 @@ function recapHeroHtml(
   </table>`;
 }
 
-/** Quotes the display name so a sender's comma or quote cannot split the header. */
-function clipsFromHeader(displayName: string): string {
-  const safeName = singleLine(displayName).replace(/["<>\\]/g, "");
-  return `"${safeName}" <${CLIPS_SENDER_EMAIL}>`;
-}
-
 function validReplyTo(value: string | null | undefined): string | undefined {
   const candidate = singleLine(value).toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : undefined;
@@ -606,11 +600,14 @@ export async function sendClipsTransactionalEmail(
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
-    from: clipsFromHeader(
-      reminderSender
-        ? `${reminderSender} (via ${CLIPS_SENDER_NAME})`
-        : CLIPS_SENDER_NAME,
-    ),
+    fromName: reminderSender
+      ? `${reminderSender} (via ${CLIPS_SENDER_NAME})`
+      : CLIPS_SENDER_NAME,
+    appSender: {
+      name: CLIPS_SENDER_NAME,
+      slug: CLIPS_SENDER_SLUG,
+      replyTo: FRIENDLY_REPLY_TO,
+    },
     replyTo:
       input.kind === "unviewed-reminder"
         ? (validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO)
