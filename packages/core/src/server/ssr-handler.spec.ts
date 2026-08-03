@@ -185,6 +185,25 @@ describe("createH3SSRHandler", () => {
     }
   });
 
+  it("keeps the dev 500 path safe when an error message is not a string", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      throw { message: 500 };
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    try {
+      const response = await handler(createEvent("/chat/abc"));
+
+      expect(response.status).toBe(500);
+      await expect(response.text()).resolves.toBe("Internal Server Error: 500");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("strips APP_BASE_PATH from React Router lazy route manifest paths", async () => {
     process.env.APP_BASE_PATH = "/dispatch";
     const handler = createH3SSRHandler(() => ({})) as any;

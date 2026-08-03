@@ -343,7 +343,7 @@ function removeDocumentCsp(headers: Headers): void {
  * it into a bug report must be able to see that it is there.
  */
 function textSafeErrorMessage(err: unknown): string {
-  const message = (err as Error)?.message ?? String(err);
+  const message = String((err as { message?: unknown })?.message ?? err);
   // C0 controls except tab, newline, and carriage return, which are real formatting.
   return message.replace(
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,
