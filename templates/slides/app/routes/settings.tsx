@@ -3,6 +3,8 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -10,15 +12,10 @@ import {
 import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
+import { toast } from "sonner";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useSlidesPrefs } from "@/hooks/use-slides-prefs";
 import messages from "@/i18n/en-US";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -31,6 +28,7 @@ export default function SettingsRoute() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   useSetPageTitle(t("settings.title"));
+  const { prefs, loading: prefsLoading, save: savePrefs } = useSlidesPrefs();
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -39,6 +37,12 @@ export default function SettingsRoute() {
         label: t("settings.languageTitle"),
         keywords: "language locale translation i18n",
         hash: "language",
+      },
+      {
+        id: "slides-notifications",
+        label: t("settings.emailNotifications"),
+        keywords: "email notifications comments replies alerts",
+        hash: "notifications",
       },
     ],
     [t],
@@ -58,20 +62,39 @@ export default function SettingsRoute() {
 
           <CreativeContextSettingsLink />
 
-          <Card id="language" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.languageTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.languageDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+            <SettingsRow
+              id="notifications"
+              label={t("settings.emailNotifications")}
+              description={t("settings.emailNotificationsDescription")}
+              control={
+                <Switch
+                  aria-label={t("settings.emailNotifications")}
+                  checked={prefs.emailNotifications !== false}
+                  disabled={prefsLoading}
+                  onCheckedChange={(checked) => {
+                    savePrefs({ emailNotifications: checked }).catch((err) => {
+                      toast.error(
+                        err instanceof Error
+                          ? err.message
+                          : t("settings.saveFailed"),
+                      );
+                    });
+                  }}
+                />
+              }
+            />
+          </SettingsGroup>
         </div>
       }
       team={

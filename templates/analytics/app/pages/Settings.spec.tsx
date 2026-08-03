@@ -32,6 +32,26 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("@agent-native/core/client/settings", () => ({
   AccountSettingsCard: () => <div>settings-user@example.com</div>,
+  SettingsGroup: ({ children }: { children: React.ReactNode }) => (
+    <section>{children}</section>
+  ),
+  SettingsRow: ({
+    id,
+    label,
+    description,
+    control,
+  }: {
+    id?: string;
+    label: React.ReactNode;
+    description?: React.ReactNode;
+    control?: React.ReactNode;
+  }) => (
+    <div id={id}>
+      {label}
+      {description}
+      {control}
+    </div>
+  ),
   SettingsTabsPage: ({
     account,
     general,
