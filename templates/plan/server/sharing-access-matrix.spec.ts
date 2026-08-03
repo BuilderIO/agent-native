@@ -106,6 +106,7 @@ async function resetTables() {
     DELETE FROM plan_shares;
     DELETE FROM plans;
     DELETE FROM organizations;
+    DELETE FROM org_members;
   `);
 }
 
@@ -140,6 +141,14 @@ async function seedOrg(id: string, name: string) {
   await client.execute({
     sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
     args: [id, name, OWNER, Date.now()],
+  });
+}
+
+/** Real `org_members` row — `org`-visibility access checks real membership. */
+async function seedOrgMember(orgId: string, email: string) {
+  await client.execute({
+    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+    args: [`${orgId}:${email}`, orgId, email, "member", Date.now()],
   });
 }
 
@@ -315,6 +324,13 @@ beforeAll(async () => {
       created_at INTEGER NOT NULL,
       allowed_domain TEXT,
       a2a_secret TEXT
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
     );
   `);
 
@@ -794,6 +810,7 @@ describe("org visibility", () => {
   it("an org-visible plan is readable by same-org members, not other orgs", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
+    await seedOrgMember(ORG, VIEWER);
 
     // same org member reads
     const got = await asUser({ userEmail: VIEWER, orgId: ORG }, () =>
@@ -812,6 +829,7 @@ describe("org visibility", () => {
   it("org visibility grants read but not edit to a non-owner org member", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
+    await seedOrgMember(ORG, VIEWER);
 
     await expect(
       asUser({ userEmail: VIEWER, orgId: ORG }, () =>
