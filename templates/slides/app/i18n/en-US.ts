@@ -500,6 +500,8 @@ const messages = {
     slides: "Slides",
   },
   presentation: {
+    loadFailed: "Could not load this presentation.",
+    tryAgain: "Try again",
     presenterView: "Presenter view",
     speakerNotes: "Speaker notes",
     noNotesForSlide: "No notes for this slide",

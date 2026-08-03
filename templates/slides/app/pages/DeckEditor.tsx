@@ -34,6 +34,7 @@ import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
 import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
+import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
@@ -48,6 +49,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
+import { useGeneratingSlidePreview } from "@/hooks/use-generating-slide-preview";
 import {
   useSlideComments,
   type CommentThread,
@@ -166,6 +168,8 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [addSlideGenerating, setAddSlideGenerating] = useState(false);
+  const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { generating } = useAgentGenerating();
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
@@ -261,6 +265,11 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const streamedGeneratingSlideContent = useGeneratingSlidePreview({
+    deckId: id ?? "",
+    slideCount,
+    generating,
+  });
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor.
@@ -307,6 +316,23 @@ export default function DeckEditor() {
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const generatingSlideVisible =
+    canEdit && !showQuestionFlow && (isNewDeckGenerating || addSlideGenerating);
+  const showCurrentSlideEditor =
+    !generatingSlideSelected &&
+    !showNewDeckGeneratingOverlay &&
+    !showQuestionFlow;
+
+  useEffect(() => {
+    if (!generatingSlideVisible) setGeneratingSlideSelected(false);
+  }, [generatingSlideVisible]);
+
+  const previousSlideCountRef = useRef(slideCount);
+  useEffect(() => {
+    if (previousSlideCountRef.current === slideCount) return;
+    previousSlideCountRef.current = slideCount;
+    setGeneratingSlideSelected(false);
+  }, [slideCount]);
 
   useEffect(() => {
     if (
@@ -1044,6 +1070,7 @@ export default function DeckEditor() {
                   deckId={id}
                   deckTitle={deck.title}
                   onSelectSlide={(slideId) => {
+                    setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
@@ -1070,6 +1097,21 @@ export default function DeckEditor() {
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
+                  generatingSlide={
+                    generatingSlideVisible
+                      ? {
+                          index: deck.slides.length,
+                          content: streamedGeneratingSlideContent,
+                        }
+                      : undefined
+                  }
+                  generatingSlideSelected={generatingSlideSelected}
+                  onSelectGeneratingSlide={() => {
+                    setGeneratingSlideSelected(true);
+                    if (window.innerWidth < 768) setSidebarOpen(false);
+                  }}
+                  addSlideGenerating={addSlideGenerating}
+                  onAddSlideGeneratingChange={setAddSlideGenerating}
                 />
               </DndContext>
             </div>
@@ -1089,7 +1131,20 @@ export default function DeckEditor() {
           />
         )}
 
-        {showNewDeckGeneratingOverlay &&
+        {generatingSlideSelected && generatingSlideVisible && (
+          <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+            <div className="m-auto w-full max-w-6xl">
+              <GeneratingSlidePreview
+                content={streamedGeneratingSlideContent}
+                aspectRatio={deck.aspectRatio}
+                thumbnail={false}
+              />
+            </div>
+          </div>
+        )}
+
+        {!generatingSlideSelected &&
+          showNewDeckGeneratingOverlay &&
           deck.slides.length === 0 &&
           !showQuestionFlow && <GeneratingOverlay />}
 
@@ -1102,7 +1157,7 @@ export default function DeckEditor() {
           </div>
         )}
 
-        {!showNewDeckGeneratingOverlay && !showQuestionFlow && currentSlide && (
+        {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
             slide={currentSlide}
             deckId={id}

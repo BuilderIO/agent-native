@@ -8,8 +8,9 @@
  *   1. Doctor: refuse or warn on framework overrides/patches
  *   2. Bump `@agent-native/*` deps to `latest` (unless file:/link:/workspace:)
  *   3. Install
- *   4. Refresh scaffold skills (`skills update scaffold --project`)
- *   5. Verify with typecheck when available
+ *   4. Pin `latest` back to the exact versions the install resolved
+ *   5. Refresh scaffold skills (`skills update scaffold --project`)
+ *   6. Verify with typecheck when available
  *
  * On failure: print the error and stop. Do not patch framework packages.
  */
@@ -22,6 +23,11 @@ import type { MigrationCodemodResult } from "./migration-codemod.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
 const PINNABLE_VERSION = "latest";
+const PINNABLE_SECTIONS = [
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+] as const;
 
 export type UpgradeCommand = "run" | "check" | "help";
 
@@ -65,10 +71,23 @@ export interface FrameworkOverrideFinding {
 
 export interface AgentNativeDepBump {
   file: string;
-  section: "dependencies" | "devDependencies" | "optionalDependencies";
+  section: (typeof PINNABLE_SECTIONS)[number];
   name: string;
   from: string;
   to: string;
+}
+
+export interface AgentNativeDepPin {
+  file: string;
+  section: (typeof PINNABLE_SECTIONS)[number];
+  name: string;
+  version: string;
+}
+
+export interface AgentNativePinResult {
+  pins: AgentNativeDepPin[];
+  /** `<relative package.json> <package>` for every spec left floating. */
+  unresolved: string[];
 }
 
 export interface UpgradeProject {
@@ -267,12 +286,7 @@ function collectBumps(
   pkg: PackageJsonLike,
 ): AgentNativeDepBump[] {
   const bumps: AgentNativeDepBump[] = [];
-  const sections = [
-    "dependencies",
-    "devDependencies",
-    "optionalDependencies",
-  ] as const;
-  for (const section of sections) {
+  for (const section of PINNABLE_SECTIONS) {
     const deps = pkg[section];
     if (!deps) continue;
     for (const [name, version] of Object.entries(deps)) {
@@ -288,6 +302,48 @@ function collectBumps(
     }
   }
   return bumps;
+}
+
+/**
+ * Rewrite the `latest` specs this run just installed back to the exact
+ * versions the package manager resolved.
+ *
+ * `latest` left behind in a committed manifest is not a pin: every later
+ * install mints a fresh resolution while pnpm's orphan retention keeps the
+ * superseded ones, and each distinct `@agent-native/core` resolution is
+ * another ~175 MB physical copy in the virtual store.
+ */
+export function pinResolvedAgentNativeVersions(
+  project: UpgradeProject,
+): AgentNativePinResult {
+  const pins: AgentNativeDepPin[] = [];
+  const unresolved: string[] = [];
+  for (const file of project.packageFiles) {
+    const pkg = readJsonFile(file);
+    if (!pkg) continue;
+    let changed = false;
+    for (const section of PINNABLE_SECTIONS) {
+      const deps = pkg[section];
+      if (!deps) continue;
+      for (const [name, version] of Object.entries(deps)) {
+        if (!isAgentNativePackageName(name)) continue;
+        if (version.trim() !== PINNABLE_VERSION) continue;
+        const resolved = resolveInstalledPackageVersion(
+          path.dirname(file),
+          name,
+        );
+        if (!resolved) {
+          unresolved.push(`${relativeTo(project.root, file)} ${name}`);
+          continue;
+        }
+        deps[name] = resolved;
+        pins.push({ file, section, name, version: resolved });
+        changed = true;
+      }
+    }
+    if (changed) writeJsonFile(file, pkg);
+  }
+  return { pins, unresolved };
 }
 
 function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
@@ -787,6 +843,44 @@ export async function runUpgrade(
       return result.exitCode;
     }
     result.steps.push({ id: "install", status: "ok", detail: `${pm} install` });
+  }
+
+  // Pin.
+  if (opts.skipInstall) {
+    result.steps.push({
+      id: "pin",
+      status: "skipped",
+      detail: "--skip-install leaves specs unresolved",
+    });
+  } else if (dryRun) {
+    result.steps.push({
+      id: "pin",
+      status: "planned",
+      detail: "pin @agent-native/* to the installed versions",
+    });
+  } else {
+    const { pins, unresolved } = pinResolvedAgentNativeVersions(project);
+    if (unresolved.length > 0) {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = `Install succeeded but no installed version could be read for: ${unresolved.join(", ")}. Those specs are still "latest", so the next install will resolve them again — pin them by hand or re-run upgrade.`;
+      result.steps.push({
+        id: "pin",
+        status: "failed",
+        detail: result.message,
+      });
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+    const pinned = [...new Set(pins.map((p) => `${p.name}@${p.version}`))];
+    result.steps.push({
+      id: "pin",
+      status: pinned.length === 0 ? "skipped" : "ok",
+      detail:
+        pinned.length === 0
+          ? "No floating @agent-native/* specs"
+          : pinned.join(", "),
+    });
   }
 
   if (codemodPlan && !dryRun) {

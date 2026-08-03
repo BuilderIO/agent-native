@@ -65,6 +65,20 @@ function makeTempProject(layout: {
   return root;
 }
 
+/** Stand in for what `pnpm install` leaves behind for @agent-native/core. */
+function writeInstalledPackage(
+  dir: string,
+  version: string,
+  name = "@agent-native/core",
+): void {
+  const packageDir = path.join(dir, "node_modules", ...name.split("/"));
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(packageDir, "package.json"),
+    `${JSON.stringify({ name, version })}\n`,
+  );
+}
+
 function captureIo(overrides: Partial<UpgradeIo> = {}): {
   io: UpgradeIo;
   out: string[];
@@ -316,6 +330,7 @@ describe("runUpgrade", () => {
     const { io } = captureIo({
       spawn: (command, args) => {
         spawnCalls.push([command, ...args]);
+        if (args.includes("install")) writeInstalledPackage(root, "0.131.4");
         return {
           status: 0,
           pid: 1,
@@ -336,7 +351,7 @@ describe("runUpgrade", () => {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     );
-    expect(pkg.dependencies["@agent-native/core"]).toBe("latest");
+    expect(pkg.dependencies["@agent-native/core"]).toBe("0.131.4");
   });
 
   it("adds a missing migration dependency before install and applies source afterward", async () => {
@@ -363,6 +378,7 @@ describe("runUpgrade", () => {
             fs.readFileSync(path.join(root, "package.json"), "utf-8"),
           ) as { dependencies: Record<string, string> };
           installDependencies.push({ ...packageJson.dependencies });
+          writeInstalledPackage(root, "0.131.4");
           const toolkitDir = path.join(
             root,
             "node_modules/@agent-native/toolkit",
@@ -372,6 +388,7 @@ describe("runUpgrade", () => {
             path.join(toolkitDir, "package.json"),
             `${JSON.stringify({
               name: "@agent-native/toolkit",
+              version: "0.5.2",
               exports: { "./editor": "./editor.js" },
             })}\n`,
           );
@@ -423,12 +440,14 @@ describe("runUpgrade", () => {
     const original =
       'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n';
     fs.writeFileSync(source, original);
+    writeInstalledPackage(root, "0.131.4");
     const toolkitDir = path.join(root, "node_modules/@agent-native/toolkit");
     fs.mkdirSync(toolkitDir, { recursive: true });
     fs.writeFileSync(
       path.join(toolkitDir, "package.json"),
       `${JSON.stringify({
         name: "@agent-native/toolkit",
+        version: "0.5.2",
         exports: { ".": "./index.js" },
       })}\n`,
     );
@@ -460,6 +479,7 @@ describe("runUpgrade", () => {
     const { io, out, err } = captureIo({
       spawn: (_command, args) => {
         if (args.includes("install")) {
+          writeInstalledPackage(root, "0.131.4");
           const toolkitDir = path.join(
             root,
             "node_modules/@agent-native/toolkit",
@@ -469,6 +489,7 @@ describe("runUpgrade", () => {
             path.join(toolkitDir, "package.json"),
             `${JSON.stringify({
               name: "@agent-native/toolkit",
+              version: "0.5.2",
               exports: { ".": "./index.js" },
             })}\n`,
           );
@@ -497,7 +518,7 @@ describe("runUpgrade", () => {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     ) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies["@agent-native/toolkit"]).toBe("latest");
+    expect(pkg.dependencies["@agent-native/toolkit"]).toBe("0.5.2");
   });
 
   it("reports dependency changes when installation fails before source rewrites", async () => {
@@ -600,5 +621,108 @@ describe("runUpgrade", () => {
     );
     expect(code).toBe(1);
     expect(err.join("\n")).toContain("pnpm.overrides");
+  });
+
+  it("pins every workspace manifest to the version install resolved", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        dependencies: { "@agent-native/core": "0.120.3" },
+      },
+      apps: {
+        mail: {
+          name: "mail",
+          dependencies: { "@agent-native/core": "0.125.0" },
+          devDependencies: { "@agent-native/dispatch": "latest" },
+        },
+        tasks: {
+          name: "tasks",
+          dependencies: {
+            "@agent-native/core": "^0.130.0",
+            "@agent-native/scheduling": "workspace:*",
+          },
+        },
+      },
+    });
+    const { io } = captureIo({
+      spawn: (_command, args) => {
+        if (args.includes("install")) {
+          writeInstalledPackage(root, "0.131.4");
+          writeInstalledPackage(root, "0.131.4", "@agent-native/dispatch");
+        }
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    const code = await runUpgrade(
+      ["--cwd", root, "--skip-skills", "--skip-verify"],
+      io,
+    );
+    expect(code).toBe(0);
+
+    const read = (...segments: string[]) =>
+      JSON.parse(
+        fs.readFileSync(path.join(root, ...segments, "package.json"), "utf-8"),
+      );
+    expect(read().dependencies["@agent-native/core"]).toBe("0.131.4");
+    expect(read("apps", "mail").dependencies["@agent-native/core"]).toBe(
+      "0.131.4",
+    );
+    expect(read("apps", "mail").devDependencies["@agent-native/dispatch"]).toBe(
+      "0.131.4",
+    );
+    expect(read("apps", "tasks").dependencies["@agent-native/core"]).toBe(
+      "0.131.4",
+    );
+    // Local links are not ours to repin.
+    expect(read("apps", "tasks").dependencies["@agent-native/scheduling"]).toBe(
+      "workspace:*",
+    );
+  });
+
+  it("fails loudly instead of leaving a spec floating on latest", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "^0.8.0" },
+      },
+    });
+    const { io, err } = captureIo();
+
+    const code = await runUpgrade(
+      ["--cwd", root, "--skip-skills", "--skip-verify"],
+      io,
+    );
+    expect(code).toBe(1);
+    expect(err.join("\n")).toContain("@agent-native/core");
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf-8"),
+    );
+    expect(pkg.dependencies["@agent-native/core"]).toBe("latest");
+  });
+
+  it("skips pinning when install was skipped", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "^0.8.0" },
+      },
+    });
+    const { io, out } = captureIo();
+
+    const code = await runUpgrade(
+      ["--cwd", root, "--skip-install", "--skip-skills", "--skip-verify"],
+      io,
+    );
+    expect(code).toBe(0);
+    expect(out.join("\n")).toContain("[skipped] pin");
   });
 });

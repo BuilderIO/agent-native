@@ -1,3 +1,4 @@
+import { recordChange } from "@agent-native/core/server/poll";
 import { defineEventHandler, setResponseStatus, createEventStream } from "h3";
 
 import { resolveSlidesRequestAuthContext } from "./request-auth-context.js";
@@ -61,6 +62,15 @@ export function notifyClients(
   if (options.slideId) payload.slideId = options.slideId;
   if (options.actor) payload.actor = options.actor;
   const message = JSON.stringify(payload);
+  // Publish the same notification through Core's shared sync stream so the
+  // client does not need a second deck-specific SSE connection. Keep the
+  // legacy in-process stream below for older clients and external consumers.
+  recordChange({
+    source: "deck",
+    type,
+    key: deckId,
+    ...payload,
+  });
   if (process.env.DEBUG_SLIDES_SSE) {
     console.log(
       `[slides-sse] notifyClients deck=${deckId} type=${type} slide=${options.slideId ?? "-"} actor=${options.actor ?? "-"} clients=${sseClients.size}`,

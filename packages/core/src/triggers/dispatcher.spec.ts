@@ -7,6 +7,7 @@ import {
 import { buildTriggerContent, initTriggerDispatcher } from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ vi.mock("../resources/store.js", () => ({
       ? owner.slice("__organization__:".length)
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
+  resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
 }));
 
@@ -153,6 +155,18 @@ createdBy: alice+triggers@agent-native.test
 Respond to the event.`,
       },
     ]);
+    resourceGetByPathMock.mockImplementation(
+      async (owner: string, path: string) => {
+        const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
+        const resources = latestListCall?.value
+          ? await latestListCall.value
+          : [];
+        return resources.find(
+          (resource: { owner: string; path: string }) =>
+            resource.owner === owner && resource.path === path,
+        );
+      },
+    );
     resourcePutMock.mockResolvedValue(undefined);
     createThreadMock.mockResolvedValue({ id: "thread-1" });
     subscribeMock.mockImplementation((eventName: string) => `sub-${eventName}`);

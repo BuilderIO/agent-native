@@ -111,6 +111,19 @@ export default defineAction({
 
     /** cssVar -> { value, source } */
     const rawTokens: Map<string, { value: string; source: string }> = new Map();
+    // Persisted Brand Kit JSON can outlive its schema. Keep one malformed token
+    // from taking down the whole read action while preserving valid siblings.
+    const setRawToken = (
+      cssVar: string,
+      value: unknown,
+      source: unknown,
+    ): void => {
+      if (typeof value !== "string") return;
+      rawTokens.set(cssVar, {
+        value,
+        source: typeof source === "string" && source ? source : "Unknown",
+      });
+    };
 
     for (const file of files) {
       const state = {
@@ -125,7 +138,7 @@ export default defineAction({
       };
       extractCssVars(state, file.content);
       for (const [k, v] of Object.entries(state.cssCustomProperties)) {
-        rawTokens.set(k, { value: v, source: file.filename });
+        setRawToken(k, v, file.filename);
       }
     }
 
@@ -165,27 +178,26 @@ export default defineAction({
           };
           for (const [role, cssVar] of Object.entries(colorRoleMap)) {
             const v = (brandColors as Record<string, string>)[role];
-            if (v) rawTokens.set(cssVar, { value: v, source: "Brand Kit" });
+            if (v) setRawToken(cssVar, v, "Brand Kit");
           }
           // Border radius
           if (dsData.borders?.radius) {
-            rawTokens.set("--radius", {
-              value: dsData.borders.radius,
-              source: "Brand Kit",
-            });
+            setRawToken("--radius", dsData.borders.radius, "Brand Kit");
           }
           // Spacing
           if (dsData.spacing?.elementGap) {
-            rawTokens.set("--spacing-element-gap", {
-              value: dsData.spacing.elementGap,
-              source: "Brand Kit",
-            });
+            setRawToken(
+              "--spacing-element-gap",
+              dsData.spacing.elementGap,
+              "Brand Kit",
+            );
           }
           if (dsData.spacing?.pagePadding) {
-            rawTokens.set("--spacing-page-padding", {
-              value: dsData.spacing.pagePadding,
-              source: "Brand Kit",
-            });
+            setRawToken(
+              "--spacing-page-padding",
+              dsData.spacing.pagePadding,
+              "Brand Kit",
+            );
           }
         } catch {
           // Malformed JSON — skip Brand Kit overlay silently.
@@ -238,10 +250,7 @@ export default defineAction({
       ...Object.keys(tweakSelections).filter(isDirectCssVarSelectionKey),
     ]);
     for (const [cssVar, value] of Object.entries(resolvedOverrides)) {
-      rawTokens.set(cssVar, {
-        value,
-        source: tokenImportSources[cssVar] ?? "Tweaks",
-      });
+      setRawToken(cssVar, value, tokenImportSources[cssVar] ?? "Tweaks");
     }
 
     // ------------------------------------------------------------------

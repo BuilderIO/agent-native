@@ -442,9 +442,11 @@ export function shouldShowAgentPanelModeButtons(isSidebar: boolean) {
 export function shouldShowAgentPanelFullViewAction(
   agentPageHref: string | undefined,
   mode: PanelMode,
+  isSidebar = false,
 ) {
   return (
-    Boolean(agentPageHref) && (mode === "resources" || mode === "settings")
+    Boolean(agentPageHref) &&
+    (isSidebar || mode === "resources" || mode === "settings")
   );
 }
 
@@ -1274,7 +1276,7 @@ function AgentPanelInner({
           </IconTooltip>
         )}
         {agentPageHref &&
-          shouldShowAgentPanelFullViewAction(agentPageHref, mode) && (
+          shouldShowAgentPanelFullViewAction(agentPageHref, mode, chatOnly) && (
             <IconTooltip content={t("agentPanel.openFullView")}>
               <Link
                 to={agentPageHref}

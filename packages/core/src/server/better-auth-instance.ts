@@ -45,6 +45,10 @@ import {
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import {
+  getAuthEmailForUserId,
+  getRequiredAuthProviderForEmail,
+} from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
@@ -1112,6 +1116,46 @@ async function createBetterAuthInstance(
       },
     },
     databaseHooks: {
+      session: {
+        create: {
+          before: async (session, context) => {
+            const email = await getAuthEmailForUserId(session.userId);
+            if ((await getRequiredAuthProviderForEmail(email)) !== "google") {
+              return;
+            }
+
+            const path = String(context?.path ?? "").toLowerCase();
+            const requestUrl = context?.request?.url ?? "";
+            const providerValues = [
+              path,
+              requestUrl,
+              String(
+                (context?.params as Record<string, unknown> | undefined)
+                  ?.provider ?? "",
+              ),
+              String(
+                (context?.params as Record<string, unknown> | undefined)?.id ??
+                  "",
+              ),
+              String(
+                (context?.params as Record<string, unknown> | undefined)
+                  ?.providerId ?? "",
+              ),
+              String(
+                (context?.body as Record<string, unknown> | undefined)
+                  ?.provider ?? "",
+              ),
+              String(
+                (context?.body as Record<string, unknown> | undefined)
+                  ?.providerId ?? "",
+              ),
+            ].map((value) => value.toLowerCase());
+            if (!providerValues.some((value) => value.includes("google"))) {
+              return false;
+            }
+          },
+        },
+      },
       user: {
         create: {
           after: async (

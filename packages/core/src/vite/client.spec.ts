@@ -905,6 +905,54 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("stops the dep optimizer from writing prebundle sourcemaps", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const config = (await configPlugin.config(
+      {
+        optimizeDeps: {
+          rolldownOptions: { plugins: [{ name: "app-dep-plugin" }] },
+        },
+      },
+      { command: "serve", mode: "development" },
+    )) as any;
+
+    const depPlugins = config.optimizeDeps.rolldownOptions.plugins;
+    expect(depPlugins.map((p: any) => p.name)).toEqual([
+      "app-dep-plugin",
+      "agent-native:no-dep-prebundle-sourcemaps",
+    ]);
+    // Vite hardcodes `sourcemap: "hidden"` in the optimizer's bundle.write();
+    // only a late outputOptions hook can turn it back off.
+    expect(depPlugins.at(-1).outputOptions({ dir: "/deps" })).toEqual({
+      dir: "/deps",
+      sourcemap: false,
+    });
+  });
+
+  it("restores dep prebundle sourcemaps when AGENT_NATIVE_DEP_SOURCEMAPS=1", async () => {
+    const previous = process.env.AGENT_NATIVE_DEP_SOURCEMAPS;
+    process.env.AGENT_NATIVE_DEP_SOURCEMAPS = "1";
+    try {
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (p) => p?.name === "agent-native-config",
+      );
+
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(config.optimizeDeps.rolldownOptions).toBeUndefined();
+    } finally {
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_DEP_SOURCEMAPS;
+      else process.env.AGENT_NATIVE_DEP_SOURCEMAPS = previous;
+    }
+  });
+
   it("externalizes singleton and native deps for production SSR builds", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");

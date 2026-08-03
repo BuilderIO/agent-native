@@ -2114,6 +2114,17 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "tool_input_start",
+      tool: "edit-design",
+      id: "tool-edit",
+    });
+    expect(events).toContainEqual({
+      type: "tool_input_delta",
+      tool: "edit-design",
+      id: "tool-edit",
+      text: '{"designId":"design-1"',
+    });
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "stream_ended",

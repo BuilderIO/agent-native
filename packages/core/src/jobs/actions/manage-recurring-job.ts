@@ -7,8 +7,9 @@ import {
   resourceGetByPath,
   resourcePut,
 } from "../../resources/store.js";
-import { isValidCron, nextOccurrence } from "../cron.js";
+import { isValidCron, isValidTimezone, nextOccurrence } from "../cron.js";
 import { classifyJobResource } from "../frontmatter.js";
+import { deleteAutomationRuns } from "../run-history.js";
 import { buildJobContent, parseJobFrontmatter } from "../scheduler.js";
 import { authorizeJobMutation } from "../tools.js";
 
@@ -23,8 +24,10 @@ export default defineAction({
     name: z.string().min(1),
     scope: scopeSchema.default("personal"),
     enabled: z.boolean().optional(),
+    schedule: z.string().min(1).optional(),
+    timezone: z.string().min(1).optional(),
   }),
-  run: async ({ operation, name, scope, enabled }, ctx) => {
+  run: async ({ operation, name, scope, enabled, schedule, timezone }, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
     if (scope === "organization" && !ctx?.orgId) {
@@ -54,17 +57,46 @@ export default defineAction({
 
     if (operation === "delete") {
       await resourceDelete(resource.id);
+      // Names are reusable; history left behind would surface as the run
+      // history of whatever job is next created under this name.
+      await deleteAutomationRuns(resource.owner, name);
       return { deleted: true, name };
     }
 
-    if (enabled === undefined) {
-      throw Object.assign(new Error("enabled is required for update."), {
-        statusCode: 400,
-      });
+    if (timezone !== undefined) {
+      if (!isValidTimezone(timezone)) {
+        throw Object.assign(new Error(`Unknown timezone "${timezone}".`), {
+          statusCode: 400,
+        });
+      }
+      meta.timezone = timezone;
     }
-    meta.enabled = enabled;
-    if (enabled && meta.schedule && isValidCron(meta.schedule)) {
-      meta.nextRun = nextOccurrence(meta.schedule).toISOString();
+    if (
+      enabled === undefined &&
+      schedule === undefined &&
+      timezone === undefined
+    ) {
+      throw Object.assign(
+        new Error("enabled, schedule, or timezone is required for update."),
+        { statusCode: 400 },
+      );
+    }
+    if (schedule !== undefined) {
+      if (!isValidCron(schedule)) {
+        throw Object.assign(
+          new Error(`Invalid cron expression "${schedule}".`),
+          { statusCode: 400 },
+        );
+      }
+      meta.schedule = schedule;
+    }
+    if (enabled !== undefined) meta.enabled = enabled;
+    if (meta.enabled && meta.schedule && isValidCron(meta.schedule)) {
+      meta.nextRun = nextOccurrence(
+        meta.schedule,
+        undefined,
+        meta.timezone,
+      ).toISOString();
     }
     await resourcePut(
       resource.owner,
