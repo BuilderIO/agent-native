@@ -23,72 +23,47 @@ fn physical_tray_rect(rect: tauri::Rect) -> (i32, i32, i32, i32) {
     (x, y, width, height)
 }
 
-fn normalized_tray_rect(app: &tauri::AppHandle, rect: tauri::Rect) -> Option<tauri::Rect> {
+/// A status item that has not been laid out yet reports a frame at the screen
+/// origin, which macOS coordinate flipping turns into a bottom-left rect. Only
+/// a rect sitting in a monitor's menu-bar row can anchor the popover.
+fn tray_rect_is_laid_out(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
     let (x, y, width, height) = physical_tray_rect(rect);
     if width <= 0 || height <= 0 {
-        return None;
+        return false;
     }
 
     let center_x = x + width / 2;
-    #[cfg(not(target_os = "macos"))]
     let center_y = y + height / 2;
-    let window = app.get_webview_window("popover")?;
-    let monitors = window.available_monitors().ok()?;
+    let Some(window) = app.get_webview_window("popover") else {
+        return false;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
 
-    #[cfg(target_os = "macos")]
-    {
-        let primary = window.primary_monitor().ok().flatten();
-        let contains_laid_out_status_item = |monitor: &tauri::Monitor| {
-            let position = monitor.position();
-            let size = monitor.size();
-            center_x >= position.x + size.width as i32 / 2
-                && center_x < position.x + size.width as i32
-        };
-        let monitor = primary
-            .as_ref()
-            .filter(|monitor| contains_laid_out_status_item(monitor))
-            .or_else(|| {
-                monitors
-                    .iter()
-                    .find(|monitor| contains_laid_out_status_item(monitor))
-            })?;
-
-        // tray-icon 0.23 mixes AppKit points with CGDisplay pixels on Retina.
-        // A status item always occupies the menu-bar row, so normalize that axis.
-        if y != monitor.position().y {
-            dlog!(
-                "[clips-tray] normalized tray anchor y from {} to {}",
-                y,
-                monitor.position().y
-            );
+    monitors.into_iter().any(|monitor| {
+        let position = monitor.position();
+        let size = monitor.size();
+        if center_x < position.x || center_x >= position.x + size.width as i32 {
+            return false;
         }
-        return Some(tauri::Rect {
-            position: tauri::Position::Physical(tauri::PhysicalPosition::new(
-                x,
-                monitor.position().y,
-            )),
-            size: tauri::Size::Physical(tauri::PhysicalSize::new(width as u32, height as u32)),
-        });
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let inside_monitor = monitors.iter().any(|monitor| {
-            let position = monitor.position();
-            let size = monitor.size();
-            center_x >= position.x
-                && center_x < position.x + size.width as i32
-                && center_y >= position.y
-                && center_y < position.y + size.height as i32
-        });
-        inside_monitor.then_some(rect)
-    }
+        #[cfg(target_os = "macos")]
+        {
+            let menu_bar_band = (64.0 * monitor.scale_factor()).round() as i32;
+            center_y >= position.y && center_y < position.y + menu_bar_band
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            center_y >= position.y && center_y < position.y + size.height as i32
+        }
+    })
 }
 
 fn store_tray_anchor(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
-    let Some(rect) = normalized_tray_rect(app, rect) else {
+    if !tray_rect_is_laid_out(app, rect) {
+        dlog!("[clips-tray] ignoring tray rect that is not laid out yet");
         return false;
-    };
+    }
     let Some(anchor) = app.try_state::<TrayAnchor>() else {
         return false;
     };
