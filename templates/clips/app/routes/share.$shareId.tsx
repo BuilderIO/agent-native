@@ -997,6 +997,7 @@ export default function ShareRoute() {
               cta={firstCta}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
+              onCommentClick={() => setPanel("comments")}
               className="h-full w-full rounded-none sm:rounded-xl"
             />
           </div>

@@ -29,12 +29,14 @@ export interface Document {
   notionPageUrl?: string | null;
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
+  canView?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;
   properties?: DocumentProperty[];
   database?: ContentDatabase;
   databaseMembership?: ContentDatabaseMembership;
+  bodyHydration?: ContentDocumentBodyHydration;
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
@@ -404,6 +406,13 @@ export interface ContentDatabaseMembership {
   position: number;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
+}
+
+export interface ContentDocumentBodyHydration {
+  provider?: "builder";
+  hydration?: ContentDatabaseBodyHydration;
+  sourceId?: string;
+  databaseDocumentId?: string;
 }
 
 export type ContentDatabaseBodyHydrationState =
@@ -795,6 +804,9 @@ export interface ContentDatabaseResponse {
   duplicatedDocumentIds?: string[];
   deletedItemIds?: string[];
   deletedDocumentIds?: string[];
+  removedItemIds?: string[];
+  removedDocumentIds?: string[];
+  removedCount?: number;
   timings?: BuilderActionTiming[];
   tableQueryMode?: "server" | "client-required";
   /** Client-only optimistic state while real provider rows are being attached. */

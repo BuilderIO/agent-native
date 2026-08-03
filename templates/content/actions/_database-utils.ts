@@ -191,11 +191,11 @@ async function contentDatabaseTableQueryMode(
   return usesSecondaryField ? "client-required" : "server";
 }
 
-function canManageRole(role: string) {
+function canManageRole(role: string | undefined) {
   return role === "owner" || role === "admin";
 }
 
-function canEditRole(role: string) {
+function canEditRole(role: string | undefined) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
@@ -399,7 +399,15 @@ function serializeDocument(
   const isOwner =
     doc.ownerEmail.trim().toLowerCase() ===
     getRequestUserEmail()?.trim().toLowerCase();
-  const accessRole = isOwner ? ("owner" as const) : (shareRole ?? "viewer");
+  const hasVisibilityAccess =
+    doc.visibility === "public" ||
+    (doc.visibility === "org" &&
+      !!doc.orgId &&
+      doc.orgId === getRequestOrgId());
+  const canView = isOwner || hasVisibilityAccess || shareRole !== undefined;
+  const accessRole = isOwner
+    ? ("owner" as const)
+    : (shareRole ?? (hasVisibilityAccess ? ("viewer" as const) : undefined));
   return {
     id: doc.id,
     parentId: doc.parentId,
@@ -414,6 +422,7 @@ function serializeDocument(
     hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
     visibility: doc.visibility,
     accessRole,
+    canView,
     canEdit: canEditRole(accessRole),
     canManage: canManageRole(accessRole),
     databaseMembership: membership
@@ -1225,10 +1234,15 @@ export async function getDatabaseByDocumentId(
 
 export async function getDatabaseItemByDocumentId(
   documentId: string,
-  options: { includeDeleted?: boolean } = {},
+  options: { includeDeleted?: boolean; databaseId?: string } = {},
   db = getDb(),
 ) {
   const clauses = [eq(schema.contentDatabaseItems.documentId, documentId)];
+  if (options.databaseId) {
+    clauses.push(
+      eq(schema.contentDatabaseItems.databaseId, options.databaseId),
+    );
+  }
   if (!options.includeDeleted) {
     clauses.push(isNull(schema.contentDatabases.deletedAt));
   }
@@ -1253,19 +1267,123 @@ export async function getDatabaseItemByDocumentId(
     )
     .leftJoin(
       schema.contentDatabaseBodyHydrationQueue,
-      eq(
-        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-        schema.contentDatabaseItems.id,
+      and(
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+          schema.contentDatabaseItems.id,
+        ),
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.sourceId,
+          schema.contentDatabaseSourceRows.sourceId,
+        ),
+        eq(
+          schema.contentDatabaseBodyHydrationQueue.sourceRowId,
+          schema.contentDatabaseSourceRows.sourceRowId,
+        ),
       ),
     )
     .where(and(...clauses))
     .orderBy(
+      sql`CASE
+        WHEN ${schema.contentDatabaseSourceRows.sourceId} IS NOT NULL
+          AND (
+            ${schema.contentDatabaseItems.bodyHydrationStatus} IN ('pending', 'hydrating')
+            OR ${schema.contentDatabaseBodyHydrationQueue.id} IS NOT NULL
+          ) THEN 0
+        WHEN ${schema.contentDatabaseSourceRows.sourceId} IS NOT NULL
+          AND ${schema.contentDatabaseItems.bodyHydrationStatus} = 'error' THEN 1
+        ELSE 2
+      END`,
       sql`CASE WHEN ${schema.contentDatabaseSourceRows.sourceId} IS NOT NULL THEN 0 ELSE 1 END`,
       sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
       sql`CASE WHEN ${schema.contentDatabases.systemRole} = 'files' THEN 0 ELSE 1 END`,
       asc(schema.contentDatabases.id),
     );
   return row ?? null;
+}
+
+export async function getBuilderBodyHydrationMembershipByDocumentId(
+  documentId: string,
+  db = getDb(),
+) {
+  const rows = await db
+    .select({
+      item: schema.contentDatabaseItems,
+      database: schema.contentDatabases,
+      sourceId: schema.contentDatabaseSourceRows.sourceId,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+      bodyHydrationQueueId: schema.contentDatabaseBodyHydrationQueue.id,
+      queueSourceId: schema.contentDatabaseBodyHydrationQueue.sourceId,
+      queueSourceRowId: schema.contentDatabaseBodyHydrationQueue.sourceRowId,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceRows.sourceId,
+      ),
+    )
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(
+        schema.contentDatabaseItems.id,
+        schema.contentDatabaseSourceRows.databaseItemId,
+      ),
+    )
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.documentId, documentId),
+        eq(schema.contentDatabaseItems.documentId, documentId),
+        eq(schema.contentDatabaseSources.sourceType, "builder-cms"),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
+    );
+
+  const boundRows = rows.filter(
+    (row) =>
+      !row.bodyHydrationQueueId ||
+      (row.queueSourceId === row.sourceId &&
+        row.queueSourceRowId === row.sourceRowId),
+  );
+  if (boundRows.length === 0) return null;
+
+  const priority = (row: (typeof boundRows)[number]) => {
+    if (
+      row.bodyHydrationQueueId ||
+      row.item.bodyHydrationStatus === "pending" ||
+      row.item.bodyHydrationStatus === "hydrating"
+    ) {
+      return 0;
+    }
+    if (row.item.bodyHydrationStatus === "error") return 1;
+    return 2;
+  };
+  const topPriority = Math.min(...boundRows.map(priority));
+  const candidates = boundRows
+    .filter((row) => priority(row) === topPriority)
+    .sort((left, right) =>
+      `${left.database.id}:${left.sourceId}:${left.sourceRowId}`.localeCompare(
+        `${right.database.id}:${right.sourceId}:${right.sourceRowId}`,
+      ),
+    );
+  const sourceIds = new Set(candidates.map((row) => row.sourceId));
+
+  return {
+    membership: candidates[0]!,
+    hydrationSourceId: sourceIds.size === 1 ? candidates[0]!.sourceId : null,
+  };
 }
 
 export async function deleteDatabaseDataForDocument(

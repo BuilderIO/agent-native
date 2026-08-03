@@ -98,7 +98,7 @@ describe("automation actions", () => {
       id: "automation-1",
       name: "digest",
       triggerType: "schedule",
-      scheduleDescription: "Every day at 9 AM",
+      scheduleDescription: "Every day at 9 AM (UTC)",
       scope: "personal",
     });
   });

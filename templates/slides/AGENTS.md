@@ -38,7 +38,8 @@ ladder.
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
   large scans with `stageAs` and analyze them via `query-staged-dataset`.
-- Use image actions only when needed; preserve asset provenance.
+- Images: call `generate-image-api`, not an image API or Assets directly; keep
+  provenance. Show results as `![alt](url)`.
 - Use sharing actions for visibility and grants.
 - Ask a sibling app's agent with a natural-language `call-agent` message by
   default. Let that specialist use its own instructions, skills, sources, and

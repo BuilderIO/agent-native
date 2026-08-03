@@ -32,6 +32,8 @@ const messages = {
     languageTitle: "語言",
     languageDescription: "選取此 Assets 工作區的介面語言。",
     languageLabel: "介面語言",
+    emailNotifications: "郵件通知",
+    emailNotificationsDescription: "當你發起的生成完成或失敗時，收到郵件通知。",
     setupTitle: "Assets 設定",
     setupDescription: "兩個要素：生成和持久儲存。",
     setupReady: "就緒",

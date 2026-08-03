@@ -66,6 +66,7 @@ export default defineEventHandler(async (event: H3Event) => {
       ownerEmail: schema.recordings.ownerEmail,
       orgId: schema.recordings.orgId,
       status: schema.recordings.status,
+      uploadGenerationId: schema.recordings.uploadGenerationId,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId))
@@ -120,6 +121,9 @@ export default defineEventHandler(async (event: H3Event) => {
         const result = await finalizeRecording.run({
           id: recordingId,
           mediaVerificationRetryAttempt: retryAttempt ?? 1,
+          ...(recording.uploadGenerationId
+            ? { uploadGenerationId: recording.uploadGenerationId }
+            : {}),
         });
         return { ok: true, kind, result };
       }

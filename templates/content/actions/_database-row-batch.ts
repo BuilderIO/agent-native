@@ -79,6 +79,7 @@ function positionCaseSql(
 
 export async function resolveDatabaseRowsForBatch(
   input: DatabaseRowBatchInput,
+  options: { includeTrashed?: boolean } = {},
 ): Promise<{
   database: typeof schema.contentDatabases.$inferSelect;
   rows: DatabaseRowBatchRow[];
@@ -151,7 +152,7 @@ export async function resolveDatabaseRowsForBatch(
         eq(schema.contentDatabaseItems.databaseId, database.id),
         rowPredicates.length === 1 ? rowPredicates[0] : or(...rowPredicates),
         isNull(schema.contentDatabases.deletedAt),
-        isNull(schema.documents.trashedAt),
+        options.includeTrashed ? undefined : isNull(schema.documents.trashedAt),
       ),
     )
     .orderBy(asc(schema.contentDatabaseItems.position));
@@ -177,7 +178,10 @@ export async function resolveDatabaseRowsForBatch(
     throw new Error("Duplicate database row references are not allowed.");
   }
 
-  return { database, rows: requestedRows };
+  return {
+    database,
+    rows: requestedRows,
+  };
 }
 
 export async function renumberDatabaseRows(

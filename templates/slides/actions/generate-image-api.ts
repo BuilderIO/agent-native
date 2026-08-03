@@ -1,9 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import type { ImageGenResponse } from "@shared/api";
 import { z } from "zod";
 
+import {
+  delegateImageGenerationToAssets,
+  extractAssetUrl,
+  imagePreviewMarkdown,
+} from "../server/lib/assets-image-delegation.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 interface ReferenceImage {
@@ -28,15 +32,21 @@ async function urlToReferenceImage(
 
 export default defineAction({
   description:
-    "Generate an image via a connected Builder.io account, or Gemini/OpenAI, with optional reference images for style matching.",
+    "Generate a slide image. Delegates to the Assets app over A2A so generations use the brand library, presets, and audit log; falls back to a local Gemini/OpenAI key only when Assets is unreachable. Show the returned `url` to the user as an inline markdown image (![alt](url)) so it renders in chat, never as a bare link.",
   schema: z.object({
     prompt: z.string().optional().describe("Image description (required)"),
     model: z
       .string()
       .optional()
       .describe(
-        "Provider: 'builder', 'gemini', 'openai', or 'auto' (default: auto, which prefers a connected Builder.io account, then gemini, then openai)",
+        "Fallback provider used only when Assets is unreachable: 'gemini', 'openai', or 'auto' (default: auto)",
       ),
+    deckId: z.string().optional().describe("Deck the image is destined for"),
+    slideId: z.string().optional().describe("Slide the image is destined for"),
+    slideContent: z
+      .string()
+      .optional()
+      .describe("HTML of the target slide, used as generation context"),
   }),
   run: async (args) => {
     const prompt = args.prompt;
@@ -44,17 +54,48 @@ export default defineAction({
       throw new Error("Prompt is required");
     }
 
-    // Get the appropriate provider
+    const delegation = await delegateImageGenerationToAssets({
+      prompt,
+      deckId: args.deckId,
+      slideId: args.slideId,
+      slideContent: args.slideContent,
+    });
+
+    if (delegation.status === "delegated") {
+      const url = extractAssetUrl(delegation.reply, {
+        baseUrl: delegation.target,
+      });
+      return {
+        source: "assets-a2a" as const,
+        prompt,
+        // The reply is the Assets agent's own text. Pass it through verbatim
+        // rather than guessing at URLs it did not return.
+        reply: delegation.reply,
+        ...(url ? { url, showToUser: imagePreviewMarkdown(prompt, url) } : {}),
+      };
+    }
+
+    if (delegation.status === "pending") {
+      throw new Error(
+        `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}"). ` +
+          `It was not cancelled — check the Assets app for the result instead of generating again.`,
+      );
+    }
+
+    if (delegation.status === "rejected") {
+      throw new Error(
+        `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+      );
+    }
+
+    // Assets is unreachable — standalone-deploy fallback. The caller is told
+    // which path ran and why, so a brand-inconsistent image is never reported
+    // as a library-grounded one.
     const { getProvider } =
       await import("../server/handlers/image-providers/index.js");
     const provider = await getProvider(args.model || "auto");
 
     const refImages: ReferenceImage[] = [];
-
-    // Load default style reference images
-    console.log(
-      `[ImageGen] Loading ${DEFAULT_STYLE_REFERENCE_URLS.length} reference image(s)...`,
-    );
     const results = await Promise.all(
       DEFAULT_STYLE_REFERENCE_URLS.map(urlToReferenceImage),
     );
@@ -76,12 +117,13 @@ export default defineAction({
       );
     }
 
-    const response: ImageGenResponse = {
+    return {
+      source: "slides-fallback" as const,
+      fallbackReason: delegation.reason,
+      showToUser: imagePreviewMarkdown(prompt, uploaded.url),
       url: uploaded.url,
       model: result.model,
       prompt,
     };
-
-    return response;
   },
 });

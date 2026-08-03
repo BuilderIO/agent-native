@@ -395,6 +395,431 @@ describe("database-scoped document properties", () => {
       ),
     ).rejects.toThrow();
   });
+
+  it("keeps the requested membership separate from Page body hydration", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({
+      title: "Shared local and Builder row",
+    });
+    const local = await createDatabase({});
+    const builder = await createDatabase({});
+    const localItemId = nextId("local_item");
+    const builderItemId = nextId("builder_item");
+    const builderSourceId = nextId("builder_source");
+
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: localItemId,
+        ownerEmail: OWNER,
+        databaseId: local.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        bodyHydrationStatus: "hydrated",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: builderItemId,
+        ownerEmail: OWNER,
+        databaseId: builder.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        bodyHydrationStatus: "complete" as any,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.contentDatabaseSources).values({
+      id: builderSourceId,
+      ownerEmail: OWNER,
+      databaseId: builder.databaseId,
+      sourceType: "builder-cms",
+      sourceName: "Builder",
+      sourceTable: "example-model",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: nextId("source_row"),
+      ownerEmail: OWNER,
+      sourceId: builderSourceId,
+      databaseItemId: builderItemId,
+      documentId: rowDocumentId,
+      sourceRowId: "example-row",
+      sourceQualifiedId: "example-model:example-row",
+      sourceDisplayKey: "Example row",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+      id: nextId("builder_body_queue"),
+      ownerEmail: OWNER,
+      sourceId: builderSourceId,
+      databaseItemId: builderItemId,
+      documentId: rowDocumentId,
+      sourceRowId: "example-row",
+      sourceTable: "example-model",
+      sourceEntryJson: "{}",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [localResult, builderResult, contextFreeResult] =
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        Promise.all([
+          getDocumentAction.run({
+            id: rowDocumentId,
+            databaseId: local.databaseId,
+            databaseDocumentId: local.databaseDocumentId,
+          }),
+          getDocumentAction.run({
+            id: rowDocumentId,
+            databaseId: builder.databaseId,
+            databaseDocumentId: builder.databaseDocumentId,
+          }),
+          getDocumentAction.run({ id: rowDocumentId }),
+        ]),
+      );
+
+    expect(localResult.databaseMembership).toMatchObject({
+      databaseId: local.databaseId,
+      sourceId: null,
+    });
+    expect(localResult.contextPath).toEqual([
+      expect.objectContaining({ id: local.databaseId, kind: "database" }),
+    ]);
+    expect(localResult.bodyHydration).toMatchObject({
+      provider: "builder",
+      sourceId: builderSourceId,
+      databaseDocumentId: builder.databaseDocumentId,
+      hydration: { status: "pending" },
+    });
+    expect(builderResult.databaseMembership).toMatchObject({
+      databaseId: builder.databaseId,
+      sourceId: builderSourceId,
+    });
+    expect(builderResult.contextPath).toEqual([
+      expect.objectContaining({ id: builder.databaseId, kind: "database" }),
+    ]);
+    expect(contextFreeResult.databaseMembership).toMatchObject({
+      databaseId: builder.databaseId,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentAction.run({
+          id: rowDocumentId,
+          databaseId: local.databaseId,
+          databaseDocumentId: builder.databaseDocumentId,
+        }),
+      ),
+    ).rejects.toThrow("Database context not found");
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentAction.run({
+          id: rowDocumentId,
+          databaseId: nextId("forged_database"),
+        }),
+      ),
+    ).rejects.toThrow("Database context not found");
+  });
+
+  it("does not invent Builder hydration for a local-only Page", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({ title: "Local-only row" });
+    const local = await createDatabase({});
+    await db.insert(schema.contentDatabaseItems).values({
+      id: nextId("local_only_item"),
+      ownerEmail: OWNER,
+      databaseId: local.databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      bodyHydrationStatus: "hydrated",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({
+        id: rowDocumentId,
+        databaseId: local.databaseId,
+        databaseDocumentId: local.databaseDocumentId,
+      }),
+    );
+
+    expect(result.databaseMembership?.databaseId).toBe(local.databaseId);
+    expect(result.bodyHydration).toBeUndefined();
+  });
+
+  it("gates hidden or viewer-only source hydration without leaking a pump target", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({ title: "Shared row" });
+    const local = await createDatabase({});
+    const hiddenBuilder = await createDatabase({ ownerEmail: COLLABORATOR });
+    const hiddenItemId = nextId("hidden_builder_item");
+    const hiddenBuilderSourceId = nextId("hidden_builder_source");
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: nextId("visible_local_item"),
+        ownerEmail: OWNER,
+        databaseId: local.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        bodyHydrationStatus: "hydrated",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: hiddenItemId,
+        ownerEmail: COLLABORATOR,
+        databaseId: hiddenBuilder.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        bodyHydrationStatus: "pending",
+        bodyHydrationAttemptedAt: now,
+        bodyHydrationError: "Private Builder diagnostic",
+        bodyHydrationVersion: "private-builder-version",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.contentDatabaseSources).values({
+      id: hiddenBuilderSourceId,
+      ownerEmail: COLLABORATOR,
+      databaseId: hiddenBuilder.databaseId,
+      sourceType: "builder-cms",
+      sourceName: "Builder",
+      sourceTable: "hidden-model",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: nextId("hidden_source_row"),
+      ownerEmail: COLLABORATOR,
+      sourceId: hiddenBuilderSourceId,
+      databaseItemId: hiddenItemId,
+      documentId: rowDocumentId,
+      sourceRowId: "hidden-row",
+      sourceQualifiedId: "hidden-model:hidden-row",
+      sourceDisplayKey: "Hidden row",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({
+        id: rowDocumentId,
+        databaseId: local.databaseId,
+        databaseDocumentId: local.databaseDocumentId,
+      }),
+    );
+
+    expect(result.databaseMembership?.databaseId).toBe(local.databaseId);
+    expect(result.bodyHydration).toEqual({
+      hydration: {
+        status: "pending",
+        attemptedAt: null,
+        error: null,
+        version: null,
+      },
+    });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        getDocumentAction.run({
+          id: rowDocumentId,
+          databaseId: hiddenBuilder.databaseId,
+          databaseDocumentId: hiddenBuilder.databaseDocumentId,
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await db.insert(schema.documentShares).values({
+      id: nextId("share"),
+      resourceId: hiddenBuilder.databaseDocumentId,
+      principalType: "user",
+      principalId: OWNER,
+      role: "viewer",
+      createdBy: COLLABORATOR,
+      createdAt: now,
+    });
+    const viewerResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({
+        id: rowDocumentId,
+        databaseId: local.databaseId,
+        databaseDocumentId: local.databaseDocumentId,
+      }),
+    );
+    expect(viewerResult.canEdit).toBe(true);
+    expect(viewerResult.bodyHydration).toEqual({
+      hydration: {
+        status: "pending",
+        attemptedAt: now,
+        error: "Private Builder diagnostic",
+        version: "private-builder-version",
+      },
+    });
+  });
+
+  it("does not gate a Page for a non-Builder source membership", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({ title: "Notion row" });
+    const notion = await createDatabase({});
+    const itemId = nextId("notion_item");
+    const sourceId = nextId("notion_source");
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId: notion.databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      bodyHydrationStatus: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId: notion.databaseId,
+      sourceType: "notion-database",
+      sourceName: "Notion",
+      sourceTable: "example-database",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: nextId("notion_source_row"),
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: itemId,
+      documentId: rowDocumentId,
+      sourceRowId: "notion-row",
+      sourceQualifiedId: "notion:example-database:notion-row",
+      sourceDisplayKey: "Notion row",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: rowDocumentId }),
+    );
+
+    expect(result.bodyHydration).toBeUndefined();
+  });
+
+  it("does not expose a Builder pump target when the queue source is stale", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({ title: "Stale queue row" });
+    const builder = await createDatabase({});
+    const itemId = nextId("stale_queue_item");
+    const sourceId = nextId("current_builder_source");
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId: builder.databaseId,
+      documentId: rowDocumentId,
+      position: 0,
+      bodyHydrationStatus: "pending",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId: builder.databaseId,
+      sourceType: "builder-cms",
+      sourceName: "Builder",
+      sourceTable: "example-model",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: nextId("current_builder_source_row"),
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: itemId,
+      documentId: rowDocumentId,
+      sourceRowId: "current-row",
+      sourceQualifiedId: "example-model:current-row",
+      sourceDisplayKey: "Current row",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+      id: nextId("stale_queue"),
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: itemId,
+      documentId: rowDocumentId,
+      sourceRowId: "stale-row",
+      sourceTable: "example-model",
+      sourceEntryJson: "{}",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: rowDocumentId }),
+    );
+
+    expect(result.bodyHydration).toBeUndefined();
+  });
+
+  it("gates ambiguously sourced Builder hydration without choosing a pump target", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({ title: "Ambiguous row" });
+    const first = await createDatabase({});
+    const second = await createDatabase({});
+    for (const [index, database] of [first, second].entries()) {
+      const itemId = nextId(`ambiguous_item_${index}`);
+      const sourceId = nextId(`ambiguous_source_${index}`);
+      await db.insert(schema.contentDatabaseItems).values({
+        id: itemId,
+        ownerEmail: OWNER,
+        databaseId: database.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        bodyHydrationStatus: "pending",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.contentDatabaseSources).values({
+        id: sourceId,
+        ownerEmail: OWNER,
+        databaseId: database.databaseId,
+        sourceType: "builder-cms",
+        sourceName: `Builder ${index}`,
+        sourceTable: `model-${index}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.contentDatabaseSourceRows).values({
+        id: nextId(`ambiguous_source_row_${index}`),
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: itemId,
+        documentId: rowDocumentId,
+        sourceRowId: `row-${index}`,
+        sourceQualifiedId: `model-${index}:row-${index}`,
+        sourceDisplayKey: `Row ${index}`,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: rowDocumentId }),
+    );
+
+    expect(result.bodyHydration).toEqual({
+      hydration: expect.objectContaining({ status: "pending" }),
+    });
+  });
 });
 
 describe("document trash lifecycle", () => {

@@ -1,5 +1,136 @@
 # @agent-native/core
 
+## 0.135.3
+
+### Patch Changes
+
+- d0bbe62: Rewrite what-is-agent-native doc for clarity and scannability
+
+## 0.135.2
+
+### Patch Changes
+
+- 60749ec: Split Getting Started into a focused four-page series with visual improvements
+
+## 0.135.1
+
+### Patch Changes
+
+- ed51b3d: Grant org-visibility access on shareable resources based on the caller's real organization membership, instead of only their currently active organization. Fixes real org members being denied access to org-shared resources (e.g. recordings) when a different org happened to be active in their session.
+
+## 0.135.0
+
+### Minor Changes
+
+- 41544d8: Fix the Automations page reporting runs that never happened, and add run history and schedule editing.
+
+  A scheduler or dispatcher tick that declined to run an automation used to stamp
+  `lastRun` with the current time, so a permanently blocked automation reported a
+  fresh run every minute while its `nextRun` stayed frozen in the past. Skipped
+  ticks now record `lastCheck` instead, leave `lastRun` alone, and only rewrite the
+  resource when the failure state actually changes. The failure reason
+  (`lastError`) is surfaced on the row and in the details view instead of being
+  swallowed behind a bare `skipped` chip.
+
+  Schedules are also timezone-aware. Cron expressions used to be read in the
+  server's zone, so an automation created as "every day at 8am" ran at 8am UTC.
+  A schedule now stores the IANA zone it was written in, taken from a new
+  scheduling timezone preference in Account settings and falling back to the
+  caller's browser zone. Descriptions name their zone ("Every day at 8 AM
+  (America/New_York)"), and both the agent tools and the schedule editor accept a
+  timezone. Existing schedules keep their current host-relative meaning until
+  edited.
+
+  Also adds:
+  - `automation_runs` history for real executions, exposed through a new
+    `list-automation-runs` action and a Past runs section in the details view.
+  - A Details view that shows more than the list row: schedule, next/last run,
+    last checked, last status, scope, creator and model.
+  - An Edit affordance for changing a scheduled automation's cron expression and
+    timezone.
+  - A "Manage agent" entry in the sidebar organization switcher.
+
+  Run history is bounded and honest about interrupted runs: a row left `running`
+  past the point a run could still be alive is reported as `interrupted` rather
+  than shown as permanently in-flight, and rows are pruned per automation so a
+  frequent schedule cannot grow the table without limit. Recording a run's
+  outcome also re-reads the automation first, so a schedule edited while it was
+  running is no longer reverted by the completion write.
+
+  Also from review: a completion write no longer recreates an automation deleted
+  mid-run, a run-history write failure can no longer reclassify a completed
+  automation as failed, deleting an automation forgets its run history so a new
+  one reusing the name does not inherit it, an unusable `X-User-Timezone` header
+  is rejected rather than persisted, and a settings read failure surfaces instead
+  of silently pinning a schedule to the host zone.
+
+  Run history never blocks the automation it describes: opening the record,
+  attaching its thread and closing it out are all non-fatal, so an unwritable
+  history table costs the record rather than the run.
+
+- 8c37661: Add shared settings and activity-notification primitives.
+  - `SettingsGroup` / `SettingsRow` (`@agent-native/core/client/settings`) render
+    several one-line settings inside a single card instead of one card per
+    control. Each row keeps its own `id`, so existing settings-search hashes
+    still resolve after a card collapses into a row.
+  - `resolveActivityRecipients` and `notifyActivity`
+    (`@agent-native/core/server`) resolve who should receive a collaboration
+    email — owner, thread participants, mentions, never the actor — filter them
+    by an app-owned preference key, and report delivery as `delivered`,
+    `delivery-failed`, `no-recipients`, `email-not-configured`, or
+    `notification-error` rather than collapsing them into an empty success. A
+    batch where every send threw is reported as `delivery-failed`, never as a
+    delivery.
+  - `runActivityNotification` (`@agent-native/core/server`) runs a notification
+    without letting it reject the write that caused it. The comment is already
+    persisted when notification runs, so throwing made the client retry and
+    duplicate the row; the failure now surfaces as `notification-error`.
+  - `filterRecipientsByResourceAccess` (`@agent-native/core/sharing`) keeps only
+    the addresses that can open a resource right now. Notification recipients
+    come from history — stored mentions, past thread authors — and none of that
+    is an access grant, so mentioning an arbitrary address no longer mails it the
+    comment body and a revoked collaborator stops receiving the thread.
+  - `isOrgMember` (`@agent-native/core/org`) is now one exported resolver instead
+    of two private copies of the same query.
+  - Review threads now send comment, reply, and mention emails from core
+    (`notifyReviewComment`), so every app built on the review surface gets them.
+    `ReviewableResourceRegistration` gained an optional `resolveUrl` so those
+    emails can deep-link to the resource instead of the app root.
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
+### Patch Changes
+
+- 72d7c5b: Prevent unreadable MCP client configuration files from being overwritten during setup.
+- Updated dependencies [f499dff]
+  - @agent-native/recap-cli@0.5.2
+  - @agent-native/toolkit@0.12.2
+
+## 0.134.2
+
+### Patch Changes
+
+- 10a204a: Brand transactional auth emails per app. Signup verification and password
+  reset emails now send from `<app-slug>@agent-native.com` with reply-to
+  agent-native@builder.io and per-app subjects/headings ("Verify your email for
+  Agent-Native <App>" / "Reset your Agent-Native <App> password"). The
+  verification email body also includes the app's one-line description (competitor
+  names reframed as "replacement"); the reset email omits the pitch since it's a
+  security email. Unknown apps fall back to the generic "Agent Native" branding.
+
+  The branded sender and reply-to are applied only when the configured
+  EMAIL_FROM is already on agent-native.com, so self-hosted deployments keep
+  their own verified sender and support mailbox.
+
+## 0.134.1
+
+### Patch Changes
+
+- 6c165cd: Document the permission-aware Content database membership removal action.
+
 ## 0.134.0
 
 ### Minor Changes

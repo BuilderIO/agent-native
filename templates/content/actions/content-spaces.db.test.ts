@@ -31,7 +31,7 @@ let updateDocumentAction: typeof import("./update-document.js").default;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let deleteContentDatabaseAction: typeof import("./delete-content-database.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
-let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
@@ -71,7 +71,7 @@ beforeAll(async () => {
   deleteContentDatabaseAction = (await import("./delete-content-database.js"))
     .default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
-  deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
+  removeDatabaseItemsAction = (await import("./remove-database-items.js"))
     .default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
@@ -295,11 +295,13 @@ describe("Content space provisioning", () => {
         deleteDocumentAction.run({ id: first.catalogDocumentId }),
       ).rejects.toThrow("Workspace references cannot be deleted as pages");
       await expect(
-        deleteDatabaseItemsAction.run({
+        removeDatabaseItemsAction.run({
           databaseId: first.catalogDatabaseId,
           itemIds: [first.catalogItemId],
         }),
-      ).rejects.toThrow("Workspace references cannot be deleted as pages");
+      ).rejects.toThrow(
+        "Workspace references cannot be removed from a database as pages",
+      );
       await expect(
         duplicateDatabaseItemAction.run({ itemId: first.catalogItemId }),
       ).rejects.toThrow("Workspace references cannot be duplicated as pages");
@@ -897,6 +899,11 @@ describe("Content space provisioning", () => {
     );
     expect(ids).not.toContain("private-org-a");
     expect(ids).not.toContain("favorite-unrelated");
+    expect(
+      result.documents.find(
+        (document) => document.id === memberProvisioned.favoritesDocumentId,
+      )?.database,
+    ).toMatchObject({ systemRole: "favorites" });
     const favorites = await runWithRequestContext(
       { userEmail: favoritesMember, orgId: "org-favorites-a" },
       () =>

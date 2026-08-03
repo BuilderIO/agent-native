@@ -337,6 +337,7 @@ export default defineAction({
                 id: database.id,
                 documentId: database.documentId,
                 title: database.title,
+                systemRole: database.systemRole,
                 description: d.description,
                 viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
                 createdAt: database.createdAt,

@@ -261,15 +261,26 @@ export default function RecordingPage() {
   // The compact layout stacks the panel below the video, so switching tabs
   // alone leaves the user looking at the player. Desktop always renders the
   // side aside, so nothing to scroll there.
-  const openInsightsPanel = useCallback(() => {
-    setPanel("insights");
-    if (!isCompactLayout) return;
-    requestAnimationFrame(() => {
-      document
-        .getElementById("clip-activity-panel")
-        ?.scrollIntoView({ block: "start" });
-    });
-  }, [isCompactLayout]);
+  const openSidePanel = useCallback(
+    (next: SidePanel) => {
+      setPanel(next);
+      if (!isCompactLayout) return;
+      requestAnimationFrame(() => {
+        document
+          .getElementById("clip-activity-panel")
+          ?.scrollIntoView({ block: "start" });
+      });
+    },
+    [isCompactLayout],
+  );
+  const openInsightsPanel = useCallback(
+    () => openSidePanel("insights"),
+    [openSidePanel],
+  );
+  const openCommentsPanel = useCallback(
+    () => openSidePanel("comments"),
+    [openSidePanel],
+  );
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -1608,6 +1619,7 @@ export default function RecordingPage() {
                   cta={firstCta}
                   onCtaClick={() => tracking.reportCtaClick()}
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
+                  onCommentClick={openCommentsPanel}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
                 {commentOpen ? (
@@ -1667,12 +1679,7 @@ export default function RecordingPage() {
                       className="shrink-0"
                       onOpen={() => {
                         if (isCompactLayout) {
-                          setPanel("comments");
-                          requestAnimationFrame(() => {
-                            document
-                              .getElementById("clip-activity-panel")
-                              ?.scrollIntoView({ block: "start" });
-                          });
+                          openCommentsPanel();
                           return;
                         }
                         setCommentAtMs(resolvePlaybackMs());
