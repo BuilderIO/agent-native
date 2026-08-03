@@ -40,6 +40,7 @@ const builderReadMock = vi.hoisted(() => ({
     fieldPaths?: readonly string[];
     maxPages?: number;
     offset?: number;
+    includeBodies?: boolean;
   }>,
   modelFieldsErrorFor: null as string | null,
   singleEntryCalls: [] as Array<{ model: string; entryId: string }>,
@@ -184,13 +185,77 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         fieldPaths,
         maxPages,
         offset,
+        includeBodies,
       }: {
         model: string;
         fieldPaths?: readonly string[];
         maxPages?: number;
         offset?: number;
+        includeBodies?: boolean;
       }) => {
-        builderReadMock.calls.push({ model, fieldPaths, maxPages, offset });
+        builderReadMock.calls.push({
+          model,
+          fieldPaths,
+          maxPages,
+          offset,
+          includeBodies,
+        });
+        if (model === "collection-bulk-pristine") {
+          const entries = Array.from({ length: 120 }, (_, index) => {
+            const position = index + 1;
+            const id = `entry-bulk-pristine-${position}`;
+            const title = `Bulk pristine ${position}`;
+            return {
+              id,
+              model,
+              title,
+              urlPath: `/bulk-pristine-${position}`,
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              sourceValues: {
+                "data.title": title,
+                "data.url": `/bulk-pristine-${position}`,
+                lastUpdated: "2026-01-01T00:00:00.000Z",
+              },
+              rawEntry: {
+                id,
+                model,
+                name: title,
+                lastUpdated: "2026-01-01T00:00:00.000Z",
+                data: {
+                  title,
+                  url: `/bulk-pristine-${position}`,
+                  blocks: [
+                    {
+                      "@type": "@builder.io/sdk:Element",
+                      "@version": 2,
+                      id: `text-bulk-pristine-${position}`,
+                      component: {
+                        name: "Text",
+                        options: { text: `<p>Bulk body ${position}</p>` },
+                      },
+                    },
+                  ],
+                },
+              },
+            };
+          });
+          return {
+            state: "live",
+            entries,
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 10_000,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: entries.length,
+              fetchedEntryCount: entries.length,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model === "collection-suspicious-empty") {
           return {
             state: "live",
@@ -1857,6 +1922,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   const entries = read.state === "live" ? read.entries : [];
   const importResult = await importBuilderEntries({
     database,
+    sourceId: "src-duplicates",
     entries,
     now,
     sourceTable: "collection-duplicates",
@@ -1868,6 +1934,14 @@ it("records freshly imported Builder row identities even when title and URL keys
 
   expect(importResult.imported).toBe(2);
   expect(importedIds.sort()).toEqual(["entry-dup-1", "entry-dup-2"]);
+  const importedSourceRows = await db
+    .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-duplicates"));
+  expect(importedSourceRows.map((row) => row.sourceRowId).sort()).toEqual([
+    "entry-dup-1",
+    "entry-dup-2",
+  ]);
   const documents = await db
     .select({ title: schema.documents.title })
     .from(schema.documents)
@@ -1898,6 +1972,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   }));
   const retryResult = await importBuilderEntries({
     database,
+    sourceId: "src-duplicates",
     entries,
     now,
     sourceTable: "collection-duplicates",
@@ -1922,6 +1997,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   await Promise.all([
     importBuilderEntries({
       database,
+      sourceId: "src-duplicates",
       entries,
       now,
       sourceTable: "collection-duplicates",
@@ -1930,6 +2006,7 @@ it("records freshly imported Builder row identities even when title and URL keys
     }),
     importBuilderEntries({
       database,
+      sourceId: "src-duplicates",
       entries,
       now,
       sourceTable: "collection-duplicates",
@@ -1950,6 +2027,23 @@ it("records freshly imported Builder row identities even when title and URL keys
     .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
   expect(concurrentRetryDocuments).toHaveLength(2);
   expect(concurrentRetryItems).toHaveLength(2);
+
+  const interruptedAttachRecovery = await importBuilderEntries({
+    database,
+    sourceId: "src-duplicates",
+    entries,
+    now,
+    sourceTable: "collection-duplicates",
+    existingSourceRows: [],
+    skipTitleDedup: true,
+  });
+  expect(interruptedAttachRecovery.imported).toBe(0);
+  expect(interruptedAttachRecovery.importedItems).toEqual([]);
+  expect(
+    Array.from(interruptedAttachRecovery.importedEntriesByDocumentId.values())
+      .map((entry) => entry.id)
+      .sort(),
+  ).toEqual(["entry-dup-1", "entry-dup-2"]);
 
   const importedItems = concurrentRetryItems.map(
     (item: { id: string; documentId: string }, index: number) => ({
@@ -1981,6 +2075,104 @@ it("records freshly imported Builder row identities even when title and URL keys
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-duplicates"));
   expect(concurrentSourceRows).toHaveLength(2);
+});
+
+it("repairs a deterministic Builder item whose source-row link is missing", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_interrupted_builder_attach";
+  const databaseDocId = "doc_db_interrupted_builder_attach";
+  const sourceId = "src_interrupted_builder_attach";
+  const sourceTable = "collection-metadata-only";
+  const entryId = "entry-metadata-only-1";
+  const { documentId, itemId } = (
+    await import("./_database-source-utils.js")
+  ).builderCmsImportIds({
+    ownerEmail: OWNER,
+    databaseId,
+    sourceTable,
+    entryId,
+  });
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Interrupted Builder attach",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      spaceId: IMPORT_SPACE_ID,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Metadata-only hydration",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "Interrupted Builder attach",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: sourceTable,
+    sourceTable,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+
+  await resync({ database, source, now, runFullRefresh: true });
+
+  const response = await (
+    await import("./_database-utils.js")
+  ).getContentDatabaseResponse(databaseId);
+  const sourceRows = await db
+    .select({
+      databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+
+  expect(response.items.map((item) => item.id)).toEqual([itemId]);
+  expect(sourceRows).toEqual([
+    { databaseItemId: itemId, documentId, sourceRowId: entryId },
+  ]);
 });
 
 it("repairs a legacy organization database into its organization space", async () => {
@@ -2031,6 +2223,7 @@ it("repairs a legacy organization database into its organization space", async (
   await runWithRequestContext({ userEmail: OWNER, orgId }, () =>
     importBuilderEntries({
       database,
+      sourceId: "src-legacy-org",
       entries,
       now,
       sourceTable: "collection-duplicates",
@@ -2330,7 +2523,11 @@ it("resync advances Builder partial reads with a cursor and converges on the fin
       'prop-author:"Grace Hopper"',
     ]),
   );
-  expect(builderReadMock.calls.map((call) => call.offset ?? 0)).toEqual([0, 1]);
+  expect(
+    builderReadMock.calls
+      .filter((call) => call.includeBodies !== true)
+      .map((call) => call.offset ?? 0),
+  ).toEqual([0, 1]);
 });
 
 it("full Builder refresh reads every page in one resync call", async () => {
@@ -2408,11 +2605,13 @@ it("full Builder refresh reads every page in one resync call", async () => {
     rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
   ).toEqual(["entry-a1", "entry-a2"]);
   expect(
-    builderReadMock.calls.map(({ model, maxPages, offset }) => ({
-      model,
-      maxPages,
-      offset,
-    })),
+    builderReadMock.calls
+      .filter((call) => call.includeBodies !== true)
+      .map(({ model, maxPages, offset }) => ({
+        model,
+        maxPages,
+        offset,
+      })),
   ).toEqual([{ model: "collection-a", maxPages: undefined, offset: 0 }]);
 });
 
@@ -3035,7 +3234,10 @@ it("continues a 597-row snapshot past offset 500 without pruning or restarting",
   expect(partialRowCounts).toEqual([597, 597, 597, 597, 597, 597]);
   expect(
     builderReadMock.calls
-      .filter((call) => call.model === "collection-large-597")
+      .filter(
+        (call) =>
+          call.model === "collection-large-597" && call.includeBodies !== true,
+      )
       .map((call) => call.offset),
   ).toEqual([0, 100, 200, 300, 400, 500]);
   const [finishedSource] = await db
@@ -3457,7 +3659,6 @@ it("does not let open-row hydration promotion downgrade a queued full Builder bo
       ),
     )
     .where(eq(schema.documents.id, documentId));
-
   expect(after.content).toBe(fullBody);
   expect(after.status).toBe("hydrated");
   expect(after.queued).toBeNull();
@@ -4009,6 +4210,315 @@ it("rebuilds an empty queued Builder body from the current source row before giv
   expect(after.attempts).toBeNull();
 });
 
+it("lets only one overlapping worker claim and finish the same Builder body job", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_overlapping_claim";
+  const databaseDocId = "doc_db_hydration_overlapping_claim";
+  const documentId = "doc_hydration_overlapping_claim";
+  const itemId = "item_hydration_overlapping_claim";
+  const sourceId = "src_hydration_overlapping_claim";
+  const sourceRowId = "entry_hydration_overlapping_claim";
+  const queueId = "queue_hydration_overlapping_claim";
+  const body = "Only the worker holding the queue claim may write this body.";
+  const entry = {
+    id: sourceRowId,
+    model: "collection-hydration-overlapping-claim",
+    title: "Hydration overlapping claim",
+    urlPath: "/blog/hydration-overlapping-claim",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    sourceValues: {
+      "data.title": "Hydration overlapping claim",
+      "data.url": "/blog/hydration-overlapping-claim",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: body,
+    },
+  };
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB hydration overlapping claim",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Hydration overlapping claim",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration overlapping claim",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-hydration-overlapping-claim",
+    sourceTable: "collection-hydration-overlapping-claim",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationError: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_overlapping_claim",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-hydration-overlapping-claim/${sourceRowId}`,
+    sourceDisplayKey: "Hydration overlapping claim",
+    sourceValuesJson: JSON.stringify(entry.sourceValues),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: queueId,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-hydration-overlapping-claim",
+    sourceEntryJson: JSON.stringify(entry),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [queuedJob] = await db
+    .select()
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.id, queueId));
+
+  const results = await Promise.all([
+    hydrateQueuedBodies({ sourceId, limit: 1, preloadedJobs: [queuedJob] }),
+    hydrateQueuedBodies({ sourceId, limit: 1, preloadedJobs: [queuedJob] }),
+  ]);
+
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+  const remainingQueue = await db
+    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+
+  expect(results.map((result) => result.processed).sort()).toEqual([0, 1]);
+  expect(results.map((result) => result.succeeded).sort()).toEqual([0, 1]);
+  expect(results.every((result) => result.failed === 0)).toBe(true);
+  expect(after.content).toBe(body);
+  expect(after.status).toBe("hydrated");
+  expect(after.error).toBeNull();
+  expect(after.queued).toBeNull();
+  expect(remainingQueue).toEqual([]);
+});
+
+it("bulk-persists pristine first-attempt Builder bodies without per-row reads", async () => {
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_bulk_pristine";
+  const databaseDocId = "doc_db_hydration_bulk_pristine";
+  const sourceId = "src_hydration_bulk_pristine";
+  const count = 120;
+
+  await db.insert(schema.documents).values({
+    id: databaseDocId,
+    ownerEmail: OWNER,
+    title: "DB hydration bulk pristine",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB hydration bulk pristine",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-bulk-pristine",
+    sourceTable: "collection-bulk-pristine",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const positions = Array.from({ length: count }, (_, index) => index + 1);
+  for (let offset = 0; offset < positions.length; offset += 40) {
+    const batch = positions.slice(offset, offset + 40);
+    await db.insert(schema.documents).values(
+      batch.map((position) => ({
+        id: `doc_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        parentId: databaseDocId,
+        title: `Bulk pristine ${position}`,
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      batch.map((position) => ({
+        id: `item_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId: `doc_hydration_bulk_pristine_${position}`,
+        position,
+        bodyHydrationStatus: "pending",
+        bodyHydrationError: null,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseSourceRows).values(
+      batch.map((position) => ({
+        id: `row_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: `item_hydration_bulk_pristine_${position}`,
+        documentId: `doc_hydration_bulk_pristine_${position}`,
+        sourceRowId: `entry-bulk-pristine-${position}`,
+        sourceQualifiedId: `builder-cms://collection-bulk-pristine/entry-bulk-pristine-${position}`,
+        sourceDisplayKey: `Bulk pristine ${position}`,
+        sourceValuesJson: JSON.stringify({
+          "data.title": `Bulk pristine ${position}`,
+          "data.url": `/bulk-pristine-${position}`,
+          lastUpdated: "2026-01-01T00:00:00.000Z",
+        }),
+        provenance: "Builder CMS read adapter",
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseBodyHydrationQueue).values(
+      batch.map((position) => ({
+        id: `queue_hydration_bulk_pristine_${position}`,
+        ownerEmail: OWNER,
+        sourceId,
+        databaseItemId: `item_hydration_bulk_pristine_${position}`,
+        documentId: `doc_hydration_bulk_pristine_${position}`,
+        sourceRowId: `entry-bulk-pristine-${position}`,
+        sourceTable: "collection-bulk-pristine",
+        sourceEntryJson: JSON.stringify({
+          id: `entry-bulk-pristine-${position}`,
+          model: "collection-bulk-pristine",
+          title: `Bulk pristine ${position}`,
+          urlPath: `/bulk-pristine-${position}`,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          sourceValues: {
+            "data.title": `Bulk pristine ${position}`,
+            "data.url": `/bulk-pristine-${position}`,
+            lastUpdated: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+        priority: 10,
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+
+  const result = await hydrateQueuedBodies({
+    sourceId,
+    limit: count,
+    preloadBodies: true,
+  });
+  const hydrated = await db
+    .select({
+      content: schema.documents.content,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      version: schema.contentDatabaseItems.bodyHydrationVersion,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  const remainingQueue = await db
+    .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+    .from(schema.contentDatabaseBodyHydrationQueue)
+    .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+
+  expect(result).toMatchObject({
+    processed: count,
+    succeeded: count,
+    failed: 0,
+    remaining: 0,
+  });
+  expect(hydrated).toHaveLength(count);
+  expect(hydrated.every((row) => row.status === "hydrated")).toBe(true);
+  expect(hydrated.every((row) => Boolean(row.version))).toBe(true);
+  expect(hydrated.every((row) => row.content.includes("Bulk body"))).toBe(true);
+  expect(
+    hydrated.every((row) =>
+      JSON.parse(row.sourceValuesJson)[BUILDER_CMS_BODY_CONTENT_KEY]?.includes(
+        "Bulk body",
+      ),
+    ),
+  ).toBe(true);
+  expect(remainingQueue).toEqual([]);
+  expect(builderReadMock.calls).toHaveLength(1);
+  expect(builderReadMock.singleEntryCalls).toEqual([]);
+});
+
 it("repairs a stale remote body hash without overwriting a locally diverged document", async () => {
   const db = getDb();
   const now = new Date().toISOString();
@@ -4482,12 +4992,38 @@ it("terminates an unbuildable empty Builder body job at the hydration cap", asyn
       },
     }),
     priority: 0,
-    attempts: 4,
+    attempts: 0,
     createdAt: now,
     updatedAt: now,
   });
 
-  await hydrateQueuedBodies({ sourceId, limit: 1 });
+  await hydrateQueuedBodies({ sourceId, limit: 1, preloadBodies: true });
+
+  const [retryable] = await db
+    .select({
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      attempts: schema.contentDatabaseBodyHydrationQueue.attempts,
+      lastAttemptedAt: schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+
+  expect(retryable).toMatchObject({
+    status: "pending",
+    attempts: 1,
+    lastAttemptedAt: null,
+  });
+
+  for (let attempt = 1; attempt < 5; attempt += 1) {
+    await hydrateQueuedBodies({ sourceId, limit: 1, preloadBodies: true });
+  }
 
   const [after] = await db
     .select({

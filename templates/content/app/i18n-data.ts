@@ -26,6 +26,7 @@ const databaseMessages = {
   addingDetailsMatchedOn: "Adding details matched on {{field}}.",
   addingItems: "Adding items",
   addingItemsAsRows: "Adding items as their own rows in this database.",
+  attachingReadOnly: "Attaching · read-only",
   addMoreItemsToThisList: "Add more items to this list",
   addProperty: "Add property",
   allAvailableDetailFieldsAlreadyVisible:
@@ -91,6 +92,9 @@ const databaseMessages = {
   failedToDeleteRow: "Failed to delete row",
   failedToDeleteSelectedRows: "Failed to delete selected rows",
   failedToDuplicateEverySelectedRow: "Failed to duplicate every selected row",
+  failedToRemoveEverySelectedRowFromDatabase:
+    "Failed to remove every selected row from the database",
+  failedToRemoveRowFromDatabase: "Failed to remove row from database",
   failedToDuplicateRow: "Failed to duplicate row",
   failedToMoveCard: "Failed to move card",
   failedToMoveRow: "Failed to move row",
@@ -99,6 +103,15 @@ const databaseMessages = {
   failedToSaveView: "Failed to save view",
   failedToUpdateCheckbox: "Failed to update checkbox",
   failedToUpdateEverySelectedRow: "Failed to update every selected row",
+  removeSelectedRowsFromDatabaseQuestion: "Remove selected rows from database?",
+  removeSelectedRowsFromDatabaseDescription:
+    "The selected pages will remain available in Files and any other databases. Values belonging only to this database will be removed.",
+  removeFromDatabase: "Remove from database",
+  removeFromDatabaseQuestion: "Remove from database?",
+  removeFromDatabaseDescription:
+    "“{{title}}” will remain available in Files and any other databases. Values belonging only to this database will be removed.",
+  remove: "Remove",
+  removing: "Removing...",
   filter: "Filter",
   filterBy: "Filter by...",
   addAdvancedFilter: "Add advanced filter",
@@ -597,6 +610,17 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "删除行失败",
     failedToDeleteSelectedRows: "删除所选行失败",
     failedToDuplicateEverySelectedRow: "未能复制所有选中行",
+    failedToRemoveEverySelectedRowFromDatabase: "无法从数据库中移除所有选中行",
+    failedToRemoveRowFromDatabase: "无法从数据库中移除该行",
+    removeSelectedRowsFromDatabaseQuestion: "从数据库中移除选中行？",
+    removeSelectedRowsFromDatabaseDescription:
+      "所选页面仍可在“文件”和其他数据库中使用。仅属于此数据库的值将被移除。",
+    removeFromDatabase: "从数据库中移除",
+    removeFromDatabaseQuestion: "从数据库中移除？",
+    removeFromDatabaseDescription:
+      "“{{title}}”仍可在“文件”和其他数据库中使用。仅属于此数据库的值将被移除。",
+    remove: "移除",
+    removing: "正在移除...",
     failedToDuplicateRow: "复制行失败",
     failedToMoveCard: "移动卡片失败",
     failedToMoveRow: "移动行失败",
@@ -818,6 +842,20 @@ const databaseMessagesByLocale = {
       "No se pudieron eliminar las filas seleccionadas",
     failedToDuplicateEverySelectedRow:
       "No se pudieron duplicar todas las filas seleccionadas",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "No se pudieron quitar todas las filas seleccionadas de la base de datos",
+    failedToRemoveRowFromDatabase:
+      "No se pudo quitar la fila de la base de datos",
+    removeSelectedRowsFromDatabaseQuestion:
+      "¿Quitar las filas seleccionadas de la base de datos?",
+    removeSelectedRowsFromDatabaseDescription:
+      "Las páginas seleccionadas seguirán disponibles en Archivos y en otras bases de datos. Se quitarán los valores que solo pertenecen a esta base de datos.",
+    removeFromDatabase: "Quitar de la base de datos",
+    removeFromDatabaseQuestion: "¿Quitar de la base de datos?",
+    removeFromDatabaseDescription:
+      "“{{title}}” seguirá disponible en Archivos y en otras bases de datos. Se quitarán los valores que solo pertenecen a esta base de datos.",
+    remove: "Quitar",
+    removing: "Quitando...",
     failedToDuplicateRow: "No se pudo duplicar la fila",
     failedToMoveCard: "No se pudo mover la tarjeta",
     failedToMoveRow: "No se pudo mover la fila",
@@ -1042,6 +1080,20 @@ const databaseMessagesByLocale = {
       "Échec de la suppression des lignes sélectionnées",
     failedToDuplicateEverySelectedRow:
       "Impossible de dupliquer toutes les lignes sélectionnées",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "Impossible de retirer toutes les lignes sélectionnées de la base de données",
+    failedToRemoveRowFromDatabase:
+      "Impossible de retirer la ligne de la base de données",
+    removeSelectedRowsFromDatabaseQuestion:
+      "Retirer les lignes sélectionnées de la base de données ?",
+    removeSelectedRowsFromDatabaseDescription:
+      "Les pages sélectionnées resteront disponibles dans Fichiers et dans les autres bases de données. Les valeurs propres à cette base de données seront supprimées.",
+    removeFromDatabase: "Retirer de la base de données",
+    removeFromDatabaseQuestion: "Retirer de la base de données ?",
+    removeFromDatabaseDescription:
+      "« {{title}} » restera disponible dans Fichiers et dans les autres bases de données. Les valeurs propres à cette base de données seront supprimées.",
+    remove: "Retirer",
+    removing: "Suppression...",
     failedToDuplicateRow: "Échec de la duplication de la ligne",
     failedToMoveCard: "Échec du déplacement de la carte",
     failedToMoveRow: "Échec du déplacement de la ligne",
@@ -1266,6 +1318,20 @@ const databaseMessagesByLocale = {
       "Ausgewählte Zeilen konnten nicht gelöscht werden",
     failedToDuplicateEverySelectedRow:
       "Nicht jede ausgewählte Zeile konnte dupliziert werden",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "Nicht alle ausgewählten Zeilen konnten aus der Datenbank entfernt werden",
+    failedToRemoveRowFromDatabase:
+      "Die Zeile konnte nicht aus der Datenbank entfernt werden",
+    removeSelectedRowsFromDatabaseQuestion:
+      "Ausgewählte Zeilen aus der Datenbank entfernen?",
+    removeSelectedRowsFromDatabaseDescription:
+      "Die ausgewählten Seiten bleiben unter Dateien und in anderen Datenbanken verfügbar. Werte, die nur zu dieser Datenbank gehören, werden entfernt.",
+    removeFromDatabase: "Aus Datenbank entfernen",
+    removeFromDatabaseQuestion: "Aus der Datenbank entfernen?",
+    removeFromDatabaseDescription:
+      "„{{title}}“ bleibt unter Dateien und in anderen Datenbanken verfügbar. Werte, die nur zu dieser Datenbank gehören, werden entfernt.",
+    remove: "Entfernen",
+    removing: "Wird entfernt...",
     failedToDuplicateRow: "Zeile konnte nicht dupliziert werden",
     failedToMoveCard: "Karte konnte nicht verschoben werden",
     failedToMoveRow: "Zeile konnte nicht verschoben werden",
@@ -1485,6 +1551,19 @@ const databaseMessagesByLocale = {
     failedToDeleteSelectedRows: "選択した行を削除できませんでした",
     failedToDuplicateEverySelectedRow:
       "選択したすべての行を複製できませんでした",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "選択したすべての行をデータベースから削除できませんでした",
+    failedToRemoveRowFromDatabase: "行をデータベースから削除できませんでした",
+    removeSelectedRowsFromDatabaseQuestion:
+      "選択した行をデータベースから削除しますか？",
+    removeSelectedRowsFromDatabaseDescription:
+      "選択したページは引き続きファイルや他のデータベースで利用できます。このデータベースにのみ属する値は削除されます。",
+    removeFromDatabase: "データベースから削除",
+    removeFromDatabaseQuestion: "データベースから削除しますか？",
+    removeFromDatabaseDescription:
+      "「{{title}}」は引き続きファイルや他のデータベースで利用できます。このデータベースにのみ属する値は削除されます。",
+    remove: "削除",
+    removing: "削除中...",
     failedToDuplicateRow: "行を複製できませんでした",
     failedToMoveCard: "カードを移動できませんでした",
     failedToMoveRow: "行を移動できませんでした",
@@ -1700,6 +1779,19 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "행을 삭제하지 못했습니다",
     failedToDeleteSelectedRows: "선택한 행을 삭제하지 못했습니다",
     failedToDuplicateEverySelectedRow: "선택한 모든 행을 복제하지 못했습니다",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "선택한 모든 행을 데이터베이스에서 제거하지 못했습니다",
+    failedToRemoveRowFromDatabase: "행을 데이터베이스에서 제거하지 못했습니다",
+    removeSelectedRowsFromDatabaseQuestion:
+      "선택한 행을 데이터베이스에서 제거할까요?",
+    removeSelectedRowsFromDatabaseDescription:
+      "선택한 페이지는 파일 및 다른 데이터베이스에서 계속 사용할 수 있습니다. 이 데이터베이스에만 속한 값은 제거됩니다.",
+    removeFromDatabase: "데이터베이스에서 제거",
+    removeFromDatabaseQuestion: "데이터베이스에서 제거할까요?",
+    removeFromDatabaseDescription:
+      "“{{title}}”은(는) 파일 및 다른 데이터베이스에서 계속 사용할 수 있습니다. 이 데이터베이스에만 속한 값은 제거됩니다.",
+    remove: "제거",
+    removing: "제거 중...",
     failedToDuplicateRow: "행을 복제하지 못했습니다",
     failedToMoveCard: "카드를 이동하지 못했습니다",
     failedToMoveRow: "행을 이동하지 못했습니다",
@@ -1921,6 +2013,20 @@ const databaseMessagesByLocale = {
     failedToDeleteSelectedRows: "Falha ao excluir linhas selecionadas",
     failedToDuplicateEverySelectedRow:
       "Falha ao duplicar todas as linhas selecionadas",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "Não foi possível remover todas as linhas selecionadas do banco de dados",
+    failedToRemoveRowFromDatabase:
+      "Não foi possível remover a linha do banco de dados",
+    removeSelectedRowsFromDatabaseQuestion:
+      "Remover as linhas selecionadas do banco de dados?",
+    removeSelectedRowsFromDatabaseDescription:
+      "As páginas selecionadas continuarão disponíveis em Arquivos e em outros bancos de dados. Os valores que pertencem somente a este banco de dados serão removidos.",
+    removeFromDatabase: "Remover do banco de dados",
+    removeFromDatabaseQuestion: "Remover do banco de dados?",
+    removeFromDatabaseDescription:
+      "“{{title}}” continuará disponível em Arquivos e em outros bancos de dados. Os valores que pertencem somente a este banco de dados serão removidos.",
+    remove: "Remover",
+    removing: "Removendo...",
     failedToDuplicateRow: "Falha ao duplicar linha",
     failedToMoveCard: "Falha ao mover cartão",
     failedToMoveRow: "Falha ao mover linha",
@@ -2134,6 +2240,18 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "पंक्ति हटाने में विफल",
     failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
     failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "डेटाबेस से सभी चुनी गई पंक्तियां नहीं हटाई जा सकीं",
+    failedToRemoveRowFromDatabase: "डेटाबेस से पंक्ति नहीं हटाई जा सकी",
+    removeSelectedRowsFromDatabaseQuestion: "चुनी गई पंक्तियां डेटाबेस से हटाएं?",
+    removeSelectedRowsFromDatabaseDescription:
+      "चुने गए पेज फ़ाइलें और अन्य डेटाबेस में उपलब्ध रहेंगे। केवल इस डेटाबेस से संबंधित मान हटा दिए जाएंगे।",
+    removeFromDatabase: "डेटाबेस से हटाएं",
+    removeFromDatabaseQuestion: "डेटाबेस से हटाएं?",
+    removeFromDatabaseDescription:
+      "“{{title}}” फ़ाइलें और अन्य डेटाबेस में उपलब्ध रहेगा। केवल इस डेटाबेस से संबंधित मान हटा दिए जाएंगे।",
+    remove: "हटाएं",
+    removing: "हटाया जा रहा है...",
     failedToDuplicateRow: "पंक्ति डुप्लिकेट करने में विफल",
     failedToMoveCard: "कार्ड ले जाने में विफल",
     failedToMoveRow: "पंक्ति ले जाने में विफल",
@@ -2342,6 +2460,19 @@ const databaseMessagesByLocale = {
     failedToDeleteRow: "فشل حذف الصف",
     failedToDeleteSelectedRows: "فشل حذف الصفوف المحددة",
     failedToDuplicateEverySelectedRow: "تعذر تكرار كل الصفوف المحددة",
+    failedToRemoveEverySelectedRowFromDatabase:
+      "تعذرت إزالة كل الصفوف المحددة من قاعدة البيانات",
+    failedToRemoveRowFromDatabase: "تعذرت إزالة الصف من قاعدة البيانات",
+    removeSelectedRowsFromDatabaseQuestion:
+      "هل تريد إزالة الصفوف المحددة من قاعدة البيانات؟",
+    removeSelectedRowsFromDatabaseDescription:
+      "ستظل الصفحات المحددة متاحة في الملفات وقواعد البيانات الأخرى. ستُزال القيم التي تخص قاعدة البيانات هذه فقط.",
+    removeFromDatabase: "إزالة من قاعدة البيانات",
+    removeFromDatabaseQuestion: "هل تريد الإزالة من قاعدة البيانات؟",
+    removeFromDatabaseDescription:
+      "سيظل “{{title}}” متاحا في الملفات وقواعد البيانات الأخرى. ستُزال القيم التي تخص قاعدة البيانات هذه فقط.",
+    remove: "إزالة",
+    removing: "جار الإزالة...",
     failedToDuplicateRow: "فشل تكرار الصف",
     failedToMoveCard: "فشل نقل البطاقة",
     failedToMoveRow: "فشل نقل الصف",
@@ -8962,6 +9093,7 @@ export const messagesByLocale = {
       builderRowsFetchedSoFar: "目前已获取 {{count}} 行。",
       builderRowsFinishingUp: "Builder 行即将完成加载。",
       builderRowsLoadingBackground: "Builder 仍在后台加载行。",
+      attachingReadOnly: "正在附加 · 只读",
       builderRowsLoadingHitSnag: "Builder 行加载遇到问题。",
       opening: "正在打开...",
     },
@@ -9147,6 +9279,7 @@ export const messagesByLocale = {
         "Las filas de Builder están terminando de cargarse.",
       builderRowsLoadingBackground:
         "Builder sigue cargando filas en segundo plano.",
+      attachingReadOnly: "Adjuntando · solo lectura",
       builderRowsLoadingHitSnag:
         "La carga de filas de Builder tuvo un problema.",
       opening: "Abriendo...",
@@ -9344,6 +9477,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Les lignes Builder terminent leur chargement.",
       builderRowsLoadingBackground:
         "Builder charge encore des lignes en arrière-plan.",
+      attachingReadOnly: "Ajout en cours · lecture seule",
       builderRowsLoadingHitSnag:
         "Le chargement des lignes Builder a rencontré un problème.",
       opening: "Ouverture...",
@@ -9540,6 +9674,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder-Zeilen werden fertig geladen.",
       builderRowsLoadingBackground:
         "Builder lädt weiterhin Zeilen im Hintergrund.",
+      attachingReadOnly: "Wird angehängt · schreibgeschützt",
       builderRowsLoadingHitSnag:
         "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
       opening: "Wird geöffnet...",
@@ -9736,6 +9871,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder 行の読み込みを完了しています。",
       builderRowsLoadingBackground:
         "Builder はバックグラウンドで行を読み込み続けています。",
+      attachingReadOnly: "接続中 · 読み取り専用",
       builderRowsLoadingHitSnag: "Builder 行の読み込みで問題が発生しました。",
       opening: "開いています...",
     },
@@ -9928,6 +10064,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder 행 로드를 마무리하는 중입니다.",
       builderRowsLoadingBackground:
         "Builder가 백그라운드에서 행을 계속 로드하고 있습니다.",
+      attachingReadOnly: "연결 중 · 읽기 전용",
       builderRowsLoadingHitSnag: "Builder 행 로드 중 문제가 발생했습니다.",
       opening: "여는 중...",
     },
@@ -10115,6 +10252,7 @@ export const messagesByLocale = {
         "As linhas do Builder estão terminando de carregar.",
       builderRowsLoadingBackground:
         "O Builder ainda está carregando linhas em segundo plano.",
+      attachingReadOnly: "Anexando · somente leitura",
       builderRowsLoadingHitSnag:
         "O carregamento de linhas do Builder encontrou um problema.",
       opening: "Abrindo...",
@@ -10307,6 +10445,7 @@ export const messagesByLocale = {
       builderRowsFinishingUp: "Builder पंक्तियां लोड होना पूरा कर रही हैं।",
       builderRowsLoadingBackground:
         "Builder अभी भी पृष्ठभूमि में पंक्तियां लोड कर रहा है।",
+      attachingReadOnly: "संलग्न किया जा रहा है · केवल पढ़ने के लिए",
       builderRowsLoadingHitSnag: "Builder पंक्तियां लोड करने में समस्या आई।",
       opening: "खोला जा रहा है...",
     },
@@ -10488,6 +10627,7 @@ export const messagesByLocale = {
       builderRowsFetchedSoFar: "تم جلب {{count}} صفًا حتى الآن.",
       builderRowsFinishingUp: "صفوف Builder توشك على إكمال التحميل.",
       builderRowsLoadingBackground: "لا يزال Builder يحمّل الصفوف في الخلفية.",
+      attachingReadOnly: "جارٍ الإرفاق · للقراءة فقط",
       builderRowsLoadingHitSnag: "واجه تحميل صفوف Builder مشكلة.",
       opening: "جارٍ الفتح...",
     },

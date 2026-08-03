@@ -261,6 +261,37 @@ describe("/api/public-recording route", () => {
     });
   });
 
+  it("exposes an interrupted upload as failed immediately after a share reload", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [
+          makeRecording({
+            password: null,
+            status: "failed",
+            uploadProgress: 40,
+            failureReason:
+              "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toMatchObject({
+      recording: {
+        status: "failed",
+        uploadProgress: 40,
+        failureReason:
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+      },
+    });
+  });
+
   it("allows a scoped agent access token to load private clips without changing visibility", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetQuery.mockReturnValue({

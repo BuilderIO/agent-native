@@ -33,6 +33,7 @@ import {
   builderBodyHydrationCanAdoptSameVersionVariant,
   builderBodyBaselineHasSameVersionConflict,
   builderAuthoritativeRawBodyHash,
+  builderBodyHydrationBulkChunkLimit,
   bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
   builderCmsSourceContinuationIsCurrent,
@@ -51,6 +52,7 @@ import {
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
   sourceSnapshotDocumentSelection,
+  sourceSnapshotPageDocumentIds,
   sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
@@ -103,6 +105,52 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("page-scopes primary Builder rows without truncating secondary federation", () => {
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: "{}",
+        documentIds: ["doc-1", "doc-2"],
+      }),
+    ).toEqual(["doc-1", "doc-2"]);
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: "{}",
+        documentIds: [],
+      }),
+    ).toEqual([]);
+
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "builder-cms",
+        metadataJson: JSON.stringify({
+          federation: {
+            role: "secondary",
+            keyField: "slug",
+            normalizationFormula: "lower(trim(value))",
+            join: {
+              kind: "identity",
+              collection: null,
+              localExpr: "{Slug}",
+              remoteKeyField: "slug",
+              normalizationFormula: "lower(trim(value))",
+            },
+          },
+        }),
+        documentIds: ["doc-1"],
+      }),
+    ).toBeUndefined();
+
+    expect(
+      sourceSnapshotPageDocumentIds({
+        sourceType: "local-table",
+        metadataJson: "{}",
+        documentIds: ["doc-1"],
+      }),
+    ).toBeUndefined();
+  });
+
   it("keeps the provider-bound property when duplicate local labels collide", () => {
     const existingFields = [
       {
@@ -244,6 +292,12 @@ describe("database source helpers", () => {
     expect(bulkChunkSizeForColumnCount(2, "d1")).toBe(45);
     expect(bulkChunkSizeForColumnCount(1, "d1")).toBe(90);
     expect(bulkChunkSizeForColumnCount(15, "postgres")).toBe(60);
+  });
+
+  it("uses one fewer transaction for the 584-row Postgres hydration case", () => {
+    expect(builderBodyHydrationBulkChunkLimit("postgres")).toBe(200);
+    expect(builderBodyHydrationBulkChunkLimit("sqlite")).toBe(112);
+    expect(builderBodyHydrationBulkChunkLimit("d1")).toBe(11);
   });
 
   it("serializes queued Builder body hydration with an unset item status as pending", () => {

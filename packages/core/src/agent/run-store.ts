@@ -736,7 +736,13 @@ function backgroundAwareStaleCutoffSql(): string {
   // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
   // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
   // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
-  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+  // The tight post-claim window buys ONE thing: reaching the durable successor
+  // sooner (see BACKGROUND_PROCESSING_RUN_STALE_MS). A row with no
+  // `dispatch_payload` has no successor to reach — `attemptStaleRunRecovery`
+  // declines it as `not_redispatchable` — so reaping it early is pure loss: it
+  // kills an in-process background automation (scheduler/trigger) that is still
+  // working, and nothing recovers it. Those get the wider background window.
+  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' AND dispatch_payload IS NOT NULL THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
 }
 
 function terminalRunEventExclusionSql(runIdColumn = "id"): string {
@@ -1546,7 +1552,7 @@ interface StaleRunRecoverySuccessor {
 type StaleRunRecoveryOutcome =
   | ({ outcome: "recovered" } & StaleRunRecoverySuccessor)
   | { outcome: "not_background" }
-  | { outcome: "payload_missing" }
+  | { outcome: "not_redispatchable" }
   | { outcome: "newer_run_exists" }
   | { outcome: "budget_exhausted" }
   | { outcome: "repeated_no_progress" };
@@ -1596,7 +1602,9 @@ function staleRecoveryDispatchPayload(payload: string): string {
  *   - the row is a background chat-turn dispatch (`dispatch_mode` starting
  *     with "background") — a foreground/foreground-self-chain run has a
  *     connected client to recover it via its own `auto_continue` re-POST.
- *   - its `dispatch_payload` is still present — without it there is nothing
+ *   - its `dispatch_payload` is still present (an in-process automation run
+ *     never had one and is declined as `not_redispatchable`, not as a loss)
+ *     — without it there is nothing
  *     to rehydrate the successor's request body from. Read HERE, before the
  *     caller's terminal write (which NULLs `dispatch_payload` on every other
  *     path), so it survives long enough to carry over.
@@ -1633,7 +1641,14 @@ async function attemptStaleRunRecovery(
   }
   const payload = row.dispatch_payload;
   if (typeof payload !== "string" || payload.length === 0) {
-    return { outcome: "payload_missing" };
+    // Not an anomaly, and specifically NOT a lost payload: every HTTP-dispatched
+    // background run writes `dispatch_payload` in the same INSERT that creates
+    // the row, so a payload-less row is one that was never HTTP-dispatched at
+    // all — an in-process automation from `runBackgroundAutomation`. It has no
+    // request body to rehydrate because there was never a request. Naming this
+    // `payload_missing` read as "we are losing payloads" in production
+    // forensics and sent a reader hunting a bug that does not exist.
+    return { outcome: "not_redispatchable" };
   }
   const threadId = row.thread_id;
   const turnId = row.turn_id ?? runId;

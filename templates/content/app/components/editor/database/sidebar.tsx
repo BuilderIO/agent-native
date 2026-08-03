@@ -21,16 +21,6 @@ import {
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -727,7 +717,6 @@ function DatabaseSidebarRow({
   };
 }) {
   const t = useT();
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const canEdit = item.document.canEdit !== false;
   const canManage =
     item.document.canManage === true ||
@@ -858,7 +847,7 @@ function DatabaseSidebarRow({
                   {canManage && onDeleteItem ? (
                     <DropdownMenuItem
                       className="text-destructive focus:text-destructive"
-                      onSelect={() => setDeleteDialogOpen(true)}
+                      onSelect={() => onDeleteItem(item)}
                     >
                       <IconTrash className="me-2 size-4" />
                       {t("database.delete")}
@@ -903,28 +892,6 @@ function DatabaseSidebarRow({
           </div>
         )}
       </div>
-
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("sidebar.deletePageQuestion")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("sidebar.deletePageDescription", { title })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => onDeleteItem?.(item)}
-            >
-              {t("database.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

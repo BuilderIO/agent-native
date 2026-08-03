@@ -24,6 +24,10 @@ import {
 } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
+import {
   classifyProviderError,
   describeErrorWithCauses,
 } from "./error-detail.js";
@@ -228,6 +232,8 @@ class AISDKEngine implements AgentEngine {
   private readonly provider: AISDKProvider;
   private readonly apiKey?: string;
   private readonly baseUrl?: string;
+  /** Empty for providers that need no key (ollama). */
+  private readonly requiredEnvVars: readonly string[];
   private readonly appName?: string;
   private readonly appUrl?: string;
 
@@ -243,12 +249,34 @@ class AISDKEngine implements AgentEngine {
     this.apiKey =
       config.apiKey ??
       (config.allowEnvFallback === false ? "" : getProviderApiKey(provider));
+    this.requiredEnvVars = PROVIDER_ENV_VARS[provider];
     this.baseUrl = config.baseUrl;
     this.appName = config.appName;
     this.appUrl = config.appUrl;
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    // An absent key is not an anonymous request. Without this the provider
+    // factory is constructed with no `apiKey`, the SDK omits the Authorization
+    // header entirely, and the gateway's 401 comes back as
+    // "Missing Authentication header" — which `classifyProviderError` codes
+    // `http_401`, a transport failure naming the wrong cause. A scheduled job
+    // then repeats that doomed unauthenticated request on every tick forever.
+    // `builder-engine` and `anthropic-engine` already fail closed here; this
+    // engine was the only one that did not.
+    //
+    // A configured `baseUrl` is exempt: a self-hosted or local gateway may
+    // legitimately accept unauthenticated requests.
+    if (!this.apiKey && !this.baseUrl && this.requiredEnvVars.length > 0) {
+      yield {
+        type: "stop",
+        reason: "error",
+        error: `${LLM_MISSING_CREDENTIALS_MESSAGE} (engine "${this.name}" has no ${this.requiredEnvVars.join(" or ")})`,
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      };
+      return;
+    }
+
     let aiModule: any;
     try {
       aiModule = await import("ai");
