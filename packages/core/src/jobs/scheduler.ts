@@ -1,7 +1,7 @@
 import {
   resourceGetByPath,
   resourceListAllOwners,
-  resourcePut,
+  resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
 import {
@@ -241,7 +241,12 @@ async function executeJob(
   meta.lastRun = now.toISOString();
   meta.lastStatus = "running";
   meta.lastError = undefined;
-  await updateResource(resource, meta, body);
+  if (!(await updateResource(resource, meta, body))) {
+    console.log(
+      `[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`,
+    );
+    return;
+  }
 
   const requestContext =
     meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
@@ -306,9 +311,17 @@ async function updateResource(
   resource: Resource,
   meta: JobFrontmatter,
   body: string,
-): Promise<void> {
+): Promise<boolean> {
   const content = buildJobContent(meta, body);
-  await resourcePut(resource.owner, resource.path, content);
+  const written = await resourcePutIfCurrent({
+    owner: resource.owner,
+    path: resource.path,
+    content,
+    expectedId: resource.id,
+    expectedUpdatedAt: resource.updatedAt,
+    expectedContent: resource.content,
+  });
+  return written !== null;
 }
 
 /** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
@@ -358,5 +371,9 @@ async function recordExecutionOutcome(
       meta.timezone,
     ).toISOString();
   }
-  await updateResource(resource, meta, current.body);
+  if (!(await updateResource(latest, meta, current.body))) {
+    console.log(
+      `[recurring-jobs] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
+    );
+  }
 }

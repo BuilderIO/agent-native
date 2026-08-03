@@ -3,7 +3,7 @@
 ---
 
 Stop writing a second full copy of the server bundle for every extra Netlify
-function. The durable-background, integration-recovery, keep-warm, workspace
+function. The durable-background, integration-recovery, workspace
 `<app>-server`, and Vercel `<app>-server.func` emits now share one on-disk copy
 through hard links, so a build no longer doubles (or, in a workspace, multiplies)
 its function output. Each function still ships a complete, independent bundle —

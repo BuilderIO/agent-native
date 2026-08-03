@@ -75,9 +75,10 @@ describe("parseDoctorArgs", () => {
     });
   });
 
-  it("parses --help and --fix", () => {
+  it("parses --help, --fix and --disk", () => {
     expect(parseDoctorArgs(["--help"])).toEqual({ help: true });
     expect(parseDoctorArgs(["--fix"])).toEqual({ fix: true });
+    expect(parseDoctorArgs(["--disk"])).toEqual({ disk: true });
   });
 });
 
@@ -373,7 +374,7 @@ describe("disk check", () => {
       ...CLEAN_FILES,
       "node_modules/.vite/deps/dep.js": "x".repeat(4096),
     });
-    const disk = checkDisk(root);
+    const disk = checkDisk(root, { measureReclaimable: true });
     if ("error" in disk) throw new Error(disk.error);
 
     expect(disk.totalBytes).toBeGreaterThan(0);
@@ -383,17 +384,50 @@ describe("disk check", () => {
     expect(disk.low).toBe(disk.freeBytes < LOW_DISK_FREE_BYTES);
   });
 
+  it("skips the cache scan by default, leaving reclaimable unmeasured (not 0)", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "node_modules/.vite/deps/dep.js": "x".repeat(4096),
+    });
+    const spy = vi.spyOn(fs, "readdirSync");
+
+    try {
+      const disk = checkDisk(root);
+      if ("error" in disk) throw new Error(disk.error);
+
+      expect(disk.freeBytes).toBeGreaterThan(0);
+      expect(disk.reclaimableBytes).toBeUndefined();
+      expect(disk.scanFailures).toBeUndefined();
+      // The walk is the whole cost: a default run must not touch the tree.
+      expect(spy).not.toHaveBeenCalled();
+      checkDisk(root, { measureReclaimable: true });
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("returns an error rather than a zero reading when the volume is unreadable", () => {
     const disk = checkDisk("/definitely/not/a/real/path/xyz");
     expect(disk).toEqual({ error: expect.stringContaining("free space") });
   });
 
-  it("the CLI prints the disk line and points at `agent-native clean`", async () => {
-    const root = makeTempAppRoot(CLEAN_FILES);
-    const { io, out } = captureIo();
-    const code = await runDoctor(["--cwd", root], io);
-    expect(code).toBe(0);
-    expect(out.join("\n")).toMatch(/Disk: .* free of .*agent-native clean/);
+  it("the CLI prints free space, and only `--disk` prices the caches", async () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "node_modules/.vite/deps/dep.js": "x".repeat(2048),
+    });
+
+    const plain = captureIo();
+    expect(await runDoctor(["--cwd", root], plain.io)).toBe(0);
+    expect(plain.out.join("\n")).toMatch(/Disk: .* free of [^\n]*\.$/m);
+    expect(plain.out.join("\n")).not.toContain("can reclaim");
+
+    const scanned = captureIo();
+    expect(await runDoctor(["--cwd", root, "--disk"], scanned.io)).toBe(0);
+    expect(scanned.out.join("\n")).toMatch(
+      /Disk: .* free of .*`agent-native clean` can reclaim 2\.0 KB/,
+    );
   });
 
   it("calls out LOW and the clean command when free space is short", async () => {
@@ -414,7 +448,14 @@ describe("disk check", () => {
       const code = await runDoctor(["--cwd", root], io);
       // Low disk is advisory: it reports, it does not fail the run.
       expect(code).toBe(0);
+      // Still points at `agent-native clean` without paying for the scan.
       expect(out.join("\n")).toMatch(
+        /Disk: 1\.0 MB free of 4\.7 GB — LOW\. `agent-native clean` frees build caches/,
+      );
+
+      const scanned = captureIo();
+      expect(await runDoctor(["--cwd", root, "--disk"], scanned.io)).toBe(0);
+      expect(scanned.out.join("\n")).toMatch(
         /Disk: 1\.0 MB free of 4\.7 GB — LOW\. `agent-native clean` can reclaim 2\.0 KB/,
       );
     } finally {
@@ -429,7 +470,8 @@ describe("disk check", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(out.join(""));
     expect(parsed.disk.freeBytes).toBeGreaterThan(0);
-    expect(parsed.disk.reclaimableBytes).toBe(0);
+    // Unmeasured stays absent in JSON too — a 0 would read as "nothing to clean".
+    expect(parsed.disk).not.toHaveProperty("reclaimableBytes");
     expect(parsed.ok).toBe(true);
   });
 });

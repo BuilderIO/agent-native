@@ -9,6 +9,7 @@ import {
   detectUpgradeProject,
   isPinnedOrLocalVersion,
   parseUpgradeArgs,
+  pinResolvedAgentNativeVersions,
   runUpgrade,
   shouldBumpAgentNativeVersion,
   type UpgradeIo,
@@ -250,6 +251,58 @@ describe("detectUpgradeProject + doctor", () => {
       "@agent-native/core",
       "@agent-native/dispatch",
     ]);
+  });
+
+  it("reports a manifest it could not parse instead of scanning around it", () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        dependencies: { "@agent-native/core": "latest" },
+      },
+      apps: { mail: { name: "mail" } },
+    });
+    fs.writeFileSync(
+      path.join(root, "apps", "mail", "package.json"),
+      "{ not json",
+    );
+
+    const report = buildUpgradeDoctorReport(detectUpgradeProject(root)!);
+    expect(report.unreadable).toHaveLength(1);
+    expect(report.unreadable[0]).toContain(
+      path.join("apps", "mail", "package.json"),
+    );
+  });
+});
+
+describe("pinResolvedAgentNativeVersions", () => {
+  it("reports an unparseable manifest instead of silently skipping it", () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        dependencies: { "@agent-native/core": "latest" },
+      },
+      apps: {
+        mail: {
+          name: "mail",
+          dependencies: { "@agent-native/core": "latest" },
+        },
+      },
+    });
+    writeInstalledPackage(root, "0.131.4");
+    fs.writeFileSync(
+      path.join(root, "apps", "mail", "package.json"),
+      "{ not json",
+    );
+
+    const result = pinResolvedAgentNativeVersions(detectUpgradeProject(root)!);
+    expect(result.pins.map((pin) => pin.version)).toEqual(["0.131.4"]);
+    expect(result.unresolved).toEqual([]);
+    expect(result.unreadable).toHaveLength(1);
+    expect(result.unreadable[0]).toContain(
+      path.join("apps", "mail", "package.json"),
+    );
   });
 });
 
@@ -707,6 +760,54 @@ describe("runUpgrade", () => {
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     );
     expect(pkg.dependencies["@agent-native/core"]).toBe("latest");
+  });
+
+  it("stops the run when a manifest cannot be parsed", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        dependencies: { "@agent-native/core": "^0.8.0" },
+      },
+      apps: { mail: { name: "mail" } },
+    });
+    fs.writeFileSync(
+      path.join(root, "apps", "mail", "package.json"),
+      "{ not json",
+    );
+    const { io, err } = captureIo();
+
+    const code = await runUpgrade(
+      ["--cwd", root, "--skip-skills", "--skip-verify"],
+      io,
+    );
+    expect(code).toBe(1);
+    expect(err.join("\n")).toContain(path.join("apps", "mail", "package.json"));
+    // Nothing was bumped behind a manifest nobody could check.
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf-8"),
+    );
+    expect(pkg.dependencies["@agent-native/core"]).toBe("^0.8.0");
+  });
+
+  it("check exits non-zero when a manifest cannot be parsed", async () => {
+    const root = makeTempProject({
+      kind: "workspace",
+      rootPkg: {
+        name: "ws",
+        dependencies: { "@agent-native/core": "latest" },
+      },
+      apps: { mail: { name: "mail" } },
+    });
+    fs.writeFileSync(
+      path.join(root, "apps", "mail", "package.json"),
+      "{ not json",
+    );
+    const { io, out } = captureIo();
+
+    const code = await runUpgrade(["check", "--cwd", root], io);
+    expect(code).toBe(1);
+    expect(out.join("\n")).toContain("Unreadable package.json");
   });
 
   it("skips pinning when install was skipped", async () => {

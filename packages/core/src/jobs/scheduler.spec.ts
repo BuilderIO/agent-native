@@ -8,6 +8,7 @@ import { classifyJobResource, processRecurringJobs } from "./scheduler.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
@@ -29,6 +30,7 @@ vi.mock("../resources/store.js", () => ({
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceGet: vi.fn(),
 }));
@@ -136,6 +138,12 @@ Summarize the inbox.`,
       },
     ]);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => {
+        await resourcePutMock(input.owner, input.path, input.content);
+        return { id: input.owner + input.path };
+      },
+    );
     // Model a real store: a re-read returns whatever was last written. The
     // scheduler re-reads before recording an outcome, and treats a missing
     // resource as deleted mid-run.

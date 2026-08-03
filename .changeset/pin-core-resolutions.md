@@ -9,7 +9,8 @@ Stop workspaces from accumulating duplicate physical copies of
 exact resolved versions, so a committed manifest pins one release instead of
 re-resolving on every install. If a version cannot be read after a successful
 install, upgrade reports which specs are still floating rather than claiming
-the upgrade finished.
+the upgrade finished. A `package.json` that cannot be parsed is now named in
+that report and stops the run, instead of being skipped as if it were clean.
 
 Apps added to an existing workspace inherit the framework versions the
 workspace root already pins, and freshly scaffolded workspaces resolve

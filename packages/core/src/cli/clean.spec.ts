@@ -86,6 +86,28 @@ describe("parseCleanArgs", () => {
     expect(parseCleanArgs(["-n"])).toEqual({ dryRun: true });
     expect(parseCleanArgs(["--help"])).toEqual({ help: true });
   });
+
+  it("errors on --cwd with a missing or empty value instead of dropping it", () => {
+    expect(parseCleanArgs(["--builds", "--apply", "--cwd"]).error).toMatch(
+      /--cwd requires a directory path/,
+    );
+    expect(parseCleanArgs(["--cwd="]).error).toMatch(
+      /--cwd requires a directory path/,
+    );
+    expect(parseCleanArgs(["--cwd="]).cwd).toBeUndefined();
+  });
+
+  it("errors on an unrecognized argument rather than degrading quietly", () => {
+    // `--aply` silently ignored is the difference between a dry run and a
+    // real delete.
+    expect(parseCleanArgs(["--builds", "--aply"]).error).toMatch(
+      /Unknown argument: --aply/,
+    );
+    expect(parseCleanArgs(["--build"]).error).toMatch(
+      /Unknown argument: --build/,
+    );
+    expect(parseCleanArgs(["--builds", "--aply"]).apply).toBeUndefined();
+  });
 });
 
 describe("isSafeTarget", () => {
@@ -170,6 +192,32 @@ describe("scanCleanTargets", () => {
     ]) {
       expect(selected).not.toContain(forbidden);
     }
+  });
+
+  it("counts a hard-linked file once, not once per link", () => {
+    const root = makeTempRoot({
+      "package.json": JSON.stringify({ name: "solo-app" }),
+      ".netlify/functions-internal/server/bundle.js": "x".repeat(1000),
+      ".netlify/functions-internal/server/meta.json": "y".repeat(1000),
+    });
+    // The deploy step hard-links the server bundle into each function
+    // directory, so the tree holds 2000 bytes however many links point at it.
+    const bundle = path.join(
+      root,
+      ".netlify/functions-internal/server/bundle.js",
+    );
+    for (const fn of ["agent-background", "integration-recovery"]) {
+      const dir = path.join(root, ".netlify/functions-internal", fn);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.linkSync(bundle, path.join(dir, "bundle.js"));
+    }
+
+    const deploy = scanCleanTargets({ root, builds: true }).targets.find(
+      (t) =>
+        path.relative(root, t.path) ===
+        path.join(".netlify", "functions-internal"),
+    );
+    expect(deploy?.bytes).toBe(2000);
   });
 
   it("counts the deps_temp_* orphans inside .vite once, not twice", () => {
@@ -275,6 +323,43 @@ describe("runClean (CLI)", () => {
       await runClean(["--cwd", "/definitely/not/a/real/path/xyz"], io),
     ).toBe(2);
     expect(err.join("\n")).toMatch(/does not exist/);
+  });
+
+  it("refuses a directory with no project marker instead of deleting build/", async () => {
+    // `~/Documents/build` is a plausible personal folder, and isSafeTarget
+    // only vouches for the name.
+    const root = makeTempRoot({ "build/notes/draft.txt": "x".repeat(400) });
+    const { io, err } = captureIo();
+
+    expect(await runClean(["--cwd", root, "--builds", "--apply"], io)).toBe(2);
+    expect(err.join("\n")).toMatch(/not a project root/);
+    expect(fs.existsSync(path.join(root, "build/notes/draft.txt"))).toBe(true);
+  });
+
+  it("accepts a root marked by agent-native.json or apps/ alone", async () => {
+    const manifestOnly = makeTempRoot({
+      "agent-native.json": "{}",
+      "build/client/bundle.js": "x".repeat(40),
+    });
+    const appsOnly = makeTempRoot({
+      "apps/mail/build/client/bundle.js": "x".repeat(40),
+    });
+    const { io } = captureIo();
+
+    expect(await runClean(["--cwd", manifestOnly, "--builds"], io)).toBe(0);
+    expect(await runClean(["--cwd", appsOnly, "--builds"], io)).toBe(0);
+  });
+
+  it("a --cwd with no value is a usage error, not a clean of the current directory", async () => {
+    const { io, err } = captureIo();
+    expect(await runClean(["--builds", "--apply", "--cwd"], io)).toBe(2);
+    expect(err.join("\n")).toMatch(/--cwd requires a directory path/);
+  });
+
+  it("an unrecognized flag is a usage error", async () => {
+    const { io, err } = captureIo();
+    expect(await runClean(["--builds", "--aply"], io)).toBe(2);
+    expect(err.join("\n")).toMatch(/Unknown argument: --aply/);
   });
 
   it("--json reports per-category bytes and ok", async () => {

@@ -69,7 +69,8 @@ const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
 /** Frames the SSE leader forwards to follower tabs over BroadcastChannel. */
 type SyncBroadcast =
   | { type: "events"; events: SyncEvent[]; version: number | undefined }
-  | { type: "sse-state"; connected: boolean; capabilities: string[] };
+  | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "sse-state-request" };
 
 class HttpStatusError extends Error {
   status: number;
@@ -745,9 +746,20 @@ class SyncTransport {
     if (this.channel || typeof BroadcastChannel === "undefined") return;
     const channel = new BroadcastChannel(this.leaderKey);
     channel.onmessage = (message: MessageEvent) => {
-      // Only followers consume frames; a leader already applied them locally.
-      if (this.stopped || this.leaderState === "leader") return;
       const frame = message.data as SyncBroadcast | null;
+      if (this.stopped) return;
+      if (frame?.type === "sse-state-request") {
+        if (this.leaderState === "leader") {
+          this.broadcast({
+            type: "sse-state",
+            connected: this.sseConnected,
+            capabilities: this.capabilities,
+          });
+        }
+        return;
+      }
+      // Only followers consume frames; a leader already applied them locally.
+      if (this.leaderState === "leader") return;
       if (frame?.type === "events") {
         this.applyVersion(frame.events, frame.version);
         this.fan(frame.events, frame.version);
@@ -761,6 +773,7 @@ class SyncTransport {
       }
     };
     this.channel = channel;
+    channel.postMessage({ type: "sse-state-request" });
   }
 
   private broadcast(frame: SyncBroadcast): void {

@@ -126,6 +126,37 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     );
   });
 
+  it("rechecks the Google account after a concurrent create race", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, createOAuthUser, linkAccount } = adapterFor();
+    vi.mocked(adapter.findUserByEmail)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(existing);
+    vi.mocked(adapter.findAccountByProviderId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "google-account",
+        userId: "existing-user",
+        providerId: "google",
+        accountId: "google-sub-race",
+      });
+    createOAuthUser.mockRejectedValueOnce(new Error("email already exists"));
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-race",
+    });
+
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
   it("links an already verified canonical user", async () => {
     const existing = {
       user: {

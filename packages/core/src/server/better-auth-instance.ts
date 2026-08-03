@@ -857,7 +857,9 @@ async function replaceUnverifiedCredentialWithGoogle(input: {
     }
 
     const currentUser = await tx.execute({
-      sql: 'SELECT id FROM "user" WHERE id = ? AND email = ? AND email_verified = ?',
+      sql:
+        'SELECT id FROM "user" WHERE id = ? AND email = ? AND email_verified = ?' +
+        (postgres ? " FOR UPDATE" : ""),
       args: [input.userId, input.email, unverified],
     });
     if (currentUser.rows.length !== 1) {
@@ -1000,7 +1002,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     adapter.findUserByEmail(email, { includeAccounts: true });
   let existing = await findExisting();
 
-  const linkedAccount = await adapter.findAccountByProviderId(
+  let linkedAccount = await adapter.findAccountByProviderId(
     accountId,
     "google",
   );
@@ -1025,6 +1027,20 @@ export async function ensureGoogleAuthIdentityWithAdapter(
         // real adapter error and do not issue a legacy session.
         existing = await findExisting();
         if (!existing) throw error;
+
+        // The account may have been linked by the concurrent sign-in that won
+        // the create race. Re-read it before falling through to the legacy
+        // link path, which must never create a duplicate association.
+        linkedAccount = await adapter.findAccountByProviderId(
+          accountId,
+          "google",
+        );
+        if (linkedAccount) {
+          if (linkedAccount.userId !== existing.user.id) {
+            throw new Error("Google account is already linked to another user");
+          }
+          return;
+        }
       }
     } else {
       const created = await adapter.createUser({

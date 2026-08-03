@@ -31,6 +31,9 @@ export function copyDir(
  * The clone shares inodes with the source, so never write in place into one:
  * remove the file and write a new one, as every emit here does. An in-place
  * write would land in the source bundle's bytes too.
+ *
+ * Symlinked sources are resolved before linking, so the clone is always a
+ * regular file — see the note in `copyTree`.
  */
 export function cloneServerBundleForFunction(src: string, dest: string): void {
   copyTree(src, dest, linkFile);
@@ -82,7 +85,11 @@ function copyTree(
       if (stat.isDirectory()) {
         copyTree(srcPath, destPath, placeFile, nextAncestorRealPaths);
       } else {
-        placeFile(srcPath, destPath);
+        // link(2) does not dereference symlinks on Linux (BSD/macOS does), so
+        // linking the link itself would put a symlink in the emitted function
+        // on the deploy builder — and the clone sits at a different tree depth,
+        // so a relative target would dangle. Place the target, not the link.
+        placeFile(fs.realpathSync(srcPath), destPath);
       }
     } else if (entry.isDirectory()) {
       copyTree(srcPath, destPath, placeFile, nextAncestorRealPaths);

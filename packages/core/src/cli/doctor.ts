@@ -248,10 +248,11 @@ export const LOW_DISK_FREE_BYTES = 500 * 1024 * 1024;
 export interface DoctorDisk {
   freeBytes: number;
   totalBytes: number;
-  /** Size of the caches `agent-native clean` removes by default. */
-  reclaimableBytes: number;
+  /** Size of the caches `agent-native clean` removes by default. Undefined —
+   * not 0 — unless `--disk` asked for the scan: "not measured" is not "empty". */
+  reclaimableBytes?: number;
   /** Paths the cache scan could not read, so `reclaimableBytes` is a floor. */
-  scanFailures: number;
+  scanFailures?: number;
   low: boolean;
 }
 
@@ -263,9 +264,20 @@ export interface DoctorDiskError {
 
 export type DoctorDiskReport = DoctorDisk | DoctorDiskError;
 
-/** Free space on the volume holding `root`, plus what `agent-native clean`
- * could give back. Advisory only: it never changes doctor's exit code. */
-export function checkDisk(root: string): DoctorDiskReport {
+/**
+ * Free space on the volume holding `root`. Advisory only: it never changes
+ * doctor's exit code.
+ *
+ * `measureReclaimable` adds what `agent-native clean` could give back, which
+ * costs a recursive walk plus a full stat of every dep cache — multi-GB and
+ * seconds in a workspace, on a run that only prints one advisory line. Free
+ * space is the number that matters when the disk is full, so the scan is
+ * opt-in (`doctor --disk`).
+ */
+export function checkDisk(
+  root: string,
+  { measureReclaimable = false } = {},
+): DoctorDiskReport {
   let stats: fs.StatsFs;
   try {
     stats = fs.statfsSync(root);
@@ -274,30 +286,41 @@ export function checkDisk(root: string): DoctorDiskReport {
       error: `could not read free space for ${root}: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const scan = scanCleanTargets({ root });
   const freeBytes = Number(stats.bavail) * Number(stats.bsize);
-  return {
+  const disk: DoctorDisk = {
     freeBytes,
     totalBytes: Number(stats.blocks) * Number(stats.bsize),
+    low: freeBytes < LOW_DISK_FREE_BYTES,
+  };
+  if (!measureReclaimable) return disk;
+
+  const scan = scanCleanTargets({ root });
+  return {
+    ...disk,
     reclaimableBytes: scan.targets.reduce(
       (total, target) => total + target.bytes,
       0,
     ),
     scanFailures: scan.failures.length,
-    low: freeBytes < LOW_DISK_FREE_BYTES,
   };
 }
 
 function formatDiskLine(disk: DoctorDiskReport): string {
   if ("error" in disk) return `Disk: ${disk.error}`;
+  const space = `${formatBytes(disk.freeBytes)} free of ${formatBytes(disk.totalBytes)}`;
+  if (disk.reclaimableBytes === undefined) {
+    return disk.low
+      ? `Disk: ${space} — LOW. \`agent-native clean\` frees build caches (\`doctor --disk\` measures how much).`
+      : `Disk: ${space}.`;
+  }
   const partial =
-    disk.scanFailures > 0
+    disk.scanFailures && disk.scanFailures > 0
       ? ` (at least — ${disk.scanFailures} path(s) unreadable)`
       : "";
   const reclaim = `\`agent-native clean\` can reclaim ${formatBytes(disk.reclaimableBytes)} of build caches${partial}.`;
   return disk.low
-    ? `Disk: ${formatBytes(disk.freeBytes)} free of ${formatBytes(disk.totalBytes)} — LOW. ${reclaim}`
-    : `Disk: ${formatBytes(disk.freeBytes)} free of ${formatBytes(disk.totalBytes)}. ${reclaim}`;
+    ? `Disk: ${space} — LOW. ${reclaim}`
+    : `Disk: ${space}. ${reclaim}`;
 }
 
 /** Pure escalation rule shared by the CLI (`--strict`) and the `build`
@@ -356,6 +379,8 @@ export interface DoctorCliOptions {
   strict?: boolean;
   help?: boolean;
   fix?: boolean;
+  /** Also measure what `agent-native clean` would reclaim (walks every cache). */
+  disk?: boolean;
 }
 
 export function parseDoctorArgs(argv: string[]): DoctorCliOptions {
@@ -370,6 +395,8 @@ export function parseDoctorArgs(argv: string[]): DoctorCliOptions {
       opts.strict = true;
     } else if (arg === "--fix") {
       opts.fix = true;
+    } else if (arg === "--disk") {
+      opts.disk = true;
     } else if (arg === "--cwd" && argv[i + 1] !== undefined) {
       opts.cwd = argv[++i];
     } else if (arg.startsWith("--cwd=")) {
@@ -399,6 +426,7 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
       "  agent-native doctor --only <guard,guard>   Run only the named guard(s)",
       "  agent-native doctor --strict                Escalate findings to a hard failure when used by `agent-native build --strict`",
       "  agent-native doctor --cwd <dir>             Run against a project root other than the current directory",
+      "  agent-native doctor --disk                  Also measure what `agent-native clean` would reclaim (scans every build cache)",
       "  agent-native doctor --fix                   Not implemented in this version",
       "  agent-native doctor --help                  Show this help",
       "",
@@ -406,9 +434,9 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
       "",
       "Exit codes: 0 clean, 1 findings present, 2 usage/execution error.",
       "",
-      "Every run also reports free space on the volume holding the project and",
-      "how much of it `agent-native clean` could give back. Disk is advisory —",
-      "it never changes the exit code.",
+      "Every run also reports free space on the volume holding the project;",
+      "`--disk` adds how much of it `agent-native clean` could give back. Disk",
+      "is advisory — it never changes the exit code.",
       "",
       "`agent-native build` runs doctor as a warn-only pre-step by default — it",
       "never fails the build unless `agent-native build --strict` is passed or",
@@ -462,7 +490,7 @@ export async function runDoctor(
   }
 
   const report = runDoctorScan({ root, only: opts.only });
-  const disk = checkDisk(root);
+  const disk = checkDisk(root, { measureReclaimable: Boolean(opts.disk) });
 
   if (opts.json) {
     // The machine-readable report always goes to stdout (io.log), whether

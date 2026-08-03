@@ -27,7 +27,7 @@ import {
 import {
   resourceGetByPath,
   resourceListAllOwners,
-  resourcePut,
+  resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
 import { evaluateCondition } from "./condition-evaluator.js";
@@ -134,11 +134,20 @@ async function recordTriggerExecutionOutcome(
   }
 
   const nextMeta: TriggerFrontmatter = { ...current.meta, ...outcome };
-  await resourcePut(
-    resource.owner,
-    resource.path,
-    buildTriggerContent(nextMeta, current.body),
-  );
+  const written = await resourcePutIfCurrent({
+    owner: resource.owner,
+    path: resource.path,
+    content: buildTriggerContent(nextMeta, current.body),
+    expectedId: latest.id,
+    expectedUpdatedAt: latest.updatedAt,
+    expectedContent: latest.content,
+  });
+  if (!written) {
+    console.log(
+      `[triggers] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
+    );
+    return false;
+  }
   return true;
 }
 
@@ -322,11 +331,20 @@ async function dispatchAgentic(
     lastStatus: "running",
     lastError: undefined,
   };
-  await resourcePut(
-    resource.owner,
-    resource.path,
-    buildTriggerContent(runningMeta, latestTrigger.body),
-  );
+  const claimed = await resourcePutIfCurrent({
+    owner: resource.owner,
+    path: resource.path,
+    content: buildTriggerContent(runningMeta, latestTrigger.body),
+    expectedId: latest.id,
+    expectedUpdatedAt: latest.updatedAt,
+    expectedContent: latest.content,
+  });
+  if (!claimed) {
+    console.log(
+      `[triggers] "${resource.path}" was claimed or changed before dispatch; dropping the event.`,
+    );
+    return;
+  }
 
   let payloadStr: string;
   try {
@@ -339,7 +357,7 @@ async function dispatchAgentic(
     name: triggerName,
     meta: runningMeta,
     body: latestTrigger.body,
-    resource: latest,
+    resource: claimed,
   };
   const requestContext =
     runningMeta.originScopeId &&

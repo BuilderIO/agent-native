@@ -4,8 +4,9 @@
  * Everything this removes is reproduced by the next `dev`/`build`. Nothing it
  * removes is user data: `node_modules` itself, the pnpm store, `.git`, an
  * app's `data/` directory, and `.env*` are never candidates (see
- * `PROTECTED_NAMES` and `isSafeTarget` — that check is the whole safety
- * contract, not a nicety).
+ * `PROTECTED_NAMES` and `isSafeTarget`), and the root has to look like a
+ * project at all (see `isProjectRoot`). Those two checks are the whole safety
+ * contract, not a nicety.
  *
  * Like `agent-native package add` and `agent-native eject`, this is dry-run
  * unless `--apply` is passed, so the reflex form of the command shows the
@@ -135,8 +136,16 @@ export function isSafeTarget(root: string, target: string): boolean {
  * Sum of file sizes under `dir`, not following symlinks. Paths that cannot be
  * read are recorded rather than counted as zero — an under-reported scan is
  * how a clean-looking total hides a directory nobody can actually delete.
+ *
+ * `seen` de-duplicates inodes: the deploy bundles are hard links of one
+ * another, so counting each link at full size reports several times the bytes
+ * removing the tree actually gives back.
  */
-function measure(dir: string, failures: CleanFailure[]): number {
+function measure(
+  dir: string,
+  failures: CleanFailure[],
+  seen = new Set<string>(),
+): number {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -153,12 +162,18 @@ function measure(dir: string, failures: CleanFailure[]): number {
     // Dirent flags come from lstat, so a symlinked directory lands here as a
     // symlink and is skipped — its bytes live somewhere we are not deleting.
     if (entry.isDirectory()) {
-      total += measure(full, failures);
+      total += measure(full, failures, seen);
       continue;
     }
     if (!entry.isFile()) continue;
     try {
-      total += fs.lstatSync(full).size;
+      const stat = fs.lstatSync(full);
+      if (stat.nlink > 1) {
+        const inode = `${stat.dev}:${stat.ino}`;
+        if (seen.has(inode)) continue;
+        seen.add(inode);
+      }
+      total += stat.size;
     } catch (err) {
       failures.push({
         path: full,
@@ -369,10 +384,15 @@ export interface CleanCliOptions {
   builds?: boolean;
   json?: boolean;
   help?: boolean;
+  /** Set when argv could not be parsed; `runClean` turns it into exit 2. A
+   * typo must not degrade into a different command — `--aply` silently
+   * ignored is the difference between a dry run and a real delete. */
+  error?: string;
 }
 
 export function parseCleanArgs(argv: string[]): CleanCliOptions {
   const opts: CleanCliOptions = {};
+  const cwdRequired = "--cwd requires a directory path.";
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
@@ -385,10 +405,19 @@ export function parseCleanArgs(argv: string[]): CleanCliOptions {
       opts.builds = true;
     } else if (arg === "--json") {
       opts.json = true;
-    } else if (arg === "--cwd" && argv[i + 1] !== undefined) {
-      opts.cwd = argv[++i];
+    } else if (arg === "--cwd") {
+      const value = argv[++i];
+      if (!value) return { ...opts, error: cwdRequired };
+      opts.cwd = value;
     } else if (arg.startsWith("--cwd=")) {
-      opts.cwd = arg.slice("--cwd=".length);
+      const value = arg.slice("--cwd=".length);
+      if (!value) return { ...opts, error: cwdRequired };
+      opts.cwd = value;
+    } else {
+      return {
+        ...opts,
+        error: `Unknown argument: ${arg}. Run \`agent-native clean --help\`.`,
+      };
     }
   }
   return opts;
@@ -460,6 +489,22 @@ function formatCleanHuman(report: CleanReport): string {
   return lines.join("\n");
 }
 
+/**
+ * `isSafeTarget` only vouches for a directory's *name*, so a `build` or `dist`
+ * outside a project is still a plausible personal folder. The same marker the
+ * other root-taking commands use (`eject`, `package add`) has to be present
+ * before anything here deletes.
+ */
+function isProjectRoot(root: string): boolean {
+  return (
+    fs.existsSync(path.join(root, "package.json")) ||
+    fs.existsSync(path.join(root, "agent-native.json")) ||
+    fs
+      .statSync(path.join(root, "apps"), { throwIfNoEntry: false })
+      ?.isDirectory() === true
+  );
+}
+
 /** `agent-native clean` CLI entrypoint. Returns the process exit code —
  * callers are responsible for calling `process.exit(code)`. */
 export async function runClean(
@@ -467,6 +512,13 @@ export async function runClean(
   io: CleanIo = defaultIo,
 ): Promise<number> {
   const opts = parseCleanArgs(argv);
+  const usageError = (message: string): number => {
+    if (opts.json) io.err(JSON.stringify({ ok: false, message }, null, 2));
+    else io.err(message);
+    return 2;
+  };
+
+  if (opts.error) return usageError(opts.error);
 
   if (opts.help) {
     printCleanHelp(io);
@@ -474,18 +526,19 @@ export async function runClean(
   }
 
   if (opts.apply && opts.dryRun) {
-    const message = "Pass either --apply or --dry-run, not both.";
-    if (opts.json) io.err(JSON.stringify({ ok: false, message }, null, 2));
-    else io.err(message);
-    return 2;
+    return usageError("Pass either --apply or --dry-run, not both.");
   }
 
   const root = path.resolve(opts.cwd ?? process.cwd());
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
-    const message = `--cwd path does not exist or is not a directory: ${root}`;
-    if (opts.json) io.err(JSON.stringify({ ok: false, message }, null, 2));
-    else io.err(message);
-    return 2;
+    return usageError(
+      `--cwd path does not exist or is not a directory: ${root}`,
+    );
+  }
+  if (!isProjectRoot(root)) {
+    return usageError(
+      `Refusing to clean ${root}: no package.json, agent-native.json or apps/ directory, so this is not a project root.`,
+    );
   }
 
   const report = performClean({

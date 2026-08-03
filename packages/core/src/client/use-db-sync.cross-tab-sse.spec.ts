@@ -30,12 +30,18 @@ class FakeBroadcastChannel {
   static instances: FakeBroadcastChannel[] = [];
   onmessage: ((message: { data: unknown }) => void) | null = null;
   posted: unknown[] = [];
+  received: unknown[] = [];
   closed = false;
   constructor(readonly name: string) {
     FakeBroadcastChannel.instances.push(this);
   }
   postMessage(data: unknown): void {
     this.posted.push(data);
+    for (const peer of FakeBroadcastChannel.instances) {
+      if (peer === this || peer.closed || peer.name !== this.name) continue;
+      peer.received.push(data);
+      peer.onmessage?.({ data });
+    }
   }
   close(): void {
     this.closed = true;
@@ -131,6 +137,34 @@ describe("cross-tab SSE sharing", () => {
 
     expect(FakeEventSource.instances).toHaveLength(0);
     unsub();
+  });
+
+  it("requests the current SSE state when joining as a follower", async () => {
+    FakeLockManager.grant = false;
+    const unsub = subscribeSyncEvents({ onEvents: () => {} });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(FakeBroadcastChannel.instances.at(-1)?.posted).toContainEqual({
+      type: "sse-state-request",
+    });
+    unsub();
+  });
+
+  it("has the leader answer a follower state request", async () => {
+    const unsub = subscribeSyncEvents({ onEvents: () => {} });
+    await vi.advanceTimersByTimeAsync(50);
+
+    const leader = FakeBroadcastChannel.instances.at(-1)!;
+    const requester = new FakeBroadcastChannel(leader.name);
+    requester.postMessage({ type: "sse-state-request" });
+
+    expect(requester.received).toContainEqual({
+      type: "sse-state",
+      connected: false,
+      capabilities: [],
+    });
+    unsub();
+    requester.close();
   });
 
   it("delivers the leader's events to a follower over the channel", async () => {
