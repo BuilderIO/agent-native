@@ -62,6 +62,7 @@ import {
 
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
 const SCRUB_CLASS = "w-24 shrink-0";
+const SIZE_SCRUB_CLASS = "w-28 shrink-0 gap-0.5";
 const MENU_BUTTON_CLASS =
   "size-7 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground";
 const MENU_TRIGGER_BASE =
@@ -186,17 +187,21 @@ export function SlideContextToolbar({
                 label={t("styleInspector.size")}
                 icon={IconLetterCase}
                 prefix="icon"
+                steppers
+                decrementLabel={t("styleInspector.decreaseSize")}
+                incrementLabel={t("styleInspector.increaseSize")}
                 value={snapshot.fontSize}
                 min={8}
                 max={160}
                 unit="px"
                 mixed={mixedTextStyles.includes("fontSize")}
                 mixedLabel={t("styleInspector.mixed")}
-                className={SCRUB_CLASS}
+                className={SIZE_SCRUB_CLASS}
                 onChange={(fontSize) =>
                   onChange({ fontSize: `${formatValue(fontSize)}px` })
                 }
               />
+              <div className={TOOLBAR_DIVIDER} />
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>

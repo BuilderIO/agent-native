@@ -401,6 +401,8 @@ const messages = {
     typography: "타이포그래피",
     weight: "굵기",
     align: "정렬",
+    decreaseSize: "글꼴 크기 줄이기",
+    increaseSize: "글꼴 크기 늘리기",
     mixed: "혼합",
     textColor: "텍스트 색상",
     primary: "Primary",

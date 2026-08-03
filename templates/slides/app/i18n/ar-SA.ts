@@ -404,6 +404,8 @@ const messages = {
     typography: "الطباعة",
     weight: "الوزن",
     align: "المحاذاة",
+    decreaseSize: "تصغير حجم الخط",
+    increaseSize: "تكبير حجم الخط",
     mixed: "مختلط",
     textColor: "لون النص",
     primary: "Primary",

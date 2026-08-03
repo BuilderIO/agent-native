@@ -399,6 +399,8 @@ const messages = {
     typography: "टाइपोग्राफी",
     weight: "मोटाई",
     align: "संरेखण",
+    decreaseSize: "फ़ॉन्ट आकार घटाएँ",
+    increaseSize: "फ़ॉन्ट आकार बढ़ाएँ",
     mixed: "मिश्रित",
     textColor: "टेक्स्ट का रंग",
     primary: "Primary",

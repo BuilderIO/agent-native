@@ -391,6 +391,8 @@ const messages = {
     typography: "排版",
     weight: "字重",
     align: "對齊",
+    decreaseSize: "縮小字型",
+    increaseSize: "放大字型",
     mixed: "混合",
     textColor: "文字顏色",
     primary: "Primary",

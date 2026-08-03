@@ -404,6 +404,8 @@ const messages = {
     typography: "文字設定",
     weight: "太さ",
     align: "配置",
+    decreaseSize: "フォントサイズを小さく",
+    increaseSize: "フォントサイズを大きく",
     mixed: "混在",
     textColor: "文字色",
     primary: "Primary",

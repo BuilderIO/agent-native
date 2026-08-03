@@ -402,6 +402,8 @@ const messages = {
     typography: "Typography",
     weight: "Weight",
     align: "Align",
+    decreaseSize: "Decrease font size",
+    increaseSize: "Increase font size",
     mixed: "Mixed",
     textColor: "Text color",
     primary: "Primary",

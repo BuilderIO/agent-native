@@ -407,6 +407,8 @@ const messages = {
     typography: "Typografie",
     weight: "Schriftstärke",
     align: "Ausrichtung",
+    decreaseSize: "Schrift verkleinern",
+    increaseSize: "Schrift vergrößern",
     mixed: "Gemischt",
     textColor: "Textfarbe",
     primary: "Primary",

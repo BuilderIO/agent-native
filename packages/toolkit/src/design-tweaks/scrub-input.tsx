@@ -1,4 +1,5 @@
 import { IconArrowsHorizontal } from "@tabler/icons-react";
+import { IconMinus, IconPlus } from "@tabler/icons-react";
 import {
   useEffect,
   useId,
@@ -82,6 +83,10 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   labelClassName?: string;
   ariaLabel?: string;
   tooltipLabel?: string;
+  /** Replace the drag-scrub label with explicit minus/plus step buttons. */
+  steppers?: boolean;
+  decrementLabel?: string;
+  incrementLabel?: string;
 }
 
 export interface PendingScrubCommit {
@@ -125,6 +130,9 @@ export function VisualScrubInput({
   labelClassName,
   ariaLabel,
   tooltipLabel,
+  steppers = false,
+  decrementLabel = "Decrease",
+  incrementLabel = "Increase",
 }: ScrubInputProps) {
   const resolvedMixedLabel = mixedLabel ?? "Mixed";
   const generatedId = useId();
@@ -257,43 +265,7 @@ export function VisualScrubInput({
       // Cmd (metaKey) mirrors Shift for ×10 — editor convention on macOS.
       const baseStep = getScrubStepFromEvent(event, step);
       const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
-      const delta = direction * baseStep * cmdMultiplier;
-      // Mixed selection: the `value` prop is only a placeholder (typically 0)
-      // — there's no single current value to step from, and there's no
-      // typed draft either (mixed keeps the draft as the literal "Mixed"
-      // string, see commitDraft's guard). Figma's behavior here is a
-      // *relative* nudge: apply the same +/-delta to each selected object's
-      // own value rather than snapping every object to one absolute number.
-      // ScrubInput itself can't resolve each target's individual value, so
-      // emit the delta via `onChange` (as both `value` and
-      // `meta.relativeDelta`) and let the consumer apply it per-target. Do
-      // NOT route through setNextValue: that formats/displays one absolute
-      // number in the draft, which would incorrectly replace the "Mixed"
-      // placeholder text with a single value that was never actually common
-      // to the whole selection.
-      if (mixed) {
-        onChange(delta, {
-          source: "keyboard",
-          phase: "commit",
-          relativeDelta: delta,
-        });
-        return;
-      }
-      // Step from the currently typed draft, not the last-committed `value`
-      // prop — otherwise an in-progress, uncommitted edit (typed but not yet
-      // blurred/entered) is silently discarded the moment an arrow key is
-      // pressed. Parse the draft the same way commitDraft does, falling back
-      // to `value` only when the draft doesn't parse (e.g. empty/invalid).
-      const draftParsed = parseScrubExpression(
-        draftRef.current,
-        value,
-        options,
-      );
-      const base = draftParsed ? draftParsed.value : value;
-      setNextValue(base + delta, {
-        source: "keyboard",
-        phase: "commit",
-      });
+      nudge(direction * baseStep * cmdMultiplier);
       return;
     }
 
@@ -315,6 +287,42 @@ export function VisualScrubInput({
       skipNextBlurCommitRef.current = true;
       event.currentTarget.blur();
     }
+  };
+
+  /** One step of `delta`, shared by arrow keys and the optional +/- buttons. */
+  const nudge = (delta: number) => {
+    // Mixed selection: the `value` prop is only a placeholder (typically 0)
+    // — there's no single current value to step from, and there's no
+    // typed draft either (mixed keeps the draft as the literal "Mixed"
+    // string, see commitDraft's guard). Figma's behavior here is a
+    // *relative* nudge: apply the same +/-delta to each selected object's
+    // own value rather than snapping every object to one absolute number.
+    // ScrubInput itself can't resolve each target's individual value, so
+    // emit the delta via `onChange` (as both `value` and
+    // `meta.relativeDelta`) and let the consumer apply it per-target. Do
+    // NOT route through setNextValue: that formats/displays one absolute
+    // number in the draft, which would incorrectly replace the "Mixed"
+    // placeholder text with a single value that was never actually common
+    // to the whole selection.
+    if (mixed) {
+      onChange(delta, {
+        source: "keyboard",
+        phase: "commit",
+        relativeDelta: delta,
+      });
+      return;
+    }
+    // Step from the currently typed draft, not the last-committed `value`
+    // prop — otherwise an in-progress, uncommitted edit (typed but not yet
+    // blurred/entered) is silently discarded the moment an arrow key is
+    // pressed. Parse the draft the same way commitDraft does, falling back
+    // to `value` only when the draft doesn't parse (e.g. empty/invalid).
+    const draftParsed = parseScrubExpression(draftRef.current, value, options);
+    const base = draftParsed ? draftParsed.value : value;
+    setNextValue(base + delta, {
+      source: "keyboard",
+      phase: "commit",
+    });
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLLabelElement>) => {
@@ -416,38 +424,62 @@ export function VisualScrubInput({
     }
   };
 
+  const stepperButton = (direction: number, stepperLabel: string) => (
+    <button
+      type="button"
+      aria-label={stepperLabel}
+      title={stepperLabel}
+      disabled={disabled}
+      onClick={() => nudge(direction * step)}
+      className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+    >
+      {direction > 0 ? (
+        <IconPlus className="size-3.5" />
+      ) : (
+        <IconMinus className="size-3.5" />
+      )}
+    </button>
+  );
+
   return (
     <div className={cn("flex min-w-0 items-center gap-1.5", className)}>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Label
-              htmlFor={inputId}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-              className={cn(
-                "flex h-6 shrink-0 cursor-ew-resize select-none items-center gap-1 truncate whitespace-nowrap rounded-sm !text-[11px] text-muted-foreground transition-colors",
-                prefix === "icon" ? "w-8 justify-center gap-0" : "w-20",
-                "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                dragging &&
-                  "bg-[var(--design-editor-control-bg)] text-foreground",
-                disabled && "pointer-events-none cursor-not-allowed opacity-50",
-                labelClassName,
-              )}
-            >
-              {Icon ? (
-                <Icon className="size-3 shrink-0" aria-hidden={true} />
-              ) : null}
-              <span className={cn("truncate", prefix === "icon" && "sr-only")}>
-                {label}
-              </span>
-            </Label>
-          </TooltipTrigger>
-          <TooltipContent>{resolvedTooltipLabel}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      {steppers ? (
+        stepperButton(-1, decrementLabel)
+      ) : (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Label
+                htmlFor={inputId}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                className={cn(
+                  "flex h-6 shrink-0 cursor-ew-resize select-none items-center gap-1 truncate whitespace-nowrap rounded-sm !text-[11px] text-muted-foreground transition-colors",
+                  prefix === "icon" ? "w-8 justify-center gap-0" : "w-20",
+                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  dragging &&
+                    "bg-[var(--design-editor-control-bg)] text-foreground",
+                  disabled &&
+                    "pointer-events-none cursor-not-allowed opacity-50",
+                  labelClassName,
+                )}
+              >
+                {Icon ? (
+                  <Icon className="size-3 shrink-0" aria-hidden={true} />
+                ) : null}
+                <span
+                  className={cn("truncate", prefix === "icon" && "sr-only")}
+                >
+                  {label}
+                </span>
+              </Label>
+            </TooltipTrigger>
+            <TooltipContent>{resolvedTooltipLabel}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       <Input
         ref={inputRef}
         id={inputId}
@@ -484,8 +516,10 @@ export function VisualScrubInput({
           "focus-visible:ring-1 focus-visible:ring-offset-0",
           inputClassName,
           mixed && "text-muted-foreground",
+          steppers && "text-center",
         )}
       />
+      {steppers && stepperButton(1, incrementLabel)}
     </div>
   );
 }
