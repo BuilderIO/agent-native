@@ -32,6 +32,20 @@ export const transactionalEmailStateSchema = z.enum([
   "failed",
 ]);
 
+export const recapMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+
+/** The three recap modules the agent writes; everything else is templated. */
+export const recapCopySchema = z
+  .object({
+    heroLine: nonEmptyStringSchema.max(400),
+    agentBreakdown: nonEmptyStringSchema.max(400),
+    completionNote: nonEmptyStringSchema.max(400),
+    // Must name something specific from the clip's own topic, so it cannot be
+    // templated from metadata the way the counts can.
+    nextClipSuggestion: nonEmptyStringSchema.max(400),
+  })
+  .strict();
+
 const commonPayloadFields = {
   recipient: recipientSchema,
   shareId: nonEmptyStringSchema.optional(),
@@ -65,6 +79,15 @@ export const transactionalEmailPayloadSchema = z.discriminatedUnion("type", [
       type: z.literal("first-agent-view"),
       ...commonPayloadFields,
       recordingIds: z.array(recordingIdSchema).length(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("monthly-recap"),
+      ...commonPayloadFields,
+      // The month's top clip, which anchors the card and the AI copy.
+      recordingIds: z.array(recordingIdSchema).length(1),
+      month: recapMonthSchema,
     })
     .strict(),
   z
@@ -113,6 +136,7 @@ export const transactionalEmailJobSchema = z
       "unviewed-reminder",
       "first-agent-view",
       "first-import",
+      "monthly-recap",
       "two-clips",
     ]),
     state: transactionalEmailStateSchema,
@@ -120,7 +144,9 @@ export const transactionalEmailJobSchema = z
     recordingIds: z.array(recordingIdSchema).min(1),
     shareId: nonEmptyStringSchema.optional(),
     requestedBy: nonEmptyStringSchema.optional(),
+    month: recapMonthSchema.optional(),
     generatedSummary: z.string().max(20_000).optional(),
+    generatedRecapCopy: recapCopySchema.optional(),
     attempts: z.number().int().nonnegative(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
@@ -143,6 +169,7 @@ export const transactionalEmailJobSchema = z
       recordingIds: job.recordingIds,
       shareId: job.shareId,
       requestedBy: job.requestedBy,
+      ...(job.month === undefined ? {} : { month: job.month }),
     });
     if (!parsedPayload.success) {
       context.addIssue({
@@ -182,6 +209,12 @@ export type TransactionalEmailConfig = z.infer<
   typeof transactionalEmailConfigSchema
 >;
 export type TransactionalEmailJob = z.infer<typeof transactionalEmailJobSchema>;
+export type RecapCopy = z.infer<typeof recapCopySchema>;
+
+/** Job types whose copy is written by the agent before they can be sent. */
+export function isAiBackedType(type: TransactionalEmailJob["type"]): boolean {
+  return type === "two-clips" || type === "monthly-recap";
+}
 
 export type TransactionalEmailStoreOptions = {
   root?: string;
@@ -635,7 +668,7 @@ export function createTransactionalEmailStore(
     const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
     return withJobLock(logicalKey, async () => {
       const job = await readJob(logicalKey);
-      if (!job || job.type !== "two-clips" || job.state !== "awaiting_ai") {
+      if (!job || !isAiBackedType(job.type) || job.state !== "awaiting_ai") {
         return null;
       }
       const timestamp = now().toISOString();
@@ -662,7 +695,7 @@ export function createTransactionalEmailStore(
       const dispatchedAt = job?.aiDispatchedAt ?? job?.updatedAt;
       if (
         !job ||
-        job.type !== "two-clips" ||
+        !isAiBackedType(job.type) ||
         job.state !== "ai_dispatched" ||
         !dispatchedAt ||
         Date.parse(dispatchedAt) > staleBefore.getTime()
@@ -702,6 +735,36 @@ export function createTransactionalEmailStore(
         ...job,
         state: "ready",
         generatedSummary,
+        readyAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await writeJsonAtomic(jobFile(logicalKey), completed);
+      return completed;
+    });
+  }
+
+  async function completeClaimedRecapCopy(
+    logicalKey: string,
+    claimantEmail: string,
+    generatedRecapCopy: RecapCopy,
+  ): Promise<TransactionalEmailJob | null> {
+    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
+    const parsedCopy = recapCopySchema.parse(generatedRecapCopy);
+    return withJobLock(logicalKey, async () => {
+      const job = await readJob(logicalKey);
+      if (
+        !job ||
+        job.type !== "monthly-recap" ||
+        job.state !== "ai_dispatched" ||
+        job.aiClaimedBy !== claimant
+      ) {
+        return null;
+      }
+      const timestamp = now().toISOString();
+      const completed = transactionalEmailJobSchema.parse({
+        ...job,
+        state: "ready",
+        generatedRecapCopy: parsedCopy,
         readyAt: timestamp,
         updatedAt: timestamp,
       });
@@ -873,6 +936,7 @@ export function createTransactionalEmailStore(
     claimAwaitingAi,
     reclaimStaleAiDispatch,
     completeClaimedAi,
+    completeClaimedRecapCopy,
     claimNextAwaitingAi,
     acquireSendingLease,
     transitionSending,

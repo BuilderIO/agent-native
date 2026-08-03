@@ -16,8 +16,10 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
 });
 
 import {
+  formatClipDuration,
   normalizeEmailDisplayName,
   renderClipsTransactionalEmail,
+  renderRecapSubject,
   sendClipsTransactionalEmail,
   type ClipsTransactionalEmailInput,
 } from "./transactional-email-templates.js";
@@ -290,6 +292,132 @@ describe("renderClipsTransactionalEmail", () => {
     expect(unidentified.text).toContain(
       "An AI agent accessed Deploy walkthrough today",
     );
+  });
+
+  it("builds the recap subject around whichever audience showed up", () => {
+    expect(renderRecapSubject(9, 4, "2026-07")).toBe(
+      "9 people and 4 agents watched your clips in July",
+    );
+    expect(renderRecapSubject(1, 1, "2026-07")).toBe(
+      "1 person and 1 agent watched your clips in July",
+    );
+    expect(renderRecapSubject(9, 0, "2026-07")).toBe(
+      "9 people watched your clips in July",
+    );
+    expect(renderRecapSubject(0, 4, "2026-07")).toBe(
+      "4 agents read your clips in July",
+    );
+  });
+
+  it("formats clip durations as minutes and padded seconds", () => {
+    expect(formatClipDuration(0)).toBe("0:00");
+    expect(formatClipDuration(9_000)).toBe("0:09");
+    expect(formatClipDuration(252_000)).toBe("4:12");
+  });
+
+  it("renders the recap card, both numbers, and the forward link", () => {
+    const result = render({
+      kind: "monthly-recap",
+      to: "owner@example.test",
+      month: "2026-07",
+      humanViewers: 9,
+      agentSessions: 4,
+      topClip: {
+        recordingId: "rec-top",
+        title: "Deploy walkthrough",
+        thumbnailUrl: "https://cdn.example/thumb.jpg",
+        durationMs: 252_000,
+        recordedAt: "2026-07-12T00:00:00.000Z",
+        humanViewers: 9,
+        agentSessions: 4,
+      },
+      copy: {
+        heroLine: "9 people watched your clip. 4 agents read it.",
+        agentBreakdown: "Claude 3 · ChatGPT 1",
+        completionNote: "71% average completion · most stopped at 4:12",
+        nextClipSuggestion: "walk through the rollback path you mentioned.",
+      },
+    });
+
+    expect(result.subject).toBe(
+      "9 people and 4 agents watched your clips in July",
+    );
+    expect(result.html).toContain(
+      "9 people watched your clip. 4 agents read it.",
+    );
+    expect(result.html).toContain('src="https://cdn.example/thumb.jpg"');
+    expect(result.html).toContain("Deploy walkthrough");
+    expect(result.html).toContain("Jul 12 · 4:12");
+    expect(result.html).toContain("Watched");
+    expect(result.html).toContain("Read");
+    expect(result.html).toContain(
+      "71% average completion · most stopped at 4:12",
+    );
+    expect(result.html).toContain("Claude 3 · ChatGPT 1");
+    expect(result.html).toContain(
+      "Record the next one — walk through the rollback path you mentioned.",
+    );
+    expect(result.html).toContain('href="https://clips.example/r/rec-top"');
+    expect(result.text).toContain("Open your top Clip");
+  });
+
+  it("omits the thumbnail rather than emitting a broken image", () => {
+    const result = render({
+      kind: "monthly-recap",
+      to: "owner@example.test",
+      month: "2026-07",
+      humanViewers: 0,
+      agentSessions: 2,
+      topClip: {
+        recordingId: "rec-top",
+        title: "Deploy walkthrough",
+        thumbnailUrl: null,
+        durationMs: 60_000,
+        recordedAt: "2026-07-12T00:00:00.000Z",
+        humanViewers: 0,
+        agentSessions: 2,
+      },
+      copy: {
+        heroLine: "2 agents read your clip.",
+        agentBreakdown: "Claude 2",
+        completionNote: "No human viewers yet",
+        nextClipSuggestion: "record the follow-up on rollout gating.",
+      },
+    });
+
+    expect(result.subject).toBe("2 agents read your clips in July");
+    expect(result.html).not.toContain('alt="Deploy walkthrough"');
+    expect(result.html).toContain("Deploy walkthrough");
+  });
+
+  it("escapes hostile AI recap copy instead of trusting it as HTML", () => {
+    const result = render({
+      kind: "monthly-recap",
+      to: "owner@example.test",
+      month: "2026-07",
+      humanViewers: 1,
+      agentSessions: 1,
+      topClip: {
+        recordingId: "rec-top",
+        title: "</a><script>bad()</script>",
+        thumbnailUrl: 'https://cdn.example/t.jpg" onerror="steal()',
+        durationMs: 1_000,
+        recordedAt: "2026-07-12T00:00:00.000Z",
+        humanViewers: 1,
+        agentSessions: 1,
+      },
+      copy: {
+        heroLine: "1 person watched.",
+        agentBreakdown: '<img src=x onerror="steal()">',
+        completionNote: "50% completion",
+        nextClipSuggestion: "</span><script>bad()</script>",
+      },
+    });
+
+    expect(result.html).not.toContain("<script>bad()</script>");
+    expect(result.html).not.toContain("<img src=x");
+    expect(result.html).not.toContain('onerror="steal()"');
+    expect(result.html).toContain("&lt;script&gt;bad()&lt;/script&gt;");
   });
 
   it("escapes a hostile generated summary instead of trusting it as HTML", () => {

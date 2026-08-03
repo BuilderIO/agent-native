@@ -19,6 +19,13 @@ import {
 
 import { getDb, schema } from "../db/index.js";
 import { UNKNOWN_AGENT_LABEL } from "../lib/agent-views.js";
+import {
+  computeMonthlyRecap,
+  listOwnersWithMonthlyAudience,
+  previousRecapMonth,
+  recapMonthRange,
+  type MonthlyRecap,
+} from "../lib/recap-metrics.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
   AI_DISPATCH_STALE_MS,
@@ -37,6 +44,7 @@ const RECONCILIATION_WRITE_CONCURRENCY = 8;
 const RECIPIENT_SHARE_BATCH_SIZE = 2;
 const DELIVERY_BATCH_SIZE = 25;
 const REMINDER_DELAY_MS = 48 * 60 * 60 * 1000;
+const RECAP_SEND_HOUR_UTC = 14;
 const SENDING_LEASE_MS = 2 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 60_000;
@@ -185,6 +193,11 @@ export interface TransactionalEmailRepository {
     recipient: string,
     enabledAt: string,
   ): Promise<boolean>;
+  listOwnersWithMonthlyAudience(month: string): Promise<string[]>;
+  computeMonthlyRecap(
+    ownerEmail: string,
+    month: string,
+  ): Promise<MonthlyRecap | null>;
 }
 
 export interface TransactionalEmailWorkerDependencies {
@@ -608,6 +621,8 @@ function defaultRepository(): TransactionalEmailRepository {
         .limit(1);
       return view ?? null;
     },
+    listOwnersWithMonthlyAudience,
+    computeMonthlyRecap,
     async isFirstImport(recording, recipient, enabledAt) {
       if (!isImportedRecording(recording)) return false;
       const imports = await db
@@ -851,6 +866,47 @@ async function reconcileFirstImports(
   };
 }
 
+/**
+ * Recaps close on the UTC month boundary but wait until `RECAP_SEND_HOUR_UTC`
+ * on the 1st so they land mid-morning in the Americas rather than at midnight.
+ * A month is only ever enqueued once per owner, so a late first run of the day
+ * still sends rather than skipping the month.
+ */
+async function reconcileMonthlyRecaps(
+  repository: TransactionalEmailRepository,
+  store: TransactionalEmailStore,
+  enabledAt: string,
+  now: Date,
+): Promise<number> {
+  if (now.getUTCHours() < RECAP_SEND_HOUR_UTC) return 0;
+  const month = previousRecapMonth(now);
+  // Never recap a month that closed before transactional email was switched on.
+  if (recapMonthRange(month).startAt < enabledAt) return 0;
+
+  let enqueued = 0;
+  for (const ownerEmail of await repository.listOwnersWithMonthlyAudience(
+    month,
+  )) {
+    const recipient = normalizedEmail(ownerEmail);
+    if (!recipient || isSuppressedTransactionalRecipient(recipient)) continue;
+    const recap = await repository.computeMonthlyRecap(recipient, month);
+    if (!recap) continue;
+    const result = await store.enqueue(
+      `monthly-recap:${recipient}:${month}`,
+      {
+        type: "monthly-recap",
+        recipient,
+        recordingIds: [recap.topClip.recordingId],
+        requestedBy: recipient,
+        month,
+      },
+      "awaiting_ai",
+    );
+    if (result.created) enqueued += 1;
+  }
+  return enqueued;
+}
+
 async function makeSendInput(
   job: TransactionalEmailJob,
   repository: TransactionalEmailRepository,
@@ -890,6 +946,30 @@ async function makeSendInput(
       senderEmail,
       senderName,
       brandLogoUrl,
+    };
+  }
+
+  if (job.type === "monthly-recap") {
+    // Recomputed at send time: a clip trashed after enqueue must not headline.
+    if (!job.month || !job.generatedRecapCopy) return null;
+    const recap = await repository.computeMonthlyRecap(recipient, job.month);
+    if (!recap || recap.topClip.recordingId !== recordings[0].id) return null;
+    return {
+      kind: "monthly-recap",
+      to: recipient,
+      month: job.month,
+      humanViewers: recap.humanViewers,
+      agentSessions: recap.agentSessions,
+      topClip: {
+        recordingId: recap.topClip.recordingId,
+        title: recap.topClip.title,
+        thumbnailUrl: recap.topClip.thumbnailUrl,
+        durationMs: recap.topClip.durationMs,
+        recordedAt: recap.topClip.recordedAt,
+        humanViewers: recap.topClip.humanViewers,
+        agentSessions: recap.topClip.agentSessions,
+      },
+      copy: job.generatedRecapCopy,
     };
   }
 
@@ -1053,6 +1133,13 @@ export async function runTransactionalEmailsOnce(
     await store.updateReconciliationCursor(
       "firstImportCursor",
       firstImports.nextCursor,
+    );
+
+    result.enqueued += await reconcileMonthlyRecaps(
+      repository,
+      store,
+      config.enabledAt,
+      currentTime,
     );
 
     const jobs = await store.listJobs();

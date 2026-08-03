@@ -5,6 +5,9 @@ import {
   sendEmail,
 } from "@agent-native/core/server";
 
+import { recapMonthLabel } from "./recap-metrics.js";
+import type { RecapCopy } from "./transactional-email-store.js";
+
 const CLIPS_BRAND_NAME = "Clips";
 const CLIPS_SENDER_NAME = "Agent-Native Clips";
 const UNIDENTIFIED_AGENT_NAME = "An AI agent";
@@ -44,9 +47,27 @@ export type ClipsTransactionalEmailInput =
       title?: string | null;
     })
   | (TransactionalEmailBase & {
+      kind: "monthly-recap";
+      month: string;
+      humanViewers: number;
+      agentSessions: number;
+      topClip: RecapTopClipInput;
+      copy: RecapCopy;
+    })
+  | (TransactionalEmailBase & {
       kind: "two-clips";
       generatedSummary?: string | null;
     });
+
+export interface RecapTopClipInput {
+  recordingId: string;
+  title?: string | null;
+  thumbnailUrl?: string | null;
+  durationMs: number;
+  recordedAt: string;
+  humanViewers: number;
+  agentSessions: number;
+}
 
 export interface ClipsTransactionalEmailRenderOptions {
   appUrl: string;
@@ -132,6 +153,106 @@ function resolveBrandLogoUrl(
   }
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function renderRecapSubject(
+  humanViewers: number,
+  agentSessions: number,
+  month: string,
+): string {
+  const monthLabel = recapMonthLabel(month);
+  if (humanViewers > 0 && agentSessions > 0) {
+    return `${countLabel(humanViewers, "person", "people")} and ${countLabel(agentSessions, "agent", "agents")} watched your clips in ${monthLabel}`;
+  }
+  if (humanViewers > 0) {
+    return `${countLabel(humanViewers, "person", "people")} watched your clips in ${monthLabel}`;
+  }
+  return `${countLabel(agentSessions, "agent", "agents")} read your clips in ${monthLabel}`;
+}
+
+export function formatClipDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatRecordedDate(recordedAt: string): string {
+  const parsed = new Date(recordedAt);
+  return Number.isNaN(parsed.getTime())
+    ? ""
+    : parsed.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+}
+
+/**
+ * Email clients resolve neither CSS custom properties nor external
+ * stylesheets, so the recap card inlines the same literal palette that
+ * `renderEmail` already draws the surrounding card with.
+ */
+const CARD_BG = "#0a0a0c"; // guard:allow-raw-color — inlined for email clients
+const CARD_BORDER = "#3f3f46"; // guard:allow-raw-color — inlined for email clients
+const CARD_DIVIDER = "#27272a"; // guard:allow-raw-color — inlined for email clients
+const CARD_STRONG = "#fafafa"; // guard:allow-raw-color — inlined for email clients
+const CARD_MUTED = "#a1a1aa"; // guard:allow-raw-color — inlined for email clients
+
+/** The clip card plus the Watched/Read pair, as one trusted HTML block. */
+function recapHeroHtml(
+  clip: RecapTopClipInput,
+  copy: RecapCopy,
+  url: string,
+): string {
+  const title = escapeHtml(clipTitle(clip.title));
+  const recordedDate = escapeHtml(formatRecordedDate(clip.recordedAt));
+  const duration = escapeHtml(formatClipDuration(clip.durationMs));
+  const meta = [recordedDate, duration].filter(Boolean).join(" · ");
+  const safeUrl = escapeHtml(url);
+  const thumbnail = clip.thumbnailUrl?.trim()
+    ? `<tr><td style="padding:0 0 14px;"><a href="${safeUrl}" style="display:block;"><img src="${escapeHtml(clip.thumbnailUrl.trim())}" alt="${title}" width="516" style="display:block; width:100%; max-width:516px; border:0; border-radius:8px;" /></a></td></tr>`
+    : "";
+
+  const numberCell = (
+    heading: string,
+    value: number,
+    subLine: string,
+  ) => `<td width="50%" valign="top" style="padding:0 8px;">
+        <div style="font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:${CARD_MUTED};">${escapeHtml(heading)}</div>
+        <div style="font-size:28px; font-weight:600; color:${CARD_STRONG}; padding:2px 0 4px;">${value}</div>
+        <div style="font-size:13px; line-height:1.5; color:${CARD_MUTED};">${escapeHtml(subLine)}</div>
+      </td>`;
+
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 24px; border:1px solid ${CARD_BORDER}; border-radius:10px; background:${CARD_BG};">
+    <tr><td style="padding:16px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+        ${thumbnail}
+        <tr><td style="padding:0 0 4px;">
+          <a href="${safeUrl}" style="font-size:17px; font-weight:600; color:${CARD_STRONG}; text-decoration:none;">${title}</a>
+        </td></tr>
+        <tr><td style="padding:0 0 16px; font-size:13px; color:${CARD_MUTED};">${escapeHtml(meta)}</td></tr>
+        <tr><td style="border-top:1px solid ${CARD_DIVIDER}; padding-top:16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
+            ${numberCell("Watched", clip.humanViewers, copy.completionNote)}
+            ${numberCell("Read", clip.agentSessions, copy.agentBreakdown)}
+          </tr></table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>`;
+}
+
 function validReplyTo(value: string | null | undefined): string | undefined {
   const candidate = singleLine(value).toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : undefined;
@@ -141,7 +262,10 @@ export function renderClipsTransactionalEmail(
   input: ClipsTransactionalEmailInput,
   options: ClipsTransactionalEmailRenderOptions,
 ): RenderedClipsTransactionalEmail {
-  const title = input.kind === "two-clips" ? undefined : clipTitle(input.title);
+  const title =
+    input.kind === "two-clips" || input.kind === "monthly-recap"
+      ? undefined
+      : clipTitle(input.title);
 
   switch (input.kind) {
     case "first-view": {
@@ -206,7 +330,7 @@ export function renderClipsTransactionalEmail(
           "Which means this one stopped being a video and became documentation that answers questions without you.",
         ],
         cta: {
-          label: "See Clip activity",
+          label: "See Clip Analytics",
           url: clipUrl(input.recordingId, options),
         },
         footer:
@@ -237,6 +361,28 @@ export function renderClipsTransactionalEmail(
         },
         footer:
           "You received this one-time note because your first imported video is ready.",
+      });
+      return { subject, ...rendered };
+    }
+
+    case "monthly-recap": {
+      const subject = renderRecapSubject(
+        input.humanViewers,
+        input.agentSessions,
+        input.month,
+      );
+      const url = clipUrl(input.topClip.recordingId, options);
+      const rendered = renderEmail({
+        brandName: CLIPS_BRAND_NAME,
+        preheader: subject,
+        heading: input.copy.heroLine,
+        paragraphs: [],
+        heroHtml: recapHeroHtml(input.topClip, input.copy, url),
+        cta: { label: "Open your top Clip", url },
+        closingParagraphs: [
+          `<span style="font-size:14px; color:${CARD_MUTED};">Record the next one — ${escapeHtml(input.copy.nextClipSuggestion)}</span>`,
+        ],
+        footer: `You received this because your Clips were watched in ${recapMonthLabel(input.month)}. Recaps arrive once a month; ask your agent for a Clips recap any time.`,
       });
       return { subject, ...rendered };
     }
