@@ -219,4 +219,37 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).toContain("<h3>Stable heading</h3>");
     expect(editor.getHTML()).not.toContain("<p>Stable heading</p>");
   });
+
+  it("sets a heading from a pointer-style mouse interaction", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Selected paragraph</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const headingOption = [
+      ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitemradio"]',
+      ),
+    ].find((button) => button.textContent?.includes("editor.heading3"));
+    act(() => {
+      headingOption!.dispatchEvent(
+        new MouseEvent("mousedown", {
+          button: 0,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(editor.getHTML()).toContain("<h3>Selected paragraph</h3>");
+    expect(editor.getHTML()).not.toContain("<p>Selected paragraph</p>");
+  });
 });
