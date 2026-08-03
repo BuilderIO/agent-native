@@ -1,6 +1,5 @@
+import baseConfig from "@agent-native/core/vitest-config";
 import { defineConfig, mergeConfig } from "vitest/config";
-
-import baseConfig from "../../vitest.shared";
 
 /**
  * Minimal node test runner for the Dispatch template's server-side unit

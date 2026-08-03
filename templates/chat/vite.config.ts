@@ -1,8 +1,7 @@
 import { agentNative } from "@agent-native/core/vite";
+import baseConfig from "@agent-native/core/vitest-config";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, mergeConfig } from "vitest/config";
-
-import baseConfig from "../../vitest.shared";
 
 const reactRouterPlugins = reactRouter as unknown as () => any[];
 const agentNativePlugins = agentNative as unknown as (

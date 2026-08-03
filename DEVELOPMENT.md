@@ -131,10 +131,17 @@ env override:
 | `GUARD_CONCURRENCY`, `AGENT_NATIVE_GUARD_CONCURRENCY`   | Guards running in parallel          | `cores / 2`, clamped to 2--6    |
 | `WORKSPACE_CONCURRENCY`, `PNPM_WORKSPACE_CONCURRENCY`   | Packages running a task in parallel | per-profile, derived from cores |
 
-`VITEST_CONCURRENCY` takes a percentage (`25%`) or a worker count (`2`), and is
-applied by `vitest.shared.ts`, which every package's vitest config merges in. A
-package that needs a different value sets `test.maxWorkers` in its own config;
-that wins the merge.
+`VITEST_CONCURRENCY` takes a percentage (`25%`) or a worker count (`2`). The
+base config every vitest config merges in ships from
+`@agent-native/core/vitest-config`; templates and examples import it by package
+name, and `packages/*` go through the `vitest.shared.ts` re-export at the repo
+root so they need no dependency on core. A package that needs a different value
+sets `test.maxWorkers` in its own config; that wins the merge.
+
+Template configs must import the package path, never the root re-export.
+`agent-native create` extracts a template directory with `--strip-components=1`,
+so anything a template reaches for above its own directory resolves to nothing
+in the scaffolded app.
 
 Vitest's own `VITEST_MAX_WORKERS` still works for a one-off integer, but never
 give it a percentage: vitest applies it as `Number.parseInt`, so `25%` becomes

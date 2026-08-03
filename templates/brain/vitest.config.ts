@@ -1,6 +1,5 @@
+import baseConfig from "@agent-native/core/vitest-config";
 import { defineConfig, mergeConfig } from "vitest/config";
-
-import baseConfig from "../../vitest.shared";
 
 export default mergeConfig(
   baseConfig,

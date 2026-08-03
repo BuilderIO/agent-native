@@ -61,6 +61,7 @@
       "default": "./dist/index.js"
     },
     "./vite": "./dist/vite/index.js",
+    "./vitest-config": "./dist/vitest-config.js",
     "./server": "./dist/server/index.js",
     "./server/edge": "./dist/server/edge.js",
     "./server/entry-server": "./dist/server/entry-server.js",
