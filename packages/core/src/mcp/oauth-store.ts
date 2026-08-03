@@ -15,6 +15,7 @@ import {
   isPostgres,
 } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -93,7 +94,7 @@ async function ensureTable(): Promise<void> {
           grant_types TEXT,
           response_types TEXT,
           token_endpoint_auth_method TEXT,
-          application_type TEXT NOT NULL DEFAULT 'web',
+          application_type TEXT,
           created_at ${intType()}
         )
       `;
@@ -140,7 +141,7 @@ async function ensureTable(): Promise<void> {
         await ensureColumnExists(
           "mcp_oauth_clients",
           "application_type",
-          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT NOT NULL DEFAULT 'web'`,
+          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
         );
         await ensureTableExists("mcp_oauth_codes", createCodesSql);
         await ensureTableExists(
@@ -155,12 +156,12 @@ async function ensureTable(): Promise<void> {
       await client.execute(createClientsSql);
       try {
         await client.execute(
-          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT NOT NULL DEFAULT 'web'`,
+          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
         );
       } catch {
         try {
           await client.execute(
-            `ALTER TABLE mcp_oauth_clients ADD COLUMN application_type TEXT NOT NULL DEFAULT 'web'`,
+            `ALTER TABLE mcp_oauth_clients ADD COLUMN application_type TEXT`,
           );
         } catch {
           // Fresh and previously migrated databases already have the column.
@@ -249,10 +250,14 @@ function numOrNull(v: unknown): number | null {
 }
 
 function mapClientRow(row: any): OAuthClientRow {
+  const redirectUris = parseJsonStringArray(
+    row.redirect_uris ?? row.redirectUris,
+  );
+  const storedApplicationType = row.application_type ?? row.applicationType;
   return {
     clientId: row.client_id ?? row.clientId,
     clientName: row.client_name ?? row.clientName ?? null,
-    redirectUris: parseJsonStringArray(row.redirect_uris ?? row.redirectUris),
+    redirectUris,
     grantTypes: parseJsonStringArray(row.grant_types ?? row.grantTypes, [
       "authorization_code",
       "refresh_token",
@@ -264,9 +269,9 @@ function mapClientRow(row: any): OAuthClientRow {
     tokenEndpointAuthMethod:
       row.token_endpoint_auth_method ?? row.tokenEndpointAuthMethod ?? "none",
     applicationType:
-      (row.application_type ?? row.applicationType) === "native"
-        ? "native"
-        : "web",
+      storedApplicationType === "native" || storedApplicationType === "web"
+        ? storedApplicationType
+        : applicationTypeForRedirectUris(redirectUris),
     createdAt: numOrNull(row.created_at ?? row.createdAt),
   };
 }
