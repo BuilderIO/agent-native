@@ -9,6 +9,7 @@ export function allowsLegacyS3ObjectForPersistedMedia(params: {
   try {
     const edits = JSON.parse(params.editsJson || "{}");
     return edits?.mediaStorageLayout !== "external";
+    // coercion-ok: malformed provenance is an explicit deny, never successful authorization.
   } catch {
     return false;
   }

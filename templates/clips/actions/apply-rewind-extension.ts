@@ -125,6 +125,7 @@ export default defineAction({
       endMs: blur.endMs + args.addedMs,
     }));
     edits.rewindOriginalStartMs = args.addedMs;
+    edits.mediaStorageLayout = "external";
 
     const [transcript] = await db
       .select()

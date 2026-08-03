@@ -46,6 +46,11 @@ export default defineAction({
   description:
     "Stitch multiple recordings into a new recording. The client-side editor is expected to concat the video files via ffmpeg.wasm and pass in the uploaded videoUrl + durationMs. Returns the new recording id.",
   schema: z.object({
+    recordingId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{8,128}$/)
+      .optional()
+      .describe("Pre-reserved destination ID used to bind the uploaded media"),
     sourceRecordingIds: z
       .union([z.string(), z.array(z.string())])
       .describe("Ordered list of source recording IDs (or JSON-encoded array)"),
@@ -133,7 +138,7 @@ export default defineAction({
     const height =
       args.height ?? Math.max(...ordered.map((r) => r.height || 0), 0);
 
-    const id = nanoid();
+    const id = args.recordingId ?? nanoid();
     const now = new Date().toISOString();
 
     // Seed editsJson with provenance so the editor/player can link back.
