@@ -7,6 +7,10 @@ import {
 } from "@agent-native/toolkit/design-tweaks";
 import type { DesignSystemData } from "@shared/api";
 import {
+  IconAlignCenter,
+  IconAlignJustified,
+  IconAlignLeft,
+  IconAlignRight,
   IconAngle,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
@@ -25,6 +29,12 @@ import {
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -51,12 +61,57 @@ import {
 } from "./slide-style";
 
 const TOOLBAR_DIVIDER = "mx-1 h-4 w-px shrink-0 bg-border";
-// The toolkit trigger is w-full for the vertical dock; in a flex row that
-// swallows the remaining width and pushes later controls out of view.
-const SWATCH_CLASS = "w-28 shrink-0 rounded-sm";
 const SCRUB_CLASS = "w-24 shrink-0";
 const MENU_BUTTON_CLASS =
   "size-7 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground";
+const MENU_TRIGGER_BASE =
+  "flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const VALUE_MENU_CLASS = `${MENU_TRIGGER_BASE} min-w-14`;
+const ICON_MENU_CLASS = `${MENU_TRIGGER_BASE} text-muted-foreground hover:text-foreground`;
+const CARET_CLASS =
+  "size-0 shrink-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70";
+
+type Translate = ReturnType<typeof useT>;
+
+function fontWeightOptions(t: Translate) {
+  return [
+    { label: t("styleInspector.regular"), value: "400" },
+    { label: t("styleInspector.medium"), value: "500" },
+    { label: t("styleInspector.semi"), value: "600" },
+    { label: t("styleInspector.bold"), value: "700" },
+  ];
+}
+
+function weightLabel(fontWeight: string, t: Translate) {
+  const match = fontWeightOptions(t).find(
+    (option) => option.value === fontWeight,
+  );
+  return match ? match.label : fontWeight;
+}
+
+function textAlignOptions(t: Translate) {
+  return [
+    { label: t("styleInspector.left"), value: "left", icon: IconAlignLeft },
+    {
+      label: t("styleInspector.center"),
+      value: "center",
+      icon: IconAlignCenter,
+    },
+    { label: t("styleInspector.right"), value: "right", icon: IconAlignRight },
+    {
+      label: t("styleInspector.justify"),
+      value: "justify",
+      icon: IconAlignJustified,
+    },
+  ];
+}
+
+function alignIcon(textAlign: string) {
+  if (textAlign === "center") return IconAlignCenter;
+  if (textAlign === "right") return IconAlignRight;
+  if (textAlign === "justify") return IconAlignJustified;
+  return IconAlignLeft;
+}
 
 /**
  * Horizontal counterpart to the style dock: the same snapshot and patch
@@ -119,8 +174,7 @@ export function SlideContextToolbar({
           mixed={slideBackground === null}
           mixedLabel={t("styleInspector.mixed")}
           documentColors={documentColors}
-          variant="filled"
-          className={SWATCH_CLASS}
+          variant="swatch"
           contentProps={inlineEditSurfaceProps}
           onChange={onBackgroundChange}
         />
@@ -143,47 +197,82 @@ export function SlideContextToolbar({
                   onChange({ fontSize: `${formatValue(fontSize)}px` })
                 }
               />
-              <VisualSegmentedControl
-                value={
-                  mixedTextStyles.includes("fontWeight")
-                    ? null
-                    : snapshot.fontWeight
-                }
-                onChange={(fontWeight) => onChange({ fontWeight })}
-                className="slides-inspector-segment shrink-0"
-                options={[
-                  { label: t("styleInspector.regular"), value: "400" },
-                  { label: t("styleInspector.medium"), value: "500" },
-                  { label: t("styleInspector.semi"), value: "600" },
-                  { label: t("styleInspector.bold"), value: "700" },
-                ]}
-              />
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={VALUE_MENU_CLASS}
+                        aria-label={t("styleInspector.weight")}
+                      >
+                        <span className="truncate">
+                          {mixedTextStyles.includes("fontWeight")
+                            ? t("styleInspector.mixed")
+                            : weightLabel(snapshot.fontWeight, t)}
+                        </span>
+                        <span aria-hidden="true" className={CARET_CLASS} />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("styleInspector.weight")}</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="start" className="w-36">
+                  {fontWeightOptions(t).map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onSelect={() => onChange({ fontWeight: option.value })}
+                    >
+                      <span style={{ fontWeight: Number(option.value) }}>
+                        {option.label}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-              <div className={TOOLBAR_DIVIDER} />
               <VisualColorPicker
                 label={t("styleInspector.textColor")}
                 value={snapshot.color}
                 documentColors={documentColors}
                 mixed={mixedTextStyles.includes("color")}
                 mixedLabel={t("styleInspector.mixed")}
-                variant="filled"
-                className={SWATCH_CLASS}
+                variant="swatch"
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ color: value })}
               />
 
-              <div className={TOOLBAR_DIVIDER} />
-              <VisualSegmentedControl
-                value={snapshot.textAlign}
-                onChange={(textAlign) => onChange({ textAlign })}
-                className="slides-inspector-segment shrink-0"
-                options={[
-                  { label: t("styleInspector.left"), value: "left" },
-                  { label: t("styleInspector.center"), value: "center" },
-                  { label: t("styleInspector.right"), value: "right" },
-                  { label: t("styleInspector.justify"), value: "justify" },
-                ]}
-              />
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className={ICON_MENU_CLASS}
+                        aria-label={t("styleInspector.align")}
+                      >
+                        {(() => {
+                          const Icon = alignIcon(snapshot.textAlign);
+                          return <Icon className="size-4" />;
+                        })()}
+                        <span aria-hidden="true" className={CARET_CLASS} />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("styleInspector.align")}</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="start" className="w-36">
+                  {textAlignOptions(t).map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onSelect={() => onChange({ textAlign: option.value })}
+                    >
+                      <option.icon className="size-4" />
+                      {option.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           ) : (
             <>
@@ -196,8 +285,7 @@ export function SlideContextToolbar({
                 value={snapshot.backgroundColor}
                 documentColors={documentColors}
                 allowTransparent
-                variant="filled"
-                className={SWATCH_CLASS}
+                variant="swatch"
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ backgroundColor: value })}
               />
@@ -247,8 +335,7 @@ export function SlideContextToolbar({
                 label={t("styleInspector.strokeColor")}
                 value={snapshot.borderColor}
                 documentColors={documentColors}
-                variant="filled"
-                className={SWATCH_CLASS}
+                variant="swatch"
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ borderColor: value })}
               />

@@ -1,11 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowBackUp,
-  IconArrowForwardUp,
-  IconLetterT,
-  IconLoader2,
-  IconPlus,
-} from "@tabler/icons-react";
+import { IconLetterT, IconLoader2, IconPlus } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -13,9 +7,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import { cn, shortcutLabel } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import { AddSlidePopover } from "./AddSlidePopover";
 
@@ -59,7 +52,6 @@ export function EditorActionCluster({
   className?: string;
 }) {
   const t = useT();
-  const { undo, redo, canUndo, canRedo } = useDecks();
   const { generating, submit: agentSubmit } = useAgentGenerating();
   const [addSlideOpen, setAddSlideOpen] = useState(false);
   const addSlideRef = useRef<HTMLButtonElement>(null);
@@ -67,25 +59,6 @@ export function EditorActionCluster({
   useEffect(() => {
     if (!generating) onAddSlideGeneratingChange?.(false);
   }, [generating, onAddSlideGeneratingChange]);
-
-  // The Cmd+Z handler deliberately ignores typing so the text editor keeps its
-  // own history (DeckContext). A button has no such escape hatch, so commit the
-  // in-progress edit first — otherwise the click would undo the previous deck
-  // op and silently discard what the user just typed.
-  const commitThenRun = (run: () => void) => {
-    const active = document.activeElement as HTMLElement | null;
-    if (
-      active &&
-      (active.isContentEditable ||
-        active.tagName === "INPUT" ||
-        active.tagName === "TEXTAREA")
-    ) {
-      active.blur();
-      requestAnimationFrame(run);
-      return;
-    }
-    run();
-  };
 
   return (
     <div className={cn("flex items-center gap-1", className)}>
@@ -127,46 +100,6 @@ export function EditorActionCluster({
         onDuplicateCurrent={onDuplicateCurrentSlide}
         onAddEmpty={onAddEmptySlide}
       />
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => commitThenRun(undo)}
-            disabled={!canUndo}
-            className={cn(BUTTON_CLASS, IDLE_CLASS, "disabled:opacity-40")}
-            aria-label={t("editorToolbar.undo")}
-            aria-keyshortcuts="Meta+Z Control+Z"
-          >
-            <IconArrowBackUp className="size-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {t("editorToolbar.undoWithShortcut", {
-            shortcut: shortcutLabel("Cmd+Z"),
-          })}
-        </TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => commitThenRun(redo)}
-            disabled={!canRedo}
-            className={cn(BUTTON_CLASS, IDLE_CLASS, "disabled:opacity-40")}
-            aria-label={t("editorToolbar.redo")}
-            aria-keyshortcuts="Shift+Meta+Z Control+Y"
-          >
-            <IconArrowForwardUp className="size-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {t("editorToolbar.redoWithShortcut", {
-            shortcut: shortcutLabel("Cmd+Shift+Z"),
-          })}
-        </TooltipContent>
-      </Tooltip>
 
       {onToggleTextBoxMode && (
         <>

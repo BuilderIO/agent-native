@@ -405,6 +405,8 @@ const messages = {
     cornerRadius: "Eckenradius",
     strokeWeight: "Stärke",
     typography: "Typografie",
+    weight: "Schriftstärke",
+    align: "Ausrichtung",
     mixed: "Gemischt",
     textColor: "Textfarbe",
     primary: "Primary",

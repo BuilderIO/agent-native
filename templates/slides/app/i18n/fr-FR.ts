@@ -411,6 +411,8 @@ const messages = {
     cornerRadius: "Rayon des coins",
     strokeWeight: "Épaisseur",
     typography: "Typographie",
+    weight: "Graisse",
+    align: "Alignement",
     mixed: "Mixte",
     textColor: "Couleur du texte",
     primary: "Primary",

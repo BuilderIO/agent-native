@@ -402,6 +402,8 @@ const messages = {
     cornerRadius: "نصف قطر الزاوية",
     strokeWeight: "السُمك",
     typography: "الطباعة",
+    weight: "الوزن",
+    align: "المحاذاة",
     mixed: "مختلط",
     textColor: "لون النص",
     primary: "Primary",

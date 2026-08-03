@@ -400,6 +400,8 @@ const messages = {
     cornerRadius: "Corner radius",
     strokeWeight: "Weight",
     typography: "Typography",
+    weight: "Weight",
+    align: "Alignment",
     mixed: "Mixed",
     textColor: "Text color",
     primary: "Primary",

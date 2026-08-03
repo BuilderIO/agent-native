@@ -713,6 +713,26 @@ existed in all 11 catalogs with no code referencing them — a previous undo UI
 left its strings behind, so N2 needed **zero** new i18n keys. And the T shortcut
 and `data-toolbar-textbox-button` hook moved with the button unchanged.
 
+### 11.4a Density feedback (Steve + Sajal, after N2) — **shipped**
+
+Both flagged the row as too horizontal, and both asked for the same fixes:
+
+- **Colour pickers show only the swatch.** No hex text, no caret. This needed a
+  new `variant="swatch"` on the toolkit's `VisualColorPicker` — additive, the
+  `outline`/`filled` variants are untouched. Note this is the _same control_
+  whose `w-full` trigger caused the §9.7 overflow bug; the swatch variant fixes
+  that class of problem at the source for any future row-shaped surface.
+- **Font weight is one value + dropdown**, not four segmented buttons.
+- **Text alignment is one icon + dropdown**, using standard align icons.
+- **Undo/redo buttons removed** from N2's cluster and moved into the row-1 `⋯`
+  overflow — "Ctrl+Z is standard" (Sajal), agreed by Steve. The buttons lasted
+  one review cycle. `commitActiveEditThenRun` moved to its own module and still
+  guards the menu items, so the typing-vs-deck-op trap stays fixed.
+
+The cluster is now `+ │ Tt`. Undo/redo keep their keyboard shortcuts and now
+show them in the overflow labels via the previously orphaned
+`editorToolbar.undoWithShortcut` strings.
+
 ### 11.5 Known traps
 
 1. **`EditorToolbar.tsx` is 1,000+ lines already.** Splitting into two rows

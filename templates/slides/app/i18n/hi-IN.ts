@@ -397,6 +397,8 @@ const messages = {
     cornerRadius: "कोने की त्रिज्या",
     strokeWeight: "मोटाई",
     typography: "टाइपोग्राफी",
+    weight: "मोटाई",
+    align: "संरेखण",
     mixed: "मिश्रित",
     textColor: "टेक्स्ट का रंग",
     primary: "Primary",

@@ -33,6 +33,8 @@ import {
   IconMoon,
   IconDotsVertical,
   IconLoader2,
+  IconArrowBackUp,
+  IconArrowForwardUp,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useState, useRef, useEffect } from "react";
@@ -55,7 +57,11 @@ import {
 } from "@/components/ui/tooltip";
 import { SaveStatusIndicator } from "@/components/visual-editor";
 import type { Deck, Slide, SlideLayout } from "@/context/DeckContext";
-import { defaultSlideContent, useSaveState } from "@/context/DeckContext";
+import {
+  defaultSlideContent,
+  useDecks,
+  useSaveState,
+} from "@/context/DeckContext";
 import {
   ASPECT_RATIO_VALUES,
   type AspectRatio,
@@ -63,7 +69,9 @@ import {
 } from "@/lib/aspect-ratios";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
+import { shortcutLabel } from "@/lib/utils";
 
+import { commitActiveEditThenRun } from "./commit-active-edit";
 import { EditorActionCluster } from "./EditorActionCluster";
 import { ExportMenu } from "./ExportMenu";
 interface EditorToolbarProps {
@@ -327,6 +335,7 @@ export default function EditorToolbar({
   const [toolsOpen, setToolsOpen] = useState(false);
   // The contextual toolbar hosts the action cluster whenever it is on screen.
   const contextToolbarVisible = canEdit && !currentSlide?.excalidrawData;
+  const { undo, redo, canUndo, canRedo } = useDecks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const { setTheme, resolvedTheme } = useTheme();
@@ -994,6 +1003,29 @@ graph TD
           <TooltipContent>{t("editorToolbar.more")}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-48">
+          {canEdit && (
+            <>
+              <DropdownMenuItem
+                disabled={!canUndo}
+                onSelect={() => commitActiveEditThenRun(undo)}
+              >
+                <IconArrowBackUp className="w-4 h-4 mr-2" />
+                {t("editorToolbar.undoWithShortcut", {
+                  shortcut: shortcutLabel("Cmd+Z"),
+                })}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!canRedo}
+                onSelect={() => commitActiveEditThenRun(redo)}
+              >
+                <IconArrowForwardUp className="w-4 h-4 mr-2" />
+                {t("editorToolbar.redoWithShortcut", {
+                  shortcut: shortcutLabel("Cmd+Shift+Z"),
+                })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem
             disabled={importing}
             onSelect={() => fileInputRef.current?.click()}

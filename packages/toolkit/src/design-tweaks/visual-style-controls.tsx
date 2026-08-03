@@ -400,7 +400,8 @@ export function VisualColorPicker({
     Record<`data-${string}`, string | undefined>;
   mixed?: boolean;
   mixedLabel?: string;
-  variant?: "outline" | "filled";
+  /** `swatch` drops the value text and caret for dense horizontal toolbars. */
+  variant?: "outline" | "filled" | "swatch";
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -477,11 +478,15 @@ export function VisualColorPicker({
         <button
           type="button"
           aria-label={label}
+          title={variant === "swatch" ? `${label}: ${displayValue}` : undefined}
           className={cn(
-            "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11px] shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            variant === "filled"
-              ? "border-0 bg-muted/80 hover:bg-muted"
-              : "border border-border bg-background/70 hover:bg-accent/60",
+            "flex h-7 cursor-pointer items-center rounded-md shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            variant === "swatch"
+              ? "w-7 shrink-0 justify-center border-0 hover:bg-accent"
+              : "w-full gap-1.5 px-2 text-[11px]",
+            variant === "filled" && "border-0 bg-muted/80 hover:bg-muted",
+            variant === "outline" &&
+              "border border-border bg-background/70 hover:bg-accent/60",
             className,
           )}
         >
@@ -489,13 +494,17 @@ export function VisualColorPicker({
             className="size-4 shrink-0 rounded-[3px] border border-border/70"
             style={swatchBackground(mixed ? "transparent" : value)}
           />
-          <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
-            {displayValue}
-          </span>
-          <span
-            aria-hidden="true"
-            className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
-          />
+          {variant !== "swatch" && (
+            <>
+              <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
+                {displayValue}
+              </span>
+              <span
+                aria-hidden="true"
+                className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
+              />
+            </>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent

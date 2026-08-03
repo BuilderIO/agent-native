@@ -402,6 +402,8 @@ const messages = {
     cornerRadius: "角の半径",
     strokeWeight: "太さ",
     typography: "文字設定",
+    weight: "太さ",
+    align: "配置",
     mixed: "混在",
     textColor: "文字色",
     primary: "Primary",
