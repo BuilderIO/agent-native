@@ -11,14 +11,84 @@ use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, Me
 use crate::util::{is_meeting_active, is_recording_active};
 use crate::TRAY_PNG;
 
-pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
-    let Some(rect) = app
-        .tray_by_id("main")
-        .and_then(|tray| tray.rect().ok().flatten())
-    else {
+fn physical_tray_rect(rect: tauri::Rect) -> (i32, i32, i32, i32) {
+    let (x, y) = match rect.position {
+        tauri::Position::Physical(position) => (position.x, position.y),
+        tauri::Position::Logical(position) => (position.x as i32, position.y as i32),
+    };
+    let (width, height) = match rect.size {
+        tauri::Size::Physical(size) => (size.width as i32, size.height as i32),
+        tauri::Size::Logical(size) => (size.width as i32, size.height as i32),
+    };
+    (x, y, width, height)
+}
+
+fn normalized_tray_rect(app: &tauri::AppHandle, rect: tauri::Rect) -> Option<tauri::Rect> {
+    let (x, y, width, height) = physical_tray_rect(rect);
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+
+    let center_x = x + width / 2;
+    #[cfg(not(target_os = "macos"))]
+    let center_y = y + height / 2;
+    let window = app.get_webview_window("popover")?;
+    let monitors = window.available_monitors().ok()?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let primary = window.primary_monitor().ok().flatten();
+        let contains_laid_out_status_item = |monitor: &tauri::Monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            center_x >= position.x + size.width as i32 / 2
+                && center_x < position.x + size.width as i32
+        };
+        let monitor = primary
+            .as_ref()
+            .filter(|monitor| contains_laid_out_status_item(monitor))
+            .or_else(|| {
+                monitors
+                    .iter()
+                    .find(|monitor| contains_laid_out_status_item(monitor))
+            })?;
+
+        // tray-icon 0.23 mixes AppKit points with CGDisplay pixels on Retina.
+        // A status item always occupies the menu-bar row, so normalize that axis.
+        if y != monitor.position().y {
+            dlog!(
+                "[clips-tray] normalized tray anchor y from {} to {}",
+                y,
+                monitor.position().y
+            );
+        }
+        return Some(tauri::Rect {
+            position: tauri::Position::Physical(tauri::PhysicalPosition::new(
+                x,
+                monitor.position().y,
+            )),
+            size: tauri::Size::Physical(tauri::PhysicalSize::new(width as u32, height as u32)),
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let inside_monitor = monitors.iter().any(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            center_x >= position.x
+                && center_x < position.x + size.width as i32
+                && center_y >= position.y
+                && center_y < position.y + size.height as i32
+        });
+        inside_monitor.then_some(rect)
+    }
+}
+
+fn store_tray_anchor(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
+    let Some(rect) = normalized_tray_rect(app, rect) else {
         return false;
     };
-
     let Some(anchor) = app.try_state::<TrayAnchor>() else {
         return false;
     };
@@ -27,6 +97,16 @@ pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
     };
     *guard = Some(rect);
     true
+}
+
+pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
+    let Some(rect) = app
+        .tray_by_id("main")
+        .and_then(|tray| tray.rect().ok().flatten())
+    else {
+        return false;
+    };
+    store_tray_anchor(app, rect)
 }
 
 /// Build the full tray menu with the given upcoming-meetings list. Used both
@@ -222,12 +302,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 _ => None,
             };
             if let Some(rect) = rect {
-                let app = tray.app_handle();
-                if let Some(anchor) = app.try_state::<TrayAnchor>() {
-                    if let Ok(mut g) = anchor.0.lock() {
-                        *g = Some(rect);
-                    }
-                }
+                store_tray_anchor(tray.app_handle(), rect);
             }
 
             if let TrayIconEvent::Click {
