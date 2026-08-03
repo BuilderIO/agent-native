@@ -118,6 +118,7 @@ function isLoopbackRedirectHost(hostname: string): boolean {
 export function matchesRegisteredRedirectUri(
   registered: readonly string[],
   redirectUri: string,
+  applicationType: "native" | "web",
 ): boolean {
   let candidate: URL;
   try {
@@ -129,6 +130,7 @@ export function matchesRegisteredRedirectUri(
   if (candidate.hash || candidate.username || candidate.password) return false;
   if (registered.includes(redirectUri)) return true;
   if (
+    applicationType !== "native" ||
     candidate.protocol !== "http:" ||
     !isLoopbackRedirectHost(candidate.hostname)
   ) {

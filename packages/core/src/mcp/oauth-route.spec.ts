@@ -53,6 +53,7 @@ vi.mock("./oauth-store.js", () => ({
       grantTypes: params.grantTypes ?? ["authorization_code", "refresh_token"],
       responseTypes: params.responseTypes ?? ["code"],
       tokenEndpointAuthMethod: params.tokenEndpointAuthMethod ?? "none",
+      applicationType: params.applicationType,
       createdAt: 1_700_000_000_000,
     };
     clients.set(row.clientId, row);
@@ -455,6 +456,40 @@ describe("MCP OAuth route", () => {
 
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toContain("Authorize Claude");
+  });
+
+  it("rejects an ephemeral loopback port for a registered web client", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            application_type: "web",
+            redirect_uris: ["http://localhost/callback"],
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+
+    const response = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:54263/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge("v".repeat(50)),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "invalid_client",
+    });
   });
 
   it.each([

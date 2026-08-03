@@ -375,8 +375,10 @@ async function handleRegister(event: H3Event): Promise<Response> {
       "application_type must be native or web",
     );
   }
-  const applicationType =
-    requestedApplicationType ?? applicationTypeForRedirectUris(redirectUris);
+  const applicationType: "native" | "web" =
+    requestedApplicationType === "native" || requestedApplicationType === "web"
+      ? requestedApplicationType
+      : applicationTypeForRedirectUris(redirectUris);
 
   const clientName =
     typeof body.client_name === "string"
@@ -390,6 +392,7 @@ async function handleRegister(event: H3Event): Promise<Response> {
       grantTypes: grantTypes.length ? grantTypes : undefined,
       responseTypes: responseTypes.length ? responseTypes : undefined,
       tokenEndpointAuthMethod: method,
+      applicationType,
     });
   } catch (err: any) {
     if (err?.message === "RATE_LIMITED") {
@@ -747,7 +750,11 @@ async function handleAuthorize(
     : await getOAuthClient(clientId);
   if (
     !client ||
-    !matchesRegisteredRedirectUri(client.redirectUris, redirectUri)
+    !matchesRegisteredRedirectUri(
+      client.redirectUris,
+      redirectUri,
+      client.applicationType,
+    )
   ) {
     return oauthError("invalid_client", "Unknown client or redirect_uri");
   }

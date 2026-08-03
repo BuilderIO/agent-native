@@ -96,11 +96,13 @@ describe("client registration", () => {
     const reg = await s.registerOAuthClient({
       clientName: "Claude",
       redirectUris: ["https://claude.ai/cb"],
+      applicationType: "native",
     });
     expect(reg.clientId).toMatch(/^agent-native-oauth-client-/);
     expect(reg.grantTypes).toEqual(["authorization_code", "refresh_token"]);
     expect(reg.responseTypes).toEqual(["code"]);
     expect(reg.tokenEndpointAuthMethod).toBe("none");
+    expect(reg.applicationType).toBe("native");
 
     const fetched = await s.getOAuthClient(reg.clientId);
     expect(fetched).toMatchObject({
@@ -110,6 +112,7 @@ describe("client registration", () => {
       grantTypes: ["authorization_code", "refresh_token"],
       responseTypes: ["code"],
       tokenEndpointAuthMethod: "none",
+      applicationType: "native",
     });
   });
 

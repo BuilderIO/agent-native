@@ -14,7 +14,7 @@ import {
   intType,
   isPostgres,
 } from "../db/client.js";
-import { ensureTableExists } from "../db/ddl-guard.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -93,6 +93,7 @@ async function ensureTable(): Promise<void> {
           grant_types TEXT,
           response_types TEXT,
           token_endpoint_auth_method TEXT,
+          application_type TEXT NOT NULL DEFAULT 'web',
           created_at ${intType()}
         )
       `;
@@ -136,6 +137,11 @@ async function ensureTable(): Promise<void> {
         // DDL when the table is actually missing, wrapped in a
         // transaction-scoped lock_timeout so a contended lock fails fast.
         await ensureTableExists("mcp_oauth_clients", createClientsSql);
+        await ensureColumnExists(
+          "mcp_oauth_clients",
+          "application_type",
+          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT NOT NULL DEFAULT 'web'`,
+        );
         await ensureTableExists("mcp_oauth_codes", createCodesSql);
         await ensureTableExists(
           "mcp_oauth_refresh_tokens",
@@ -147,6 +153,19 @@ async function ensureTable(): Promise<void> {
       // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
       // create-then-execute behaviour.
       await client.execute(createClientsSql);
+      try {
+        await client.execute(
+          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT NOT NULL DEFAULT 'web'`,
+        );
+      } catch {
+        try {
+          await client.execute(
+            `ALTER TABLE mcp_oauth_clients ADD COLUMN application_type TEXT NOT NULL DEFAULT 'web'`,
+          );
+        } catch {
+          // Fresh and previously migrated databases already have the column.
+        }
+      }
       await client.execute(createCodesSql);
       await client.execute(createRefreshTokensSql);
     })().catch((err) => {
@@ -164,6 +183,7 @@ export interface OAuthClientRow {
   grantTypes: string[];
   responseTypes: string[];
   tokenEndpointAuthMethod: string;
+  applicationType: "native" | "web";
   createdAt: number | null;
 }
 
@@ -243,6 +263,10 @@ function mapClientRow(row: any): OAuthClientRow {
     ),
     tokenEndpointAuthMethod:
       row.token_endpoint_auth_method ?? row.tokenEndpointAuthMethod ?? "none",
+    applicationType:
+      (row.application_type ?? row.applicationType) === "native"
+        ? "native"
+        : "web",
     createdAt: numOrNull(row.created_at ?? row.createdAt),
   };
 }
@@ -289,6 +313,7 @@ export async function registerOAuthClient(params: {
   grantTypes?: string[];
   responseTypes?: string[];
   tokenEndpointAuthMethod?: string;
+  applicationType?: "native" | "web";
 }): Promise<OAuthClientRow> {
   await ensureTable();
   const client = getDbExec();
@@ -315,8 +340,9 @@ export async function registerOAuthClient(params: {
     ? params.responseTypes
     : ["code"];
   const tokenEndpointAuthMethod = params.tokenEndpointAuthMethod || "none";
+  const applicationType = params.applicationType ?? "web";
   await client.execute({
-    sql: `INSERT INTO mcp_oauth_clients (client_id, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_oauth_clients (client_id, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, application_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       clientId,
       params.clientName ?? null,
@@ -324,6 +350,7 @@ export async function registerOAuthClient(params: {
       JSON.stringify(grantTypes),
       JSON.stringify(responseTypes),
       tokenEndpointAuthMethod,
+      applicationType,
       now,
     ],
   });
@@ -334,6 +361,7 @@ export async function registerOAuthClient(params: {
     grantTypes,
     responseTypes,
     tokenEndpointAuthMethod,
+    applicationType,
     createdAt: now,
   };
 }
