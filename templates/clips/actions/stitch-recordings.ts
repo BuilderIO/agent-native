@@ -12,8 +12,10 @@
  *      recordings in order.
  *   2. It fetches each source video via `/api/video/:id`, concatenates them
  *      using ffmpeg.wasm (see `app/lib/ffmpeg-export.ts` for the wasm init).
- *   3. It reserves a destination `recordingId` and uploads the resulting blob
- *      as `<recordingId>.mp4` through the configured file-upload provider.
+ *   3. For S3-backed uploads, it reserves a destination `recordingId` and
+ *      uploads the resulting blob as `<recordingId>.mp4` through the configured
+ *      file-upload provider. Other providers may continue to omit the ID and
+ *      let this action generate it server-side.
  *   4. It calls THIS action to create the new recording row, passing that
  *      `recordingId`, `sourceRecordingIds` for provenance, the uploaded
  *      `videoUrl`, and the new `durationMs`.
@@ -21,13 +23,16 @@
  * If the caller omits `videoUrl`/`durationMs` we create a row in `processing`
  * state — the UI can then upload and finalize via `/api/uploads/:id/complete`.
  *
- * Usage (from the UI after the concat completes):
+ * Usage (from the UI after the concat completes; `recordingId` is required for
+ * S3-backed uploads so the object can be bound to the destination recording):
  *   pnpm action stitch-recordings \
  *     --recordingId="550e8400-e29b-41d4-a716-446655440000" \
  *     --title="Combined walkthrough" \
  *     --sourceRecordingIds='["rec_a","rec_b"]' \
  *     --videoUrl="/api/video/..." --durationMs=124000
  */
+
+import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -51,7 +56,10 @@ export default defineAction({
     recordingId: z
       .string()
       .regex(/^[a-zA-Z0-9_-]{8,128}$/)
-      .describe("Pre-reserved destination ID used to bind the uploaded media"),
+      .optional()
+      .describe(
+        "Pre-reserved destination ID used to bind S3-backed media. Optional for backward compatibility with other upload providers.",
+      ),
     sourceRecordingIds: z
       .union([z.string(), z.array(z.string())])
       .describe("Ordered list of source recording IDs (or JSON-encoded array)"),
@@ -139,7 +147,13 @@ export default defineAction({
     const height =
       args.height ?? Math.max(...ordered.map((r) => r.height || 0), 0);
 
-    const id = args.recordingId;
+    // Preserve the established action contract for callers using Builder.io or
+    // another external upload provider: they may omit recordingId and receive
+    // a server-generated destination ID. S3 callers must pre-reserve the ID so
+    // the uploaded key can be proven to belong to this recording; an unbound
+    // S3 object is still rejected below rather than reintroducing cross-recording
+    // object aliasing.
+    const id = args.recordingId ?? randomUUID();
     if (videoUrl) {
       const isBound = await isS3ObjectUrlBoundToRecording(videoUrl, id);
       if (isBound === false) {
