@@ -487,7 +487,8 @@ export default defineEventHandler(async (event: H3Event) => {
           );
           if (
             signedS3Response?.status === 200 ||
-            signedS3Response?.status === 206
+            signedS3Response?.status === 206 ||
+            signedS3Response?.status === 416
           ) {
             upstream = signedS3Response;
           } else {

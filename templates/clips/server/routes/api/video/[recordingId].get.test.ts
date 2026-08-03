@@ -342,6 +342,31 @@ describe("/api/video/:recordingId route", () => {
     expect(fetch).toHaveBeenCalled();
   });
 
+  it("preserves a signed S3 unsatisfied range response", async () => {
+    mockGetRequestHeader.mockImplementation((event, name) => {
+      if (String(name).toLowerCase() === "range") return "bytes=9999-";
+      return event.headers.get(String(name).toLowerCase()) ?? undefined;
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response(null, {
+        status: 416,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-range": "bytes */100",
+        },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(416);
+    expect((result as Response).headers.get("content-range")).toBe(
+      "bytes */100",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("serves only the persisted media URL until compression is published", async () => {
     const sourceUrl =
       "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-ready?apiKey=org-probe&token=asset-ready&alt=media";
