@@ -927,10 +927,10 @@ export function useDuplicateDatabaseItems(documentId: string) {
   );
 }
 
-export function useDeleteDatabaseItems(documentId: string) {
+export function useRemoveDatabaseItems(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<ContentDatabaseResponse, DatabaseItemsBatchRequest>(
-    "delete-database-items",
+    "remove-database-items",
     {
       onSuccess: () => {
         queryClient.invalidateQueries({

@@ -44,6 +44,7 @@ import {
   executeBuilderCmsWrite,
 } from "./_builder-cms-write-client.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
@@ -563,80 +564,85 @@ async function reconcileBuilderCmsWrite(args: {
   }
 
   const db = getDb();
-  const existingRow =
-    args.changeSet.documentId || args.changeSet.databaseItemId
-      ? await db
-          .select()
-          .from(schema.contentDatabaseSourceRows)
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-              args.changeSet.documentId
-                ? eq(
-                    schema.contentDatabaseSourceRows.documentId,
-                    args.changeSet.documentId,
-                  )
-                : eq(
-                    schema.contentDatabaseSourceRows.databaseItemId,
-                    args.changeSet.databaseItemId as string,
-                  ),
-            ),
-          )
-          .limit(1)
-      : [];
+  await db.transaction(async (tx) => {
+    if (args.changeSet.databaseItemId) {
+      await lockDatabaseMemberships(tx, [args.changeSet.databaseItemId]);
+    }
+    const existingRow =
+      args.changeSet.documentId || args.changeSet.databaseItemId
+        ? await tx
+            .select()
+            .from(schema.contentDatabaseSourceRows)
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+                args.changeSet.documentId
+                  ? eq(
+                      schema.contentDatabaseSourceRows.documentId,
+                      args.changeSet.documentId,
+                    )
+                  : eq(
+                      schema.contentDatabaseSourceRows.databaseItemId,
+                      args.changeSet.databaseItemId as string,
+                    ),
+              ),
+            )
+            .limit(1)
+        : [];
 
-  const [row] = existingRow;
-  const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
-  const sourceValuesJson = builderCmsReconciledSourceValuesJson({
-    existingSourceValuesJson: row?.sourceValuesJson,
-    snapshotSourceValues: snapshotRow?.sourceValues,
-    changeSet: args.changeSet,
-    plan: args.plan,
-  });
-  const patchWithValues = {
-    ...patch,
-    sourceValuesJson,
-  };
-  if (row) {
-    await db
-      .update(schema.contentDatabaseSourceRows)
-      .set(patchWithValues)
-      .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-  } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
-    await db.insert(schema.contentDatabaseSourceRows).values({
-      id: crypto.randomUUID(),
-      ownerEmail: args.database.ownerEmail,
-      sourceId: args.source.id,
-      databaseItemId: args.changeSet.databaseItemId,
-      documentId: args.changeSet.documentId,
-      createdAt: args.now,
-      ...patchWithValues,
+    const [row] = existingRow;
+    const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
+    const sourceValuesJson = builderCmsReconciledSourceValuesJson({
+      existingSourceValuesJson: row?.sourceValuesJson,
+      snapshotSourceValues: snapshotRow?.sourceValues,
+      changeSet: args.changeSet,
+      plan: args.plan,
     });
-  } else {
-    throw new Error(
-      "Builder write succeeded, but the local source row was missing.",
-    );
-  }
+    const patchWithValues = {
+      ...patch,
+      sourceValuesJson,
+    };
+    if (row) {
+      await tx
+        .update(schema.contentDatabaseSourceRows)
+        .set(patchWithValues)
+        .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+    } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
+      await tx.insert(schema.contentDatabaseSourceRows).values({
+        id: crypto.randomUUID(),
+        ownerEmail: args.database.ownerEmail,
+        sourceId: args.source.id,
+        databaseItemId: args.changeSet.databaseItemId,
+        documentId: args.changeSet.documentId,
+        createdAt: args.now,
+        ...patchWithValues,
+      });
+    } else {
+      throw new Error(
+        "Builder write succeeded, but the local source row was missing.",
+      );
+    }
 
-  await db
-    .update(schema.contentDatabaseSourceFields)
-    .set({
-      freshness: "fresh",
-      lastSyncedAt: args.now,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-  await db
-    .update(schema.contentDatabaseSources)
-    .set({
-      syncState: "idle",
-      freshness: "fresh",
-      lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
-      lastError: null,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseSources.id, args.source.id));
+    await tx
+      .update(schema.contentDatabaseSourceFields)
+      .set({
+        freshness: "fresh",
+        lastSyncedAt: args.now,
+        updatedAt: args.now,
+      })
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+    await tx
+      .update(schema.contentDatabaseSources)
+      .set({
+        syncState: "idle",
+        freshness: "fresh",
+        lastRefreshedAt: args.now,
+        lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
+        lastError: null,
+        updatedAt: args.now,
+      })
+      .where(eq(schema.contentDatabaseSources.id, args.source.id));
+  });
 }
 
 export function realExecutionDeps(

@@ -28,6 +28,7 @@ import {
   builderCmsQualifiedId,
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
@@ -460,6 +461,11 @@ export default defineAction({
           documentId: string;
           sourceValuesJson: string | null;
         }> = [];
+        const sourceRowUpdates: Array<{
+          id: string;
+          previousSourceValuesJson: string;
+          sourceValuesJson: string;
+        }> = [];
         if (builderEntries) {
           const currentSourceRows = await tx
             .select()
@@ -487,27 +493,11 @@ export default defineAction({
             ) {
               continue;
             }
-            const [updatedRow] = await tx
-              .update(schema.contentDatabaseSourceRows)
-              .set({
-                sourceValuesJson: mergedRow.sourceValuesJson,
-                updatedAt: now,
-              })
-              .where(
-                and(
-                  eq(schema.contentDatabaseSourceRows.id, currentRow.id),
-                  eq(
-                    schema.contentDatabaseSourceRows.sourceValuesJson,
-                    currentRow.sourceValuesJson,
-                  ),
-                ),
-              )
-              .returning({ id: schema.contentDatabaseSourceRows.id });
-            if (!updatedRow) {
-              throw new Error(
-                "The Builder source changed while adding this property. No property was created; try again.",
-              );
-            }
+            sourceRowUpdates.push({
+              id: currentRow.id,
+              previousSourceValuesJson: currentRow.sourceValuesJson,
+              sourceValuesJson: mergedRow.sourceValuesJson,
+            });
           }
           sourceRows = merged.rows;
         } else if (!isSecondary) {
@@ -543,6 +533,34 @@ export default defineAction({
                   },
                 ],
           );
+        }
+
+        await lockDatabaseMemberships(
+          tx,
+          sourceRows.map((row) => row.databaseItemId),
+        );
+        for (const update of sourceRowUpdates) {
+          const [updatedRow] = await tx
+            .update(schema.contentDatabaseSourceRows)
+            .set({
+              sourceValuesJson: update.sourceValuesJson,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.id, update.id),
+                eq(
+                  schema.contentDatabaseSourceRows.sourceValuesJson,
+                  update.previousSourceValuesJson,
+                ),
+              ),
+            )
+            .returning({ id: schema.contentDatabaseSourceRows.id });
+          if (!updatedRow) {
+            throw new Error(
+              "The Builder source changed while adding this property. No property was created; try again.",
+            );
+          }
         }
 
         const builderMetadata = builderMetadataForSourceField({

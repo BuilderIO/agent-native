@@ -46,6 +46,10 @@ const messages = {
     metaTitle: "設定 - Content",
     title: "設定",
     description: "Content 的語言和工作區偏好設定。",
+    emailNotifications: "郵件通知",
+    emailNotificationsDescription:
+      "當有人評論你的文件、在討論串中回覆或提到你時，收到郵件通知。",
+    saveFailed: "儲存失敗",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
@@ -732,6 +736,17 @@ const messages = {
     failedToDeleteRow: "刪除行失敗",
     failedToDeleteSelectedRows: "刪除所選行失敗",
     failedToDuplicateEverySelectedRow: "未能複製所有選取行",
+    failedToRemoveEverySelectedRowFromDatabase: "無法從資料庫中移除所有選取行",
+    failedToRemoveRowFromDatabase: "無法從資料庫中移除該行",
+    removeSelectedRowsFromDatabaseQuestion: "從資料庫中移除選取行？",
+    removeSelectedRowsFromDatabaseDescription:
+      "所選頁面仍可在「檔案」和其他資料庫中使用。僅屬於此資料庫的值將被移除。",
+    removeFromDatabase: "從資料庫中移除",
+    removeFromDatabaseQuestion: "從資料庫中移除？",
+    removeFromDatabaseDescription:
+      "「{{title}}」仍可在「檔案」和其他資料庫中使用。僅屬於此資料庫的值將被移除。",
+    remove: "移除",
+    removing: "正在移除...",
     failedToDuplicateRow: "複製行失敗",
     failedToMoveCard: "行動卡片失敗",
     failedToMoveRow: "行動行失敗",

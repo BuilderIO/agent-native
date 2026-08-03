@@ -32,6 +32,11 @@ import {
   type RequestContext,
 } from "../server/request-context.js";
 import type { JobFrontmatter } from "./frontmatter.js";
+import {
+  attachAutomationRunThread,
+  finishAutomationRun,
+  startAutomationRun,
+} from "./run-history.js";
 
 const BACKGROUND_RUN_STUCK_MS = 10 * 60_000;
 const BACKGROUND_RUN_HARD_TIMEOUT_MS = 5 * 60_000;
@@ -249,6 +254,87 @@ export async function runBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
+  const { automation } = options;
+  // Bookkeeping, so it must not gate the work it describes: a history table
+  // that cannot be written should cost us the record, not the automation.
+  // Everything downstream tolerates a null id by skipping its own write.
+  let historyId: string | null = null;
+  try {
+    historyId = await startAutomationRun({
+      owner: automation.resource.owner,
+      automation: automation.name,
+      path: automation.resource.path,
+      scope: organizationIdFromResourceOwner(automation.resource.owner)
+        ? "organization"
+        : "personal",
+      orgId: options.orgId ?? null,
+    });
+  } catch (err) {
+    console.error(
+      `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
+      err,
+    );
+  }
+
+  let result: BackgroundAutomationRunResult;
+  try {
+    result = await executeBackgroundAutomation(options, deps, historyId);
+  } catch (err) {
+    await recordRunOutcome(
+      historyId,
+      "error",
+      err instanceof Error ? err.message : String(err),
+    );
+    throw err;
+  }
+  // Outside the try: history is bookkeeping about the run, so a failure to
+  // write it must not turn a completed automation into a reported failure.
+  await recordRunOutcome(historyId, "success");
+  return result;
+}
+
+/**
+ * Link the run to its agent thread. Bookkeeping again: the automation is
+ * already executing by this point, so a failed write costs the cross-reference
+ * in the history view, not the run.
+ */
+async function recordRunThread(
+  historyId: string | null,
+  threadId: string,
+  runId: string,
+): Promise<void> {
+  if (!historyId) return;
+  try {
+    await attachAutomationRunThread(historyId, threadId, runId);
+  } catch (err) {
+    console.error(
+      `[automations] Could not attach thread ${threadId} to run ${historyId}:`,
+      err,
+    );
+  }
+}
+
+async function recordRunOutcome(
+  historyId: string | null,
+  status: "success" | "error",
+  error?: string,
+): Promise<void> {
+  if (!historyId) return;
+  try {
+    await finishAutomationRun(historyId, status, error);
+  } catch (err) {
+    console.error(
+      `[automations] Could not record run ${historyId} as ${status}:`,
+      err,
+    );
+  }
+}
+
+async function executeBackgroundAutomation(
+  options: BackgroundAutomationRunOptions,
+  deps: BackgroundAutomationDeps,
+  historyId: string | null,
+): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
 
@@ -291,6 +377,8 @@ export async function runBackgroundAutomation(
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
       const thread = await createThread(ownerEmail, { title: threadTitle });
       const runId = createRunId(options.runIdPrefix);
+      await recordRunThread(historyId, thread.id, runId);
+
       // Scheduled work is background work: it has no synchronous serverless
       // caller waiting on it, so it must not inherit the interactive clamp
       // (40s soft timeout, a 30s no-progress backstop at 0.75x that, and 6

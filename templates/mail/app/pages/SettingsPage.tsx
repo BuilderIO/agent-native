@@ -10,6 +10,8 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -1431,22 +1433,18 @@ function GeneralSection() {
         </p>
       </div>
 
-      <div
-        id="language"
-        className="max-w-2xl scroll-mt-4 rounded-lg border border-border/20 bg-card/50 p-4"
-      >
-        <div className="mb-3">
-          <h3 className="text-[13px] font-semibold text-foreground">
-            {t("settings.languageTitle")}
-          </h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            {t("settings.languageDescription")}
-          </p>
-        </div>
-        <div className="max-w-sm">
-          <LanguagePicker label={t("settings.languageLabel")} />
-        </div>
-      </div>
+      <SettingsGroup className="max-w-2xl border-border/20 bg-card/50">
+        <SettingsRow
+          id="language"
+          label={t("settings.languageTitle")}
+          description={t("settings.languageDescription")}
+          control={
+            <div className="w-56">
+              <LanguagePicker label={t("settings.languageLabel")} />
+            </div>
+          }
+        />
+      </SettingsGroup>
     </div>
   );
 }

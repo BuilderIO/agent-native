@@ -91,6 +91,7 @@ import {
   organizationContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
   databaseItemsPositionScope,
@@ -1448,89 +1449,92 @@ async function enqueueBuilderBodyHydrations(
   const databaseItemIds = Array.from(
     new Set(uniqueRequests.map((request) => request.databaseItemId)),
   );
-  const existingRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-  for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
-    existingRows.push(
-      ...(await db
-        .select()
-        .from(schema.contentDatabaseBodyHydrationQueue)
-        .where(
-          inArray(
-            schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-            idChunk,
-          ),
-        )),
+  return db.transaction(async (tx) => {
+    await lockDatabaseMemberships(tx, databaseItemIds);
+    const existingRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
+    for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+      existingRows.push(
+        ...(await tx
+          .select()
+          .from(schema.contentDatabaseBodyHydrationQueue)
+          .where(
+            inArray(
+              schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+              idChunk,
+            ),
+          )),
+      );
+    }
+    const existingByItemId = new Map(
+      existingRows.map((row) => [row.databaseItemId, row]),
     );
-  }
-  const existingByItemId = new Map(
-    existingRows.map((row) => [row.databaseItemId, row]),
-  );
-  const queueRows: (typeof schema.contentDatabaseBodyHydrationQueue.$inferInsert)[] =
-    [];
-  for (const request of uniqueRequests) {
-    const existing = existingByItemId.get(request.databaseItemId);
-    const existingEntry = existing ? parseHydrationEntry(existing) : null;
-    const shouldPreserveExistingEntry =
-      builderEntryHasBodyContent(existingEntry) &&
-      !builderEntryHasBodyContent(request.entry);
-    const priority =
-      request.priority ??
-      builderBodyHydrationPriorityForRequest({ documentId: null });
-    queueRows.push({
-      id: existing?.id ?? crypto.randomUUID(),
-      ownerEmail: request.ownerEmail,
-      orgId: request.orgId,
-      sourceId: request.sourceId,
-      databaseItemId: request.databaseItemId,
-      documentId: request.documentId,
-      sourceRowId: request.entry.id,
-      sourceTable: request.sourceTable,
-      sourceEntryJson: shouldPreserveExistingEntry
-        ? existing!.sourceEntryJson
-        : JSON.stringify(request.entry),
-      priority: Math.min(existing?.priority ?? priority, priority),
-      attempts: existing?.attempts ?? 0,
-      lastAttemptedAt: existing?.lastAttemptedAt ?? null,
-      lastError: null,
-      createdAt: existing?.createdAt ?? request.now,
-      updatedAt: request.now,
-    });
-  }
-  const upsertedRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
-  for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(15))) {
-    upsertedRows.push(
-      ...(await db
-        .insert(schema.contentDatabaseBodyHydrationQueue)
-        .values(chunk)
-        .onConflictDoUpdate({
-          target: schema.contentDatabaseBodyHydrationQueue.databaseItemId,
-          set: {
-            ownerEmail: sql`excluded.owner_email`,
-            orgId: sql`excluded.org_id`,
-            sourceId: sql`excluded.source_id`,
-            documentId: sql`excluded.document_id`,
-            sourceRowId: sql`excluded.source_row_id`,
-            sourceTable: sql`excluded.source_table`,
-            sourceEntryJson: sql`excluded.source_entry_json`,
-            priority: sql`excluded.priority`,
-            lastError: null,
-            updatedAt: sql`excluded.updated_at`,
-          },
+    const queueRows: (typeof schema.contentDatabaseBodyHydrationQueue.$inferInsert)[] =
+      [];
+    for (const request of uniqueRequests) {
+      const existing = existingByItemId.get(request.databaseItemId);
+      const existingEntry = existing ? parseHydrationEntry(existing) : null;
+      const shouldPreserveExistingEntry =
+        builderEntryHasBodyContent(existingEntry) &&
+        !builderEntryHasBodyContent(request.entry);
+      const priority =
+        request.priority ??
+        builderBodyHydrationPriorityForRequest({ documentId: null });
+      queueRows.push({
+        id: existing?.id ?? crypto.randomUUID(),
+        ownerEmail: request.ownerEmail,
+        orgId: request.orgId,
+        sourceId: request.sourceId,
+        databaseItemId: request.databaseItemId,
+        documentId: request.documentId,
+        sourceRowId: request.entry.id,
+        sourceTable: request.sourceTable,
+        sourceEntryJson: shouldPreserveExistingEntry
+          ? existing!.sourceEntryJson
+          : JSON.stringify(request.entry),
+        priority: Math.min(existing?.priority ?? priority, priority),
+        attempts: existing?.attempts ?? 0,
+        lastAttemptedAt: existing?.lastAttemptedAt ?? null,
+        lastError: null,
+        createdAt: existing?.createdAt ?? request.now,
+        updatedAt: request.now,
+      });
+    }
+    const upsertedRows: ContentDatabaseBodyHydrationQueueRowDb[] = [];
+    for (const chunk of chunks(queueRows, bulkChunkSizeForColumnCount(15))) {
+      upsertedRows.push(
+        ...(await tx
+          .insert(schema.contentDatabaseBodyHydrationQueue)
+          .values(chunk)
+          .onConflictDoUpdate({
+            target: schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+            set: {
+              ownerEmail: sql`excluded.owner_email`,
+              orgId: sql`excluded.org_id`,
+              sourceId: sql`excluded.source_id`,
+              documentId: sql`excluded.document_id`,
+              sourceRowId: sql`excluded.source_row_id`,
+              sourceTable: sql`excluded.source_table`,
+              sourceEntryJson: sql`excluded.source_entry_json`,
+              priority: sql`excluded.priority`,
+              lastError: null,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          })
+          .returning()),
+      );
+    }
+    for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
+      await tx
+        .update(schema.contentDatabaseItems)
+        .set({
+          bodyHydrationStatus: "pending",
+          bodyHydrationError: null,
+          updatedAt: uniqueRequests[0]!.now,
         })
-        .returning()),
-    );
-  }
-  for (const idChunk of chunks(databaseItemIds, idChunkSize())) {
-    await db
-      .update(schema.contentDatabaseItems)
-      .set({
-        bodyHydrationStatus: "pending",
-        bodyHydrationError: null,
-        updatedAt: uniqueRequests[0]!.now,
-      })
-      .where(inArray(schema.contentDatabaseItems.id, idChunk));
-  }
-  return upsertedRows;
+        .where(inArray(schema.contentDatabaseItems.id, idChunk));
+    }
+    return upsertedRows;
+  });
 }
 
 export async function enqueueBuilderBodyHydrationForItems(args: {
@@ -5308,7 +5312,27 @@ export async function seedMockSourceRows(args: {
 }) {
   if (args.items.length === 0) return;
   const db = getDb();
-  const rows = args.items.map((item, index) => {
+  const rows = mockSourceRowsForSeed(args);
+  await db.transaction(async (tx) => {
+    await lockDatabaseMemberships(
+      tx,
+      rows.map((row) => row.databaseItemId),
+    );
+    await insertMockSourceRows(tx, rows, args.now);
+  });
+}
+
+function mockSourceRowsForSeed(args: {
+  sourceId: string;
+  ownerEmail: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  items: ContentDatabaseItem[];
+  now: string;
+  existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
+  builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
+}) {
+  return args.items.map((item, index) => {
     const builderEntry = args.builderEntriesByDocumentId?.get(item.document.id);
     const existingBuilderRow = args.existingBuilderRows?.get(item.document.id);
     const builderIdentity =
@@ -5370,6 +5394,17 @@ export async function seedMockSourceRows(args: {
       updatedAt: args.now,
     };
   });
+}
+
+async function insertMockSourceRows(
+  db: any,
+  rows: ReturnType<typeof mockSourceRowsForSeed>,
+  now: string,
+) {
+  if (rows.length === 0) return;
+  if (rows.some((row) => !row.sourceId)) {
+    throw new Error("Source row writes require a source ID.");
+  }
   await db
     .insert(schema.contentDatabaseSourceRows)
     .values(rows)
@@ -5383,13 +5418,51 @@ export async function seedMockSourceRows(args: {
       .update(schema.contentDatabaseItems)
       .set({
         bodyHydrationStatus: "unavailable",
-        bodyHydrationAttemptedAt: args.now,
+        bodyHydrationAttemptedAt: now,
         bodyHydrationError: null,
         bodyHydrationVersion: null,
-        updatedAt: args.now,
+        updatedAt: now,
       })
       .where(inArray(schema.contentDatabaseItems.id, idChunk));
   }
+}
+
+export async function replaceMockSourceRows(args: {
+  sourceId: string;
+  ownerEmail: string;
+  sourceType: ContentDatabaseSourceType;
+  sourceTable: string;
+  items: ContentDatabaseItem[];
+  now: string;
+  existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
+  builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
+  documentIds?: string[];
+}) {
+  const db = getDb();
+  const rows = mockSourceRowsForSeed(args);
+  await db.transaction(async (tx) => {
+    const scope = args.documentIds?.length
+      ? and(
+          eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+          inArray(
+            schema.contentDatabaseSourceRows.documentId,
+            args.documentIds,
+          ),
+        )
+      : eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId);
+    const oldRows = await tx
+      .select({
+        databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
+      })
+      .from(schema.contentDatabaseSourceRows)
+      .where(scope);
+    await lockDatabaseMemberships(tx, [
+      ...oldRows.map((row) => row.databaseItemId).filter(Boolean),
+      ...rows.map((row) => row.databaseItemId),
+    ]);
+    await tx.delete(schema.contentDatabaseSourceRows).where(scope);
+    await insertMockSourceRows(tx, rows, args.now);
+  });
 }
 
 export function sourceValuesForSeededSourceRow(args: {
@@ -5862,10 +5935,6 @@ export async function resyncMockSourceSnapshot(args: {
     .where(
       eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.source.id),
     );
-  await db
-    .delete(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
-
   await seedMockSourceFields({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
@@ -5873,7 +5942,7 @@ export async function resyncMockSourceSnapshot(args: {
     properties,
     now: args.now,
   });
-  await seedMockSourceRows({
+  await replaceMockSourceRows({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
     sourceType: normalizeSourceType(args.source.sourceType),
@@ -6054,6 +6123,7 @@ export function builderCmsEntryAlreadyRepresented(args: {
 
 export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   database: ContentDatabaseRow;
+  sourceId: string;
   entries: BuilderCmsSourceEntry[];
   now: string;
   sourceTable: string;
@@ -6159,8 +6229,8 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       .filter((row) => !representedDocumentIds.has(row.document.id))
       .map((row) => row.document.title.trim().toLowerCase()),
   );
-  const currentItemByDocumentId = new Map(
-    currentItems.map((row) => [row.document.id, row.item]),
+  const currentRowByDocumentId = new Map(
+    currentItems.map((row) => [row.document.id, row]),
   );
 
   // Reads MAX(position) for both `documents` and `content_database_items`
@@ -6195,7 +6265,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
           const documentRows: (typeof schema.documents.$inferInsert)[] = [];
           const itemRows: (typeof schema.contentDatabaseItems.$inferInsert)[] =
             [];
-
           for (const entry of args.entries) {
             if (
               builderCmsEntryAlreadyRepresented({
@@ -6213,9 +6282,9 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               sourceTable: args.sourceTable,
               entryId: entry.id,
             });
-            const existingDeterministicItem =
-              currentItemByDocumentId.get(documentId);
-            if (existingDeterministicItem?.id === itemId) {
+            const existingDeterministicRow =
+              currentRowByDocumentId.get(documentId);
+            if (existingDeterministicRow?.item.id === itemId) {
               // A prior attach can commit the deterministic document/item and
               // fail before linking its source row. Treat that pair as the
               // same Builder identity so refresh repairs the missing link
@@ -6230,7 +6299,8 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               continue;
             }
 
-            documentRows.push({
+            const documentPosition = nextDocPosition++;
+            const documentRow = {
               id: documentId,
               spaceId: databaseSpaceId,
               ownerEmail: args.database.ownerEmail,
@@ -6239,20 +6309,22 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
               title,
               content: "",
               icon: null,
-              position: nextDocPosition++,
+              position: documentPosition,
               isFavorite: 0,
               hideFromSearch: databaseDocument?.hideFromSearch ?? 0,
               visibility: databaseDocument?.visibility ?? "private",
               createdAt: args.now,
               updatedAt: args.now,
-            });
+            };
+            const itemPosition = nextItemPosition++;
+            documentRows.push(documentRow);
             itemRows.push({
               id: itemId,
               ownerEmail: args.database.ownerEmail,
               orgId: args.database.orgId,
               databaseId: args.database.id,
               documentId,
-              position: nextItemPosition++,
+              position: itemPosition,
               bodyHydrationStatus: "pending",
               bodyHydrationError: null,
               createdAt: args.now,
@@ -6260,6 +6332,100 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             });
             importedEntriesByDocumentId.set(documentId, entry);
           }
+          const candidateDocumentById = new Map(
+            documentRows.map((document) => [document.id!, document]),
+          );
+          const sourceSeedItems: ContentDatabaseItem[] = [
+            ...itemRows.map((item): ContentDatabaseItem => {
+              const document = candidateDocumentById.get(item.documentId)!;
+              return {
+                id: item.id!,
+                databaseId: args.database.id,
+                document: {
+                  id: document.id!,
+                  parentId: document.parentId ?? null,
+                  title: document.title ?? "Untitled",
+                  content: "",
+                  icon: document.icon ?? null,
+                  position: document.position ?? 0,
+                  isFavorite: false,
+                  hideFromSearch: Boolean(document.hideFromSearch),
+                  visibility: document.visibility ?? "private",
+                  accessRole: "owner" as const,
+                  canView: true,
+                  canEdit: true,
+                  canManage: true,
+                  createdAt: document.createdAt!,
+                  updatedAt: document.updatedAt!,
+                },
+                position: item.position ?? 0,
+                properties: [],
+                bodyHydration: {
+                  status: "pending" as const,
+                  attemptedAt: null,
+                  error: null,
+                  version: null,
+                },
+              };
+            }),
+            ...[...importedEntriesByDocumentId.keys()].flatMap(
+              (documentId): ContentDatabaseItem[] => {
+                if (candidateDocumentById.has(documentId)) return [];
+                const row = currentRowByDocumentId.get(documentId);
+                if (!row) return [];
+                return [
+                  {
+                    id: row.item.id,
+                    databaseId: args.database.id,
+                    document: {
+                      id: row.document.id,
+                      parentId: row.document.parentId,
+                      title: row.document.title,
+                      content: "",
+                      icon: row.document.icon,
+                      position: row.document.position,
+                      isFavorite: Boolean(row.document.isFavorite),
+                      hideFromSearch: Boolean(row.document.hideFromSearch),
+                      visibility: row.document.visibility,
+                      accessRole: "owner" as const,
+                      canView: true,
+                      canEdit: true,
+                      canManage: true,
+                      createdAt: row.document.createdAt,
+                      updatedAt: row.document.updatedAt,
+                    },
+                    position: row.item.position,
+                    properties: [],
+                    bodyHydration: {
+                      status:
+                        row.item.bodyHydrationStatus === "pending" ||
+                        row.item.bodyHydrationStatus === "hydrating" ||
+                        row.item.bodyHydrationStatus === "hydrated" ||
+                        row.item.bodyHydrationStatus === "unavailable" ||
+                        row.item.bodyHydrationStatus === "error"
+                          ? row.item.bodyHydrationStatus
+                          : "hydrated",
+                      attemptedAt: row.item.bodyHydrationAttemptedAt,
+                      error: row.item.bodyHydrationError,
+                      version: row.item.bodyHydrationVersion,
+                    },
+                  },
+                ];
+              },
+            ),
+          ];
+          if (!args.sourceId) {
+            throw new Error("Builder imports require a source ID.");
+          }
+          const importedSourceRows = mockSourceRowsForSeed({
+            sourceId: args.sourceId,
+            ownerEmail: args.database.ownerEmail,
+            sourceType: "builder-cms",
+            sourceTable: args.sourceTable,
+            items: sourceSeedItems,
+            now: args.now,
+            builderEntriesByDocumentId: importedEntriesByDocumentId,
+          });
           const insertedItemIds = new Set<string>();
           await db.transaction(async (tx) => {
             for (const chunk of chunks(
@@ -6284,6 +6450,11 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                 insertedItemIds.add(item.id);
               }
             }
+            await lockDatabaseMemberships(
+              tx,
+              importedSourceRows.map((row) => row.databaseItemId),
+            );
+            await insertMockSourceRows(tx, importedSourceRows, args.now);
             await ensureDocumentsFilesMembership(
               tx,
               documentRows.map((row) => row.id),
@@ -6292,9 +6463,6 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             );
           });
 
-          const candidateDocumentById = new Map(
-            documentRows.map((document) => [document.id!, document]),
-          );
           const importedItems: ContentDatabaseItem[] = itemRows
             .filter((item) => insertedItemIds.has(item.id!))
             .map((item) => {
@@ -6474,6 +6642,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   if (builderRead.state === "live") {
     const importResult = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
+      sourceId: args.source.id,
       entries: builderEntries,
       now: args.now,
       sourceTable: args.source.sourceTable,
@@ -6553,17 +6722,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     );
     const fetchedDocumentIds = itemsToLink.map((item) => item.document.id);
     if (fetchedDocumentIds.length > 0) {
-      for (const idChunk of chunks(fetchedDocumentIds, idChunkSize())) {
-        await db
-          .delete(schema.contentDatabaseSourceRows)
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-              inArray(schema.contentDatabaseSourceRows.documentId, idChunk),
-            ),
-          );
-      }
-      await seedMockSourceRows({
+      await replaceMockSourceRows({
         sourceId: args.source.id,
         ownerEmail: args.database.ownerEmail,
         sourceType: "builder-cms",
@@ -6572,6 +6731,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         now: args.now,
         existingBuilderRows,
         builderEntriesByDocumentId,
+        documentIds: fetchedDocumentIds,
       });
       const refreshedFields = await db
         .select()
@@ -6601,18 +6761,25 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           .select({
             id: schema.contentDatabaseSourceRows.id,
             sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+            databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
           })
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
       ).filter((row) => !activeSourceRowIds.has(row.sourceRowId));
-      for (const idChunk of chunks(
-        staleRows.map((row) => row.id),
-        idChunkSize(),
-      )) {
-        await db
-          .delete(schema.contentDatabaseSourceRows)
-          .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
-      }
+      await db.transaction(async (tx) => {
+        await lockDatabaseMemberships(
+          tx,
+          staleRows.map((row) => row.databaseItemId).filter(Boolean),
+        );
+        for (const idChunk of chunks(
+          staleRows.map((row) => row.id),
+          idChunkSize(),
+        )) {
+          await tx
+            .delete(schema.contentDatabaseSourceRows)
+            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
+        }
+      });
     }
 
     await updateBuilderCmsSourceReadMetadata({
@@ -6644,10 +6811,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
   }
-  await db
-    .delete(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
-
   if (shouldReseedSourceFields) {
     await seedMockSourceFields({
       sourceId: args.source.id,
@@ -6682,7 +6845,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
             : existingBuilderRows.has(item.document.id),
         )
       : response.items;
-  await seedMockSourceRows({
+  await replaceMockSourceRows({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
     sourceType: "builder-cms",
@@ -6827,9 +6990,6 @@ export async function replaceSourceMetadata(args: {
     await db
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-    await db
-      .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
   }
 
   if (args.source) {
