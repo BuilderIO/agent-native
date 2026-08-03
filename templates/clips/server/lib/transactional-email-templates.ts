@@ -10,6 +10,12 @@ import type { RecapCopy } from "./transactional-email-store.js";
 
 const CLIPS_BRAND_NAME = "Clips";
 const CLIPS_SENDER_NAME = "Agent-Native Clips";
+/**
+ * Shares the verified sending domain with the framework default, so putting it
+ * in `From` keeps SPF/DKIM intact — unlike a per-user address, which must stay
+ * in `Reply-To`.
+ */
+const CLIPS_SENDER_EMAIL = "Clips@Agent-Native.com";
 const UNIDENTIFIED_AGENT_NAME = "An AI agent";
 const EMAIL_SEND_TIMEOUT_MS = 60_000;
 const FRIENDLY_REPLY_TO = "hello@agent-native.com";
@@ -253,6 +259,12 @@ function recapHeroHtml(
   </table>`;
 }
 
+/** Quotes the display name so a sender's comma or quote cannot split the header. */
+function clipsFromHeader(displayName: string): string {
+  const safeName = singleLine(displayName).replace(/["<>\\]/g, "");
+  return `"${safeName}" <${CLIPS_SENDER_EMAIL}>`;
+}
+
 function validReplyTo(value: string | null | undefined): string | undefined {
   const candidate = singleLine(value).toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : undefined;
@@ -327,11 +339,15 @@ export function renderClipsTransactionalEmail(
         paragraphs: [
           `${emailStrong(agentName)} accessed ${emailStrong(title!)} today — the full transcript and the frames, not just the title.`,
           "Every clip you record ships in two formats: video for people, structured JSON and readable frames for agents. When someone points an agent at your clip, it reads the whole thing in one pass.",
-          "Which means this one stopped being a video and became documentation that answers questions without you.",
+          "Which means this one stopped being a video and became documentation that answers questions without you. You can even import videos from other screen recording apps to give them agentic readability.",
         ],
         cta: {
           label: "See Clip Analytics",
           url: clipUrl(input.recordingId, options),
+        },
+        secondaryCta: {
+          label: "Import a video",
+          url: recordUrl(options),
         },
         footer:
           "You received this one-time note because an AI agent read one of your Clips for the first time.",
@@ -431,11 +447,11 @@ export async function sendClipsTransactionalEmail(
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
-    fromName: reminderSender
-      ? `${reminderSender} (via ${CLIPS_SENDER_NAME})`
-      : input.kind === "first-agent-view"
-        ? CLIPS_SENDER_NAME
-        : undefined,
+    from: clipsFromHeader(
+      reminderSender
+        ? `${reminderSender} (via ${CLIPS_SENDER_NAME})`
+        : CLIPS_SENDER_NAME,
+    ),
     replyTo:
       input.kind === "unviewed-reminder"
         ? (validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO)

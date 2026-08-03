@@ -294,6 +294,24 @@ describe("renderClipsTransactionalEmail", () => {
     );
   });
 
+  it("offers both the analytics and import calls to action", () => {
+    const result = render({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+      agentName: "Claude",
+    });
+
+    expect(result.text).toContain(
+      "You can even import videos from other screen recording apps to give them agentic readability.",
+    );
+    expect(result.html).toContain("See Clip Analytics");
+    expect(result.html).toContain("Import a video");
+    expect(result.html).toContain('href="https://clips.example/r/rec-4"');
+    expect(result.html).toContain('href="https://clips.example/record"');
+  });
+
   it("builds the recap subject around whichever audience showed up", () => {
     expect(renderRecapSubject(9, 4, "2026-07")).toBe(
       "9 people and 4 agents watched your clips in July",
@@ -461,7 +479,7 @@ describe("sendClipsTransactionalEmail", () => {
       text: expect.stringContaining(
         "Open your Agent-Native Clip: https://workspace.example/clips/r/rec-1",
       ),
-      fromName: undefined,
+      from: '"Agent-Native Clips" <Clips@Agent-Native.com>',
       replyTo: "hello@agent-native.com",
       timeoutMs: 60_000,
     });
@@ -487,7 +505,7 @@ describe("sendClipsTransactionalEmail", () => {
         'src="https://workspace.example/api/media/org-logo.png"',
       ),
       text: expect.stringContaining("Alex Rivera shared a Clip with you"),
-      fromName: "Alex Rivera (via Agent-Native Clips)",
+      from: '"Alex Rivera (via Agent-Native Clips)" <Clips@Agent-Native.com>',
       replyTo: "alex@example.com",
       timeoutMs: 60_000,
     });
@@ -508,7 +526,7 @@ describe("sendClipsTransactionalEmail", () => {
       expect.objectContaining({
         to: "owner@example.test",
         subject: "An AI agent “watched” your Clip",
-        fromName: "Agent-Native Clips",
+        from: '"Agent-Native Clips" <Clips@Agent-Native.com>',
         replyTo: "hello@agent-native.com",
       }),
     );
