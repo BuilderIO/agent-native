@@ -411,7 +411,7 @@ const WeekEventCard = memo(function WeekEventCard({
         }
       }}
       className={cn(
-        "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
+        "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group data-[state=open]:ring-2 data-[state=open]:ring-ring/50",
         segmentStartsHere ? "rounded-t-md" : "rounded-t-none",
         isEnd ? "rounded-b-md" : "rounded-b-none",
         durationMin <= 30 ? "justify-center" : "justify-start",
@@ -568,6 +568,8 @@ const WeekEventCard = memo(function WeekEventCard({
       onDraftCreate={onDraftCreate}
       onDraftDiscard={onDraftDiscard}
       onOpenChange={(open) => onPopoverOpenChange(event, open)}
+      showHoverPreview
+      hoverPreviewDisabled={isDragging || isBeingDragged}
     >
       {eventButton}
     </EventDetailPopover>
@@ -1203,10 +1205,11 @@ export const WeekView = memo(function WeekView({
                         onDraftUpdate={onDraftUpdate}
                         onDraftCreate={onDraftCreate}
                         onDraftDiscard={onDraftDiscard}
+                        showHoverPreview
                       >
                         <button
                           className={cn(
-                            "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
+                            "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80 data-[state=open]:ring-2 data-[state=open]:ring-ring/50",
                             event.ownerColor && "pr-3.5",
                           )}
                           aria-label={

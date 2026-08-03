@@ -279,6 +279,8 @@ export const MonthView = memo(function MonthView({
                         onDraftUpdate={onDraftUpdate}
                         onDraftCreate={onDraftCreate}
                         onDraftDiscard={onDraftDiscard}
+                        showHoverPreview
+                        hoverPreviewDisabled={draggingId !== null}
                       >
                         <div
                           onClick={(e) => e.stopPropagation()}
@@ -292,7 +294,7 @@ export const MonthView = memo(function MonthView({
                             }
                           }}
                           className={cn(
-                            "relative",
+                            "relative rounded-sm data-[state=open]:ring-2 data-[state=open]:ring-ring/50 data-[state=open]:ring-offset-1",
                             !isStart &&
                               "-ml-1 -mr-1 border-l-2 border-dashed border-current pl-[calc(0.25rem-2px)] opacity-90 sm:-ml-1.5 sm:-mr-1.5 sm:pl-[calc(0.375rem-2px)]",
                           )}
