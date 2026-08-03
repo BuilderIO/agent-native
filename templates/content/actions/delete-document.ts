@@ -97,6 +97,28 @@ async function selectDatabaseItemDocuments(
   return ownedRows.map((row) => ({ documentId: row.id }));
 }
 
+async function selectMembershipDatabaseIds(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+) {
+  const rows: Array<{ databaseId: string }> = [];
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ databaseId: schema.contentDatabaseItems.databaseId })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            inArray(schema.contentDatabaseItems.documentId, batch),
+            eq(schema.contentDatabaseItems.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+  return [...new Set(rows.map((row) => row.databaseId))];
+}
+
 async function collectDocumentSubtreeForDelete(
   db: ReturnType<typeof getDb>,
   rootId: string,
@@ -150,14 +172,26 @@ async function collectDocumentSubtreeForDelete(
     frontier = [...next];
   }
 
+  const collectedDocumentIds = [...documentIds];
+  const collectedOwnedDatabaseIds = [...ownedDatabaseIds];
   return {
-    documentIds: [...documentIds],
-    ownedDatabaseIds: [...ownedDatabaseIds],
+    documentIds: collectedDocumentIds,
+    ownedDatabaseIds: collectedOwnedDatabaseIds,
+    lockDatabaseIds: [
+      ...new Set([
+        ...collectedOwnedDatabaseIds,
+        ...(await selectMembershipDatabaseIds(
+          db,
+          collectedDocumentIds,
+          ownerEmail,
+        )),
+      ]),
+    ],
   };
 }
 
 async function lockDatabasesAndRecollect<
-  T extends { ownedDatabaseIds: string[] },
+  T extends { lockDatabaseIds: string[] },
 >(
   db: ReturnType<typeof getDb>,
   ownerEmail: string,
@@ -166,7 +200,7 @@ async function lockDatabasesAndRecollect<
   const lockedDatabaseIds = new Set<string>();
   let collected = await collect();
   while (true) {
-    const unlockedDatabaseIds = collected.ownedDatabaseIds.filter(
+    const unlockedDatabaseIds = collected.lockDatabaseIds.filter(
       (databaseId) => !lockedDatabaseIds.has(databaseId),
     );
     if (unlockedDatabaseIds.length === 0) return collected;
@@ -651,6 +685,16 @@ async function deleteTrashedDocumentSubtreeInTransaction(
       return {
         documentIds: collectedDocumentIds,
         ownedDatabaseIds: collectedDatabaseIds,
+        lockDatabaseIds: [
+          ...new Set([
+            ...collectedDatabaseIds,
+            ...(await selectMembershipDatabaseIds(
+              db,
+              collectedDocumentIds,
+              ownerEmail,
+            )),
+          ]),
+        ],
       };
     },
   );

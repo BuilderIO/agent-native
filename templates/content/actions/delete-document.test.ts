@@ -181,6 +181,52 @@ describe("deleteDocumentRecursive", () => {
     expect(transactionDepth).toBe(0);
   });
 
+  it("locks a row document's parent database without deleting that database", async () => {
+    selectRows.contentDatabaseItems = [
+      {
+        id: "row-membership",
+        databaseId: "parent-database",
+        documentId: "row-document",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.contentDatabases = [
+      {
+        id: "parent-database",
+        documentId: "parent-database-document",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    let lockedParentDatabase = false;
+    db.update = (table: Record<string, string>) => ({
+      set: () => ({
+        where: async (cond: unknown) => {
+          if (
+            table === schema.contentDatabases &&
+            matches(
+              {
+                id: "parent-database",
+                ownerEmail: "owner-a@example.com",
+              },
+              cond,
+            )
+          ) {
+            lockedParentDatabase = true;
+          }
+          return [];
+        },
+      }),
+    });
+
+    await deleteDocumentRecursive(db, "row-document", "owner-a@example.com");
+
+    expect(lockedParentDatabase).toBe(true);
+    const parentDatabaseDeletes = deleteCalls.filter(
+      (call) => call.table === "contentDatabases",
+    );
+    expect(parentDatabaseDeletes).toEqual([]);
+  });
+
   it("deletes document_comments rows for the document being deleted (n38)", async () => {
     await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
 

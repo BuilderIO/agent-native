@@ -74,40 +74,92 @@ export default defineAction({
 
     // ── Unbind ────────────────────────────────────────────────────────────
     if (args.propertyId === null) {
-      if (field.propertyId) {
-        const sourceRows = await db
-          .select({ documentId: schema.contentDatabaseSourceRows.documentId })
-          .from(schema.contentDatabaseSourceRows)
-          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
-        const sourceDocumentIds = sourceRows
-          .map((row) => row.documentId)
-          .filter((id): id is string => Boolean(id));
-        if (sourceDocumentIds.length > 0) {
-          await db
-            .delete(schema.documentPropertyValues)
-            .where(
-              and(
-                eq(schema.documentPropertyValues.propertyId, field.propertyId),
-                inArray(
-                  schema.documentPropertyValues.documentId,
-                  sourceDocumentIds,
-                ),
-              ),
-            );
+      await db.transaction(async (tx) => {
+        const [lockedDatabase] = await tx
+          .update(schema.contentDatabases)
+          .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+          .where(
+            and(
+              eq(schema.contentDatabases.id, database.id),
+              eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+              isNull(schema.contentDatabases.deletedAt),
+            ),
+          )
+          .returning({ id: schema.contentDatabases.id });
+        if (!lockedDatabase) throw new Error("Database is no longer active.");
+
+        const [lockedField] = await tx
+          .select()
+          .from(schema.contentDatabaseSourceFields)
+          .where(eq(schema.contentDatabaseSourceFields.id, field.id));
+        if (
+          !lockedField ||
+          lockedField.sourceId !== source.id ||
+          lockedField.mappingType === "title" ||
+          lockedField.mappingType === "system" ||
+          lockedField.writeOwner === "derived"
+        ) {
+          throw new Error(
+            "Source field changed or was deleted before it could be unbound.",
+          );
         }
-      }
-      await db
-        .update(schema.contentDatabaseSourceFields)
-        .set({
-          propertyId: null,
-          localFieldKey: field.sourceFieldKey,
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseSourceFields.id, field.id));
-      await db
-        .update(schema.contentDatabaseSources)
-        .set({ updatedAt: now })
-        .where(eq(schema.contentDatabaseSources.id, source.id));
+        if (lockedField.propertyId) {
+          const sourceRows = await tx
+            .select({
+              documentId: schema.contentDatabaseSourceRows.documentId,
+            })
+            .from(schema.contentDatabaseSourceRows)
+            .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+          const sourceDocumentIds = sourceRows
+            .map((row) => row.documentId)
+            .filter((id): id is string => Boolean(id));
+          if (sourceDocumentIds.length > 0) {
+            await tx
+              .delete(schema.documentPropertyValues)
+              .where(
+                and(
+                  eq(
+                    schema.documentPropertyValues.propertyId,
+                    lockedField.propertyId,
+                  ),
+                  inArray(
+                    schema.documentPropertyValues.documentId,
+                    sourceDocumentIds,
+                  ),
+                ),
+              );
+          }
+        }
+        const [updatedField] = await tx
+          .update(schema.contentDatabaseSourceFields)
+          .set({
+            propertyId: null,
+            localFieldKey: lockedField.sourceFieldKey,
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseSourceFields.id, lockedField.id))
+          .returning({ id: schema.contentDatabaseSourceFields.id });
+        if (!updatedField) {
+          throw new Error(
+            "Source field was deleted before its unbinding could be saved.",
+          );
+        }
+        const [updatedSource] = await tx
+          .update(schema.contentDatabaseSources)
+          .set({ updatedAt: now })
+          .where(
+            and(
+              eq(schema.contentDatabaseSources.id, source.id),
+              eq(schema.contentDatabaseSources.databaseId, database.id),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseSources.id });
+        if (!updatedSource) {
+          throw new Error(
+            "Source was deleted before its field unbinding could be saved.",
+          );
+        }
+      });
       return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
     }
 

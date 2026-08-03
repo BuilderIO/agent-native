@@ -412,6 +412,47 @@ describe("bind-content-database-source-field (row-union)", () => {
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBeUndefined();
   });
 
+  it("serializes concurrent bind and unbind without mapping/value divergence", async () => {
+    const f = await seedRowUnion();
+    await asOwner(() =>
+      bindAction.run({
+        databaseId: f.databaseId,
+        sourceFieldId: f.fields.fieldACat,
+        propertyId: f.tagPropertyId,
+      }),
+    );
+
+    await Promise.allSettled([
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: null,
+        }),
+      ),
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+    ]);
+
+    const [field] = await getDb()
+      .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
+    if (field.propertyId === null) {
+      expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBeUndefined();
+      expect(await tagValue(f.docs.a2, f.tagPropertyId)).toBeUndefined();
+    } else {
+      expect(field.propertyId).toBe(f.tagPropertyId);
+      expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
+      expect(await tagValue(f.docs.a2, f.tagPropertyId)).toBeUndefined();
+    }
+  });
+
   it("clears a stale column value when the newly bound field is empty", async () => {
     const f = await seedRowUnion();
     const db = getDb();

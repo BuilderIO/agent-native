@@ -524,6 +524,62 @@ describe("upsert-database-item-by-key", () => {
     expect(claims).toHaveLength(0);
   });
 
+  it("rejects a source-managed non-key property in propertyValues", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const now = new Date().toISOString();
+    const managedPropertyId = "source-managed-payload-property";
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: managedPropertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Source Status",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "source-managed-payload-source",
+      ownerEmail: OWNER,
+      databaseId,
+      sourceType: "test",
+      sourceName: "Payload source",
+      sourceTable: "test_rows",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabaseSourceFields).values({
+      id: "source-managed-payload-field",
+      ownerEmail: OWNER,
+      sourceId: "source-managed-payload-source",
+      propertyId: managedPropertyId,
+      localFieldKey: managedPropertyId,
+      sourceFieldKey: "status",
+      sourceFieldLabel: "Status",
+      sourceFieldType: "text",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "payload-source-owned",
+          propertyValues: { [managedPropertyId]: "caller overwrite" },
+        }),
+      ),
+    ).rejects.toThrow(/source-managed and cannot be written/i);
+    const memberships = await getDb()
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+    expect(memberships).toEqual([]);
+  });
+
   it("does not mutate an existing row when the caller can edit only the database page", async () => {
     const { databaseId, propertyId } = await fixture();
     const created = await asOwner(() =>

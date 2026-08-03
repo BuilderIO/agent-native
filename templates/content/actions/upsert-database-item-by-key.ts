@@ -271,8 +271,10 @@ export default defineAction({
               }
             }
 
-            const [transactionSourceManagedKey] = await tx
-              .select({ id: schema.contentDatabaseSourceFields.id })
+            const transactionSourceManagedProperties = await tx
+              .select({
+                propertyId: schema.contentDatabaseSourceFields.propertyId,
+              })
               .from(schema.contentDatabaseSourceFields)
               .innerJoin(
                 schema.contentDatabaseSources,
@@ -284,16 +286,25 @@ export default defineAction({
               .where(
                 and(
                   eq(schema.contentDatabaseSources.databaseId, databaseId),
-                  eq(
+                  inArray(
                     schema.contentDatabaseSourceFields.propertyId,
-                    keyPropertyId,
+                    requestedPropertyIds,
                   ),
                 ),
-              )
-              .limit(1);
-            if (transactionSourceManagedKey) {
+              );
+            if (transactionSourceManagedProperties.length > 0) {
+              const managedPropertyId =
+                transactionSourceManagedProperties[0].propertyId;
+              const managedDefinition = managedPropertyId
+                ? definitionsById.get(managedPropertyId)
+                : undefined;
+              if (managedPropertyId === keyPropertyId) {
+                throw new Error(
+                  `Property "${keyDefinition.name}" cannot be used as a stable key.`,
+                );
+              }
               throw new Error(
-                `Property "${keyDefinition.name}" cannot be used as a stable key.`,
+                `Property "${managedDefinition?.name ?? managedPropertyId}" is source-managed and cannot be written by this action.`,
               );
             }
 
