@@ -182,8 +182,8 @@ describe("BubbleToolbar", () => {
     ].find((button) => button.textContent?.includes("editor.slash.text"));
     act(() => {
       textOption!.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Enter",
+        new MouseEvent("click", {
+          detail: 0,
           bubbles: true,
           cancelable: true,
         }),
@@ -220,7 +220,7 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).not.toContain("<p>Stable heading</p>");
   });
 
-  it("sets a heading from a pointer-style mouse interaction", () => {
+  it("sets a heading from a pointer click", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
     document.body.append(editorElement, toolbarElement);
@@ -239,9 +239,10 @@ describe("BubbleToolbar", () => {
         'button[role="menuitemradio"]',
       ),
     ].find((button) => button.textContent?.includes("editor.heading3"));
+    editor.commands.blur();
     act(() => {
       headingOption!.dispatchEvent(
-        new MouseEvent("mousedown", {
+        new PointerEvent("pointerdown", {
           button: 0,
           bubbles: true,
           cancelable: true,

@@ -472,20 +472,13 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                             type="button"
                             role="menuitemradio"
                             aria-checked={isSelected}
-                            onMouseDown={(event) => {
+                            onPointerDown={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
                               applyTextStyle(style.value);
                             }}
                             onClick={(event) => {
                               if (event.detail === 0) {
-                                applyTextStyle(style.value);
-                              }
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                event.stopPropagation();
                                 applyTextStyle(style.value);
                               }
                             }}
