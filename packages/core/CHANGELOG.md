@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.136.1
+
+### Patch Changes
+
+- db4b4f0: Allow native OAuth clients to use ephemeral ports on registered HTTP loopback redirect URIs while rejecting fragments and userinfo.
+
 ## 0.136.0
 
 ### Minor Changes
