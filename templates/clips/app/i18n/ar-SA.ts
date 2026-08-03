@@ -621,6 +621,7 @@ const messages = {
     title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
+    preferencesTitle: "التفضيلات",
     languageTitle: "اللغة",
     languageDescription:
       "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",
@@ -657,9 +658,16 @@ const messages = {
     transcriptCleanupDescription:
       "اعرض النص الأصلي فورًا، ثم نظفه في الخلفية عند توفره.",
     notifications: "الإشعارات",
+    sharing: "المشاركة",
+    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
+    defaultVisibilityDescription:
+      "تُطبَّق على كل تسجيل تنشئه. لا يزال بإمكانك تغيير الرؤية لكل تسجيل.",
+    visibilityPrivate: "خاص - أنت فقط",
+    visibilityOrg: "المؤسسة - أي شخص في مساحة عملك",
+    visibilityPublic: "عام - أي شخص لديه الرابط",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص أو يتفاعل أو يشارك تسجيلًا معك.",
+      "احصل على بريد إلكتروني عندما يعلّق شخص على تسجيلك أو يتفاعل معه.",
     saved: "تم حفظ الإعدادات",
     saveFailed: "فشل الحفظ",
     builderConnectedToast: "تم اتصال Builder.io",

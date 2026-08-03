@@ -7,7 +7,12 @@ import {
 
 import { canUpdateAutomationResource } from "../automations/service.js";
 import { getDbExec } from "../db/client.js";
-import { nextOccurrence, describeCron, isValidCron } from "../jobs/cron.js";
+import {
+  nextOccurrence,
+  describeCron,
+  effectiveTimezone,
+  isValidCron,
+} from "../jobs/cron.js";
 import {
   buildJobResourceContent,
   parseJobResource,
@@ -88,10 +93,10 @@ function normalizeAutomationPath(input: SetAutomationEnabledInput): string {
   return path;
 }
 
-function scheduleDescription(schedule: string | undefined): string | undefined {
+function scheduleDescription(schedule?: string, timezone?: string) {
   if (!schedule) return undefined;
   try {
-    return describeCron(schedule);
+    return describeCron(schedule, effectiveTimezone(timezone));
   } catch {
     return schedule;
   }
@@ -106,7 +111,11 @@ function nextRunForMeta(meta: TriggerFrontmatter): string | undefined {
     isValidCron(meta.schedule)
   ) {
     try {
-      return nextOccurrence(meta.schedule).toISOString();
+      return nextOccurrence(
+        meta.schedule,
+        undefined,
+        meta.timezone,
+      ).toISOString();
     } catch {
       return undefined;
     }
@@ -194,7 +203,7 @@ async function resourceToAutomationItem(
     triggerType: meta.triggerType,
     event: meta.event,
     schedule: meta.schedule || undefined,
-    scheduleDescription: scheduleDescription(meta.schedule),
+    scheduleDescription: scheduleDescription(meta.schedule, meta.timezone),
     condition: meta.condition,
     mode: meta.mode,
     domain: meta.domain,
@@ -292,7 +301,11 @@ export async function setAutomationEnabledForOwner(
     meta.schedule &&
     isValidCron(meta.schedule)
   ) {
-    parsed.meta.nextRun = nextOccurrence(meta.schedule).toISOString();
+    parsed.meta.nextRun = nextOccurrence(
+      meta.schedule,
+      undefined,
+      meta.timezone,
+    ).toISOString();
   }
 
   const updatedContent = buildJobResourceContent(parsed.meta, parsed.body);

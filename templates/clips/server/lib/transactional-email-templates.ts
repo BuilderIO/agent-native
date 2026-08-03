@@ -9,6 +9,8 @@ const CLIPS_BRAND_NAME = "Clips";
 const EMAIL_SEND_TIMEOUT_MS = 60_000;
 const FRIENDLY_REPLY_TO = "hello@agent-native.com";
 const UNTITLED_CLIP = "Untitled Clip";
+const ACTIVITY_EMAIL_FOOTER =
+  "You received this because email notifications are on in your Clips settings.";
 
 interface TransactionalEmailBase {
   to: string;
@@ -37,6 +39,25 @@ export type ClipsTransactionalEmailInput =
   | (TransactionalEmailBase & {
       kind: "two-clips";
       generatedSummary?: string | null;
+    })
+  | (TransactionalEmailBase & {
+      kind: "activity-comment";
+      recordingId: string;
+      title?: string | null;
+      authorEmail?: string | null;
+      authorName?: string | null;
+      content: string;
+      videoTimestampMs?: number | null;
+      isReply?: boolean;
+    })
+  | (TransactionalEmailBase & {
+      kind: "activity-reaction";
+      recordingId: string;
+      title?: string | null;
+      emoji: string;
+      authorEmail?: string | null;
+      authorName?: string | null;
+      videoTimestampMs?: number | null;
     });
 
 export interface ClipsTransactionalEmailRenderOptions {
@@ -101,6 +122,31 @@ function clipUrl(
   options: ClipsTransactionalEmailRenderOptions,
 ): string {
   return appUrlForPath(`/r/${encodeURIComponent(recordingId)}`, options);
+}
+
+function clipCommentsUrl(
+  recordingId: string,
+  videoTimestampMs: number | null | undefined,
+  options: ClipsTransactionalEmailRenderOptions,
+): string {
+  const url = new URL(clipUrl(recordingId, options));
+  url.searchParams.set("panel", "comments");
+  if (typeof videoTimestampMs === "number" && videoTimestampMs > 0) {
+    url.searchParams.set("t", String(Math.floor(videoTimestampMs / 1000)));
+  }
+  return url.toString();
+}
+
+function formatTimestamp(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function quotedExcerpt(value: string): string {
+  const text = singleLine(value);
+  return text.length > 280 ? `${text.slice(0, 277)}…` : text;
 }
 
 function recordUrl(options: ClipsTransactionalEmailRenderOptions): string {
@@ -229,6 +275,69 @@ export function renderClipsTransactionalEmail(
         },
         footer:
           "This one-time note was sent after two Clips were shared with you.",
+      });
+      return { subject, ...rendered };
+    }
+
+    case "activity-comment": {
+      const author =
+        singleLine(input.authorName) ||
+        normalizeEmailDisplayName(input.authorEmail, "Someone");
+      const at =
+        typeof input.videoTimestampMs === "number" && input.videoTimestampMs > 0
+          ? ` at ${formatTimestamp(input.videoTimestampMs)}`
+          : "";
+      const subject = input.isReply
+        ? `${author} replied on “${title}”`
+        : `${author} commented on “${title}”`;
+      const rendered = renderEmail({
+        brandName: CLIPS_BRAND_NAME,
+        preheader: subject,
+        heading: input.isReply
+          ? `${author} replied on your Clip`
+          : `${author} commented on your Clip`,
+        paragraphs: [
+          `${emailStrong(author)} left a ${input.isReply ? "reply" : "comment"} on ${emailStrong(title!)}${at}.`,
+          `“${quotedExcerpt(input.content)}”`,
+        ],
+        cta: {
+          label: "Read and reply",
+          url: clipCommentsUrl(
+            input.recordingId,
+            input.videoTimestampMs,
+            options,
+          ),
+        },
+        footer: ACTIVITY_EMAIL_FOOTER,
+      });
+      return { subject, ...rendered };
+    }
+
+    case "activity-reaction": {
+      const author =
+        singleLine(input.authorName) ||
+        normalizeEmailDisplayName(input.authorEmail, "Someone");
+      const at =
+        typeof input.videoTimestampMs === "number" && input.videoTimestampMs > 0
+          ? ` at ${formatTimestamp(input.videoTimestampMs)}`
+          : "";
+      const subject = `${author} reacted ${input.emoji} on “${title}”`;
+      const rendered = renderEmail({
+        brandName: CLIPS_BRAND_NAME,
+        preheader: subject,
+        heading: "Someone reacted to your Clip",
+        paragraphs: [
+          `${emailStrong(author)} reacted ${emailStrong(input.emoji)} on ${emailStrong(title!)}${at}.`,
+        ],
+        cta: {
+          label: "See Clip activity",
+          url: clipCommentsUrl(
+            input.recordingId,
+            input.videoTimestampMs,
+            options,
+          ),
+        },
+        footer: ACTIVITY_EMAIL_FOOTER,
       });
       return { subject, ...rendered };
     }

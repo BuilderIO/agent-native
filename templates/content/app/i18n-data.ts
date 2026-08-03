@@ -3055,6 +3055,10 @@ const enUS = {
     metaTitle: "Settings - Content",
     title: "Settings",
     description: "Language and workspace preferences for Content.",
+    emailNotifications: "Email notifications",
+    emailNotificationsDescription:
+      "Get an email when someone comments on, replies in, or mentions you on your document.",
+    saveFailed: "Failed to save",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
@@ -9133,6 +9137,10 @@ export const messagesByLocale = {
     settings: {
       title: "设置",
       description: "Content 的语言和工作区偏好设置。",
+      emailNotifications: "邮件通知",
+      emailNotificationsDescription:
+        "当有人评论你的文档、在讨论串中回复或提到你时，收到邮件通知。",
+      saveFailed: "保存失败",
       languageTitle: "语言",
       languageDescription: "选择界面语言。此偏好会保存到你的账户。",
       languageLabel: "界面语言",
@@ -9325,6 +9333,10 @@ export const messagesByLocale = {
     settings: {
       title: "Ajustes",
       description: "Preferencias de idioma y espacio de trabajo para Content.",
+      emailNotifications: "Notificaciones por correo",
+      emailNotificationsDescription:
+        "Recibe un correo cuando alguien comente, responda o te mencione en tu documento.",
+      saveFailed: "No se pudo guardar",
       languageTitle: "Idioma",
       languageDescription:
         "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
@@ -9524,6 +9536,10 @@ export const messagesByLocale = {
     settings: {
       title: "Paramètres",
       description: "Préférences de langue et d’espace de travail pour Content.",
+      emailNotifications: "Notifications par e-mail",
+      emailNotificationsDescription:
+        "Recevez un e-mail lorsqu’une personne commente, répond ou vous mentionne dans votre document.",
+      saveFailed: "Échec de l’enregistrement",
       languageTitle: "Langue",
       languageDescription:
         "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
@@ -9721,6 +9737,10 @@ export const messagesByLocale = {
     settings: {
       title: "Einstellungen",
       description: "Sprach- und Arbeitsbereichseinstellungen für Content.",
+      emailNotifications: "E-Mail-Benachrichtigungen",
+      emailNotificationsDescription:
+        "Erhalte eine E-Mail, wenn jemand dein Dokument kommentiert, antwortet oder dich erwähnt.",
+      saveFailed: "Speichern fehlgeschlagen",
       languageTitle: "Sprache",
       languageDescription:
         "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
@@ -9917,6 +9937,10 @@ export const messagesByLocale = {
     settings: {
       title: "設定",
       description: "Content の言語とワークスペース設定。",
+      emailNotifications: "メール通知",
+      emailNotificationsDescription:
+        "誰かがあなたのドキュメントにコメント、返信、またはあなたにメンションしたときにメールを受け取ります。",
+      saveFailed: "保存に失敗しました",
       languageTitle: "言語",
       languageDescription:
         "インターフェース言語を選択します。この設定はアカウントに保存されます。",
@@ -10105,6 +10129,10 @@ export const messagesByLocale = {
     settings: {
       title: "설정",
       description: "Content의 언어 및 워크스페이스 환경설정입니다.",
+      emailNotifications: "이메일 알림",
+      emailNotificationsDescription:
+        "누군가 내 문서에 댓글을 달거나 답글을 남기거나 나를 멘션하면 이메일을 받습니다.",
+      saveFailed: "저장 실패",
       languageTitle: "언어",
       languageDescription:
         "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -10299,6 +10327,10 @@ export const messagesByLocale = {
     settings: {
       title: "Configurações",
       description: "Preferências de idioma e espaço de trabalho do Content.",
+      emailNotifications: "Notificações por e-mail",
+      emailNotificationsDescription:
+        "Receba um e-mail quando alguém comentar, responder ou mencionar você no seu documento.",
+      saveFailed: "Falha ao salvar",
       languageTitle: "Idioma",
       languageDescription:
         "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
@@ -10486,6 +10518,10 @@ export const messagesByLocale = {
     settings: {
       title: "सेटिंग्स",
       description: "Content के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
+      emailNotifications: "ईमेल सूचनाएँ",
+      emailNotificationsDescription:
+        "जब कोई आपके दस्तावेज़ पर टिप्पणी करे, जवाब दे या आपका उल्लेख करे तो ईमेल पाएँ।",
+      saveFailed: "सहेजने में विफल",
       languageTitle: "भाषा",
       languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
       languageLabel: "इंटरफ़ेस भाषा",
@@ -10672,6 +10708,10 @@ export const messagesByLocale = {
     settings: {
       title: "الإعدادات",
       description: "تفضيلات اللغة ومساحة العمل في Content.",
+      emailNotifications: "إشعارات البريد الإلكتروني",
+      emailNotificationsDescription:
+        "احصل على بريد إلكتروني عندما يعلّق شخص على مستندك أو يرد أو يذكرك.",
+      saveFailed: "فشل الحفظ",
       languageTitle: "اللغة",
       languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
       languageLabel: "لغة الواجهة",

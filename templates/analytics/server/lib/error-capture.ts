@@ -996,12 +996,16 @@ async function notifyNewIssue(
       severity: issue.level === "fatal" ? "critical" : "warning",
       title: `New error: ${issue.title}`,
       body: "A new JavaScript error was captured in your app.",
-      channels: ["inbox"],
+      channels: ["inbox", "email"],
       metadata: {
         kind: "error_issue",
         issueId: issue.issueId,
         level: issue.level,
         path: `/monitoring?view=errors&issue=${issue.issueId}`,
+        // The email channel is a no-op without explicit recipients, so a
+        // captured issue would otherwise never leave the in-app inbox.
+        emailRecipients: [scope.ownerEmail],
+        emailSubject: `New error in your app: ${issue.title}`,
       },
     },
     // The notification inbox is owner-scoped; the issue's owner is the analytics

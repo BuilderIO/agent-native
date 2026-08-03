@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
+import { notifyReviewComment } from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
@@ -61,7 +62,7 @@ export default defineAction({
     const resolutionTarget =
       args.resolutionTarget ?? (mentions.length > 0 ? "human" : "agent");
 
-    return insertReviewComment({
+    const comment = await insertReviewComment({
       resourceType: args.resourceType,
       resourceId: args.resourceId,
       targetId: args.targetId ?? null,
@@ -78,6 +79,8 @@ export default defineAction({
       visibility: normalizeReviewVisibility(access.visibility),
       metadata: args.metadata,
     });
+
+    return { ...comment, notified: await notifyReviewComment(comment) };
   },
   audit: {
     target: (args, result) => {
