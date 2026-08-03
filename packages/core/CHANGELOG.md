@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.134.1
+
+### Patch Changes
+
+- 6c165cd: Document the permission-aware Content database membership removal action.
+
 ## 0.134.0
 
 ### Minor Changes
