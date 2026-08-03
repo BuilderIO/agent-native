@@ -2007,11 +2007,6 @@ export async function processAgentTeamRun(
                         mode: "continue",
                         noProgressCount: consecutiveNoProgressChunks,
                       },
-                      // This invocation is about to return. A settle-only
-                      // dispatch can be frozen with the function before the
-                      // continuation request reaches the processor.
-                      awaitResponse: true,
-                      responseTimeoutMs: 15_000,
                     });
                   } catch (err) {
                     await failReconciledTask(

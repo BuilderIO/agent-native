@@ -332,21 +332,9 @@ vi.mock("./request-context.js", () => ({
 }));
 
 // ── capture self-fire dispatches ──────────────────────────────────────────
-const dispatches: Array<{
-  taskId: string;
-  body?: any;
-  event?: any;
-  awaitResponse?: boolean;
-  responseTimeoutMs?: number;
-}> = [];
+const dispatches: Array<{ taskId: string; body?: any; event?: any }> = [];
 const fireInternalDispatchMock = vi.fn(async (o: any) => {
-  dispatches.push({
-    taskId: o.taskId,
-    body: o.body,
-    event: o.event,
-    awaitResponse: o.awaitResponse,
-    responseTimeoutMs: o.responseTimeoutMs,
-  });
+  dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
 });
 vi.mock("./self-dispatch.js", () => ({
   fireInternalDispatch: fireInternalDispatchMock,
@@ -421,13 +409,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     getRunEventsSinceMock.mockResolvedValue([]);
     fireInternalDispatchMock.mockReset();
     fireInternalDispatchMock.mockImplementation(async (o: any) => {
-      dispatches.push({
-        taskId: o.taskId,
-        body: o.body,
-        event: o.event,
-        awaitResponse: o.awaitResponse,
-        responseTimeoutMs: o.responseTimeoutMs,
-      });
+      dispatches.push({ taskId: o.taskId, body: o.body, event: o.event });
     });
     vi.clearAllMocks();
   });
@@ -585,8 +567,6 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     expect(dispatches[0]).toMatchObject({
       taskId: "t3",
       body: { mode: "continue" },
-      awaitResponse: true,
-      responseTimeoutMs: 15_000,
     });
     expect(
       (await queue.getAgentTeamRunDispatchState("t3"))?.continuationCount,
