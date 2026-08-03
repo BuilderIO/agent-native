@@ -401,7 +401,7 @@ const messages = {
     strokeWeight: "Weight",
     typography: "Typography",
     weight: "Weight",
-    align: "Alignment",
+    align: "Align",
     mixed: "Mixed",
     textColor: "Text color",
     primary: "Primary",
