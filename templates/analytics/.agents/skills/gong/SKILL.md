@@ -98,9 +98,10 @@ For account or deal deep dives:
 6. Ground qualitative findings in the transcript excerpts and state how many
    calls were inspected.
 7. Page through calls using `cursor`/offset when you need broad coverage — for
-   large accounts with many calls, do NOT stop at the first page. For very large
-   pulls (100+ calls), prefer chunked background processing rather than a single
-   blocking fetch.
+   large accounts with many calls, do NOT stop at the first page. For scans
+   larger than 500 records, do not use `gong-calls(exhaustive=true)` or one
+   blocking `provider-api-request` pagination call. Stage call ids and use
+   `provider-corpus-job` so each batch is checkpointed and resumable.
 
 Example:
 
@@ -138,7 +139,7 @@ smallest complete path for the bounded cohort:
    adequate `transcriptScanLimit`. Report its coverage fields and only make an
    absence claim when coverage is complete.
 
-3. **Larger or multi-account corpus.** Prefer `provider-corpus-job` with
+3. **Larger or multi-account corpus.** Use `provider-corpus-job` with
    `mode: "batch-search"` over one-call-at-a-time loops. Use
    `provider-api-catalog(provider: "gong")` and its `corpusRecipes` if you need
    the exact shape. The canonical request is `POST /calls/transcript` with
@@ -147,6 +148,12 @@ smallest complete path for the bounded cohort:
 ["transcript"]`, and `search.idPaths: ["callId"]`. Feed the staged/discovered
    call IDs through `batch.inputDatasetId` + `batch.inputValuePath` or through
    `batch.items`.
+
+When delegating a corpus chunk to an Agent Teams sub-agent, include the exact
+staged dataset id or `scratch/...` path and the output/checkpoint path in the
+task brief. The child starts with a clean context and must read the staged
+input before making any provider request. If that input is unavailable, it
+must report the missing input rather than re-fetching the entire Gong corpus.
 
 4. **Use `run-code` only for joins/reductions around the corpus path.** After
    the transcript job exists, use `run-code`, `query-staged-dataset`, or job
@@ -166,5 +173,6 @@ matches found. Never turn "I inspected a sample" into "no call mentions X".
 | `transcriptMaxChars`     | 8 000   | 100 000 |
 
 For large account deep-dives or competitive analyses spanning many calls, use
-`limit: 50-200` and `transcriptLimit: 20-50`. For very large datasets, the
-`provider-api-request` escape hatch can page through the full Gong call list.
+`limit: 50-200` and `transcriptLimit: 20-50`. For very large datasets, use the
+checkpointed `provider-corpus-job` path rather than paging the full Gong call
+list inside one agent action.
