@@ -18,6 +18,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { UNKNOWN_AGENT_LABEL } from "../lib/agent-views.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
   AI_DISPATCH_STALE_MS,
@@ -70,6 +71,17 @@ type CountedView = {
 
 type FirstViewCandidate = CountedView & {
   recordingId: string;
+  ownerEmail: string;
+};
+
+type AgentView = {
+  id: string;
+  recordingId: string;
+  agentLabel: string | null;
+  firstSeenAt: string;
+};
+
+type AgentViewCandidate = AgentView & {
   ownerEmail: string;
 };
 
@@ -133,6 +145,15 @@ export interface TransactionalEmailRepository {
     cursor: ReconciliationCursor | null,
     limit: number,
   ): Promise<FirstViewCandidate[]>;
+  listAgentViews(
+    enabledAt: string,
+    cursor: ReconciliationCursor | null,
+    limit: number,
+  ): Promise<AgentViewCandidate[]>;
+  getFirstOwnerAgentView(
+    ownerEmail: string,
+    enabledAt: string,
+  ): Promise<AgentView | null>;
   listReadyImports(
     enabledAt: string,
     cursor: ReconciliationCursor | null,
@@ -371,6 +392,69 @@ function defaultRepository(): TransactionalEmailRepository {
           asc(schema.recordingViews.id),
         )
         .limit(limit);
+    },
+    async listAgentViews(enabledAt, cursor, limit) {
+      return db
+        .select({
+          id: schema.recordingAgentViews.id,
+          recordingId: schema.recordingAgentViews.recordingId,
+          agentLabel: schema.recordingAgentViews.agentLabel,
+          firstSeenAt: schema.recordingAgentViews.firstSeenAt,
+          ownerEmail: schema.recordings.ownerEmail,
+        })
+        .from(schema.recordingAgentViews)
+        .innerJoin(
+          schema.recordings,
+          eq(schema.recordings.id, schema.recordingAgentViews.recordingId),
+        )
+        .where(
+          and(
+            gte(schema.recordingAgentViews.firstSeenAt, enabledAt),
+            cursor
+              ? or(
+                  gt(schema.recordingAgentViews.firstSeenAt, cursor.createdAt),
+                  and(
+                    eq(
+                      schema.recordingAgentViews.firstSeenAt,
+                      cursor.createdAt,
+                    ),
+                    gt(schema.recordingAgentViews.id, cursor.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(
+          asc(schema.recordingAgentViews.firstSeenAt),
+          asc(schema.recordingAgentViews.id),
+        )
+        .limit(limit);
+    },
+    async getFirstOwnerAgentView(ownerEmail, enabledAt) {
+      const [view] = await db
+        .select({
+          id: schema.recordingAgentViews.id,
+          recordingId: schema.recordingAgentViews.recordingId,
+          agentLabel: schema.recordingAgentViews.agentLabel,
+          firstSeenAt: schema.recordingAgentViews.firstSeenAt,
+        })
+        .from(schema.recordingAgentViews)
+        .innerJoin(
+          schema.recordings,
+          eq(schema.recordings.id, schema.recordingAgentViews.recordingId),
+        )
+        .where(
+          and(
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            gte(schema.recordingAgentViews.firstSeenAt, enabledAt),
+          ),
+        )
+        .orderBy(
+          asc(schema.recordingAgentViews.firstSeenAt),
+          asc(schema.recordingAgentViews.id),
+        )
+        .limit(1);
+      return view ?? null;
     },
     async listReadyImports(enabledAt, cursor, limit) {
       return db
@@ -700,6 +784,41 @@ async function reconcileFirstViews(
   };
 }
 
+async function reconcileFirstAgentViews(
+  repository: TransactionalEmailRepository,
+  store: TransactionalEmailStore,
+  enabledAt: string,
+  cursor: ReconciliationCursor | null,
+  limit: number,
+): Promise<{ enqueued: number; nextCursor: ReconciliationCursor | null }> {
+  const page = await repository.listAgentViews(enabledAt, cursor, limit);
+  let enqueued = 0;
+  for (const candidate of page) {
+    const ownerEmail = normalizedEmail(candidate.ownerEmail);
+    if (!ownerEmail || isSuppressedTransactionalRecipient(ownerEmail)) continue;
+    const firstAgentView = await repository.getFirstOwnerAgentView(
+      ownerEmail,
+      enabledAt,
+    );
+    if (!firstAgentView || firstAgentView.id !== candidate.id) continue;
+    const result = await store.enqueue(`first-agent-view:${ownerEmail}`, {
+      type: "first-agent-view",
+      recipient: ownerEmail,
+      recordingIds: [candidate.recordingId],
+      requestedBy: ownerEmail,
+    });
+    if (result.created) enqueued += 1;
+  }
+  const lastView = page[page.length - 1];
+  return {
+    enqueued,
+    nextCursor:
+      page.length >= limit && lastView
+        ? { createdAt: lastView.firstSeenAt, id: lastView.id }
+        : null,
+  };
+}
+
 async function reconcileFirstImports(
   repository: TransactionalEmailRepository,
   store: TransactionalEmailStore,
@@ -785,6 +904,28 @@ async function makeSendInput(
       kind: "two-clips",
       to: recipient,
       generatedSummary: job.generatedSummary,
+    };
+  }
+
+  if (job.type === "first-agent-view") {
+    if (normalizedEmail(recordings[0].ownerEmail) !== recipient) return null;
+    const firstAgentView = await repository.getFirstOwnerAgentView(
+      recipient,
+      enabledAt,
+    );
+    if (!firstAgentView || firstAgentView.recordingId !== recordings[0].id) {
+      return null;
+    }
+    return {
+      kind: "first-agent-view",
+      to: recipient,
+      recordingId: recordings[0].id,
+      title: recordings[0].title,
+      // "Agent" is the agent-views fallback label, not a product name.
+      agentName:
+        firstAgentView.agentLabel === UNKNOWN_AGENT_LABEL
+          ? null
+          : firstAgentView.agentLabel,
     };
   }
 
@@ -889,6 +1030,18 @@ export async function runTransactionalEmailsOnce(
       "firstViewCursor",
       firstViews.nextCursor,
     );
+    const firstAgentViews = await reconcileFirstAgentViews(
+      repository,
+      store,
+      config.enabledAt,
+      config.firstAgentViewCursor ?? null,
+      reconciliationLimit,
+    );
+    result.enqueued += firstAgentViews.enqueued;
+    await store.updateReconciliationCursor(
+      "firstAgentViewCursor",
+      firstAgentViews.nextCursor,
+    );
     const firstImports = await reconcileFirstImports(
       repository,
       store,
@@ -921,6 +1074,7 @@ export async function runTransactionalEmailsOnce(
         (job) =>
           job.state === "pending" &&
           (job.type === "first-view" ||
+            job.type === "first-agent-view" ||
             job.type === "first-import" ||
             job.type === "unviewed-reminder"),
       ),

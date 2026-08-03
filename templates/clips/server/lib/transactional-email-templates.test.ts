@@ -265,6 +265,33 @@ describe("renderClipsTransactionalEmail", () => {
     expect(firstImport.html).toContain(">https://clips.example/r/rec-3</a>");
   });
 
+  it("names the reading agent and falls back when it is unidentified", () => {
+    const named = render({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+      agentName: "Claude",
+    });
+    expect(named.subject).toBe("An AI agent “watched” your Clip");
+    expect(named.text).toContain(
+      "Claude accessed Deploy walkthrough today — the full transcript and the frames, not just the title.",
+    );
+    expect(named.text).toMatch(/two formats/i);
+    expect(named.text).toMatch(/answers questions without you/i);
+    expect(named.html).toContain('href="https://clips.example/r/rec-4"');
+
+    const unidentified = render({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+    });
+    expect(unidentified.text).toContain(
+      "An AI agent accessed Deploy walkthrough today",
+    );
+  });
+
   it("escapes a hostile generated summary instead of trusting it as HTML", () => {
     const hostile =
       'Alex shared </strong><img src=x onerror="steal()"><script>bad()</script>.';
@@ -336,5 +363,26 @@ describe("sendClipsTransactionalEmail", () => {
       replyTo: "alex@example.com",
       timeoutMs: 60_000,
     });
+  });
+
+  it("sends the first-agent-view note under the Clips sender name", async () => {
+    mocks.getAppProductionUrl.mockReturnValue("https://workspace.example");
+
+    await sendClipsTransactionalEmail({
+      kind: "first-agent-view",
+      to: "owner@example.test",
+      recordingId: "rec-4",
+      title: "Deploy walkthrough",
+      agentName: "Claude",
+    });
+
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@example.test",
+        subject: "An AI agent “watched” your Clip",
+        fromName: "Agent-Native Clips",
+        replyTo: "hello@agent-native.com",
+      }),
+    );
   });
 });

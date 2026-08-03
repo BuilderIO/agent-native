@@ -6,6 +6,8 @@ import {
 } from "@agent-native/core/server";
 
 const CLIPS_BRAND_NAME = "Clips";
+const CLIPS_SENDER_NAME = "Agent-Native Clips";
+const UNIDENTIFIED_AGENT_NAME = "An AI agent";
 const EMAIL_SEND_TIMEOUT_MS = 60_000;
 const FRIENDLY_REPLY_TO = "hello@agent-native.com";
 const UNTITLED_CLIP = "Untitled Clip";
@@ -28,6 +30,13 @@ export type ClipsTransactionalEmailInput =
       senderEmail?: string | null;
       senderName?: string | null;
       brandLogoUrl?: string | null;
+    })
+  | (TransactionalEmailBase & {
+      kind: "first-agent-view";
+      recordingId: string;
+      title?: string | null;
+      /** Absent when the reading agent could not be identified by product. */
+      agentName?: string | null;
     })
   | (TransactionalEmailBase & {
       kind: "first-import";
@@ -184,6 +193,28 @@ export function renderClipsTransactionalEmail(
       return { subject, ...rendered };
     }
 
+    case "first-agent-view": {
+      const agentName = singleLine(input.agentName) || UNIDENTIFIED_AGENT_NAME;
+      const subject = "An AI agent “watched” your Clip";
+      const rendered = renderEmail({
+        brandName: CLIPS_BRAND_NAME,
+        preheader: subject,
+        heading: "An AI agent “watched” your Clip",
+        paragraphs: [
+          `${emailStrong(agentName)} accessed ${emailStrong(title!)} today — the full transcript and the frames, not just the title.`,
+          "Every clip you record ships in two formats: video for people, structured JSON and readable frames for agents. When someone points an agent at your clip, it reads the whole thing in one pass.",
+          "Which means this one stopped being a video and became documentation that answers questions without you.",
+        ],
+        cta: {
+          label: "See Clip activity",
+          url: clipUrl(input.recordingId, options),
+        },
+        footer:
+          "You received this one-time note because an AI agent read one of your Clips for the first time.",
+      });
+      return { subject, ...rendered };
+    }
+
     case "first-import": {
       const subject = "Your first imported video is now Agent-Native";
       const url = clipUrl(input.recordingId, options);
@@ -255,8 +286,10 @@ export async function sendClipsTransactionalEmail(
     html: rendered.html,
     text: rendered.text,
     fromName: reminderSender
-      ? `${reminderSender} (via Agent-Native Clips)`
-      : undefined,
+      ? `${reminderSender} (via ${CLIPS_SENDER_NAME})`
+      : input.kind === "first-agent-view"
+        ? CLIPS_SENDER_NAME
+        : undefined,
     replyTo:
       input.kind === "unviewed-reminder"
         ? (validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO)

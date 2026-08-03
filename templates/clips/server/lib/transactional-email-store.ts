@@ -62,6 +62,13 @@ export const transactionalEmailPayloadSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      type: z.literal("first-agent-view"),
+      ...commonPayloadFields,
+      recordingIds: z.array(recordingIdSchema).length(1),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("two-clips"),
       ...commonPayloadFields,
       recordingIds: z.array(recordingIdSchema).length(2),
@@ -85,6 +92,7 @@ export const transactionalEmailConfigSchema = z
     shareDiscoveryCursor: reconciliationCursorSchema,
     reminderCursor: reconciliationCursorSchema,
     firstViewCursor: reconciliationCursorSchema,
+    firstAgentViewCursor: reconciliationCursorSchema,
     firstImportCursor: reconciliationCursorSchema,
   })
   .strict();
@@ -93,6 +101,7 @@ export const transactionalEmailCursorNameSchema = z.enum([
   "shareDiscoveryCursor",
   "reminderCursor",
   "firstViewCursor",
+  "firstAgentViewCursor",
   "firstImportCursor",
 ]);
 
@@ -102,6 +111,7 @@ export const transactionalEmailJobSchema = z
     type: z.enum([
       "first-view",
       "unviewed-reminder",
+      "first-agent-view",
       "first-import",
       "two-clips",
     ]),

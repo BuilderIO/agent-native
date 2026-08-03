@@ -16,6 +16,9 @@ type Share = Awaited<
 type Recording = NonNullable<
   Awaited<ReturnType<TransactionalEmailRepository["getRecording"]>>
 >;
+type AgentView = NonNullable<
+  Awaited<ReturnType<TransactionalEmailRepository["getFirstOwnerAgentView"]>>
+>;
 
 const roots: string[] = [];
 
@@ -49,7 +52,22 @@ function createRepository(state: {
   imports?: Recording[];
   displayNames?: Map<string, string>;
   brandLogoUrls?: Map<string, string>;
+  agentViews?: AgentView[];
 }): TransactionalEmailRepository {
+  const agentViewsFor = (ownerEmail: string) =>
+    (state.agentViews ?? [])
+      .filter(
+        (view) =>
+          state.recordings
+            .get(view.recordingId)
+            ?.ownerEmail.trim()
+            .toLowerCase() === ownerEmail.trim().toLowerCase(),
+      )
+      .sort(
+        (left, right) =>
+          left.firstSeenAt.localeCompare(right.firstSeenAt) ||
+          left.id.localeCompare(right.id),
+      );
   const recipientKey = (recipient: string, recordingId: string) =>
     `${recipient.toLowerCase()}:${recordingId}`;
   return {
@@ -142,6 +160,33 @@ function createRepository(state: {
             left.id.localeCompare(right.id),
         )
         .slice(0, limit);
+    },
+    async listAgentViews(enabledAt, cursor, limit) {
+      return (state.agentViews ?? [])
+        .flatMap((view) => {
+          const clip = state.recordings.get(view.recordingId);
+          return clip ? [{ ...view, ownerEmail: clip.ownerEmail }] : [];
+        })
+        .filter(
+          (view) =>
+            view.firstSeenAt >= enabledAt &&
+            (!cursor ||
+              view.firstSeenAt > cursor.createdAt ||
+              (view.firstSeenAt === cursor.createdAt && view.id > cursor.id)),
+        )
+        .sort(
+          (left, right) =>
+            left.firstSeenAt.localeCompare(right.firstSeenAt) ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, limit);
+    },
+    async getFirstOwnerAgentView(ownerEmail, enabledAt) {
+      return (
+        agentViewsFor(ownerEmail).find(
+          (view) => view.firstSeenAt >= enabledAt,
+        ) ?? null
+      );
     },
     async listReadyImports(enabledAt, cursor, limit) {
       return (state.imports ?? [...state.recordings.values()])
@@ -635,6 +680,114 @@ describe("transactional email worker", () => {
       ).toMatchObject({ state: "cancelled" });
     },
   );
+
+  it("sends first-agent-view once per owner, naming the agent that read first", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const first = recording("agent-clip-1", ownerEmail);
+    const second = recording("agent-clip-2", ownerEmail);
+    const send = vi.fn();
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([
+        [first.id, first],
+        [second.id, second],
+      ]),
+      agentViews: [
+        {
+          id: "agent-view-1",
+          recordingId: first.id,
+          agentLabel: "Claude",
+          firstSeenAt: "2026-08-01T00:00:00.000Z",
+        },
+        {
+          id: "agent-view-2",
+          recordingId: second.id,
+          agentLabel: "ChatGPT",
+          firstSeenAt: "2026-08-01T01:00:00.000Z",
+        },
+      ],
+    });
+
+    const result = await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(result.enqueued).toBe(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({
+      kind: "first-agent-view",
+      to: ownerEmail,
+      recordingId: first.id,
+      title: first.title,
+      agentName: "Claude",
+    });
+    expect(
+      await clock.store.readJob(`first-agent-view:${ownerEmail}`),
+    ).toMatchObject({ state: "sent" });
+  });
+
+  it("leaves agentName unset when the reading agent is unidentified", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const clip = recording("agent-clip-unknown", ownerEmail);
+    const send = vi.fn();
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([[clip.id, clip]]),
+        agentViews: [
+          {
+            id: "agent-view-unknown",
+            recordingId: clip.id,
+            agentLabel: "Agent",
+            firstSeenAt: "2026-08-01T00:00:00.000Z",
+          },
+        ],
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "first-agent-view", agentName: null }),
+    );
+  });
+
+  it("does not enqueue first-agent-view for agent reads before enabledAt", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const clip = recording("agent-clip-old", ownerEmail);
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([[clip.id, clip]]),
+        agentViews: [
+          {
+            id: "agent-view-old",
+            recordingId: clip.id,
+            agentLabel: "Claude",
+            firstSeenAt: "2026-07-31T23:59:59.000Z",
+          },
+        ],
+      }),
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob(`first-agent-view:${ownerEmail}`),
+    ).toBeNull();
+  });
 
   it("finds the second distinct Clip after more than 100 duplicate shares", async () => {
     const clock = await setup();
