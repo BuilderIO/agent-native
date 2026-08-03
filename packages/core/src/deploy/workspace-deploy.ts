@@ -45,6 +45,7 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 import { assertEmittedBackgroundFunctionOnDisk } from "./build.js";
+import { cloneServerBundleForFunction } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
@@ -382,7 +383,7 @@ function copyVercelAppBuildIntoWorkspace(
     `${app}-server.func`,
   );
   fs.rmSync(functionDest, { recursive: true, force: true });
-  copyDir(functionSrc, functionDest);
+  cloneServerBundleForFunction(functionSrc, functionDest);
   patchVercelFunctionEntry(functionDest, app, workspaceApps);
 }
 
@@ -680,7 +681,7 @@ function copyNetlifyFunctionIntoWorkspace(
 
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), `${app}-server`);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(src, dest);
+  cloneServerBundleForFunction(src, dest);
   patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
 
   // Durable background agent runs. Additive ONLY: when explicitly opted out
@@ -761,7 +762,7 @@ function emitNetlifyBackgroundFunction(
   const backgroundName = `${app}-agent-background`;
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(srcServerDir, dest);
+  cloneServerBundleForFunction(srcServerDir, dest);
 
   const basePath = `/${app}`;
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
@@ -902,7 +903,7 @@ function emitNetlifyIntegrationRecoveryFunction(
   const functionName = `${app}-integration-recovery`;
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), functionName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(srcServerDir, dest);
+  cloneServerBundleForFunction(srcServerDir, dest);
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const basePath = `/${app}`;

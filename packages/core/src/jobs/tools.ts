@@ -1,5 +1,6 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getDbExec } from "../db/client.js";
+import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   resourcePut,
   resourceGetByPath,
@@ -14,7 +15,13 @@ import {
   getRequestOrgId,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
-import { isValidCron, nextOccurrence, describeCron } from "./cron.js";
+import {
+  isValidCron,
+  nextOccurrence,
+  describeCron,
+  effectiveTimezone,
+  isValidTimezone,
+} from "./cron.js";
 import { classifyJobResource } from "./frontmatter.js";
 import {
   parseJobFrontmatter,
@@ -95,6 +102,7 @@ export async function authorizeJobMutation(
 
 async function runCreate(args: Record<string, any>): Promise<string> {
   const { name, schedule, instructions, scope, runAs, model } = args;
+  const requestedTimezone = args.timezone;
 
   if (!name || !schedule || !instructions) {
     return JSON.stringify({
@@ -118,13 +126,24 @@ async function runCreate(args: Record<string, any>): Promise<string> {
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
-  const next = nextOccurrence(schedule, now);
+  // A cron time with no zone silently means the host's zone, which is how an
+  // "8am" job ends up firing at 4am for the person who asked for it.
+  if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
+    return JSON.stringify({
+      error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
+    });
+  }
+  const timezone =
+    requestedTimezone ||
+    (await resolveUserSchedulingTimezone(getRequestUserEmail()));
+  const next = nextOccurrence(schedule, now, timezone);
   const integration = getIntegrationRequestContext();
   const channelId = integration?.incoming.platformContext.channelId;
   const threadRef = integration?.incoming.threadRef;
 
   const meta: JobFrontmatter = {
     schedule,
+    timezone,
     enabled: true,
     createdBy: getOwner(),
     orgId: getRequestOrgId() || undefined,
@@ -155,7 +174,8 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     name,
     path,
     schedule,
-    scheduleDescription: describeCron(schedule),
+    timezone,
+    scheduleDescription: describeCron(schedule, timezone),
     nextRun: next.toISOString(),
     scope: scope || "shared",
     ...(mcpTools?.length ? { mcpTools } : {}),
@@ -187,7 +207,10 @@ async function runList(args: Record<string, any>): Promise<string> {
         path: r.path,
         scope: r.owner === sharedOwner ? "shared" : "personal",
         schedule: meta.schedule,
-        scheduleDescription: meta.schedule ? describeCron(meta.schedule) : "",
+        timezone: effectiveTimezone(meta.timezone),
+        scheduleDescription: meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+          : "",
         enabled: meta.enabled,
         lastRun: meta.lastRun || null,
         lastStatus: meta.lastStatus || null,
@@ -248,7 +271,23 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
       });
     }
     meta.schedule = schedule;
-    meta.nextRun = nextOccurrence(schedule).toISOString();
+  }
+
+  if (args.timezone !== undefined) {
+    if (!isValidTimezone(args.timezone)) {
+      return JSON.stringify({
+        error: `Unknown timezone: "${args.timezone}".`,
+      });
+    }
+    meta.timezone = args.timezone;
+  }
+
+  if (schedule || args.timezone !== undefined) {
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      undefined,
+      meta.timezone,
+    ).toISOString();
   }
 
   if (enabled !== undefined) {
@@ -281,7 +320,11 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
     updated: true,
     name,
     schedule: meta.schedule,
-    scheduleDescription: describeCron(meta.schedule),
+    timezone: effectiveTimezone(meta.timezone),
+    scheduleDescription: describeCron(
+      meta.schedule,
+      effectiveTimezone(meta.timezone),
+    ),
     enabled: meta.enabled,
     nextRun: meta.nextRun,
     mcpTools: meta.mcpTools || [],
@@ -346,6 +389,11 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
               type: "string",
               description:
                 "Job name (hyphen-case, e.g. 'daily-scorecard-check'). Required for create and update.",
+            },
+            timezone: {
+              type: "string",
+              description:
+                "IANA timezone the schedule's clock time is read in, e.g. 'America/New_York'. Optional; defaults to the user's saved scheduling timezone, then the caller's browser zone. Always pass this when the user names a time of day, so '8am' means 8am where they are rather than on the server.",
             },
             schedule: {
               type: "string",

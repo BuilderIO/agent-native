@@ -2,25 +2,39 @@
 
 Preview deploys share the prod `DATABASE_URL` by default, so any server
 cold-start that touches the database writes to prod. To isolate preview
-deploys, we use Neon's copy-on-write branching via GitHub Actions.
+deploys, we use Neon's schema-only branching via GitHub Actions.
 
 ## How it works
 
 1. **PR opened/updated** — `.github/workflows/neon-preview-branches.yml`
-   creates a Neon branch (`preview/pr-<number>`) for each hosted template's
-   Neon project, then sets `DATABASE_URL` on the corresponding
-   Netlify site's deploy-preview context.
+   creates a Neon schema-only branch (`preview-schema-only/pr-<number>`) for
+   each Git-connected hosted template's Neon project, then sets `DATABASE_URL` on
+   the corresponding Netlify site's deploy-preview context. Schema-only is
+   deliberate: preview URLs are public, so they must never receive a
+   copy-on-write clone containing production or another user's rows.
 
 2. **Netlify auto-deploys** — the preview branch override is written directly
    to `DATABASE_URL`, so the build and runtime use the branch DB without a
    Netlify-managed database variable.
 
 3. **PR closed** — the workflow deletes the Neon branches and removes the
-   branch-scoped `DATABASE_URL` env overrides.
+   branch-scoped `DATABASE_URL` env overrides. Existing legacy
+   `preview/pr-*` branches must be deleted separately before their old preview
+   URLs are considered safe.
 
 `@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
 The Neon/Netlify specifics live in the workflow and each template's
-`netlify.toml`.
+`netlify.toml`. Factory is intentionally excluded from this workflow because
+its production Netlify site is manually deployed and is not Git-connected,
+so it does not support branch deploy previews.
+
+## Preview access requirements
+
+Database isolation is not a substitute for perimeter protection. Before
+reopening an affected public preview, enable Netlify team login, SSO, or an
+equivalent visitor gate for the preview URL. The application also disables
+hosted password signup when no email provider is configured and never honors
+the email-verification skip flag in hosted production.
 
 ## Required GitHub secrets
 
@@ -63,7 +77,6 @@ Defined in the workflow's matrix. Update it when adding a new hosted template.
 | mail      | patient-cake-44789837   | dee98bb0-6143-4205-8c04-afe7bf83d5b5 |
 | plan      | late-pine-39936033      | 9d0d7a73-385d-4da1-ba10-1581ffc4d413 |
 | slides    | hidden-thunder-16834477 | fd5deb5b-5539-47e1-830c-e5fb5e105efd |
-| factory   | flat-mountain-45852069  | 6bffaa23-ad14-480c-8954-99f53ecabf05 |
 | videos    | soft-pine-75308618      | 3f0c2cd2-06cd-4ab8-bfb4-c199430d1dac |
 
 ## Schema changes

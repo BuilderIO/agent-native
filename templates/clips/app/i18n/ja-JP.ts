@@ -628,6 +628,7 @@ const messages = {
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
+    preferencesTitle: "環境設定",
     languageTitle: "言語",
     languageDescription:
       "このアカウントのインターフェイス言語を選択します。Clips はデバイス間で設定を記憶します。",
@@ -665,9 +666,16 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     transcriptCleanupDescription:
       "まずネイティブの文字起こしを表示し、利用可能になったらバックグラウンドで整形します。",
     notifications: "通知",
+    sharing: "共有",
+    defaultVisibility: "新しい録画のデフォルトの公開範囲",
+    defaultVisibilityDescription:
+      "作成するすべての録画に適用されます。録画ごとに公開範囲を変更できます。",
+    visibilityPrivate: "非公開 - 自分のみ",
+    visibilityOrg: "組織 - ワークスペースの全員",
+    visibilityPublic: "公開 - リンクを知っている全員",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
-      "誰かがコメント、リアクション、または録画を共有したときにメールを受け取ります。",
+      "誰かがあなたの録画にコメントまたはリアクションしたときにメールを受け取ります。",
     saved: "設定を保存しました",
     saveFailed: "保存に失敗しました",
     builderConnectedToast: "Builder.io に接続しました",

@@ -12,6 +12,7 @@ const mockState = vi.hoisted(() => ({
     hasAudio: true,
     hasCamera: false,
     title: "Test recording",
+    uploadGenerationId: null as string | null,
   },
   uploadState: null as Record<string, unknown> | null,
   chunkRows: [] as Array<{ key: string }>,
@@ -107,6 +108,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
       status: "recordings.status",
+      uploadGenerationId: "recordings.uploadGenerationId",
       videoUrl: "recordings.videoUrl",
       trashedAt: "recordings.trashedAt",
     },
@@ -193,6 +195,8 @@ describe("finalize-recording chunk completeness", () => {
     };
     mockState.chunkRows = [];
     mockState.selectRows = [];
+    mockState.existingRecording.status = "uploading";
+    mockState.existingRecording.uploadGenerationId = null;
     mockReadAppState.mockImplementation(async (key: string) => {
       if (key === "recording-upload-rec_1") return mockState.uploadState;
       return null;
@@ -201,6 +205,36 @@ describe("finalize-recording chunk completeness", () => {
       rows: mockState.chunkRows,
       rowsAffected: 0,
     }));
+  });
+
+  it("does not finalize after reset wins the generation claim race", async () => {
+    mockState.existingRecording = {
+      ...mockState.existingRecording,
+      status: "uploading",
+      uploadGenerationId: "generation-a",
+    };
+    // The generation/status CAS returns no row: reset installed generation B
+    // after finalize read A but before it could claim processing.
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    await expect(
+      finalizeRecording.run({
+        id: "rec_1",
+        uploadGenerationId: "generation-a",
+      }),
+    ).rejects.toThrow("Upload changed before finalization could claim it");
+
+    expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unfenced finalizer after reset installs a generation", async () => {
+    mockState.existingRecording.uploadGenerationId = "generation-b";
+
+    await expect(finalizeRecording.run({ id: "rec_1" })).rejects.toThrow(
+      "Upload generation changed before finalization",
+    );
+
+    expect(mockUploadFile).not.toHaveBeenCalled();
   });
 
   it("fails before upload when persisted chunk indices have a gap", async () => {
@@ -865,6 +899,6 @@ describe("finalize-recording resumable recovery", () => {
         videoUrl: "https://cdn.example.com/rec_1",
       }),
     );
-    expect(deleteResumableSession).toHaveBeenCalledWith("rec_1");
+    expect(deleteResumableSession).toHaveBeenCalledWith("rec_1", null);
   });
 });

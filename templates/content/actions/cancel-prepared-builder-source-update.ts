@@ -295,7 +295,10 @@ export default defineAction({
     });
 
     return {
-      ...(await getContentDatabaseResponse(database.id)),
+      ...(await getContentDatabaseResponse(database.id, {
+        limit: 100,
+        offset: 0,
+      })),
       cancellation: {
         sourceId: args.sourceId,
         changeSetId: args.changeSetId,

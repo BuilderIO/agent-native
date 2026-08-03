@@ -54,6 +54,29 @@ describe("serializeActionQueryParams", () => {
     expect(params.has("empty")).toBe(false);
     expect(params.has("none")).toBe(false);
   });
+
+  it("serializes nested object GET params as JSON", () => {
+    const tableQuery = {
+      filters: [
+        {
+          propertyId: "status",
+          operator: "equals",
+          value: "published",
+        },
+      ],
+      sorts: [{ propertyId: "date", direction: "desc" }],
+    };
+
+    const query = serializeActionQueryParams({
+      documentId: "doc-1",
+      tableQuery,
+    });
+
+    const params = new URLSearchParams(query);
+    expect(params.get("documentId")).toBe("doc-1");
+    expect(params.get("tableQuery")).toBe(JSON.stringify(tableQuery));
+    expect(query).not.toContain("%5Bobject+Object%5D");
+  });
 });
 
 describe("callAction", () => {

@@ -11,14 +11,59 @@ use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, Me
 use crate::util::{is_meeting_active, is_recording_active};
 use crate::TRAY_PNG;
 
-pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
-    let Some(rect) = app
-        .tray_by_id("main")
-        .and_then(|tray| tray.rect().ok().flatten())
-    else {
+fn physical_tray_rect(rect: tauri::Rect) -> (i32, i32, i32, i32) {
+    let (x, y) = match rect.position {
+        tauri::Position::Physical(position) => (position.x, position.y),
+        tauri::Position::Logical(position) => (position.x as i32, position.y as i32),
+    };
+    let (width, height) = match rect.size {
+        tauri::Size::Physical(size) => (size.width as i32, size.height as i32),
+        tauri::Size::Logical(size) => (size.width as i32, size.height as i32),
+    };
+    (x, y, width, height)
+}
+
+/// A status item that has not been laid out yet reports a frame at the screen
+/// origin, which macOS coordinate flipping turns into a bottom-left rect. Only
+/// a rect sitting in a monitor's menu-bar row can anchor the popover.
+fn tray_rect_is_laid_out(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
+    let (x, y, width, height) = physical_tray_rect(rect);
+    if width <= 0 || height <= 0 {
+        return false;
+    }
+
+    let center_x = x + width / 2;
+    let center_y = y + height / 2;
+    let Some(window) = app.get_webview_window("popover") else {
+        return false;
+    };
+    let Ok(monitors) = window.available_monitors() else {
         return false;
     };
 
+    monitors.into_iter().any(|monitor| {
+        let position = monitor.position();
+        let size = monitor.size();
+        if center_x < position.x || center_x >= position.x + size.width as i32 {
+            return false;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let menu_bar_band = (64.0 * monitor.scale_factor()).round() as i32;
+            center_y >= position.y && center_y < position.y + menu_bar_band
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            center_y >= position.y && center_y < position.y + size.height as i32
+        }
+    })
+}
+
+fn store_tray_anchor(app: &tauri::AppHandle, rect: tauri::Rect) -> bool {
+    if !tray_rect_is_laid_out(app, rect) {
+        dlog!("[clips-tray] ignoring tray rect that is not laid out yet");
+        return false;
+    }
     let Some(anchor) = app.try_state::<TrayAnchor>() else {
         return false;
     };
@@ -27,6 +72,16 @@ pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
     };
     *guard = Some(rect);
     true
+}
+
+pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
+    let Some(rect) = app
+        .tray_by_id("main")
+        .and_then(|tray| tray.rect().ok().flatten())
+    else {
+        return false;
+    };
+    store_tray_anchor(app, rect)
 }
 
 /// Build the full tray menu with the given upcoming-meetings list. Used both
@@ -222,12 +277,7 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 _ => None,
             };
             if let Some(rect) = rect {
-                let app = tray.app_handle();
-                if let Some(anchor) = app.try_state::<TrayAnchor>() {
-                    if let Ok(mut g) = anchor.0.lock() {
-                        *g = Some(rect);
-                    }
-                }
+                store_tray_anchor(tray.app_handle(), rect);
             }
 
             if let TrayIconEvent::Click {

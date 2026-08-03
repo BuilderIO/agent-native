@@ -74,9 +74,9 @@ describe("document sidebar layout", () => {
   it("gates page tree actions by document capabilities", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
-    expect(treeItem).toContain("const canEdit = node.canEdit !== false");
-    expect(treeItem).toContain("const canManage =");
-    expect(treeItem).toContain("{canEdit && (");
+    expect(treeItem).toContain("favoriteAvailable: true");
+    expect(treeItem).toContain("{canFavorite && (");
+    expect(treeItem).toContain("const canCreateChild = canEdit");
     expect(treeItem).toContain("{canManage && (");
   });
 
@@ -224,9 +224,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("<WorkspaceSidebarItem");
     expect(sidebar).toContain("<IconArrowsSort size={14} />");
     expect(sidebar).toContain("<DropdownMenuRadioGroup");
-    expect(sidebar).toContain(
-      "const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null",
-    );
+    expect(sidebar).toContain("useDeferredFilesDatabaseId(");
+    expect(sidebar).toContain("INITIAL_EXPANDED_WORKSPACE_READ_DELAY_MS");
+    expect(sidebar).toContain("if (!wasExpanded)");
     expect(sidebar).not.toContain("<SidebarDragHandle");
     expect(sidebar).not.toContain("<SidebarReorderMenuItems");
     expect(sidebar).toContain(

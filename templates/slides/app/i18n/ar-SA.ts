@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    emailNotifications: "إشعارات البريد الإلكتروني",
+    emailNotificationsDescription:
+      "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
+    saveFailed: "فشل الحفظ",
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
@@ -512,6 +516,8 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    loadFailed: "تعذّر تحميل هذا العرض التقديمي.",
+    tryAgain: "إعادة المحاولة",
     presenterView: "عرض مقدّم العرض",
     speakerNotes: "ملاحظات المتحدث",
     noNotesForSlide: "لا توجد ملاحظات لهذه الشريحة",

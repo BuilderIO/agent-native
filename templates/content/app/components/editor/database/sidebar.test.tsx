@@ -840,4 +840,121 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("group-hover:pointer-events-auto");
     expect(markup).not.toContain("shadow-sm");
   });
+
+  it("keeps the viewer add-child slot disabled beside the personal pin action", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onToggleFavorite = vi.fn();
+    const onCreateChildPage = vi.fn();
+    const onCreateChildDatabase = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <DatabaseSidebarView
+              groups={[
+                {
+                  id: "all",
+                  label: "All pages",
+                  items: [
+                    {
+                      ...item("shared", "Shared page"),
+                      document: {
+                        ...item("shared", "Shared page").document,
+                        accessRole: "viewer",
+                        canEdit: false,
+                        canManage: false,
+                      },
+                    },
+                  ],
+                  property: null,
+                  value: "all",
+                },
+              ]}
+              grouped={false}
+              isLoading={false}
+              hasActiveConstraints={false}
+              openPagesIn="full_page"
+              noMatchesLabel="No rows match this view"
+              clearLabel="Clear"
+              navigationLabel="Database pages"
+              untitledLabel="Untitled"
+              onClearResultConstraints={() => {}}
+              onPreview={() => {}}
+              onCreateChildPage={onCreateChildPage}
+              onCreateChildDatabase={onCreateChildDatabase}
+              onDeleteItem={() => {}}
+              onToggleFavorite={onToggleFavorite}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Shared page"]',
+    );
+    expect(trigger).toBeTruthy();
+    expect(
+      container.querySelectorAll('button[aria-haspopup="menu"]'),
+    ).toHaveLength(1);
+    const addChild = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add child to Shared page"]',
+    );
+    if (!trigger || !addChild) {
+      throw new Error("Expected aligned viewer sidebar controls");
+    }
+    expect(addChild.disabled).toBe(true);
+    expect(addChild.className).toContain("size-6");
+    expect(addChild.className).toContain("text-muted-foreground/50");
+    expect(trigger.compareDocumentPosition(addChild)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    addChild.focus();
+    addChild.click();
+    addChild.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+    );
+    addChild.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: " " }),
+    );
+    expect(document.activeElement).not.toBe(addChild);
+    expect(onCreateChildPage).not.toHaveBeenCalled();
+    expect(onCreateChildDatabase).not.toHaveBeenCalled();
+
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const menuItems = Array.from(
+      document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    );
+    expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
+      "Pin to sidebar",
+    ]);
+
+    await act(async () => {
+      menuItems[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(onToggleFavorite).toHaveBeenCalledOnce();
+    expect(onToggleFavorite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        document: expect.objectContaining({ id: "shared" }),
+      }),
+    );
+
+    act(() => root.unmount());
+    container.remove();
+  });
 });

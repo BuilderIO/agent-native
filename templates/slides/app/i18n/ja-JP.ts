@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
+    emailNotifications: "メール通知",
+    emailNotificationsDescription:
+      "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
+    saveFailed: "保存に失敗しました",
     languageTitle: "言語",
     languageDescription:
       "インターフェース言語を選択します。この設定はアカウントに保存されます。",
@@ -496,6 +500,8 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    loadFailed: "このプレゼンテーションを読み込めませんでした。",
+    tryAgain: "再試行",
     presenterView: "発表者ビュー",
     speakerNotes: "発表者ノート",
     noNotesForSlide: "このスライドのノートはありません",

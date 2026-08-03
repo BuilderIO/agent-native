@@ -11,6 +11,7 @@ mod capture_graph;
 mod clips;
 mod config;
 mod debug;
+mod echo_guard;
 mod eventkit;
 mod logfile;
 mod meetings_watcher;

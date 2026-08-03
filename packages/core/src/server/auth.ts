@@ -80,6 +80,10 @@ import {
   MCP_PUBLIC_ROUTE_PREFIX,
   isMcpProtocolPath,
 } from "../mcp/route-paths.js";
+import {
+  GOOGLE_AUTH_REQUIRED_MESSAGE,
+  isGoogleSignInRequiredForEmail,
+} from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
@@ -110,7 +114,11 @@ import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
-import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
+import {
+  ensureGoogleAuthIdentity,
+  getBetterAuth,
+  getBetterAuthSync,
+} from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
@@ -2917,6 +2925,16 @@ async function mountBetterAuthRoutes(
               "Google account email is not verified. Please verify your email with Google and try again.",
             );
           }
+          const googleAccountId =
+            typeof user.id === "string" ? user.id.trim() : "";
+          if (!googleAccountId) {
+            throw new Error("Could not get Google account id");
+          }
+          await ensureGoogleAuthIdentity({
+            email,
+            accountId: googleAccountId,
+            name: typeof user.name === "string" ? user.name : undefined,
+          });
           if (typeof user.picture === "string" && user.picture.trim()) {
             await putSetting(`avatar:${email}`, {
               image: user.picture,
@@ -3083,6 +3101,29 @@ async function mountBetterAuthRoutes(
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+
+      // Better Auth is also reachable directly, outside the legacy login
+      // wrapper. Check its password endpoints before handing the request to
+      // Better Auth so an org policy cannot be bypassed through the raw API.
+      if (
+        reqPath.includes("/sign-in/email") ||
+        reqPath.includes("/sign-up/email")
+      ) {
+        const body = (await authRequest
+          .clone()
+          .json()
+          .catch(() => undefined)) as { email?: unknown } | undefined;
+        const email = typeof body?.email === "string" ? body.email : "";
+        if (email && (await isGoogleSignInRequiredForEmail(email))) {
+          return new Response(
+            JSON.stringify({ error: GOOGLE_AUTH_REQUIRED_MESSAGE }),
+            {
+              status: 403,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+      }
 
       // Pre-read the body for reset-password so we can auto-verify the
       // user's email after they save the new password. CRUCIAL: clone
@@ -3301,6 +3342,11 @@ async function mountBetterAuthRoutes(
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
+      if (await isGoogleSignInRequiredForEmail(email)) {
+        setResponseStatus(event, 403);
+        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+      }
+
       try {
         const result = await auth.api.signInEmail({
           body: { email, password },
@@ -3361,6 +3407,11 @@ async function mountBetterAuthRoutes(
       if (!password || typeof password !== "string" || password.length < 8) {
         setResponseStatus(event, 400);
         return { error: "Password must be at least 8 characters" };
+      }
+
+      if (await isGoogleSignInRequiredForEmail(email)) {
+        setResponseStatus(event, 403);
+        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
       }
 
       try {
@@ -3545,6 +3596,11 @@ function mountAuthFallbackRoutes(app: H3App): void {
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
+      if (await isGoogleSignInRequiredForEmail(email)) {
+        setResponseStatus(event, 403);
+        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+      }
+
       try {
         const auth = await getBetterAuth();
         const result = await auth.api.signInEmail({
@@ -3598,6 +3654,11 @@ function mountAuthFallbackRoutes(app: H3App): void {
       if (!password || typeof password !== "string" || password.length < 8) {
         setResponseStatus(event, 400);
         return { error: "Password must be at least 8 characters" };
+      }
+
+      if (await isGoogleSignInRequiredForEmail(email)) {
+        setResponseStatus(event, 403);
+        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
       }
 
       try {

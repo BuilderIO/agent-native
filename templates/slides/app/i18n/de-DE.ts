@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Einstellungen",
     description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
+    emailNotifications: "E-Mail-Benachrichtigungen",
+    emailNotificationsDescription:
+      "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
+    saveFailed: "Speichern fehlgeschlagen",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
@@ -507,6 +511,8 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    loadFailed: "Diese Präsentation konnte nicht geladen werden.",
+    tryAgain: "Erneut versuchen",
     presenterView: "Referentenansicht",
     speakerNotes: "Sprechernotizen",
     noNotesForSlide: "Keine Notizen für diese Folie",

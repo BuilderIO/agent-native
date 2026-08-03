@@ -107,6 +107,17 @@ describe("document property layout", () => {
     expect(source).toContain('role="alert"');
   });
 
+  it("uses the optimistic source-field mutation for Add Property", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain(
+      "useAddContentDatabaseSourceFieldProperty(documentId)",
+    );
+    expect(source).not.toContain(
+      '>("add-content-database-source-field-property", {',
+    );
+  });
+
   it("makes editable property value triggers fill the database cell", () => {
     const source = readPropertiesSource();
 

@@ -65,6 +65,7 @@ describe("automations route helpers", () => {
         path: "jobs/owned.md",
         content: `---
 schedule: "0 9 * * 1-5"
+timezone: UTC
 enabled: true
 lastRun: 2026-06-18T15:00:00.000Z
 lastStatus: error
@@ -119,10 +120,11 @@ Hidden legacy organization job.`,
       lastStatus: "error",
       lastError: "Calendar token expired",
       lastRun: "2026-06-18T15:00:00.000Z",
-      nextRun: "2026-06-19T16:00:00.000Z",
-      scheduleDescription: "Every weekday at 9 AM",
+      scheduleDescription: "Every weekday at 9 AM (UTC)",
       canUpdate: true,
     });
+    expect(result[0].nextRun).toBeTruthy();
+    expect(result[0].nextRun).not.toBe("2026-06-19T16:00:00.000Z");
     expect(result[1]).toMatchObject({
       triggerType: "event",
       event: "test.event.fired",

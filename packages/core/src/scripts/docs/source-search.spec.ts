@@ -40,14 +40,19 @@ describe("source-search", { timeout: 60000 }, () => {
     fs.rmSync(scopeFixtureRoot, { recursive: true, force: true });
   });
 
-  it("materializes version-matched core, Toolkit, and template source without runtime artifacts", () => {
+  it("materializes version-matched template source without runtime artifacts", () => {
     const files = listCorpusFiles();
 
-    expect(files).toContain("core/src/action.ts");
-    expect(files).toContain("core/docs/AGENTS.md");
-    expect(files).toContain("toolkit/src/index.ts");
     expect(files).toContain("templates/chat/package.json");
     expect(files).toContain("templates/chat/data/sync-config.json");
+
+    // Core and Toolkit source already ship as dist/, docs/, and the Toolkit
+    // package's own src/; a corpus copy was the same bytes a second time.
+    expect(
+      files.filter(
+        (file) => file.startsWith("core/") || file.startsWith("toolkit/"),
+      ),
+    ).toEqual([]);
 
     expect(files.some((file) => file.includes("/node_modules/"))).toBe(false);
     expect(files.some((file) => file.includes("/target/"))).toBe(false);
@@ -61,7 +66,6 @@ describe("source-search", { timeout: 60000 }, () => {
     );
     expect(files.some((file) => file.endsWith(".db"))).toBe(false);
     expect(files.some((file) => file.endsWith(".db-wal"))).toBe(false);
-    expect(files).not.toContain("core/src/assets/branding/favicon.png");
     expect(files).not.toContain(
       "templates/clips/chrome-extension/public/icons/icon-128.png",
     );
@@ -78,13 +82,13 @@ describe("source-search", { timeout: 60000 }, () => {
       runSourceSearch(["--path", "templates/chat/package.json"]),
     ).resolves.toContain('"name": "chat"');
 
-    const output = await runSourceSearch(["--query", "defineAction"]);
+    const output = await runSourceSearch(["--query", "archive-email"]);
     expect(output).toContain("Found");
-    expect(output).toContain("core/src/action.ts");
+    expect(output).toContain("templates/mail/actions/archive-email.ts");
 
     await expect(
-      runSourceSearch(["--path", "toolkit/src/index.ts"]),
-    ).resolves.toContain("./app-shell/index.js");
+      runSourceSearch(["--path", "templates/chat/actions/hello.ts"]),
+    ).resolves.toContain("@agent-native/core/action");
   });
 
   it("hides dev-scoped skill files from runtime query, path, and directory results", async () => {

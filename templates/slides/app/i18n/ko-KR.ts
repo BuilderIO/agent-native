@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
+    emailNotifications: "이메일 알림",
+    emailNotificationsDescription:
+      "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
+    saveFailed: "저장 실패",
     languageTitle: "언어",
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -493,6 +497,8 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    loadFailed: "이 프레젠테이션을 불러오지 못했습니다.",
+    tryAgain: "다시 시도",
     presenterView: "발표자 보기",
     speakerNotes: "발표자 노트",
     noNotesForSlide: "이 슬라이드에는 노트가 없습니다",

@@ -1,7 +1,4 @@
-import {
-  agentNativePath,
-  appBasePath,
-} from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   createLocalOpUndoController,
   type LocalOpUndoController,
@@ -10,6 +7,7 @@ import {
 import { callAction } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
+import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -207,12 +205,6 @@ const DECK_LIST_FALLBACK_POLL_MS = 15_000;
 // fast intervals above are for when the live channel is genuinely down; running
 // them unconditionally cost an idle deck page ~36 requests/minute.
 const LIVE_CHANNEL_IDLE_POLL_MS = 60_000;
-// Bounded exponential backoff for SSE reconnect after a fatal error (e.g. a
-// non-2xx response, which EventSource treats as terminal and never retries
-// on its own — see the SSE effect below). Doubles from BASE up to MAX.
-const SSE_RECONNECT_BASE_MS = 1_000;
-const SSE_RECONNECT_MAX_MS = 30_000;
-
 /**
  * How long to wait before the next fallback poll. The poll only takes over at
  * its fast intervals when the live channel is genuinely not carrying updates;
@@ -1548,146 +1540,68 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     }
   }, [decks, loading]);
 
-  // Listen for deck changes via SSE (so agent edits show up in real-time).
-  //
-  // EventSource auto-reconnects on its own ONLY for network-level drops
-  // (readyState stays CONNECTING while it retries). A non-2xx HTTP response
-  // — e.g. a transient 503 during a cold start — is FATAL per spec: the
-  // browser sets readyState CLOSED and never retries. Without our own
-  // reconnect logic, a single 503 permanently kills live updates for the
-  // rest of the tab's life (the rail goes stale until a manual reload).
-  //
-  // We reconnect manually with bounded exponential backoff, and because
-  // notifyClients() on the server has no backlog/replay (fire-and-forget to
-  // whatever connections are live at broadcast time — see
-  // server/handlers/decks.ts), every reconnect after the first triggers a
-  // full resync via resyncDeckState() so agent writes made during the gap
-  // aren't silently lost.
+  // Listen for deck changes through the shared framework sync transport. A
+  // separate deck EventSource used to consume another long-lived browser
+  // connection per tab on top of the framework stream and Vite HMR, which
+  // exhausts the six-connection HTTP/1.1 budget quickly in local workspaces.
+  // The transport owns reconnects; a reconnect still triggers a full resync
+  // because sync events do not replay the deck row contents.
   useEffect(() => {
     if (isEmbedAuthActive()) return;
     let stopped = false;
-    let es: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let retryCount = 0;
     let hasConnectedOnce = false;
 
-    const isHidden = () =>
-      typeof document !== "undefined" && document.visibilityState === "hidden";
-
-    const clearReconnectTimer = () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-    };
-
-    const scheduleReconnect = () => {
-      if (stopped || reconnectTimer || isHidden()) return;
-      const delay = Math.min(
-        SSE_RECONNECT_BASE_MS * 2 ** retryCount,
-        SSE_RECONNECT_MAX_MS,
-      );
-      retryCount += 1;
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        connect();
-      }, delay);
-    };
-
-    const handleMessage = async (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "deck-deleted" && data.deckId) {
-          lastExternalUpdateRef.current = Date.now();
-          setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
-        } else if (data.type === "deck-changed" && data.deckId) {
-          // Skip if a save for this deck is pending or in flight — this
-          // event is most likely the echo of our own write and the server
-          // copy may be a few hundred ms behind what the user just typed.
-          // Polling and the next save's response will bring the canonical
-          // state once the local burst settles.
-          if (hasUncommittedDeckChanges(data.deckId, dirtyDeckIdsRef.current)) {
-            return;
+    const unsubscribe = subscribeSyncEvents({
+      onEvents: (events) => {
+        for (const data of events) {
+          if (
+            (data.source !== "deck" && data.source !== undefined) ||
+            typeof data.deckId !== "string"
+          ) {
+            continue;
           }
-          // Refetch the changed deck from the shared action surface.
-          const updated = await fetchDeckFromAPI(data.deckId);
-          if (!updated) return;
-          lastExternalUpdateRef.current = Date.now(); // Suppress save-back
-          applyRemoteDeckUpdate(updated);
+          if (data.type === "deck-deleted") {
+            lastExternalUpdateRef.current = Date.now();
+            setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
+          } else if (data.type === "deck-changed") {
+            // Skip if a save for this deck is pending or in flight — this
+            // event is most likely the echo of our own write and the server
+            // copy may be a few hundred ms behind what the user just typed.
+            // Polling and the next save's response will bring the canonical
+            // state once the local burst settles.
+            if (
+              hasUncommittedDeckChanges(data.deckId, dirtyDeckIdsRef.current)
+            ) {
+              continue;
+            }
+            // Refetch the changed deck from the shared action surface.
+            void fetchDeckFromAPI(data.deckId).then((updated) => {
+              if (stopped || !updated) return;
+              lastExternalUpdateRef.current = Date.now(); // Suppress save-back
+              applyRemoteDeckUpdate(updated);
+            });
+          }
         }
-      } catch {}
-    };
-
-    const connect = () => {
-      if (stopped || isHidden()) return;
-      liveChannelConnectedRef.current = false;
-      // Never leak the previous connection.
-      if (es) {
-        es.close();
-        es = null;
-      }
-      // request-storm-allow: one deck-scoped SSE with backoff and unmount cleanup carries payloads sync events omit.
-      const next = new EventSource(`${appBasePath()}/api/decks/events`);
-      es = next;
-      next.onmessage = handleMessage;
-      next.onopen = () => {
-        retryCount = 0;
-        liveChannelConnectedRef.current = true;
-        // Every reconnect after the first can have missed broadcasts made
-        // while we were disconnected — the SSE channel has no backlog, so
-        // resync authoritative state instead of trusting the stream alone
-        // to have caught us up.
-        if (hasConnectedOnce) {
-          void resyncDeckState();
-        }
-        hasConnectedOnce = true;
-      };
-      next.onerror = () => {
-        if (es !== next) return;
-        // Whether the browser is retrying (CONNECTING) or gave up (CLOSED),
-        // the live channel is not delivering — hand liveness back to the
-        // fallback poll instead of letting it idle at 60s. Only the
-        // connected→dropped transition wakes the poll, so a stream of retry
-        // errors during a long outage doesn't turn into a poll per error.
+      },
+      onSseStateChange: (connected) => {
+        if (stopped) return;
         const wasConnected = liveChannelConnectedRef.current;
-        liveChannelConnectedRef.current = false;
-        if (wasConnected) pollNowRef.current();
-        if (next.readyState === EventSource.CLOSED) {
-          // Fatal per spec (non-2xx status, bad content-type, etc.) — the
-          // browser will not retry on its own. Reconnect ourselves.
-          next.close();
-          es = null;
-          scheduleReconnect();
+        liveChannelConnectedRef.current = connected;
+        if (connected) {
+          if (hasConnectedOnce) void resyncDeckState();
+          hasConnectedOnce = true;
+        } else if (wasConnected) {
+          // The shared transport will reconnect independently. Keep the deck
+          // fallback poll fast while the stream is unavailable.
+          pollNowRef.current();
         }
-        // readyState === CONNECTING means the browser is already retrying a
-        // network-level drop on its own; onopen above resyncs once that
-        // succeeds.
-      };
-    };
-
-    const handleVisibilityChange = () => {
-      if (isHidden()) {
-        clearReconnectTimer();
-        return;
-      }
-      retryCount = 0;
-      if (!es || es.readyState === EventSource.CLOSED) {
-        connect();
-      }
-    };
-
-    connect();
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+      },
+    });
 
     return () => {
       stopped = true;
       liveChannelConnectedRef.current = false;
-      clearReconnectTimer();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (es) {
-        es.close();
-        es = null;
-      }
+      unsubscribe();
     };
   }, [applyRemoteDeckUpdate, resyncDeckState]);
 

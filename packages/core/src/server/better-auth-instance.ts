@@ -45,6 +45,10 @@ import {
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import {
+  getAuthEmailForUserId,
+  getRequiredAuthProviderForEmail,
+} from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
@@ -335,6 +339,27 @@ export function shouldSkipEmailVerification(): boolean {
   }
   const normalized = value.trim().toLowerCase();
   return normalized !== "" && normalized !== "0" && normalized !== "false";
+}
+
+export function isDeployPreview(): boolean {
+  const deployContext =
+    process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT || process.env.CONTEXT;
+  return deployContext === "deploy-preview";
+}
+
+export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
+  requireEmailVerification: boolean;
+  disableSignUp: boolean;
+} {
+  const hosted = process.env.NODE_ENV === "production" || isDeployPreview();
+  return {
+    requireEmailVerification:
+      emailConfigured && (hosted || !shouldSkipEmailVerification()),
+    // A hosted deployment without an email provider cannot prove ownership of
+    // an email address. Keeping password signup enabled there turns an email
+    // into an account-claim credential.
+    disableSignUp: hosted && !emailConfigured,
+  };
 }
 
 /** Read-only accessor for the resolved auth secret. */
@@ -747,17 +772,23 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
 /**
  * The subset of Better Auth's internal adapter we use for federated-SSO
  * JIT account linking. Better Auth owns these writes (id + timestamp +
- * schema handling), so callers never hand-roll SQL against `user`/`account`.
- * Read-only lookups plus account-linking and profile-update operations used by
- * shared Core surfaces. Better Auth owns the actual identity writes.
+ * schema handling), so callers never hand-roll SQL against `user`/`account`
+ * for ordinary identity writes. The transactional claimant replacement uses
+ * the shared database boundary so its delete, promotion, and link commit
+ * together.
  */
 export interface BetterAuthInternalAdapter {
   findUserByEmail: (
     email: string,
     options?: { includeAccounts: boolean },
   ) => Promise<{
-    user: { id: string; email: string; name?: string };
-    accounts: Array<{ providerId: string; accountId: string }>;
+    user: {
+      id: string;
+      email: string;
+      name?: string;
+      emailVerified?: boolean;
+    };
+    accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
   linkAccount: (account: {
     userId: string;
@@ -769,11 +800,130 @@ export interface BetterAuthInternalAdapter {
     name: string;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
-  /** Optional because older/custom adapter shapes may not expose mutations. */
+  createOAuthUser?: (
+    user: { email: string; name: string; emailVerified?: boolean },
+    account: { providerId: string; accountId: string },
+  ) => Promise<{ user: { id: string }; account: unknown }>;
+  findAccountByProviderId: (
+    accountId: string,
+    providerId: string,
+  ) => Promise<{ id: string; userId: string } | null>;
+  replaceUnverifiedCredentialWithGoogle: (input: {
+    userId: string;
+    email: string;
+    accountId: string;
+  }) => Promise<void>;
   updateUser?: (
     userId: string,
-    data: { name?: string; image?: string | null },
+    data: {
+      name?: string;
+      image?: string | null;
+      emailVerified?: boolean;
+    },
   ) => Promise<unknown>;
+}
+
+/**
+ * Replace the only unverified credential account and add Google in one
+ * database transaction. The read in ensureGoogleAuthIdentityWithAdapter is
+ * only a fast path check; this method revalidates the account set while the
+ * transaction owns the user row so a stale lookup cannot delete a different
+ * identity.
+ */
+async function replaceUnverifiedCredentialWithGoogle(input: {
+  userId: string;
+  email: string;
+  accountId: string;
+}): Promise<void> {
+  const db = getDbExec();
+  if (!db.transaction) {
+    throw new Error(
+      "Cannot replace an unverified credential identity without a database transaction",
+    );
+  }
+
+  const postgres = isPostgres();
+  const timestamp = postgres ? new Date().toISOString() : Date.now();
+  const unverified = postgres ? false : 0;
+
+  await db.transaction(async (tx) => {
+    // Serialize the same Google subject across users on Postgres. SQLite's
+    // write transaction already serializes this replacement path.
+    if (postgres) {
+      await tx.execute({
+        sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+        args: [`google:${input.accountId}`],
+      });
+    }
+
+    const currentUser = await tx.execute({
+      sql:
+        'SELECT id FROM "user" WHERE id = ? AND email = ? AND email_verified = ?' +
+        (postgres ? " FOR UPDATE" : ""),
+      args: [input.userId, input.email, unverified],
+    });
+    if (currentUser.rows.length !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    const linkedGoogle = await tx.execute({
+      sql:
+        'SELECT user_id FROM "account" WHERE provider_id = ? AND account_id = ?' +
+        (postgres ? " FOR UPDATE" : ""),
+      args: ["google", input.accountId],
+    });
+    const linkedUserId = linkedGoogle.rows[0]?.user_id;
+    if (linkedUserId && linkedUserId !== input.userId) {
+      throw new Error("Google account is already linked to another user");
+    }
+    if (linkedUserId === input.userId) return;
+
+    const accounts = await tx.execute({
+      sql: 'SELECT id, provider_id FROM "account" WHERE user_id = ?',
+      args: [input.userId],
+    });
+    if (
+      accounts.rows.length !== 1 ||
+      accounts.rows[0]?.provider_id !== "credential"
+    ) {
+      throw new Error("Cannot link Google to an ambiguous unverified identity");
+    }
+
+    const credentialId = accounts.rows[0]?.id;
+    const deleted = await tx.execute({
+      sql: 'DELETE FROM "account" WHERE id = ? AND user_id = ? AND provider_id = ?',
+      args: [credentialId, input.userId, "credential"],
+    });
+    if (deleted.rowsAffected !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    const updated = await tx.execute({
+      sql: 'UPDATE "user" SET email_verified = ?, updated_at = ? WHERE id = ? AND email = ? AND email_verified = ?',
+      args: [true, timestamp, input.userId, input.email, unverified],
+    });
+    if (updated.rowsAffected !== 1) {
+      throw new Error(
+        "The unverified credential identity changed before Google linking",
+      );
+    }
+
+    await tx.execute({
+      sql: 'INSERT INTO "account" (id, account_id, provider_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      args: [
+        crypto.randomUUID(),
+        input.accountId,
+        "google",
+        input.userId,
+        timestamp,
+        timestamp,
+      ],
+    });
+  });
 }
 
 /**
@@ -788,7 +938,12 @@ export async function getBetterAuthInternalAdapter(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInternalAdapter | undefined> {
   const auth = (await getBetterAuth(config)) as unknown as {
-    $context?: Promise<{ internalAdapter?: BetterAuthInternalAdapter }>;
+    $context?: Promise<{
+      internalAdapter?: Omit<
+        BetterAuthInternalAdapter,
+        "replaceUnverifiedCredentialWithGoogle"
+      >;
+    }>;
   };
   try {
     const ctx = await auth.$context;
@@ -797,14 +952,149 @@ export async function getBetterAuthInternalAdapter(
       ia &&
       typeof ia.findUserByEmail === "function" &&
       typeof ia.linkAccount === "function" &&
-      typeof ia.createUser === "function"
+      typeof ia.createUser === "function" &&
+      typeof ia.findAccountByProviderId === "function"
     ) {
-      return ia;
+      return {
+        ...ia,
+        replaceUnverifiedCredentialWithGoogle,
+      } as BetterAuthInternalAdapter;
     }
   } catch {
     // Context resolution failed — caller falls back to the signup path.
   }
   return undefined;
+}
+
+export interface GoogleAuthIdentity {
+  email: string;
+  accountId: string;
+  name?: string;
+}
+
+/**
+ * Ensure a verified Google identity has a canonical Better Auth user/account
+ * before the legacy email-keyed session is issued. This prevents a later
+ * password signup from becoming the first canonical identity for that email.
+ */
+export async function ensureGoogleAuthIdentity(
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) {
+    throw new Error("Better Auth internal adapter is unavailable");
+  }
+  await ensureGoogleAuthIdentityWithAdapter(adapter, identity);
+}
+
+export async function ensureGoogleAuthIdentityWithAdapter(
+  adapter: BetterAuthInternalAdapter,
+  identity: GoogleAuthIdentity,
+): Promise<void> {
+  const email = identity.email.trim().toLowerCase();
+  const accountId = identity.accountId.trim();
+  if (!email || !accountId) {
+    throw new Error("Google identity is missing an email or account id");
+  }
+
+  const name = identity.name?.trim() || email.split("@")[0] || "User";
+  const findExisting = () =>
+    adapter.findUserByEmail(email, { includeAccounts: true });
+  let existing = await findExisting();
+
+  let linkedAccount = await adapter.findAccountByProviderId(
+    accountId,
+    "google",
+  );
+  if (linkedAccount) {
+    if (!existing || linkedAccount.userId !== existing.user.id) {
+      throw new Error("Google account is already linked to another user");
+    }
+    return;
+  }
+
+  if (!existing) {
+    if (adapter.createOAuthUser) {
+      try {
+        await adapter.createOAuthUser(
+          { email, name, emailVerified: true },
+          { providerId: "google", accountId },
+        );
+        return;
+      } catch (error) {
+        // A concurrent first sign-in may have won the unique-email race. Only
+        // continue if the canonical row now exists; otherwise preserve the
+        // real adapter error and do not issue a legacy session.
+        existing = await findExisting();
+        if (!existing) throw error;
+
+        // The account may have been linked by the concurrent sign-in that won
+        // the create race. Re-read it before falling through to the legacy
+        // link path, which must never create a duplicate association.
+        linkedAccount = await adapter.findAccountByProviderId(
+          accountId,
+          "google",
+        );
+        if (linkedAccount) {
+          if (linkedAccount.userId !== existing.user.id) {
+            throw new Error("Google account is already linked to another user");
+          }
+          return;
+        }
+      }
+    } else {
+      const created = await adapter.createUser({
+        email,
+        name,
+        emailVerified: true,
+      });
+      await adapter.linkAccount({
+        userId: created.id,
+        providerId: "google",
+        accountId,
+      });
+      return;
+    }
+  }
+
+  if (!existing) {
+    throw new Error("Could not resolve the canonical Google user");
+  }
+  const alreadyLinked = existing.accounts.some(
+    (account) =>
+      account.providerId === "google" && account.accountId === accountId,
+  );
+  if (alreadyLinked) return;
+
+  // A password signup reserves the email before verification. If that row is
+  // credential-only, remove the unverified credential and promote the same
+  // canonical user to the verified Google identity. Any other linked account
+  // makes the claimant ambiguous, so keep the account-claim protection.
+  if (existing.user.emailVerified !== true) {
+    const credentialAccounts = existing.accounts.filter(
+      (account) => account.providerId === "credential",
+    );
+    const hasOtherAccounts = existing.accounts.some(
+      (account) => account.providerId !== "credential",
+    );
+    if (credentialAccounts.length !== 1 || hasOtherAccounts) {
+      throw new Error(
+        "Cannot link Google to an unverified email/password identity",
+      );
+    }
+
+    await adapter.replaceUnverifiedCredentialWithGoogle({
+      userId: existing.user.id,
+      email,
+      accountId,
+    });
+    return;
+  }
+  await adapter.linkAccount({
+    userId: existing.user.id,
+    providerId: "google",
+    accountId,
+  });
 }
 
 /** Reset for testing */
@@ -904,8 +1194,8 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
-  const requireEmailVerification =
-    (await isEmailConfigured()) && !shouldSkipEmailVerification();
+  const { requireEmailVerification, disableSignUp } =
+    resolveEmailPasswordAuthPolicy(await isEmailConfigured());
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -917,12 +1207,11 @@ async function createBetterAuthInstance(
     secret,
     emailAndPassword: {
       enabled: true,
+      disableSignUp,
       minPasswordLength: 8,
-      // Only require email verification when an email provider is configured.
-      // Without a provider, verification emails can't be sent, so requiring
-      // verification would lock users out of signup entirely. Local dev/test
-      // skip verification by default so +qa accounts can be created quickly;
-      // hosted QA deployments can opt out with AUTH_SKIP_EMAIL_VERIFICATION=1.
+      // Hosted deployments always require a working email provider before
+      // password signup can create a session. Local dev/test retain the fast
+      // path; hosted deployments without a provider disable password signup.
       requireEmailVerification,
       sendResetPassword: async ({ user, token }) => {
         // APP_BASE_PATH lets this app mount under a prefix (e.g. /mail). The
@@ -933,17 +1222,16 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
-        const { subject, html, text } = renderResetPasswordEmail({
+        const { subject, html, text, appSender } = renderResetPasswordEmail({
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text });
+        await sendEmail({ to: user.email, subject, html, text, appSender });
       },
     },
     emailVerification: {
       // Fire verification email right after signup, before the user has a
-      // session — pairs with requireEmailVerification above. Only enabled
-      // when an email provider is configured.
+      // session — pairs with requireEmailVerification above.
       sendOnSignUp: requireEmailVerification,
       // Auto-create a session once the user clicks the link. Without this,
       // verified users would have to go back and sign in manually, which is
@@ -960,11 +1248,11 @@ async function createBetterAuthInstance(
         const verifyUrl = verifyBasePath
           ? url.replace(/(\/\/[^/]+)(\/)/, `$1${verifyBasePath}$2`)
           : url;
-        const { subject, html, text } = renderVerifySignupEmail({
+        const { subject, html, text, appSender } = renderVerifySignupEmail({
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text });
+        await sendEmail({ to: user.email, subject, html, text, appSender });
       },
     },
     socialProviders,
@@ -981,6 +1269,46 @@ async function createBetterAuthInstance(
       },
     },
     databaseHooks: {
+      session: {
+        create: {
+          before: async (session, context) => {
+            const email = await getAuthEmailForUserId(session.userId);
+            if ((await getRequiredAuthProviderForEmail(email)) !== "google") {
+              return;
+            }
+
+            const path = String(context?.path ?? "").toLowerCase();
+            const requestUrl = context?.request?.url ?? "";
+            const providerValues = [
+              path,
+              requestUrl,
+              String(
+                (context?.params as Record<string, unknown> | undefined)
+                  ?.provider ?? "",
+              ),
+              String(
+                (context?.params as Record<string, unknown> | undefined)?.id ??
+                  "",
+              ),
+              String(
+                (context?.params as Record<string, unknown> | undefined)
+                  ?.providerId ?? "",
+              ),
+              String(
+                (context?.body as Record<string, unknown> | undefined)
+                  ?.provider ?? "",
+              ),
+              String(
+                (context?.body as Record<string, unknown> | undefined)
+                  ?.providerId ?? "",
+              ),
+            ].map((value) => value.toLowerCase());
+            if (!providerValues.some((value) => value.includes("google"))) {
+              return false;
+            }
+          },
+        },
+      },
       user: {
         create: {
           after: async (

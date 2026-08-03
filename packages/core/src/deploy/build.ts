@@ -53,6 +53,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import { cloneServerBundleForFunction, copyDir } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1157,6 +1158,39 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getPostHogClientConfigScript() {
+  // MUST stay consistent with resolvePublicPostHogConfig in
+  // server/posthog-config.ts (worker bundles a string copy; it can't import it).
+  // Never falls back to POSTHOG_API_KEY — that key can be a private one and
+  // this string is inlined into the public, CDN-cached HTML shell.
+  const env = globalThis.process?.env || {};
+  const posthogKey = firstNonEmpty(
+    env.POSTHOG_PUBLIC_KEY,
+    env.VITE_POSTHOG_KEY,
+    env.VITE_POSTHOG_PUBLIC_KEY,
+  );
+  if (!posthogKey) return null;
+  const posthogHost = (
+    firstNonEmpty(
+      env.POSTHOG_PUBLIC_HOST,
+      env.VITE_POSTHOG_HOST,
+      env.POSTHOG_HOST,
+    ) || "https://us.i.posthog.com"
+  ).replace(/\\/+$/, "");
+  const config = {
+    posthogKey,
+    posthogHost,
+    posthogErrorTracking:
+      (env.POSTHOG_ERROR_TRACKING || "").trim().toLowerCase() !== "false",
+  };
+  return (
+    '<script data-agent-native-posthog-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1330,7 +1364,11 @@ function applyImmutableAssetCacheHeaders(response, request) {
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
-    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
@@ -2317,46 +2355,7 @@ function getDirSize(dir: string): number {
   return size;
 }
 
-export function copyDir(
-  src: string,
-  dest: string,
-  ancestorRealPaths = new Set<string>(),
-) {
-  const realSrc = fs.realpathSync(src);
-  if (ancestorRealPaths.has(realSrc)) return;
-  const nextAncestorRealPaths = new Set(ancestorRealPaths);
-  nextAncestorRealPaths.add(realSrc);
-
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isSymbolicLink()) {
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(srcPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          console.warn(
-            `[deploy] Skipping broken symlink while copying ${srcPath}`,
-          );
-          continue;
-        }
-        throw error;
-      }
-      if (stat.isDirectory()) {
-        copyDir(srcPath, destPath, nextAncestorRealPaths);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-      }
-    } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, nextAncestorRealPaths);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
+export { copyDir };
 
 const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "darwin-arm64",
@@ -2807,7 +2806,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   // NOT scanned — emitting there is why the standalone attempt 404'd.
   const dest = path.join(internalDir, backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(serverDir, dest);
+  cloneServerBundleForFunction(serverDir, dest);
   // Drop the original Nitro `/*` entry so our entry is the entrypoint and the
   // copied bundle does NOT re-register the catch-all `config.path`.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
@@ -2988,7 +2987,7 @@ export function emitSingleTemplateNetlifyIntegrationRecoveryFunction(
   const functionName = NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME;
   const dest = path.join(internalDir, functionName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(serverDir, dest);
+  cloneServerBundleForFunction(serverDir, dest);
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const entry = `import { createHmac } from "node:crypto";
@@ -3811,7 +3810,10 @@ export async function runNitroBuildPipeline(
 
   if (hasClientBuild && publicOutputDir) {
     copyDir(clientDir, publicOutputDir);
-    if (appBasePath) {
+    if (
+      appBasePath &&
+      !publicDirIsMountedAtBasePath(publicOutputDir, appBasePath)
+    ) {
       copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
     }
     console.log(
@@ -3820,6 +3822,22 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+}
+
+/**
+ * Nitro's serverless presets end `output.publicDir` in `{{ baseURL }}`
+ * (netlify: `dist{{ baseURL }}`, vercel: `static{{ baseURL }}`, cloudflare:
+ * `{{ output.dir }}{{ baseURL }}`), so for those the public dir already IS the
+ * mount path. Mirroring again produced a whole second client build one level
+ * deeper that nothing ever served — the workspace deploy only deleted it again.
+ * Presets whose public dir is flat (`node-server`) still need the mirror.
+ */
+export function publicDirIsMountedAtBasePath(
+  publicOutputDir: string,
+  appBasePath: string,
+): boolean {
+  const mountSuffix = path.sep + appBasePath.slice(1).split("/").join(path.sep);
+  return path.resolve(publicOutputDir).endsWith(mountSuffix);
 }
 
 /**

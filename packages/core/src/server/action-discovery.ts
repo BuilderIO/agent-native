@@ -626,6 +626,10 @@ export async function mergeCoreSharingActions(
       () => import("../jobs/actions/manage-recurring-job.js"),
     ],
     [
+      "list-automation-runs",
+      () => import("../jobs/actions/list-automation-runs.js"),
+    ],
+    [
       "list-automations",
       () => import("../triggers/actions/list-automations.js"),
     ],

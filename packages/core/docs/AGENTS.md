@@ -1,18 +1,20 @@
 # Agent Native Package Lookup For Agents
 
-The version-matched docs and source corpus are bundled with
+The version-matched docs and template corpus are bundled with
 `@agent-native/core` and installed at:
 
 ```txt
 node_modules/@agent-native/core/docs
 node_modules/@agent-native/core/corpus
+node_modules/@agent-native/core/dist
 ```
 
 Use these version-matched markdown docs before coding against Agent Native
-framework APIs or advanced features. Use the source corpus when you need import
-examples, implementation details, or first-party template patterns to replicate.
-Public docs are useful for browsing, but the package docs and corpus match the
-exact framework version installed in the app.
+framework APIs or advanced features. Use the corpus when you need first-party
+template patterns to replicate, and `dist/` (compiled sources plus `.d.ts`) when
+you need the framework's own implementation details. Public docs are useful for
+browsing, but the package docs, corpus, and `dist/` match the exact framework
+version installed in the app.
 
 ## Fast Lookup
 
@@ -25,7 +27,7 @@ pnpm action docs-search --slug actions
 pnpm action source-search --list
 pnpm action source-search --query "defineAction useActionQuery"
 pnpm action source-search --path templates/plan/AGENTS.md
-pnpm action source-search --path toolkit/src/index.ts
+pnpm action source-search --path templates/chat/actions/hello.ts
 ```
 
 The built-in app agent also has read-only `docs-search` and `source-search`
@@ -39,9 +41,10 @@ rg -n "defineAction|useActionQuery" node_modules/@agent-native/core/corpus
 ```
 
 Then read the matching files under `node_modules/@agent-native/core/docs/content/`.
-For source examples, read matching files under
-`node_modules/@agent-native/core/corpus/core/` or
-`node_modules/@agent-native/core/corpus/templates/`.
+For template examples, read matching files under
+`node_modules/@agent-native/core/corpus/templates/`. For framework internals,
+read `node_modules/@agent-native/core/dist/` — the corpus carries templates
+only, not a second copy of Core's own source.
 
 Readable Toolkit TypeScript is available under
 `node_modules/@agent-native/toolkit/src/`. Before adapting it, read the
@@ -70,7 +73,7 @@ preserve public action, state, auth, and agent-chat runtime contracts.
 
 - Prefer the app's own `AGENTS.md` and `.agents/skills/` for app-specific
   behavior. Use this package docs tree for framework APIs and the package
-  corpus for framework/template patterns.
+  corpus for first-party template patterns.
 - If local instructions and package docs conflict, local app instructions win
   for that app, but verify the framework API shape in package docs or types.
 - Do not invent Agent Native APIs. Search these docs and installed type

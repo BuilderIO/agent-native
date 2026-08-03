@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
+import { _resetCapabilityCacheForTests } from "../server/agent-capabilities.js";
 import type { DiscoveredAgent } from "../server/agent-discovery.js";
 
 const getAgentCard = vi.fn();
@@ -60,6 +61,7 @@ function card(overrides: Partial<AgentCard> = {}): AgentCard {
 describe("describe-workspace-apps", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    _resetCapabilityCacheForTests();
     discoverAgents.mockResolvedValue([]);
     findAgent.mockResolvedValue(undefined);
     getAgentCard.mockResolvedValue(card());

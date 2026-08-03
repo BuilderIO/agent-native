@@ -267,6 +267,30 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.table-query-page",
+    surface: "database",
+    label: "Query one constrained page while retaining database metadata",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible.",
+    status: "action-backed",
+    actions: ["query-content-database-items"],
+    exception:
+      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for the complete database contract.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "app/hooks/use-content-database.test.ts",
+    ],
+  },
+  {
     id: "database.form-submissions",
     surface: "database",
     label: "Submit public database forms as new rows",
@@ -287,20 +311,19 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.rows",
     surface: "database",
-    label: "Add, duplicate, move, open, and delete database rows",
+    label: "Add, duplicate, move, open, edit, and remove database rows",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/database/DatabaseView.tsx",
     ],
     durableEffect:
-      "Database row backing documents and row ordering are created, duplicated, moved, edited, and deleted.",
+      "Database row memberships and ordering are created, duplicated, moved, edited, and removed without deleting the backing page.",
     uiImplementation:
-      "Row controls call row actions; selected-row duplicate/delete call bounded batch actions, while bulk property edits remain a later reliability slice.",
+      "Row controls call row actions; selected-row duplicate/removal call bounded batch actions, while bulk property edits remain a later reliability slice.",
     status: "action-backed",
     actions: [
       "add-database-item",
-      "delete-database-items",
-      "delete-document",
+      "remove-database-items",
       "duplicate-database-items",
       "duplicate-database-item",
       "move-database-item",
@@ -402,6 +425,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-source",
       "list-builder-cms-models",
       "list-notion-database-sources",
+      "preview-content-database-source-attach",
       "refresh-content-database-source",
       "suggest-source-join-key",
     ],

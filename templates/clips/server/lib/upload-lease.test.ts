@@ -79,6 +79,7 @@ describe("upload lease", () => {
       status TEXT NOT NULL,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
+      upload_generation_id TEXT,
       updated_at TEXT NOT NULL
     )`);
     await sqlite.execute(`CREATE TABLE application_state (
@@ -125,6 +126,37 @@ describe("upload lease", () => {
       failure_reason: UPLOAD_LEASE_EXPIRED_REASON,
     });
     expect(await chunkKeys()).toEqual([]);
+  });
+
+  it("removes the generation-scoped session for a reaped upload", async () => {
+    await insertRecording({
+      id: "fenced-dead",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await sqlite.execute({
+      sql: `UPDATE recordings SET upload_generation_id = ? WHERE id = ?`,
+      args: ["generation-1", "fenced-dead"],
+    });
+    await sqlite.execute({
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: ["resumable-session-fenced-dead-generation-1", "{}"],
+    });
+    await sqlite.execute({
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: ["resumable-session-fenced-dead", "{}"],
+    });
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.failed).toBe(1);
+    const { rows } = await sqlite.execute({
+      sql: `SELECT key FROM application_state WHERE key LIKE ? ORDER BY key`,
+      args: ["resumable-session-fenced-dead%"],
+    });
+    expect(rows.map((row) => String(row.key))).toEqual([
+      "resumable-session-fenced-dead",
+    ]);
   });
 
   it("reaches a long-stuck 'processing' recording that no upload session tracks", async () => {

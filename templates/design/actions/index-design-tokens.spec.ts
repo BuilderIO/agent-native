@@ -136,6 +136,50 @@ describe("index-design-tokens design-system access boundary", () => {
     expect(colorToken?.value).toBe("#ff0000");
   });
 
+  it("skips malformed design-system token values without failing valid tokens", async () => {
+    const dsData = JSON.stringify({
+      colors: {
+        primary: { hue: 220 },
+        secondary: "#00ff00",
+      },
+      borders: { radius: ["8px"] },
+      spacing: { elementGap: { value: "1rem" } },
+    });
+    const fakeDesign = {
+      id: "design_1",
+      data: JSON.stringify({}),
+      designSystemId: "ds_1",
+    };
+
+    mockResolveAccess.mockImplementation(
+      (resourceType: string, _id: string) => {
+        if (resourceType === "design")
+          return Promise.resolve({ role: "viewer", resource: fakeDesign });
+        if (resourceType === "design-system")
+          return Promise.resolve({ role: "viewer", resource: {} });
+        return Promise.resolve(null);
+      },
+    );
+
+    let callCount = 0;
+    mockFrom.mockImplementation(() => ({
+      where: (_unknown: unknown) => {
+        callCount++;
+        if (callCount === 1) return Promise.resolve([]);
+        return { limit: () => Promise.resolve([{ data: dsData }]) };
+      },
+    }));
+
+    const result = await action.run({ designId: "design_1" });
+
+    expect(result.tokens).toEqual([
+      expect.objectContaining({
+        cssVar: "--color-secondary",
+        value: "#00ff00",
+      }),
+    ]);
+  });
+
   it("includes raw CSS vars persisted in tweakSelections", async () => {
     const glow = "0 0 24px rgba(14, 165, 233, 0.4)";
     const fakeDesign = {
