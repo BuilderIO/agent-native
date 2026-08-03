@@ -198,6 +198,31 @@ describe("recorderWithCaptureSuspension", () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
+  it("stops handed-off capture when the take is cancelled instead of retaken", async () => {
+    const display = fakeStream("live");
+    const audio = fakeStream("live");
+    const cancel = vi.fn(async () => {});
+    const handle = recorderWithCaptureSuspension(
+      stubHandle({
+        cancel,
+        discardForRestart: vi.fn(async () => ({
+          displayStream: display,
+          audioStream: audio,
+        })),
+      }),
+      async () => {},
+    );
+
+    await handle.discardForRestart();
+    await handle.cancel();
+
+    // The backend still gets its cancel — it owns whatever session teardown a
+    // restart deliberately skipped.
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(display.getTracks()[0].readyState).toBe("ended");
+    expect(audio.getTracks()[0].readyState).toBe("ended");
+  });
+
   it("keeps the handoff when releasing the capture lease fails", async () => {
     const display = fakeStream("live");
     const handle = recorderWithCaptureSuspension(

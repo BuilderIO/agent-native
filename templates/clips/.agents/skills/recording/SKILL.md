@@ -213,6 +213,14 @@ backend, and the difference is which teardown they run. Cancel ends the
 `hide_recording_chrome`, which spares the bubble, and leaves the recording state
 active.
 
+Stop, cancel and restart are mutually exclusive terminal transitions, so each
+gets its own promise slot — never reuse `cancelPromise` for a discard, or a
+cancel arriving mid-restart returns the take-level teardown and the session
+never ends. A cancel that lands after a discard still owes the session half,
+plus stopping the capture the retake never took ownership of. On the app side
+`restartInFlightRef` latches synchronously so stop and cancel events cannot act
+on the recorder a restart is already tearing down.
+
 Native full-screen backends re-acquire capture in Rust and hand off nothing.
 `resolveRestartHandoff` vets the inherited streams before anything is acquired,
 and it treats the two kinds of capture differently: an ended display share is

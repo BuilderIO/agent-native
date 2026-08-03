@@ -2227,6 +2227,10 @@ export function App() {
   // fresh camera session can recover immediately. Keep that post-stop phase
   // separate so React cleanup does not close the finalizing progress window.
   const recordingStopFinalizingRef = useRef(false);
+  // Held from the restart click until the replacement recorder is up (or has
+  // failed). Stop and cancel are terminal transitions on the recorder a
+  // restart is already tearing down, so they must not run against it.
+  const restartInFlightRef = useRef(false);
   const recordingInFlight = isRecording || recordingFlowActive;
   useLayoutEffect(() => {
     recordingFlowGateRef.current = recordingInFlight;
@@ -3152,6 +3156,7 @@ export function App() {
     };
     track(
       listen("clips:recorder-stop", async () => {
+        if (restartInFlightRef.current) return;
         // Detach the React Start/bubble gate immediately. The recorder keeps
         // Rust `is_recording_active` and the finalizing overlay guarded until
         // its durable backup/finalize boundary; keeping this React handle set
@@ -3213,6 +3218,7 @@ export function App() {
     );
     track(
       listen("clips:recorder-cancel", async () => {
+        if (restartInFlightRef.current) return;
         try {
           await recorder.cancel();
         } finally {
@@ -3235,38 +3241,43 @@ export function App() {
     track(
       listen("clips:recorder-restart", async () => {
         if (recordingStopFinalizingRef.current) return;
-        let handoff: RestartHandoff;
+        // Latched synchronously: a restart is a terminal transition on this
+        // recorder, and stop/cancel must not act on it while the replacement
+        // is being brought up.
+        if (restartInFlightRef.current) return;
+        restartInFlightRef.current = true;
+        let handoff: RestartHandoff | null = null;
         try {
           handoff = await recorder.discardForRestart();
+          if (cancelled) return;
+          // The recording flow stays latched across the restart. Releasing
+          // `clipsForceAlive` / `recordingFlowGateRef` / `recordingFlowActive`
+          // / `set_recording_state` the way cancel does would let the popover's
+          // blur auto-hide fire and flicker the pill between the two takes. The
+          // camera also stays owned by the popover, so the bubble session epoch
+          // is deliberately not bumped and the stream is re-handed unchanged.
+          //
+          // The discard did close the countdown and toolbar windows. The
+          // recorder rebuilds the countdown on every start, but the toolbar is
+          // owned by an effect keyed on the flow latches we just kept held — so
+          // it has to be told the chrome is gone.
+          setRecordingChromeEpoch((epoch) => epoch + 1);
+          setRecorder(null);
+          const restarted = await handleStartRecordingRef.current({
+            ignoreActiveRecorder: true,
+            resumeCapture: handoff,
+          });
+          // The new session owns the handed-off capture only once it exists.
+          if (restarted) handoff = null;
         } catch (err) {
-          console.error("[clips-popover] restart discard failed:", err);
+          console.error("[clips-popover] restart failed:", err);
           setRecError(err instanceof Error ? err.message : String(err));
-          return;
+        } finally {
+          // Anything still held here belongs to a retake that never came up.
+          // Leaving it would keep the screen captured with nothing recording.
+          if (handoff) stopRestartHandoff(handoff);
+          restartInFlightRef.current = false;
         }
-        if (cancelled) {
-          stopRestartHandoff(handoff);
-          return;
-        }
-        // The recording flow stays latched across the restart. Releasing
-        // `clipsForceAlive` / `recordingFlowGateRef` / `recordingFlowActive` /
-        // `set_recording_state` the way cancel does would let the popover's
-        // blur auto-hide fire and flicker the pill between the two takes. The
-        // camera also stays owned by the popover, so the bubble session epoch
-        // is deliberately not bumped and the stream is re-handed unchanged.
-        //
-        // The discard did close the countdown and toolbar windows. The recorder
-        // rebuilds the countdown on every start, but the toolbar is owned by an
-        // effect keyed on the flow latches we just kept held — so it has to be
-        // told the chrome is gone.
-        setRecordingChromeEpoch((epoch) => epoch + 1);
-        setRecorder(null);
-        const restarted = await handleStartRecordingRef.current({
-          ignoreActiveRecorder: true,
-          resumeCapture: handoff,
-        });
-        // The new session owns the handed-off capture only once it exists.
-        // Without this the screen would stay captured with nothing recording.
-        if (!restarted) stopRestartHandoff(handoff);
       }),
     );
     return () => {

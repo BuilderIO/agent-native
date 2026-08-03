@@ -2396,13 +2396,16 @@ export function recorderWithCaptureSuspension(
       await stopPromise;
       return;
     }
-    if (discardPromise) {
-      await discardPromise;
-      return;
-    }
     cancelPromise = (async () => {
       try {
+        // Cancelling after a restart discard means the retake will never take
+        // ownership of the capture handed to it, and nothing else would stop
+        // it. The backend's own cancel decides what else a late cancel owes.
+        const handoff = await discardPromise;
         await cancel();
+        [handoff?.displayStream, handoff?.audioStream].forEach((stream) =>
+          stream?.getTracks().forEach((track) => track.stop()),
+        );
       } finally {
         await release();
       }
@@ -2634,6 +2637,7 @@ async function tryStartRewindFullscreenRecording(
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
   let cancelPromise: Promise<void> | null = null;
+  let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
   let pausedAt: number | null = null;
@@ -2666,10 +2670,15 @@ async function tryStartRewindFullscreenRecording(
     stateUnlistens = [];
   };
 
-  // Throw the current take away. A restart keeps the SESSION alive, so it must
-  // not run the session-level teardown: `hide_overlays` destroys the camera
-  // bubble along with the recording chrome, and clearing the recording state
-  // would let the popover's blur auto-hide fire between the two takes.
+  // End the whole recording session. `hide_overlays` destroys the camera bubble
+  // along with the recording chrome, and clearing the recording state releases
+  // the popover's blur auto-hide — both wrong between the two takes of a
+  // restart, which is why `discardTake` only runs this for a real cancel.
+  const endSession = async () => {
+    await invoke("hide_overlays").catch(() => {});
+    await clearRecordingState();
+  };
+
   const discardTake = async (forRestart: boolean) => {
     stopped = true;
     cleanupUi();
@@ -2681,10 +2690,11 @@ async function tryStartRewindFullscreenRecording(
       });
     await invoke("rewind_clip_cancel").catch(() => {});
     audioCue.cleanup();
-    await invoke(forRestart ? "hide_recording_chrome" : "hide_overlays").catch(
-      () => {},
-    );
-    if (!forRestart) await clearRecordingState();
+    if (forRestart) {
+      await invoke("hide_recording_chrome").catch(() => {});
+    } else {
+      await endSession();
+    }
     if (!localOnly && id) {
       forgetRewindClipOrigin(id);
       await cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
@@ -2700,11 +2710,15 @@ async function tryStartRewindFullscreenRecording(
     async stop() {
       if (stopPromise) return stopPromise;
       // This handle runs unwrapped (the Rewind producer holds no capture
-      // suspension lease), so the discarded-take guard lives here. Answering
-      // with `id` would publish a take that was already aborted and trashed.
+      // suspension lease), so the terminal-transition guards live here.
+      // Answering with `id` would publish a take that was already trashed.
       if (cancelPromise) {
         await cancelPromise;
-        throw new Error("Recording was already discarded");
+        throw new Error("Recording was already cancelled");
+      }
+      if (discardPromise) {
+        await discardPromise;
+        throw new Error("Recording was already discarded for a restart");
       }
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopPromise = (async () => {
@@ -2829,19 +2843,33 @@ async function tryStartRewindFullscreenRecording(
     },
     async cancel() {
       if (cancelPromise) return cancelPromise;
+      // A cancel landing on an already-discarded take still has to end the
+      // session — the restart skipped that half deliberately, so returning
+      // here would leave the bubble up and the recording state active.
+      if (discardPromise) {
+        cancelPromise = discardPromise.then(endSession);
+        return cancelPromise;
+      }
       if (stopped) return;
       cancelPromise = discardTake(false);
       return cancelPromise;
     },
     async discardForRestart() {
-      if (cancelPromise || stopped) {
+      if (discardPromise) return discardPromise;
+      if (cancelPromise) {
+        await cancelPromise;
+        throw new Error("Recording was already cancelled");
+      }
+      if (stopped) {
         throw new Error("Recording already finished — nothing to restart");
       }
-      cancelPromise = discardTake(true);
-      await cancelPromise;
       // The Rewind producer re-acquires capture natively, so the retake needs
       // nothing handed to it.
-      return { displayStream: null, audioStream: null };
+      discardPromise = discardTake(true).then(() => ({
+        displayStream: null,
+        audioStream: null,
+      }));
+      return discardPromise;
     },
   };
 
@@ -3220,6 +3248,7 @@ async function startNativeFullscreenRecording(
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
   let cancelPromise: Promise<void> | null = null;
+  let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
   let segmentRotateHandle: ReturnType<typeof setInterval> | null = null;
@@ -3292,9 +3321,13 @@ async function startNativeFullscreenRecording(
     }).catch(() => {});
   }
 
-  // Throw the current take away. A restart keeps the SESSION alive, so it uses
-  // `hide_recording_chrome` instead of `hide_overlays` — the latter destroys
-  // the camera bubble window along with the countdown and toolbar.
+  // End the whole recording session. `hide_overlays` destroys the camera
+  // bubble window along with the countdown and toolbar, which is wrong between
+  // the two takes of a restart — hence the split with `discardTake`.
+  const endSession = async () => {
+    await invoke("hide_overlays").catch(() => {});
+  };
+
   const discardTake = async (forRestart: boolean) => {
     stopped = true;
     clearSegmentRotator();
@@ -3327,9 +3360,11 @@ async function startNativeFullscreenRecording(
       localCameraStream?.getTracks().forEach((track) => track.stop());
     }
     streamCleanups.forEach((cleanup) => cleanup());
-    await invoke(forRestart ? "hide_recording_chrome" : "hide_overlays").catch(
-      () => {},
-    );
+    if (forRestart) {
+      await invoke("hide_recording_chrome").catch(() => {});
+    } else {
+      await endSession();
+    }
     if (!localOnly && id) {
       void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
         (err) => {
@@ -3575,20 +3610,34 @@ async function startNativeFullscreenRecording(
 
     async cancel() {
       if (cancelPromise) return cancelPromise;
+      // A cancel landing on an already-discarded take still has to end the
+      // session — the restart skipped that half deliberately, so returning
+      // here would leave the camera bubble up.
+      if (discardPromise) {
+        cancelPromise = discardPromise.then(endSession);
+        return cancelPromise;
+      }
       if (stopped) return;
       cancelPromise = discardTake(false);
       return cancelPromise;
     },
 
     async discardForRestart() {
-      if (cancelPromise || stopped) {
+      if (discardPromise) return discardPromise;
+      if (cancelPromise) {
+        await cancelPromise;
+        throw new Error("Recording was already cancelled");
+      }
+      if (stopped) {
         throw new Error("Recording already finished — nothing to restart");
       }
-      cancelPromise = discardTake(true);
-      await cancelPromise;
       // ScreenCaptureKit is driven from Rust, so the retake re-acquires
       // capture natively without needing a user gesture.
-      return { displayStream: null, audioStream: null };
+      discardPromise = discardTake(true).then(() => ({
+        displayStream: null,
+        audioStream: null,
+      }));
+      return discardPromise;
     },
   };
 
