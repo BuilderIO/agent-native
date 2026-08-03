@@ -26,8 +26,15 @@ export default defineAction({
       .describe(
         "Optional client-supplied id for the new deck. Lets the UI pick the id ahead of time so it can navigate optimistically before the server responds.",
       ),
+    slideIds: z
+      .array(z.string().min(1).max(64))
+      .max(1000)
+      .optional()
+      .describe(
+        "Optional client-supplied ids for the copied slides, in slide order. Same purpose as `newId`: when the UI opens an optimistic copy the user can edit immediately, its slide ids must match the persisted copy or those edits address slides the server never had.",
+      ),
   }),
-  run: async ({ deckId, title, newId: clientNewId }) => {
+  run: async ({ deckId, title, newId: clientNewId, slideIds }) => {
     const access = await resolveAccess("deck", deckId);
     if (!access) throw new Error(`Deck not found: ${deckId}`);
 
@@ -37,9 +44,17 @@ export default defineAction({
     const now = new Date().toISOString();
     const deckData = JSON.parse(source.data);
 
-    // Generate new IDs for all slides so edits to the copy don't collide
-    for (const slide of deckData.slides || []) {
-      slide.id = `slide-${nanoid(8)}`;
+    // New IDs for all slides so edits to the copy don't collide with the
+    // original. A caller that already rendered an optimistic copy supplies the
+    // ids it used; anything it did not cover still gets a fresh one.
+    const slides = deckData.slides || [];
+    for (const [index, slide] of slides.entries()) {
+      slide.id = slideIds?.[index] ?? `slide-${nanoid(8)}`;
+    }
+    if (
+      new Set(slides.map((s: { id: string }) => s.id)).size !== slides.length
+    ) {
+      throw new Error("slideIds must be unique");
     }
 
     const newTitle = title || `Copy of ${source.title}`;

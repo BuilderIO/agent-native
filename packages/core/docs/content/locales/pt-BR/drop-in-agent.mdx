@@ -203,7 +203,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — crie uma conversa de bate-papo separada para este prompt.
 - **`background`** — com `newTab`, execute sem focar o novo thread. A execução oculta é rastreada em `RunsTray`.
 - **`openSidebar`** — definido como `false` para envios em segundo plano/silenciosos. O padrão abre a barra lateral para que o usuário veja a resposta.
-- **`type`** — `"content"` (padrão) mantém o trabalho no agente de aplicativo integrado. `"code"` é roteado para o quadro de edição de código (para alterações de código escritas pelo agente, consulte [Frames](/docs/frames)).
+- **`type`** — `"content"` (padrão) mantém o trabalho no agente incorporado, que usa ferramentas do aplicativo. `"code"` roteia para um frame separado com capacidade de código para alterações no repositório; a escrita só fica disponível quando o host concede intencionalmente ferramentas de repository/workspace. Consulte [Frames](/docs/frames).
 
 `sendToAgentChat` retorna um `tabId` estável que você pode usar para monitorar a execução do chat.
 

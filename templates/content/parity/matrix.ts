@@ -267,6 +267,30 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.table-query-page",
+    surface: "database",
+    label: "Query one constrained page while retaining database metadata",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible.",
+    status: "action-backed",
+    actions: ["query-content-database-items"],
+    exception:
+      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for the complete database contract.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "app/hooks/use-content-database.test.ts",
+    ],
+  },
+  {
     id: "database.form-submissions",
     surface: "database",
     label: "Submit public database forms as new rows",
@@ -402,6 +426,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-source",
       "list-builder-cms-models",
       "list-notion-database-sources",
+      "preview-content-database-source-attach",
       "refresh-content-database-source",
       "suggest-source-join-key",
     ],

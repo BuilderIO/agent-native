@@ -8,7 +8,9 @@ import {
   normalizePersonalDatabaseViewOverrides,
   PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
 } from "./_content-database-personal-view";
-import action from "./update-content-database-personal-view";
+import action, {
+  personalSidebarOrderItemIds,
+} from "./update-content-database-personal-view";
 
 describe("update content database personal view", () => {
   it("accepts grouped filter overrides for the current user", () => {
@@ -50,6 +52,32 @@ describe("update content database personal view", () => {
         overrides: null,
       }).overrides,
     ).toBeNull();
+  });
+
+  it("only validates item ids that a sidebar order actually references", () => {
+    expect(
+      personalSidebarOrderItemIds({
+        version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+        views: [
+          {
+            id: "table",
+            sorts: [{ key: "date", label: "Date", direction: "asc" }],
+            filters: [],
+            filterMode: "and",
+          },
+          {
+            id: "files",
+            sorts: [],
+            filters: [],
+            filterMode: "and",
+            sidebarOrder: {
+              mode: "custom",
+              itemIds: ["item-b", "item-a", "item-b"],
+            },
+          },
+        ],
+      }),
+    ).toEqual(["item-b", "item-a"]);
   });
 
   it("preserves a personal sidebar order and normalizes legacy v2 views", () => {

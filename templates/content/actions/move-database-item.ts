@@ -135,6 +135,9 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(row.item.databaseId);
+    return getContentDatabaseResponse(row.item.databaseId, {
+      limit: 100,
+      offset: 0,
+    });
   },
 });

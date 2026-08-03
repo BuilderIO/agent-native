@@ -33,9 +33,10 @@ export default defineAction({
     ),
   }),
   readOnly: true,
-  // No raw HTTP route: a GET endpoint would put caller SQL in query strings
-  // and access logs. External MCP callers reach this through the explicit
-  // ANALYTICS_CONNECTOR_CATALOG entry, which dispatches run() in-process.
+  // No raw HTTP or connector-catalog route: SQL would land in query strings,
+  // logs, or a caller that lacks this app's schema and data dictionary. This
+  // remains an internal Analytics-agent tool; sibling agents ask Analytics a
+  // natural-language question and Analytics forms the query.
   http: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args) => {

@@ -45,8 +45,10 @@ change the numbers.
 - A sibling app asking over A2A sends a question or shaped input, never SQL. It
   lacks this app's schema, data dictionary, dashboards, and dialect knowledge,
   so raw-query actions (`sql`, `code`, `script`, `expression`) are not
-  sibling-invocable. For recurring numbers, add a shaped read action with
-  semantic parameters and let this app own the query.
+  sibling-invocable. Prefer natural-language delegation so this app retains its
+  instructions, source selection, and tools. Shaped reads are stable contracts,
+  not workarounds for delegation; this app still owns the query.
+- For open-ended delegated requests, choose a safe default and label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; only present values you actually retrieved, and state uncertainty.
 - Every analytical answer carries audit context: source(s), time window,
@@ -70,8 +72,9 @@ change the numbers.
   only URLs, ids, or handles.
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
-- External MCP callers default to `ask_app` for multi-step work; fallback reads
-  are bounded and scoped, and writes stay `ask_app`-only.
+- External MCP callers default to `ask_app` for interpretation, source choice,
+  analysis, or multi-step work. Direct reads require exact, complete input;
+  writes stay `ask_app`-only.
 - Dashboard email reports and analytics alert rules are SQL-backed,
   self-describing action surfaces — don't hand-wire routes around them. Reports
   cap at five recipients. See `dashboard-ops`.

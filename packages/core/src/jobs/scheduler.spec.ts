@@ -113,8 +113,10 @@ describe("processRecurringJobs", () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
-    // Default: user exists and (when checked) is an org member.
-    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }] });
+    // Default: user exists and (when checked) is an org member. rowsAffected: 1
+    // also lets the background run's self-claim CAS UPDATE (see
+    // background-automation-runner.ts) succeed by default.
+    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -597,6 +599,9 @@ Post the digest.`,
     // dispatch_mode NULL falls through to RUN_STALE_MS (15s) in
     // backgroundAwareStaleCutoffSql — a window sized for a foreground run a
     // browser is streaming. Nothing streams a job, so it gets reaped mid-run.
+    // dispatch_mode now gets there via the runner's own pre-claim, not via
+    // startRun's options — see background-automation-runner.spec.ts for the
+    // dedicated self-claim regression test.
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
@@ -605,9 +610,7 @@ Post the digest.`,
     });
 
     expect(startRunMock).toHaveBeenCalledOnce();
-    expect(startRunMock.mock.calls[0][4]).toEqual(
-      expect.objectContaining({ dispatchMode: "background" }),
-    );
+    expect(startRunMock.mock.calls[0][4]).not.toHaveProperty("dispatchMode");
   });
 
   it("runs the job through the resume wrapper instead of calling runAgentLoop raw", async () => {

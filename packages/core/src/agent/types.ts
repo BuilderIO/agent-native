@@ -276,8 +276,10 @@ export type AgentChatEvent =
   | {
       type: "agent_call";
       agent: string;
-      status: "start" | "done" | "error";
+      status: "start" | "done" | "pending" | "error";
       agentCallId?: string;
+      /** Remote task to resume when status is pending/input-required. */
+      taskId?: string;
       durationMs?: number;
     }
   | {

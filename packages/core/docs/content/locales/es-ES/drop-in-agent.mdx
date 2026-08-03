@@ -203,7 +203,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`**: crea un hilo de chat independiente para este mensaje.
 - **`background`** — con `newTab`, ejecute sin enfocar el nuevo hilo. La ejecución oculta se rastrea en `RunsTray`.
 - **`openSidebar`**: configurado en `false` para envíos en segundo plano/silenciosos. Predeterminado abre la barra lateral para que el usuario vea la respuesta.
-- **`type`**: `"content"` (predeterminado) mantiene el trabajo en el agente de aplicación integrado. `"code"` enruta al marco de edición de código (para cambios de código escritos por el agente, consulte [Frames](/docs/frames)).
+- **`type`**: `"content"` (predeterminado) mantiene el trabajo en el agente integrado, que usa herramientas de la aplicación. `"code"` lo envía a un frame separado con capacidad de código para cambios en el repositorio; la escritura solo está disponible si el host concede intencionalmente herramientas de repository/workspace. Consulte [Frames](/docs/frames).
 
 `sendToAgentChat` devuelve un `tabId` estable que puedes utilizar para realizar un seguimiento de la ejecución del chat.
 

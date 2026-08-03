@@ -233,7 +233,12 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
   if (ev.type === "tool_done") return -1;
   if (ev.type === "agent_call") {
     if (ev.status === "start") return 1;
-    if (ev.status === "done" || ev.status === "error") return -1;
+    if (
+      ev.status === "done" ||
+      ev.status === "pending" ||
+      ev.status === "error"
+    )
+      return -1;
   }
   return 0;
 }
@@ -1455,7 +1460,11 @@ export function processEvent(
         args: {},
         activity: true,
       });
-    } else if (ev.status === "done" || ev.status === "error") {
+    } else if (
+      ev.status === "done" ||
+      ev.status === "pending" ||
+      ev.status === "error"
+    ) {
       for (let i = content.length - 1; i >= 0; i--) {
         const part = content[i];
         if (
@@ -1464,7 +1473,12 @@ export function processEvent(
           (!ev.agentCallId || part.toolCallId === ev.agentCallId) &&
           part.result === undefined
         ) {
-          part.result = ev.status === "error" ? "Error calling agent" : "Done";
+          part.result =
+            ev.status === "error"
+              ? "Error calling agent"
+              : ev.status === "pending"
+                ? "Remote agent task is still pending"
+                : "Done";
           part.structuredMeta = {
             ...part.structuredMeta,
             ...(ev.durationMs != null

@@ -46,6 +46,12 @@ describe("invokeAgent", () => {
     expect(String(vi.mocked(rt.callAgent).mock.calls[0]?.[1])).toContain(
       "FULLY-QUALIFIED URL",
     );
+    expect(String(vi.mocked(rt.callAgent).mock.calls[0]?.[1])).toContain(
+      "<a2a-caller-hint>",
+    );
+    expect(String(vi.mocked(rt.callAgent).mock.calls[0]?.[1])).toContain(
+      "</a2a-caller-hint>",
+    );
     expect(result).toMatchObject({
       target: {
         kind: "url",

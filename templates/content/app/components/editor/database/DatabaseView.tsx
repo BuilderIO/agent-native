@@ -15,6 +15,7 @@ import {
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
+  type ContentDatabaseSourceAttachmentResult,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
@@ -34,6 +35,7 @@ import {
   type ContentDatabaseRowDensity,
   type ContentDatabaseSort,
   type ContentDatabaseSortDirection,
+  type ContentDatabaseTableQuery,
   type ContentDatabaseViewType,
   type Document,
   type DocumentProperty,
@@ -42,6 +44,7 @@ import {
   type DocumentPropertyValue,
 } from "@shared/api";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
+import { applyContentDatabaseTableQuery } from "@shared/database-query";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -165,6 +168,7 @@ import {
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
+  useBuilderCmsAttachPreview,
   useBuilderCmsModels,
   useCancelPreparedBuilderSourceUpdate,
   useChangeContentDatabaseSourceRole,
@@ -188,6 +192,7 @@ import {
   useSuggestSourceJoinKey,
   useUpdateContentDatabasePersonalView,
   useUpdateContentDatabaseView,
+  writeBuilderAttachPreviewToCache,
 } from "@/hooks/use-content-database";
 import {
   useContentSpaces,
@@ -441,6 +446,7 @@ export function databaseCreatedItemForImmediatePreview(
     now?: string;
   },
 ): ContentDatabaseItem | null {
+  if (response.createdItem) return response.createdItem;
   const returnedItem = response.items.find(
     (item) => item.id === response.createdItemId,
   );
@@ -769,15 +775,51 @@ function DatabaseTable({
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
+    defaultDatabaseViewConfig(),
+  );
+  const activeView = useMemo(
+    () => activeDatabaseView(viewConfig),
+    [viewConfig],
+  );
+  const tableQuery = useMemo<ContentDatabaseTableQuery | undefined>(() => {
+    if (
+      activeView.type !== "table" ||
+      activeDatabaseConstraintCount(
+        searchQuery,
+        activeView.sorts,
+        activeView.filters,
+      ) === 0
+    ) {
+      return undefined;
+    }
+    return {
+      search: searchQuery,
+      filters: activeView.filters,
+      sorts: activeView.sorts,
+      filterMode: activeView.filterMode ?? "and",
+    };
+  }, [activeView, searchQuery]);
   const [manualDatabaseItemLimit, setManualDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
   const [databaseRequestItemLimit, setDatabaseRequestItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
-  const database = useContentDatabase(document.id, databaseRequestItemLimit);
+  const database = useContentDatabase(
+    document.id,
+    databaseRequestItemLimit,
+    tableQuery,
+  );
+  // A deleted/missing database resolves to the unavailable union (no
+  // `database` field) — treat it as no data; the inline-block wrapper owns
+  // the user-facing "Database unavailable" state.
+  const data = isContentDatabaseUnavailable(database.data)
+    ? undefined
+    : database.data;
   const addItem = useAddDatabaseItem(document.id);
-  const attachSource = useAttachContentDatabaseSource(document.id);
+  const attachSource = useAttachContentDatabaseSource(document.id, data);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
   const disconnectSource = useDisconnectContentDatabaseSource(document.id);
@@ -794,12 +836,8 @@ function DatabaseTable({
     document.id,
   );
   const updateView = useUpdateContentDatabaseView(document.id);
-  // A deleted/missing database resolves to the unavailable union (no
-  // `database` field) — treat it as no data; the inline-block wrapper owns
-  // the user-facing "Database unavailable" state.
-  const data = isContentDatabaseUnavailable(database.data)
-    ? undefined
-    : database.data;
+  const attachPreviewActive = Boolean(data?.attachPreview);
+  const effectiveCanEdit = canEdit && !attachPreviewActive;
   const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
   const isCreatingDatabaseItem = addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
@@ -841,7 +879,6 @@ function DatabaseTable({
     string | null
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
@@ -876,18 +913,11 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
-  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
-    defaultDatabaseViewConfig(),
-  );
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
-  );
-  const activeView = useMemo(
-    () => activeDatabaseView(viewConfig),
-    [viewConfig],
   );
   const orderedProperties = useMemo(
     () => orderDatabasePropertiesForView(properties, activeView),
@@ -996,10 +1026,12 @@ function DatabaseTable({
     visibleFilters,
   );
   const requiresCompleteClientDataset =
-    activeConstraintCount > 0 ||
-    !!databaseGroupProperty ||
-    activeView.type === "calendar" ||
-    activeView.type === "timeline";
+    databaseViewRequiresCompleteClientDataset({
+      viewType: activeView.type,
+      activeConstraintCount,
+      grouped: !!databaseGroupProperty,
+      tableQueryMode: data?.tableQueryMode,
+    });
   const clientQueryExpandedItemLimit = databaseClientQueryExpandedItemLimit(
     requiresCompleteClientDataset,
     manualDatabaseItemLimit,
@@ -1011,7 +1043,19 @@ function DatabaseTable({
     data?.pagination?.limit ?? items.length,
   );
   const isDatabaseViewLoading =
-    isDatabaseInitialLoading || isClientQueryExpansionPending;
+    isDatabaseInitialLoading ||
+    isClientQueryExpansionPending ||
+    (database.isFetching && Boolean(tableQuery));
+  useEffect(() => {
+    if (isDatabaseViewLoading) return;
+    window.document.documentElement.dataset.contentDatabaseRowsVisibleDocumentId =
+      document.id;
+    window.dispatchEvent(
+      new CustomEvent("content-database-rows-visible", {
+        detail: { documentId: document.id },
+      }),
+    );
+  }, [document.id, isDatabaseViewLoading]);
   useEffect(() => {
     if (clientQueryExpandedItemLimit === databaseRequestItemLimit) return;
     setDatabaseRequestItemLimit(clientQueryExpandedItemLimit);
@@ -1072,6 +1116,8 @@ function DatabaseTable({
     () => builderReviewableChangeSets(builderReviewSource),
     [builderReviewSource],
   );
+  const builderReviewCountIsComplete =
+    databaseSourceChangeSetsAreComplete(builderReviewSource);
   const builderReviewPreview = useMemo(
     () =>
       builderReviewSource && builderReviewChangeSets.length > 0
@@ -1082,11 +1128,12 @@ function DatabaseTable({
         : null,
     [builderReviewChangeSets, builderReviewSource],
   );
-  const activeBuilderReview =
-    builderReviewResult ??
-    (builderReviewOpen
-      ? (completeBuilderReviewPreview?.review ?? null)
-      : builderReviewPreview);
+  const activeBuilderReview = databaseActiveBuilderReview({
+    prepared: builderReviewResult,
+    complete: completeBuilderReviewPreview?.review ?? null,
+    page: builderReviewPreview,
+    open: builderReviewOpen,
+  });
   const sourcePendingOperations: DatabaseSourcePendingOperations = {
     attach: attachSource.isPending,
     changeRole: changeSourceRole.isPending,
@@ -1135,6 +1182,7 @@ function DatabaseTable({
       onError?: () => void,
       expectedBuilderContinuationOffset?: number,
       onSuccess?: () => void,
+      fullRefresh = false,
     ) => {
       if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
         return false;
@@ -1144,6 +1192,8 @@ function DatabaseTable({
           documentId: document.id,
           sourceId,
           expectedBuilderContinuationOffset,
+          fullRefresh: fullRefresh || undefined,
+          finishBuilderPagination: fullRefresh || undefined,
         },
         {
           onError,
@@ -1190,19 +1240,35 @@ function DatabaseTable({
       ) {
         return false;
       }
-      processBuilderBodies.mutate(
-        { sourceId, ...request },
-        {
-          onSuccess: options.onSuccess,
-          onError: options.onError,
-          onSettled: () => {
-            releaseDatabaseSourceOperation(
-              hydrationSourceInFlightRef,
-              sourceId,
-            );
+      const pump = () => {
+        let result: ProcessBuilderBodyHydrationResponse | null = null;
+        processBuilderBodies.mutate(
+          { sourceId, ...request },
+          {
+            onSuccess: (nextResult) => {
+              result = nextResult;
+              options.onSuccess?.(nextResult);
+            },
+            onError: options.onError,
+            onSettled: () => {
+              if (
+                !request.documentId &&
+                result &&
+                builderBodyHydrationMutationMadeProgress(result) &&
+                result.remaining > 0
+              ) {
+                pump();
+                return;
+              }
+              releaseDatabaseSourceOperation(
+                hydrationSourceInFlightRef,
+                sourceId,
+              );
+            },
           },
-        },
-      );
+        );
+      };
+      pump();
       return true;
     },
     [processBuilderBodies.mutate],
@@ -1246,6 +1312,7 @@ function DatabaseTable({
         () => handleBuilderContinuationError(continuationKey),
         candidate.metadata.lastReadNextOffset,
         () => handleBuilderContinuationSuccess(continuationKey),
+        true,
       )
     ) {
       autoContinueBuilderSourceRef.current.delete(continuationKey);
@@ -1325,6 +1392,7 @@ function DatabaseTable({
           () => handleBuilderContinuationError(continuationKey),
           candidate.metadata.lastReadNextOffset,
           () => handleBuilderContinuationSuccess(continuationKey),
+          true,
         )
       ) {
         builderContinuationWatchdogRef.current.set(
@@ -2264,7 +2332,7 @@ function DatabaseTable({
       : viewConfig;
     const nextKey = databaseViewStateKey(databaseId, sharedViewConfig);
     if (databaseViewStateKey(databaseId, savedViewConfig) === nextKey) return;
-    if (!canEdit) return;
+    if (!effectiveCanEdit) return;
     if (saveViewTimerRef.current) {
       clearTimeout(saveViewTimerRef.current);
     }
@@ -2344,7 +2412,7 @@ function DatabaseTable({
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           viewConfig={viewConfig}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           onViewConfigChange={setViewConfig}
         />
         <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
@@ -2460,12 +2528,16 @@ function DatabaseTable({
             size="sm"
             aria-label={
               builderReviewChangeSets.length > 0
-                ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
+                ? builderReviewCountIsComplete
+                  ? `Database settings, ${builderReviewChangeSets.length} Builder update pending`
+                  : "Database settings, Builder updates pending"
                 : "Database settings"
             }
             title={
               builderReviewChangeSets.length > 0
-                ? `${builderReviewChangeSets.length} Builder update pending`
+                ? builderReviewCountIsComplete
+                  ? `${builderReviewChangeSets.length} Builder update pending`
+                  : "Builder updates pending"
                 : "Database settings"
             }
             className={cn(
@@ -2485,12 +2557,24 @@ function DatabaseTable({
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
             {builderReviewChangeSets.length > 0 ? (
-              <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
-                {formatCompactCountBadge(builderReviewChangeSets.length)}
-              </span>
+              builderReviewCountIsComplete ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
+                  {formatCompactCountBadge(builderReviewChangeSets.length)}
+                </span>
+              ) : (
+                <span className="absolute right-0 top-0 size-2 rounded-full bg-foreground" />
+              )
             ) : null}
           </Button>
-          {canEdit && isWorkspaceCatalog ? (
+          {data?.attachPreview ? (
+            <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {data.attachPreview.complete &&
+              typeof data.attachPreview.importedItemCount === "number"
+                ? `${data.attachPreview.importedItemCount} rows fetched`
+                : dbText("attachingReadOnly")}
+            </span>
+          ) : null}
+          {effectiveCanEdit && isWorkspaceCatalog ? (
             <WorkspaceSourceMenu
               align="end"
               propertyValues={workspaceCreationPropertyValues}
@@ -2504,7 +2588,7 @@ function DatabaseTable({
                 New
               </Button>
             </WorkspaceSourceMenu>
-          ) : canEdit ? (
+          ) : effectiveCanEdit ? (
             <Button
               type="button"
               size="sm"
@@ -2582,7 +2666,7 @@ function DatabaseTable({
           <BuilderSourceContinuationBar
             key={builderSource.id}
             source={builderSource}
-            canEdit={canEdit}
+            canEdit={effectiveCanEdit}
             pending={
               sourcePendingOperations.refreshSourceId === builderSource.id
             }
@@ -2607,6 +2691,7 @@ function DatabaseTable({
                 () => handleBuilderContinuationError(continuationKey),
                 builderSource.metadata.lastReadNextOffset,
                 () => handleBuilderContinuationSuccess(continuationKey),
+                true,
               );
             }}
           />
@@ -2620,7 +2705,7 @@ function DatabaseTable({
           databaseTitle={data?.database.title ?? document.title}
           view={activeView}
           properties={orderedProperties}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
         />
       ) : activeView.type === "board" ? (
         <DatabaseBoardView
@@ -2630,7 +2715,7 @@ function DatabaseTable({
           items={visibleItems}
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2659,7 +2744,7 @@ function DatabaseTable({
           groupableProperties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2683,7 +2768,7 @@ function DatabaseTable({
           groupableProperties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2708,7 +2793,7 @@ function DatabaseTable({
           properties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2736,7 +2821,7 @@ function DatabaseTable({
           properties={orderedProperties}
           items={visibleItems}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
@@ -2773,7 +2858,7 @@ function DatabaseTable({
           source={source}
           sources={sources}
           databaseDocumentId={document.id}
-          canEdit={canEdit}
+          canEdit={effectiveCanEdit}
           workspaceCreationPropertyValues={workspaceCreationPropertyValues}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
@@ -2894,6 +2979,7 @@ function DatabaseTable({
             sourceType: "builder-cms",
             sourceName: model.displayName,
             sourceTable: model.name,
+            builderFieldPaths: model.fields.map((field) => field.name),
             relationshipMode,
             mode:
               relationshipMode === "items"
@@ -3896,13 +3982,18 @@ export function databaseBulkScalarInputState(
 type DuplicatedDatabaseItemResponse = {
   items: ContentDatabaseResponse["items"];
   duplicatedItemId?: ContentDatabaseResponse["duplicatedItemId"];
+  duplicatedItems?: ContentDatabaseResponse["duplicatedItems"];
 };
 
 export function databaseDuplicatedItemFromResponse(
   response: DuplicatedDatabaseItemResponse,
 ) {
   return (
-    response.items.find((item) => item.id === response.duplicatedItemId) ?? null
+    response.duplicatedItems?.find(
+      (item) => item.id === response.duplicatedItemId,
+    ) ??
+    response.items.find((item) => item.id === response.duplicatedItemId) ??
+    null
   );
 }
 
@@ -5697,7 +5788,7 @@ function DatabaseTableView({
           ) : null}
         </div>
 
-        {isLoading ? (
+        {databaseTableShouldShowBlockingLoader(isLoading, items.length) ? (
           <div className="flex h-16 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             {dbText("loadingDatabase")}
@@ -5860,6 +5951,29 @@ function DatabaseTableView({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+export function databaseTableShouldShowBlockingLoader(
+  isLoading: boolean,
+  itemCount: number,
+) {
+  return isLoading && itemCount === 0;
+}
+
+export function databaseViewRequiresCompleteClientDataset(args: {
+  viewType: ContentDatabaseViewType;
+  activeConstraintCount: number;
+  grouped: boolean;
+  tableQueryMode?: ContentDatabaseResponse["tableQueryMode"];
+}) {
+  return (
+    (args.viewType === "table" && args.tableQueryMode === "client-required") ||
+    (args.viewType !== "table" &&
+      (args.activeConstraintCount > 0 ||
+        args.grouped ||
+        args.viewType === "calendar" ||
+        args.viewType === "timeline"))
   );
 }
 
@@ -7305,11 +7419,11 @@ function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
@@ -7333,10 +7447,44 @@ function DatabaseSettingsPanelSheet({
   onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
+  const queryClient = useQueryClient();
   // Local drill-down path *within* the Source(s) panel. Kept here (not in the
   // flat panel enum) because the levels are dynamic — space/model names aren't
   // known at compile time. The sheet's back button pops this stack first.
   const [sourceNavStack, setSourceNavStack] = useState<SourceNavStep[]>([]);
+  const sourceNavTop = sourceNavStack[sourceNavStack.length - 1];
+  const previewModel =
+    sourceNavTop?.kind === "model" ? (sourceNavTop.model ?? null) : null;
+  const previewFieldPaths = useMemo(
+    () => previewModel?.fields.map((field) => field.name),
+    [previewModel],
+  );
+  const previewAlreadyAttached = previewModel
+    ? Boolean(
+        databaseAttachedBuilderSource(sources, source, {
+          modelName: previewModel.name,
+        }),
+      )
+    : false;
+  const builderAttachPreview = useBuilderCmsAttachPreview({
+    documentId,
+    sourceTable: previewModel?.name ?? null,
+    fieldPaths: previewFieldPaths,
+    enabled:
+      open &&
+      panel === "source" &&
+      canEdit &&
+      Boolean(previewModel) &&
+      !previewAlreadyAttached,
+  });
+  useEffect(() => {
+    if (!sourceActionPending || !builderAttachPreview.data) return;
+    writeBuilderAttachPreviewToCache(
+      queryClient,
+      documentId,
+      builderAttachPreview.data,
+    );
+  }, [builderAttachPreview.data, documentId, queryClient, sourceActionPending]);
   useEffect(() => {
     // Always re-enter the Sources panel at its root, and don't retain a path
     // across close/reopen.
@@ -7425,6 +7573,7 @@ function DatabaseSettingsPanelSheet({
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onSetBuilderLiveWrites={onSetBuilderLiveWrites}
             sourceActionPending={sourceActionPending}
+            builderAttachPreviewPending={builderAttachPreview.isFetching}
             sourcePendingOperations={sourcePendingOperations}
           />
         ) : panel === "layout" ? (
@@ -7488,7 +7637,9 @@ function DatabaseSettingsMainPanel({
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
-  const sourceBadgeCount = builderReviewableChangeSets(source).length;
+  const sourceBadgeCount = databaseSourceChangeSetsAreComplete(source)
+    ? builderReviewableChangeSets(source).length
+    : undefined;
   return (
     <div className="grid gap-3">
       <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2">
@@ -7548,6 +7699,23 @@ export function builderReviewableChangeSets(
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
   );
+}
+
+export function databaseActiveBuilderReview(args: {
+  prepared: ContentDatabaseSourceReviewPayload | null;
+  complete: ContentDatabaseSourceReviewPayload | null;
+  page: ContentDatabaseSourceReviewPayload | null;
+  open: boolean;
+}) {
+  return (
+    args.prepared ?? (args.open ? (args.complete ?? args.page) : args.page)
+  );
+}
+
+export function databaseSourceChangeSetsAreComplete(
+  source: ContentDatabaseSource | null,
+) {
+  return source?.projection?.changeSets !== "page";
 }
 
 function sourceReviewRiskRank(
@@ -7807,6 +7975,7 @@ function DatabaseSettingsSourcePanel({
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
+  builderAttachPreviewPending,
   sourcePendingOperations,
 }: {
   source: ContentDatabaseSource | null;
@@ -7823,11 +7992,11 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
@@ -7840,13 +8009,17 @@ function DatabaseSettingsSourcePanel({
   onReviewBuilderUpdate: (sourceId: string) => void;
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
+  builderAttachPreviewPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
 }) {
   const { isCodeMode } = useCodeMode();
   const navigate = useNavigate();
   const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
+  const builderAttachPending =
+    sourceActionPending || builderAttachPreviewPending;
   const builderConfigured = builderStatus.status?.configured === true;
+  const builderModelsQuery = useBuilderCmsModels(builderConfigured);
   const builderOrgName = builderStatus.status?.orgName ?? null;
   // Real space name(s) from the Admin API, falling back to the generic org
   // name (then a constant) so the drill-down never renders a blank label.
@@ -7873,11 +8046,15 @@ function DatabaseSettingsSourcePanel({
         sources={sources}
         builderConfigured={builderConfigured}
         builderSpaceLabel={builderSpaceLabel}
-        reviewableCount={builderSources.reduce(
-          (total, candidate) =>
-            total + builderReviewableChangeSets(candidate).length,
-          0,
-        )}
+        reviewableCount={
+          builderSources.every(databaseSourceChangeSetsAreComplete)
+            ? builderSources.reduce(
+                (total, candidate) =>
+                  total + builderReviewableChangeSets(candidate).length,
+                0,
+              )
+            : undefined
+        }
         onOpenBuilder={(builderSource) =>
           onNavPush(
             builderSource
@@ -8003,6 +8180,11 @@ function DatabaseSettingsSourcePanel({
                 join,
               )
             : await onFederateSource(top.candidate, join);
+          if ("responseProjection" in result) {
+            throw new Error(
+              "Detail-source attachment returned an item-source acknowledgement.",
+            );
+          }
           const detailsSource = findDetailsSource(result, top.candidate);
           onNavReplace(
             detailsSource
@@ -8095,6 +8277,7 @@ function DatabaseSettingsSourcePanel({
     return (
       <BuilderSpaceModelsView
         attachedModelNames={databaseAttachedBuilderModelNames(sources, source)}
+        modelsQuery={builderModelsQuery}
         onOpenModel={(model) => {
           const attached = databaseAttachedBuilderSource(sources, source, {
             modelName: model.name,
@@ -8144,7 +8327,7 @@ function DatabaseSettingsSourcePanel({
               displayName: model.displayName,
             }}
             canEdit={canEdit}
-            pending={sourceActionPending}
+            pending={builderAttachPending}
             onAddDetails={() =>
               onNavPush({
                 kind: "keyConfirm",
@@ -8166,7 +8349,7 @@ function DatabaseSettingsSourcePanel({
             <Button
               type="button"
               size="sm"
-              disabled={!canEdit || sourceActionPending}
+              disabled={!canEdit || builderAttachPending}
               onClick={async () => {
                 try {
                   await onAttachBuilderSource(model);
@@ -8181,7 +8364,7 @@ function DatabaseSettingsSourcePanel({
                 }
               }}
             >
-              {sourceActionPending ? (
+              {builderAttachPending ? (
                 <Spinner className="mr-1.5 size-3.5" />
               ) : (
                 <IconPlugConnected className="mr-1.5 size-3.5" />
@@ -8195,6 +8378,8 @@ function DatabaseSettingsSourcePanel({
   }
 
   const selectedSource = selectedBuilderSource;
+  const selectedSourceChangeSetsComplete =
+    databaseSourceChangeSetsAreComplete(selectedSource);
   const reviewableBuilderChangeSets =
     builderReviewableChangeSets(selectedSource);
   const outboundChangeSets = reviewableBuilderChangeSets;
@@ -8408,11 +8593,13 @@ function DatabaseSettingsSourcePanel({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm font-medium">
-                {conflictChangeSets.length > 0
+                {selectedSourceChangeSetsComplete &&
+                conflictChangeSets.length > 0
                   ? `${conflictChangeSets.length} change${
                       conflictChangeSets.length === 1 ? "" : "s"
                     } need review`
-                  : reviewableBuilderChangeSets.length > 0
+                  : selectedSourceChangeSetsComplete &&
+                      reviewableBuilderChangeSets.length > 0
                     ? `${reviewableBuilderChangeSets.length} change${
                         reviewableBuilderChangeSets.length === 1 ? "" : "s"
                       } ready to push`
@@ -8562,7 +8749,7 @@ function SourcesListView({
   sources: ContentDatabaseSource[];
   builderConfigured: boolean;
   builderSpaceLabel: string | null;
-  reviewableCount: number;
+  reviewableCount?: number;
   onOpenBuilder: (source?: ContentDatabaseSource) => void;
   onOpenNotion: () => void;
   onOpenLocalFolder: () => void;
@@ -9789,12 +9976,13 @@ function SourceDetailsFieldPicker({
 // is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
   attachedModelNames,
+  modelsQuery,
   onOpenModel,
 }: {
   attachedModelNames: string[];
+  modelsQuery: ReturnType<typeof useBuilderCmsModels>;
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
-  const modelsQuery = useBuilderCmsModels(true);
   const models = modelsQuery.data?.models ?? [];
   const [query, setQuery] = useState("");
 
@@ -16362,37 +16550,11 @@ export function applyDatabaseView(
   sorts: DatabaseSort[],
   filterMode: DatabaseFilterMode = "and",
 ) {
-  const query = searchQuery.trim().toLowerCase();
-  const searched = query
-    ? items.filter((item) =>
-        databaseItemSearchText(item, properties).toLowerCase().includes(query),
-      )
-    : items;
-  const activeFilters = filters.filter(isActiveFilter);
-  const filtered = activeFilters.length
-    ? searched.filter((item) =>
-        databaseItemMatchesFilterTree(
-          item,
-          properties,
-          activeFilters,
-          filterMode,
-        ),
-      )
-    : searched;
-
-  if (sorts.length === 0) return filtered;
-
-  return [...filtered].sort((a, b) => {
-    for (const sort of sorts) {
-      const comparison = compareDatabaseSortValues(
-        databaseItemSortValue(a, properties, sort.key),
-        databaseItemSortValue(b, properties, sort.key),
-      );
-      if (comparison !== 0) {
-        return sort.direction === "asc" ? comparison : -comparison;
-      }
-    }
-    return 0;
+  return applyContentDatabaseTableQuery(items, properties, {
+    search: searchQuery,
+    filters,
+    sorts,
+    filterMode,
   });
 }
 

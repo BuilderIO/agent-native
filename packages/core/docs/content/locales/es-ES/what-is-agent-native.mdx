@@ -217,7 +217,7 @@ Consulte [Recursos del Agente](/docs/agent-resources) para conocer el concepto c
 
 ## Desarrollo de todo el equipo {#whole-team-development}
 
-El agente nativo no es solo para desarrolladores. Debido a que el agente puede editar el propio código de la aplicación, la evolución de una aplicación deja de ser una actividad exclusiva del desarrollador:
+El agente nativo no es solo para desarrolladores. El agente integrado ofrece a todo el equipo una forma compartida de operar la aplicación, mientras los cambios de código fuente permanecen en el flujo de desarrollo normal. Solo puede editar el código fuente si el host concede intencionalmente herramientas de escritura de repository/workspace:
 
 - **Los diseñadores** actualizan los diseños directamente en la aplicación en ejecución a través del agente
 - **Los gerentes de producto** agregan funcionalidad y actualizan flujos describiéndolos
@@ -233,10 +233,10 @@ Las aplicaciones nativas del agente siguen un modelo de empezar con una app func
 1. Elija una plantilla en [agent-native.com/templates](/templates)
 2. Úselo inmediatamente como una aplicación alojada (por ejemplo, mail.agent-native.com)
 3. Cree su propia app desde la plantilla cuando desee personalizar: "conectar nuestra cuenta de Stripe", "agregar un gráfico de cohortes"
-4. El agente modifica el código para adaptarlo a sus necesidades
+4. Personaliza el código fuente en tu repositorio y flujo de desarrollo
 5. Implemente su app en su propio dominio o permanezca en agent-native.com
 
-Debido a que es _su_ aplicación, no una infraestructura compartida, el agente puede desarrollar el código de manera segura. Tu aplicación sigue mejorando a medida que la usas. Consulte [Templates](/docs/cloneable-saas) para conocer la historia completa.
+Debido a que es _su_ aplicación, no infraestructura compartida, eres dueño del código fuente y puedes evolucionarlo sin cambiar el framework compartido. El agente integrado trabaja mediante actions y datos, y solo puede ayudar con el código fuente si se le conceden intencionalmente herramientas de escritura. Consulte [Templates](/docs/cloneable-saas) para conocer la historia completa.
 
 ¿No estás listo para empezar con una plantilla completa? También puede probar el agente nativo agregando una **habilidad** a un agente de codificación que ya usa: instale la habilidad Planes con `npx @agent-native/core@latest skills add visual-plan`. Ver el [Skills Guide](/docs/skills-guide#app-backed-skills).
 

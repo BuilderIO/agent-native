@@ -175,9 +175,11 @@ const EMPTY_SCREEN_IDS: readonly string[] = [];
 // redeclared locally and drifting from the shared constant.
 const MIN_ZOOM = DEFAULT_CANVAS_MIN_ZOOM;
 const MAX_ZOOM = DEFAULT_CANVAS_MAX_ZOOM;
-const ZOOM_SENSITIVITY = 0.01;
-const MAX_WHEEL_ZOOM_DELTA = 120;
 const MAX_WHEEL_PAN_DELTA = 140;
+/** Live counter-scale for constant-size frame chrome, written on the world
+ *  element every gesture frame by applyViewToDom. React supplies the same
+ *  number as the var's fallback, so first paint and SSR are unaffected. */
+const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
 const PIXEL_GRID_ZOOM = 800;
 import {
   BOARD_SURFACE_BACKGROUND,
@@ -303,6 +305,10 @@ import {
   shapeClosingHandles,
 } from "./multi-screen/draft-primitives";
 import {
+  drillInCandidateKey,
+  resolveDrillInTarget,
+} from "./multi-screen/drill-in";
+import {
   angleBetween,
   BREAKPOINT_FRAME_GAP,
   cloneFrameGeometryById,
@@ -342,6 +348,11 @@ import {
 } from "./multi-screen/primitive-drop-target";
 import type { AlignmentGuide, CanvasFrameEntry } from "./multi-screen/types";
 import { vectorEditCanvasToLocalPoint } from "./multi-screen/vector-edit-geometry";
+import {
+  isPinchZoomDelta,
+  resolveExternalZoomAnchor,
+  resolveZoomFactor,
+} from "./multi-screen/zoom-gesture";
 
 /**
  * Imperatively writes a draft primitive's full visual state onto its cached
@@ -911,6 +922,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // externally-driven (toolbar/keyboard) zoom change without a TDZ error.
   const recomputePenPointerForViewChangeRef = useRef<() => void>(() => {});
   const suppressNextPick = useRef(false);
+  /** Where the last frame-body double-click landed, so consecutive
+   *  double-clicks descend one level further instead of re-selecting the same
+   *  layer. Reset whenever the pointer moves to a different screen. */
+  const drillInTargetRef = useRef<{ screenId: string; key: string } | null>(
+    null,
+  );
+  /** Generation counter for drill-in requests. Collecting candidates is an
+   *  async iframe round-trip, so ANY newer selection — another double-click, a
+   *  plain click, a marquee — must invalidate an in-flight one, or its late
+   *  reply overwrites the selection the user actually made. */
+  const drillInRequestRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
   const pendingWheelGestureRef = useRef<PendingWheelGesture | null>(null);
   const wheelGestureFrameRef = useRef<number | null>(null);
@@ -1321,7 +1343,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : referenceId
           ? frameGeometryRef.current[referenceId]
           : undefined;
-    const cursor = activeGeometry
+    // A screen's frame is routinely much taller than the viewport, so its centre
+    // is often far off-screen; anchoring there holds a point the user cannot see
+    // and pushes the visible content out of frame entirely.
+    const frameCenter = activeGeometry
       ? canvasToScreenPoint(
           {
             x: activeGeometry.x + activeGeometry.width / 2,
@@ -1331,9 +1356,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           { x: 0, y: 0 },
           SURFACE_PADDING,
         )
-      : rect
-        ? { x: rect.width / 2, y: rect.height / 2 }
-        : { x: 0, y: 0 };
+      : null;
+    const cursor = resolveExternalZoomAnchor({
+      frameCenter,
+      surfaceSize: { width: rect?.width ?? 0, height: rect?.height ?? 0 },
+    });
     const nextPan = getPanForZoomToCursor({
       pan: panRef.current,
       cursor,
@@ -3366,6 +3393,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // Supersede any in-flight drill-in: its reply must not overwrite this
+      // gesture's selection (see drillInRequestRef).
+      drillInRequestRef.current += 1;
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
@@ -6084,6 +6114,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         suppressNextPick.current = false;
         return;
       }
+      // Supersede any in-flight drill-in: its reply must not overwrite this pick.
+      drillInRequestRef.current += 1;
 
       if (e.shiftKey) {
         updateSelectedDraftIds(() => []);
@@ -6117,7 +6149,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ],
   );
 
-  const handleFrameDoubleClick = useCallback(
+  const handleFrameInteract = useCallback(
     (id: string, e: React.MouseEvent<HTMLElement>) => {
       e.preventDefault();
       e.stopPropagation();
@@ -6134,6 +6166,65 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       lockedScreenIdSet,
       onEdit,
       onPick,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+    ],
+  );
+
+  /**
+   * Figma parity: double-clicking a frame's body descends into its layers so
+   * the inspector shows the thing under the pointer. It deliberately does NOT
+   * enter Interact — that is the frame label's own button (onEdit). Locked
+   * screens have no selectable children to descend into, so they keep the
+   * Interact behavior.
+   */
+  const handleFrameEnter = useCallback(
+    (id: string, e: React.MouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (lockedScreenIdSet.has(id)) {
+        onEdit?.(id);
+        return;
+      }
+      const point = getCanvasPoint(e.clientX, e.clientY);
+      const previousKey =
+        drillInTargetRef.current?.screenId === id
+          ? drillInTargetRef.current.key
+          : null;
+      const requestId = drillInRequestRef.current + 1;
+      drillInRequestRef.current = requestId;
+      void collectLayerMarqueeCandidates(new Set([id])).then((candidates) => {
+        if (drillInRequestRef.current !== requestId) return;
+        const target = resolveDrillInTarget({
+          candidates,
+          screenId: id,
+          point,
+          previousKey,
+        });
+        if (!target) {
+          // Nothing selectable under the pointer (e.g. an empty frame). Leave
+          // the frame itself selected rather than falling back to Interact.
+          drillInTargetRef.current = null;
+          return;
+        }
+        drillInTargetRef.current = {
+          screenId: id,
+          key: drillInCandidateKey(target),
+        };
+        updateSelectedDraftIds(() => []);
+        updateSelectedIds(() => []);
+        onLayerMarqueeSelectionChange?.(
+          [{ screenId: target.screenId, info: target.info }],
+          { source: "pointer" },
+        );
+      });
+    },
+    [
+      collectLayerMarqueeCandidates,
+      getCanvasPoint,
+      lockedScreenIdSet,
+      onEdit,
+      onLayerMarqueeSelectionChange,
       updateSelectedDraftIds,
       updateSelectedIds,
     ],
@@ -6560,6 +6651,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // 2D translate (not translate3d) so the layer is not GPU-pinned to a
       // stale low-res raster — keeps zoomed-in content crisp.
       world.style.transform = `translate(${p.x}px, ${p.y}px) scale(${nextScale})`;
+      // Counter-scale for constant-size chrome (frame labels, the Interact
+      // button). This has to be written on the SAME imperative tick as the
+      // world transform: the React `chromeScale` it falls back to is only
+      // reconciled by the debounced commitView, so during a gesture the labels
+      // rode the world scale and then eased back — the "text/labels jump in
+      // sizing" the canvas zoom was reported for.
+      world.style.setProperty(
+        CHROME_SCALE_CSS_VAR,
+        String(nextScale > 0 ? 1 / nextScale : 1),
+      );
     }
     const grid = pixelGridRef.current;
     if (grid) {
@@ -6766,13 +6867,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
     if (gesture.mode === "zoom") {
       const currentZoom = zoomRef.current;
-      const zoomDeltaY = clamp(
-        gesture.deltaY,
-        -MAX_WHEEL_ZOOM_DELTA,
-        MAX_WHEEL_ZOOM_DELTA,
-      );
       const nextZoom = clamp(
-        currentZoom * Math.exp(-zoomDeltaY * ZOOM_SENSITIVITY),
+        currentZoom * resolveZoomFactor(gesture.deltaY, gesture.pinch),
         MIN_ZOOM,
         MAX_ZOOM,
       );
@@ -6805,10 +6901,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const enqueueWheelGesture = useCallback(
     (gesture: PendingWheelGesture) => {
       const pending = pendingWheelGestureRef.current;
-      if (pending?.mode === "zoom" && gesture.mode === "zoom") {
+      // Only accumulate like with like: a pinch delta and a wheel notch map to
+      // zoom through different curves, so summing them would apply one curve to
+      // the other's units.
+      if (
+        pending?.mode === "zoom" &&
+        gesture.mode === "zoom" &&
+        pending.pinch === gesture.pinch
+      ) {
         pendingWheelGestureRef.current = {
           mode: "zoom",
           deltaY: pending.deltaY + gesture.deltaY,
+          pinch: gesture.pinch,
           cursor: gesture.cursor,
           clientX: gesture.clientX,
           clientY: gesture.clientY,
@@ -6854,14 +6958,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         // no forced style/layout read on the hot pan path.
         const rect = surfaceRef.current?.getBoundingClientRect();
         if (!rect) return;
-        const zoomDeltaY = clamp(
-          delta.y,
-          -MAX_WHEEL_ZOOM_DELTA,
-          MAX_WHEEL_ZOOM_DELTA,
-        );
+        // Raw delta: the per-frame clamp lives on the zoom FACTOR now (see
+        // resolveZoomFactor), so accumulation stays frame-rate independent.
+        // Line/page delta modes are always discrete wheels, never a pinch.
         enqueueWheelGesture({
           mode: "zoom",
-          deltaY: zoomDeltaY,
+          deltaY: delta.y,
+          pinch: args.deltaMode === 0 && isPinchZoomDelta(args.deltaY),
           cursor: {
             x: args.clientX - rect.left,
             y: args.clientY - rect.top,
@@ -7937,7 +8040,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               chromeScale={chromeScale}
               chromeSettling={chromeSettling}
               onPick={handleFrameClick}
-              onEdit={handleFrameDoubleClick}
+              onEdit={handleFrameInteract}
+              onEnterFrame={handleFrameEnter}
               onStartFrameDrag={beginFrameDrag}
               onStartResize={beginResize}
               onStartRotate={beginRotate}
@@ -9250,7 +9354,12 @@ interface ScreenProps {
    *  descriptor is retained for an evicted screen's revisit. */
   cullTier: ScreenCullTier;
   onPick: (id: string, e: React.MouseEvent<HTMLElement>) => void;
+  /** Explicit Interact entry — the frame label's own button and the frame-label
+   *  row. Deliberately NOT the frame body's double-click: see onEnterFrame. */
   onEdit: (id: string, e: React.MouseEvent<HTMLElement>) => void;
+  /** Double-click on the frame body. Descends into the frame's layers instead
+   *  of entering Interact, matching Figma. */
+  onEnterFrame: (id: string, e: React.MouseEvent<HTMLElement>) => void;
   onStartFrameDrag: (id: string, e: React.MouseEvent) => void;
   onStartResize: (
     id: string,
@@ -9264,12 +9373,13 @@ interface ScreenProps {
     e: React.MouseEvent<HTMLElement>,
   ) => void;
   // Id-first (screenId, widthPx) shape, same as MultiScreenCanvas's own
-  // onAddBreakpoint/onActiveBreakpointChange props (PF18): Screen binds
-  // screen.id itself when calling these, so the parent can pass the same
-  // stable function reference for every screen instead of allocating a new
-  // per-screen `(widthPx) => onAddBreakpoint(screen.id, widthPx)` closure on
-  // every render, which defeated memo(Screen) for every screen every time.
-  onAddBreakpoint?: (screenId: string, widthPx: number) => void;
+  // onActiveBreakpointChange prop (PF18): Screen binds screen.id itself when
+  // calling these, so the parent can pass the same stable function reference
+  // for every screen instead of allocating a new per-screen closure on every
+  // render, which defeated memo(Screen) for every screen every time.
+  // onAddBreakpoint is design-scoped and takes no screen id at all — see its
+  // doc on MultiScreenCanvasProps.
+  onAddBreakpoint?: (widthPx: number) => void;
   onActiveBreakpointChange?: (
     screenId: string,
     widthPx: number | undefined,
@@ -9311,6 +9421,7 @@ const Screen = memo(function Screen({
   chromeSettling,
   onPick,
   onEdit,
+  onEnterFrame,
   onStartFrameDrag,
   onStartResize,
   onStartRotate,
@@ -9487,9 +9598,9 @@ const Screen = memo(function Screen({
           style={{
             width: labelInfoMaxWidth,
             maxWidth: labelInfoMaxWidth,
-            transform: `translateY(-50%) scale(${chromeScale})`,
+            transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
             transformOrigin: "left center",
-            transition: getChromeLabelTransition(chromeSettling),
+            transition: getChromeLabelTransition(),
           }}
         >
           {/* B5-3: the leading dot/bullet before the screen label was pure
@@ -9559,9 +9670,9 @@ const Screen = memo(function Screen({
           )}
           style={{
             maxWidth: fullViewMaxWidth,
-            transform: `translateY(-50%) scale(${chromeScale})`,
+            transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
             transformOrigin: "right center",
-            transition: getChromeLabelTransition(chromeSettling),
+            transition: getChromeLabelTransition(),
           }}
           aria-label={frameActionLabel}
           title={frameActionLabel}
@@ -9603,7 +9714,7 @@ const Screen = memo(function Screen({
           }
           e.preventDefault();
           e.stopPropagation();
-          onEdit(screen.id, e);
+          onEnterFrame(screen.id, e);
         }}
         onMouseDown={(e) => {
           if (isInteractiveScreenContentTarget(e.target)) {
@@ -9822,11 +9933,7 @@ const Screen = memo(function Screen({
               ? (widthPx) => onActiveBreakpointChange(screen.id, widthPx)
               : undefined
           }
-          onAddBreakpoint={
-            onAddBreakpoint
-              ? (widthPx) => onAddBreakpoint(screen.id, widthPx)
-              : undefined
-          }
+          onAddBreakpoint={onAddBreakpoint}
           onRemoveBreakpoint={
             onRemoveBreakpoint
               ? (widthPx) => onRemoveBreakpoint(screen.id, widthPx)
@@ -9897,6 +10004,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.chromeSettling === next.chromeSettling &&
     prev.onPick === next.onPick &&
     prev.onEdit === next.onEdit &&
+    prev.onEnterFrame === next.onEnterFrame &&
     prev.onStartFrameDrag === next.onStartFrameDrag &&
     prev.onStartResize === next.onStartResize &&
     prev.onStartRotate === next.onStartRotate &&
@@ -10158,9 +10266,9 @@ function BreakpointPreviewRow({
                 data-frame-label
                 className="absolute left-1 top-1/2 flex min-w-0 max-w-[calc(100%-28px)] items-center gap-1.5"
                 style={{
-                  transform: `translateY(-50%) scale(${chromeScale})`,
+                  transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
                   transformOrigin: "left center",
-                  transition: getChromeLabelTransition(chromeSettling),
+                  transition: getChromeLabelTransition(),
                 }}
               >
                 <span
@@ -10202,7 +10310,7 @@ function BreakpointPreviewRow({
                 <div
                   className="absolute right-1 top-1/2 z-30"
                   style={{
-                    transform: `translateY(-50%) scale(${chromeScale})`,
+                    transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
                     transformOrigin: "right center",
                   }}
                 >
@@ -10304,7 +10412,7 @@ function BreakpointPreviewRow({
               }}
               onDoubleClick={(e) => {
                 // Item 8b — full view for THIS breakpoint: same double-click
-                // gesture as a regular screen's card (handleFrameDoubleClick),
+                // gesture as a regular screen's card (handleFrameInteract),
                 // but targeting the breakpoint's own width so the editor
                 // opens single-screen mode scoped to it instead of Base.
                 e.preventDefault();
@@ -10338,7 +10446,7 @@ function BreakpointPreviewRow({
                   data-frame-full-view
                   className="absolute right-1 top-1 z-30 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/artboard:opacity-100"
                   style={{
-                    transform: `scale(${chromeScale})`,
+                    transform: `scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
                     transformOrigin: "right center",
                   }}
                   aria-label={frameActionLabel}
@@ -10474,10 +10582,17 @@ function BreakpointPreviewRow({
               "hover:border-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
             )}
             style={{
-              transform: `scale(${chromeScale})`,
+              transform: `scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
               transformOrigin: "center",
             }}
-            title={`Add ${breakpointLabel(nextWidth)} breakpoint (${nextWidth}px)`}
+            // Says "to all screens" because that is what it does: a design has
+            // one breakpoint set, so this is not scoped to the frame it renders
+            // beside. The old per-frame wording made every frame suddenly
+            // sprouting the new width look like a bug.
+            title={t("multiScreenCanvas.addBreakpointToAllScreens", {
+              label: breakpointLabel(nextWidth),
+              width: nextWidth,
+            })}
             onClick={(e) => {
               e.stopPropagation();
               onAddBreakpoint(nextWidth);

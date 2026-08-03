@@ -366,7 +366,10 @@ Brain follows the agent-native four-area contract — change behavior by editing
 - `templates/brain/AGENTS.md` — top-level agent guide. Update when you add major features.
 - `templates/brain/server/db/schema.ts` — data model. Additive migrations only.
 
-Ask the agent to make changes for you — it can edit its own source. See [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Make these changes in the repository's development workflow. The embedded app
+agent can edit source when its frame is intentionally granted workspace and
+write tooling; otherwise it operates the resulting app through its actions and
+data surface. See [Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## What's next
 

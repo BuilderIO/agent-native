@@ -1494,18 +1494,19 @@ export async function resourceEffectiveContext(
 ): Promise<EffectiveResourceContext> {
   await ensureTable();
 
-  const workspace = await resourceGetByPath(WORKSPACE_OWNER, path, {
-    ...options,
-    userEmail,
-  });
+  // Four independent reads of the same path under different owners; the
+  // precedence below is pure JS, so serialising them only bought four round
+  // trips of latency. Mirrors `resourceListAccessible`, which already fans out.
   const organizationOwner = sharedResourceOwner(options?.orgId);
-  const organization =
+  const [workspace, organization, legacyShared, personal] = await Promise.all([
+    resourceGetByPath(WORKSPACE_OWNER, path, { ...options, userEmail }),
     organizationOwner === SHARED_OWNER
-      ? null
-      : await resourceGetByPath(organizationOwner, path);
-  const legacyShared = await resourceGetByPath(SHARED_OWNER, path);
+      ? Promise.resolve(null)
+      : resourceGetByPath(organizationOwner, path),
+    resourceGetByPath(SHARED_OWNER, path),
+    resourceGetByPath(userEmail, path),
+  ]);
   const shared = organization ?? legacyShared;
-  const personal = await resourceGetByPath(userEmail, path);
   const effective = personal ?? shared ?? workspace ?? null;
   const effectiveScope: ResourceInheritanceScope | null = personal
     ? "personal"

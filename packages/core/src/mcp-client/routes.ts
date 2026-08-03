@@ -32,7 +32,7 @@ import { getSession } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { getAllSettings } from "../settings/store.js";
+import { getAllSettings, getSettingsEmitter } from "../settings/store.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
@@ -291,6 +291,13 @@ function sortedConfigSignature(config: McpConfig | null): string {
   return JSON.stringify(entries);
 }
 
+/**
+ * How long the refresh may skip the settings read on the strength of "no
+ * in-process settings write since the last one". Bounds how stale a remote MCP
+ * server list added by ANOTHER process can be.
+ */
+const MCP_CONFIG_REFRESH_BACKSTOP_MS = 5 * 60 * 1000;
+
 function mcpConfigRefreshIntervalMs(): number {
   const raw = process.env.AGENT_NATIVE_MCP_CONFIG_REFRESH_MS;
   if (raw?.trim() === "0") return 0;
@@ -307,8 +314,24 @@ export function startMcpConfigRefresh(
 
   let currentSignature = sortedConfigSignature(manager.getConfig());
   let refreshing = false;
+  // `buildMergedConfig` reads the entire settings table just to diff a
+  // signature, which on an idle app is a full-table round trip every minute
+  // forever. Only pay it when an in-process settings write says something might
+  // have changed, plus a periodic backstop for writes from another process.
+  let settingsDirty = true;
+  let lastFullRefresh = 0;
+  const markDirty = () => {
+    settingsDirty = true;
+  };
+  getSettingsEmitter().on("settings", markDirty);
   const refresh = async () => {
     if (refreshing) return;
+    if (
+      !settingsDirty &&
+      Date.now() - lastFullRefresh < MCP_CONFIG_REFRESH_BACKSTOP_MS
+    ) {
+      return;
+    }
     refreshing = true;
     try {
       const next = await buildMergedConfig();
@@ -317,7 +340,12 @@ export function startMcpConfigRefresh(
         await manager.reconfigure(next);
         currentSignature = nextSignature;
       }
+      settingsDirty = false;
+      lastFullRefresh = Date.now();
     } catch (err: any) {
+      // Keep this dirty so a transient database or manager failure is retried
+      // on the next interval instead of being hidden by the backstop window.
+      settingsDirty = true;
       console.warn(
         `[mcp-client] config refresh failed: ${err?.message ?? err}`,
       );
@@ -328,7 +356,10 @@ export function startMcpConfigRefresh(
 
   const timer = setInterval(refresh, intervalMs);
   (timer as { unref?: () => void }).unref?.();
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    getSettingsEmitter().off("settings", markDirty);
+  };
 }
 
 async function resolveContextForRequest(event: H3Event): Promise<{

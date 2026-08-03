@@ -18,6 +18,7 @@ import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
   contentDatabaseQueryFilter,
+  contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
@@ -93,9 +94,9 @@ export function useConfigureDocumentProperty(
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: documentId }],
       });
-      queryClient.invalidateQueries({
-        ...contentDatabaseQueryFilter(databaseDocumentId),
-      });
+      queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
     },
   });
   return withDatabaseScope(mutation, databaseId);
@@ -160,9 +161,9 @@ export function useSetDocumentProperty(
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: variables.documentId }],
       });
-      queryClient.invalidateQueries({
-        ...contentDatabaseQueryFilter(databaseDocumentId),
-      });
+      queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
       queryClient.invalidateQueries({
         queryKey: [
           "action",

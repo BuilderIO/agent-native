@@ -1631,6 +1631,7 @@ const messages = {
     formsOverview: "總覽",
     formsBuildingPublishing: "建置與發布",
     formsResponses: "回應與洞察",
+    docsComponents: "Docs Components",
     formsDevelopers: "開發者指南",
   },
 };

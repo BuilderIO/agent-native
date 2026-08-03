@@ -279,7 +279,7 @@ export function FillProperties({
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
           <SectionIconButton
-            label={t("editPanel.labels.addLayer")}
+            label={t("editPanel.labels.addFill")}
             onClick={() => {
               if (fillIsMixed) {
                 commitStylePatch(

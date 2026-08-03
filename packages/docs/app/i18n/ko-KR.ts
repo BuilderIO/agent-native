@@ -1653,6 +1653,7 @@ const koKR = {
     formsOverview: "개요",
     formsBuildingPublishing: "빌드 및 게시",
     formsResponses: "응답 및 인사이트",
+    docsComponents: "Docs Components",
     formsDevelopers: "개발자 가이드",
   },
 } satisfies typeof enUS;

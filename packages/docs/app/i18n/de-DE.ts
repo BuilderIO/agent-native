@@ -1660,6 +1660,7 @@ const deDE = {
     formsOverview: "Überblick",
     formsBuildingPublishing: "Erstellen und Veröffentlichen",
     formsResponses: "Antworten und Erkenntnisse",
+    docsComponents: "Docs Components",
     formsDevelopers: "Entwicklerhandbuch",
   },
 } satisfies typeof enUS;

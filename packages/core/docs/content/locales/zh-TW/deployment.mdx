@@ -396,14 +396,16 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 這些必須在將應用程式升級到真正的產品部署之前設定。缺失值要么失敗關閉（框架拒絕啟動/拒絕處理請求），要么回退到較弱的行為並發出響亮的警告。
 
-| 變數                     | 描述                                                                                                                                                                                      |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ 字符隨機字串。簽署工作階段 cookies AND 是 `OAUTH_STATE_SECRET` 和 `SECRETS_ENCRYPTION_KEY` 的後備 HMAC。硬性要求：如果在正式環境中缺失，框架將在啟動時拋出異常。                      |
-| `BETTER_AUTH_URL`        | 此應用程式的公開放原始碼（例如 `https://mail.example.com`）。用於cookie域和 OAuth 重新導向構造。                                                                                          |
-| `ANTHROPIC_API_KEY`      | API 嵌入式正式環境代理金鑰。 **在多租戶部署中**，當使用者沒有每使用者金鑰時，框架拒絕回退到此 - 需要自帶金鑰。單租戶自託管安裝將其用作全域金鑰。                                          |
-| `OAUTH_STATE_SECRET`     | 用於 OAuth 狀態信封（Google、Atlassian、Zoom）的專用 HMAC 金鑰。未設定時回落到 `BETTER_AUTH_SECRET`，但建議使用專用值，以便旋轉一個值不會使另一個值無效。透過`openssl rand -hex 32`生成。 |
-| `A2A_SECRET`             | 為應用程式間 A2A JSON-RPC 共用 HMAC。如果沒有它，每個 A2A 端點和 `/_agent-native/integrations/process-task` 自發射端點在正式環境中都會返回 503。                                          |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM 靜態加密機密保管庫的金鑰。回落至 `BETTER_AUTH_SECRET`。當兩者都未設定時，正式環境中會發生硬故障。                                                                             |
+| 變數                                        | 描述                                                                                                                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ 字元的隨機字串。簽署工作階段 cookie，並作為 `OAUTH_STATE_SECRET` 與應用程式本機加密值的後備。它也是讀取現有共享保管庫密文的舊版候選項。正式環境中必需。                               |
+| `BETTER_AUTH_URL`                           | 此應用程式的公開放原始碼（例如 `https://mail.example.com`）。用於cookie域和 OAuth 重新導向構造。                                                                                          |
+| `ANTHROPIC_API_KEY`                         | API 嵌入式正式環境代理金鑰。 **在多租戶部署中**，當使用者沒有每使用者金鑰時，框架拒絕回退到此 - 需要自帶金鑰。單租戶自託管安裝將其用作全域金鑰。                                          |
+| `OAUTH_STATE_SECRET`                        | 用於 OAuth 狀態信封（Google、Atlassian、Zoom）的專用 HMAC 金鑰。未設定時回落到 `BETTER_AUTH_SECRET`，但建議使用專用值，以便旋轉一個值不會使另一個值無效。透過`openssl rand -hex 32`生成。 |
+| `A2A_SECRET`                                | 應用程式間 A2A JSON-RPC 的共享 HMAC。未設定專用工作區金鑰時，共享保管庫使用由此值按用途衍生的金鑰，因此輪替它也會輪替保管庫金鑰。                                                         |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 共享工作區保管庫首選的穩定 AES-256-GCM 金鑰。每個讀取保管庫的應用程式都應設定相同值；它與應用程式本機 OAuth 加密分開。                                                                    |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 輪替期間可選的舊工作區金鑰。與新金鑰一起部署，等待讀取移轉資料列後再刪除。                                                                                                                |
+| `SECRETS_ENCRYPTION_KEY`                    | 用於應用程式本機加密和保管庫的舊版組合金鑰。仍受支援，但新的多應用程式部署應使用專用工作區金鑰。                                                                                          |
 
 ### 驗證和身分 {#env-auth}
 
@@ -488,13 +490,13 @@ export default createAgentChatPlugin({
 
 ## 在正式環境中更新 UI {#updating-ui-in-production}
 
-agent-native 的核心功能之一是代理可以修改應用程式的來源程式碼 - 元件、路由、樣式、actions。在本機開發期間，這可以無縫工作，因為代理具有完整的檔案系統存取權限。
+一般已部署應用程式的代理會透過應用程式工具 - actions、資料庫、MCP 與已設定的整合 - 工作，而不會自動取得原始碼存取權。原始碼變更屬於儲存庫開發工作流程。嵌入式、本機或 Builder frame 只有在被有意授予工作區與寫入工具時才能編輯儲存庫。
 
 在 [production code execution](#production-code-execution) 關閉的標準正式環境部署中，代理可以存取應用程式工具（actions、資料庫、MCP），但不能存取檔案系統。這意味著代理可以讀取和寫入資料、執行 actions 以及與外部服務互動 - 但它無法編輯 React 元件或在已部署的執行個體上新增新路由。
 
 ### Builder.io：製作中的視覺化編輯 {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 透過提供託管雲端環境來解決此問題，在該環境中，代理保留在正式環境中修改應用程式的 UI 的能力。將您的儲存庫連線到 Builder.io 並直接提示 UI 更改 - 無需重新部署。
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是獨立的託管程式碼工作流程，代理可在其中修改正式環境應用程式的 UI。連接儲存庫後即可直接要求 UI 變更，無需重新部署。
 
 **工作原理：**
 

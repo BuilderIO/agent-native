@@ -1660,6 +1660,7 @@ const esES = {
     formsOverview: "Visión general",
     formsBuildingPublishing: "Creación y publicación",
     formsResponses: "Respuestas y estadísticas",
+    docsComponents: "Docs Components",
     formsDevelopers: "Guía para desarrolladores",
   },
 } satisfies typeof enUS;
