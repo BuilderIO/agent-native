@@ -23,8 +23,8 @@ function readStoredPreferences(): DesignEditorPreferences {
     );
     try {
       window.localStorage.removeItem(DESIGN_EDITOR_PREFERENCES_STORAGE_KEY);
-    } catch {
-      // A storage that rejects writes still gives usable defaults this session.
+    } catch (error) {
+      console.warn("[design] could not clear editor preferences", error);
     }
   }
   return result.preferences;
@@ -66,8 +66,8 @@ export function useEditorPreferences(): UseEditorPreferences {
         DESIGN_EDITOR_PREFERENCES_STORAGE_KEY,
         serialized,
       );
-    } catch {
-      // Private-mode storage refusals keep the in-memory value for this session.
+    } catch (error) {
+      console.warn("[design] could not persist editor preferences", error);
     }
   }, []);
 

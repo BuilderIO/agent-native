@@ -356,13 +356,18 @@ describe("DEFAULT_NUDGE_AMOUNTS", () => {
   });
 });
 
-function elementInfoFor(nodeId: string, tagName = "div"): ElementInfo {
+function elementInfoFor(
+  nodeId: string,
+  tagName = "div",
+  parentDisplay?: string,
+): ElementInfo {
   return {
     tagName,
     sourceId: nodeId,
     selector: `[data-agent-native-node-id="${nodeId}"]`,
     classes: [],
     computedStyles: {},
+    parentDisplay,
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
   } as unknown as ElementInfo;
 }
@@ -498,6 +503,42 @@ describe("resolveElementNudgeIntent", () => {
       resolveElementNudgeIntent({
         content: ROW_SCREEN,
         selectedElement: elementInfoFor("not-in-this-document", "span"),
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toEqual({ kind: "translate", dx: 1, dy: 0 });
+  });
+
+  it("does nothing when rendered CSS says the parent is a flow container the parser cannot see", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" class="row">
+        <div data-agent-native-node-id="alpha">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    // `.row { display: flex }` lives in a stylesheet, so describeFlowContainer
+    // sees no container — but the bridge reports the rendered display.
+    expect(
+      resolveElementNudgeIntent({
+        content,
+        selectedElement: elementInfoFor("alpha", "div", "flex"),
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("still translates an absolute child whose parent renders as flex", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" class="row">
+        <div data-agent-native-node-id="alpha" style="position:absolute;left:0;top:0">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    expect(
+      resolveElementNudgeIntent({
+        content,
+        selectedElement: elementInfoFor("alpha", "div", "flex"),
         direction: "right",
         largeStep: false,
       }),

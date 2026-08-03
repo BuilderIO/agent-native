@@ -20865,6 +20865,10 @@ function DesignEditor() {
         );
         if (movedNode) {
           setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
+          // A node without a stable source attribute gets its id derived from
+          // path/offset, which the move itself changes — leaving the Layers
+          // selection pointing at an id that no longer exists.
+          setSelectedLayerIdsState([movedNode.id]);
         }
         return;
       }

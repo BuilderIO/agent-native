@@ -310,6 +310,18 @@ export type ElementNudgeIntent =
     }
   | { kind: "none" };
 
+/** Rendered `display` from the canvas bridge (`getComputedStyle`), which sees
+ * stylesheet rules and the active breakpoint that authored-style parsing
+ * cannot. */
+function isRenderedFlowDisplay(display: string | null | undefined): boolean {
+  return (
+    display === "flex" ||
+    display === "inline-flex" ||
+    display === "grid" ||
+    display === "inline-grid"
+  );
+}
+
 export interface ResolveElementNudgeIntentArgs {
   content: string;
   selectedElement: ElementInfo;
@@ -352,11 +364,23 @@ export function resolveElementNudgeIntent(
     (escapesFlow(undefined, node.classes) ? "absolute" : undefined) ??
     args.selectedElement.computedStyles?.position;
 
+  const container = describeFlowContainer(parent);
+  // A `.row { display: flex }` parent parses as no container. Translating
+  // would write left/top onto a flex child and detach it from its
+  // neighbours, so do nothing rather than corrupt the layout.
+  if (
+    container.kind === "none" &&
+    !escapesFlow(position) &&
+    isRenderedFlowDisplay(args.selectedElement.parentDisplay)
+  ) {
+    return { kind: "none" };
+  }
+
   const intent = resolveNudgeIntent({
     direction: args.direction,
     largeStep: args.largeStep,
     amounts: args.amounts,
-    container: describeFlowContainer(parent),
+    container,
     position,
     siblingIndex,
     siblingCount: siblingIds.length,
