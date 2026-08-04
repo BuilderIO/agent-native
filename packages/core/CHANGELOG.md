@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.136.5
+
+### Patch Changes
+
+- 79af4f8: Allow a replacement secret value to be validated before it is saved.
+
 ## 0.136.4
 
 ### Patch Changes
