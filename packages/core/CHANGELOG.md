@@ -1,5 +1,39 @@
 # @agent-native/core
 
+## 0.136.2
+
+### Patch Changes
+
+- d6e7c5c: Recommend Playwright's headless shell instead of the full headed browser wherever a missing-browser message or install script tells you to run `playwright install chromium`, and say what the full download costs.
+- d6e7c5c: Stop shipping unused Playwright packages to consumers. `@agent-native/core`
+  declared `playwright` in both `devDependencies` and `optionalDependencies`
+  without ever importing it at runtime; the optional entry is gone, so it no
+  longer installs for every consumer. `@agent-native/recap-cli` no longer
+  declares `@playwright/test` as an optional dependency — its sibling `playwright`
+  optional dependency always resolved first, so the `@playwright/test` fallback
+  import could never be reached. That fallback now rethrows the original
+  `playwright` failure instead of a misleading "cannot find `@playwright/test`".
+- d6e7c5c: Keep the dev server's route table live when route files are added or deleted. React Router's framework-mode plugin invalidates its virtual modules through Vite's deprecated back-compat module graph, which proxies only the `client` and `ssr` environments — never the Nitro environment that actually serves SSR. The route table therefore froze at whatever it was when the dev server booted: a new route file 404'd forever, and deleting one left the stale manifest importing a file that no longer existed, so every page returned `Internal Server Error: Failed to load url … Does the file exist?` until the process was restarted. Agent Native now mirrors that invalidation into every environment and reloads the affected server runners. Also escapes control bytes in dev SSR error bodies, so Vite's NUL-prefixed virtual-module ids print as `\0virtual:react-router/server-build` instead of making `curl` treat the response as binary and hide the only line describing the failure.
+- d6e7c5c: Add Gong keyword-tracker and staged corpus guidance to the provider API catalog.
+- d6e7c5c: Prefer GPT-5.6 Luna for default server-side voice transcript cleanup when a
+  Luna-capable provider is available, while keeping audio transcription and
+  explicit Gemini provider selections unchanged.
+- d6e7c5c: Stop a second Chromium from being downloaded alongside the one already on disk.
+
+  First-party workspace packages now take Playwright from an exact catalog pin, so
+  a caret cannot resolve forward to a release tied to a different Chromium
+  revision. The two packages that declare Playwright as a published optional
+  dependency — `@agent-native/creative-context` and `@agent-native/recap-cli` —
+  deliberately keep a caret range instead: an exact range in a library stops a
+  consumer who already has a different Playwright from deduping, which forces a
+  nested copy and downloads exactly the second browser this change exists to
+  avoid.
+
+- 74f1e73: Scoped agent-access tokens can carry a signed `agentLabel` claim, so apps can name the agent a link was minted for instead of guessing from the user-agent. Like `viewerEmail`, it is audit/display-only and never consulted for authorisation.
+- Updated dependencies [d6e7c5c]
+- Updated dependencies [d6e7c5c]
+  - @agent-native/recap-cli@0.5.3
+
 ## 0.136.1
 
 ### Patch Changes
