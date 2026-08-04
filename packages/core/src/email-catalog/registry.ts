@@ -43,8 +43,15 @@ export interface TransactionalEmailDefinition {
   trigger: string;
   /** Plain-language description of how the recipient address is chosen. */
   recipient: string;
+  /**
+   * Two-to-four word summary of the recipient for table cells, e.g.
+   * "Booking guest". The full `recipient` sentence is shown on the detail view.
+   */
+  recipientLabel: string;
   /** Plain-language description of how From and Reply-To are chosen. */
   sender: string;
+  /** Two-to-four word summary of the sender, e.g. "Default, reply-to host". */
+  senderLabel: string;
   /**
    * Render the email with representative dummy data. Must not read from the
    * database or touch the network — previews are rendered on demand from

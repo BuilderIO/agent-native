@@ -14,7 +14,9 @@ export interface AppTransactionalEmail {
   name: string;
   trigger: string;
   recipient: string;
+  recipientLabel: string;
   sender: string;
+  senderLabel: string;
   /** null when the send log could not be read — not the same as zero sends. */
   sent: number | null;
   failed: number | null;

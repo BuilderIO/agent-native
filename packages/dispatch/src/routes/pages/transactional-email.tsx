@@ -352,8 +352,10 @@ function EmailRow({
         {email.trigger}
       </TableCell>
       <TableCell className="max-w-56 align-top text-xs text-muted-foreground">
-        <div>{email.recipient}</div>
-        <div className="mt-1">{email.sender}</div>
+        {email.recipient}
+      </TableCell>
+      <TableCell className="max-w-56 align-top text-xs text-muted-foreground">
+        {email.sender}
       </TableCell>
       <TableCell className="align-top text-sm">
         <SendsCell email={email} />
@@ -468,7 +470,10 @@ function AppCatalogSection({
                       {t("dispatch.transactionalEmail.trigger")}
                     </TableHead>
                     <TableHead>
-                      {t("dispatch.transactionalEmail.recipientAndSender")}
+                      {t("dispatch.transactionalEmail.recipient")}
+                    </TableHead>
+                    <TableHead>
+                      {t("dispatch.transactionalEmail.sender")}
                     </TableHead>
                     <TableHead>
                       {t("dispatch.transactionalEmail.sends")}
@@ -530,10 +535,62 @@ export default function TransactionalEmailRoute() {
     enabled: apps.length > 0,
   });
 
-  const catalogs = catalogsQuery.data ?? [];
+  const rawCatalogs = catalogsQuery.data ?? [];
+
+  // Core system emails ship with every app, so listing them per app repeats the
+  // same three rows a dozen times and makes an app that sends nothing of its
+  // own look like it does. They share one id, and therefore one set of provider
+  // metrics, so they belong in a single shared section.
+  const sharedEmails = useMemo(() => {
+    const byId = new Map<string, AppTransactionalEmail>();
+    for (const catalog of rawCatalogs) {
+      for (const email of catalog.emails) {
+        if (email.app !== "core") continue;
+        const existing = byId.get(email.id);
+        if (!existing) {
+          byId.set(email.id, email);
+          continue;
+        }
+        // Every app writes to its own database, so sum the per-app send counts
+        // rather than showing whichever app happened to be read last.
+        byId.set(email.id, {
+          ...existing,
+          sent:
+            existing.sent === null || email.sent === null
+              ? null
+              : existing.sent + email.sent,
+          failed:
+            existing.failed === null || email.failed === null
+              ? null
+              : existing.failed + email.failed,
+          lastSentAt:
+            existing.lastSentAt === null
+              ? email.lastSentAt
+              : email.lastSentAt === null
+                ? existing.lastSentAt
+                : Math.max(existing.lastSentAt, email.lastSentAt),
+        });
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [rawCatalogs]);
+
+  const catalogs = useMemo(
+    () =>
+      rawCatalogs.map((catalog) => ({
+        ...catalog,
+        emails: catalog.emails.filter((email) => email.app !== "core"),
+      })),
+    [rawCatalogs],
+  );
   const templateIds = useMemo(
-    () => catalogs.flatMap((catalog) => catalog.emails.map((e) => e.id)),
-    [catalogs],
+    () =>
+      Array.from(
+        new Set(
+          rawCatalogs.flatMap((catalog) => catalog.emails.map((e) => e.id)),
+        ),
+      ),
+    [rawCatalogs],
   );
 
   const engagementQuery = useQuery({
@@ -636,6 +693,22 @@ export default function TransactionalEmailRoute() {
             <IconMail className="mx-auto mb-2 size-5" />
             {t("dispatch.transactionalEmail.noApps")}
           </div>
+        ) : null}
+
+        {sharedEmails.length ? (
+          <AppCatalogSection
+            catalog={{
+              appId: "core",
+              appName: t("dispatch.transactionalEmail.sharedTitle"),
+              appPath: t("dispatch.transactionalEmail.sharedSubtitle"),
+              emails: sharedEmails,
+              error: null,
+              statsError: null,
+            }}
+            engagementByTemplate={engagementByTemplate}
+            engagementUnavailable={engagementUnavailable}
+            engagementLoading={engagementQuery.isLoading}
+          />
         ) : null}
 
         {catalogs.map((catalog) => (
