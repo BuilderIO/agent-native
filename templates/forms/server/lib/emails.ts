@@ -22,8 +22,10 @@ export function registerFormsEmails(): void {
     name: "New form response",
     trigger:
       "A response is submitted and persisted for a form whose settings have `emailOnNewResponses` enabled. Delivery is best-effort: a send failure never rejects the submission.",
+    recipientLabel: "Form owner",
     recipient:
       "The form's `ownerEmail`, and only that address — the respondent is never emailed. Skipped when the form has no owner address.",
+    senderLabel: "Default sender",
     sender:
       "The configured default sender. This call site sets no `from`, `fromName`, `replyTo`, or `appSender`, so a reply goes to the sending mailbox rather than to the respondent.",
     preview: () =>

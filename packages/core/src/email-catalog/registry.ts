@@ -66,6 +66,8 @@ export type RegisteredTransactionalEmail = TransactionalEmailDefinition & {
 };
 
 const registry = new Map<string, RegisteredTransactionalEmail>();
+/** Source definitions, so re-registering the same one is a no-op rather than a clash. */
+const sources = new Map<string, TransactionalEmailDefinition>();
 
 /**
  * Register a transactional email. Returns the definition so the call site can
@@ -74,7 +76,7 @@ const registry = new Map<string, RegisteredTransactionalEmail>();
 export function defineTransactionalEmail(
   definition: TransactionalEmailDefinition,
 ): RegisteredTransactionalEmail {
-  const existing = registry.get(definition.id);
+  const existing = sources.get(definition.id);
   if (existing && existing !== definition) {
     // Two emails sharing an id would silently merge their metrics and make the
     // catalog claim one exists when the other actually sent.
@@ -87,6 +89,7 @@ export function defineTransactionalEmail(
     app: definition.app ?? getAppSlug() ?? "unknown",
   };
   registry.set(definition.id, resolved);
+  sources.set(definition.id, definition);
   return resolved;
 }
 
@@ -121,4 +124,5 @@ export function renderTransactionalEmailPreview(
 /** Test seam — drops all registrations. */
 export function resetTransactionalEmailRegistry(): void {
   registry.clear();
+  sources.clear();
 }

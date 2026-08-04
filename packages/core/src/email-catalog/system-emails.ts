@@ -36,8 +36,10 @@ export function registerCoreSystemEmails(): void {
     name: "Organization invitation",
     trigger:
       "A member invites someone to their organization from the team settings page.",
+    recipientLabel: "Invited address",
     recipient:
       "The address typed into the invite form. One email per invited address.",
+    senderLabel: "Default, app-branded",
     sender:
       "The configured EMAIL_FROM. On first-party agent-native.com deployments the display name becomes the app's own, with reply-to agent-native@builder.io.",
     preview: () =>
@@ -55,7 +57,9 @@ export function registerCoreSystemEmails(): void {
     name: "Verify signup",
     trigger:
       "A new account is created with email and password, before the account can be used.",
+    recipientLabel: "New account address",
     recipient: "The address the account was registered with.",
+    senderLabel: "Default, app-branded",
     sender:
       "The configured EMAIL_FROM, branded with the app name the signup happened in.",
     preview: () =>
@@ -71,8 +75,10 @@ export function registerCoreSystemEmails(): void {
     name: "Reset password",
     trigger:
       "A user requests a password reset from the sign-in screen. The link expires after one hour.",
+    recipientLabel: "Account address",
     recipient:
       "The account address the reset was requested for, never an address supplied in the request body.",
+    senderLabel: "Default, app-branded",
     sender:
       "The configured EMAIL_FROM, branded with the app name the reset was requested from.",
     preview: () =>

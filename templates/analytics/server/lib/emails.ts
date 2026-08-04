@@ -21,8 +21,10 @@ export function registerAnalyticsEmails(): void {
     name: "Scheduled dashboard report",
     trigger:
       "A dashboard report subscription comes due and at least one panel produced usable data. A run where every queried panel failed throws instead of mailing, and a degraded run is skipped when the subscription asks for complete reports only.",
+    recipientLabel: "Subscription recipients",
     recipient:
       "The normalized recipient list stored on the subscription. One email per address, all carrying the same rendered snapshot.",
+    senderLabel: "Default sender",
     sender:
       "The configured default sender. This call site sets no `from`, `fromName`, `replyTo`, or `appSender`.",
     // The real renderer runs every panel query and rasterizes charts, so it

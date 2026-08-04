@@ -76,8 +76,10 @@ export function registerClipsEmails(): void {
     name: "First view on a Clip",
     trigger:
       "The background transactional-email sweep finds the first counted view of a Clip by someone other than its owner, recorded after transactional email was switched on. One per Clip.",
+    recipientLabel: "Clip owner",
     recipient:
       "The Clip's owner. Suppressed recipient addresses are skipped, and the send is dropped if the owner is no longer the recording's owner at send time.",
+    senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
       preview({
@@ -94,8 +96,10 @@ export function registerClipsEmails(): void {
     name: "Unviewed Clip reminder",
     trigger:
       "A direct share is 48 hours old and the recipient still has no counted view of that Clip. Re-checked at send time, so a view in the meantime cancels it.",
+    recipientLabel: "Shared-with address",
     recipient:
       "The address the Clip was directly shared with. Requires the share to still exist.",
+    senderLabel: "Sharer via Clips",
     sender:
       'Same as the other Clips emails, except the display name becomes "<sharer> (via Agent-Native Clips)" and reply-to is the sharer\'s own address when it is a valid address, falling back to hello@agent-native.com.',
     preview: () =>
@@ -114,8 +118,10 @@ export function registerClipsEmails(): void {
     name: "First agent read of a Clip",
     trigger:
       "An AI agent reads one of an owner's Clips for the first time since transactional email was switched on. One per owner, not per Clip.",
+    recipientLabel: "Clip owner",
     recipient:
       "The owner of the Clip the agent read. Re-checked at send time against the owner's actual first agent view.",
+    senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
       preview({
@@ -132,8 +138,10 @@ export function registerClipsEmails(): void {
     name: "First imported video is ready",
     trigger:
       "An owner's first imported (rather than recorded) video finishes processing and becomes ready. One per owner.",
+    recipientLabel: "Clip owner",
     recipient:
       "The owner of the imported recording, re-checked at send time so a later import does not resend.",
+    senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
       preview({
@@ -149,8 +157,10 @@ export function registerClipsEmails(): void {
     name: "Monthly Clips recap",
     trigger:
       "Once per owner per calendar month, from 14:00 UTC on the 1st, for owners whose Clips had any human views or agent reads in the closed month. Metrics and the top Clip are recomputed at send time.",
+    recipientLabel: "Clip owner",
     recipient:
       "The Clip owner whose audience the recap reports. Suppressed addresses are skipped.",
+    senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
       preview({
@@ -181,8 +191,10 @@ export function registerClipsEmails(): void {
     name: "Two Clips received",
     trigger:
       "A one-time nudge once someone who owns no Clips of their own has had two distinct Clips directly shared with them. The summary line is AI-generated before the job is released to send.",
+    recipientLabel: "Shared-with address",
     recipient:
       "The shared-with address. Dropped at send time if they now own a Clip or no longer hold both shares.",
+    senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
       preview({
@@ -198,8 +210,10 @@ export function registerClipsEmails(): void {
     name: "Clip comment",
     trigger:
       "Someone comments or replies on a Clip. Subject and copy differ slightly for a reply; both send under this id.",
+    recipientLabel: "Owner and thread authors",
     recipient:
       "The recording owner, plus every prior author in the thread when the comment is a reply. The list is re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference; the comment's own author never receives it.",
+    senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
       preview({
@@ -219,8 +233,10 @@ export function registerClipsEmails(): void {
     id: CLIPS_ACTIVITY_REACTION_EMAIL_ID,
     name: "Clip reaction",
     trigger: "A viewer reacts with an emoji on a Clip.",
+    recipientLabel: "Clip owner",
     recipient:
       "The recording owner plus any extra recipients the caller passes, re-checked against the recording's live ACL and filtered by each user's `emailNotifications` preference. The reacting viewer never receives it.",
+    senderLabel: "Agent-Native Clips",
     sender: CLIPS_SENDER,
     preview: () =>
       preview({
@@ -240,8 +256,10 @@ export function registerClipsEmails(): void {
     name: "Organization invitation",
     trigger:
       "An organization admin runs `invite-member`. Any earlier pending invite for the same address is cancelled first, so a re-invite sends a fresh email with a new token.",
+    recipientLabel: "Invited address",
     recipient:
       "The address passed to the action, exactly as typed. One email per invite.",
+    senderLabel: "Default sender",
     sender:
       "The configured default sender. This call site sets no `from`, `fromName`, `replyTo`, or `appSender`, so unlike the other Clips emails it does not send as Agent-Native Clips.",
     preview: () =>

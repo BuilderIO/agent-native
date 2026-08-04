@@ -48,6 +48,10 @@ export const dispatchRoutes: RouteConfig = [
   route("messaging", "./pages/messaging.js"),
   route("destinations", "./pages/destinations.js"),
   route("transactional-email", "./pages/transactional-email.js"),
+  route(
+    "transactional-email/:appId/:id",
+    "./pages/transactional-email.$appId.$id.js",
+  ),
   route("identities", "./pages/identities.js"),
   route("approval", "./pages/approval.js"),
   route("approvals", "./pages/approvals.js"),

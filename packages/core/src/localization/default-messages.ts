@@ -217,6 +217,8 @@ const messages = {
       catalogUnreadable: "This app's email catalog could not be read",
       countsUnreadable: "Send counts could not be read",
       appSendsNoEmail: "This app sends no transactional email of its own.",
+      emailNotFound: "Email not found",
+      emailNotFoundDescription: "This email is not in the app's catalog.",
       sharedTitle: "Shared system email",
       sharedSubtitle: "sent by every app",
       email: "Email",

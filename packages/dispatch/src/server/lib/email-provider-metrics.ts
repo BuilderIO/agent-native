@@ -55,7 +55,9 @@ async function sendgridGet(
     headers: { Authorization: `Bearer ${key}` },
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
+    const body = await res
+      .text()
+      .catch((cause) => `<error body unreadable: ${cause}>`);
     const error = new Error(
       `SendGrid ${res.status} on ${path}: ${body.slice(0, 300)}`,
     );

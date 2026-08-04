@@ -45,8 +45,10 @@ export function registerCalendarEmails(): void {
     name: "Booking confirmed (guest)",
     trigger:
       "A guest completes a booking on a public `/book/{username}/{slug}` page and the booking row is created.",
+    recipientLabel: "Booking guest",
     recipient:
       "The email address the guest typed into the booking form (`booking.email`).",
+    senderLabel: "Default, reply-to host",
     sender:
       "The configured EMAIL_FROM, with reply-to set to the booking link owner's address.",
     preview: () =>
@@ -64,8 +66,10 @@ export function registerCalendarEmails(): void {
     name: "New booking (host)",
     trigger:
       "Sent alongside the guest confirmation, immediately after a public booking is created.",
+    recipientLabel: "Booking link owner",
     recipient:
       "The owner of the booking link, looked up from the link's slug at send time.",
+    senderLabel: "Default, reply-to guest",
     sender:
       "The configured EMAIL_FROM, with reply-to set to the guest so the host can reply directly.",
     preview: () =>
@@ -84,7 +88,9 @@ export function registerCalendarEmails(): void {
     name: "Booking cancelled (guest)",
     trigger:
       "A booking that was not already cancelled is cancelled, either by the guest through the manage/cancel token link or by someone with access to the booking link.",
+    recipientLabel: "Booking guest",
     recipient: "The guest address stored on the booking row.",
+    senderLabel: "Default, reply-to host",
     sender:
       "The configured EMAIL_FROM, with reply-to set to the host when a host address could be resolved from the link slug.",
     preview: () =>
@@ -101,7 +107,9 @@ export function registerCalendarEmails(): void {
     name: "Booking cancelled (host)",
     trigger:
       "Sent after the guest cancellation notice, and only when a host address could be resolved from the booking link slug.",
+    recipientLabel: "Booking link owner",
     recipient: "The booking link owner's address.",
+    senderLabel: "Default, reply-to guest",
     sender:
       "The configured EMAIL_FROM, with reply-to set to the guest who was booked.",
     preview: () =>
@@ -118,8 +126,10 @@ export function registerCalendarEmails(): void {
     name: "Event update note",
     trigger:
       "`update-event` runs with a non-empty guest notification message. Google Calendar still sends its own update invite; this carries only the organizer's note.",
+    recipientLabel: "Event attendees",
     recipient:
       "Every attendee on the event with a syntactically valid address, excluding the organizer's own `self` attendee row. One email per address.",
+    senderLabel: "Default, reply-to organizer",
     sender:
       "The configured EMAIL_FROM, with reply-to set to the organizer running the update.",
     preview: () =>
@@ -138,8 +148,10 @@ export function registerCalendarEmails(): void {
     name: "Event cancellation note",
     trigger:
       "`delete-event` runs with guest notification requested and a non-empty message. Google Calendar sends the cancellation itself; this carries only the organizer's note.",
+    recipientLabel: "Event attendees",
     recipient:
       "Every attendee on the deleted event with a syntactically valid address, excluding the organizer's own `self` attendee row. One email per address.",
+    senderLabel: "Default, reply-to organizer",
     sender:
       "The configured EMAIL_FROM, with reply-to set to the organizer running the deletion.",
     preview: () =>

@@ -29,8 +29,10 @@ export function registerContentEmails(): void {
     name: "Document comment",
     trigger:
       "Someone posts a comment or a thread reply on a document. Sent to recipients who were not mentioned in it; the copy and subject differ slightly for a reply.",
+    recipientLabel: "Owner and thread authors",
     recipient:
       "The document owner, plus every prior author in the thread when the new comment is a reply. The list is re-checked against the document's live ACL and filtered by each user's `emailNotifications` preference; the comment's own author never receives it.",
+    senderLabel: "Default sender",
     sender:
       "The configured default sender. This call site sets no `from`, `fromName`, `replyTo`, or `appSender`.",
     preview: () =>
@@ -49,8 +51,10 @@ export function registerContentEmails(): void {
     name: "Document mention",
     trigger:
       "A comment or reply mentions someone by email. Sent instead of the plain comment notification to each mentioned recipient.",
+    recipientLabel: "Mentioned users",
     recipient:
       "The mentioned addresses supplied by the caller, re-checked against the document's live ACL and filtered by each user's `emailNotifications` preference.",
+    senderLabel: "Default sender",
     sender:
       "The configured default sender. This call site sets no `from`, `fromName`, `replyTo`, or `appSender`.",
     preview: () =>
