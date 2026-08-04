@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 /**
  * Full-screen loading spinner rendered during SSR and initial hydration.
  * Uses inline SVG + styles because Tailwind may not be loaded yet on the server.
@@ -11,6 +13,7 @@
  * is indistinguishable from a blank screen, and reads as "the app is broken"
  * rather than "look at the terminal" — that mis-read is what this text buys.
  */
+
 function isDevelopmentBuild(): boolean {
   if (
     typeof process !== "undefined" &&
@@ -28,7 +31,11 @@ function isDevelopmentBuild(): boolean {
 }
 
 export function DefaultSpinner() {
-  const showStallHint = isDevelopmentBuild();
+  const [showStallHint, setShowStallHint] = useState(false);
+
+  useEffect(() => {
+    setShowStallHint(isDevelopmentBuild());
+  }, []);
 
   return (
     <div
