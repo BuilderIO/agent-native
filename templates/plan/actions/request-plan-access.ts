@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { PLAN_ACCESS_REQUEST_EMAIL_ID } from "../server/lib/emails.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
@@ -49,6 +50,28 @@ function absolutePlanUrl(planId: string, kind: "plan" | "recap"): string {
   }
 }
 
+export function renderPlanAccessRequestEmail(input: {
+  requesterName: string;
+  requesterEmail: string;
+  planTitle: string;
+  url: string;
+}) {
+  const subject = `${input.requesterName} requested access to "${input.planTitle}"`;
+  return {
+    subject,
+    ...renderEmail({
+      preheader: subject,
+      heading: "Access request",
+      paragraphs: [
+        `${emailStrong(input.requesterName)} (${emailStrong(input.requesterEmail)}) requested access to ${emailStrong(input.planTitle)}.`,
+        "Open the plan and use Share to grant access if this request should be approved.",
+      ],
+      cta: { label: "Open plan", url: input.url },
+      footer: "You received this because you own this Agent-Native Plan.",
+    }),
+  };
+}
+
 async function notifyOwner(input: {
   planId: string;
   planKind: "plan" | "recap";
@@ -62,19 +85,16 @@ async function notifyOwner(input: {
     return false;
   }
 
-  const url = absolutePlanUrl(input.planId, input.planKind);
-  const subject = `${input.requesterName} requested access to "${input.planTitle}"`;
-  const { html, text } = renderEmail({
-    preheader: subject,
-    heading: "Access request",
-    paragraphs: [
-      `${emailStrong(input.requesterName)} (${emailStrong(input.requesterEmail)}) requested access to ${emailStrong(input.planTitle)}.`,
-      "Open the plan and use Share to grant access if this request should be approved.",
-    ],
-    cta: { label: "Open plan", url },
-    footer: "You received this because you own this Agent-Native Plan.",
+  await sendEmail({
+    ...renderPlanAccessRequestEmail({
+      requesterName: input.requesterName,
+      requesterEmail: input.requesterEmail,
+      planTitle: input.planTitle,
+      url: absolutePlanUrl(input.planId, input.planKind),
+    }),
+    to: input.ownerEmail,
+    templateId: PLAN_ACCESS_REQUEST_EMAIL_ID,
   });
-  await sendEmail({ to: input.ownerEmail, subject, html, text });
   return true;
 }
 

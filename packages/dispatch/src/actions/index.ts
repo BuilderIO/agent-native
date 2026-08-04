@@ -37,6 +37,8 @@ import listAvailableWorkspaceTemplates from "./list-available-workspace-template
 import listConnectedAgents from "./list-connected-agents.js";
 import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
+import listEmailActivity from "./list-email-activity.js";
+import listEmailEngagement from "./list-email-engagement.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
 import listDispatchAudit from "./list-dispatch-audit.js";
 import listDispatchOverview from "./list-dispatch-overview.js";
@@ -139,6 +141,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
+  "list-email-activity": listEmailActivity,
+  "list-email-engagement": listEmailEngagement,
   "list-dispatch-approvals": listDispatchApprovals,
   "list-dispatch-audit": listDispatchAudit,
   "list-dispatch-overview": listDispatchOverview,

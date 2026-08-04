@@ -5,6 +5,7 @@ import {
   sendEmail,
 } from "@agent-native/core/server";
 
+import { CLIPS_EMAIL_ID_BY_KIND } from "./emails.js";
 import { recapMonthLabel } from "./recap-metrics.js";
 import type { RecapCopy } from "./transactional-email-store.js";
 
@@ -613,6 +614,7 @@ export async function sendClipsTransactionalEmail(
         ? (validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO)
         : FRIENDLY_REPLY_TO,
     timeoutMs: EMAIL_SEND_TIMEOUT_MS,
+    templateId: CLIPS_EMAIL_ID_BY_KIND[input.kind],
   });
 }
 

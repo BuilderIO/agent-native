@@ -70,6 +70,7 @@ describe("renderClipsTransactionalEmail", () => {
         title: "Imported demo",
       },
       subject: "Your first imported video is now Agent-Native",
+      templateId: "clips.first-import",
       heading: "Your video is ready for more than playback",
       cta: "Open your Agent-Native Clip: https://clips.example/r/rec-3",
     },
