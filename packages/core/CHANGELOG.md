@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.136.4
+
+### Patch Changes
+
+- 81c522e: Add an explicit Run now flow for automations, including reliable unattended action delivery, durable run history, and clearer email output.
+
 ## 0.136.3
 
 ### Patch Changes
