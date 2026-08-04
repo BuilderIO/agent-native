@@ -109,6 +109,9 @@ const messages = {
     builderBodySyncing: "內容仍在從 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前會暫停編輯，避免覆寫既有文章內容。",
+    pageBodySyncing: "此頁面的內容仍在同步",
+    pageBodySyncingDescription:
+      "在頁面正文完成同步之前，編輯會暫停，以免覆寫既有內容。",
     localFileSavedHistoryNotUpdated: "本機檔案已儲存，但歷史紀錄未更新",
     reorderField: "重新排序 {{name}}",
     title: "標題",

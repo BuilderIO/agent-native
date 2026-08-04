@@ -487,6 +487,8 @@ const messages = {
     slides: "幻燈片",
   },
   presentation: {
+    loadFailed: "無法載入此簡報。",
+    tryAgain: "重試",
     presenterView: "簡報者檢視",
     speakerNotes: "簡報者備忘稿",
     noNotesForSlide: "此投影片沒有備忘稿",

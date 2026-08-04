@@ -842,6 +842,9 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     viewsCount_one: "{{count}} visualización",
     viewsCount_many: "{{count}} visualizaciones",
     viewsCount_other: "{{count}} visualizaciones",
+    agentViewsCount_one: "{{count}} vista de agente de IA",
+    agentViewsCount_many: "{{count}} vistas de agentes de IA",
+    agentViewsCount_other: "{{count}} vistas de agentes de IA",
     totalViewsSummary:
       "{{total}} visualizaciones totales, {{unique}} espectadores únicos",
     viewsTab: "Vistas",
@@ -849,6 +852,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     humanViews: "Vistas humanas",
     agentViews: "Vistas de agentes de IA",
     noAgentViewsYet: "Todavía no hay vistas de agentes de IA.",
+    unknownAgent: "Agente desconocido",
     totalVideoViews: "Visualizaciones totales del vídeo",
     averageCompletionRate: "Tasa media de finalización",
     moreInsights: "Más estadísticas",

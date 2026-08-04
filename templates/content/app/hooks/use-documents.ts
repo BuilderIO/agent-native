@@ -20,21 +20,48 @@ import { toast } from "sonner";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import {
+  documentQueryFilter,
+  documentQueryKey,
+  type DocumentQueryContext,
+} from "../lib/document-query";
+import {
   removeOptimisticItemFromContentDatabase,
   useRestoreContentDatabase,
 } from "./use-content-database";
 
+export {
+  documentQueryFilter,
+  documentQueryKey,
+  type DocumentQueryContext,
+} from "../lib/document-query";
+
 export type { DocumentUpdateConflictResponse };
+
+export type PageOwnedDocumentCachePatch = Pick<
+  Partial<Document>,
+  | "id"
+  | "parentId"
+  | "title"
+  | "content"
+  | "description"
+  | "icon"
+  | "position"
+  | "isFavorite"
+  | "hideFromSearch"
+  | "visibility"
+  | "accessRole"
+  | "canEdit"
+  | "canManage"
+  | "source"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 export const LIST_DOCUMENTS_QUERY_KEY = [
   "action",
   "list-documents",
   undefined,
 ] as const;
-
-export function documentQueryKey(documentId: string) {
-  return ["action", "get-document", { id: documentId }] as const;
-}
 
 export function documentPropertiesQueryKey(
   documentId: string,
@@ -74,7 +101,27 @@ export function mergeDocumentIntoDocumentCache(
   old: unknown,
   document: Document,
 ) {
-  return old && typeof old === "object" ? { ...old, ...document } : document;
+  const pageOwnedPatch: PageOwnedDocumentCachePatch = {
+    id: document.id,
+    parentId: document.parentId,
+    title: document.title,
+    content: document.content,
+    description: document.description,
+    icon: document.icon,
+    position: document.position,
+    isFavorite: document.isFavorite,
+    hideFromSearch: document.hideFromSearch,
+    visibility: document.visibility,
+    accessRole: document.accessRole,
+    canEdit: document.canEdit,
+    canManage: document.canManage,
+    source: document.source,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
+  };
+  return old && typeof old === "object"
+    ? { ...old, ...pageOwnedPatch }
+    : pageOwnedPatch;
 }
 
 export function mergeDocumentIntoListDocumentsCache(
@@ -157,9 +204,9 @@ function patchDocumentWithFavoriteMembershipInDatabaseCache(
 export function patchDocumentCaches(
   queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
   documentId: string,
-  patch: Partial<Document>,
+  patch: PageOwnedDocumentCachePatch,
 ) {
-  queryClient.setQueryData(documentQueryKey(documentId), (old: unknown) =>
+  queryClient.setQueriesData(documentQueryFilter(documentId), (old: unknown) =>
     old && typeof old === "object" ? { ...old, ...patch } : old,
   );
   queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
@@ -219,7 +266,7 @@ export function patchContentSpaceNameCaches(
 export function documentUpdateSuccessPatch(
   data: DocumentUpdateResponse,
   variables: DocumentUpdateRequestWithCas,
-): Partial<Document> {
+): PageOwnedDocumentCachePatch {
   return {
     updatedAt: data.updatedAt,
     ...(variables.title !== undefined ? { title: data.title } : {}),
@@ -289,13 +336,28 @@ export const DOCUMENT_QUERY_FRESHNESS_OPTIONS = {
   retry: false,
 };
 
-export function useDocument(id: string | null) {
-  return useActionQuery<Document>("get-document", id ? { id } : undefined, {
-    enabled: !!id,
-    // Doc-not-found / no-access errors are deterministic — retrying just keeps
-    // the spinner up for ~7s before the UI can render "Not found".
-    ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
-  });
+export function useDocument(
+  id: string | null,
+  context: DocumentQueryContext = {},
+) {
+  return useActionQuery<Document>(
+    "get-document",
+    id
+      ? {
+          id,
+          ...(context.databaseId ? { databaseId: context.databaseId } : {}),
+          ...(context.databaseDocumentId
+            ? { databaseDocumentId: context.databaseDocumentId }
+            : {}),
+        }
+      : undefined,
+    {
+      enabled: !!id,
+      // Doc-not-found / no-access errors are deterministic — retrying just keeps
+      // the spinner up for ~7s before the UI can render "Not found".
+      ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
+    },
+  );
 }
 
 export interface PreviewDocumentDraftRecord {
@@ -368,7 +430,7 @@ export function useUpdateDocument() {
         };
         if (Object.keys(optimisticPatch).length === 0) return undefined;
 
-        const documentKey = documentQueryKey(variables.id);
+        const documentFilter = documentQueryFilter(variables.id);
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
@@ -376,14 +438,14 @@ export function useUpdateDocument() {
           queryKey: ["action", "list-content-spaces"],
         } as const;
         await Promise.all([
-          queryClient.cancelQueries({ queryKey: documentKey }),
+          queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
           queryClient.cancelQueries(contentSpacesFilter),
         ]);
 
         const previous: Array<[readonly unknown[], unknown]> = [
-          [documentKey, queryClient.getQueryData(documentKey)],
+          ...queryClient.getQueriesData(documentFilter),
           [
             LIST_DOCUMENTS_QUERY_KEY,
             queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY),
@@ -423,8 +485,8 @@ export function useUpdateDocument() {
         // just-applied write.
         if (isDocumentUpdateConflict(data)) {
           const serverDocument = data.document;
-          queryClient.setQueryData(
-            ["action", "get-document", { id: variables.id }],
+          queryClient.setQueriesData(
+            documentQueryFilter(variables.id),
             (old: unknown) =>
               mergeDocumentIntoDocumentCache(old, serverDocument),
           );
@@ -453,9 +515,7 @@ export function useUpdateDocument() {
               queryKey: ["action", "get-content-database"],
             });
           }
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-document", { id: variables.id }],
-          });
+          queryClient.invalidateQueries(documentQueryFilter(variables.id));
           queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });
@@ -525,9 +585,7 @@ export function useDeleteDocument() {
       queryClient.invalidateQueries({
         queryKey: ["action", "list-documents"],
       });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: variables.id }],
-      });
+      queryClient.invalidateQueries(documentQueryFilter(variables.id));
       queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
@@ -606,9 +664,7 @@ export function useMoveDocument() {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: variables.id }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(variables.id));
       },
     },
   );

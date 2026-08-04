@@ -218,6 +218,8 @@ export interface VideoPlayerProps {
    * lifecycle instead of polling an imperative-handle getter.
    */
   onVideoElementChange?: (video: HTMLVideoElement | null) => void;
+  /** Called when the viewer clicks the timestamped-comment overlay. */
+  onCommentClick?: () => void;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -255,6 +257,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       recordingId,
       role,
       onVideoElementChange,
+      onCommentClick,
     } = props;
 
     const resolvedVideoSrc = useMemo(
@@ -1651,6 +1654,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             comments={comments}
             currentMs={currentMs}
             playbackRate={speed}
+            onClick={onCommentClick}
           />
         ) : null}
 

@@ -33,6 +33,7 @@ import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
 import {
   isInsidePortaledLayer,
@@ -66,6 +67,12 @@ interface EditorSidebarProps {
   recentEdits?: AttributedRecentEdit[];
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+  /** The next slide while the agent is preparing its HTML. */
+  generatingSlide?: { index: number; content?: string | null };
+  generatingSlideSelected?: boolean;
+  onSelectGeneratingSlide?: () => void;
+  addSlideGenerating?: boolean;
+  onAddSlideGeneratingChange?: (generating: boolean) => void;
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -332,16 +339,26 @@ function SortableSlideThumb({
 function GeneratingSlideSkeleton({
   index,
   aspectRatio,
+  content,
+  selected,
+  onSelect,
 }: {
   index: number;
   aspectRatio?: AspectRatio;
+  content?: string | null;
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
   const t = useT();
-  const cssRatio = (aspectRatio ?? "16:9").replace(":", " / ");
   return (
-    <div
-      className="group relative"
+    <button
+      type="button"
+      className={`group relative block w-full rounded-lg text-left transition-colors ${
+        selected ? "bg-accent ring-1 ring-ring" : "hover:bg-accent/50"
+      }`}
       aria-label={t("editorSidebar.generatingSlide")}
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
     >
       <div className="w-full flex items-start gap-2 p-2 rounded-lg bg-accent/30">
         <div className="flex-shrink-0 mt-2 w-3.5 h-3.5" />
@@ -349,15 +366,14 @@ function GeneratingSlideSkeleton({
           {index + 1}
         </span>
         <div className="flex-1 min-w-0">
-          <div
-            className="w-full overflow-hidden rounded border border-white/[0.06] bg-muted/30 animate-pulse flex items-center justify-center"
-            style={{ aspectRatio: cssRatio }}
-          >
-            <IconLoader2 className="w-4 h-4 text-muted-foreground/50 animate-spin" />
-          </div>
+          <GeneratingSlidePreview
+            content={content}
+            aspectRatio={aspectRatio}
+            thumbnail
+          />
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -577,11 +593,15 @@ export default function EditorSidebar({
   slidePresence,
   recentEdits,
   aspectRatio,
+  generatingSlide,
+  generatingSlideSelected = false,
+  onSelectGeneratingSlide,
+  addSlideGenerating = false,
+  onAddSlideGeneratingChange,
 }: EditorSidebarProps) {
   const t = useT();
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
   const [addOpen, setAddOpen] = useState(false);
-  const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const headerAddRef = useRef<HTMLButtonElement>(null);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const thumbScrollRef = useRef<HTMLDivElement>(null);
@@ -693,8 +713,8 @@ export default function EditorSidebar({
 
   // Reset addSlideGenerating when global generating stops
   useEffect(() => {
-    if (!generating) setAddSlideGenerating(false);
-  }, [generating]);
+    if (!generating) onAddSlideGeneratingChange?.(false);
+  }, [generating, onAddSlideGeneratingChange]);
 
   // Arrow key navigation for slides
   useEffect(() => {
@@ -785,10 +805,13 @@ export default function EditorSidebar({
             />
           ))}
         </SortableContext>
-        {addSlideGenerating && (
+        {generatingSlide && (
           <GeneratingSlideSkeleton
-            index={slides.length}
+            index={generatingSlide.index}
             aspectRatio={aspectRatio}
+            content={generatingSlide.content}
+            selected={generatingSlideSelected}
+            onSelect={onSelectGeneratingSlide}
           />
         )}
         {/* Fading "AI edited" highlights over the thumbnails of just-edited
@@ -813,7 +836,7 @@ export default function EditorSidebar({
           slideCount={slides.length}
           activeSlideIndex={activeIndex >= 0 ? activeIndex : 0}
           agentSubmit={(msg, ctx) => {
-            setAddSlideGenerating(true);
+            onAddSlideGeneratingChange?.(true);
             agentSubmit(msg, ctx);
           }}
           onDuplicateCurrent={

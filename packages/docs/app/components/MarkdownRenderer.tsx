@@ -22,7 +22,7 @@ interface ImageDimensions {
   height: number;
 }
 
-const DEFAULT_CODE_MAX_LINES = 30;
+const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {

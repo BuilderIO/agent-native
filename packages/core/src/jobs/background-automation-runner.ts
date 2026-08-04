@@ -25,6 +25,7 @@ import { createThread } from "../chat-threads/store.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
+  organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
 import {
@@ -260,13 +261,16 @@ export async function runBackgroundAutomation(
   // Everything downstream tolerates a null id by skipping its own write.
   let historyId: string | null = null;
   try {
+    const historyOwner = options.orgId
+      ? organizationResourceOwner(options.orgId)
+      : automation.resource.owner === "__shared__"
+        ? options.ownerEmail
+        : automation.resource.owner;
     historyId = await startAutomationRun({
-      owner: automation.resource.owner,
+      owner: historyOwner,
       automation: automation.name,
       path: automation.resource.path,
-      scope: organizationIdFromResourceOwner(automation.resource.owner)
-        ? "organization"
-        : "personal",
+      scope: options.orgId ? "organization" : "personal",
       orgId: options.orgId ?? null,
     });
   } catch (err) {

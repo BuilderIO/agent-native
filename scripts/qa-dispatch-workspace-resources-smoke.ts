@@ -12,6 +12,8 @@ import path from "node:path";
 
 import type { Browser, Locator, Page } from "playwright";
 
+import { MISSING_BROWSER_HINT } from "./playwright-browser-hint";
+
 interface RunningDispatch {
   baseUrl: string;
   child: ChildProcessWithoutNullStreams;
@@ -221,7 +223,7 @@ async function launchBrowser(): Promise<Browser> {
               ? bundledError.message.split("\n")[0]
               : String(bundledError)
           }`,
-          "Install a browser with `pnpm exec playwright install chromium` or set PLAYWRIGHT_CHANNEL to an installed channel.",
+          MISSING_BROWSER_HINT,
         ].join("\n"),
       );
     }

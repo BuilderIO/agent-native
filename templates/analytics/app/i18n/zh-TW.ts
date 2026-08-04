@@ -137,6 +137,10 @@ const messages = {
     openDashboardTemplates: "開啟目錄",
     languageTitle: "語言",
     languageLabel: "介面語言",
+    errorEmailNotifications: "透過電子郵件接收新的錯誤提醒",
+    errorEmailNotificationsDescription:
+      "捕獲新的 JavaScript 錯誤時傳送電子郵件。預設為關閉。",
+    errorEmailNotificationsSaveFailed: "無法儲存電子郵件偏好設定。",
     about: "關於",
     aboutDescription:
       "Analytics 用於連線資料來源並建置自訂儀表板。連線 Google Analytics、BigQuery、Stripe 等，然後讓代理建立儀表板。",

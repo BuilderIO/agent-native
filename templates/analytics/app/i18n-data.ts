@@ -194,6 +194,10 @@ const enUS = {
     openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
+    errorEmailNotifications: "Email new error alerts",
+    errorEmailNotificationsDescription:
+      "Send an email when a new JavaScript error is captured. Off by default.",
+    errorEmailNotificationsSaveFailed: "Couldn't save the email preference.",
     about: "About",
     aboutDescription:
       "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
@@ -4253,6 +4257,10 @@ export const messagesByLocale = {
       openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
+      errorEmailNotifications: "通过电子邮件接收新的错误提醒",
+      errorEmailNotificationsDescription:
+        "捕获新的 JavaScript 错误时发送电子邮件。默认关闭。",
+      errorEmailNotificationsSaveFailed: "无法保存电子邮件偏好设置。",
       about: "关于",
       aboutDescription:
         "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
@@ -4471,6 +4479,11 @@ export const messagesByLocale = {
       openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
+      errorEmailNotifications: "Recibir nuevas alertas de errores por email",
+      errorEmailNotificationsDescription:
+        "Envía un email cuando se capture un nuevo error de JavaScript. Desactivado de forma predeterminada.",
+      errorEmailNotificationsSaveFailed:
+        "No se pudo guardar la preferencia de email.",
       about: "Acerca de",
       aboutDescription:
         "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
@@ -4693,6 +4706,12 @@ export const messagesByLocale = {
       openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
+      errorEmailNotifications:
+        "Recevoir les nouvelles alertes d’erreur par e-mail",
+      errorEmailNotificationsDescription:
+        "Envoyer un e-mail lorsqu’une nouvelle erreur JavaScript est capturée. Désactivé par défaut.",
+      errorEmailNotificationsSaveFailed:
+        "Impossible d’enregistrer la préférence e-mail.",
       about: "À propos",
       aboutDescription:
         "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
@@ -4922,6 +4941,11 @@ export const messagesByLocale = {
       openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
+      errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
+      errorEmailNotificationsDescription:
+        "Eine E-Mail senden, wenn ein neuer JavaScript-Fehler erfasst wird. Standardmäßig deaktiviert.",
+      errorEmailNotificationsSaveFailed:
+        "Die E-Mail-Einstellung konnte nicht gespeichert werden.",
       about: "Info",
       aboutDescription:
         "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
@@ -5142,6 +5166,10 @@ export const messagesByLocale = {
       openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
+      errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
+      errorEmailNotificationsDescription:
+        "新しい JavaScript エラーが記録されたときにメールを送信します。デフォルトではオフです。",
+      errorEmailNotificationsSaveFailed: "メール設定を保存できませんでした。",
       about: "概要",
       aboutDescription:
         "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
@@ -5361,6 +5389,10 @@ export const messagesByLocale = {
       openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
+      errorEmailNotifications: "새 오류 알림을 이메일로 받기",
+      errorEmailNotificationsDescription:
+        "새 JavaScript 오류가 캡처되면 이메일을 보냅니다. 기본값은 꺼져 있습니다.",
+      errorEmailNotificationsSaveFailed: "이메일 설정을 저장하지 못했습니다.",
       about: "정보",
       aboutDescription:
         "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
@@ -5584,6 +5616,11 @@ export const messagesByLocale = {
       openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
+      errorEmailNotifications: "Receber novos alertas de erro por e-mail",
+      errorEmailNotificationsDescription:
+        "Envie um e-mail quando um novo erro de JavaScript for capturado. Desativado por padrão.",
+      errorEmailNotificationsSaveFailed:
+        "Não foi possível salvar a preferência de e-mail.",
       about: "Sobre",
       aboutDescription:
         "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
@@ -5802,6 +5839,10 @@ export const messagesByLocale = {
       openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
+      errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
+      errorEmailNotificationsDescription:
+        "नया JavaScript त्रुटि कैप्चर होने पर ईमेल भेजें। डिफ़ॉल्ट रूप से बंद।",
+      errorEmailNotificationsSaveFailed: "ईमेल प्राथमिकता सहेजी नहीं जा सकी।",
       about: "परिचय",
       aboutDescription:
         "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
@@ -6019,6 +6060,11 @@ export const messagesByLocale = {
       openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
+      errorEmailNotifications:
+        "تلقي تنبيهات الأخطاء الجديدة عبر البريد الإلكتروني",
+      errorEmailNotificationsDescription:
+        "إرسال بريد إلكتروني عند التقاط خطأ JavaScript جديد. معطّل افتراضيًا.",
+      errorEmailNotificationsSaveFailed: "تعذّر حفظ تفضيل البريد الإلكتروني.",
       about: "حول",
       aboutDescription:
         "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",

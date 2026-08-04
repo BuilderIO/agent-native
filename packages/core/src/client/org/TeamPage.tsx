@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   Table,
   TableBody,
@@ -83,6 +84,7 @@ import {
   useSwitchOrg,
   useSetOrgDomain,
   useSetOrgWorkspaceUrl,
+  useSetOrgAuthProvider,
   useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
@@ -463,6 +465,10 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
             />
 
             <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
+
+            <AuthProviderSettingsSection
+              requiredAuthProvider={org.requiredAuthProvider}
+            />
 
             {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
           </div>
@@ -1603,6 +1609,80 @@ function WorkspaceUrlSettingsSection({
         </div>
       )}
       <ErrorText error={setWorkspaceUrl.error} />
+    </div>
+  );
+}
+
+function AuthProviderSettingsSection({
+  requiredAuthProvider,
+}: {
+  requiredAuthProvider: "google" | null | undefined;
+}) {
+  const setAuthProvider = useSetOrgAuthProvider();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const enabled = requiredAuthProvider === "google";
+
+  function changeProvider(nextEnabled: boolean) {
+    if (nextEnabled) {
+      setConfirmOpen(true);
+      return;
+    }
+    setAuthProvider.mutate(null);
+  }
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Organization sign-in
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Require Google sign-in for every member of this organization. Enabling
+        this revokes all current sessions, and future password or non-Google
+        sign-ins will be rejected.
+      </p>
+      <div className="flex items-center gap-3">
+        <Switch
+          checked={enabled}
+          disabled={setAuthProvider.isPending}
+          onCheckedChange={changeProvider}
+          aria-label="Require Google sign-in"
+        />
+        <span className="text-sm font-medium">
+          {enabled ? "Google sign-in required" : "Google sign-in optional"}
+        </span>
+      </div>
+      <ErrorText error={setAuthProvider.error} />
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Require Google sign-in?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Every current session in this organization will be revoked.
+              Members must use their Google Workspace account the next time they
+              sign in. Continue only after Google sign-in is configured for this
+              app.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={setAuthProvider.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={setAuthProvider.isPending}
+              onClick={() => {
+                setAuthProvider.mutate("google", {
+                  onSuccess: () => setConfirmOpen(false),
+                });
+              }}
+            >
+              {setAuthProvider.isPending
+                ? "Enabling…"
+                : "Require Google sign-in"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

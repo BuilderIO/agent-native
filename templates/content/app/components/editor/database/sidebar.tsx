@@ -21,6 +21,7 @@ import {
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
+import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -717,14 +718,12 @@ function DatabaseSidebarRow({
   };
 }) {
   const t = useT();
-  const canEdit = item.document.canEdit !== false;
-  const canManage =
-    item.document.canManage === true ||
-    item.document.accessRole === "owner" ||
-    item.document.accessRole === "admin";
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(item.document, {
+      favoriteAvailable: Boolean(onToggleFavorite),
+      manageAvailable: Boolean(onDeleteItem),
+    });
   const canCreateChild = canEdit && Boolean(onCreateChildPage);
-  const hasMenuActions =
-    Boolean(onToggleFavorite) || (canManage && Boolean(onDeleteItem));
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
@@ -828,7 +827,7 @@ function DatabaseSidebarRow({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
-                  {onToggleFavorite ? (
+                  {canFavorite && onToggleFavorite ? (
                     <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
                       <IconStar
                         className={cn(
@@ -841,7 +840,10 @@ function DatabaseSidebarRow({
                         : t("sidebar.pinToSidebar")}
                     </DropdownMenuItem>
                   ) : null}
-                  {onToggleFavorite && canManage && onDeleteItem ? (
+                  {canFavorite &&
+                  onToggleFavorite &&
+                  canManage &&
+                  onDeleteItem ? (
                     <DropdownMenuSeparator />
                   ) : null}
                   {canManage && onDeleteItem ? (
@@ -857,7 +859,7 @@ function DatabaseSidebarRow({
               </DropdownMenu>
             )}
 
-            {canCreateChild && (
+            {canCreateChild ? (
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -866,6 +868,7 @@ function DatabaseSidebarRow({
                         type="button"
                         className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         aria-label={t("sidebar.addChildTo", { title })}
+                        data-sidebar-add-child
                       >
                         <IconPlus size={14} />
                       </button>
@@ -888,6 +891,16 @@ function DatabaseSidebarRow({
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
+            ) : (
+              <button
+                type="button"
+                className="flex size-6 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+                aria-label={t("sidebar.addChildTo", { title })}
+                data-sidebar-add-child
+                disabled
+              >
+                <IconPlus size={14} />
+              </button>
             )}
           </div>
         )}

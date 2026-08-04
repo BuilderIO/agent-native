@@ -18,6 +18,7 @@ const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
 const mockBuildAgentApiUrls = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
 const mockCountRecordingViews = vi.hoisted(() => vi.fn());
+const mockCountRecordingAgentViews = vi.hoisted(() => vi.fn());
 const mockHasExplicitRecordingShare = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
@@ -74,6 +75,11 @@ vi.mock("../../lib/recordings.js", () => ({
   getOrganizationRoleForEmail: (...args: unknown[]) =>
     mockGetOrganizationRoleForEmail(...args),
   parseSpaceIds: vi.fn(() => []),
+}));
+
+vi.mock("../../lib/agent-views.js", () => ({
+  countRecordingAgentViews: (...args: unknown[]) =>
+    mockCountRecordingAgentViews(...args),
 }));
 
 vi.mock("../../lib/recording-share-grant.js", () => ({
@@ -192,6 +198,7 @@ describe("/api/public-recording route", () => {
     });
     mockIsMediaVerificationPending.mockResolvedValue(false);
     mockCountRecordingViews.mockResolvedValue(7);
+    mockCountRecordingAgentViews.mockResolvedValue(2);
     mockHasExplicitRecordingShare.mockResolvedValue(false);
   });
 
@@ -443,6 +450,8 @@ describe("/api/public-recording route", () => {
     expect(result.viewCount).toBe(7);
     expect(Number.isInteger(result.viewCount)).toBe(true);
     expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
+    expect(result.agentViewCount).toBe(2);
+    expect(mockCountRecordingAgentViews).toHaveBeenCalledWith("rec-1");
     expect(result.viewer).toBeNull();
     expect(result).not.toHaveProperty("viewers");
     expect(JSON.stringify(result)).not.toContain("viewerEmail");

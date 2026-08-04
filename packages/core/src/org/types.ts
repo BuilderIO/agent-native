@@ -4,6 +4,8 @@
 
 export type OrgRole = "owner" | "admin" | "member";
 
+export type RequiredAuthProvider = "google" | null;
+
 export interface OrgContext {
   email: string;
   orgId: string | null;
@@ -46,6 +48,8 @@ export interface OrgInfo {
    * workspace.
    */
   workspaceUrl: string | null;
+  /** Sign-in provider required for members of the active org. */
+  requiredAuthProvider: RequiredAuthProvider;
   /**
    * Whether the active org has an A2A secret. The value itself is never part
    * of this payload — owners/admins fetch it on demand from

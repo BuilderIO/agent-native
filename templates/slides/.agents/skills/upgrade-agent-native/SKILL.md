@@ -53,6 +53,8 @@ install → refresh scaffold skills → verify, then fix **app** code only.
    - Blocks (unless `--force`) when `@agent-native/*` overrides/patches exist
    - Rewrites non-local `@agent-native/*` dependency pins to `latest`
    - Runs the package manager install
+   - Rewrites those pins to the exact versions the install resolved, so the
+     committed manifest names one release instead of re-resolving next install
    - Runs `skills update scaffold --project`
    - Runs `typecheck` when the project has that script
 

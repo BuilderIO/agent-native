@@ -26,7 +26,8 @@ interface ViewerRow {
 }
 
 interface AgentViewerRow {
-  agentLabel: string;
+  agentLabel: string | null;
+  userAgent: string | null;
   views: number;
   lastSeenAt: string;
 }
@@ -52,6 +53,8 @@ export interface RecordingViewsBadgeProps {
   recordingId: string;
   /** Public counted-view total. Rendered as-is when details are unavailable. */
   viewCount: number;
+  /** Outside-agent read total. Shown beside the human count, never folded into it. */
+  agentViewCount?: number;
   /** True only for owner/editor — gates avatars, the popover, and all viewer identities. */
   canViewDetails: boolean;
   /** Optional: called by the popover's "More insights" button. Omit to hide that button. */
@@ -67,6 +70,7 @@ export interface RecordingViewsBadgeProps {
 export function RecordingViewsBadge({
   recordingId,
   viewCount,
+  agentViewCount = 0,
   canViewDetails,
   onOpenInsights,
   className,
@@ -86,15 +90,24 @@ export function RecordingViewsBadge({
   );
 
   const countLabel = t("recordingInsights.viewsCount", { count: viewCount });
+  const agentCountLabel = t("recordingInsights.agentViewsCount", {
+    count: agentViewCount,
+  });
 
-  if (viewCount <= 0 && !canViewDetails) return null;
+  if (viewCount <= 0 && agentViewCount <= 0 && !canViewDetails) return null;
 
   if (!canViewDetails) {
     return (
       <span
-        className={cn("text-sm text-muted-foreground tabular-nums", className)}
+        className={cn(
+          "inline-flex items-center gap-2 text-sm text-muted-foreground",
+          className,
+        )}
       >
-        {countLabel}
+        <span className="tabular-nums">{countLabel}</span>
+        {agentViewCount > 0 ? (
+          <AgentViewCount count={agentViewCount} label={agentCountLabel} />
+        ) : null}
       </span>
     );
   }
@@ -131,6 +144,9 @@ export function RecordingViewsBadge({
             </span>
           ) : null}
           <span className="tabular-nums">{countLabel}</span>
+          {agentViewCount > 0 ? (
+            <AgentViewCount count={agentViewCount} label={agentCountLabel} />
+          ) : null}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -196,14 +212,17 @@ export function RecordingViewsBadge({
                 <ul className="space-y-0.5">
                   {agentViewers.map((a) => (
                     <li
-                      key={a.agentLabel}
+                      key={a.agentLabel ?? a.userAgent ?? "unknown"}
                       className="flex items-center gap-2 rounded-md px-2 py-1.5"
                     >
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                         <IconTerminal2 className="h-3.5 w-3.5" />
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                        {a.agentLabel}
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm text-foreground"
+                        title={a.userAgent ?? undefined}
+                      >
+                        {a.agentLabel ?? t("recordingInsights.unknownAgent")}
                       </span>
                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                         {t("recordingInsights.viewsCount", { count: a.views })}
@@ -266,6 +285,32 @@ export function RecordingViewsBadge({
         </Tabs>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Agent reads are a separate audience from humans, so they get their own
+ * icon-prefixed count rather than being summed into the view total. */
+export function AgentViewCount({
+  count,
+  label,
+  className,
+}: {
+  count: number;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      className={cn(
+        "inline-flex items-center gap-1 border-s border-border ps-2 tabular-nums",
+        className,
+      )}
+    >
+      <IconTerminal2 className="h-3.5 w-3.5" aria-hidden />
+      {count}
+    </span>
   );
 }
 

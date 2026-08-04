@@ -182,10 +182,7 @@ export function RewindExtensionDialog({
           (next) => mounted.current && setProgress(next.progress),
         );
         setStatus("Saving the longer Clip…");
-        const upload = await uploadFileClient(
-          blob,
-          `rewind-${recordingId}.mp4`,
-        );
+        const upload = await uploadFileClient(blob, `${recordingId}.mp4`);
         if (!upload?.url) {
           throw new Error(
             "Connect video storage before adding Rewind history.",

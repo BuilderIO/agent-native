@@ -515,6 +515,8 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    loadFailed: "No se pudo cargar esta presentación.",
+    tryAgain: "Reintentar",
     presenterView: "Vista del presentador",
     speakerNotes: "Notas del orador",
     noNotesForSlide: "No hay notas para esta diapositiva",

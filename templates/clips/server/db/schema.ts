@@ -414,7 +414,11 @@ export const recordingAgentViews = table(
     recordingId: text("recording_id").notNull(),
     // sha256 of user-agent + request IP. Never stores the raw IP.
     agentKey: text("agent_key").notNull(),
+    // Null when nothing named the agent — distinct from a self-declared name.
     agentLabel: text("agent_label"),
+    // Raw (truncated) user-agent, kept so an unnamed agent stays identifiable
+    // and new AGENT_LABELS patterns come from real traffic, not guesses.
+    userAgent: text("user_agent"),
     // Time bucket that collapses one agent's burst of context/transcript/frame
     // polls into a single view.
     viewSessionId: text("view_session_id").notNull(),

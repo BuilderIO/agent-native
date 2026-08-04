@@ -23,9 +23,9 @@ too.
 
 Generated apps and workspaces may be on a different framework version than the
 public docs or model memory. The installed package is the source that matches
-the app in front of you. It also includes a source-only corpus of core and
-first-party templates so agents can replicate current best-practice patterns
-without needing the framework monorepo checkout.
+the app in front of you. It also includes a source-only corpus of first-party
+templates so agents can replicate current best-practice patterns without needing
+the framework monorepo checkout.
 
 ## How
 
@@ -37,7 +37,7 @@ pnpm action docs-search --slug <slug>
 pnpm action docs-search --list
 pnpm action source-search --query "<pattern>"
 pnpm action source-search --path templates/plan/AGENTS.md
-pnpm action source-search --path toolkit/src/index.ts
+pnpm action source-search --path templates/chat/actions/hello.ts
 pnpm action source-search --list
 ```
 
@@ -53,12 +53,13 @@ rg -n "defineAction|useActionQuery" node_modules/@agent-native/core/corpus
 ```
 
 Then read `node_modules/@agent-native/core/docs/AGENTS.md` or the matching file
-under `node_modules/@agent-native/core/docs/content/`. For source examples,
-read files under `node_modules/@agent-native/core/corpus/core/` or
-`node_modules/@agent-native/core/corpus/templates/`.
+under `node_modules/@agent-native/core/docs/content/`. For template examples,
+read files under `node_modules/@agent-native/core/corpus/templates/`. The corpus
+carries templates only; for Core's own implementation read
+`node_modules/@agent-native/core/dist/` (compiled sources plus `.d.ts`).
 
-Toolkit source is searchable at `toolkit/` in the Core corpus and also ships as
-readable TypeScript under `node_modules/@agent-native/toolkit/src/`. Read
+Toolkit ships readable TypeScript under
+`node_modules/@agent-native/toolkit/src/`. Read
 `customizing-agent-native` before taking ownership of a shared component: inspect package
 source as a read-only reference, then configure, compose, or eject the smallest
 supported unit into app-owned source. Preserve public actions, application
@@ -83,8 +84,8 @@ rg -n "drag.*drop|reorder" node_modules/@agent-native/core/corpus/templates
 cp node_modules/@agent-native/core/corpus/templates/mail/actions/archive-email.ts \
    actions/archive-item.ts
 
-# Read the full framework source behind an API, not just the corpus copy
-rg -n "defineAction" node_modules/@agent-native/core/src/action.ts
+# Read the framework's own implementation behind an API
+rg -n "defineAction" node_modules/@agent-native/core/dist/action.js
 ```
 
 Copying template-level app code (actions, components, skill files) is the
