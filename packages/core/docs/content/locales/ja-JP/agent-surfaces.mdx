@@ -1,89 +1,46 @@
 ---
-title: "エージェント サーフェス"
-description: "Agent-Native をヘッドレスで、リッチ チャットとして、既存のアプリ内で、または完全なエージェント ネイティブ アプリケーションとして使用します。"
-search: "ヘッドレス エージェント リッチ チャット フル アプリ BYO エージェント ランタイム AgentChatRuntime 埋め込み actions MCP A2A HTTP CLI"
+title: "エージェントサーフェス"
+description: "チャットからインラインUI、永続的なアプリページ、埋め込みサイドカー、自動化、外部エージェントアクセスまで、エージェントアプリの拡張方法を選択してください。"
+search: "エージェントアプリ リッチチャット ネイティブチャットUI フルアプリ 自動化 ヘッドレス BYO エージェントランタイム AgentChatRuntime 埋め込み アクション MCP A2A HTTP CLI"
 ---
 
-# エージェント サーフェス
+# エージェントサーフェス
 
-## フルページの Agent ワークスペース {#agent-page}
+**サーフェス**とは、ユーザー（または他のシステム）がアプリと対話する方法のことです。チャットウィンドウ、ダッシュボードページ、バックグラウンドジョブ、他のエージェントからのAPIコールなどがあります。Agent-Native では、コアロジックを作り直すことなく、これらを自由に組み合わせることができます。すべてのサーフェスが同じ基盤となるアクションを実行するためです。Agent-Native を初めて使う場合は、まず[キーコンセプト](/docs/key-concepts)をお読みください。
 
-完全なアプリケーションでエージェントを確認・設定する常設の場所が必要な
-場合は、`/agent` に `AgentTabsPage` をマウントします。アプリのナビゲーション
-にこのルートを追加し、`AgentSidebar` に `agentPageHref="/agent"` を渡すと、
-Resources と Settings から同じフローを重複させずにフルページへ移動できます。
+## サーフェスの相互関係
 
-```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
-export default function AgentRoute() {
-  return <AgentTabsPage />;
-}
-```
+4つの主要なプロダクト形態は、最もインタラクティブなものから完全なヘッドレスまでのスペクトラム上に位置します。それらが組み合わせ可能なのは、基盤が常に同じであるためです。同じアクション、同じSQLデータベース、同じエージェントループがすべての形態を支えています。新しいサーフェスを追加しても、その下にあるものを書き直す必要はありません。同じ操作に到達する新しい方法を追加するだけです。
 
-共有ページには現在、5 つのタブがあります。
-
-- **Context** — スコープのプレビュー、トークン予算、provenance・governance・source で整理された順序付きシステムセクション、リスト/treemap 表示、最新の live thread スナップショット。
-- **Files** — 個人または組織のリソース用に既存の `ResourcesPanel` を再ホストします。
-- **Connections** — MCP サーバー管理と A2A リモートエージェント一覧。アプリのエージェントが呼び出せるものを示します。
-- **Automations** — 一時停止/再開、詳細、削除に対応した個人および組織の Scheduled/Event 自動化。互換 URL は `/agent#jobs` のままです。
-- **Access** — MCP URL、利用可能なら A2A エージェントカード、共通のクライアント設定ガイドを表示します。完全な接続フローとトークンのフォールバックは `/mcp/connect` にあります。
-
-ページは現在、個人スコープを使用し、ページ全体の
-**Personal / Organization** 切り替えは提供していません。基盤のアクションが
-対応する場合、タブは独自の組織セクションを表示できます。**Automations** は
-Scheduled と Event の個人および組織セクションを表示します。組織の Event 自動化は
-常に作成者として実行されます。このページは既存のコンポーネント、アクション、アクセスチェックを
-再利用する薄いシェルであり、新しい管理コンソールではありません。
-
-Agent-Native は意図的に構成可能です。 UI をあまり必要とせずにエージェントを使用できます。
-組み込みエージェント ランタイムなしで UI を使用するか、両方を完全なものとして一緒に使用します
-アプリケーション。
-
-選択する便利な方法は、最初にプロトコルに基づいて選択することではありません。製品の表面を選択してください
-必要に応じて、一致するプリミティブを使用します。
-
-| 表面                                  | 次の場合に使用します                                                                                                              | から始めましょう                                                                            |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **ヘッドレス エージェント**           | コード、ジョブ、スクリプト、別のアプリ、または別のエージェントは、作業を直接呼び出す必要があります。                              | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
-| **Agent-Native でのリッチなチャット** | 組み込みエージェント ループを利用したスタンドアロン チャットまたは埋め込みチャットが必要です。                                    | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
-| **エージェントでのリッチ チャット**   | 他の場所でエージェントを構築し、Agent-Native のコンポーザー、トランスクリプト、ツール カード、ネイティブ ウィジェットが必要です。 | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
-| **埋め込みサイドカー**                | あなたはすでに SaaS アプリを持っており、ページ コンテキストとホスト コマンドを備えたエージェントを必要としています。              | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
-| **完全なアプリケーション**            | 人間とエージェントは、耐久性のある画面、データ、ナビゲーション、コラボレーションを共有する必要があります。                        | テンプレート、actions、SQL 状態、コンテキスト認識                                           |
-
-これらは段階であり、個別の製品ではありません。ワークフローはヘッドレスとして開始できます
-エージェントは 1 つのアクションを持ち、表またはグラフとしてチャットに表示され、後にエージェントになります
-エージェントが呼び出す操作を変更せずにアプリを全画面表示します。
-
-<Diagram id="doc-block-kmhk8i" title={"表面スペクトル"} summary={"1 つのアクション サーフェス、4 つの製品シェイプ — それぞれが、その下の操作を変更せずに UI を追加します。"}>
+<Diagram id="doc-block-hvdxgh" title="サーフェスのスペクトラム" summary={"1つのアクションサーフェス、4つのプロダクト形態。各形態は、下層の操作を変えることなくUIを追加します。"}>
 
 ```html
 <div class="diagram-spectrum">
   <div class="diagram-card">
-    <strong>Headless</strong
+    <strong>チャット</strong
     ><small class="diagram-muted"
-      >actions、ジョブ、スクリプト、他のエージェント</small
+      >コンポーザー、トランスクリプト、ツールコール</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <strong>リッチチャット</strong
-    ><small class="diagram-muted">コンポーザー、文字起こし、ツールカード</small>
+    <strong>インラインUI</strong
+    ><small class="diagram-muted">テーブル、チャート、カード</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <strong>埋め込み sidecar</strong
-    ><small class="diagram-muted">agent beside an existing app</small>
+    <strong>アプリページ</strong
+    ><small class="diagram-muted">永続的な画面、SQLデータ</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card accent-card">
-    <span class="diagram-pill accent">ほとんどの UI</span
-    ><strong>完全なアプリケーション</strong
-    ><small class="diagram-muted">永続画面、データ、コラボレーション</small>
+    <span class="diagram-pill accent">ヘッドレス</span><strong>自動化</strong
+    ><small class="diagram-muted">ジョブ、スクリプト、外部エージェント</small>
   </div>
 </div>
 <div class="diagram-base" data-rough>
   <span class="diagram-muted"
-    >同じ actions · 同じ SQL · 同じエージェントループ</span
+    >同じアクション · 同じSQL · 同じエージェントループ</span
   >
 </div>
 ```
@@ -117,180 +74,31 @@ Agent-Native は意図的に構成可能です。 UI をあまり必要とせず
 
 </Diagram>
 
-## ヘッドレスエージェント {#headless}
+## 出発点の選択
 
-カスタム アプリ画面を見つめる必要がない場合は、ヘッドレス パスを使用します。
-作業の実行: スケジュールされたジョブ、統合、バックエンド ワークフロー、CLI ループ
-別のエージェント、または Agent-Native を呼び出す既存の製品。
+チャットは最も一般的なエントリーポイントです。出力が豊かになるにつれてインラインUIを追加し、ユーザーが参照・共有できる永続的なオブジェクトが必要になったときにフルアプリページを追加するのが典型的な成長パターンです。同じアクションが、後から追加するボタン、スケジュールジョブ、外部エージェントを動かします。すでに所有しているプロダクトにエージェントを追加する場合は埋め込みサイドカーを、ブラウザなしで動作するワークには自動化ファーストを使用してください。全体像は次のとおりです：
 
-これは、**エージェントが製品である**場合に到達する形状でもあります。
-app-agent ループはダッシュボードではなくフロントドアです。
-ターミナル、Slack、電子メール、スケジュールされたジョブ、別のエージェント、またはチャット - 「私の要約
-未読メール」、「日々の指標を Slack に投稿」、「候補者を見つける
-先週返信しました」 - エージェントが動作し、どこにいても結果を返します
-に属します。これはステートレス プロンプトではなく実際のアプリです: actions、認証セッション
-アプリの状態、スレッド/実行履歴、設定、認証情報、共有レコードはすべてライブです
-SQL にあります。
+| サーフェス                                           | 使用場面                                                                                         | 開始方法                                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| **[リッチチャット](#rich-chat)**                     | ユーザーがエージェントと会話し、ツールコールを確認し、スレッド履歴を保持する場合。               | [Chat template](/docs/template-chat), `<AgentChatSurface>`            |
+| **[ネイティブインラインUI](#native-inline-ui)**      | アクション結果をチャット内のテーブル、チャート、カード、または承認として表示する場合。           | [Native Chat UI](/docs/native-chat-ui), `chatUI.renderer`             |
+| **[生成インラインUI](#generated-inline-ui)**         | エージェントがチャット内に一時的または再利用可能なコントロールをその場で作成する必要がある場合。 | [Generative UI](/docs/generative-ui), `render-inline-extension`       |
+| **[フルアプリケーション](#full-application)**        | ユーザーが永続的な画面、共有データ、ナビゲーション、コラボレーションを必要とする場合。           | テンプレート、アクション、SQLステート、コンテキスト認識               |
+| **[埋め込みサイドカー](#embedded-sidecar)**          | 既存のSaaSアプリがあり、ページコンテキストを持つエージェントをその隣に配置したい場合。           | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`            |
+| **[自動化ファースト](#headless)**                    | ジョブ、スクリプト、または他のエージェントがブラウザUIなしで直接ワークを呼び出す場合。           | `agent-native create --headless`, `defineAction`, HTTP, CLI, MCP, A2A |
+| **[自作エージェントへのリッチチャット](#byo-agent)** | 別の場所でエージェントを構築済みで、Agent-Native のチャットUIをその周りに使いたい場合。          | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`               |
 
-次の場合にこのパターンを選択してください。
+## Agent-Native のリッチチャット {#rich-chat}
 
-- **作業はバックグラウンドで行われます。** 価値のほとんどは、トリアージ エージェント、日次レポート エージェント、オンコール対応者など、ユーザーが見ていない間に作成されます。
-- **出力はアプリから出ます。** エージェントは Slack に投稿するか、電子メールを送信するか、サードパーティ システムを更新します。アプリ内で閲覧できるものは何もありません。
-- **ドメインはワンショットです。** リサーチ ボット、概要ジェネレーター、レポート ライター — リスト ビューを必要とする永続的なオブジェクトはありません。
-- **プロトタイピング中です。** 今すぐエージェントを出荷してください。ユーザーが必要に応じて、後でよりリッチな UI を追加します。
+ユーザーがエージェントと会話し、ツールコールを確認し、ワークを承認し、ネイティブ結果を調べ、永続的なスレッド履歴を保持する必要がある場合は、組み込みのチャットを使用してください。
 
-製品が永続オブジェクトを中心に構築されている場合、ユーザーは参照、ピボット、および
-共有 — 電子メール、イベント、ドキュメント、グラフ — [full application](#full-application) を選択
-または代わりに [template](/docs/cloneable-saas);これらは完全な UI に加えてエージェントを追加します。
-
-### 同梱品 {#in-the-box}
-
-ヘッドレス アプリは数週間にわたるダッシュボード作業を省略し、一日中チャネルに依存しません
-1 つ - 同じエージェントが Web、Slack、テレグラム、電子メール、その他のエージェントから実行されます
-すべてが UI ではなくエージェントを経由するためです。トレードオフは次のとおりです
-「一目ですべてを参照」ビューはありません。ユーザーがそれを必要とする場合は、パターンを組み合わせて
-小さなステータス ページまたはリスト ビューを追加します。
-
-組み込みのチャット シェルを追加すると、フレームワークによって 5 つの管理が提供されます
-構築する必要のないサーフェス: **チャット** (メイン入力)、**ワークスペース**
-(skills、メモリ、命令、サブエージェント、接続された MCP サーバー、スケジュール済み
-ジョブ)、**ジョブ履歴**、**スレッド履歴**、**設定**。それらは通常
-十分です — 話しかけて、何が行われるかを確認し、どのように動作するかを設定してください。手を伸ばして
-ブラウザ UI を追加する準備ができたら [Chat](/docs/template-chat)、または
-ワークスペース スタイルで開始する場合は [Dispatch template](/docs/template-dispatch)
-Slack/テレグラム、スケジュールされたジョブ、すぐに使用できる共有シークレットをポイントします。
-
-最小のローカル パスは、ヘッドレス エージェント スキャフォールドと 1 つのアクションです。
-
-```bash
-npx @agent-native/core@latest create my-agent --headless
-cd my-agent
-pnpm install
-```
-
-次に、永続的な操作を定義します。
-
-```ts filename="actions/summarize-week.ts"
-import { defineAction } from "@agent-native/core/action";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Summarize this week's submissions.",
-  readOnly: true,
-  schema: z.object({ formId: z.string() }),
-  run: async ({ formId }) => {
-    return { formId, summary: "34 submissions, up 18% from last week." };
-  },
-});
-```
-
-1 つのアクションは次のように呼び出し可能です。
-
-- **HTTP** — `POST /_agent-native/actions/summarize-week`
-- **CLI** — `pnpm action summarize-week --formId form_123`
-- **アプリエージェント CLI** — `pnpm agent "Summarize form_123"`
-- **MCP** — Claude、ChatGPT、Codex、Cursor、OpenCode、Copilot、およびその他の MCP ホストから
-- **A2A** — 別のエージェント ネイティブ アプリまたはエージェント ピアから
-- **UI** — `useActionQuery`、`useActionMutation`、または `callAction` 経由
-- **エージェント ツール** — 組み込みチャット ループから
-
-<Endpoint id="doc-block-r2vcdr" title={"HTTP を介したアクションの呼び出し"} method="POST" path="/_agent-native/actions/summarize-week" summary={"HTTP を介して名前でアクションを呼び出します"} request={{
-  "contentType": "application/json",
-  "example": "{ \"formId\": \"form_123\" }"
-}} responses={[
-  {
-    "status": "200",
-    "description": "The action's return value as JSON",
-    "example": "{ \"formId\": \"form_123\", \"summary\": \"34 submissions, up 18% from last week.\" }"
-  },
-  {
-    "status": "400",
-    "description": "Input failed schema validation"
-  }
-]}>
-
-Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.
-
-</Endpoint>
-
-これはデータベースなしモードやステートレス モードではありません。アプリとエージェントのループはセッションを保存します。
-スレッド、実行、設定、資格情報、アプリケーションの状態、および共有レコード
-SQL。ローカル開発のデフォルトは SQLite です。ホストされているヘッドレス アプリは、
-永続的な SQL データベース。
-
-プロジェクト フォルダーからエージェント全体をヘッドレスでループする必要がある場合は、次を使用します。
-
-```bash
-pnpm agent "Summarize this week's forms."
-```
-
-別のアプリまたはスクリプトがエージェント全体を呼び出す必要がある場合は、
-`agentNative.invoke("analytics", "...")` または `agent-native invoke` CLI。それ
-ローカル作業は actions に維持されますが、クロスアプリ作業は A2A パスに維持されます。
-
-ワーカー、ジョブ、統合 webhooks、およびカスタム ホストがエージェント ループを駆動できる
-サーバー API 経由で直接。これは actions よりも低レベルです。
-エンジン、モデル、メッセージ、actions、イベント シンクを自分で作成します:
-
-```ts
-import { runAgentLoop } from "@agent-native/core/server";
-
-await runAgentLoop({ engine, model, systemPrompt, actions, messages, send });
-```
-
-ほとんどのアプリでは、スケジュールされたプロンプトと統合 webhooks がすでにこのループを呼び出しています
-あなたのために。カスタム ヘッドレス ホスト eval
-ランナー、またはサーバー側のオーケストレーション サーフェス — 「サーバー — 実稼働エージェント
-handler](/docs/server#agent-handler)。
-
-### フォルダに対して実行中 {#folder-loop}
-
-目標が「このフォルダに対してエージェントを実行する」ことである場合は、app-agent から始めます
-そのフォルダー内をループします: ヘッドレス アプリをスキャフォールディングし、actions/instructions を追加し、実行します
-`pnpm agent "..."`。これにより、同じアクション/ランタイム/状態内での作業が維持されます
-アプリが運用環境で使用する契約。
-
-外部コーディング ハーネスは、Claude を組み込むための別の製品表面です
-Agent-Native アプリ内のコード、Codex、Pi、Cursor、Mastra、または同様のランタイム。
-デフォルトの方法としてではなく、コーディング エージェント製品を構築するときに使用してください。
-ローカル エージェント ネイティブ ワークフローを開始します。
-
-### クラウド リポジトリへのアクセス {#cloud-repo-access}
-
-リポジトリ アクセスが必要なクラウド ヘッドレス アプリの場合は、GitHub コネクタを使用します
-プラストークン CRUD モデル: リポジトリの一覧表示、ファイルの検索、ファイルの読み取り、作成、または
-プロバイダー スコープによるファイルの編集、ファイルの削除、アクセスの取り消し
-資格情報。ローカル開発では、ターゲット リポジトリを明示的に設定します。
-
-```bash
-GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
-```
-
-VM クローンまたは長期存続するサンドボックス チェックアウトをプライマリ クラウドとして扱わないでください
-リポジトリ アクセス モデル。サンドボックスは分離されたコードの実行には依然として重要ですが、
-リポジトリへのアクセスは明示的で、権限があり、監査可能で、取り消し可能である必要があります
-コネクタ層を経由します。
-
-### セッションと実行の共有 {#sharing-runs}
-
-ヘッドレス セッションと実行は耐久性のあるオブジェクトです。共有性は段階的に行う必要があります:
-チームメイトがサニタイズされたプロンプトや出力を検査できるように、最初にリンクを読み取り/共有します。
-および実行ステータス。後で許可された書き込み可能なコラボレーションのため、実行を続行します。
-actions の承認、スケジュールの編集、または構成の変更が完了します
-明示的なアクセス チェック。
-
-## Agent-Native での充実したチャット {#rich-chat}
-
-ユーザーがエージェントと話す必要がある場合は、組み込みチャットを使用します。ツールの呼び出しを参照してください。
-作業を承認し、ネイティブ結果を検査し、永続的なスレッド履歴を保存します。
-
-完全なアプリの開始点については、[Chat template](/docs/template-chat) を使用します。
+フルアプリの出発点として、[Chat template](/docs/template-chat) を使用してください：
 
 ```bash
 npx @agent-native/core@latest create my-chat-app --template chat
 ```
 
-最も単純な全ページチャット:
+最もシンプルなフルページチャット：
 
 ```tsx
 import { AgentChatSurface } from "@agent-native/core/client/chat";
@@ -300,11 +108,7 @@ export default function ChatRoute() {
 }
 ```
 
-アプリにフルページ チャット タブと `AgentSidebar` の両方がある場合は、同じものを使用します
-両方の表面で `storageKey` を有効にし、`chatViewTransition` を有効にして、
-レイアウト内のチャット ホーム ハンドオフ ヘルパー。チャット外の通常のアプリ内リンク
-ページでは、アクティブな状態を維持したまま、チャット全体をサイドバーにモーフィングできます
-スレッド:
+アプリにフルページのチャットタブと `AgentSidebar` の両方がある場合は、両方のサーフェスで同じ `storageKey` を使用し、`chatViewTransition` を有効にして、レイアウトにチャットホームハンドオフヘルパーをインストールしてください。チャットページからの通常のアプリ内リンクは、アクティブなスレッドを維持しながら、フルチャットをサイドバーに変形させることができます：
 
 ```tsx
 import {
@@ -342,7 +146,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 ```
 
-独自の Chrome を使用した最も単純な埋め込みチャット:
+独自のクロームを持つ最もシンプルな埋め込みチャット：
 
 ```tsx
 import { AssistantChat } from "@agent-native/core/client/chat";
@@ -352,51 +156,104 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 }
 ```
 
-Actions は明示的なネイティブ ウィジェット結果を返すことができるため、チャット出力は単なるものではありません
-テキスト。表、グラフ、および型指定された製品カードは、ファーストパーティ React としてレンダリングされます
-コンポーネント (iframe なし)。 [Native チャット UI](/docs/native-chat-ui) を参照してください。
+アクションは明示的なネイティブウィジェット結果を返せるため、チャットの出力はテキストだけではありません。テーブル、チャート、型付きプロダクトカードは、iframeなしでチャット内のファーストパーティReactコンポーネントとしてレンダリングされます。[Native Chat UI](/docs/native-chat-ui) を参照してください。エージェントが事前定義されたReactウィジェットの代わりに任意の生成コントロールを必要とする場合は、[Generative UI](/docs/generative-ui) を使用してください。これはサンドボックス化されたAlpine/Tailwind UIをインラインでレンダリングし、アプリの状態とスロットコンテキストを読み取り、選択した値をチャットに送り返すことができます。
 
-## エージェントとのリッチなチャット {#byo-agent}
+## ネイティブインラインUI {#native-inline-ui}
 
-エージェントがすでに別のフレームワークで構築されている場合、または
-ランタイムで、Agent-Native のチャット UI が必要です。 `AgentChatRuntime` は
-境界: ランタイムは正規化されたイベントをストリームし、Agent-Native は
-作曲者、トランスクリプト、ツール呼び出し、承認、ネイティブ ウィジェット、アプリ レイアウト。
+アクションが構造化データ（レコードのリスト、チャートデータセット、ステータスサマリーなど）を返し、プレーンテキストの説明ではなく、チャットスレッド内の実際のUIコンポーネントとしてレンダリングする必要がある場合に使用してください。アクションに `chatUI` レンダラーを定義すると、Agent-Native はそれをファーストパーティのReactコンポーネントとしてレンダリングします。iframeも別のレンダリングパスも不要です。
 
-```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+これは、出力に明確で再利用可能な形状があり、一度デザインして多くのエージェントレスポンスで使用する場合に適しています。エージェントが実行時に動的に作成する必要があるコントロールについては、代わりに[生成インラインUI](#generated-inline-ui)を参照してください。
 
-const runtime = createHttpAgentChatRuntime({
-  endpoint: "/api/support-agent/chat",
-});
+完全なレンダラーAPI、ウィジェットライブラリ、およびBYOエージェントランタイム統合については、[Native Chat UI](/docs/native-chat-ui) を参照してください。
 
-export function SupportAgentChat() {
-  return <AssistantChat runtime={runtime} threadId="support" />;
+## 生成インラインUI {#generated-inline-ui}
+
+エージェントが事前構築されたウィジェットとしてまだ存在しないコントロール（カスタムフォーム、現在のコンテキストに基づいたピッカー、ワンオフの計算機など）を作成する必要がある場合に使用してください。ネイティブウィジェットとは異なり、生成UIはエージェントが実行時にAlpine.jsとTailwindから構成し、iframeでサンドボックス化されて実行され、選択した値をチャットスレッドに送り返すことができます。
+
+生成UIは一時的（一度レンダリングして破棄）にも、ユーザーのために永続する再利用可能な拡張機能として保存することもできます。
+
+完全なAPI、サンドボックスの制約、および拡張機能の永続化モデルについては、[Generative UI](/docs/generative-ui) を参照してください。
+
+## フルアプリケーション {#full-application}
+
+ユーザーがフォーム、ダッシュボード、カレンダー、受信トレイ、エディター、ドキュメント、アセット、レポートなど、永続的なオブジェクトとワークフローを必要とする場合は、フルアプリのパスを使用してください。
+
+フルアプリは、同じアクションとエージェントコントラクトの周りにプロダクトUIを追加します：
+
+<Cards>
+
+### SQLステート
+
+アプリデータ、ナビゲーション、設定、チャット履歴はすべて永続化されます。エージェントはUIと同じ行を読み書きします。
+
+### コンテキスト認識
+
+エージェントは現在のルート、選択、フォーカスされたオブジェクトを把握しているため、「これを編集して」は常に正しいものを意味します。
+
+### ライブ同期
+
+エージェントの変更はリアルタイムでUIを更新し、UIの変更はエージェントのコンテキストを更新します。ポーリングも更新も不要です。
+
+### ディープリンク
+
+アクション結果は正しいアプリビューを直接開けます。チャートはダッシュボードにリンクし、下書きは受信トレイにリンクします。
+
+### ネイティブチャットウィジェット
+
+テーブル、チャート、カード、承認、型付き結果は、チャット内のファーストパーティのReactコンポーネントとしてインラインでレンダリングされます。
+
+### 生成UIと拡張機能
+
+エージェントはその場でインラインコントロールを作成でき、ワークフローを永続化する必要がある場合は再利用可能なミニアプリを保存できます。
+
+</Cards>
+
+アクションの周りに最小限のアプリが必要な場合は[Chat template](/docs/template-chat)から、完全なプロダクト形態が必要な場合はドメイン[テンプレート](/docs/cloneable-saas)から始めてください。
+
+### フルページ管理エージェント {#agent-page}
+
+すべてのAgent-Nativeアプリは最終的に、ユーザーがエージェントを設定できる場所が必要になります。常時指示の設定、実行内容の確認、MCPサーバーの接続、自動化の管理、アクセスの制御などです。そのUIをゼロから構築するのは大変な作業です。Agent-Nativeには、12タブにわたってすべてをカバーする事前構築済みのフルページコンポーネント `AgentTabsPage` が搭載されています。
+
+アプリの `/agent` にマウントしてください。現在のテンプレートはそのルートをアプリナビゲーションエントリーと組み合わせ、`AgentSidebar` に `agentPageHref="/agent"` を渡すため、サイドバーのリソースと設定モードはそれらのフローを複製することなくフルページにリンクできます。
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
 }
 ```
 
-OpenAI エージェント、OpenAI レスポンス、Claude 用の既製のランタイム ヘルパーが存在します
-エージェント SDK、Vercel AI SDK、AG-UI、および上記の正規化された HTTP ランタイム
-他のエージェント (Mastra、Flue、Eve、LangGraph、またはカスタム サービス) 用。 ACP は
-エンドユーザー アプリのチャットや A2A トランスポートではなく、Agent-Native は現在サポートされていません
-A2UI サポートを主張します。 ACP は 1 つの特定の場所でサポートされています - ローカルの運転
-コーディング エージェント (Gemini CLI、Claude コードなど)
-[harness layer](/docs/harness-agents#acp)、ここではチャット ランタイムとしては使用しません。
+共有ページは現在、2つのグループにわたって12タブを提供しています：
 
-[Native チャット UI — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes)
-は、イベント シェイプ、ランタイム ヘルパー、および `chatUI` の正規のホームです
-ツール結果のメタデータ。外部エージェントをチャットに接続するときは、そこから始めてください。
+| グループ  | タブ              | 表示内容                                                                                                                                                                                                                    |
+| --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resources | **Files**         | 個人またはorganizationファイル用の既存の `ResourcesPanel`                                                                                                                                                                   |
+| Resources | **Instructions**  | 常時有効なAGENTS.mdスタイルのルール                                                                                                                                                                                         |
+| Resources | **Agents**        | カスタムサブエージェントプロファイル                                                                                                                                                                                        |
+| Resources | **Memory**        | 長期記憶ノート                                                                                                                                                                                                              |
+| Resources | **Skills**        | 再利用可能なワークフロー                                                                                                                                                                                                    |
+| Resources | **Learnings**     | 時間をかけて記録された修正とパターン                                                                                                                                                                                        |
+| Resources | **Remote agents** | 他のagent-nativeアプリへのA2A接続（Connectionsタブに表示されていたものを置き換え）                                                                                                                                          |
+| Agent     | **Snapshots**     | スコーププレビュー、トークンバジェット、出所/ガバナンス/ソース別にグループ化された順序付きシステムセクション、および最新のライブスレッドスナップショット。「Context」から改名。古い `#context` リンクはここにリダイレクト。 |
+| Agent     | **Connections**   | MCPサーバー管理のみ                                                                                                                                                                                                         |
+| Agent     | **Automations**   | 一時停止/再開、詳細、削除フローを備えた個人およびorganizationのスケジュール/イベント自動化。安定した互換性URLは `/agent#jobs` のまま。                                                                                      |
+| Agent     | **Settings**      | エージェントモデル、APIキー、制限、音声、自動化設定                                                                                                                                                                         |
+| Agent     | **Access**        | アプリのMCP URL、利用可能な場合のA2Aエージェントカード、Claude、ChatGPT、Cursor、Claude Code、Codex、その他のクライアントの共有セットアップガイド。完全な接続フローとトークンフォールバックの `/mcp/connect` へのリンク。   |
+
+このページは個人（`user`スコープ）データのみを表示します。現時点ではorgレベルのトグルはありません。既存のコンポーネントとアクセスチェックの薄いシェルであり、新しい管理コンソールではありません。Connectionsはアプリが呼び出せるものを示し、Accessは外部クライアントがどのように接続するかを示します。
+
+まだ含まれていないもの：
+
+- organizationスコープビュー
+- グラントとスコープ編集
+- 失効UI
+- イテレーション別の出所履歴
 
 ## 埋め込みサイドカー {#embedded-sidecar}
 
-メイン製品がすでに存在しており、必要な場合は埋め込みサイドカーを使用します
-その隣にエージェントがいます。
+メインプロダクトが既に存在し、その隣にエージェントを配置したい場合は、埋め込みサイドカーを使用してください。
 
-サーバー プラグインは、Agent-Native ルートをホスト アプリにマウントし、解決します
-ホスト ID サーバー側:
+サーバープラグインはAgent-Nativeのルートをホストアプリにマウントし、サーバー側でホストのアイデンティティを解決します：
 
 ```ts
 import { createAgentNativeEmbeddedPlugin } from "@agent-native/core/server";
@@ -408,7 +265,7 @@ export default createAgentNativeEmbeddedPlugin({
 });
 ```
 
-React サイドカーは、ページ コンテキストとホスト コマンドを渡します。
+Reactサイドカーはページコンテキストとホストコマンドを渡します：
 
 ```tsx
 import { AgentNativeEmbedded } from "@agent-native/core/client/host";
@@ -430,13 +287,16 @@ export function AppShell({ children }) {
 }
 ```
 
-<Diagram id="doc-block-vsm8e2" title={"サイドカーがホスト アプリにブリッジする方法"} summary={"プラグインは Agent-Native ルーティングをサーバー側にマウントします。 React サイドカーは、ページ コンテキストをストリーム入力し、ホスト コマンドを出力します。"}>
+### 接続の仕組み
+
+2つのピースはブリッジとして機能します。ホストアプリはページコンテキスト（現在のルート、選択されたテキスト、フォーカスされたオブジェクト）を `AgentNativeEmbedded` に渡し、エージェントは `onNavigate` と `onRefresh` を通してコマンドを送り返します。サーバープラグインはアイデンティティを処理します。ホストセッションを解決して、エージェントが別のログインなしに正しいユーザーとして動作できるようにします。ホストアプリ内で変更する必要は何もありません。プラグインはAgent-Nativeのルートを既存のルートの横に追加します。
+
+<Diagram id="doc-block-27ug5y" title="サイドカーがホストアプリにブリッジする方法" summary={"プラグインはAgent-Nativeのルートをサーバー側にマウントし、Reactサイドカーはページコンテキストをストリームインしてホストコマンドをアウトします。"}>
 
 ```html
 <div class="diagram-sidecar">
   <div class="diagram-panel">
-    <strong>ホストアプリ</strong
-    ><small class="diagram-muted">既存の SaaS</small>
+    <strong>ホストアプリ</strong><small class="diagram-muted">既存のSaaS</small>
     <div class="diagram-node">
       getContext()<br /><small class="diagram-muted">ルート · 選択</small>
     </div>
@@ -452,10 +312,10 @@ export function AppShell({ children }) {
   </div>
   <div class="diagram-panel accent-panel">
     <span class="diagram-pill accent">AgentNativeEmbedded</span
-    ><small class="diagram-muted">agent + workspace</small>
+    ><small class="diagram-muted">エージェント + リソース</small>
     <div class="diagram-box" data-rough>
-      Agent-Native ルート<br /><small class="diagram-muted"
-        >mounted by the server plugin</small
+      Agent-Nativeのルート<br /><small class="diagram-muted"
+        >サーバープラグインによってマウント</small
       >
     </div>
   </div>
@@ -489,45 +349,180 @@ export function AppShell({ children }) {
 
 </Diagram>
 
-ホスト認証、データベース分離については、[Embedding SDK](/docs/embedding-sdk) を参照してください。
-iframe/ピッカー モード、および下位レベルのブリッジ API。
+ホスト認証、データベース分離、iframe/ピッカーモード、下位レベルのブリッジAPIについては、[Embedding SDK](/docs/embedding-sdk) を参照してください。
 
-## 完全なアプリケーション {#full-application}
+## 自動化ファーストアプリ {#headless}
 
-ユーザーが耐久性のあるオブジェクトやワークフローを必要とする場合は、完全なアプリ パスを使用します: フォーム
-ダッシュボード、カレンダー、受信トレイ、エディタ、ドキュメント、アセット、またはレポート。
+ワークの実行中に誰もカスタムブラウザ画面を必要としない場合（スケジュールジョブ、インテグレーション、バックエンドワークフロー、CLIループ、別のエージェント、またはAgent-Nativeを呼び出す既存プロダクト）は、自動化ファーストのパスを使用してください。
 
-完全なアプリは、同じアクションとエージェント契約に基づいて製品 UI を追加します:
+これは自動化がプロダクトサーフェスである場合に選ぶ形態です。ターミナル、Slack、メール、スケジュールジョブ、別のエージェント、またはChat（「未読メールを要約して」「日次メトリクスをSlackに投稿して」「先週返信した候補者を見つけて」）からリクエストを送ると、エージェントが作業して結果を適切な場所に返します。これはステートレスなプロンプトではなく、実際のアプリです。アクション、認証セッション、アプリ状態、スレッド/実行履歴、設定、クレデンシャル、共有レコードがすべてSQLに格納されます。
 
-- **SQL 状態** — アプリのデータ、ナビゲーション、設定、チャット履歴は永続的です。
-- **コンテキスト認識** — エージェントは現在のルート、選択内容、およびフォーカスされているオブジェクトを認識します。
-- **ライブ同期** — エージェントの変更により UI が更新され、UI の変更によりエージェントのコンテキストが更新されます。
-- **ディープリンク** — アクションの結果により適切なアプリビューを開くことができます。
-- **ネイティブ チャット ウィジェット** — 表、グラフ、カード、承認、入力された結果がインラインで表示されます。
+このパターンを選ぶ場合：
 
-最小限のアプリが必要な場合は、[Chat template](/docs/template-chat) から始めてください
-actions の周囲、またはドメイン [template](/docs/cloneable-saas) から
-完全な製品形状が必要です。
+- **ワークがバックグラウンドで発生する場合。** ユーザーが見ていない間に価値の大部分が生まれます。トリアージエージェント、日次レポートエージェント、オンコールレスポンダー。
+- **出力がアプリの外に出る場合。** エージェントがSlackに投稿したり、メールを送ったり、サードパーティシステムを更新したりする。アプリ内で参照するものはない。
+- **ドメインが一回限りの場合。** リサーチボット、サマリージェネレーター、リストビューを必要とする永続的なオブジェクトのないレポートライター。
+- **自動化をプロトタイピングしている場合。** 今すぐ操作をリリースし、ユーザーが検査・操作する必要があるときにチャットやアプリページを追加する。
 
-## 選び方 {#how-to-choose}
+ユーザーが閲覧、ピボット、共有する永続的なオブジェクト（メール、イベント、ドキュメント、チャート）を中心にプロダクトが構築されている場合は、代わりに[フルアプリケーション](#full-application)または[テンプレート](/docs/cloneable-saas)を選んでください。それらはエージェントに加えて完全なUIを提供します。
 
-| 考えているなら...                                                                          | 選択                              |
-| ------------------------------------------------------------------------------------------ | --------------------------------- |
-| 「呼び出し可能なツールまたはワークフローが必要なだけです。」                               | ヘッドレスエージェント            |
-| 「フレームワークのエージェントが必要ですが、チャットをメインの UI にする必要があります。」 | Agent-Native での充実したチャット |
-| 「すでにエージェントがいます。そのエージェントには洗練されたチャット UI が必要です。」     | エージェントとのリッチなチャット  |
-| 「すでに SaaS アプリを持っています。その横にエージェントを追加してください。」             | 埋め込みサイドカー                |
-| 「エージェントと UI は製品として一緒に進化する必要があります。」                           | 完全なアプリケーション            |
+### 最初から含まれているもの {#in-the-box}
 
-コントラクトを小さく保ちます: 永続的な操作を actions として定義し、明示的に返します
-チャットにリッチな UI が必要な場合はウィジェットの結果が表示され、ユーザーがいる場合にのみ全画面が追加されます
-永続オブジェクトを参照、比較、構成、または共同作業する必要があります。
+自動化ファーストアプリはダッシュボード作業をスキップし、最初からチャンネル非依存です。同じエージェントがウェブ、Slack、Telegram、メール、他のエージェントから実行されます。すべてが同じアクションを通るためです。トレードオフとして「一目ですべてを参照」するビューがありません。ユーザーにそれが必要な場合は、[Chat](/docs/template-chat)から始めるか、小さなステータスページやリストビューを追加してください。
+
+組み込みのChatシェルを追加すると、フレームワークは自分で構築する必要のない5つの管理サーフェスを提供します。**Chat**（メイン入力）、**Resources**（スキル、メモリ、指示、サブエージェント、接続されたMCPサーバー）、**Automations**、**Thread history**、**Settings**。これらは通常十分です。それと会話し、何をしたかを確認し、どのように動作するかを設定する。ブラウザUIを追加する準備ができたら[Chat](/docs/template-chat)を、SlackやTelegram、スケジュールジョブ、共有シークレットを備えたワークスペーススタイルの出発点には[Dispatch template](/docs/template-dispatch)を使用してください。
+
+最小のブラウザなしローカルパスは、スキャフォールドと1つのアクションです：
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+cd my-agent
+pnpm install
+```
+
+次に永続的な操作を定義します：
+
+```ts filename="actions/summarize-week.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Summarize this week's submissions.",
+  readOnly: true,
+  schema: z.object({ formId: z.string() }),
+  run: async ({ formId }) => {
+    return { formId, summary: "34 submissions, up 18% from last week." };
+  },
+});
+```
+
+1つのアクションは次の方法で呼び出せます：
+
+- **HTTP:** `POST /_agent-native/actions/summarize-week`
+- **CLI:** `pnpm action summarize-week --formId form_123`
+- **App-agent CLI:** `pnpm agent "Summarize form_123"`
+- **MCP:** Claude、ChatGPT、Codex、Cursor、OpenCode、Copilot、その他のMCPホストから
+- **A2A:** 別のagent-nativeアプリまたはエージェントピアから
+- **UI:** `useActionQuery`、`useActionMutation`、または `callAction` 経由
+- **エージェントツール:** 組み込みのチャットループから
+
+<Endpoint id="doc-block-kdx289" title="HTTP経由でアクションを呼び出す" method="POST" path="/_agent-native/actions/summarize-week" summary="HTTP経由で任意のアクションを名前で呼び出す" request={{
+  "contentType": "application/json",
+  "example": "{ \"formId\": \"form_123\" }"
+}} responses={[
+  {
+    "status": "200",
+    "description": "アクションの戻り値（JSON形式）",
+    "example": "{ \"formId\": \"form_123\", \"summary\": \"34 submissions, up 18% from last week.\" }"
+  },
+  {
+    "status": "400",
+    "description": "入力がスキーマ検証に失敗した"
+  }
+]}>
+
+すべての `defineAction` は `/_agent-native/actions/<name>` に自動マウントされます。JSONボディは `run` が実行される前にアクションのzodスキーマに対して検証されます。長期間有効なベアラートークンを使用して外部システムから呼び出すには、[HTTP API](/docs/http-api) を参照してください。
+
+</Endpoint>
+
+これはデータベースなし、またはステートレスモードではありません。app-agentループはセッション、スレッド、実行、設定、クレデンシャル、アプリケーション状態、共有レコードをSQLに格納します。ローカル開発はデフォルトでSQLiteを使用します。ホストされた自動化ファーストアプリは永続的なSQLデータベースを使用する必要があります。
+
+プロジェクトフォルダからエージェントループ全体をヘッドレスで必要とする場合は、以下を使用してください：
+
+```bash
+pnpm agent "Summarize this week's forms."
+```
+
+別のアプリやスクリプトがエージェント全体を呼び出す必要がある場合は、`agentNative.invoke("analytics", "...")` または `agent-native invoke` CLIを使用してください。これにより、クロスアプリワークはA2Aパスを維持し、ローカルワークはアクションにとどまります。
+
+ワーカー、ジョブ、インテグレーションウェブフック、カスタムホストはサーバーAPIを通じてエージェントループを直接駆動できます。これはアクションよりも低レベルです。エンジン、モデル、メッセージ、ツール、アクション、イベントシンク、アボートシグナルを自分で提供します：
+
+```ts
+import { runAgentLoop } from "@agent-native/core/server";
+
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  actions,
+  messages,
+  send,
+  signal,
+});
+```
+
+ほとんどのアプリでは、スケジュールされたプロンプトとインテグレーションウェブフックが既にこのループを呼び出しています。カスタムのブラウザなしホスト、評価ランナー、またはサーバーサイドのオーケストレーションサーフェスを構築する場合にのみ直接使用してください。完全なシグネチャについては、[Server: Production agent handler](/docs/server#agent-handler) を参照してください。
+
+### フォルダに対して実行する {#folder-loop}
+
+「このフォルダに対してエージェントを実行する」が目標の場合は、そのフォルダ内のapp-agentループから始めてください。自動化ファーストアプリをスキャフォールドし、アクション/指示を追加し、`pnpm agent "..."` を実行します。これにより、ワークはアプリが本番環境で使用するのと同じアクション/ランタイム/ステートコントラクト内に保たれます。
+
+外部コーディングハーネスは、Claude Code、Codex、Pi、Cursor、Mastra、または同様のランタイムをAgent-Nativeアプリ内に埋め込むための別のプロダクトサーフェスです。コーディングエージェントプロダクトを構築する場合に使用してください。ローカルのagent-nativeワークフローを開始するデフォルトの方法としてではありません。
+
+### クラウドリポジトリアクセス {#cloud-repo-access}
+
+リポジトリアクセスが必要なクラウド自動化ファーストアプリでは、GitHubコネクターとトークンCRUDモデルを使用してください。プロバイダースコープのクレデンシャルを通じて、リポジトリの一覧表示、ファイルの検索、ファイルの読み取り、ファイルの作成または編集、ファイルの削除、アクセスの失効ができます。ローカル開発では、ターゲットリポジトリを明示的に設定してください：
+
+```bash
+GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next action."
+```
+
+VMクローンや長期間のサンドボックスチェックアウトをプライマリのクラウドリポジトリアクセスモデルとして扱わないでください。サンドボックスは分離されたコード実行には引き続き重要ですが、リポジトリアクセスはコネクターレイヤーを通じて明示的、許可済み、監査可能、かつ失効可能であるべきです。
+
+### セッションと実行の共有 {#sharing-runs}
+
+自動化ファーストのセッションと実行は永続的なオブジェクトです。共有機能は段階的に実装すべきです。まず読み取り/共有リンクで、チームメートがサニタイズされたプロンプト、出力、実行ステータスを検査できるようにし、次に許可された書き込み可能なコラボレーションで、実行の継続、アクションの承認、スケジュールの編集、設定の変更が明示的なアクセスチェックを通じて行われるようにします。
+
+## 自作エージェントへのリッチチャット {#byo-agent}
+
+エージェントが別のフレームワークまたはランタイムで既に構築されており、その周りにAgent-NativeのチャットUIを使いたい場合は、このパスを使用してください。`AgentChatRuntime` が境界です。あなたのランタイムが正規化されたイベントをストリームし、Agent-Nativeがコンポーザー、トランスクリプト、ツールコール、承認、ネイティブウィジェット、アプリレイアウトをレンダリングします。
+
+```tsx
+import {
+  AssistantChat,
+  createHttpAgentChatRuntime,
+} from "@agent-native/core/client/chat";
+
+const runtime = createHttpAgentChatRuntime({
+  endpoint: "/api/support-agent/chat",
+});
+
+export function SupportAgentChat() {
+  return <AssistantChat runtime={runtime} threadId="support" />;
+}
+```
+
+OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI向けの既製ランタイムヘルパーと、他のエージェント（Mastra、Flue、Eve、LangGraph、またはカスタムサービス）向けの上記の正規化されたHTTPランタイムが存在します。ACPはエンドユーザーアプリのチャットやA2Aトランスポートではなく、Agent-Nativeは現在A2UIサポートを主張していません。ACPは1つの特定の場所でサポートされています。[ハーネスレイヤー](/docs/harness-agents#acp)を通じたローカルコーディングエージェント（Gemini CLI、Claude Codeなど）の駆動であり、ここでのチャットランタイムとしてではありません。
+
+[Native Chat UI: BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes) は、イベント形状、ランタイムヘルパー、および `chatUI` ツール結果メタデータの正規のリファレンスです。外部エージェントをチャットに接続する際はそこから始めてください。
 
 ## 次のステップ {#related-docs}
 
-- [**Actions**](/docs/actions) — 操作を一度定義します。上記のすべてのサーフェスが同じ操作を呼び出します
-- [**Native チャット UI**](/docs/native-chat-ui) — 型付き action 結果を表、グラフ、カードとしてチャットに表示します
-- [**Generative UI**](/docs/generative-ui) — 一時的または永続化されたサンドボックス UI をチャット内に生成します
-- [**Automation-First Apps**](/docs/pure-agent-apps) — ジョブ、キュー、スクリプト、外部エージェント向けの完全なブラウザー不要パターン
-- [**External Agents**](/docs/external-agents) — MCP 互換ホストをアプリに接続します
-- [**A2A Protocol**](/docs/a2a-protocol) — 他の Agent-Native アプリからエージェントを呼び出します
+<Cards>
+
+### [アクション](/docs/actions)
+
+操作を一度定義する。上記のすべてのサーフェスが同じものを呼び出す。
+
+### [Native Chat UI](/docs/native-chat-ui)
+
+型付きアクション結果をテーブル、チャート、カードとしてチャット内に直接レンダリングする。
+
+### [Generative UI](/docs/generative-ui)
+
+チャット内に一時的または永続化されたサンドボックスUIをインラインで生成する。
+
+### [自動化ファーストアプリ](/docs/pure-agent-apps)
+
+ジョブ、キュー、スクリプト、外部エージェントのための完全なブラウザなしパターン。
+
+### [外部エージェント](/docs/external-agents)
+
+MCP対応ホストをツールサーバーとしてアプリに接続する。
+
+### [A2Aプロトコル](/docs/a2a-protocol)
+
+A2A標準を通じて他のagent-nativeアプリからエージェントを呼び出す。
+
+</Cards>
