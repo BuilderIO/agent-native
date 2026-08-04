@@ -494,15 +494,18 @@ export function VisualColorPicker({
           )}
         >
           {glyph && variant === "swatch" ? (
-            <span className="flex flex-col items-center gap-[3px]">
+            <span className="flex size-4 shrink-0 flex-col items-center justify-center gap-[3px]">
+              {/* A cap-height line box: leading-none still reserves descender
+                  space below the baseline, which reads as a crooked glyph
+                  sitting too high above its color bar. */}
               <span
                 aria-hidden="true"
-                className="text-[13px] font-semibold leading-none text-foreground"
+                className="block text-[13px] font-semibold leading-[10px] text-foreground"
               >
                 {glyph}
               </span>
               <span
-                className="h-[3px] w-4 rounded-[1px]"
+                className="h-[3px] w-4 shrink-0 rounded-[1px]"
                 style={swatchBackground(mixed ? "transparent" : value)}
               />
             </span>
