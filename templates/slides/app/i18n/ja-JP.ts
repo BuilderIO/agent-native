@@ -405,6 +405,8 @@ const messages = {
     weight: "太さ",
     italic: "斜体",
     underline: "下線",
+    bulletList: "箇条書き",
+    numberedList: "番号付きリスト",
     align: "配置",
     decreaseSize: "フォントサイズを小さく",
     increaseSize: "フォントサイズを大きく",

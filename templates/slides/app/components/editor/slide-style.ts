@@ -34,6 +34,7 @@ export interface SlideStyleSnapshot {
   paddingX: number;
   paddingY: number;
   zIndex: number;
+  listKind: "bullet" | "ordered" | null;
   textStyleScope?: "block" | "selection";
   mixedTextStyles?: InlineTextStyleKey[];
 }

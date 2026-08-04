@@ -408,6 +408,8 @@ const messages = {
     weight: "Schriftstärke",
     italic: "Kursiv",
     underline: "Unterstrichen",
+    bulletList: "Aufzählung",
+    numberedList: "Nummerierte Liste",
     align: "Ausrichtung",
     decreaseSize: "Schrift verkleinern",
     increaseSize: "Schrift vergrößern",

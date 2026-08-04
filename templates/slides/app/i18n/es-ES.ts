@@ -410,6 +410,8 @@ const messages = {
     weight: "Grosor",
     italic: "Cursiva",
     underline: "Subrayado",
+    bulletList: "Lista con viñetas",
+    numberedList: "Lista numerada",
     align: "Alineación",
     decreaseSize: "Reducir tamaño de fuente",
     increaseSize: "Aumentar tamaño de fuente",

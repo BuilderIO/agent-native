@@ -397,6 +397,8 @@ const messages = {
     weight: "字重",
     italic: "斜体",
     underline: "下划线",
+    bulletList: "项目符号列表",
+    numberedList: "编号列表",
     align: "对齐",
     decreaseSize: "减小字号",
     increaseSize: "增大字号",

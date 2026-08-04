@@ -22,6 +22,8 @@ import {
   IconItalic,
   IconLayoutAlignLeft,
   IconLetterCase,
+  IconList,
+  IconListNumbers,
   IconSpacingHorizontal,
   IconSpacingVertical,
   IconStackBack,
@@ -49,6 +51,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn, shortcutLabel } from "@/lib/utils";
 
+import type { SlideListKind } from "./list-editing";
 import {
   backgroundCssValue,
   formatValue,
@@ -132,6 +135,7 @@ export function SlideContextToolbar({
   onChange,
   onBackgroundChange,
   onArrange,
+  onToggleList,
 }: {
   snapshot: SlideStyleSnapshot | null;
   background: string | undefined;
@@ -142,6 +146,7 @@ export function SlideContextToolbar({
   onChange: (patch: SlideStylePatch) => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: "front" | "back") => void;
+  onToggleList?: (kind: SlideListKind) => void;
 }) {
   const t = useT();
   const documentColors = tokenPalette(designSystem, t).map(
@@ -340,6 +345,55 @@ export function SlideContextToolbar({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              {onToggleList && (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          MENU_BUTTON_CLASS,
+                          snapshot.listKind === "bullet" && TOGGLE_ACTIVE_CLASS,
+                        )}
+                        aria-label={t("styleInspector.bulletList")}
+                        aria-pressed={snapshot.listKind === "bullet"}
+                        onClick={() => onToggleList("bullet")}
+                      >
+                        <IconList className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("styleInspector.bulletList")}
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          MENU_BUTTON_CLASS,
+                          snapshot.listKind === "ordered" &&
+                            TOGGLE_ACTIVE_CLASS,
+                        )}
+                        aria-label={t("styleInspector.numberedList")}
+                        aria-pressed={snapshot.listKind === "ordered"}
+                        onClick={() => onToggleList("ordered")}
+                      >
+                        <IconListNumbers className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("styleInspector.numberedList")}
+                    </TooltipContent>
+                  </Tooltip>
+                </>
+              )}
             </>
           ) : (
             <>

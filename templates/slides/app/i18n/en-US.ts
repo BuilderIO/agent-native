@@ -403,6 +403,8 @@ const messages = {
     weight: "Weight",
     italic: "Italic",
     underline: "Underline",
+    bulletList: "Bullet list",
+    numberedList: "Numbered list",
     align: "Align",
     decreaseSize: "Decrease font size",
     increaseSize: "Increase font size",

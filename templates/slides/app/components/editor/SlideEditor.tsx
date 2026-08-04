@@ -75,6 +75,11 @@ import {
 } from "./canvas-interactions";
 import ImageOverlay from "./ImageOverlay";
 import {
+  detectSlideListKind,
+  toggleSlideList,
+  type SlideListKind,
+} from "./list-editing";
+import {
   applyInlineTextStyle,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
@@ -482,6 +487,7 @@ function buildStyleSnapshot(
     paddingX: Math.round((paddingLeft + paddingRight) / 2),
     paddingY: Math.round((paddingTop + paddingBottom) / 2),
     zIndex,
+    listKind: detectSlideListKind(element),
     textStyleScope: inlineTextStyle?.scope ?? "block",
     mixedTextStyles: selectedTextStyle?.mixed ?? [],
     isAbsolute,
@@ -3989,6 +3995,27 @@ export default function SlideEditor({
     ],
   );
 
+  /** Bullet / numbered list toggle for the selected text object. */
+  const handleToggleList = useCallback(
+    (kind: SlideListKind) => {
+      const element = editingElRef.current ?? resolveSelectedElement();
+      if (!element) return;
+
+      const converted = toggleSlideList(element, kind);
+      if (!converted) return;
+
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      const selector = getBuilderSelector(converted);
+      if (selector) selectElementForStyling(converted, selector);
+    },
+    [
+      readCurrentSlideContentHtml,
+      resolveSelectedElement,
+      selectElementForStyling,
+    ],
+  );
+
   // --- Pending visual updates ---
   const [pendingUpdateCount, setPendingUpdateCount] = useState(0);
 
@@ -4067,6 +4094,7 @@ export default function SlideEditor({
           onChange={applySelectedStylePatch}
           onBackgroundChange={applySlideBackground}
           onArrange={handleArrangeSelected}
+          onToggleList={handleToggleList}
         />
       </div>
     ) : null;

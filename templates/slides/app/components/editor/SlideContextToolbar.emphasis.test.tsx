@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import type { SlideStyleSnapshot } from "./slide-style";
 import { SlideContextToolbar } from "./SlideContextToolbar";
+import type { SlideStyleSnapshot } from "./slide-style";
 
 function textSnapshot(
   overrides: Partial<SlideStyleSnapshot> = {},
@@ -31,6 +31,7 @@ function textSnapshot(
     fontWeight: "700",
     fontStyle: "normal",
     textDecoration: "none",
+    listKind: null,
     lineHeight: 1.2,
     textAlign: "left",
     opacity: 100,

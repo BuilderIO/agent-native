@@ -414,6 +414,8 @@ const messages = {
     weight: "Graisse",
     italic: "Italique",
     underline: "Souligné",
+    bulletList: "Liste à puces",
+    numberedList: "Liste numérotée",
     align: "Alignement",
     decreaseSize: "Réduire la taille du texte",
     increaseSize: "Augmenter la taille du texte",

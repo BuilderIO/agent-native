@@ -405,6 +405,8 @@ const messages = {
     weight: "الوزن",
     italic: "مائل",
     underline: "تسطير",
+    bulletList: "قائمة نقطية",
+    numberedList: "قائمة مرقمة",
     align: "المحاذاة",
     decreaseSize: "تصغير حجم الخط",
     increaseSize: "تكبير حجم الخط",

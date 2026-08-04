@@ -400,6 +400,8 @@ const messages = {
     weight: "मोटाई",
     italic: "इटैलिक",
     underline: "रेखांकित",
+    bulletList: "बुलेट सूची",
+    numberedList: "क्रमांकित सूची",
     align: "संरेखण",
     decreaseSize: "फ़ॉन्ट आकार घटाएँ",
     increaseSize: "फ़ॉन्ट आकार बढ़ाएँ",

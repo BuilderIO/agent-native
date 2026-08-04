@@ -35,6 +35,7 @@ function snapshot(
     fontWeight: "700",
     fontStyle: "normal",
     textDecoration: "none",
+    listKind: null,
     lineHeight: 1.2,
     textAlign: "left",
     opacity: 100,

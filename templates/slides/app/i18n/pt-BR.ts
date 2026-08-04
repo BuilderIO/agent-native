@@ -405,6 +405,8 @@ const messages = {
     weight: "Espessura",
     italic: "Itálico",
     underline: "Sublinhado",
+    bulletList: "Lista com marcadores",
+    numberedList: "Lista numerada",
     align: "Alinhamento",
     decreaseSize: "Diminuir tamanho da fonte",
     increaseSize: "Aumentar tamanho da fonte",

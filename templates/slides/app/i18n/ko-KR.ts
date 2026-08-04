@@ -402,6 +402,8 @@ const messages = {
     weight: "굵기",
     italic: "기울임",
     underline: "밑줄",
+    bulletList: "글머리 기호 목록",
+    numberedList: "번호 매기기 목록",
     align: "정렬",
     decreaseSize: "글꼴 크기 줄이기",
     increaseSize: "글꼴 크기 늘리기",
