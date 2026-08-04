@@ -153,4 +153,13 @@ describe("Analytics Settings", () => {
     );
     expect(toggle?.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("keeps the completion bell enabled by default", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    const toggle = container.querySelector('[aria-label="settings.bellSound"]');
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+  });
 });

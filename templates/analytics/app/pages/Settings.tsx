@@ -54,18 +54,34 @@ export default function Settings() {
   const [errorEmailEnabledOverride, setErrorEmailEnabledOverride] = useState<
     boolean | null
   >(null);
+  const [bellSoundEnabledOverride, setBellSoundEnabledOverride] = useState<
+    boolean | null
+  >(null);
 
   useEffect(() => {
     if (analyticsPrefs) {
       setErrorEmailEnabledOverride(
         analyticsPrefs.errorEmailNotifications === true,
       );
+      setBellSoundEnabledOverride(analyticsPrefs.bellSoundEnabled !== false);
     }
   }, [analyticsPrefs]);
 
   const errorEmailEnabled =
     errorEmailEnabledOverride ??
     analyticsPrefs?.errorEmailNotifications === true;
+  const bellSoundEnabled =
+    bellSoundEnabledOverride ?? analyticsPrefs?.bellSoundEnabled !== false;
+
+  const currentAnalyticsPrefs: AnalyticsUserPrefs = {
+    ...(analyticsPrefs ?? {}),
+    ...(errorEmailEnabledOverride === null
+      ? {}
+      : { errorEmailNotifications: errorEmailEnabledOverride }),
+    ...(bellSoundEnabledOverride === null
+      ? {}
+      : { bellSoundEnabled: bellSoundEnabledOverride }),
+  };
 
   const saveErrorEmailPreference = (enabled: boolean) => {
     const previous = errorEmailEnabled;
@@ -73,7 +89,10 @@ export default function Settings() {
     void saveAnalyticsPrefs
       .mutateAsync({
         key: ANALYTICS_USER_PREFS_KEY,
-        value: { errorEmailNotifications: enabled },
+        value: {
+          ...currentAnalyticsPrefs,
+          errorEmailNotifications: enabled,
+        },
       })
       .catch((error) => {
         setErrorEmailEnabledOverride(previous);
@@ -81,6 +100,24 @@ export default function Settings() {
           error instanceof Error
             ? error.message
             : t("settings.errorEmailNotificationsSaveFailed"),
+        );
+      });
+  };
+
+  const saveBellSoundPreference = (enabled: boolean) => {
+    const previous = bellSoundEnabled;
+    setBellSoundEnabledOverride(enabled);
+    void saveAnalyticsPrefs
+      .mutateAsync({
+        key: ANALYTICS_USER_PREFS_KEY,
+        value: { ...currentAnalyticsPrefs, bellSoundEnabled: enabled },
+      })
+      .catch((error) => {
+        setBellSoundEnabledOverride(previous);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("settings.bellSoundSaveFailed"),
         );
       });
   };
@@ -167,6 +204,21 @@ export default function Settings() {
                     analyticsPrefsLoading || saveAnalyticsPrefs.isPending
                   }
                   onCheckedChange={saveErrorEmailPreference}
+                />
+              }
+            />
+            <SettingsRow
+              id="bell-sound"
+              label={t("settings.bellSound")}
+              description={t("settings.bellSoundDescription")}
+              control={
+                <Switch
+                  aria-label={t("settings.bellSound")}
+                  checked={bellSoundEnabled}
+                  disabled={
+                    analyticsPrefsLoading || saveAnalyticsPrefs.isPending
+                  }
+                  onCheckedChange={saveBellSoundPreference}
                 />
               }
             />
