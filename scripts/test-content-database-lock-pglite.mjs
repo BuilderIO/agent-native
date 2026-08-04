@@ -119,29 +119,33 @@ try {
   await client.close();
 }
 
-const scopeDirectory = join(
-  process.cwd(),
-  "packages",
-  "core",
-  "node_modules",
-  "@electric-sql",
-);
-const driverLink = join(scopeDirectory, "pglite");
 const driverPackage = join(
   installPrefix,
   "node_modules",
   "@electric-sql",
   "pglite",
 );
-const scopeExisted = existsSync(scopeDirectory);
-if (existsSync(driverLink)) {
-  throw new Error(
-    `Refusing to replace existing PGlite driver at ${driverLink}`,
-  );
+const driverScopes = [
+  join(process.cwd(), "node_modules", "@electric-sql"),
+  join(process.cwd(), "packages", "core", "node_modules", "@electric-sql"),
+];
+const driverLinks = driverScopes.map((scopeDirectory) => ({
+  scopeDirectory,
+  scopeExisted: existsSync(scopeDirectory),
+  driverLink: join(scopeDirectory, "pglite"),
+}));
+for (const { driverLink } of driverLinks) {
+  if (existsSync(driverLink)) {
+    throw new Error(
+      `Refusing to replace existing PGlite driver at ${driverLink}`,
+    );
+  }
 }
-mkdirSync(scopeDirectory, { recursive: true });
-symlinkSync(driverPackage, driverLink, "dir");
 try {
+  for (const { scopeDirectory, driverLink } of driverLinks) {
+    mkdirSync(scopeDirectory, { recursive: true });
+    symlinkSync(driverPackage, driverLink, "dir");
+  }
   const actionSuite = spawnSync(
     "pnpm",
     [
@@ -170,6 +174,8 @@ try {
     );
   }
 } finally {
-  rmSync(driverLink);
-  if (!scopeExisted) rmdirSync(scopeDirectory);
+  for (const { scopeDirectory, scopeExisted, driverLink } of driverLinks) {
+    if (existsSync(driverLink)) rmSync(driverLink);
+    if (!scopeExisted && existsSync(scopeDirectory)) rmdirSync(scopeDirectory);
+  }
 }
