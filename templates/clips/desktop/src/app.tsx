@@ -1206,7 +1206,7 @@ export function App() {
     try {
       const res = await fetch(
         `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
-        { credentials: "include" },
+        { credentials: "include", cache: "no-store" },
       );
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
