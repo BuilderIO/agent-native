@@ -56,9 +56,33 @@ async function sendgridGet(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`SendGrid ${res.status} on ${path}: ${body.slice(0, 300)}`);
+    const error = new Error(
+      `SendGrid ${res.status} on ${path}: ${body.slice(0, 300)}`,
+    );
+    (error as SendGridError).status = res.status;
+    (error as SendGridError).body = body;
+    throw error;
   }
   return res.json();
+}
+
+interface SendGridError extends Error {
+  status?: number;
+  body?: string;
+}
+
+/**
+ * SendGrid 404s a category it has never seen. That is a definite answer — no
+ * message has been sent under this id yet — not a failed read, so it maps to an
+ * empty result rather than an "unavailable" banner.
+ */
+function isUnknownCategory(error: unknown): boolean {
+  const candidate = error as SendGridError;
+  return (
+    candidate?.status === 404 &&
+    typeof candidate.body === "string" &&
+    candidate.body.includes("category does not exist")
+  );
 }
 
 /**
@@ -93,17 +117,20 @@ export async function fetchEmailEngagement(
 
     const totals = new Map<string, EmailEngagement>();
     for (const chunk of chunks) {
-      const payload = (await sendgridGet(key, "/categories/stats", [
-        ["start_date", isoDate(start)],
-        ["end_date", isoDate(end)],
-        ["aggregated_by", "day"],
-        ...chunk.map((id): [string, string] => ["categories[]", id]),
-      ])) as Array<{
-        stats?: Array<{
-          name?: string;
-          metrics?: Record<string, number>;
-        }>;
+      let payload: Array<{
+        stats?: Array<{ name?: string; metrics?: Record<string, number> }>;
       }>;
+      try {
+        payload = (await sendgridGet(key, "/categories/stats", [
+          ["start_date", isoDate(start)],
+          ["end_date", isoDate(end)],
+          ["aggregated_by", "day"],
+          ...chunk.map((id): [string, string] => ["categories", id]),
+        ])) as typeof payload;
+      } catch (error) {
+        if (isUnknownCategory(error)) continue;
+        throw error;
+      }
 
       for (const day of payload ?? []) {
         for (const entry of day.stats ?? []) {

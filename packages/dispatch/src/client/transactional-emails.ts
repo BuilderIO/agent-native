@@ -42,6 +42,8 @@ function actionUrl(appPath: string, action: string, query = ""): string {
  * blank the whole screen, but its failure is returned rather than swallowed so
  * the UI can say "couldn't read" instead of showing it as having no emails.
  */
+const CATALOG_TIMEOUT_MS = 10_000;
+
 export async function fetchAppEmailCatalog(
   app: { id: string; name: string; path: string },
   windowDays: number,
@@ -61,7 +63,12 @@ export async function fetchAppEmailCatalog(
         "list-transactional-emails",
         `?windowDays=${windowDays}`,
       ),
-      { credentials: "include", headers: { Accept: "application/json" } },
+      {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+        // One app that never answers must not hold the whole catalog open.
+        signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+      },
     );
     if (!res.ok) {
       return { ...base, error: `HTTP ${res.status}` };
@@ -74,7 +81,8 @@ export async function fetchAppEmailCatalog(
     return {
       ...base,
       emails: body.emails ?? [],
-      statsError: body.statsAvailable === false ? (body.statsError ?? "unknown") : null,
+      statsError:
+        body.statsAvailable === false ? (body.statsError ?? "unknown") : null,
     };
   } catch (error) {
     return {
