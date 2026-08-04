@@ -133,9 +133,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
 
-  const { data: spaces, refetch: refetchSpaces } = useSpaces(currentOrganizationId, {
-    enabled: hasActiveOrg && Boolean(currentOrganizationId),
-  });
+  const { data: spaces, refetch: refetchSpaces } = useSpaces(
+    currentOrganizationId,
+    {
+      enabled: hasActiveOrg && Boolean(currentOrganizationId),
+    },
+  );
   const { data: libFolders } = useFolders(
     {
       organizationId: currentOrganizationId,
@@ -630,8 +633,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                               <DropdownMenuContent align="start" side="right">
                                 <DropdownMenuItem
                                   onSelect={() => {
-                                    setRenameSpaceValue(s.name);
-                                    setRenameSpaceId(s.id);
+                                    setTimeout(() => {
+                                      setRenameSpaceValue(s.name);
+                                      setRenameSpaceId(s.id);
+                                    }, 0);
                                   }}
                                 >
                                   <IconEdit className="h-3.5 w-3.5 me-2" />
@@ -639,8 +644,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => {
-                                    setDeleteSpaceId(s.id);
-                                    setDeleteSpaceName(s.name);
+                                    setTimeout(() => {
+                                      setDeleteSpaceId(s.id);
+                                      setDeleteSpaceName(s.name);
+                                    }, 0);
                                   }}
                                   className="text-destructive"
                                 >
