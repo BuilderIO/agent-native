@@ -736,6 +736,7 @@ export default function ThreadDebugRoute() {
       orgId: string | null;
       role: string | null;
       envAdmin: boolean;
+      threadDebugOperator: boolean;
       canInspectAll: boolean;
       memberCount: number;
     };
@@ -768,6 +769,9 @@ export default function ThreadDebugRoute() {
   const unavailableFailureSources = (failuresData?.sources ?? []).filter(
     (source) => source.status !== "ok",
   );
+  const allFailureSourcesSucceeded =
+    (failuresData?.sources.length ?? 0) > 0 &&
+    failuresData?.sources.every((source) => source.status === "ok");
   const failureSourceStatusLabels = {
     ok: "ok",
     disconnected: t("dispatch.pages.threadDebugDisconnected", {
@@ -1024,19 +1028,20 @@ export default function ThreadDebugRoute() {
                 </Select>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>
-                  {failuresData?.count ?? failures.length}{" "}
-                  {t("dispatch.pages.threadDebugFailureResults", {
-                    defaultValue: "failed runs",
-                  })}
-                </span>
-                <span>·</span>
-                <span>
-                  {failuresData?.access?.scope ??
-                    t("dispatch.pages.threadDebugCurrentScope", {
-                      defaultValue: "current scope",
-                    })}
-                </span>
+                {!failuresError &&
+                failuresData &&
+                allFailureSourcesSucceeded ? (
+                  <>
+                    <span>
+                      {failuresData.count}{" "}
+                      {t("dispatch.pages.threadDebugFailureResults", {
+                        defaultValue: "failed runs",
+                      })}
+                    </span>
+                    <span>·</span>
+                    <span>{failuresData.access.scope}</span>
+                  </>
+                ) : null}
                 {failuresData?.partial ? (
                   <Badge variant="outline">
                     {t("dispatch.pages.threadDebugPartialResults", {
@@ -1098,7 +1103,11 @@ export default function ThreadDebugRoute() {
                       <Skeleton className="h-32 w-full rounded-lg" />
                     </>
                   ) : null}
-                  {!failuresLoading && failures.length === 0 ? (
+                  {!failuresLoading &&
+                  !failuresError &&
+                  failuresData &&
+                  allFailureSourcesSucceeded &&
+                  failures.length === 0 ? (
                     <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
                       <IconDatabase className="mb-2 size-5" />
                       {t("dispatch.pages.threadDebugNoFailures", {
@@ -1247,13 +1256,17 @@ export default function ThreadDebugRoute() {
                 {sourcesData?.access ? (
                   <span>
                     {sourcesData.access.viewerEmail} ·{" "}
-                    {sourcesData.access.canInspectAll
-                      ? t("dispatch.pages.threadDebugAdminScope", {
-                          defaultValue: "admin scope",
+                    {sourcesData.access.threadDebugOperator
+                      ? t("dispatch.pages.threadDebugCurrentScope", {
+                          defaultValue: "organization scope",
                         })
-                      : t("dispatch.pages.threadDebugOwnScope", {
-                          defaultValue: "own scope",
-                        })}
+                      : sourcesData.access.canInspectAll
+                        ? t("dispatch.pages.threadDebugAdminScope", {
+                            defaultValue: "admin scope",
+                          })
+                        : t("dispatch.pages.threadDebugOwnScope", {
+                            defaultValue: "own scope",
+                          })}
                   </span>
                 ) : null}
               </div>
@@ -1276,15 +1289,15 @@ export default function ThreadDebugRoute() {
                       })}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {searchData?.count ?? 0}{" "}
-                      {t("dispatch.pages.threadDebugResults", {
-                        defaultValue: "results",
-                      })}{" "}
-                      ·{" "}
-                      {searchData?.access?.scope ??
-                        t("dispatch.pages.threadDebugCurrentScope", {
-                          defaultValue: "current scope",
-                        })}
+                      {!searchError && searchData ? (
+                        <>
+                          {searchData.count}{" "}
+                          {t("dispatch.pages.threadDebugResults", {
+                            defaultValue: "results",
+                          })}{" "}
+                          · {searchData.access.scope}
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   <Button
@@ -1307,7 +1320,10 @@ export default function ThreadDebugRoute() {
                       <Skeleton className="h-28 w-full rounded-lg" />
                     </>
                   ) : null}
-                  {!searchLoading && searchThreads.length === 0 ? (
+                  {!searchLoading &&
+                  !searchError &&
+                  searchData &&
+                  searchThreads.length === 0 ? (
                     <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
                       <IconDatabase className="mb-2 size-5" />
                       {t("dispatch.pages.threadDebugNoThreads", {

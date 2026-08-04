@@ -12,6 +12,9 @@ const queryState = vi.hoisted(() => ({
     params: Record<string, unknown>;
     enabled: boolean;
   }>,
+  errorNames: new Set<string>(),
+  emptyNames: new Set<string>(),
+  unavailableFailures: false,
 }));
 
 const failedRun = {
@@ -85,8 +88,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     queryState.calls.push({ name, params, enabled });
     const base = {
       isLoading: false,
-      isError: false,
-      error: null,
+      isError: queryState.errorNames.has(name),
+      error: queryState.errorNames.has(name)
+        ? new Error("Thread Debug request failed")
+        : null,
       refetch: vi.fn(),
     };
     if (name === "list-agent-thread-sources") {
@@ -98,6 +103,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             orgId: "org-1",
             role: "admin",
             envAdmin: false,
+            threadDebugOperator: false,
             canInspectAll: true,
             memberCount: 1,
           },
@@ -127,30 +133,87 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       };
     }
     if (name === "list-agent-run-failures") {
+      if (queryState.errorNames.has(name)) {
+        return { ...base, data: undefined };
+      }
+      const failures =
+        queryState.emptyNames.has(name) || queryState.unavailableFailures
+          ? []
+          : [failedRun];
       return {
         ...base,
         data: enabled
           ? {
-              failures: [failedRun],
-              count: 1,
-              partial: true,
+              failures,
+              count: failures.length,
+              partial:
+                queryState.unavailableFailures ||
+                !queryState.emptyNames.has(name),
               access: {
                 viewerEmail: "ops@example.com",
                 scope: "current organization",
                 canInspectAll: true,
               },
-              sources: [
-                {
-                  source: failedRun.source,
-                  status: "ok",
-                  failureCount: 1,
-                },
-                {
-                  source: { id: "clips", label: "Clips" },
-                  status: "unavailable",
-                  failureCount: 0,
-                },
-              ],
+              sources: queryState.unavailableFailures
+                ? queryState.emptyNames.has(name)
+                  ? [
+                      {
+                        source: failedRun.source,
+                        status: "ok",
+                        failureCount: 0,
+                      },
+                      {
+                        source: { id: "clips", label: "Clips" },
+                        status: "unavailable",
+                        failureCount: 0,
+                      },
+                    ]
+                  : [
+                      {
+                        source: failedRun.source,
+                        status: "unavailable",
+                        failureCount: 0,
+                      },
+                    ]
+                : queryState.emptyNames.has(name)
+                  ? [
+                      {
+                        source: failedRun.source,
+                        status: "ok",
+                        failureCount: 0,
+                      },
+                    ]
+                  : [
+                      {
+                        source: failedRun.source,
+                        status: "ok",
+                        failureCount: failures.length,
+                      },
+                      {
+                        source: { id: "clips", label: "Clips" },
+                        status: "unavailable",
+                        failureCount: 0,
+                      },
+                    ],
+            }
+          : undefined,
+      };
+    }
+    if (name === "search-agent-threads") {
+      if (queryState.errorNames.has(name)) {
+        return { ...base, data: undefined };
+      }
+      return {
+        ...base,
+        data: enabled
+          ? {
+              count: 0,
+              threads: [],
+              access: {
+                scope: "current organization",
+                canInspectAll: true,
+              },
+              source: { id: "mail", label: "Mail" },
             }
           : undefined,
       };
@@ -192,6 +255,9 @@ describe("ThreadDebugRoute", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     queryState.calls = [];
+    queryState.errorNames.clear();
+    queryState.emptyNames.clear();
+    queryState.unavailableFailures = false;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -268,5 +334,106 @@ describe("ThreadDebugRoute", () => {
       status: "errored",
       lookbackHours: 168,
     });
+  });
+
+  it("does not render a failed run request as a successful empty result", async () => {
+    queryState.errorNames.add("list-agent-run-failures");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/thread-debug"]}>
+          <ThreadDebugRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("dispatch.pages.dataLoadFailed");
+    expect(container.textContent).not.toContain("0 failed runs");
+    expect(container.textContent).not.toContain("No failed runs found.");
+  });
+
+  it("does not render a failed thread search as a successful empty result", async () => {
+    queryState.errorNames.add("search-agent-threads");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={[
+            "/thread-debug?mode=threads&source=mail&query=AN-SLACK-CANARY-EXAMPLE",
+          ]}
+        >
+          <ThreadDebugRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("dispatch.pages.dataLoadFailed");
+    expect(container.textContent).not.toContain("0 results");
+    expect(container.textContent).not.toContain("No threads found.");
+  });
+
+  it("renders a genuine empty failed-run request as zero results", async () => {
+    queryState.emptyNames.add("list-agent-run-failures");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/thread-debug"]}>
+          <ThreadDebugRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("0 failed runs");
+    expect(container.textContent).toContain("No failed runs found.");
+  });
+
+  it("does not render an unavailable failure source as zero results", async () => {
+    queryState.unavailableFailures = true;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/thread-debug?source=mail"]}>
+          <ThreadDebugRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Mail (unavailable)");
+    expect(container.textContent).not.toContain("0 failed runs");
+    expect(container.textContent).not.toContain("No failed runs found.");
+  });
+
+  it("does not render mixed empty and unavailable sources as a genuine zero", async () => {
+    queryState.emptyNames.add("list-agent-run-failures");
+    queryState.unavailableFailures = true;
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/thread-debug"]}>
+          <ThreadDebugRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Clips (unavailable)");
+    expect(container.textContent).not.toContain("0 failed runs");
+    expect(container.textContent).not.toContain("No failed runs found.");
+  });
+
+  it("renders a genuine empty thread search as zero results", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={[
+            "/thread-debug?mode=threads&source=mail&query=AN-SLACK-CANARY-EXAMPLE",
+          ]}
+        >
+          <ThreadDebugRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("0 results");
+    expect(container.textContent).toContain("No threads found.");
   });
 });

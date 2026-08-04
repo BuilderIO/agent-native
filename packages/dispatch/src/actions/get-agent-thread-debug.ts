@@ -27,7 +27,9 @@ export default defineAction({
       ownerEmail: z
         .string()
         .optional()
-        .describe("Optional owner email scope for admin cross-user lookups."),
+        .describe(
+          "Optional owner email filter inside the organization-visible scope available to approved Thread Debug operators and admins.",
+        ),
       maxRuns: z.coerce.number().int().min(1).max(50).default(20),
       maxEvents: z.coerce.number().int().min(1).max(2000).default(600),
       maxTraceSpans: z.coerce.number().int().min(1).max(2000).default(500),

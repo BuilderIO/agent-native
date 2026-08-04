@@ -387,20 +387,237 @@ describe("thread-debug-store", () => {
     expect(mocks.createDbExec).not.toHaveBeenCalled();
   });
 
-  it("keeps explicit remote sources admin-only", async () => {
+  it("returns an explicit 403 when a non-operator requests a remote source", async () => {
     vi.stubEnv("REMOTE_DATABASE_URL", "libsql://remote");
 
-    await expect(listAgentRunFailures({ sourceId: "remote" })).rejects.toThrow(
-      "Only Dispatch admins",
+    const denial = await listAgentRunFailures({ sourceId: "remote" }).catch(
+      (error) => error as Error & { statusCode?: number },
     );
+
+    expect(denial).toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "Thread Debug operator access is required to inspect thread databases from other apps.",
+    });
     expect(mocks.createDbExec).not.toHaveBeenCalled();
   });
 
-  it("prevents organization admins from requesting an owner outside their organization", async () => {
+  it("lets read-only operators inspect organization-owned service-principal threads", async () => {
+    vi.stubEnv("DISPATCH_THREAD_DEBUG_OPERATOR_EMAILS", "owner@example.com");
+    vi.stubEnv("CONTENT_DATABASE_URL", "libsql://content-operator");
     mocks.orgId = "org-1";
     mocks.currentExecute.mockImplementation(async ({ sql }) => {
       if (sql.includes("SELECT role FROM org_members")) {
-        return { rows: [{ role: "admin" }] };
+        return { rows: [{ role: "member" }] };
+      }
+      if (sql.includes("SELECT email FROM org_members")) {
+        return { rows: [{ email: "owner@example.com" }] };
+      }
+      if (sql.includes("SELECT allowed_domain FROM organizations")) {
+        return { rows: [{ allowed_domain: "example.com" }] };
+      }
+      return { rows: [] };
+    });
+    const remoteQueries: Array<{ sql: string; args: unknown[] }> = [];
+    mocks.createDbExec.mockResolvedValue({
+      execute: async ({ sql, args }: { sql: string; args: unknown[] }) => {
+        remoteQueries.push({ sql, args });
+        if (sql.includes("FROM organizations")) {
+          return { rows: [{ id: "content-org-1" }] };
+        }
+        if (sql.includes("FROM agent_runs") && sql.includes("WHERE id = ?")) {
+          return { rows: [] };
+        }
+        if (sql.includes("FROM chat_threads")) {
+          return {
+            rows: [
+              {
+                ...thread,
+                owner_email: "integration@slack",
+                org_id: "content-org-1",
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      },
+    });
+
+    const result = await searchAgentThreads({
+      sourceId: "content",
+      query: "AN-SLACK-CANARY-EXAMPLE",
+      ownerEmail: "integration@slack",
+    });
+
+    expect(result).toMatchObject({
+      count: 1,
+      access: {
+        scope: "integration@slack",
+        canInspectAll: true,
+      },
+      threads: [{ ownerEmail: "integration@slack" }],
+    });
+    const threadQuery = remoteQueries.find(({ sql }) =>
+      sql.includes("FROM chat_threads"),
+    );
+    expect(threadQuery?.sql).toContain("org_id = ? AND owner_email = ?");
+    expect(threadQuery?.args).toEqual(
+      expect.arrayContaining(["content-org-1", "integration@slack"]),
+    );
+
+    const detail = await getAgentThreadDebug({
+      sourceId: "content",
+      threadId: thread.id,
+      ownerEmail: "integration@slack",
+    });
+    expect(detail.thread).toMatchObject({
+      id: thread.id,
+      ownerEmail: "integration@slack",
+    });
+  });
+
+  it("keeps operator searches inside their organization and returns a truthful empty result", async () => {
+    vi.stubEnv("DISPATCH_THREAD_DEBUG_OPERATOR_EMAILS", "owner@example.com");
+    vi.stubEnv("CONTENT_DATABASE_URL", "libsql://content-empty");
+    mocks.orgId = "org-1";
+    mocks.currentExecute.mockImplementation(async ({ sql }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (sql.includes("SELECT email FROM org_members")) {
+        return { rows: [{ email: "owner@example.com" }] };
+      }
+      if (sql.includes("SELECT allowed_domain FROM organizations")) {
+        return { rows: [{ allowed_domain: "example.com" }] };
+      }
+      return { rows: [] };
+    });
+    const remoteQueries: Array<{ sql: string; args: unknown[] }> = [];
+    mocks.createDbExec.mockResolvedValue({
+      execute: async ({ sql, args }: { sql: string; args: unknown[] }) => {
+        remoteQueries.push({ sql, args });
+        if (sql.includes("FROM organizations")) {
+          return { rows: [{ id: "content-org-1" }] };
+        }
+        return { rows: [] };
+      },
+    });
+
+    const result = await searchAgentThreads({
+      sourceId: "content",
+      query: "AN-SLACK-CANARY-EXAMPLE",
+      ownerEmail: "integration@slack",
+    });
+
+    expect(result).toMatchObject({
+      count: 0,
+      access: {
+        scope: "integration@slack",
+        canInspectAll: true,
+      },
+      threads: [],
+    });
+    expect(remoteQueries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sql: expect.stringContaining("org_id = ? AND owner_email = ?"),
+          args: expect.arrayContaining(["content-org-1", "integration@slack"]),
+        }),
+      ]),
+    );
+  });
+
+  it("denies cross-app access when the target source has duplicate organization domains", async () => {
+    vi.stubEnv("DISPATCH_THREAD_DEBUG_OPERATOR_EMAILS", "owner@example.com");
+    vi.stubEnv("CONTENT_DATABASE_URL", "libsql://content-duplicate-domain");
+    mocks.orgId = "org-1";
+    mocks.currentExecute.mockImplementation(async ({ sql }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "member" }] };
+      }
+      if (sql.includes("SELECT email FROM org_members")) {
+        return { rows: [{ email: "owner@example.com" }] };
+      }
+      if (sql.includes("SELECT allowed_domain FROM organizations")) {
+        return { rows: [{ allowed_domain: "example.com" }] };
+      }
+      return { rows: [] };
+    });
+    mocks.createDbExec.mockResolvedValue({
+      execute: async ({ sql }: { sql: string }) => {
+        if (sql.includes("FROM organizations")) {
+          return {
+            rows: [{ id: "content-org-1" }, { id: "content-org-2" }],
+          };
+        }
+        return { rows: [] };
+      },
+    });
+
+    const denial = await searchAgentThreads({
+      sourceId: "content",
+      query: "AN-SLACK-CANARY-EXAMPLE",
+    }).catch((error) => error as Error & { statusCode?: number });
+
+    expect(denial).toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "The active organization could not be uniquely resolved in the selected Thread Debug source.",
+    });
+  });
+
+  it.each([
+    ["no", []],
+    ["multiple", [{ id: "content-org-1" }, { id: "content-org-2" }]],
+  ])(
+    "preserves an explicit 403 when failed-run lookup finds %s target organization matches",
+    async (_label, organizationRows) => {
+      vi.stubEnv("DISPATCH_THREAD_DEBUG_OPERATOR_EMAILS", "owner@example.com");
+      vi.stubEnv("CONTENT_DATABASE_URL", "libsql://content-invalid-domain");
+      mocks.orgId = "org-1";
+      mocks.currentExecute.mockImplementation(async ({ sql }) => {
+        if (sql.includes("SELECT role FROM org_members")) {
+          return { rows: [{ role: "member" }] };
+        }
+        if (sql.includes("SELECT email FROM org_members")) {
+          return { rows: [{ email: "owner@example.com" }] };
+        }
+        if (sql.includes("SELECT allowed_domain FROM organizations")) {
+          return { rows: [{ allowed_domain: "example.com" }] };
+        }
+        return { rows: [] };
+      });
+      mocks.createDbExec.mockResolvedValue({
+        execute: async ({ sql }: { sql: string }) => {
+          if (sql.includes("FROM organizations")) {
+            return { rows: organizationRows };
+          }
+          return { rows: [] };
+        },
+      });
+
+      const denial = await listAgentRunFailures({
+        sourceId: "content",
+      }).catch((error) => error as Error & { statusCode?: number });
+
+      expect(denial).toMatchObject({
+        name: "ForbiddenError",
+        statusCode: 403,
+        message:
+          "The active organization could not be uniquely resolved in the selected Thread Debug source.",
+      });
+    },
+  );
+
+  it("denies cross-app operator access when the organization has no stable domain mapping", async () => {
+    vi.stubEnv("DISPATCH_THREAD_DEBUG_OPERATOR_EMAILS", "owner@example.com");
+    vi.stubEnv("CONTENT_DATABASE_URL", "libsql://content-no-domain");
+    mocks.orgId = "org-1";
+    mocks.currentExecute.mockImplementation(async ({ sql }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "member" }] };
       }
       if (sql.includes("SELECT email FROM org_members")) {
         return { rows: [{ email: "owner@example.com" }] };
@@ -408,11 +625,17 @@ describe("thread-debug-store", () => {
       return { rows: [] };
     });
 
-    await expect(
-      listAgentRunFailures({
-        sourceId: "current",
-        ownerEmail: "outsider@example.com",
-      }),
-    ).rejects.toThrow("not a member of the current organization");
+    const denial = await searchAgentThreads({
+      sourceId: "content",
+      query: "AN-SLACK-CANARY-EXAMPLE",
+    }).catch((error) => error as Error & { statusCode?: number });
+
+    expect(denial).toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "The active organization needs an allowed domain before operators can inspect cross-app traces.",
+    });
+    expect(mocks.createDbExec).not.toHaveBeenCalled();
   });
 });

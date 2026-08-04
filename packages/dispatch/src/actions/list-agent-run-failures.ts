@@ -17,7 +17,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional owner email filter. Organization admins may only select members of their current organization.",
+        "Optional owner email filter inside the caller's permitted scope. Approved Thread Debug operators and admins remain limited to their current organization.",
       ),
     status: z
       .enum(["all", "errored", "aborted", "truncated"])

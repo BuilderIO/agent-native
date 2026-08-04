@@ -212,6 +212,16 @@ logs. Do not grant deploy previews access to production app databases by
 default. Thread Debug reports configured-but-missing or unreadable sources
 separately from sources that returned zero failures.
 
+Organization owners and admins can inspect connected sources. To grant the
+same read-only troubleshooting capability without broader Dispatch admin
+authority, set `DISPATCH_THREAD_DEBUG_OPERATOR_EMAILS` to a comma-separated
+allowlist. Operators may inspect only threads whose `org_id` matches their
+active organization. Because organization IDs are app-local, connected sources
+resolve that boundary through the shared `organizations.allowed_domain` value;
+an organization without that stable mapping is denied. This includes
+service-principal threads such as Slack runs, and the allowlist never grants
+mutation access.
+
 ## Extensions (Framework Feature)
 
 The framework provides **Extensions** — mini sandboxed Alpine.js apps that run inside iframes. Extensions let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under an "Extensions" section. (Distinct from LLM tools — the function-calling primitives the agent invokes.)

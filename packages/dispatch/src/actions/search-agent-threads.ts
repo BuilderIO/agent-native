@@ -5,7 +5,7 @@ import { searchAgentThreads } from "../server/lib/thread-debug-store.js";
 
 export default defineAction({
   description:
-    "Search agent chat threads by title, preview, full persisted thread content, or an exact request/run ID. Non-admins are limited to their own current Dispatch DB threads.",
+    "Search agent chat threads by title, preview, full persisted thread content, or an exact request/run ID. Approved read-only Thread Debug operators and organization admins may inspect organization-owned threads across connected sources; other callers are limited to their own current Dispatch threads.",
   schema: z.object({
     sourceId: z
       .string()
@@ -21,7 +21,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional owner email filter. Admins may pass '*' or omit to search the admin-visible scope.",
+        "Optional owner email filter inside the caller's permitted scope. Approved Thread Debug operators and admins may pass '*' or omit it to search their organization-visible scope.",
       ),
     limit: z.coerce.number().int().min(1).max(100).default(25),
   }),
