@@ -51,7 +51,7 @@ type ListedAutomation =
   | {
       kind: "automation";
       resource: Automation;
-      triggerType: "event" | "schedule";
+      triggerType: Automation["triggerType"];
     };
 
 function listRecurringJobs(jobs: RecurringJob[]): ListedAutomation[] {

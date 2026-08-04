@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
 export type JobsScope = "user" | "org";
+export type AutomationTriggerType = "event" | "schedule" | "manual";
 
 export interface RecurringJob {
   id: string;
@@ -29,7 +30,7 @@ export interface Automation {
   name: string;
   path: string;
   scope: "personal" | "organization";
-  triggerType: "event" | "schedule";
+  triggerType: AutomationTriggerType;
   event: string | null;
   schedule: string | null;
   timezone: string | null;
@@ -71,7 +72,7 @@ export interface AutomationEvent {
 
 interface AutomationEditorFields {
   enabled?: boolean;
-  triggerType?: "event" | "schedule";
+  triggerType?: AutomationTriggerType;
   event?: string;
   schedule?: string;
   timezone?: string;
@@ -86,7 +87,7 @@ export type ManageAutomationInput =
       operation: "create";
       name: string;
       scope: "personal" | "organization";
-      triggerType: "event" | "schedule";
+      triggerType: AutomationTriggerType;
       body: string;
     } & Omit<AutomationEditorFields, "triggerType" | "body">)
   | ({
@@ -106,7 +107,7 @@ export interface ManageAutomationResult {
   deleted?: true;
   name: string;
   scope?: "personal" | "organization";
-  triggerType?: "event" | "schedule" | "manual";
+  triggerType?: AutomationTriggerType;
   event?: string | null;
   schedule?: string | null;
   timezone?: string | null;
@@ -310,7 +311,8 @@ function optimisticAutomation(
         ? (variables.timezone ?? null)
         : null,
     scheduleDescription: null,
-    condition: variables.condition ?? null,
+    condition:
+      variables.triggerType === "manual" ? null : (variables.condition ?? null),
     body: variables.body,
     enabled: variables.enabled ?? true,
     lastRun: null,
@@ -354,6 +356,7 @@ function optimisticAutomationPatch(
         : null;
     patch.scheduleDescription = null;
     patch.nextRun = null;
+    if (variables.triggerType === "manual") patch.condition = null;
   } else {
     if (variables.event !== undefined) patch.event = variables.event;
     if (variables.schedule !== undefined) {
