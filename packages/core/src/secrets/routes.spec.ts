@@ -366,6 +366,80 @@ describe("secrets routes", () => {
     expect(JSON.stringify(result)).not.toContain("stored-secret-value");
   });
 
+  it("requires a signed-in user to validate a candidate user secret", async () => {
+    const validator = vi.fn();
+    mockGetSession.mockResolvedValue(null);
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator,
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(
+      event("/API_TOKEN/test", "POST", { value: "candidate-value" }),
+    );
+
+    expect(lastStatus).toBe(401);
+    expect(result).toEqual({ error: "Authentication required" });
+    expect(validator).not.toHaveBeenCalled();
+  });
+
+  it("requires an owner or admin to validate a stored workspace secret", async () => {
+    const validator = vi.fn();
+    mockGetOrgContext.mockResolvedValue({
+      orgId: "org-qa",
+      email: "bob+qa@example.com",
+      role: "member",
+    });
+    mockGetRequiredSecret.mockReturnValue({
+      key: "WORKSPACE_TOKEN",
+      label: "Workspace token",
+      scope: "workspace",
+      kind: "api-key",
+      validator,
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(event("/WORKSPACE_TOKEN/test", "POST"));
+
+    expect(lastStatus).toBe(403);
+    expect(result).toEqual({
+      error:
+        "Only organization owners and admins can set workspace-scoped secrets",
+    });
+    expect(validator).not.toHaveBeenCalled();
+  });
+
+  it("requires an owner or admin to validate a candidate org secret", async () => {
+    const validator = vi.fn();
+    mockGetOrgContext.mockResolvedValue({
+      orgId: "org-qa",
+      email: "bob+qa@example.com",
+      role: "member",
+    });
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ORG_TOKEN",
+      label: "Org token",
+      scope: "org",
+      kind: "api-key",
+      validator,
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(
+      event("/ORG_TOKEN/test", "POST", { value: "candidate-value" }),
+    );
+
+    expect(lastStatus).toBe(403);
+    expect(result).toEqual({
+      error: "Only organization owners and admins can set org-scoped secrets",
+    });
+    expect(validator).not.toHaveBeenCalled();
+  });
+
   it("validates a candidate secret value without reading or writing storage", async () => {
     const validator = vi.fn(async () => ({ ok: true }));
     mockGetRequiredSecret.mockReturnValue({

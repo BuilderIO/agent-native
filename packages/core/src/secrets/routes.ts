@@ -396,17 +396,34 @@ export function createTestSecretHandler() {
       return { error: "value must be a non-empty string" };
     }
 
+    const { scopeId, reason } = await resolveScopeId(event, secret.scope);
+    if (!scopeId) {
+      setResponseStatus(event, 401);
+      return { error: reason ?? "Unable to resolve scope" };
+    }
+    if (
+      secret.scope === "workspace" &&
+      !(await canMutateWorkspaceScope(event, scopeId))
+    ) {
+      setResponseStatus(event, 403);
+      return {
+        error:
+          "Only organization owners and admins can set workspace-scoped secrets",
+      };
+    }
+    if (secret.scope === "org" && !(await canMutateOrgScope(event, scopeId))) {
+      setResponseStatus(event, 403);
+      return {
+        error: "Only organization owners and admins can set org-scoped secrets",
+      };
+    }
+
     if (!secret.validator) {
       return { ok: true, note: "No validator registered" };
     }
 
     let value = candidateValue;
     if (!value) {
-      const { scopeId } = await resolveScopeId(event, secret.scope);
-      if (!scopeId) {
-        setResponseStatus(event, 401);
-        return { error: "Unable to resolve scope" };
-      }
       const stored = await readAppSecret({
         key: secret.key,
         scope: secret.scope,
