@@ -431,7 +431,7 @@ const messages = {
     askAgentPlaceholder: "Tell the agent what you want to do…",
     connectAi: "Connect AI",
     builderOrOwnKeys:
-      "Use Builder.io (free credits), or add your own provider keys.",
+      "Use Builder.io free credits, or add your own provider keys.",
     connectBuilderIo: "Connect Builder.io",
     connectingBuilder: "Connecting Builder.io…",
     builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
