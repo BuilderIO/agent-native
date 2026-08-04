@@ -92,6 +92,32 @@ describe("contextual toolbar emphasis toggles", () => {
     expect(button.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(button);
 
+    // Only the underline token is removed. A bare "none" here would also drop
+    // the line-through the user never asked to change.
+    expect(onChange).toHaveBeenCalledWith({ textDecoration: "line-through" });
+  });
+
+  it("adds underline without dropping a decoration already present", () => {
+    const onChange = renderToolbar(
+      textSnapshot({ textDecoration: "line-through" }),
+    );
+
+    const button = screen.getByRole("button", { name: "Underline" });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(button);
+
+    expect(onChange).toHaveBeenCalledWith({
+      textDecoration: "line-through underline",
+    });
+  });
+
+  it("clears the decoration entirely when underline was the only one", () => {
+    const onChange = renderToolbar(
+      textSnapshot({ textDecoration: "underline" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Underline" }));
+
     expect(onChange).toHaveBeenCalledWith({ textDecoration: "none" });
   });
 

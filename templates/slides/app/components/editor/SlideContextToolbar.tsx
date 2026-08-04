@@ -161,9 +161,22 @@ export function SlideContextToolbar({
   const isItalic =
     !mixedTextStyles.includes("fontStyle") &&
     (snapshot?.fontStyle ?? "").startsWith("italic");
+  const decorationMixed = mixedTextStyles.includes("textDecoration");
   const isUnderline =
-    !mixedTextStyles.includes("textDecoration") &&
-    (snapshot?.textDecoration ?? "").includes("underline");
+    !decorationMixed && (snapshot?.textDecoration ?? "").includes("underline");
+  // Text can carry more than one decoration, and the agent writes
+  // line-through even though no control exposes it. Editing the underline
+  // token in place keeps the rest; writing a bare "none" would erase them.
+  const underlinePatch = () => {
+    if (decorationMixed) return "underline";
+    const tokens = (snapshot?.textDecoration ?? "")
+      .split(/\s+/)
+      .filter((token) => token && token !== "none");
+    const next = isUnderline
+      ? tokens.filter((token) => token !== "underline")
+      : [...tokens, "underline"];
+    return next.length > 0 ? next.join(" ") : "none";
+  };
   // Null means the slide uses a background this picker cannot represent (named
   // utility, gradient); surface that as Mixed rather than guessing a hex.
   const slideBackground = backgroundCssValue(background);
@@ -289,9 +302,7 @@ export function SlideContextToolbar({
                     aria-label={t("styleInspector.underline")}
                     aria-pressed={isUnderline}
                     onClick={() =>
-                      onChange({
-                        textDecoration: isUnderline ? "none" : "underline",
-                      })
+                      onChange({ textDecoration: underlinePatch() })
                     }
                   >
                     <IconUnderline className="size-4" />

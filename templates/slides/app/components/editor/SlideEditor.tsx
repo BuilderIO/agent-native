@@ -4001,8 +4001,18 @@ export default function SlideEditor({
       const element = editingElRef.current ?? resolveSelectedElement();
       if (!element) return;
 
+      const wasEditing = editingElRef.current === element;
       const converted = toggleSlideList(element, kind);
       if (!converted) return;
+
+      // When the object is itself the list, switching kind replaces the node.
+      // An active inline edit would otherwise keep pointing at the detached
+      // original, so move the edit onto the element that is now in the page.
+      if (wasEditing && converted !== element) {
+        editingElRef.current = converted;
+        setEditingEl(converted);
+        converted.focus({ preventScroll: true });
+      }
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) onUpdateSlideRef.current({ content: html });

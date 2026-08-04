@@ -334,7 +334,10 @@ export default function EditorToolbar({
   };
   const [toolsOpen, setToolsOpen] = useState(false);
   // The contextual toolbar hosts the action cluster whenever it is on screen.
-  const contextToolbarVisible = canEdit && !currentSlide?.excalidrawData;
+  // That row rides on SlideEditor, which only mounts for a real slide, so an
+  // empty deck must keep this fallback or it has no way to add one.
+  const contextToolbarVisible =
+    canEdit && Boolean(currentSlide) && !currentSlide?.excalidrawData;
   const { undo, redo, canUndo, canRedo } = useDecks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
