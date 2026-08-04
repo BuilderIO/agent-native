@@ -628,6 +628,10 @@ const messages = {
     deleteAutomationTitle: "Delete automation?",
     deleteAutomationDescription:
       "This permanently removes the automation and cannot be undone.",
+    runNow: "Run now",
+    runNowTitle: "Run automation now?",
+    runNowDescription:
+      "This runs the automation's real actions immediately. It may send messages or change data, and it will not change the next scheduled run.",
     automationDetails: "Automation details",
     automationEventDetails: "Runs when {{event}}.",
     condition: "Condition",

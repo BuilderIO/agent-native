@@ -75,6 +75,8 @@ export interface BackgroundAutomationRunOptions {
   requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
+  /** Reuse a history row created by a durable run-now enqueue. */
+  historyId?: string;
 }
 
 export interface BackgroundAutomationRunResult {
@@ -260,34 +262,39 @@ export async function runBackgroundAutomation(
   // that cannot be written should cost us the record, not the automation.
   // Everything downstream tolerates a null id by skipping its own write.
   let historyId: string | null = null;
-  try {
-    const historyOwner = options.orgId
-      ? organizationResourceOwner(options.orgId)
-      : automation.resource.owner === "__shared__"
-        ? options.ownerEmail
-        : automation.resource.owner;
-    historyId = await startAutomationRun({
-      owner: historyOwner,
-      automation: automation.name,
-      path: automation.resource.path,
-      scope: options.orgId ? "organization" : "personal",
-      orgId: options.orgId ?? null,
-    });
-  } catch (err) {
-    console.error(
-      `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
-      err,
-    );
+  if (options.historyId) {
+    historyId = options.historyId;
+  } else {
+    try {
+      const historyOwner = options.orgId
+        ? organizationResourceOwner(options.orgId)
+        : automation.resource.owner === "__shared__"
+          ? options.ownerEmail
+          : automation.resource.owner;
+      historyId = await startAutomationRun({
+        owner: historyOwner,
+        automation: automation.name,
+        path: automation.resource.path,
+        scope: options.orgId ? "organization" : "personal",
+        orgId: options.orgId ?? null,
+      });
+    } catch (err) {
+      console.error(
+        `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
+        err,
+      );
+    }
   }
 
   let result: BackgroundAutomationRunResult;
   try {
     result = await executeBackgroundAutomation(options, deps, historyId);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     await recordRunOutcome(
       historyId,
       "error",
-      err instanceof Error ? err.message : String(err),
+      `${message}. No delivery was confirmed.`,
     );
     throw err;
   }

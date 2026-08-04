@@ -23,6 +23,11 @@ import {
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import {
+  claimAutomationRun,
+  finishAutomationRun,
+  getAutomationRun,
+} from "./run-history.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -194,13 +199,26 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
 
 export const jobRunCutOffReason = backgroundRunCutOffReason;
 
+interface JobExecutionResult {
+  status: "success" | "error" | "skipped";
+  runId?: string;
+  error?: string;
+}
+
+interface ExecuteJobOptions {
+  advanceSchedule?: boolean;
+  historyId?: string;
+  manual?: boolean;
+}
+
 async function executeJob(
   resource: Resource,
   meta: JobFrontmatter,
   body: string,
   deps: SchedulerDeps,
   now: Date,
-): Promise<void> {
+  options: ExecuteJobOptions = {},
+): Promise<JobExecutionResult> {
   const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
 
   const jobContext: RecurringJobContext = {
@@ -232,10 +250,32 @@ async function executeJob(
     meta.lastStatus = "skipped";
     meta.lastError = identity.reason;
     if (!alreadyRecorded) await updateResource(resource, meta, body);
-    return;
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "error",
+        `Automation did not run: ${identity.reason}. No delivery was confirmed.`,
+      );
+    }
+    return { status: "skipped", error: identity.reason };
   }
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
+
+  // Manual runs use the same resource row as scheduled runs for concurrency
+  // protection. The check is paired with the conditional write below: two
+  // requests that read the same idle snapshot cannot both claim it.
+  if (options.manual && isBackgroundAutomationRunActive(meta, now)) {
+    const error = "The automation is already running.";
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "error",
+        `${error} No delivery was confirmed.`,
+      );
+    }
+    return { status: "skipped", error };
+  }
 
   // Mark as running
   meta.lastRun = now.toISOString();
@@ -245,7 +285,17 @@ async function executeJob(
     console.log(
       `[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`,
     );
-    return;
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "error",
+        "The automation changed before the run could start. No delivery was confirmed.",
+      );
+    }
+    return {
+      status: "error",
+      error: "The automation changed before the run could start.",
+    };
   }
 
   const requestContext =
@@ -275,16 +325,20 @@ async function executeJob(
       : undefined;
 
   try {
-    await runBackgroundAutomation(
+    const result = await runBackgroundAutomation(
       {
         automation: jobContext,
         ownerEmail: jobUserEmail,
         orgId: jobOrgId,
-        prompt: `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
-        threadTitle: `Job: ${jobName} — ${now.toLocaleDateString()}`,
-        runIdPrefix: `job-${jobName}`,
-        usageLabel: `recurring-job:${jobName}`,
+        prompt: options.manual
+          ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
+          : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
+        threadTitle: `${options.manual ? "Automation" : "Job"}: ${jobName} — ${now.toLocaleDateString()}`,
+        runIdPrefix: `${options.manual ? "manual" : "job"}-${jobName}`,
+        usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
+        ...(options.historyId ? { historyId: options.historyId } : {}),
+        actionCaller: "automation" as const,
       },
       deps,
     );
@@ -293,18 +347,63 @@ async function executeJob(
       lastRun: meta.lastRun,
       lastStatus: "success",
       lastError: undefined,
+      advanceSchedule: options.advanceSchedule,
     });
     console.log(`[recurring-jobs] Job "${jobName}" completed.`);
+    return { status: "success", runId: result.runId };
   } catch (err) {
     const lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
+    const reportedError = `${lastError}. No delivery was confirmed.`;
     await recordExecutionOutcome(resource, {
       lastRun: meta.lastRun,
       lastStatus: "error",
-      lastError,
+      lastError: reportedError,
+      advanceSchedule: options.advanceSchedule,
     });
-    console.error(`[recurring-jobs] Job "${jobName}" failed:`, lastError);
+    console.error(`[recurring-jobs] Job "${jobName}" failed:`, reportedError);
+    return { status: "error", error: reportedError };
   }
+}
+
+/** Execute one stored automation without changing its scheduled next run. */
+export async function runJobNow(
+  owner: string,
+  name: string,
+  deps: SchedulerDeps,
+  options: { historyId?: string } = {},
+): Promise<JobExecutionResult> {
+  const path = `jobs/${name}.md`;
+  const resource = await resourceGetByPath(owner, path);
+  if (!resource) throw new Error(`Automation "${name}" not found.`);
+  const { meta, body } = parseJobFrontmatter(resource.content);
+  if (!body.trim())
+    throw new Error(`Automation "${name}" has no instructions.`);
+  return executeJob(resource, meta, body, deps, new Date(), {
+    advanceSchedule: false,
+    historyId: options.historyId,
+    manual: true,
+  });
+}
+
+/** Process a durable run-now history row exactly once in the background worker. */
+export async function runQueuedAutomation(
+  historyId: string,
+  deps: SchedulerDeps,
+): Promise<{ skipped: boolean; runId?: string; error?: string }> {
+  const queued = await getAutomationRun(historyId);
+  if (!queued) throw new Error(`Automation run "${historyId}" not found.`);
+  if (!(await claimAutomationRun(historyId))) {
+    return { skipped: true };
+  }
+  const result = await runJobNow(queued.owner, queued.automation, deps, {
+    historyId,
+  });
+  return {
+    skipped: false,
+    ...(result.runId ? { runId: result.runId } : {}),
+    ...(result.error ? { error: result.error } : {}),
+  };
 }
 
 async function updateResource(
@@ -328,7 +427,7 @@ async function updateResource(
 type ExecutionOutcome = Pick<
   JobFrontmatter,
   "lastRun" | "lastCheck" | "lastStatus" | "lastError"
->;
+> & { advanceSchedule?: boolean };
 
 /**
  * Persist the result of a run without clobbering a concurrent edit.
@@ -362,8 +461,13 @@ async function recordExecutionOutcome(
   }
   const current = parseJobResource(latest.content);
 
-  const meta: JobFrontmatter = { ...current.meta, ...outcome };
-  if (meta.schedule && isValidCron(meta.schedule)) {
+  const { advanceSchedule, ...execution } = outcome;
+  const meta: JobFrontmatter = { ...current.meta, ...execution };
+  if (
+    advanceSchedule !== false &&
+    meta.schedule &&
+    isValidCron(meta.schedule)
+  ) {
     // Measured from completion so a long run cannot immediately re-fire.
     meta.nextRun = nextOccurrence(
       meta.schedule,
