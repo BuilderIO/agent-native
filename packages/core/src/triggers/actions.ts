@@ -218,10 +218,15 @@ async function handleUpdate(
       {
         name: typeof args.name === "string" ? args.name : "",
         scope: automationScope(args.scope),
+        triggerType:
+          args.trigger_type === undefined
+            ? undefined
+            : automationTriggerType(args.trigger_type),
         enabled:
           args.enabled === undefined
             ? undefined
             : args.enabled === true || args.enabled === "true",
+        event: typeof args.event === "string" ? args.event : undefined,
         condition:
           args.condition === undefined
             ? undefined
@@ -367,7 +372,7 @@ export function createAutomationToolEntries(
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list**: List all automations (triggers). Shows trigger, status, model, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
 - **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, mcpTools.
-- **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
+- **update**: Update an existing automation's settings without changing its creator (trigger type, event, enabled, schedule, timezone, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
 - **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name; optional scope.`,
@@ -394,7 +399,7 @@ export function createAutomationToolEntries(
             trigger_type: {
               type: "string",
               description:
-                '"manual", "event", or "schedule". Manual automations run only through run-now. Required for define.',
+                '"manual", "event", or "schedule". Manual automations run only through run-now. Used by define and update.',
               enum: ["manual", "event", "schedule"],
             },
             event: {

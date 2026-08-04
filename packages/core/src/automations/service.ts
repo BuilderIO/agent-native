@@ -50,6 +50,7 @@ export interface DefineAutomationInput {
   scope: AutomationScope;
   triggerType: "schedule" | "event" | "manual";
   body: string;
+  enabled?: boolean;
   schedule?: string;
   timezone?: string;
   event?: string;
@@ -66,8 +67,10 @@ export type DefinedAutomation = Omit<AutomationDefinition, "resource">;
 export interface UpdateAutomationInput {
   name: string;
   scope: AutomationScope;
+  triggerType?: "schedule" | "event" | "manual";
   enabled?: boolean;
   body?: string;
+  event?: string;
   condition?: string | null;
   delegatedPolicyId?: string | null;
   schedule?: string;
@@ -331,7 +334,7 @@ export async function defineAutomation(
   const meta: JobFrontmatter = {
     schedule: input.triggerType === "schedule" ? schedule : "",
     ...(timezone ? { timezone } : {}),
-    enabled: true,
+    enabled: input.enabled ?? true,
     triggerType: input.triggerType,
     ...(input.triggerType === "event" ? { event } : {}),
     ...(input.triggerType !== "manual" && input.condition?.trim()
@@ -379,44 +382,71 @@ export async function updateAutomation(
     );
   }
   const { meta } = definition;
-  if (input.schedule !== undefined) {
-    if (meta.triggerType !== "schedule") {
+  const triggerType = input.triggerType ?? meta.triggerType;
+  const schedule = input.schedule?.trim() ?? meta.schedule;
+  const event = input.event?.trim() ?? meta.event;
+
+  if (triggerType === "schedule") {
+    if (!isValidCron(schedule)) {
       throw httpError(
-        `${meta.triggerType === "manual" ? "Manual" : "Event"} automations do not have a cron schedule.`,
+        schedule
+          ? `Invalid cron expression "${schedule}".`
+          : "schedule is required for scheduled automations.",
         400,
       );
     }
-    if (!isValidCron(input.schedule)) {
-      throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
+    if (input.event !== undefined) {
+      throw httpError("Scheduled automations do not have an event.", 400);
     }
-    meta.schedule = input.schedule;
-  }
-  if (input.timezone !== undefined) {
-    if (!isValidTimezone(input.timezone)) {
-      throw httpError(`Unknown timezone "${input.timezone}".`, 400);
+    const timezone =
+      input.timezone ??
+      meta.timezone ??
+      (await resolveUserSchedulingTimezone(
+        definition.meta.createdBy?.trim() || actorInput.userEmail,
+      ));
+    if (!isValidTimezone(timezone)) {
+      throw httpError(`Unknown timezone "${timezone}".`, 400);
     }
-    if (meta.triggerType !== "schedule") {
+    meta.triggerType = "schedule";
+    meta.schedule = schedule;
+    meta.timezone = timezone;
+    meta.event = undefined;
+    meta.nextRun = nextOccurrence(schedule, undefined, timezone).toISOString();
+  } else if (triggerType === "event") {
+    if (!event) {
       throw httpError(
-        `${meta.triggerType === "manual" ? "Manual" : "Event"} automations do not have a timezone.`,
+        "event is required for event-triggered automations.",
         400,
       );
     }
-    meta.timezone = input.timezone;
+    if (input.schedule !== undefined || input.timezone !== undefined) {
+      throw httpError("Event automations do not have schedule settings.", 400);
+    }
+    meta.triggerType = "event";
+    meta.schedule = "";
+    meta.timezone = undefined;
+    meta.event = event;
+    meta.nextRun = undefined;
+  } else {
+    if (
+      input.event !== undefined ||
+      input.schedule !== undefined ||
+      input.timezone !== undefined ||
+      input.condition !== undefined
+    ) {
+      throw httpError("Manual automations do not have trigger settings.", 400);
+    }
+    meta.triggerType = "manual";
+    meta.schedule = "";
+    meta.timezone = undefined;
+    meta.event = undefined;
+    meta.condition = undefined;
+    meta.nextRun = undefined;
   }
-  if (input.schedule !== undefined || input.timezone !== undefined) {
-    meta.nextRun = nextOccurrence(
-      meta.schedule,
-      undefined,
-      meta.timezone,
-    ).toISOString();
-  }
+
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
-    if (
-      input.enabled &&
-      meta.triggerType === "schedule" &&
-      isValidCron(meta.schedule)
-    ) {
+    if (input.enabled && meta.triggerType === "schedule") {
       meta.nextRun = nextOccurrence(
         meta.schedule,
         undefined,
@@ -425,9 +455,6 @@ export async function updateAutomation(
     }
   }
   if (input.condition !== undefined) {
-    if (meta.triggerType === "manual") {
-      throw httpError("Manual automations do not have a condition.", 400);
-    }
     meta.condition = input.condition?.trim() || undefined;
   }
   if (input.delegatedPolicyId !== undefined) {

@@ -62,7 +62,62 @@ export type ManageJobInput = {
   timezone?: string;
 };
 
-export type ManageAutomationInput = ManageJobInput;
+export interface AutomationEvent {
+  name: string;
+  description: string;
+  payloadSchema: Record<string, unknown> | null;
+  example: Record<string, unknown> | null;
+}
+
+interface AutomationEditorFields {
+  enabled?: boolean;
+  triggerType?: "event" | "schedule";
+  event?: string;
+  schedule?: string;
+  timezone?: string;
+  condition?: string | null;
+  body?: string;
+  model?: string | null;
+  mcpTools?: string[];
+}
+
+export type ManageAutomationInput =
+  | ({
+      operation: "create";
+      name: string;
+      scope: "personal" | "organization";
+      triggerType: "event" | "schedule";
+      body: string;
+    } & Omit<AutomationEditorFields, "triggerType" | "body">)
+  | ({
+      operation: "update";
+      name: string;
+      scope: "personal" | "organization";
+    } & AutomationEditorFields)
+  | {
+      operation: "delete";
+      name: string;
+      scope: "personal" | "organization";
+    };
+
+export interface ManageAutomationResult {
+  created?: true;
+  updated?: true;
+  deleted?: true;
+  name: string;
+  scope?: "personal" | "organization";
+  triggerType?: "event" | "schedule" | "manual";
+  event?: string | null;
+  schedule?: string | null;
+  timezone?: string | null;
+  condition?: string | null;
+  body?: string;
+  enabled?: boolean;
+  nextRun?: string | null;
+  createdBy?: string | null;
+  model?: string | null;
+  mcpTools?: string[];
+}
 
 export interface RunAutomationNowInput {
   name: string;
@@ -111,6 +166,16 @@ export function useAutomations(scope: JobsScope) {
   );
 }
 
+export function useAutomationEvents() {
+  return useActionQuery<AutomationEvent[]>(
+    "list-automation-events",
+    {},
+    {
+      staleTime: 30_000,
+    },
+  );
+}
+
 export function useManageRecurringJob(scope: JobsScope) {
   const queryClient = useQueryClient();
   const params = recurringParams(scope);
@@ -150,35 +215,38 @@ export function useManageAutomation(scope: JobsScope) {
   const params = automationParams(scope);
   const queryKey = ["action", "list-automations", params] as const;
 
-  return useActionMutation<
-    { deleted?: boolean; name: string; enabled?: boolean },
-    ManageAutomationInput
-  >("manage-automation", {
-    onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<Automation[]>(queryKey);
-      queryClient.setQueryData<Automation[]>(queryKey, (current) => {
-        if (!current) return current;
-        if (variables.operation === "delete") {
-          return current.filter(
-            (automation) => automation.name !== variables.name,
+  return useActionMutation<ManageAutomationResult, ManageAutomationInput>(
+    "manage-automation",
+    {
+      onMutate: async (variables) => {
+        await queryClient.cancelQueries({ queryKey });
+        const previous = queryClient.getQueryData<Automation[]>(queryKey);
+        queryClient.setQueryData<Automation[]>(queryKey, (current) => {
+          if (!current) return current;
+          if (variables.operation === "delete") {
+            return current.filter(
+              (automation) => automation.name !== variables.name,
+            );
+          }
+          if (variables.operation === "create") {
+            return [...current, optimisticAutomation(variables)];
+          }
+          return current.map((automation) =>
+            automation.name === variables.name
+              ? { ...automation, ...optimisticAutomationPatch(variables) }
+              : automation,
           );
+        });
+        return { previous };
+      },
+      onError: (_error, _variables, context) => {
+        const rollback = context as { previous?: Automation[] } | undefined;
+        if (rollback && "previous" in rollback) {
+          queryClient.setQueryData(queryKey, rollback.previous);
         }
-        return current.map((automation) =>
-          automation.name === variables.name
-            ? { ...automation, ...optimisticPatch(variables) }
-            : automation,
-        );
-      });
-      return { previous };
+      },
     },
-    onError: (_error, _variables, context) => {
-      const rollback = context as { previous?: Automation[] } | undefined;
-      if (rollback && "previous" in rollback) {
-        queryClient.setQueryData(queryKey, rollback.previous);
-      }
-    },
-  });
+  );
 }
 
 export function useRunAutomationNow() {
@@ -216,6 +284,89 @@ function optimisticPatch(variables: ManageJobInput) {
   if (variables.enabled !== undefined) patch.enabled = variables.enabled;
   if (variables.schedule !== undefined) patch.schedule = variables.schedule;
   if (variables.timezone !== undefined) patch.timezone = variables.timezone;
+  return patch;
+}
+
+function optimisticAutomation(
+  variables: Extract<ManageAutomationInput, { operation: "create" }>,
+): Automation {
+  const name = variables.name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-");
+  return {
+    id: `optimistic:${variables.scope}:${name}`,
+    name,
+    path: `jobs/${name}.md`,
+    scope: variables.scope,
+    triggerType: variables.triggerType,
+    event: variables.triggerType === "event" ? (variables.event ?? null) : null,
+    schedule:
+      variables.triggerType === "schedule"
+        ? (variables.schedule ?? null)
+        : null,
+    timezone:
+      variables.triggerType === "schedule"
+        ? (variables.timezone ?? null)
+        : null,
+    scheduleDescription: null,
+    condition: variables.condition ?? null,
+    body: variables.body,
+    enabled: variables.enabled ?? true,
+    lastRun: null,
+    lastCheck: null,
+    lastStatus: null,
+    lastError: null,
+    nextRun: null,
+    createdBy: null,
+    model: variables.model ?? null,
+    mcpTools: variables.mcpTools ?? [],
+    originScopeId: null,
+    deliveryPlatform: null,
+    deliveryDestination: null,
+    deliveryThreadRef: null,
+    deliveryTenantId: null,
+    canUpdate: true,
+  };
+}
+
+function optimisticAutomationPatch(
+  variables: Extract<ManageAutomationInput, { operation: "update" }>,
+): Partial<Automation> {
+  const patch: Partial<Automation> = {};
+  if (variables.enabled !== undefined) patch.enabled = variables.enabled;
+  if (variables.body !== undefined) patch.body = variables.body;
+  if (variables.model !== undefined) patch.model = variables.model;
+  if (variables.mcpTools !== undefined) patch.mcpTools = variables.mcpTools;
+  if (variables.condition !== undefined) patch.condition = variables.condition;
+
+  if (variables.triggerType !== undefined) {
+    patch.triggerType = variables.triggerType;
+    patch.event =
+      variables.triggerType === "event" ? (variables.event ?? null) : null;
+    patch.schedule =
+      variables.triggerType === "schedule"
+        ? (variables.schedule ?? null)
+        : null;
+    patch.timezone =
+      variables.triggerType === "schedule"
+        ? (variables.timezone ?? null)
+        : null;
+    patch.scheduleDescription = null;
+    patch.nextRun = null;
+  } else {
+    if (variables.event !== undefined) patch.event = variables.event;
+    if (variables.schedule !== undefined) {
+      patch.schedule = variables.schedule;
+      patch.scheduleDescription = null;
+      patch.nextRun = null;
+    }
+    if (variables.timezone !== undefined) {
+      patch.timezone = variables.timezone;
+      patch.scheduleDescription = null;
+      patch.nextRun = null;
+    }
+  }
   return patch;
 }
 

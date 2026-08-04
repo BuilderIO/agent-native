@@ -404,6 +404,22 @@ describe("action discovery", () => {
     expect(registry["unshare-resource"]).toBeDefined();
   });
 
+  it("merges automation editor actions without exposing them as agent tools", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "list-automations",
+      "list-automation-events",
+      "manage-automation",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+      expect(registry[name].agentTool).toBe(false);
+    }
+    expect(registry["list-automation-events"].http).toEqual({ method: "GET" });
+    expect(registry["list-automation-events"].readOnly).toBe(true);
+  });
+
   it("merges localization preference actions", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);

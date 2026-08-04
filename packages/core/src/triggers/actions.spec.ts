@@ -166,6 +166,8 @@ Record the QA signal.`,
     await tool().run({
       action: "update",
       name: "qa-alert",
+      trigger_type: "event",
+      event: "agent.turn.completed",
       enabled: "false",
       body: "Updated body.",
     });
@@ -173,7 +175,9 @@ Record the QA signal.`,
     expect(resourcePutMock).toHaveBeenLastCalledWith(
       owner,
       "jobs/qa-alert.md",
-      expect.stringContaining("enabled: false"),
+      expect.stringMatching(
+        /enabled: false[\s\S]*event: "agent\.turn\.completed"/,
+      ),
     );
 
     resourceGetByPathMock.mockResolvedValueOnce({

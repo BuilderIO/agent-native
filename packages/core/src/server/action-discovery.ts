@@ -638,6 +638,10 @@ export async function mergeCoreSharingActions(
       () => import("../triggers/actions/list-automations.js"),
     ],
     [
+      "list-automation-events",
+      () => import("../triggers/actions/list-automation-events.js"),
+    ],
+    [
       "manage-automation",
       () => import("../triggers/actions/manage-automation.js"),
     ],
