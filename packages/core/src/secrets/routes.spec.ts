@@ -366,6 +366,71 @@ describe("secrets routes", () => {
     expect(JSON.stringify(result)).not.toContain("stored-secret-value");
   });
 
+  it("validates a candidate secret value without reading or writing storage", async () => {
+    const validator = vi.fn(async () => ({ ok: true }));
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator,
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(
+      event("/API_TOKEN/test", "POST", { value: "candidate-value" }),
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(validator).toHaveBeenCalledWith("candidate-value");
+    expect(mockReadAppSecret).not.toHaveBeenCalled();
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("rejects empty candidate secret values", async () => {
+    const validator = vi.fn();
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator,
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(
+      event("/API_TOKEN/test", "POST", { value: " " }),
+    );
+
+    expect(lastStatus).toBe(400);
+    expect(result).toEqual({ error: "value must be a non-empty string" });
+    expect(validator).not.toHaveBeenCalled();
+  });
+
+  it("redacts candidate secret values from validator test responses", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "API_TOKEN",
+      label: "API token",
+      scope: "user",
+      kind: "api-key",
+      validator: vi.fn(async () => ({
+        ok: false,
+        error: "Token candidate-secret-value is expired",
+      })),
+    });
+
+    const handler = createTestSecretHandler();
+    const result = await handler(
+      event("/API_TOKEN/test", "POST", { value: "candidate-secret-value" }),
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Token [redacted] is expired",
+    });
+    expect(JSON.stringify(result)).not.toContain("candidate-secret-value");
+  });
+
   it("redacts submitted secret values from registered secret storage errors", async () => {
     mockGetRequiredSecret.mockReturnValue({
       key: "API_TOKEN",
