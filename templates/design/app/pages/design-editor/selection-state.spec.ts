@@ -4,7 +4,7 @@ import {
   getOverviewScreenContentKey,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
-  overviewDeleteTargetsElement,
+  overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
   resolveEscapePopSelectionAction,
   shouldClearSelectionForReviewThreadTarget,
@@ -294,17 +294,27 @@ describe("shouldEscapeToOverview", () => {
   });
 });
 
-describe("overviewDeleteTargetsElement", () => {
+describe("overviewSelectionTargetsElement", () => {
   const element = {
     tagName: "DIV",
     selector: ".card",
   } as unknown as Parameters<
-    typeof overviewDeleteTargetsElement
+    typeof overviewSelectionTargetsElement
   >[0]["selectedElement"];
+
+  it("routes an arrow key to the element rather than sliding the screen frame", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: element,
+        selectedLayerIds: ["html:card-one"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
 
   it("routes Delete to the element when a layer inside a screen is selected", () => {
     expect(
-      overviewDeleteTargetsElement({
+      overviewSelectionTargetsElement({
         selectedElement: null,
         selectedLayerIds: ["html:card-one"],
         fileIds: ["screen-1", "screen-2"],
@@ -314,7 +324,7 @@ describe("overviewDeleteTargetsElement", () => {
 
   it("routes Delete to the element for a canvas element selection", () => {
     expect(
-      overviewDeleteTargetsElement({
+      overviewSelectionTargetsElement({
         selectedElement: element,
         selectedLayerIds: [],
         fileIds: ["screen-1"],
@@ -324,7 +334,7 @@ describe("overviewDeleteTargetsElement", () => {
 
   it("leaves a screen-frame selection to the screen-delete confirmation", () => {
     expect(
-      overviewDeleteTargetsElement({
+      overviewSelectionTargetsElement({
         selectedElement: null,
         selectedLayerIds: ["screen-1", "__pseudo-row"],
         fileIds: ["screen-1", "screen-2"],
@@ -334,7 +344,7 @@ describe("overviewDeleteTargetsElement", () => {
 
   it("treats the screen root element as the screen, not an element", () => {
     expect(
-      overviewDeleteTargetsElement({
+      overviewSelectionTargetsElement({
         selectedElement: {
           tagName: "BODY",
         } as unknown as typeof element,

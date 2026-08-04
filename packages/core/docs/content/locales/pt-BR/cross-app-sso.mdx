@@ -15,6 +15,19 @@ Esta é a mesma primitiva de confiança que [A2A](/docs/a2a-protocol) e [Externa
 
 </Callout>
 
+## O que o usuário vê {#user-flow}
+
+O Cross-App SSO deve parecer uma mudança entre produtos do mesmo espaço de trabalho, não a criação de uma segunda conta. Por exemplo:
+
+1. Faça login no [Dispatch](https://dispatch.agent-native.com) ou em qualquer aplicativo que já use a identidade do espaço de trabalho.
+2. Abra o [Mail](https://mail.agent-native.com), o [Calendar](https://calendar.agent-native.com) ou outro aplicativo habilitado em uma nova aba.
+3. O aplicativo envia o navegador ao Dispatch somente se não houver uma sessão do Dispatch. Se a sessão já existir, o redirecionamento fica praticamente invisível.
+4. Você retorna ao aplicativo já conectado, com o mesmo e-mail, registros e contexto da organização.
+
+A distinção importante é que isso é **um login, não um cookie compartilhado**. Cada aplicativo hospedado separadamente continua criando e controlando sua própria sessão local. O Dispatch comprova a identidade do usuário na entrada do aplicativo, que então continua usando sua autenticação local e suas verificações de acesso normais.
+
+Para uma demonstração do produto, grave exatamente esta sequência: faça login uma vez no Dispatch, abra dois outros aplicativos hospedados, mostre que nenhum deles pede credenciais novamente e depois saia de um para mostrar que a sessão do outro é independente.
+
 ## O quê e por quê {#what-why}
 
 Os armazenamentos de usuários por aplicativo significam que não existe um único lugar onde um cookie do navegador possa residir em que todo aplicativo confie. Em vez disso, o modelo de federação nomeia um aplicativo — **Dispatch** — como autoridade de identidade. Qualquer outro aplicativo pode delegar “quem é essa pessoa?” para o Dispatch, receba de volta uma declaração assinada de curta duração do e-mail verificado do usuário e **vincule-a à sua própria conta local por e-mail**.

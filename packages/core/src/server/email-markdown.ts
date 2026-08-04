@@ -34,13 +34,9 @@ function inlineMarkdown(value: string): string {
         trailing = url.slice(-1) + trailing;
         url = url.slice(0, -1);
       }
-      let label = "Open link";
-      const normalizedUrl = url.replace(/&amp;/g, "&");
-      if (URL.canParse(normalizedUrl)) {
-        const host = new URL(normalizedUrl).hostname.replace(/^www\./, "");
-        if (host) label = `Open ${host}`;
-      }
-      return `${prefix}<a href="${url}" style="color:${EMAIL_TEXT};text-decoration:underline;">${label}</a>${trailing}`;
+      // A bare URL stays its own link text: a recipient who cannot read the
+      // destination cannot tell a digest link from a phishing one.
+      return `${prefix}<a href="${url}" style="color:${EMAIL_TEXT};text-decoration:underline;">${url}</a>${trailing}`;
     },
   );
   html = html

@@ -45,6 +45,15 @@ export default createAuthPlugin({
     "/api/video",
     "/api/thumbnail",
     "/api/auth/google-calendar",
+    // Internal post-finalize worker (media verification, seekable remux,
+    // transcript, brain-export, loom-import retries). It's a server-to-server
+    // self-dispatch with no session cookie — its own scoped, short-lived
+    // signed token (verifyScopedAgentAccessToken) is the real auth check, so
+    // it must bypass the session gate to ever reach that check. Exact path
+    // only, not the whole `_agent-native-background` namespace — a future
+    // route added under that prefix without its own auth check must not
+    // become silently public by inheriting this bypass.
+    "/api/_agent-native-background/post-finalize-worker",
     "/_agent-native/google/auth-url",
     "/_agent-native/google/callback",
   ],

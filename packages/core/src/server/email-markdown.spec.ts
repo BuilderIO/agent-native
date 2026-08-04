@@ -28,6 +28,13 @@ describe("email markdown rendering", () => {
     expect(html).not.toContain("&amp;amp;");
   });
 
+  it("shows a bare URL as its own link text", () => {
+    const html = markdownToHtml("Digest ready: https://app.example.test/d?a=1");
+
+    expect(html).toContain(">https://app.example.test/d?a=1</a>");
+    expect(html).not.toContain("Open app.example.test");
+  });
+
   it("keeps the plain-text alternative readable", () => {
     expect(
       markdownToText("# Digest\n\n- **Ready**: [open](https://example.test)"),

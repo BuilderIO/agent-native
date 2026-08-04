@@ -29,11 +29,19 @@ without a terminal record.
 
 ## Configure Slack
 
-Set `WORKSPACE_OWNER_EMAIL` to an existing workspace member for the deployment-
-owned scheduler job. Connect Slack in Settings -> Messaging; Factory resolves
-the workspace credential through the vault resolver and only uses
-`SLACK_BOT_TOKEN` as the resolver's deployment fallback. Do not add a second
-env-only read.
+Set `WORKSPACE_OWNER_EMAIL` to an existing member of the Builder.io organization
+that Dispatch uses. Factory does not need a separate organization: startup
+finds that existing organization and seeds its organization-owned automations.
+If Dispatch synced the vault into a different organization, set
+`AGENT_VAULT_ORG_ID` to that existing org id instead of creating a new org.
+
+Connect Slack in Dispatch or in Settings -> Connections. Factory resolves
+Slack, GitHub, Sentry, and Builder credentials from the shared workspace vault
+and only uses matching deployment env vars as a last-resort fallback. All apps
+that read shared `app_secrets` rows must use the same
+`WORKSPACE_SECRETS_ENCRYPTION_KEY` (or the workspace's existing shared
+encryption fallback). Never copy raw tokens between apps or add a second
+env-only read in a provider client.
 
 In Factory, set the Slack workspace, channel ID, channel name, repository, and
 polling switch. The default scheduler polls once per minute, evaluates a
@@ -47,11 +55,13 @@ inspectable Factory link when a human decision is required.
 ## Hosting
 
 Production expects a direct PostgreSQL `DATABASE_URL`,
-`WORKSPACE_OWNER_EMAIL`, and `FACTORY_PUBLIC_URL`. The Builder executor also
+`WORKSPACE_OWNER_EMAIL`, and `FACTORY_PUBLIC_URL`. `AGENT_VAULT_ORG_ID` is
+optional and is only needed when the deployment owner cannot reach the existing
+Dispatch vault organization through membership. The Builder executor also
 needs `BUILDER_AI_SERVICES_URL` and `BUILDER_PROJECT_ID`; its private key and
-signed callback secret belong in workspace credentials and are resolved at
-runtime. The app remains observe-only until a human explicitly approves a
-Factory item.
+signed callback secret belong in Dispatch workspace credentials and are
+resolved at runtime. The app remains observe-only until a human explicitly
+approves a Factory item.
 
 ## Development
 

@@ -292,6 +292,11 @@ folding framework chrome into the product UI.
   `content.prototype`, and rely on the top visual tabs to switch between them.
   When both surfaces are present, open the Wireframes tab by default; the
   prototype remains available as the interactive follow-up view.
+- **Default to wireframes.** A clean, minimal UI, a high UX bar, or references
+  to Linear/Vercel describe the content and density bar; they do not request
+  full-fidelity design mode. Use renderer-owned wireframes unless the user
+  explicitly asks for branded, pixel-accurate, production-like, or full visual
+  design. This keeps every canvas screen inspectable and its full content visible.
 - **Prototype-first** when the user asks to operate the UI or when interaction is
   the main question. Use `create-prototype-plan`, which still preserves static
   mocks where useful.
@@ -353,6 +358,28 @@ Do not write the document from memory.
 For a worked example of the bar — a great UI-first plan and `/visual-plan`, plus
 the anti-patterns to avoid — READ `references/exemplar.md` in this skill
 directory before authoring a plan.
+
+## Authoring invariants
+
+Treat these as data-integrity checks, not optional polish:
+
+- `content` is a complete replacement. Pass either `content` or the mode's
+  convenience arrays (`screens`/`transitions` or `states`/`components`),
+  never both. The create actions reject mixed sources so a second payload cannot
+  silently discard CSS, frames, or document blocks.
+- A design screen's scoped `css` is part of the artifact. Keep it on both the
+  prototype screen and its matching canvas frame, and use renderer-owned
+  `--wf-*` tokens for portable color and typography.
+- Rich-text `data.markdown` must contain actual runtime line breaks. Do not
+  hand a plan a one-line Markdown value containing literal `\n` escape text,
+  which renders the whole section as one heading. Escaped newlines are fine in
+  code examples when the surrounding Markdown still has real line breaks.
+- Canvas artboards do not scroll. Keep wireframe HTML in natural flow and set a
+  larger frame `height` when a screen exceeds the surface preset; preserve the
+  surface width and inspect the bottom edge at default zoom before handoff.
+- After every hosted write, re-read the structured content and inspect the live
+  Plan surface. A valid JSON payload is not proof that CSS loaded or Markdown
+  rendered into the intended heading, paragraph, and list structure.
 
 ## Tool Guidance
 

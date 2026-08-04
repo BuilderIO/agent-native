@@ -4,34 +4,50 @@ interface IconProps {
   className?: string;
 }
 
-// Gap icon: ]·[ — two inward-facing C-brackets with a center dot
+/** Text tool / text node. A serif T with end and foot serifs — the plain
+ *  letterform reads as a letter, this reads as type. */
+export function IconText({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-4", className)}
+      aria-hidden="true"
+    >
+      <path d="M3 4H21" />
+      <path d="M3 4V8" />
+      <path d="M21 4V8" />
+      <path d="M12 4V20" />
+      <path d="M7 20H17" />
+    </svg>
+  );
+}
+
+// Gap: two items with a measured space between them.
 export function IconGap({ className }: IconProps) {
   return (
     <svg
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={2}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn("size-4", className)}
       aria-hidden="true"
     >
-      {/* Left bracket ] — vertical bar on right side, serifs pointing right */}
-      <line x1="9" y1="7" x2="6" y2="7" />
-      <line x1="6" y1="7" x2="6" y2="17" />
-      <line x1="6" y1="17" x2="9" y2="17" />
-      {/* Center dot */}
-      <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-      {/* Right bracket [ — vertical bar on left side, serifs pointing left */}
-      <line x1="15" y1="7" x2="18" y2="7" />
-      <line x1="18" y1="7" x2="18" y2="17" />
-      <line x1="18" y1="17" x2="15" y2="17" />
+      <rect x="2.5" y="5" width="6" height="14" rx="1" />
+      <rect x="15.5" y="5" width="6" height="14" rx="1" />
+      <path d="M12 7.5V16.5" />
     </svg>
   );
 }
 
-// Padding horizontal: square with thick left and right edges
+// Padding: frame with the two insets for that axis marked.
 export function IconPaddingHorizontal({ className }: IconProps) {
   return (
     <svg
@@ -44,33 +60,13 @@ export function IconPaddingHorizontal({ className }: IconProps) {
       className={cn("size-4", className)}
       aria-hidden="true"
     >
-      {/* Outer frame */}
-      <rect x="3" y="4" width="18" height="16" rx="1.5" strokeWidth={1.5} />
-      {/* Thick left edge fill */}
-      <rect
-        x="3"
-        y="4"
-        width="4"
-        height="16"
-        rx="1.5"
-        fill="currentColor"
-        stroke="none"
-      />
-      {/* Thick right edge fill */}
-      <rect
-        x="17"
-        y="4"
-        width="4"
-        height="16"
-        rx="1.5"
-        fill="currentColor"
-        stroke="none"
-      />
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M7.5 8V16" />
+      <path d="M16.5 8V16" />
     </svg>
   );
 }
 
-// Padding vertical: square with thick top and bottom edges
 export function IconPaddingVertical({ className }: IconProps) {
   return (
     <svg
@@ -83,34 +79,19 @@ export function IconPaddingVertical({ className }: IconProps) {
       className={cn("size-4", className)}
       aria-hidden="true"
     >
-      {/* Outer frame */}
-      <rect x="4" y="3" width="16" height="18" rx="1.5" strokeWidth={1.5} />
-      {/* Thick top edge fill */}
-      <rect
-        x="4"
-        y="3"
-        width="16"
-        height="4"
-        rx="1.5"
-        fill="currentColor"
-        stroke="none"
-      />
-      {/* Thick bottom edge fill */}
-      <rect
-        x="4"
-        y="17"
-        width="16"
-        height="4"
-        rx="1.5"
-        fill="currentColor"
-        stroke="none"
-      />
+      <rect x="4" y="3" width="16" height="18" rx="1.5" />
+      <path d="M8 7.5H16" />
+      <path d="M8 16.5H16" />
     </svg>
   );
 }
 
-// Flow horizontal: item + arrow. Keep the arrow — two symmetric boxes read as
-// "this axis" but not "this direction", forcing a tooltip hover to disambiguate.
+/** Shared item square. Every flow glyph must stay on this one grid and stroke
+ *  weight; a filled bar or container frame among them reads as a different
+ *  control and stops the four segments comparing at a glance. */
+const FLOW_ITEM = { width: 8, height: 8, rx: 1 } as const;
+
+// Flow horizontal: two items side by side, arrow running left → right beneath.
 export function IconFlowHorizontal({ className }: IconProps) {
   return (
     <svg
@@ -123,26 +104,15 @@ export function IconFlowHorizontal({ className }: IconProps) {
       className={cn("size-4", className)}
       aria-hidden="true"
     >
-      {/* Outer container — wide landscape frame */}
-      <rect x="2" y="6" width="20" height="12" rx="2" strokeWidth={1.5} />
-      {/* First item */}
-      <rect
-        x="4.5"
-        y="9"
-        width="4"
-        height="6"
-        rx="1"
-        fill="currentColor"
-        stroke="none"
-      />
-      {/* Direction arrow — left to right */}
-      <path d="M11 12H18.5" />
-      <path d="M16.3 9.8 18.5 12 16.3 14.2" />
+      <rect x="3" y="3" {...FLOW_ITEM} />
+      <rect x="13" y="3" {...FLOW_ITEM} />
+      <path d="M3 17H19.4" />
+      <path d="M17 14.8 19.4 17 17 19.2" />
     </svg>
   );
 }
 
-// Flow vertical: an item plus a downward arrow — see IconFlowHorizontal.
+// Flow vertical: items stacked, arrow running top → bottom alongside.
 export function IconFlowVertical({ className }: IconProps) {
   return (
     <svg
@@ -155,21 +125,29 @@ export function IconFlowVertical({ className }: IconProps) {
       className={cn("size-4", className)}
       aria-hidden="true"
     >
-      {/* Outer container — tall portrait frame */}
-      <rect x="6" y="2" width="12" height="20" rx="2" strokeWidth={1.5} />
-      {/* First item */}
-      <rect
-        x="9"
-        y="4.5"
-        width="6"
-        height="4"
-        rx="1"
-        fill="currentColor"
-        stroke="none"
-      />
-      {/* Direction arrow — top to bottom */}
-      <path d="M12 11V18.5" />
-      <path d="M9.8 16.3 12 18.5 14.2 16.3" />
+      <rect x="3" y="3" {...FLOW_ITEM} />
+      <rect x="3" y="13" {...FLOW_ITEM} />
+      <path d="M17 3V19.4" />
+      <path d="M14.8 17 17 19.4 19.2 17" />
+    </svg>
+  );
+}
+
+// Flow normal: two items placed freely, no axis and no direction arrow.
+export function IconFlowNormal({ className }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("size-4", className)}
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" {...FLOW_ITEM} />
+      <rect x="13" y="13" {...FLOW_ITEM} />
     </svg>
   );
 }
@@ -199,7 +177,7 @@ export function IconFlowWrap({ className }: IconProps) {
   );
 }
 
-// Flow grid: 2×2 equal grid of boxes
+// Flow grid: the same item square in a 2×2.
 export function IconFlowGrid({ className }: IconProps) {
   return (
     <svg
@@ -212,14 +190,10 @@ export function IconFlowGrid({ className }: IconProps) {
       className={cn("size-4", className)}
       aria-hidden="true"
     >
-      {/* Top-left */}
-      <rect x="2" y="2" width="9" height="9" rx="1.5" strokeWidth={1.5} />
-      {/* Top-right */}
-      <rect x="13" y="2" width="9" height="9" rx="1.5" strokeWidth={1.5} />
-      {/* Bottom-left */}
-      <rect x="2" y="13" width="9" height="9" rx="1.5" strokeWidth={1.5} />
-      {/* Bottom-right */}
-      <rect x="13" y="13" width="9" height="9" rx="1.5" strokeWidth={1.5} />
+      <rect x="3" y="3" {...FLOW_ITEM} />
+      <rect x="13" y="3" {...FLOW_ITEM} />
+      <rect x="3" y="13" {...FLOW_ITEM} />
+      <rect x="13" y="13" {...FLOW_ITEM} />
     </svg>
   );
 }
@@ -580,7 +554,7 @@ export function IconSizingFixed({ className }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn("size-3.5", className)}
@@ -603,7 +577,7 @@ export function IconSizingHug({ className }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn("size-3.5", className)}
@@ -624,7 +598,7 @@ export function IconSizingFill({ className }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn("size-3.5", className)}
@@ -649,7 +623,7 @@ export function IconSizingMin({ className }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn("size-3.5", className)}
@@ -673,7 +647,7 @@ export function IconSizingMax({ className }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn("size-3.5", className)}
@@ -697,7 +671,7 @@ export function IconSizingVariable({ className }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={cn("size-3.5", className)}

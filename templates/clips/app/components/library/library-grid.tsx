@@ -8,13 +8,12 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconPlayerRecord,
-  IconUpload,
-  IconLink,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router";
 import { toast } from "sonner";
 
+import { ImportMenu } from "@/components/import-menu";
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
@@ -101,22 +100,13 @@ function NewRecordingTile({
           {t("navigation.newRecording")}
         </NavLink>
       </Button>
-      <div className="flex items-center gap-3">
-        <NavLink
-          to={uploadHref}
-          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          <IconUpload className="h-3.5 w-3.5" />
-          {t("preRecord.uploadVideo")}
-        </NavLink>
-        <NavLink
-          to={importHref}
-          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          <IconLink className="h-3.5 w-3.5" />
-          {t("preRecord.importLoom")}
-        </NavLink>
-      </div>
+      <ImportMenu
+        uploadHref={uploadHref}
+        importLoomHref={importHref}
+        size="sm"
+        variant="ghost"
+        className="h-auto px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+      />
     </div>
   );
 }

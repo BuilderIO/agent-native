@@ -51,11 +51,17 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const { recordingId, kind, token, delayMs, retryAttempt, regenerate } =
     parsed.data;
+  console.log("[post-finalize-worker] received job", { recordingId, kind });
   const verified = verifyScopedAgentAccessToken(token, {
     resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
     resourceId: postFinalizeJobResourceId(recordingId, kind),
   });
   if (!verified.ok) {
+    console.warn("[post-finalize-worker] token verification failed", {
+      recordingId,
+      kind,
+      reason: verified.reason,
+    });
     setResponseStatus(event, 401);
     return { ok: false, error: "Invalid or expired post-finalize job token" };
   }
@@ -153,6 +159,9 @@ export default defineEventHandler(async (event: H3Event) => {
           )
           .returning({ id: schema.recordings.id });
         if (!claimed) {
+          console.log("[post-finalize-worker] loom-import already running", {
+            recordingId,
+          });
           return {
             ok: true,
             recordingId,
@@ -161,6 +170,10 @@ export default defineEventHandler(async (event: H3Event) => {
             reason: "loom-import-already-running",
           };
         }
+        console.log("[post-finalize-worker] loom-import claimed", {
+          recordingId,
+          claimId,
+        });
         const result = await runLoomImportJob({
           recordingId,
           ownerEmail: recording.ownerEmail,
