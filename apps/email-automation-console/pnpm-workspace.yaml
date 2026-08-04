@@ -1,0 +1,21 @@
+
+allowBuilds:
+  node-pty: true
+  esbuild: true
+  better-sqlite3: true
+
+overrides:
+  nf3: "0.3.17"
+  "@assistant-ui/tap": "^0.5.14"
+  "@assistant-ui/store": ">=0.2.9 <0.2.14"
+
+minimumReleaseAgeExclude:
+  - typescript-7
+  - typescript
+  - fast-xml-parser
+  - "@sentry/*"
+  - "@typescript/*"
+  - "@modelcontextprotocol/server"
+  - "@modelcontextprotocol/node"
+  - "@modelcontextprotocol/core"
+  - "@modelcontextprotocol/client"
