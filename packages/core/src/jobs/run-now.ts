@@ -7,6 +7,7 @@ import {
   canUpdateAutomationResource,
   type AutomationScope,
 } from "../automations/service.js";
+import { isLocalDatabase } from "../db/client.js";
 import {
   organizationResourceOwner,
   resourceGetByPath,
@@ -14,7 +15,6 @@ import {
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { parseJobResource } from "./frontmatter.js";
 import {
-  finishAutomationRun,
   listUnclaimedAutomationRuns,
   startAutomationRun,
 } from "./run-history.js";
@@ -45,7 +45,9 @@ async function dispatchAutomationRun(historyId: string): Promise<void> {
     },
     ...(dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath)
       ? { awaitResponse: true, responseTimeoutMs: 5_000 }
-      : {}),
+      : !isLocalDatabase()
+        ? { awaitResponse: true, responseTimeoutMs: 5_000 }
+        : {}),
   });
 }
 
@@ -94,6 +96,15 @@ export async function queueAutomationRunNow(
     );
   }
 
+  // A manual-run request is a guaranteed app request even on hosts without a
+  // durable timer. Use it to recover older rows before adding the new one.
+  await redispatchUnclaimedAutomationRuns().catch((error) => {
+    console.warn(
+      "[automations] Could not sweep queued runs before run-now:",
+      error,
+    );
+  });
+
   const historyId = await startAutomationRun({
     owner: resource.owner,
     automation: name,
@@ -107,11 +118,10 @@ export async function queueAutomationRunNow(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Background dispatch failed";
-    await finishAutomationRun(
-      historyId,
-      "error",
-      `Could not start the automation: ${message}. No delivery was confirmed.`,
-    ).catch(() => {});
+    console.warn(
+      `[automations] Initial run-now dispatch failed; leaving ${historyId} queued for redelivery:`,
+      message,
+    );
     throw error;
   }
 

@@ -55,6 +55,11 @@ const MAX_ERROR_LENGTH = 500;
  */
 const RUN_LIVENESS_CEILING_MS = 15 * 60_000;
 
+// The background worker has a shorter hard timeout than this lease. A worker
+// that dies after claiming can therefore be redelivered without overlapping a
+// still-live execution under normal runtime limits.
+const CLAIM_LEASE_MS = RUN_LIVENESS_CEILING_MS;
+
 /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
 const RUNS_RETAINED_PER_AUTOMATION = 50;
 
@@ -203,9 +208,10 @@ export async function getAutomationRun(
 /** Claim a manually queued run exactly once before loading its automation. */
 export async function claimAutomationRun(id: string): Promise<boolean> {
   await ensureTable();
+  const now = Date.now();
   const result = await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND claimed_at IS NULL AND status = 'running'`,
-    args: [Date.now(), id],
+    sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'`,
+    args: [now, id, now - CLAIM_LEASE_MS],
   });
   return Number(result.rowsAffected ?? 0) > 0;
 }
@@ -224,10 +230,10 @@ export async function listUnclaimedAutomationRuns(options?: {
   const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
   const result = await getDbExec().execute({
     sql: `SELECT * FROM ${TABLE}
-          WHERE dispatch_pending = 1 AND claimed_at IS NULL AND status = 'running'
+          WHERE dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'
             AND started_at <= ?
           ORDER BY started_at ASC LIMIT ${limit}`,
-    args: [Date.now() - olderThanMs],
+    args: [Date.now() - CLAIM_LEASE_MS, Date.now() - olderThanMs],
   });
   const now = Date.now();
   return (result.rows ?? []).map((row) =>

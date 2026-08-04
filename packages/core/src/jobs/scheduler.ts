@@ -338,7 +338,7 @@ async function executeJob(
         usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
-        ...(options.manual ? { actionCaller: "automation" as const } : {}),
+        actionCaller: "automation" as const,
       },
       deps,
     );

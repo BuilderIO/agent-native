@@ -5588,34 +5588,60 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ? (preparedMarker as Record<string, unknown>).automationRunId
               : undefined;
           if (typeof automationRunId === "string" && automationRunId) {
-            try {
-              if (!runNowSchedulerDeps) {
-                throw new Error("Automation runner is not initialized.");
+            const runAutomation = async () => {
+              try {
+                if (!runNowSchedulerDeps) {
+                  throw new Error("Automation runner is not initialized.");
+                }
+                const { runQueuedAutomation } =
+                  await import("../jobs/scheduler.js");
+                const result = await runQueuedAutomation(
+                  automationRunId,
+                  runNowSchedulerDeps,
+                );
+                return { ok: true, automationRunId, ...result };
+              } catch (error) {
+                const message =
+                  error instanceof Error ? error.message : String(error);
+                const { finishAutomationRun } =
+                  await import("../jobs/run-history.js");
+                await finishAutomationRun(
+                  automationRunId,
+                  "error",
+                  `Automation worker failed: ${message}. No delivery was confirmed.`,
+                ).catch((finishError) => {
+                  console.warn(
+                    `[automations] could not record run-now worker failure for ${automationRunId}:`,
+                    finishError,
+                  );
+                });
+                console.error(
+                  `[automations] run-now worker failed for ${automationRunId}:`,
+                  error,
+                );
+                throw error;
               }
-              const { runQueuedAutomation } =
-                await import("../jobs/scheduler.js");
-              const result = await runQueuedAutomation(
-                automationRunId,
-                runNowSchedulerDeps,
-              );
-              return { ok: true, automationRunId, ...result };
-            } catch (error) {
-              const message =
-                error instanceof Error ? error.message : String(error);
-              const { finishAutomationRun } =
-                await import("../jobs/run-history.js");
-              await finishAutomationRun(
-                automationRunId,
-                "error",
-                `Automation worker failed: ${message}. No delivery was confirmed.`,
-              ).catch(() => {});
-              console.error(
-                `[automations] run-now worker failed for ${automationRunId}:`,
-                error,
-              );
-              setResponseStatus(event, 500);
-              return { error: "Automation worker failed" };
+            };
+
+            // Netlify background functions must keep the handler open for the
+            // full automation. Other runtimes get an immediate receipt and
+            // use waitUntil when the platform provides it; long-lived Node
+            // processes can safely continue the promise after the response.
+            if (isInBackgroundFunctionRuntime()) {
+              try {
+                return await runAutomation();
+              } catch {
+                setResponseStatus(event, 500);
+                return { error: "Automation worker failed" };
+              }
             }
+            const waitUntil = event.req?.waitUntil;
+            const runPromise = runAutomation().catch(() => {});
+            if (typeof waitUntil === "function") {
+              waitUntil(runPromise);
+            }
+            setResponseStatus(event, 202);
+            return { ok: true, accepted: true, automationRunId };
           }
 
           const expectsBackgroundRuntime =
