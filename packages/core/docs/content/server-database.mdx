@@ -330,6 +330,68 @@ const rows = await db
 
 See [Security — Data Scoping](/docs/security#data-scoping) and [Sharing](/docs/sharing#building) for the full model.
 
+## SQL-Backed Sync {#sync}
+
+Agent-native does not rely on filesystem watchers or sticky in-memory state. When an action writes to the database, a sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches when it sees a higher version.
+
+This works across serverless and multi-instance deployments because the database is the coordination point. If you write custom mutations outside actions, use framework helpers or emit the appropriate sync invalidation so open UIs refresh.
+
+<Diagram id="doc-block-qhkdv8" title="SQL-backed sync loop" summary="No watchers, no sticky state. A write bumps a version in SQL; every client polls the version and refetches.">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    Action / helper<br /><small class="diagram-muted">mutates data</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL database</strong
+    ><small class="diagram-muted">sync version increments</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >polls /_agent-native/poll</small
+      >
+    </div>
+    <div class="diagram-pill ok">invalidate caches &rarr; UI refreshes</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="The poll endpoint" method="GET" path="/_agent-native/poll" summary="Return the current per-source database sync versions so the client can detect changes." auth="Session cookie (request-scoped identity)" responses={[
+  {
+    "status": "200",
+    "description": "Current sync versions keyed by source."
+  }
+]}>
+
+`useDbSync()` calls this on an interval and falls back to it when SSE is unavailable. When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.
+
+</Endpoint>
+
 ## Raw SQL {#raw-sql}
 
 For advanced queries, health checks, or one-off maintenance that the Drizzle query builder can't express, use `getDbExec` from `@agent-native/core/db`:
@@ -359,3 +421,4 @@ const { rows } = await getDbExec().execute({
 - [**Plugins**](/docs/server-plugins): the startup plugin lifecycle where migrations run
 - [**Actions**](/docs/actions): the surface where actions call `getDb()` to read and write data
 - [**Deployment**](/docs/deployment#persistent-database): connecting a persistent database per deploy target
+- [**Real-Time Sync**](/docs/real-time-sync): `useDbSync()` and the full client-side sync model
