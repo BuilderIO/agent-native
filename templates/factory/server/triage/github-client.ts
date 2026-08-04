@@ -365,6 +365,7 @@ export function createGitHubClient(options: GitHubClientOptions) {
       repository: GitHubRepositoryRef,
       pullRequestNumber: number,
       commitMessage?: string,
+      expectedHeadSha?: string,
     ): Promise<GitHubMergeResult> {
       if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1)
         throw new Error(
@@ -378,8 +379,13 @@ export function createGitHubClient(options: GitHubClientOptions) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(
               commitMessage
-                ? { commit_message: commitMessage.slice(0, 4_000) }
-                : {},
+                ? {
+                    commit_message: commitMessage.slice(0, 4_000),
+                    ...(expectedHeadSha ? { sha: expectedHeadSha } : {}),
+                  }
+                : expectedHeadSha
+                  ? { sha: expectedHeadSha }
+                  : {},
             ),
           },
         ),

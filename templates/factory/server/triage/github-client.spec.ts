@@ -141,6 +141,15 @@ describe("GitHub triage client", () => {
       merged: true,
       message: "Merged",
     });
+    await client.mergePullRequest(repository, 2, "Merge fix", "head-sha");
+    const mergeRequests = fetchImpl.mock.calls.filter(([input]) =>
+      new URL(String(input)).pathname.endsWith("/merge"),
+    );
+    const mergeRequest = mergeRequests[mergeRequests.length - 1];
+    expect(JSON.parse(String(mergeRequest?.[1]?.body))).toEqual({
+      commit_message: "Merge fix",
+      sha: "head-sha",
+    });
   });
 
   it("does not turn a missing credential or failed merge into success", async () => {

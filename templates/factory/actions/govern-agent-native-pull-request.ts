@@ -6,6 +6,7 @@ import { resolveConnectorSecret } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
 import {
   triageDecisions,
+  triageConfig,
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
@@ -127,6 +128,39 @@ export default defineAction({
     );
     await requireFactoryAutomation(context, { userEmail, orgId }, "governance");
     const repository = repositoryRef(repo);
+    const configuredRepository = (
+      await getDb()
+        .select({ repository: triageConfig.repository })
+        .from(triageConfig)
+        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
+        .limit(1)
+    )[0]?.repository;
+    if (!configuredRepository || configuredRepository.trim() !== repo.trim()) {
+      throw new Error(
+        "PR governance is restricted to the configured Factory repository.",
+      );
+    }
+    if (itemId) {
+      const item = (
+        await getDb()
+          .select({
+            repository: triageItems.repository,
+            pullRequestNumber: triageItems.pullRequestNumber,
+          })
+          .from(triageItems)
+          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+          .limit(1)
+      )[0];
+      if (
+        !item ||
+        item.repository !== repo.trim() ||
+        item.pullRequestNumber !== pullRequestNumber
+      ) {
+        throw new Error(
+          "Factory item does not match the governed repository and pull request.",
+        );
+      }
+    }
     const github = createGitHubClient({ ownerEmail: userEmail, orgId });
     const pullRequest = await github.getPullRequestSummary(
       repository,
@@ -317,6 +351,7 @@ export default defineAction({
       repository,
       pullRequestNumber,
       `Merge Factory bug fix #${pullRequestNumber}`,
+      snapshot.headSha,
     );
     if (itemId) {
       const item = (
