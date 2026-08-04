@@ -23,3 +23,8 @@ previews, send counts, open rates, and a per-message activity feed, plus a
 read-only detail page per email. Metrics distinguish "not yet sent" from "could
 not be read": an unreadable send log renders as unknown rather than zero, and an
 unconfigured provider surfaces the reason instead of a 0% open rate.
+
+Email magic links are now the default sign-in method below Google across every app,
+with password authentication still available as an alternate. Magic-link delivery
+uses the configured no-reply sender and appears in the catalog as
+`core.magic-link-sign-in`.

@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { betterAuth, type BetterAuthOptions } from "better-auth";
+import { magicLink } from "better-auth/plugins";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
 import {
@@ -59,10 +60,12 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  CORE_MAGIC_LINK_EMAIL_ID,
   CORE_RESET_PASSWORD_EMAIL_ID,
   CORE_VERIFY_SIGNUP_EMAIL_ID,
 } from "../email-catalog/system-emails.js";
 import {
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
@@ -1468,6 +1471,21 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
+      magicLink({
+        sendMagicLink: async ({ email, url }) => {
+          const { subject, html, text } = renderMagicLinkEmail({
+            email,
+            magicLinkUrl: url,
+          });
+          await sendEmail({
+            to: email,
+            subject,
+            html,
+            text,
+            templateId: CORE_MAGIC_LINK_EMAIL_ID,
+          });
+        },
+      }),
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {

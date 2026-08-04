@@ -1,9 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates";
+
+describe("renderMagicLinkEmail", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("brands the content without overriding the configured sender", () => {
+    vi.stubEnv("APP_NAME", "Calendar");
+
+    const rendered = renderMagicLinkEmail({
+      email: "reader@example.com",
+      magicLinkUrl: "https://example.com/magic-link?token=abc",
+    });
+
+    expect(rendered.subject).toBe("Sign in to Calendar");
+    expect(rendered.html).toContain("https://example.com/magic-link?token=abc");
+    expect(rendered.appSender).toBeUndefined();
+  });
+});
 
 describe("renderResetPasswordEmail", () => {
   afterEach(() => {

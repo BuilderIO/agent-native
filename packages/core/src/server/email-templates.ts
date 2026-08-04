@@ -165,6 +165,34 @@ export function renderVerifySignupEmail(
 }
 
 // ---------------------------------------------------------------------------
+// Magic link sign-in
+// ---------------------------------------------------------------------------
+
+export interface RenderMagicLinkEmailArgs {
+  email: string;
+  magicLinkUrl: string;
+}
+
+export function renderMagicLinkEmail(
+  args: RenderMagicLinkEmailArgs,
+): RenderedEmailMessage {
+  const email = stripCrlf(args.email);
+  const brand = resolveBrand(getAppSlug());
+  const { html, text } = renderEmail({
+    brandName: brand,
+    preheader: `Use this secure link to sign in to ${brand}.`,
+    heading: `Sign in to ${brand}`,
+    paragraphs: [
+      `Use the button below to sign in as ${emailStrong(email)}.`,
+      `This link is single-use and expires soon.`,
+    ],
+    cta: { label: "Sign in", url: args.magicLinkUrl },
+    footer: `If you didn't request this, you can safely ignore this email.`,
+  });
+  return { subject: `Sign in to ${brand}`, html, text };
+}
+
+// ---------------------------------------------------------------------------
 // Password reset
 // ---------------------------------------------------------------------------
 
