@@ -22,6 +22,7 @@ import {
 } from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
+import { AgentCompletionSound } from "../AgentCompletionSound";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
 import { MobileNav } from "./MobileNav";
@@ -138,7 +139,12 @@ function InteractiveLayout({ children }: LayoutProps) {
   }
 
   if (BARE_ROUTES.has(location.pathname)) {
-    return <>{children}</>;
+    return (
+      <>
+        <AgentCompletionSound />
+        {children}
+      </>
+    );
   }
 
   const contentFrame = (
@@ -177,40 +183,43 @@ function InteractiveLayout({ children }: LayoutProps) {
   );
 
   return (
-    <HeaderActionsProvider>
-      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="agent-layout-left-drawer hidden shrink-0 md:block">
-          <Sidebar />
-        </div>
-        {isAskRoute ? (
-          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
-            {contentFrame}
+    <>
+      <AgentCompletionSound />
+      <HeaderActionsProvider>
+        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-left-drawer hidden shrink-0 md:block">
+            <Sidebar />
           </div>
-        ) : (
-          <AgentSidebar
-            position="right"
-            defaultOpen={false}
-            chatViewTransition
-            chatViewTransitionHandoff={chatHomeHandoffPending}
-            storageKey={ANALYTICS_CHAT_STORAGE_KEY}
-            browserTabId={TAB_ID}
-            openOnChatRunning={chatHomeHandoffActive}
-            onFullscreenRequest={openAskAgentFullscreen}
-            emptyStateText={t("chat.emptyState")}
-            agentPageHref="/agent"
-            suggestions={[
-              t("chat.suggestionArrGrowth"),
-              t("chat.suggestionChurn"),
-              t("chat.suggestionAnomalies"),
-              t("chat.suggestionMrr"),
-            ]}
-            scope={analyticsScope}
-            composerSlot={<CreativeContextComposerChip />}
-          >
-            {contentFrame}
-          </AgentSidebar>
-        )}
-      </div>
-    </HeaderActionsProvider>
+          {isAskRoute ? (
+            <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+              {contentFrame}
+            </div>
+          ) : (
+            <AgentSidebar
+              position="right"
+              defaultOpen={false}
+              chatViewTransition
+              chatViewTransitionHandoff={chatHomeHandoffPending}
+              storageKey={ANALYTICS_CHAT_STORAGE_KEY}
+              browserTabId={TAB_ID}
+              openOnChatRunning={chatHomeHandoffActive}
+              onFullscreenRequest={openAskAgentFullscreen}
+              emptyStateText={t("chat.emptyState")}
+              agentPageHref="/agent"
+              suggestions={[
+                t("chat.suggestionArrGrowth"),
+                t("chat.suggestionChurn"),
+                t("chat.suggestionAnomalies"),
+                t("chat.suggestionMrr"),
+              ]}
+              scope={analyticsScope}
+              composerSlot={<CreativeContextComposerChip />}
+            >
+              {contentFrame}
+            </AgentSidebar>
+          )}
+        </div>
+      </HeaderActionsProvider>
+    </>
   );
 }

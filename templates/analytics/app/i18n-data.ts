@@ -198,6 +198,10 @@ const enUS = {
     errorEmailNotificationsDescription:
       "Send an email when a new JavaScript error is captured. Off by default.",
     errorEmailNotificationsSaveFailed: "Couldn't save the email preference.",
+    bellSound: "Bell sound",
+    bellSoundDescription:
+      "Play a sound when the agent finishes a run. Off by default.",
+    bellSoundSaveFailed: "Couldn't save the sound preference.",
     about: "About",
     aboutDescription:
       "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
@@ -4261,6 +4265,9 @@ export const messagesByLocale = {
       errorEmailNotificationsDescription:
         "捕获新的 JavaScript 错误时发送电子邮件。默认关闭。",
       errorEmailNotificationsSaveFailed: "无法保存电子邮件偏好设置。",
+      bellSound: "提示音",
+      bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
+      bellSoundSaveFailed: "无法保存提示音偏好设置。",
       about: "关于",
       aboutDescription:
         "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
@@ -4484,6 +4491,10 @@ export const messagesByLocale = {
         "Envía un email cuando se capture un nuevo error de JavaScript. Desactivado de forma predeterminada.",
       errorEmailNotificationsSaveFailed:
         "No se pudo guardar la preferencia de email.",
+      bellSound: "Sonido de campana",
+      bellSoundDescription:
+        "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
+      bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
       about: "Acerca de",
       aboutDescription:
         "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
@@ -4712,6 +4723,10 @@ export const messagesByLocale = {
         "Envoyer un e-mail lorsqu’une nouvelle erreur JavaScript est capturée. Désactivé par défaut.",
       errorEmailNotificationsSaveFailed:
         "Impossible d’enregistrer la préférence e-mail.",
+      bellSound: "Son de notification",
+      bellSoundDescription:
+        "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
+      bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
       about: "À propos",
       aboutDescription:
         "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
@@ -4946,6 +4961,11 @@ export const messagesByLocale = {
         "Eine E-Mail senden, wenn ein neuer JavaScript-Fehler erfasst wird. Standardmäßig deaktiviert.",
       errorEmailNotificationsSaveFailed:
         "Die E-Mail-Einstellung konnte nicht gespeichert werden.",
+      bellSound: "Signalton",
+      bellSoundDescription:
+        "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
+      bellSoundSaveFailed:
+        "Die Toneinstellung konnte nicht gespeichert werden.",
       about: "Info",
       aboutDescription:
         "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
@@ -5170,6 +5190,10 @@ export const messagesByLocale = {
       errorEmailNotificationsDescription:
         "新しい JavaScript エラーが記録されたときにメールを送信します。デフォルトではオフです。",
       errorEmailNotificationsSaveFailed: "メール設定を保存できませんでした。",
+      bellSound: "完了サウンド",
+      bellSoundDescription:
+        "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
+      bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
       about: "概要",
       aboutDescription:
         "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
@@ -5393,6 +5417,10 @@ export const messagesByLocale = {
       errorEmailNotificationsDescription:
         "새 JavaScript 오류가 캡처되면 이메일을 보냅니다. 기본값은 꺼져 있습니다.",
       errorEmailNotificationsSaveFailed: "이메일 설정을 저장하지 못했습니다.",
+      bellSound: "완료 소리",
+      bellSoundDescription:
+        "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
+      bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
       about: "정보",
       aboutDescription:
         "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
@@ -5621,6 +5649,10 @@ export const messagesByLocale = {
         "Envie um e-mail quando um novo erro de JavaScript for capturado. Desativado por padrão.",
       errorEmailNotificationsSaveFailed:
         "Não foi possível salvar a preferência de e-mail.",
+      bellSound: "Som de conclusão",
+      bellSoundDescription:
+        "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
+      bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
       about: "Sobre",
       aboutDescription:
         "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
@@ -5843,6 +5875,9 @@ export const messagesByLocale = {
       errorEmailNotificationsDescription:
         "नया JavaScript त्रुटि कैप्चर होने पर ईमेल भेजें। डिफ़ॉल्ट रूप से बंद।",
       errorEmailNotificationsSaveFailed: "ईमेल प्राथमिकता सहेजी नहीं जा सकी।",
+      bellSound: "पूर्णता ध्वनि",
+      bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
+      bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
       about: "परिचय",
       aboutDescription:
         "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
@@ -6065,6 +6100,9 @@ export const messagesByLocale = {
       errorEmailNotificationsDescription:
         "إرسال بريد إلكتروني عند التقاط خطأ JavaScript جديد. معطّل افتراضيًا.",
       errorEmailNotificationsSaveFailed: "تعذّر حفظ تفضيل البريد الإلكتروني.",
+      bellSound: "صوت الجرس",
+      bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
+      bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
       about: "حول",
       aboutDescription:
         "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",

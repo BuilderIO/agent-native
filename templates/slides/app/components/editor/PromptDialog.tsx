@@ -16,6 +16,37 @@ export interface UploadedFile {
   size: number;
 }
 
+export async function uploadPromptFiles(
+  files: File[],
+): Promise<UploadedFile[]> {
+  if (files.length === 0) return [];
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+  const response = await fetch(`${appBasePath()}/api/uploads`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    let message = "Upload failed";
+    try {
+      const data: unknown = await response.json();
+      if (
+        data &&
+        typeof data === "object" &&
+        "error" in data &&
+        typeof data.error === "string" &&
+        data.error.trim()
+      ) {
+        message = data.error;
+      }
+    } catch (error) {
+      throw new Error(`Upload failed (${response.status})`, { cause: error });
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as UploadedFile[];
+}
+
 /**
  * Radix popovers portal to `document.body`, so a mousedown inside the model
  * picker or attachment menu reads as "outside" any panel that hosts a composer.
@@ -137,17 +168,7 @@ export default function PromptPopover({
       if (files.length === 0) return [];
       setUploading(true);
       try {
-        const formData = new FormData();
-        files.forEach((f) => formData.append("files", f));
-        const res = await fetch(`${appBasePath()}/api/uploads`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error || "Upload failed");
-        }
-        return (await res.json()) as UploadedFile[];
+        return await uploadPromptFiles(files);
       } finally {
         setUploading(false);
       }
