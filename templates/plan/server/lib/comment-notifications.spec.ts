@@ -10,6 +10,9 @@ const renderEmailMock = vi.hoisted(() =>
 const isEmailConfiguredMock = vi.hoisted(() => vi.fn(() => true));
 const selectPlanMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
+const resolveActivityRecipientsMock = vi.hoisted(() =>
+  vi.fn(async ({ candidates }: { candidates: string[] }) => candidates),
+);
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
@@ -20,6 +23,8 @@ vi.mock("@agent-native/core/server", () => ({
   getAppProductionUrl: () => "https://plans.example.test",
   isEmailConfigured: () => isEmailConfiguredMock(),
   renderEmail: (args: unknown) => renderEmailMock(args),
+  resolveActivityRecipients: (args: { candidates: string[] }) =>
+    resolveActivityRecipientsMock(args),
   sendEmail: (args: unknown) => sendEmailMock(args),
 }));
 
@@ -107,6 +112,7 @@ describe("plan comment notification recipients", () => {
     renderEmailMock.mockClear();
     selectPlanMock.mockReset();
     sendEmailMock.mockReset();
+    resolveActivityRecipientsMock.mockClear();
   });
 
   it("notifies the plan owner for a new root comment", () => {
@@ -261,6 +267,48 @@ describe("plan comment notification recipients", () => {
       html: "<p>Email</p>",
       text: "Email",
     });
+  });
+
+  it("links Plan settings in the footer and skips recipients who opted out", async () => {
+    const newComment = comment("reviewer", {
+      authorEmail: "reviewer@example.com",
+      authorName: "Reviewer",
+    });
+    selectPlanMock.mockResolvedValue([
+      {
+        id: "plan_1",
+        title: "Launch Plan",
+        ownerEmail: "owner@example.com",
+        sourceAuthorEmail: null,
+      },
+    ]);
+
+    await notifyPlanCommentRecipients({
+      bundle: bundle([newComment]),
+      insertedCommentIds: [newComment.id],
+    });
+
+    expect(renderEmailMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        footer:
+          "You received this because you own this plan. Turn these off in {link}.",
+        footerLink: {
+          label: "Plan settings",
+          url: "https://plans.example.test/settings",
+        },
+      }),
+    );
+
+    renderEmailMock.mockClear();
+    sendEmailMock.mockReset();
+    resolveActivityRecipientsMock.mockResolvedValueOnce([]);
+
+    await notifyPlanCommentRecipients({
+      bundle: bundle([newComment]),
+      insertedCommentIds: [newComment.id],
+    });
+
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it("does not notify later batch commenters for earlier replies", async () => {

@@ -35,6 +35,10 @@ const messages = {
     editorDescription:
       "在 VS Code 的侧边面板中打开并审阅计划，而不是切换到单独的浏览器标签页。",
     openEditorExtension: "获取 VS Code 扩展",
+    emailNotifications: "邮件通知",
+    emailNotificationsDescription:
+      "当有人评论你的计划、在讨论串中回复或提到你时，收到邮件通知。",
+    saveFailed: "保存失败",
   },
   agent: {
     emptyState:

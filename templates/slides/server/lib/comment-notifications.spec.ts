@@ -48,6 +48,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("../../actions/_app-url.js", () => ({
   getDeckUrl: (deckId: string) => `https://slides.test/deck/${deckId}`,
+  getSettingsUrl: () => "https://slides.test/settings",
 }));
 
 vi.mock("../db/index.js", () => ({

@@ -37,6 +37,10 @@ const messages = {
     editorDescription:
       "افتح الخطط وراجعها في لوحة جانبية داخل VS Code بدلاً من علامة تبويب منفصلة في المتصفح.",
     openEditorExtension: "احصل على إضافة VS Code",
+    emailNotifications: "إشعارات البريد الإلكتروني",
+    emailNotificationsDescription:
+      "احصل على بريد إلكتروني عندما يعلّق شخص على خطتك أو يرد أو يذكرك.",
+    saveFailed: "تعذّر الحفظ",
   },
   agent: {
     emptyState:

@@ -38,6 +38,10 @@ const messages = {
     editorDescription:
       "Abra e revise planos em um painel lateral dentro do VS Code em vez de uma aba separada do navegador.",
     openEditorExtension: "Obter a extensão do VS Code",
+    emailNotifications: "Notificações por e-mail",
+    emailNotificationsDescription:
+      "Receba um e-mail quando alguém comentar, responder ou mencionar você no seu plano.",
+    saveFailed: "Não foi possível salvar",
   },
   agent: {
     emptyState:

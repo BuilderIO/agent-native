@@ -3,6 +3,7 @@ import {
   getAppProductionUrl,
   isEmailConfigured,
   renderEmail,
+  resolveActivityRecipients,
   sendEmail,
 } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
@@ -11,6 +12,7 @@ import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
 } from "../../shared/comment-context.js";
+import { PLAN_USER_PREFS_KEY } from "../../shared/plan-user-prefs.js";
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 
@@ -96,14 +98,22 @@ function appPath(path: string): string {
   return `${normalizedBase}${path}`;
 }
 
-function planUrl(planId: string): string {
-  const appUrl = getAppProductionUrl().replace(/\/+$/, "");
-  const path = appPath(`/plans/${encodeURIComponent(planId)}`);
+function appUrl(path: string): string {
+  const base = getAppProductionUrl().replace(/\/+$/, "");
+  const resolved = appPath(path);
   try {
-    return new URL(path, `${appUrl}/`).toString();
+    return new URL(resolved, `${base}/`).toString();
   } catch {
-    return `${appUrl}${path}`;
+    return `${base}${resolved}`;
   }
+}
+
+function planUrl(planId: string): string {
+  return appUrl(`/plans/${encodeURIComponent(planId)}`);
+}
+
+function settingsLink() {
+  return { label: "Plan settings", url: appUrl("/settings") };
 }
 
 function appName(): string {
@@ -231,12 +241,14 @@ async function sendPlanCommentNotification(input: {
       `Comment: "${commentExcerpt(input.comment.message)}"`,
     ],
     cta: { label: "Open plan", url: planUrl(input.planId) },
-    footer:
+    footer: `${
       input.recipient.reason === "plan-owner"
         ? "You received this because you own this plan."
         : input.recipient.reason === "mention"
           ? "You received this because you were mentioned in this comment."
-          : "You received this because you participated in this comment thread.",
+          : "You received this because you participated in this comment thread."
+    } Turn these off in {link}.`,
+    footerLink: settingsLink(),
   });
   await sendEmail({ to: input.recipient.email, subject, html, text });
 }
@@ -281,7 +293,18 @@ export async function notifyPlanCommentRecipients({
       planOwnerEmail,
       sourceAuthorEmail,
     });
+    // Recipient resolution is Plan's own (owner/mention/thread reasons), so
+    // only the opt-out filter is borrowed from the shared activity helper.
+    const optedIn = new Set(
+      await resolveActivityRecipients({
+        candidates: recipients.map((recipient) => recipient.email),
+        actorEmail: comment.authorEmail,
+        preferenceKey: PLAN_USER_PREFS_KEY,
+      }),
+    );
+
     for (const recipient of recipients) {
+      if (!optedIn.has(recipient.email)) continue;
       try {
         await sendPlanCommentNotification({
           recipient,

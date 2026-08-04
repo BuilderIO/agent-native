@@ -38,6 +38,10 @@ const messages = {
     editorDescription:
       "Open and review plans in a side panel inside VS Code instead of a separate browser tab.",
     openEditorExtension: "Get the VS Code extension",
+    emailNotifications: "Email notifications",
+    emailNotificationsDescription:
+      "Get an email when someone comments on, replies in, or mentions you on your plan.",
+    saveFailed: "Couldn't save",
   },
   agent: {
     emptyState:

@@ -37,6 +37,10 @@ const messages = {
     editorDescription:
       "अलग ब्राउज़र टैब के बजाय VS Code के साइड पैनल में योजनाएँ खोलें और उनकी समीक्षा करें।",
     openEditorExtension: "VS Code एक्सटेंशन पाएँ",
+    emailNotifications: "ईमेल सूचनाएँ",
+    emailNotificationsDescription:
+      "जब कोई आपकी योजना पर टिप्पणी करे, जवाब दे या आपका उल्लेख करे तो ईमेल पाएँ।",
+    saveFailed: "सहेजा नहीं जा सका",
   },
   agent: {
     emptyState:

@@ -135,4 +135,33 @@ describe("renderEmail", () => {
       "Open Clip: https://clips.example/r/rec-1?view=agent&mode=summary\n\nOr feed this link to your AI agent:\nhttps://clips.example/r/rec-1?view=agent&mode=summary",
     );
   });
+  it("turns the footer link token into an anchor and keeps its URL in text", () => {
+    const { html, text } = renderEmail({
+      heading: "New comment",
+      paragraphs: ["Someone commented."],
+      footer: "Notifications are on in your {link}.",
+      footerLink: {
+        label: "Clips settings",
+        url: "https://clips.example/settings?tab=general",
+      },
+    });
+
+    expect(html).toContain(
+      '<a href="https://clips.example/settings?tab=general" style="color:#a1a1aa; text-decoration:underline;">Clips settings</a>',
+    );
+    expect(text).toContain(
+      "Notifications are on in your Clips settings (https://clips.example/settings?tab=general).",
+    );
+  });
+
+  it("leaves the token visible when no footer link was supplied", () => {
+    const { html, text } = renderEmail({
+      heading: "New comment",
+      paragraphs: ["Someone commented."],
+      footer: "Notifications are on in your {link}.",
+    });
+
+    expect(html).toContain("Notifications are on in your {link}.");
+    expect(text).toContain("Notifications are on in your {link}.");
+  });
 });

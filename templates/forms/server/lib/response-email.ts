@@ -1,9 +1,15 @@
-import { emailStrong, renderEmail, sendEmail } from "@agent-native/core/server";
+import {
+  emailStrong,
+  getAppProductionUrl,
+  renderEmail,
+  sendEmail,
+} from "@agent-native/core/server";
 
 import type { FormField } from "../../shared/types.js";
 
 export interface NewResponseEmailArgs {
   to: string;
+  formId: string;
   formTitle: string;
   fields: FormField[];
   data: Record<string, unknown>;
@@ -21,7 +27,13 @@ function formatResponseValue(value: unknown): string {
   return String(value);
 }
 
+function formSettingsUrl(formId: string): string {
+  const base = getAppProductionUrl().replace(/\/+$/, "");
+  return `${base}/forms/${encodeURIComponent(formId)}`;
+}
+
 export function renderNewResponseEmail({
+  formId,
   formTitle,
   fields,
   data,
@@ -50,7 +62,8 @@ export function renderNewResponseEmail({
           : "No response fields were submitted.",
       ],
       footer:
-        "You received this because email notifications are enabled for this form.",
+        "You received this because email notifications are enabled in this {link}.",
+      footerLink: { label: "form's settings", url: formSettingsUrl(formId) },
     }),
   };
 }

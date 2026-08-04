@@ -47,8 +47,8 @@ describe("renderClipsTransactionalEmail", () => {
         viewerEmail: "jane.doe@example.test",
       },
       subject: "Your Clip “Product tour” got its first view",
-      heading: "Someone watched your Clip",
-      cta: "See Clip activity: https://clips.example/r/rec-1",
+      heading: "Jane Doe watched “Product tour”",
+      cta: "See all Clip activity: https://clips.example/r/rec-1",
     },
     {
       input: {
@@ -140,7 +140,7 @@ describe("renderClipsTransactionalEmail", () => {
         appBasePath: "/clips/",
       }).text,
     ).toContain(
-      "See Clip activity: https://workspace.example/clips/r/rec%2Fwith%20space",
+      "See all Clip activity: https://workspace.example/clips/r/rec%2Fwith%20space",
     );
 
     expect(
@@ -149,7 +149,7 @@ describe("renderClipsTransactionalEmail", () => {
         appBasePath: "clips",
       }).text,
     ).toContain(
-      "See Clip activity: https://workspace.example/clips/r/rec%2Fwith%20space",
+      "See all Clip activity: https://workspace.example/clips/r/rec%2Fwith%20space",
     );
   });
 
@@ -292,6 +292,31 @@ describe("renderClipsTransactionalEmail", () => {
     });
     expect(unidentified.text).toContain(
       "An AI agent accessed Deploy walkthrough today",
+    );
+  });
+
+  it("names the reactor and the Clip, and links the settings footer", () => {
+    const result = render({
+      kind: "activity-reaction",
+      to: "owner@example.test",
+      recordingId: "rec-5",
+      title: "Deploy walkthrough",
+      emoji: "\u{1F389}",
+      authorEmail: "jane.doe@example.test",
+      videoTimestampMs: 65_000,
+    });
+
+    expect(result.html).toContain(
+      "Jane Doe reacted to \u201cDeploy walkthrough\u201d",
+    );
+    expect(result.html).toContain(
+      '<a href="https://clips.example/settings" style="color:#a1a1aa; text-decoration:underline;">Clips settings</a>',
+    );
+    expect(result.text).toContain(
+      "Clips settings (https://clips.example/settings)",
+    );
+    expect(result.text).toContain(
+      "See all Clip activity: https://clips.example/r/rec-5?panel=comments&t=65",
     );
   });
 

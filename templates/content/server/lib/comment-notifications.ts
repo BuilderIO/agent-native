@@ -35,8 +35,15 @@ function excerpt(content: string): string {
 }
 
 function documentUrl(documentId: string): string {
-  const base = getAppProductionUrl().replace(/\/+$/, "");
-  return `${base}/page/${encodeURIComponent(documentId)}`;
+  return `${appBaseUrl()}/page/${encodeURIComponent(documentId)}`;
+}
+
+function settingsUrl(): string {
+  return `${appBaseUrl()}/settings`;
+}
+
+function appBaseUrl(): string {
+  return getAppProductionUrl().replace(/\/+$/, "");
 }
 
 async function threadParticipants(
@@ -128,7 +135,8 @@ async function deliverDocumentCommentEmails(
         paragraphs: [lead, `"${excerpt(input.content)}"`],
         cta: { label: "Open document", url },
         footer:
-          "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",
+          "You received this because you own, were mentioned in, or participated in this thread. Turn these off in {link}.",
+        footerLink: { label: "Documents settings", url: settingsUrl() },
       });
 
       await sendEmail({

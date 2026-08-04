@@ -260,6 +260,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
         () =>
           sendNewResponseEmail({
             to: form.ownerEmail!,
+            formId: id,
             formTitle: form.title,
             fields,
             data,
