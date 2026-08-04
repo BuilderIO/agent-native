@@ -1,4 +1,8 @@
-export type DashboardSortMode = "most-used" | "alphabetical" | "manual";
+export type DashboardSortMode =
+  | "most-used"
+  | "alphabetical"
+  | "manual"
+  | "favorites";
 
 export type DashboardListLoadingArgs = {
   sqlDashboardsLoading: boolean;
@@ -20,6 +24,8 @@ export function shouldRenderDashboardList({
   if (sqlDashboardsLoading || (isInitialLoad && sqlDashboardsPlaceholder)) {
     return false;
   }
-  if (sortMode !== "most-used") return true;
-  return favoritesLoading === false && popularityReady;
+  const needsFavorites = sortMode === "most-used" || sortMode === "favorites";
+  if (needsFavorites && favoritesLoading) return false;
+  if (sortMode === "most-used" && !popularityReady) return false;
+  return true;
 }

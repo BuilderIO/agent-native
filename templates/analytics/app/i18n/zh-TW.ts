@@ -58,6 +58,8 @@ const messages = {
     sortMostUsedPersonal: "依你在此瀏覽器中的開啟次數排序",
     sortAlphabetically: "按字母排序",
     sortManually: "手動排序",
+    sortFavoritesFirst: "收藏優先排序",
+    favoritesExplainer: "將收藏的項目排在最前，其餘按 A-Z 排列。",
     personalControlsNote: "常用、排序和手動順序只會套用到此瀏覽器。",
     usedExplainer: "計算你在此瀏覽器中開啟每個項目的次數。",
     visibilityAll: "全部",

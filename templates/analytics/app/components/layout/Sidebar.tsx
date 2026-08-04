@@ -67,6 +67,11 @@ type SidebarDashboard = {
   parentId?: string;
 };
 
+function favoriteKeyOf(d: SidebarDashboard): string {
+  const resourceId = d.resourceId ?? d.id;
+  return d.source === "analysis" ? `analysis:${resourceId}` : d.id;
+}
+
 const SIDEBAR_SYNC_SETTLE_MS = 500;
 
 function useSettledSyncVersion(version: number): number {
@@ -159,7 +164,7 @@ const SIDEBAR_COLLAPSE_KEY = "analytics.sidebar.collapsed";
 const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
-type SidebarSortMode = "most-used" | "alphabetical" | "manual";
+type SidebarSortMode = "most-used" | "alphabetical" | "manual" | "favorites";
 type SidebarVisibilityFilter = "all" | "private" | "shared";
 
 import {
@@ -208,7 +213,12 @@ function setStoredBoolean(key: string, value: boolean): void {
 function getStoredSortMode(key: string): SidebarSortMode {
   if (typeof window === "undefined") return "most-used";
   const raw = window.localStorage.getItem(key);
-  if (raw === "alphabetical" || raw === "manual" || raw === "most-used") {
+  if (
+    raw === "alphabetical" ||
+    raw === "manual" ||
+    raw === "most-used" ||
+    raw === "favorites"
+  ) {
     return raw;
   }
   return "most-used";
@@ -359,12 +369,13 @@ function SidebarSectionSettingsPopover({
                 if (
                   next === "most-used" ||
                   next === "alphabetical" ||
-                  next === "manual"
+                  next === "manual" ||
+                  next === "favorites"
                 ) {
                   onSortModeChange(next);
                 }
               }}
-              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
+              className="grid grid-cols-4 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
             >
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -394,6 +405,20 @@ function SidebarSectionSettingsPopover({
               >
                 {t("sidebar.manual")}
               </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="favorites"
+                    aria-label={t("sidebar.sortFavoritesFirst")}
+                    className={cn(segmentedItemClass, "px-1")}
+                  >
+                    <IconStar className="h-3.5 w-3.5" />
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.favoritesExplainer")}
+                </TooltipContent>
+              </Tooltip>
             </ToggleGroup>
           </div>
           <div className="grid gap-1">
@@ -873,7 +898,7 @@ function SortableDashboardItem({
   const resourceId = d.resourceId ?? d.id;
   const href =
     d.source === "analysis" ? `/analyses/${resourceId}` : `/dashboards/${d.id}`;
-  const favoriteKey = d.source === "analysis" ? `analysis:${resourceId}` : d.id;
+  const favoriteKey = favoriteKeyOf(d);
   const t = useT();
   const { mutateAsync: deleteView } = useDeleteDashboardView();
   const [deletingViewId, setDeletingViewId] = useState<string | null>(null);
@@ -1703,15 +1728,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     if (dashboardSortMode === "manual" && dashboardOrderState.length > 0) {
       return applyOrder(all, dashboardOrderState);
     }
+    if (dashboardSortMode === "favorites") {
+      const favoriteRank = (d: SidebarDashboard) =>
+        favoriteIds.has(favoriteKeyOf(d)) ? 0 : 1;
+      // Stable sort keeps each group in alphabetical order.
+      return sortByName(all).sort((a, b) => favoriteRank(a) - favoriteRank(b));
+    }
     return [...all].sort((a, b) => {
       const aResourceId = a.resourceId ?? a.id;
       const bResourceId = b.resourceId ?? b.id;
-      const aFavoriteKey =
-        a.source === "analysis" ? `analysis:${aResourceId}` : a.id;
-      const bFavoriteKey =
-        b.source === "analysis" ? `analysis:${bResourceId}` : b.id;
-      const aFav = favoriteIds.has(aFavoriteKey) ? 0 : 1;
-      const bFav = favoriteIds.has(bFavoriteKey) ? 0 : 1;
+      const aFav = favoriteIds.has(favoriteKeyOf(a)) ? 0 : 1;
+      const bFav = favoriteIds.has(favoriteKeyOf(b)) ? 0 : 1;
       if (aFav !== bFav) return aFav - bFav;
       const aPop = popularityOf(
         popularity,

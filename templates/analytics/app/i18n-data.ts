@@ -88,6 +88,8 @@ const enUS = {
     sortMostUsedPersonal: "Sort by your opens in this browser",
     sortAlphabetically: "Sort alphabetically",
     sortManually: "Sort manually",
+    sortFavoritesFirst: "Sort favorites first",
+    favoritesExplainer: "Puts your favorites at the top, then the rest A-Z.",
     personalControlsNote:
       "Used, sort, and manual order are personal to this browser.",
     usedExplainer: "Counts how often you've opened each item in this browser.",
@@ -4158,6 +4160,8 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "按你在此浏览器中的打开次数排序",
       sortAlphabetically: "按字母排序",
       sortManually: "手动排序",
+      sortFavoritesFirst: "收藏优先排序",
+      favoritesExplainer: "将收藏的项目排在最前，其余按 A-Z 排列。",
       personalControlsNote: "排序、手动顺序和“常用”仅适用于此浏览器。",
       usedExplainer: "统计你在此浏览器中打开每个项目的次数。",
       visibilityAll: "全部",
@@ -4370,6 +4374,9 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "Ordenar por tus aperturas en este navegador",
       sortAlphabetically: "Ordenar alfabéticamente",
       sortManually: "Ordenar manualmente",
+      sortFavoritesFirst: "Ordenar favoritos primero",
+      favoritesExplainer:
+        "Coloca tus favoritos arriba y el resto en orden A-Z.",
       personalControlsNote:
         "La ordenación, el orden manual y Usado son personales de este navegador.",
       usedExplainer:
@@ -4595,6 +4602,8 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "Trier selon vos ouvertures dans ce navigateur",
       sortAlphabetically: "Trier alphabétiquement",
       sortManually: "Trier manuellement",
+      sortFavoritesFirst: "Trier les favoris en premier",
+      favoritesExplainer: "Place vos favoris en haut, puis le reste de A à Z.",
       personalControlsNote:
         "Le tri, l'ordre manuel et Utilisé sont personnels à ce navigateur.",
       usedExplainer:
@@ -4827,6 +4836,9 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "Nach deinen Öffnungen in diesem Browser sortieren",
       sortAlphabetically: "Alphabetisch sortieren",
       sortManually: "Manuell sortieren",
+      sortFavoritesFirst: "Favoriten zuerst sortieren",
+      favoritesExplainer:
+        "Stellt deine Favoriten nach oben, der Rest folgt von A-Z.",
       personalControlsNote:
         "Sortierung, manuelle Reihenfolge und Genutzt sind persönlich für diesen Browser.",
       usedExplainer:
@@ -5058,6 +5070,8 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "このブラウザーでの自分の表示回数で並べ替え",
       sortAlphabetically: "アルファベット順に並べ替え",
       sortManually: "手動で並べ替え",
+      sortFavoritesFirst: "お気に入りを先頭に並べ替え",
+      favoritesExplainer: "お気に入りを上部に表示し、残りは A-Z 順に並べます。",
       personalControlsNote:
         "並べ替え、手動順序、「使用」はこのブラウザーだけに保存されます。",
       usedExplainer: "このブラウザーで各項目を開いた回数を数えます。",
@@ -5281,6 +5295,9 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "이 브라우저에서 내가 연 횟수순으로 정렬",
       sortAlphabetically: "가나다순 정렬",
       sortManually: "수동 정렬",
+      sortFavoritesFirst: "즐겨찾기 먼저 정렬",
+      favoritesExplainer:
+        "즐겨찾기를 맨 위에 두고 나머지는 A-Z 순으로 정렬합니다.",
       personalControlsNote:
         "정렬, 수동 순서, 사용됨은 이 브라우저에만 적용됩니다.",
       usedExplainer: "이 브라우저에서 각 항목을 연 횟수를 계산합니다.",
@@ -5504,6 +5521,9 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "Ordenar pelas suas aberturas neste navegador",
       sortAlphabetically: "Ordenar alfabeticamente",
       sortManually: "Ordenar manualmente",
+      sortFavoritesFirst: "Ordenar favoritos primeiro",
+      favoritesExplainer:
+        "Coloca seus favoritos no topo e o restante em ordem A-Z.",
       personalControlsNote:
         "A ordenação, a ordem manual e Usado são pessoais deste navegador.",
       usedExplainer:
@@ -5735,6 +5755,8 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "इस ब्राउज़र में आपके खोले गए आइटम के आधार पर क्रमबद्ध करें",
       sortAlphabetically: "वर्णानुक्रम में क्रमबद्ध करें",
       sortManually: "मैनुअल क्रमबद्ध करें",
+      sortFavoritesFirst: "पसंदीदा को पहले क्रमबद्ध करें",
+      favoritesExplainer: "आपके पसंदीदा ऊपर रहते हैं, बाकी A-Z क्रम में।",
       personalControlsNote: "क्रम, मैन्युअल क्रम और उपयोग इस ब्राउज़र के लिए निजी हैं।",
       usedExplainer: "गिनता है कि आपने इस ब्राउज़र में हर आइटम कितनी बार खोला है।",
       visibilityAll: "सभी",
@@ -5955,6 +5977,8 @@ export const messagesByLocale = {
       sortMostUsedPersonal: "الترتيب حسب مرات فتحك في هذا المتصفح",
       sortAlphabetically: "ترتيب أبجدي",
       sortManually: "ترتيب يدوي",
+      sortFavoritesFirst: "ترتيب المفضلة أولا",
+      favoritesExplainer: "يضع المفضلة في الأعلى ثم الباقي بترتيب أبجدي.",
       personalControlsNote:
         "الفرز والترتيب اليدوي وخيار مستخدم شخصية لهذا المتصفح.",
       usedExplainer: "يحسب عدد مرات فتحك لكل عنصر في هذا المتصفح.",

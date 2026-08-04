@@ -48,4 +48,30 @@ describe("shouldRenderDashboardList", () => {
   it("returns true when most-used sorting inputs are ready", () => {
     expect(shouldRenderDashboardList(ready)).toBe(true);
   });
+
+  it("waits for favorites before rendering favorites sorting", () => {
+    expect(
+      shouldRenderDashboardList({
+        sqlDashboardsLoading: false,
+        sqlDashboardsPlaceholder: false,
+        isInitialLoad: true,
+        favoritesLoading: true,
+        popularityReady: true,
+        sortMode: "favorites",
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores popularity readiness for favorites sorting", () => {
+    expect(
+      shouldRenderDashboardList({
+        sqlDashboardsLoading: false,
+        sqlDashboardsPlaceholder: false,
+        isInitialLoad: true,
+        favoritesLoading: false,
+        popularityReady: false,
+        sortMode: "favorites",
+      }),
+    ).toBe(true);
+  });
 });
