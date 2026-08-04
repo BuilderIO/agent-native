@@ -26,9 +26,10 @@ function nextRun(
   // A stored `nextRun` in the past means the dispatcher kept declining to run
   // this automation, not that it is overdue. Report the real next occurrence
   // and let `lastError` carry the reason it keeps being passed over.
+  if (!scheduled) return null;
   if (meta.nextRun) {
     const stored = new Date(meta.nextRun).getTime();
-    if (!Number.isFinite(stored) || stored > Date.now() || !scheduled) {
+    if (!Number.isFinite(stored) || stored > Date.now()) {
       return meta.nextRun;
     }
   }
@@ -42,7 +43,7 @@ export interface AutomationActionItem {
   name: string;
   path: string;
   scope: "personal" | "organization";
-  triggerType: "event" | "schedule";
+  triggerType: "event" | "schedule" | "manual";
   event: string | null;
   schedule: string | null;
   timezone: string | null;
@@ -89,13 +90,18 @@ export default defineAction({
       path: resource.path,
       scope: scope as AutomationScope,
       triggerType: meta.triggerType,
-      event: meta.event ?? null,
-      schedule: meta.schedule || null,
-      timezone: meta.schedule ? effectiveTimezone(meta.timezone) : null,
-      scheduleDescription: meta.schedule
-        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
-        : null,
-      condition: meta.condition ?? null,
+      event: meta.triggerType === "event" ? (meta.event ?? null) : null,
+      schedule: meta.triggerType === "schedule" ? meta.schedule || null : null,
+      timezone:
+        meta.triggerType === "schedule" && meta.schedule
+          ? effectiveTimezone(meta.timezone)
+          : null,
+      scheduleDescription:
+        meta.triggerType === "schedule" && meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+          : null,
+      condition:
+        meta.triggerType === "manual" ? null : (meta.condition ?? null),
       body,
       enabled: meta.enabled,
       lastRun: meta.lastRun ?? null,

@@ -275,6 +275,30 @@ Updated body.`,
     expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
+  it("defines a manual automation with no automatic trigger fields", async () => {
+    const result = await tool().run({
+      action: "define",
+      name: "on-demand-report",
+      trigger_type: "manual",
+      body: "Build the report.",
+      schedule: "0 9 * * *",
+      event: "test.event.fired",
+      condition: "only when urgent",
+    });
+
+    expect(JSON.parse(result)).toMatchObject({
+      created: true,
+      triggerType: "manual",
+      event: null,
+      schedule: null,
+      timezone: null,
+      nextRun: null,
+    });
+    const content = resourcePutMock.mock.calls[0]?.[2] as string;
+    expect(content).toContain("triggerType: manual");
+    expect(content).not.toMatch(/^(event|condition|nextRun|timezone):/m);
+  });
+
   it("seeds the next run for scheduled automations", async () => {
     await tool().run({
       action: "define",
@@ -287,6 +311,12 @@ Updated body.`,
     const content = resourcePutMock.mock.calls[0]?.[2] as string;
     expect(content).toContain("triggerType: schedule");
     expect(content).toMatch(/nextRun: "/);
+  });
+
+  it("accepts manual as a canonical trigger type in the tool schema", () => {
+    expect(tool().tool.parameters.properties.trigger_type.enum).toContain(
+      "manual",
+    );
   });
 
   it("leaves legacy scheduled jobs on the compatibility tool", async () => {

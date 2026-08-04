@@ -103,6 +103,40 @@ describe("automation actions", () => {
     });
   });
 
+  it("lists manual automations without automatic trigger fields", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/on-demand.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "manual-automation",
+      owner: "alice@example.com",
+      path: "jobs/on-demand.md",
+      content: `---
+schedule: "0 9 * * *"
+timezone: UTC
+enabled: true
+triggerType: manual
+event: stale.event
+condition: stale condition
+nextRun: 2030-01-01T09:00:00.000Z
+mode: agentic
+createdBy: alice@example.com
+---
+
+Run on demand.`,
+    });
+
+    const [automation] = await listAutomations.run({ scope: "personal" }, ctx);
+
+    expect(automation).toMatchObject({
+      triggerType: "manual",
+      event: null,
+      schedule: null,
+      timezone: null,
+      scheduleDescription: null,
+      condition: null,
+      nextRun: null,
+    });
+  });
+
   it("lists organization automations for a current member", async () => {
     resourceListMock.mockResolvedValue([{ path: "jobs/digest.md" }]);
     resourceGetByPathMock.mockResolvedValue({

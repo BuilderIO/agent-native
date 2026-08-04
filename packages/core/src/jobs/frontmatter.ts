@@ -1,5 +1,5 @@
 export type JobLastStatus = "success" | "error" | "running" | "skipped";
-export type JobTriggerType = "schedule" | "event";
+export type JobTriggerType = "schedule" | "event" | "manual";
 export type JobExecutionMode = "agentic" | "deterministic";
 
 /**
@@ -196,7 +196,8 @@ function parseKnownField(
     case "triggerType":
       // The field's presence is the durable legacy-job/automation boundary.
       // Preserve that marker even if an old writer stored an invalid value.
-      meta.triggerType = value === "event" ? "event" : "schedule";
+      meta.triggerType =
+        value === "event" || value === "manual" ? value : "schedule";
       break;
     case "event":
       meta.event = value;
@@ -251,6 +252,14 @@ export function parseJobResource(content: string): ParsedJobResource {
     );
   }
 
+  if (meta.triggerType === "manual") {
+    meta.schedule = "";
+    delete meta.timezone;
+    delete meta.event;
+    delete meta.condition;
+    delete meta.nextRun;
+  }
+
   return {
     meta,
     body: match[2].trim(),
@@ -293,12 +302,14 @@ export function buildJobResourceContent(
 
   const lines = [
     "---",
-    `schedule: ${JSON.stringify(meta.schedule)}`,
+    `schedule: ${JSON.stringify(meta.triggerType === "manual" ? "" : meta.schedule)}`,
     `enabled: ${meta.enabled}`,
   ];
   if (meta.triggerType) lines.push(`triggerType: ${meta.triggerType}`);
-  pushString(lines, "event", meta.event);
-  pushString(lines, "condition", meta.condition);
+  if (meta.triggerType !== "manual") {
+    pushString(lines, "event", meta.event);
+    pushString(lines, "condition", meta.condition);
+  }
   if (meta.mode) lines.push(`mode: ${meta.mode}`);
   pushString(lines, "domain", meta.domain);
   pushString(lines, "delegatedPolicyId", meta.delegatedPolicyId);
@@ -308,12 +319,16 @@ export function buildJobResourceContent(
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
-  pushString(lines, "timezone", meta.timezone);
+  if (meta.triggerType !== "manual") {
+    pushString(lines, "timezone", meta.timezone);
+  }
   pushString(lines, "lastRun", meta.lastRun);
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
-  pushString(lines, "nextRun", meta.nextRun);
+  if (meta.triggerType !== "manual") {
+    pushString(lines, "nextRun", meta.nextRun);
+  }
   pushString(lines, "originScopeId", meta.originScopeId);
   pushString(lines, "deliveryPlatform", meta.deliveryPlatform);
   pushString(lines, "deliveryDestination", meta.deliveryDestination);

@@ -132,6 +132,42 @@ Hidden legacy organization job.`,
     });
   });
 
+  it("lists manual automations without automatic trigger fields", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "manual",
+        owner,
+        path: "jobs/on-demand.md",
+        content: `---
+schedule: "0 9 * * *"
+timezone: UTC
+enabled: true
+triggerType: manual
+event: stale.event
+condition: stale condition
+nextRun: 2030-01-01T09:00:00.000Z
+mode: agentic
+createdBy: ${owner}
+---
+
+Run on demand.`,
+      },
+    ]);
+
+    const [automation] = await listAutomationsForOwner(event, owner);
+
+    expect(automation).toMatchObject({
+      triggerType: "manual",
+      enabled: true,
+    });
+    expect(automation).not.toHaveProperty("event");
+    expect(automation).not.toHaveProperty("schedule");
+    expect(automation).not.toHaveProperty("timezone");
+    expect(automation).not.toHaveProperty("scheduleDescription");
+    expect(automation).not.toHaveProperty("condition");
+    expect(automation).not.toHaveProperty("nextRun");
+  });
+
   it("lists and updates automations for the active organization only", async () => {
     const organizationOwner = "__organization__:org-1";
     const organizationResource = {

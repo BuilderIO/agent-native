@@ -138,6 +138,12 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
 
       const { meta, body } = parseJobFrontmatter(resource.content);
 
+      // Legacy jobs have no explicit trigger type. Explicit automations are
+      // acquired here only when they positively declare a schedule trigger.
+      const isScheduleTrigger =
+        meta.triggerType === undefined || meta.triggerType === "schedule";
+      if (!isScheduleTrigger) continue;
+
       // Skip disabled or missing schedule
       if (!meta.enabled || !meta.schedule) continue;
       if (!isValidCron(meta.schedule)) continue;

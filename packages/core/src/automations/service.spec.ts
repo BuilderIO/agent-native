@@ -117,6 +117,38 @@ describe("automation domain service", () => {
     );
   });
 
+  it("creates a manual automation without automatic trigger fields", async () => {
+    resourceGetByPathMock.mockResolvedValueOnce(null);
+
+    const definition = await defineAutomation(actor, {
+      name: "on-demand-report",
+      scope: "organization",
+      triggerType: "manual",
+      body: "Build the report.",
+      schedule: "0 8 * * *",
+      timezone: "Not/A-Timezone",
+      event: "mail.received",
+      condition: "only for urgent messages",
+    });
+
+    expect(definition.meta).toMatchObject({
+      schedule: "",
+      enabled: true,
+      triggerType: "manual",
+      createdBy: "alice@example.com",
+      orgId: "org-1",
+      runAs: "creator",
+    });
+    expect(definition.meta).not.toHaveProperty("timezone");
+    expect(definition.meta).not.toHaveProperty("event");
+    expect(definition.meta).not.toHaveProperty("condition");
+    expect(definition.meta).not.toHaveProperty("nextRun");
+
+    const content = resourcePutMock.mock.calls[0]?.[2] as string;
+    expect(content).toContain("triggerType: manual");
+    expect(content).not.toMatch(/^(event|condition|nextRun|timezone):/m);
+  });
+
   it("creates an organization event automation owned by the org but run as its creator", async () => {
     resourceGetByPathMock
       .mockResolvedValueOnce(null)

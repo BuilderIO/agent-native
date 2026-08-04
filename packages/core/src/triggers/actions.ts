@@ -71,13 +71,18 @@ async function handleList(
       name,
       scope,
       triggerType: meta.triggerType,
-      event: meta.event ?? null,
-      schedule: meta.schedule || null,
-      timezone: meta.timezone ? effectiveTimezone(meta.timezone) : null,
-      scheduleDescription: meta.schedule
-        ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
-        : null,
-      condition: meta.condition ?? null,
+      event: meta.triggerType === "event" ? (meta.event ?? null) : null,
+      schedule: meta.triggerType === "schedule" ? meta.schedule || null : null,
+      timezone:
+        meta.triggerType === "schedule" && meta.timezone
+          ? effectiveTimezone(meta.timezone)
+          : null,
+      scheduleDescription:
+        meta.triggerType === "schedule" && meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+          : null,
+      condition:
+        meta.triggerType === "manual" ? null : (meta.condition ?? null),
       mode: meta.mode,
       domain: meta.domain ?? null,
       enabled: meta.enabled,
@@ -106,9 +111,13 @@ function automationScope(value: unknown): AutomationScope {
   throw new Error('scope must be "personal" or "organization".');
 }
 
-function automationTriggerType(value: unknown): "schedule" | "event" {
-  if (value === "schedule" || value === "event") return value;
-  throw new Error('trigger_type must be "schedule" or "event".');
+function automationTriggerType(
+  value: unknown,
+): "schedule" | "event" | "manual" {
+  if (value === "schedule" || value === "event" || value === "manual") {
+    return value;
+  }
+  throw new Error('trigger_type must be "schedule", "event", or "manual".');
 }
 
 async function handleDefine(
@@ -168,10 +177,22 @@ async function handleDefine(
       name: definition.name,
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
-      event: definition.meta.event ?? null,
-      schedule: definition.meta.schedule || null,
-      timezone: definition.meta.timezone ?? null,
-      nextRun: definition.meta.nextRun ?? null,
+      event:
+        definition.meta.triggerType === "event"
+          ? (definition.meta.event ?? null)
+          : null,
+      schedule:
+        definition.meta.triggerType === "schedule"
+          ? definition.meta.schedule || null
+          : null,
+      timezone:
+        definition.meta.triggerType === "schedule"
+          ? (definition.meta.timezone ?? null)
+          : null,
+      nextRun:
+        definition.meta.triggerType === "schedule"
+          ? (definition.meta.nextRun ?? null)
+          : null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
@@ -232,9 +253,18 @@ async function handleUpdate(
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
       enabled: definition.meta.enabled,
-      schedule: definition.meta.schedule || null,
-      timezone: definition.meta.timezone ?? null,
-      nextRun: definition.meta.nextRun ?? null,
+      schedule:
+        definition.meta.triggerType === "schedule"
+          ? definition.meta.schedule || null
+          : null,
+      timezone:
+        definition.meta.triggerType === "schedule"
+          ? (definition.meta.timezone ?? null)
+          : null,
+      nextRun:
+        definition.meta.triggerType === "schedule"
+          ? (definition.meta.nextRun ?? null)
+          : null,
       createdBy: definition.meta.createdBy,
       runAs: definition.meta.runAs,
       model: definition.meta.model ?? null,
@@ -332,7 +362,7 @@ export function createAutomationToolEntries(
   return {
     "manage-automations": {
       tool: {
-        description: `Manage automations (event-triggered and scheduled tasks). Use the "action" parameter to choose an operation:
+        description: `Manage automations (manual, event-triggered, and scheduled tasks). Use the "action" parameter to choose an operation:
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list**: List all automations (triggers). Shows trigger, status, model, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
@@ -363,8 +393,9 @@ export function createAutomationToolEntries(
             },
             trigger_type: {
               type: "string",
-              description: '"event" or "schedule". Required for define.',
-              enum: ["event", "schedule"],
+              description:
+                '"manual", "event", or "schedule". Manual automations run only through run-now. Required for define.',
+              enum: ["manual", "event", "schedule"],
             },
             event: {
               type: "string",

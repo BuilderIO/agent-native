@@ -30,7 +30,7 @@ export interface AutomationDefinition {
   name: string;
   scope: AutomationScope;
   meta: JobFrontmatter & {
-    triggerType: "schedule" | "event";
+    triggerType: "schedule" | "event" | "manual";
     mode: "agentic" | "deterministic";
   };
   body: string;
@@ -48,7 +48,7 @@ export interface AutomationDelivery {
 export interface DefineAutomationInput {
   name: string;
   scope: AutomationScope;
-  triggerType: "schedule" | "event";
+  triggerType: "schedule" | "event" | "manual";
   body: string;
   schedule?: string;
   timezone?: string;
@@ -313,7 +313,11 @@ export async function defineAutomation(
     throw httpError("event is required for event-triggered automations.", 400);
   }
 
-  if (input.timezone && !isValidTimezone(input.timezone)) {
+  if (
+    input.triggerType === "schedule" &&
+    input.timezone &&
+    !isValidTimezone(input.timezone)
+  ) {
     throw httpError(`Unknown timezone "${input.timezone}".`, 400);
   }
   // Resolve now and persist it: a schedule whose zone is implicit means
@@ -326,21 +330,24 @@ export async function defineAutomation(
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
   const meta: JobFrontmatter = {
     schedule: input.triggerType === "schedule" ? schedule : "",
-    timezone,
+    ...(timezone ? { timezone } : {}),
     enabled: true,
     triggerType: input.triggerType,
-    event: input.triggerType === "event" ? event : undefined,
-    condition: input.condition?.trim() || undefined,
+    ...(input.triggerType === "event" ? { event } : {}),
+    ...(input.triggerType !== "manual" && input.condition?.trim()
+      ? { condition: input.condition.trim() }
+      : {}),
     mode: "agentic",
     domain: input.domain?.trim() || undefined,
     delegatedPolicyId: input.delegatedPolicyId?.trim() || undefined,
     createdBy: actor.userEmail,
     orgId: input.scope === "organization" ? actor.orgId! : undefined,
     runAs: "creator",
-    nextRun:
-      input.triggerType === "schedule"
-        ? nextOccurrence(schedule, undefined, timezone).toISOString()
-        : undefined,
+    ...(input.triggerType === "schedule"
+      ? {
+          nextRun: nextOccurrence(schedule, undefined, timezone).toISOString(),
+        }
+      : {}),
     model: input.model?.trim() || undefined,
     mcpTools: mcpTools?.length ? mcpTools : undefined,
     originScopeId: input.delivery?.originScopeId,
@@ -374,7 +381,10 @@ export async function updateAutomation(
   const { meta } = definition;
   if (input.schedule !== undefined) {
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a cron schedule.", 400);
+      throw httpError(
+        `${meta.triggerType === "manual" ? "Manual" : "Event"} automations do not have a cron schedule.`,
+        400,
+      );
     }
     if (!isValidCron(input.schedule)) {
       throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
@@ -386,7 +396,10 @@ export async function updateAutomation(
       throw httpError(`Unknown timezone "${input.timezone}".`, 400);
     }
     if (meta.triggerType !== "schedule") {
-      throw httpError("Event automations do not have a timezone.", 400);
+      throw httpError(
+        `${meta.triggerType === "manual" ? "Manual" : "Event"} automations do not have a timezone.`,
+        400,
+      );
     }
     meta.timezone = input.timezone;
   }
@@ -412,6 +425,9 @@ export async function updateAutomation(
     }
   }
   if (input.condition !== undefined) {
+    if (meta.triggerType === "manual") {
+      throw httpError("Manual automations do not have a condition.", 400);
+    }
     meta.condition = input.condition?.trim() || undefined;
   }
   if (input.delegatedPolicyId !== undefined) {

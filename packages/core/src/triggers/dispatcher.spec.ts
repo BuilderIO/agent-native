@@ -217,6 +217,39 @@ Respond to the event.`,
     recordUsageMock.mockResolvedValue(undefined);
   });
 
+  it("does not subscribe to a manual automation even with stale event metadata", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "manual-automation",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/on-demand.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: manual
+event: manual.stale.event
+mode: agentic
+createdBy: alice+triggers@agent-native.test
+---
+
+Run on demand.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: { name: "test-engine", defaultModel: "test-model" } as any,
+      model: "test-model",
+    });
+
+    expect(subscribeMock).not.toHaveBeenCalledWith(
+      "manual.stale.event",
+      expect.any(Function),
+    );
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
   it("defers framework-added tools behind tool-search on the first trigger request when an initial tool list is supplied", async () => {
     // Use a distinct event/resource path from the module-level default so
     // this test doesn't collide with `_eventSubscriptions` state left behind
