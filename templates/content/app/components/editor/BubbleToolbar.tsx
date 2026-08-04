@@ -59,10 +59,10 @@ type SelectionFillRange = {
   to: number;
 };
 
-type TextStyle = "paragraph" | 1 | 2 | 3 | 4;
+type TextStyle = "paragraph" | 1 | 2 | 3 | 4 | 5 | 6;
 
 function activeTextStyle(editor: Editor): TextStyle {
-  for (const level of [1, 2, 3, 4] as const) {
+  for (const level of [1, 2, 3, 4, 5, 6] as const) {
     if (editor.isActive("heading", { level })) return level;
   }
   return "paragraph";
@@ -172,7 +172,15 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     },
   ];
   const selectedTextStyle =
-    textStyles.find((style) => style.value === textStyle) ?? textStyles[0];
+    textStyles.find((style) => style.value === textStyle) ??
+    (typeof textStyle === "number"
+      ? {
+          value: textStyle,
+          shortLabel: `H${textStyle}`,
+          menuLabel: `H${textStyle}`,
+          label: textStyle === 5 ? t("editor.heading5") : t("editor.heading6"),
+        }
+      : textStyles[0]);
 
   const applyTextStyle = (style: TextStyle) => {
     const chain = editor.chain();

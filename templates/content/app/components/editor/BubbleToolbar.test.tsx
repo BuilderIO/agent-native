@@ -194,6 +194,62 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).not.toContain("<h2>Selected heading</h2>");
   });
 
+  it.each([5, 6] as const)(
+    "identifies an H%s block and converts it to Text",
+    (level) => {
+      editorElement = document.createElement("div");
+      toolbarElement = document.createElement("div");
+      document.body.append(editorElement, toolbarElement);
+      editor = new Editor({
+        element: editorElement,
+        extensions: [StarterKit],
+        content: `<h${level}>Selected heading</h${level}>`,
+      });
+      editor.commands.setTextSelection({ from: 1, to: 9 });
+
+      root = createRoot(toolbarElement);
+      act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+      const trigger = toolbarElement.querySelector<HTMLButtonElement>(
+        `button[aria-label="editor.slash.turnInto: editor.heading${level}"]`,
+      );
+      expect(trigger?.textContent).toContain(`H${level}`);
+
+      const textOption = [
+        ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+          'button[role="menuitemradio"]',
+        ),
+      ].find((button) => button.textContent?.includes("editor.slash.text"));
+      act(() => textOption!.click());
+
+      expect(editor.getHTML()).toContain("<p>Selected heading</p>");
+      expect(editor.getHTML()).not.toContain(
+        `<h${level}>Selected heading</h${level}>`,
+      );
+    },
+  );
+
+  it("updates the selector when the active block becomes an H5", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Selected heading</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    act(() => editor!.commands.setHeading({ level: 5 }));
+
+    const trigger = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.slash.turnInto: editor.heading5"]',
+    );
+    expect(trigger?.textContent).toContain("H5");
+  });
+
   it("sets an exact heading level without toggling the current style off", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
