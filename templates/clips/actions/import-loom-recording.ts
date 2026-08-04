@@ -389,7 +389,7 @@ export default defineAction({
       try {
         console.log("[import-loom-recording] dispatching loom-import job", {
           recordingId: id,
-          sourceUrl,
+          provider: providerId,
         });
         await dispatchPostFinalizeJob({
           recordingId: id,

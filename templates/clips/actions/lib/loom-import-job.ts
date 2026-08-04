@@ -145,7 +145,7 @@ export async function runLoomImportJob({
     );
   }
 
-  console.log("[loom-import] job started", { recordingId, claimId, loomId });
+  console.log("[loom-import] job started", { recordingId, claimId });
 
   let media: Awaited<ReturnType<typeof downloadLoomVideo>>;
   try {
