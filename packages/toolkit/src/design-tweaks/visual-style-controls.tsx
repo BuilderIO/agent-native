@@ -11,6 +11,12 @@ import {
 } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 
 export {
@@ -475,54 +481,69 @@ export function VisualColorPicker({
   const { className: contentClassName, ...popoverContentProps } =
     contentProps ?? {};
 
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          title={variant === "swatch" ? `${label}: ${displayValue}` : undefined}
-          className={cn(
-            "flex h-7 cursor-pointer items-center rounded-md shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            variant === "swatch"
-              ? "w-7 shrink-0 justify-center border-0 hover:bg-accent"
-              : "w-full gap-1.5 px-2 text-[11px]",
-            variant === "filled" && "border-0 bg-muted/80 hover:bg-muted",
-            variant === "outline" &&
-              "border border-border bg-background/70 hover:bg-accent/60",
-            className,
-          )}
-        >
-          {glyph && variant === "swatch" ? (
-            /* A real underline rather than a stacked bar: the browser places
-               it against the glyph's baseline, so the pair cannot drift out of
-               alignment the way hand-positioned boxes do. */
+  const trigger = (
+    <PopoverTrigger asChild>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn(
+          "flex h-7 cursor-pointer items-center rounded-md shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          variant === "swatch"
+            ? "w-7 shrink-0 justify-center border-0 hover:bg-accent"
+            : "w-full gap-1.5 px-2 text-[11px]",
+          variant === "filled" && "border-0 bg-muted/80 hover:bg-muted",
+          variant === "outline" &&
+            "border border-border bg-background/70 hover:bg-accent/60",
+          className,
+        )}
+      >
+        {glyph && variant === "swatch" ? (
+          /* A real underline rather than a stacked bar: the browser places
+             it against the glyph's baseline, so the pair cannot drift out of
+             alignment the way hand-positioned boxes do. */
+          <span
+            aria-hidden="true"
+            className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px]"
+            style={mixed ? undefined : { textDecorationColor: value }}
+          >
+            {glyph}
+          </span>
+        ) : (
+          <span
+            className="size-4 shrink-0 rounded-[3px] border border-border/70"
+            style={swatchBackground(mixed ? "transparent" : value)}
+          />
+        )}
+        {variant !== "swatch" && (
+          <>
+            <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
+              {displayValue}
+            </span>
             <span
               aria-hidden="true"
-              className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px]"
-              style={mixed ? undefined : { textDecorationColor: value }}
-            >
-              {glyph}
-            </span>
-          ) : (
-            <span
-              className="size-4 shrink-0 rounded-[3px] border border-border/70"
-              style={swatchBackground(mixed ? "transparent" : value)}
+              className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
             />
-          )}
-          {variant !== "swatch" && (
-            <>
-              <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">
-                {displayValue}
-              </span>
-              <span
-                aria-hidden="true"
-                className="size-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-muted-foreground/70"
-              />
-            </>
-          )}
-        </button>
-      </PopoverTrigger>
+          </>
+        )}
+      </button>
+    </PopoverTrigger>
+  );
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      {/* A bare swatch shows a color but never says which property it paints.
+          The hex a native title would add is unreliable for colors this
+          control cannot parse, so name the property and leave it at that. */}
+      {variant === "swatch" ? (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+            <TooltipContent>{label}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        trigger
+      )}
       <PopoverContent
         side="left"
         align="start"
