@@ -121,6 +121,22 @@ async function selectMembershipsForDocuments(
   return rows;
 }
 
+async function selectMembershipIdsForDatabases(
+  db: ReturnType<typeof getDb>,
+  databaseIds: string[],
+) {
+  const rows: Array<{ id: string }> = [];
+  for (const batch of chunks(databaseIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.databaseId, batch))),
+    );
+  }
+  return rows.map((row) => row.id);
+}
+
 async function collectDocumentSubtreeForDelete(
   db: ReturnType<typeof getDb>,
   rootId: string,
@@ -366,19 +382,55 @@ export async function restoreDocumentSubtree(
   rootId: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  const documentIds = (
-    await db
-      .select({ id: schema.documents.id })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.trashRootId, rootId),
-          eq(schema.documents.ownerEmail, ownerEmail),
-        ),
-      )
-  ).map((document) => document.id);
-  if (documentIds.length === 0) return [];
+  const collectRestoreScope = async () => {
+    const documentIds = (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.trashRootId, rootId),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        )
+    ).map((document) => document.id);
+    const memberships = await selectMembershipsForDocuments(db, documentIds);
+    const ownedDatabaseIds = (
+      await selectOwnedDatabaseIds(db, documentIds, ownerEmail)
+    ).map((database) => database.id);
+    return { documentIds, memberships, ownedDatabaseIds };
+  };
 
+  const initialScope = await collectRestoreScope();
+  if (initialScope.documentIds.length === 0) return [];
+  const lockedDatabaseIds = [
+    ...new Set([
+      ...initialScope.ownedDatabaseIds,
+      ...initialScope.memberships.map((membership) => membership.databaseId),
+    ]),
+  ].sort();
+  for (const databaseId of lockedDatabaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+
+  const restoreScope = await collectRestoreScope();
+  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
+  const unlockedDatabaseId = [
+    ...new Set([
+      ...restoreScope.ownedDatabaseIds,
+      ...restoreScope.memberships.map((membership) => membership.databaseId),
+    ]),
+  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
+  if (unlockedDatabaseId) {
+    throw new Error("Document restore scope changed; retry restoration.");
+  }
+  await lockDatabaseMemberships(
+    db,
+    await selectMembershipIdsForDatabases(db, lockedDatabaseIds),
+  );
+
+  const documentIds = restoreScope.documentIds;
+  if (documentIds.length === 0) return [];
   const now = new Date().toISOString();
   for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
     await db

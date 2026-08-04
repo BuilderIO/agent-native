@@ -27,6 +27,7 @@ let configureDocumentProperty: typeof import("./configure-document-property.js")
 let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
 let deleteDocument: typeof import("./delete-document.js").default;
 let deleteContentDatabase: typeof import("./delete-content-database.js").default;
+let restoreDocument: typeof import("./restore-document.js").default;
 let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
 
 beforeAll(async () => {
@@ -51,6 +52,7 @@ beforeAll(async () => {
   deleteDocument = (await import("./delete-document.js")).default;
   deleteContentDatabase = (await import("./delete-content-database.js"))
     .default;
+  restoreDocument = (await import("./restore-document.js")).default;
   permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
     .default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
@@ -359,6 +361,95 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     },
     60_000,
   );
+
+  it("serializes restoring a trashed row behind the migration snapshot", async () => {
+    const seed = await fixture();
+    const stamp = "2026-01-01T00:00:00.000Z";
+    const restoredDocumentId = `postgres_restored_row_${seed.databaseId}`;
+    const restoredItemId = `postgres_restored_item_${seed.databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: restoredDocumentId,
+      ownerEmail: OWNER,
+      spaceId: "synthetic_space",
+      parentId: seed.databaseDocumentId,
+      title: "Synthetic trashed row",
+      content: "# Not migrated",
+      visibility: "private",
+      hideFromSearch: 1,
+      trashedAt: stamp,
+      trashRootId: restoredDocumentId,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: restoredItemId,
+      ownerEmail: OWNER,
+      databaseId: seed.databaseId,
+      documentId: restoredDocumentId,
+      position: 1,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+
+    let releaseFlush = () => {};
+    let migration: Promise<any> | undefined;
+    let restore: Promise<any> | undefined;
+    try {
+      const flushReleased = new Promise<void>((resolve) => {
+        releaseFlush = resolve;
+      });
+      let flushEntered!: () => void;
+      const flushStarted = new Promise<void>((resolve) => {
+        flushEntered = resolve;
+      });
+      flushOpenDocumentEditorToSql.mockImplementationOnce(async () => {
+        flushEntered();
+        await flushReleased;
+      });
+
+      migration = runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: seed.plan }),
+      );
+      await flushStarted;
+      restore = runWithRequestContext({ userEmail: OWNER }, () =>
+        restoreDocument.run({ id: restoredDocumentId }),
+      );
+      await waitForPostgresLockWait(1);
+      expect(
+        (
+          await getDb()
+            .select({ trashedAt: schema.documents.trashedAt })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, restoredDocumentId))
+        )[0]?.trashedAt,
+      ).toBe(stamp);
+
+      releaseFlush();
+      const applied = await migration;
+      await restore;
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({
+            phase: "verify",
+            databaseId: seed.databaseId,
+            idempotencyKey: seed.plan.idempotencyKey,
+            expectedPostDigest: applied.postDigest,
+          }),
+        ),
+      ).rejects.toThrow("Migration has drifted; verification is refused.");
+    } finally {
+      releaseFlush();
+      await Promise.allSettled(
+        [migration, restore].filter((pending): pending is Promise<unknown> =>
+          Boolean(pending),
+        ),
+      );
+      await cleanupFixture(seed);
+      await getDb()
+        .delete(schema.documents)
+        .where(eq(schema.documents.id, restoredDocumentId));
+    }
+  }, 60_000);
 
   it("removes a receipt when permanent deletion follows a migration that held the database lock", async () => {
     const seed = await fixture();
