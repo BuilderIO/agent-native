@@ -115,6 +115,7 @@ describe("Dispatch NavContent", () => {
         messageCount: 1,
         updatedAt: Date.now() - 5 * 60_000,
         createdAt: Date.now() - 5 * 60_000,
+        source: { platform: "slack", url: "https://example.slack.com/thread" },
       },
     ];
     container = document.createElement("div");
@@ -180,8 +181,11 @@ describe("Dispatch NavContent", () => {
       );
     });
 
-    expect(container.textContent).toContain("Dispatch");
-    expect(container.textContent).not.toContain("Agent-Native");
+    const sidebarLabel = container.querySelector(
+      "[data-dispatch-sidebar-label]",
+    );
+    expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
+    expect(container.textContent).not.toContain("Agent-Native Dispatch");
 
     const settingsLink = container.querySelector('a[href="/settings"]');
     const organization = [...container.querySelectorAll("div")].find(
@@ -218,6 +222,15 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
     expect(container.textContent).toContain("5m");
+    expect(container.querySelector('[aria-label="Slack"]')).not.toBeNull();
+    const sourceToggle = container.querySelector(
+      "[data-dispatch-chat-source-toggle]",
+    ) as HTMLButtonElement;
+    expect(sourceToggle.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => {
+      sourceToggle.click();
+    });
+    expect(sourceToggle.getAttribute("aria-pressed")).toBe("true");
     const age = [...container.querySelectorAll("span")].find(
       (element) => element.textContent === "5m",
     );

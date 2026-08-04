@@ -1,4 +1,3 @@
-
 allowBuilds:
   node-pty: true
   esbuild: true

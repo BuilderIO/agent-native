@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import {
+  getAllCalls,
   getCalls,
   getCallTranscript,
   getCallTranscripts,
@@ -485,7 +486,7 @@ export default defineAction({
   // model round trips while still staying well below the model context limit.
   maxResultChars: 100_000,
   description:
-    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded search by company/domain/person/email. For account-level transcript mention questions, transcriptQuery performs a case-insensitive local scan after batched transcript retrieval and returns coverage counts plus snippets; it is not Gong's server-side keyword search. Use includeTranscripts=true for bounded qualitative context. For broad keyword, tracker, cross-account, or absence-sensitive work, use provider-api-catalog/provider-api-docs, stage the raw Gong API response, then use query-staged-dataset or a Data Program; use provider-corpus-job only when raw transcript bodies are required.",
+    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded search by company/domain/person/email. Without --company, the action lists calls in the date window; set exhaustive=true for every page of a small bounded cohort (up to 500 records), not a broad org-wide export. For account-level transcript mention questions, transcriptQuery performs a case-insensitive local scan after batched transcript retrieval and returns coverage counts plus snippets; it is not Gong's server-side keyword search. Use includeTranscripts=true for bounded qualitative context. For broad keyword, tracker, cross-account, or absence-sensitive work, use provider-api-catalog/provider-api-docs, stage the raw Gong API response, then use query-staged-dataset or a Data Program; use provider-corpus-job only when raw transcript bodies are required.",
   schema: z.object({
     users: cliBoolean.optional().describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
@@ -552,7 +553,7 @@ export default defineAction({
     exhaustive: cliBoolean
       .optional()
       .describe(
-        "Return EVERY matching call in the window instead of stopping at `limit` — use this only for bounded account/cohort coverage. By default this is metadata-only. With includeTranscripts=true, transcripts are fetched in batches and explicit coverage is returned. For broad or absence-sensitive work, prefer the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program; use provider-corpus-job for durable raw-transcript scans. Always bound this with after/before or a small days window.",
+        "Return EVERY matching call in the window instead of stopping at `limit`; without company, return every call page for a small bounded cohort of at most 500 records. Larger cohorts fail closed with guidance to use provider-api-request staging and query-staged-dataset or a Data Program. By default this is metadata-only. With includeTranscripts=true, transcripts are fetched in batches and explicit coverage is returned. For broad or absence-sensitive work, prefer the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program; use provider-corpus-job for durable raw-transcript scans. Always bound this with after/before or a small days window.",
       ),
     after: z
       .string()
@@ -719,11 +720,24 @@ export default defineAction({
       const limit = normalizeGongCallLimit(
         args.limit ?? DEFAULT_GONG_CALL_LIMIT,
       );
-      const fromDateTime = new Date(
-        Date.now() - days * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const result = await getCalls({ fromDateTime });
+      const exhaustive = Boolean(args.exhaustive);
+      const fromDateTime =
+        normalizeGongDate(args.after) ??
+        new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const toDateTime = normalizeGongDate(args.before, "end");
+      const result = exhaustive
+        ? await getAllCalls({
+            fromDateTime,
+            ...(toDateTime ? { toDateTime } : {}),
+          })
+        : await getCalls({
+            fromDateTime,
+            ...(toDateTime ? { toDateTime } : {}),
+          });
       const limited = limitGongCalls(result.calls, limit);
+      const returnedCalls = exhaustive ? result.calls : limited.calls;
+      const truncated =
+        Boolean(result.cursor) || (!exhaustive && limited.truncated);
       const shouldLoadTranscripts = Boolean(args.includeTranscripts);
       const transcriptLimit = normalizeBoundedInt(
         args.transcriptLimit,
@@ -740,7 +754,7 @@ export default defineAction({
       );
       const boundedTranscriptExcerptMaxChars = boundedTranscriptExcerptChars(
         transcriptExcerptMaxChars,
-        Math.min(transcriptLimit, limited.calls.length),
+        Math.min(transcriptLimit, returnedCalls.length),
       );
       const transcriptSearchMaxChars = normalizeBoundedInt(
         args.transcriptMaxChars,
@@ -758,7 +772,7 @@ export default defineAction({
       );
       const transcriptSearch = transcriptQuery
         ? await searchTranscriptEvidence(
-            limited.calls,
+            returnedCalls,
             transcriptQuery,
             transcriptScanLimit,
             transcriptSearchMaxChars,
@@ -766,29 +780,33 @@ export default defineAction({
         : undefined;
       const transcripts = shouldLoadTranscripts
         ? await loadTranscriptEvidence(
-            limited.calls,
+            returnedCalls,
             transcriptLimit,
             boundedTranscriptExcerptMaxChars,
           )
         : undefined;
 
       return {
-        ...limited,
-        total: limited.calls.length,
+        calls: returnedCalls,
+        limit: exhaustive ? returnedCalls.length : limited.limit,
+        pages: "pages" in result ? result.pages : 1,
+        truncated,
+        coverageTruncated: truncated,
+        total: returnedCalls.length,
         ...(transcriptSearch
           ? {
               transcriptSearch: {
                 query: transcriptQuery,
                 matchingCalls: transcriptSearch.matches.length,
                 inspectedCalls: transcriptSearch.inspectedCalls,
-                availableCalls: limited.calls.length,
+                availableCalls: returnedCalls.length,
                 coverageComplete:
-                  !limited.truncated &&
-                  transcriptSearch.inspectedCalls >= limited.calls.length &&
+                  !truncated &&
+                  transcriptSearch.inspectedCalls >= returnedCalls.length &&
                   transcriptSearch.errors.length === 0 &&
                   transcriptSearch.truncatedTranscripts === 0,
                 scanLimited:
-                  transcriptSearch.inspectedCalls < limited.calls.length,
+                  transcriptSearch.inspectedCalls < returnedCalls.length,
                 truncatedTranscripts: transcriptSearch.truncatedTranscripts,
                 matches: transcriptSearch.matches,
                 errors: transcriptSearch.errors,
@@ -798,9 +816,11 @@ export default defineAction({
         ...(transcripts ? { transcripts } : {}),
         guidance: [
           transcriptSearch
-            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${limited.calls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase limit/transcriptScanLimit or narrow the window if coverage is incomplete.`
+            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${returnedCalls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase limit/transcriptScanLimit or narrow the window if coverage is incomplete.`
             : "",
-          callLimitGuidance(limited.limit, limited.truncated),
+          exhaustive
+            ? `Exhaustive discovery returned ${returnedCalls.length} call(s) from the date window${truncated ? ", but Gong has more pages than this request covered" : ""}.`
+            : callLimitGuidance(limited.limit, truncated),
           shouldLoadTranscripts
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
             : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",

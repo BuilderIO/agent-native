@@ -32,7 +32,7 @@ function threadIdFromPath(pathname: string): string | null {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
-  } catch {
+    } catch { // coercion-ok: localStorage is optional browser persistence.
     return null;
   }
 }
@@ -40,6 +40,7 @@ function threadIdFromPath(pathname: string): string | null {
 function viewForPath(pathname: string): string {
   if (isChatPath(pathname)) return "chat";
   if (pathname.startsWith("/database")) return "database";
+  if (pathname.startsWith("/automations")) return "automations";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
   if (pathname.startsWith("/agent")) return "agent";
@@ -55,6 +56,8 @@ function pathForView(view?: string): string {
       return "/";
     case "database":
       return "/database";
+    case "automations":
+      return "/automations";
     case "extensions":
       return "/extensions";
     case "observability":

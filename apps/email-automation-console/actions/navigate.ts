@@ -8,7 +8,7 @@
  *   pnpm action navigate --path=/some/route
  *
  * Options:
- *   --view   View name to navigate to
+ *   --view   View name to navigate to (chat, automations, database, ...)
  *   --path   URL path to navigate to
  *   --threadId Chat thread ID to open on the chat route
  */

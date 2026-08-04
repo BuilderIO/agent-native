@@ -56,6 +56,15 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
   Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md` before
   building agent-driven UI or "AI" features.
 
+## Agent Surface
+
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right `AgentSidebar` for contextual AI and open it when a
+  domain button hands work to the agent.
+- Keep the first viewport focused: one primary action, progressive disclosure,
+  concise copy, and domain-specific navigation. Never use sparkle, wand,
+  magic, or robot icons as AI affordances.
+
 ## Workspace Resources
 
 - The Workspace files view is for user-authored or user-requested resources

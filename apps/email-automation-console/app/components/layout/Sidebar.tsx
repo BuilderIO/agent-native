@@ -16,6 +16,7 @@ import {
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconMailFast,
   IconMessageCircle,
   IconSearch,
   IconSettings,
@@ -33,6 +34,12 @@ import { APP_TITLE } from "@/lib/app-config";
 import { cn } from "@/lib/utils";
 
 const navItems = [
+  {
+    icon: IconMailFast,
+    labelKey: "navigation.automations",
+    href: "/automations",
+    view: "automations",
+  },
   {
     icon: IconMessageCircle,
     labelKey: "navigation.chat",
@@ -96,7 +103,7 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
 function persistedActiveThreadId() {
   try {
     return localStorage.getItem(CHAT_ACTIVE_THREAD_KEY);
-  } catch {
+  } catch { // coercion-ok: localStorage is optional browser persistence.
     return null;
   }
 }
@@ -104,7 +111,7 @@ function persistedActiveThreadId() {
 function persistActiveThreadId(threadId: string) {
   try {
     localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
-  } catch {}
+  } catch {} // coercion-ok: localStorage is optional browser persistence.
 }
 
 function threadIdFromPath(pathname: string) {
@@ -113,7 +120,7 @@ function threadIdFromPath(pathname: string) {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
-  } catch {
+  } catch { // coercion-ok: malformed route input has no usable thread id.
     return null;
   }
 }

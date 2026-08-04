@@ -274,8 +274,8 @@ function getCollectionDescriptor(node: LeafResourceNode): string {
       "Scheduled job"
     );
   }
-  if (node.kind === "mcp-server") return "MCP server";
-  if (node.kind === "mcp-builtin") return "Built-in MCP";
+  if (node.kind === "mcp-server") return "Agent integration";
+  if (node.kind === "mcp-builtin") return "Built-in agent tool";
   return formatResourceSize(node.resource.size);
 }
 

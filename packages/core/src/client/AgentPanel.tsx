@@ -108,6 +108,7 @@ import type {
   MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
 import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
+import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
@@ -131,10 +132,11 @@ function settingsRouteHashForSection(section?: string | null): string {
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
     normalized === "integrations" ||
+    normalized === "connections" ||
     normalized === "email" ||
     normalized === "browser"
   ) {
-    return "#connections";
+    return "#integrations";
   }
   if (
     normalized === "account" ||
@@ -782,6 +784,9 @@ function AgentPanelInner({
   const t = useT();
   const navigate = useNavigate();
   const mounted = useClientOnly();
+  const onboardingPreviewMode = useOnboardingPreviewMode();
+  const showFirstRunOnboarding =
+    SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
   const insideAgentSidebar = React.useContext(AgentSidebarOnboardingContext);
   const feedbackEnabled =
     resolveFeedbackUrl(undefined, mounted ? undefined : null) !== null;
@@ -1992,7 +1997,7 @@ function AgentPanelInner({
         </Suspense>
       )}
 
-      {SHOW_FIRST_RUN_ONBOARDING && mounted && !insideAgentSidebar && (
+      {showFirstRunOnboarding && mounted && !insideAgentSidebar && (
         <Suspense fallback={null}>
           <FirstRunOnboarding />
         </Suspense>
@@ -2865,6 +2870,9 @@ export function AgentSidebar({
   threadUrlSync,
   agentPageHref,
 }: AgentSidebarProps) {
+  const onboardingPreviewMode = useOnboardingPreviewMode();
+  const showFirstRunOnboarding =
+    SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
     () =>
@@ -3432,7 +3440,7 @@ export function AgentSidebar({
   return (
     <AgentSidebarOnboardingContext.Provider value>
       <RealtimeVoiceModeProvider browserTabId={browserTabId}>
-        {SHOW_FIRST_RUN_ONBOARDING && (
+        {showFirstRunOnboarding && (
           <Suspense fallback={null}>
             <FirstRunOnboarding />
           </Suspense>

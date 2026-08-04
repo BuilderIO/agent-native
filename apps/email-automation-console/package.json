@@ -18,16 +18,17 @@
     "@agent-native/toolkit": "^0.12.2",
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",
+    "@react-router/dev": "8.1.0",
+    "@react-router/fs-routes": "8.1.0",
     "@tabler/icons-react": "^3.41.1",
+    "drizzle-orm": "^0.45.2",
     "h3": "^2.0.1-rc.20",
     "isbot": "^5",
     "node-pty": "^1.1.0",
-    "zod": "^4.4.3",
     "postgres": "^3.4.9",
-    "@react-router/dev": "8.1.0",
-    "@react-router/fs-routes": "8.1.0",
     "react-router": "8.1.0",
-    "vite": "8.1.0"
+    "vite": "8.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
@@ -90,6 +91,13 @@
   "engines": {
     "node": ">=22.22.0"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild",
+      "node-pty"
+    ]
+  },
   "agent-native": {
     "scaffold": {
       "template": "chat",
@@ -99,12 +107,5 @@
       "coreVersion": "0.137.1",
       "shape": "standalone"
     }
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild",
-      "node-pty"
-    ]
   }
 }

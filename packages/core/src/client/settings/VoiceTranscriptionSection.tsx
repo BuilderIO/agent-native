@@ -10,7 +10,7 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import { Switch } from "@agent-native/toolkit/design-system";
+import { Picker, Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
@@ -23,6 +23,12 @@ import {
 import React, { useCallback, useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { SettingsRow } from "./SettingsRow.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -118,7 +124,9 @@ function batchProvider(provider: Provider | null): Provider {
   return provider;
 }
 
-export function VoiceTranscriptionSection() {
+export function VoiceTranscriptionSection({
+  compact = false,
+}: { compact?: boolean } = {}) {
   const [transcriptionMode, setTranscriptionMode] =
     useState<TranscriptionMode | null>(null);
   const [provider, setProvider] = useState<Provider>(DEFAULT_BATCH_PROVIDER);
@@ -367,6 +375,51 @@ export function VoiceTranscriptionSection() {
         <IconLoader2 size={10} className="animate-spin" />
         Loading…
       </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <SettingsRow
+        label="Voice transcription"
+        description="Choose how voice input is transcribed."
+        control={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Picker
+              mode="select"
+              options={[
+                { value: "mac-native", label: "Mac Native" },
+                { value: "google-realtime", label: "Google Realtime" },
+                { value: "batch", label: "Batch" },
+              ]}
+              value={transcriptionMode}
+              onChange={(next) => {
+                const value = String(next ?? "");
+                if (isTranscriptionMode(value)) chooseSource(value);
+              }}
+              aria-label="Voice transcription"
+              className="w-44 text-start"
+            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/40"
+                >
+                  Manage
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                sideOffset={6}
+                className="max-h-[min(680px,calc(100vh-2rem))] w-[min(520px,calc(100vw-2rem))] overflow-y-auto p-4"
+              >
+                <VoiceTranscriptionSection />
+              </PopoverContent>
+            </Popover>
+          </div>
+        }
+      />
     );
   }
 

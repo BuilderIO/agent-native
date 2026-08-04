@@ -1,5 +1,6 @@
 import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
+  IconArrowLeft,
   IconArrowUpRight,
   IconHistory,
   IconSearch,
@@ -133,6 +134,9 @@ function normalizeTabId(value?: string | null): string | null {
   if (normalized === "workspace" || normalized === "workspace-settings") {
     return "workspace";
   }
+  if (normalized === "connections") {
+    return "integrations";
+  }
   return normalized;
 }
 
@@ -198,7 +202,7 @@ export function SettingsTabsPage({
   teamLabel = "Team",
   whatsNewLabel = "What's new",
   ariaLabel = "Settings sections",
-  defaultTab = "general",
+  defaultTab = "integrations",
   className,
   navClassName,
   contentClassName,
@@ -287,6 +291,12 @@ export function SettingsTabsPage({
     }
     return groups;
   }, [tabs]);
+  const tabGroupLabels: Record<string, string> = {
+    app: "Personal",
+    integrations: "Integrations",
+    workspace: "Workspace",
+    agent: "Agent",
+  };
   const isControlled = value !== undefined;
   const [internalTab, setInternalTab] = useState(() =>
     activeTabFromHash(tabs, fallbackTab),
@@ -469,12 +479,19 @@ export function SettingsTabsPage({
     >
       <div
         className={cn(
-          "flex shrink-0 flex-col gap-2 bg-background p-2 sm:min-h-0 sm:w-56 sm:overflow-y-auto sm:p-3",
+          "flex shrink-0 flex-col gap-2 bg-background p-2 sm:min-h-0 sm:w-60 sm:overflow-y-auto sm:p-4",
           navClassName,
         )}
       >
+        <a
+          href="/"
+          className="flex min-h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          <IconArrowLeft className="size-4 shrink-0 rtl:-scale-x-100" />
+          <span>Back to app</span>
+        </a>
         {enableSearch ? (
-          <div className="relative sm:mb-1">
+          <div className="relative sm:mb-2">
             <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               ref={searchInputRef}
@@ -603,6 +620,9 @@ export function SettingsTabsPage({
                 )}
               >
                 <div className="contents sm:flex sm:flex-col sm:gap-1">
+                  <div className="hidden px-3 pb-1 pt-1 text-[11px] font-medium text-muted-foreground sm:block">
+                    {tabGroupLabels[group.id] ?? group.id}
+                  </div>
                   {group.tabs.map((tab) => {
                     const Icon = tab.icon;
                     const selected = tab.id === selectedTab?.id;
@@ -679,7 +699,7 @@ export function SettingsTabsPage({
         role="tabpanel"
         aria-labelledby={`settings-tab-${selectedTab?.id ?? "general"}`}
         className={cn(
-          "min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-8 lg:p-10",
           contentClassName,
         )}
       >

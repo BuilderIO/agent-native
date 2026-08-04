@@ -14,7 +14,7 @@ describe("ConnectionsSettingsContent", () => {
     document.body.innerHTML = "";
   });
 
-  it("places the Builder connection card above the existing settings sections", () => {
+  it("leads with the integrations gallery before setup sections", () => {
     const content = ConnectionsSettingsContent({
       settingsPanelProps: {
         isDevMode: false,
@@ -26,10 +26,10 @@ describe("ConnectionsSettingsContent", () => {
       React.ReactElement<Record<string, unknown>>
     >;
 
-    expect(content.props.className).toContain("max-w-2xl");
+    expect(content.props.className).toContain("w-full");
     expect(children).toHaveLength(3);
-    expect(children[0]?.type).toBe(BuilderConnectCard);
-    expect(children[0]?.props.trackingSource).toBe("settings_connections");
+    expect(children[1]?.type).toBe(BuilderConnectCard);
+    expect(children[1]?.props.trackingSource).toBe("settings_connections");
     expect(children[2]?.props.surface).toBe("page");
     expect(children[2]?.props.showCapabilityStrip).toBe(false);
     expect(children[2]?.props.builderConnectionOwnedExternally).toBe(true);
@@ -59,6 +59,34 @@ describe("ConnectionsSettingsContent", () => {
                 message: "Builder callback could not save credentials",
                 at: Date.now(),
               },
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.includes("/_agent-native/usage")) {
+          return new Response(
+            JSON.stringify({
+              billing: {
+                unit: "usd",
+                label: "Estimated spend",
+                shortLabel: "Cost",
+                source: "estimated-provider-cost",
+              },
+              totalCost: {
+                status: "known",
+                knownCents: 0,
+                unavailableCalls: 0,
+              },
+              totalCalls: 0,
+              totalInputTokens: 0,
+              totalOutputTokens: 0,
+              totalCacheReadTokens: 0,
+              totalCacheWriteTokens: 0,
+              byLabel: [],
+              byModel: [],
+              byApp: [],
+              byDay: [],
+              recent: [],
             }),
             { headers: { "Content-Type": "application/json" } },
           );
@@ -93,9 +121,7 @@ describe("ConnectionsSettingsContent", () => {
     expect(container.textContent).toContain(
       "Builder callback could not save credentials",
     );
-    expect(container.querySelector('a[href="/agent#connections"]')).not.toBe(
-      null,
-    );
+    expect(container.querySelector('a[href="/agent#connections"]')).toBe(null);
 
     act(() => root.unmount());
   });
@@ -118,6 +144,34 @@ describe("ConnectionsSettingsContent", () => {
               apiHost: "https://api.builder.io",
               publicKeyConfigured: false,
               privateKeyConfigured: false,
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.includes("/_agent-native/usage")) {
+          return new Response(
+            JSON.stringify({
+              billing: {
+                unit: "usd",
+                label: "Estimated spend",
+                shortLabel: "Cost",
+                source: "estimated-provider-cost",
+              },
+              totalCost: {
+                status: "known",
+                knownCents: 0,
+                unavailableCalls: 0,
+              },
+              totalCalls: 0,
+              totalInputTokens: 0,
+              totalOutputTokens: 0,
+              totalCacheReadTokens: 0,
+              totalCacheWriteTokens: 0,
+              byLabel: [],
+              byModel: [],
+              byApp: [],
+              byDay: [],
+              recent: [],
             }),
             { headers: { "Content-Type": "application/json" } },
           );

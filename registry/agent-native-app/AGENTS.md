@@ -18,6 +18,11 @@ the agent can use.
   one, stop and write a `defineAction` instead.
 - All AI work goes through the agent chat. Do not call LLMs directly from UI
   components.
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right AgentSidebar for contextual AI and open it when a
+  domain button hands work to the agent. Keep the first viewport sparse with
+  progressive disclosure; never use sparkle, wand, magic, or robot icons as AI
+  affordances.
 - Application state belongs in SQL `application_state` so the agent can know the
   current route, selection, and focused object.
 - Keep UIs in sync through `useDbSync()` and `/_agent-native/poll`.

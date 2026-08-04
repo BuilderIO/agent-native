@@ -51,6 +51,24 @@ workflow needs durable UI around the conversation.
 - `view-screen` is the first tool to call when the user's visible context
   matters.
 
+## Email Automation Console
+
+The `/automations` view is the MVP workflow for iterating on a scheduled daily
+digest. It keeps the recurring schedule separate from manual tests and stores
+each preview run in SQL.
+
+| Action | Use |
+| --- | --- |
+| `get-email-automation` | Read the signed-in user's digest configuration. |
+| `update-email-automation` | Patch the name, recipient, prompt, or schedule. |
+| `run-email-automation-test` | Create a durable preview immediately; it explicitly sends no email. |
+| `list-email-automation-runs` | Inspect recent preview runs and status fields. |
+
+The UI's **Run test now** button saves the current draft, creates a preview,
+and sends the run id to the shared agent chat for review. Do not describe a
+preview as delivered. A real delivery action should remain behind explicit
+human approval when this app gains a provider connection.
+
 ## Framework Docs Lookup
 
 - Before implementing or explaining non-trivial Agent Native behavior, use the

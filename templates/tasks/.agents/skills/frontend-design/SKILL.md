@@ -115,6 +115,43 @@ passed this requirement yet.
 - Keep UI optimistic where possible: update cache and navigation immediately, then reconcile or roll back on mutation result.
 - Custom styles belong in Tailwind classes, component CSS, or the existing global CSS theme file; avoid inline styles.
 
+### Agent Surface And Page Boundaries
+
+- Treat the domain UI and the agent as two coordinated surfaces. The domain
+  page should make the repeatable job fast; the agent should handle judgment,
+  exploration, and actions that benefit from conversation.
+- Keep domain work on a named domain route such as `/automations`, `/block`, or
+  `/workflow`. Preserve the starter's full-page chat route (`/` or `/chat/*`)
+  when it exists; do not replace it with a domain form while leaving the shell
+  configured as if it were chat.
+- Use the persistent right `AgentSidebar` for contextual AI. A button that
+  sends work to `sendToAgentChat` must open or focus that sidebar and leave the
+  user on the current domain surface. Use full-page chat for chat-first work,
+  not as a hidden transport for a domain button.
+- Keep the left navigation domain-specific. A page called Automations,
+  Block time, or Create deck should not be nested under a generic Chat item;
+  Chat is its own destination and the right rail is the contextual assistant.
+- Never use sparkle, wand, magic, robot, or similar decorative AI icons. Use a
+  familiar message, assistant, or neutral action icon, and let the button copy
+  explain the intent. An icon-only control needs a tooltip and accessible name.
+
+### Product Surface Review
+
+Before shipping a new app or a substantial redesign, review the first viewport
+as an operator would use it repeatedly:
+
+- Show one clear job title, the current state, and one primary next action.
+- Put optional inputs, provider choices, diagnostics, long explanations, and
+  secondary actions behind a disclosure, a later step, a menu, or the agent
+  sidebar. Do not put multiple unrelated forms side by side by default.
+- Prefer a short step flow or a focused page per domain job over one giant
+  dashboard. A route can have several states, but it should reveal one state
+  at a time and preserve the user's progress.
+- Remove generic hero copy, feature tours, repeated helper text, nested cards,
+  status-chip soup, and decorative AI treatment before adding more styling.
+- Check the result at the target desktop width and a narrow width. If the first
+  viewport feels like documentation instead of a tool, subtract again.
+
 ## shadcn/ui Design Rules
 
 - Use built-in component variants first (`variant`, `size`) before overriding classes.

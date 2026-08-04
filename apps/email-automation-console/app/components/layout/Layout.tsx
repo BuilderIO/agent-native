@@ -81,7 +81,7 @@ export function Layout({ children }: LayoutProps) {
     try {
       const stored = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
       if (stored !== null) setSidebarCollapsed(stored === "1");
-    } catch {
+    } catch { // coercion-ok: localStorage is optional browser persistence.
       // Ignore storage access errors; the default collapsed state still works.
     }
   }, []);
@@ -92,7 +92,7 @@ export function Layout({ children }: LayoutProps) {
         SIDEBAR_COLLAPSE_KEY,
         sidebarCollapsed ? "1" : "0",
       );
-    } catch {
+    } catch { // coercion-ok: localStorage is optional browser persistence.
       // Ignore storage access errors.
     }
   }, [sidebarCollapsed]);

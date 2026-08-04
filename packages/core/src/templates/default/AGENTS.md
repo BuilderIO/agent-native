@@ -25,6 +25,12 @@ cross-cutting work and `self-modifying-code` when changing app source.
 - Keep database code provider-agnostic and migrations additive. Do not use
   adapter-only database methods or production schema push commands.
 - All AI work goes through the agent chat. UIs do not call model providers.
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right AgentSidebar for contextual AI and open it when a
+  domain button hands work to the agent.
+- Keep the first viewport focused: one primary action, progressive disclosure,
+  concise copy, and no generic Chat label for a domain page. Never use sparkle,
+  wand, magic, or robot icons as AI affordances.
 - Keep application state in SQL so the agent can read navigation, selection,
   and focused-object context.
 - Never hardcode keys, tokens, webhook URLs, private data, or credential-like
