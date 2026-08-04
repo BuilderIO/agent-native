@@ -85,41 +85,34 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     id: "core-architecture",
     titleKey: "coreArchitecture",
     items: [
-      { id: "server", labelKey: "server", slug: "server" },
       {
         id: "server-section",
         labelKey: "server",
-        draft: true,
         children: [
           {
             id: "server-overview",
             labelKey: "serverOverview",
             slug: "server-overview",
-            draft: true,
           },
           {
             id: "server-database",
             labelKey: "database",
             slug: "server-database",
-            draft: true,
           },
           {
             id: "server-middleware",
             labelKey: "serverMiddleware",
             slug: "server-middleware",
-            draft: true,
           },
           {
             id: "server-plugins",
             labelKey: "serverPlugins",
             slug: "server-plugins",
-            draft: true,
           },
           {
             id: "server-routes",
             labelKey: "serverRoutes",
             slug: "server-routes",
-            draft: true,
           },
         ],
       },
