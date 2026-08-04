@@ -570,8 +570,8 @@ export function VoiceTranscriptionSection() {
               title="Builder.io Connect"
               subtitle={
                 builderStatus?.configured
-                  ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and cleanup."
-                  : "One-click connect for Gemini Flash-Lite cleanup and batch transcription. No Google key needed."
+                  ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and Luna for text cleanup."
+                  : "One-click connect for Gemini Flash-Lite transcription and Luna text cleanup. No Google key needed."
               }
               rightSlot={
                 builderStatus?.configured ? (

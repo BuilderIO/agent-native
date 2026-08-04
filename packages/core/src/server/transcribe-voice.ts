@@ -64,6 +64,7 @@ const MAX_TRANSCRIPT_CHARS = 150_000;
 // Public Builder transcription model id. The Builder gateway maps this to
 // Gemini 3.1 Flash-Lite.
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
+const BUILDER_CLEANUP_MODEL = "gpt-5-6-luna";
 
 // Gemini Flash Lite BYOK path when GEMINI_API_KEY is configured.
 // Gemini accepts inline audio; we just give it the bytes and a "transcribe
@@ -629,7 +630,15 @@ async function cleanupTranscriptText({
     }
     try {
       const cleaned = await withRequestContext(() =>
-        cleanupWithBuilder({ text: original, instructions, clientAbortSignal }),
+        cleanupWithBuilder({
+          text: original,
+          instructions,
+          clientAbortSignal,
+          model:
+            providerPref === "builder-gemini"
+              ? BUILDER_GEMINI_TRANSCRIPTION_MODEL
+              : undefined,
+        }),
       );
       return { text: finalizeText(cleaned || original) };
     } catch (err) {
@@ -703,6 +712,22 @@ async function cleanupTranscriptText({
     }
   }
 
+  const openaiKey = await resolveApiKey("OPENAI_API_KEY");
+  if (openaiKey) {
+    try {
+      const cleaned = await cleanupWithChatProvider({
+        provider: "openai",
+        text: original,
+        apiKey: openaiKey,
+        instructions,
+        clientAbortSignal,
+      });
+      if (cleaned) return { text: finalizeText(cleaned) };
+    } catch {
+      // Fall through.
+    }
+  }
+
   const geminiKey = await resolveApiKey("GEMINI_API_KEY");
   if (geminiKey) {
     try {
@@ -734,22 +759,6 @@ async function cleanupTranscriptText({
     }
   }
 
-  const openaiKey = await resolveApiKey("OPENAI_API_KEY");
-  if (openaiKey) {
-    try {
-      const cleaned = await cleanupWithChatProvider({
-        provider: "openai",
-        text: original,
-        apiKey: openaiKey,
-        instructions,
-        clientAbortSignal,
-      });
-      if (cleaned) return { text: finalizeText(cleaned) };
-    } catch {
-      // Fall through.
-    }
-  }
-
   return { text: finalizeText(original) };
 }
 
@@ -757,10 +766,12 @@ async function cleanupWithBuilder({
   text,
   instructions,
   clientAbortSignal,
+  model,
 }: {
   text: string;
   instructions?: string;
   clientAbortSignal?: AbortSignal;
+  model?: string;
 }): Promise<string> {
   const engine = createBuilderEngine();
   const controller = new AbortController();
@@ -770,7 +781,7 @@ async function cleanupWithBuilder({
   let terminalError: string | undefined;
   try {
     for await (const event of engine.stream({
-      model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+      model: model ?? BUILDER_CLEANUP_MODEL,
       systemPrompt: buildCleanupSystemPrompt(instructions),
       messages: [
         {

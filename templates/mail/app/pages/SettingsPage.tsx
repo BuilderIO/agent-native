@@ -906,7 +906,7 @@ function AutomationsSection() {
           { method: "GET" },
         );
       } catch {
-        return { engine: "anthropic", model: defaultModel };
+        return { model: defaultModel };
       }
     },
     staleTime: 30_000,

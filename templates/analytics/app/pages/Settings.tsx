@@ -1,4 +1,8 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
@@ -10,8 +14,9 @@ import {
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
 import { IconBell } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,8 +27,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 import changelog from "../../CHANGELOG.md?raw";
+import {
+  ANALYTICS_USER_PREFS_KEY,
+  type AnalyticsUserPrefs,
+} from "../../shared/analytics-user-prefs";
 import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
 import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
@@ -33,6 +43,47 @@ export default function Settings() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   const replayStorageStatus = useReplayStorageStatus();
+  const { data: analyticsPrefs, isLoading: analyticsPrefsLoading } =
+    useActionQuery<AnalyticsUserPrefs>("get-user-pref", {
+      key: ANALYTICS_USER_PREFS_KEY,
+    });
+  const saveAnalyticsPrefs = useActionMutation<
+    { success: boolean },
+    { key: string; value: Record<string, unknown> }
+  >("set-user-pref");
+  const [errorEmailEnabledOverride, setErrorEmailEnabledOverride] = useState<
+    boolean | null
+  >(null);
+
+  useEffect(() => {
+    if (analyticsPrefs) {
+      setErrorEmailEnabledOverride(
+        analyticsPrefs.errorEmailNotifications === true,
+      );
+    }
+  }, [analyticsPrefs]);
+
+  const errorEmailEnabled =
+    errorEmailEnabledOverride ??
+    analyticsPrefs?.errorEmailNotifications === true;
+
+  const saveErrorEmailPreference = (enabled: boolean) => {
+    const previous = errorEmailEnabled;
+    setErrorEmailEnabledOverride(enabled);
+    void saveAnalyticsPrefs
+      .mutateAsync({
+        key: ANALYTICS_USER_PREFS_KEY,
+        value: { errorEmailNotifications: enabled },
+      })
+      .catch((error) => {
+        setErrorEmailEnabledOverride(previous);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("settings.errorEmailNotificationsSaveFailed"),
+        );
+      });
+  };
 
   const extraTabs = useMemo<SettingsTabItem[]>(
     () => [
@@ -102,6 +153,21 @@ export default function Settings() {
                 <div className="w-56">
                   <LanguagePicker label={t("settings.languageLabel")} />
                 </div>
+              }
+            />
+            <SettingsRow
+              id="error-email-notifications"
+              label={t("settings.errorEmailNotifications")}
+              description={t("settings.errorEmailNotificationsDescription")}
+              control={
+                <Switch
+                  aria-label={t("settings.errorEmailNotifications")}
+                  checked={errorEmailEnabled}
+                  disabled={
+                    analyticsPrefsLoading || saveAnalyticsPrefs.isPending
+                  }
+                  onCheckedChange={saveErrorEmailPreference}
+                />
               }
             />
           </SettingsGroup>

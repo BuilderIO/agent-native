@@ -18,7 +18,6 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { UNKNOWN_AGENT_LABEL } from "../lib/agent-views.js";
 import {
   computeMonthlyRecap,
   listOwnersWithMonthlyAudience,
@@ -949,11 +948,7 @@ async function makeSendInput(
           completedPct: recap.topClip.completedPct,
           dropOffMs: recap.topClip.dropOffMs,
           agentBreakdown: recap.topClip.agentBreakdown.map((entry) => ({
-            // "Agent" is the agent-views fallback label, not a product name.
-            agentLabel:
-              entry.agentLabel === UNKNOWN_AGENT_LABEL
-                ? null
-                : entry.agentLabel,
+            agentLabel: entry.agentLabel,
             sessions: entry.sessions,
           })),
         },
@@ -1024,11 +1019,7 @@ async function makeSendInput(
       to: recipient,
       recordingId: recordings[0].id,
       title: recordings[0].title,
-      // "Agent" is the agent-views fallback label, not a product name.
-      agentName:
-        firstAgentView.agentLabel === UNKNOWN_AGENT_LABEL
-          ? null
-          : firstAgentView.agentLabel,
+      agentName: firstAgentView.agentLabel,
     };
   }
 

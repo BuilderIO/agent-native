@@ -12,7 +12,6 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { UNKNOWN_AGENT_LABEL } from "./agent-views.js";
 import { ownerEmailMatches } from "./recordings.js";
 
 export interface RecapMonthRange {
@@ -22,7 +21,8 @@ export interface RecapMonthRange {
 }
 
 export interface RecapAgentBreakdownEntry {
-  agentLabel: string;
+  /** Null when the reader could not be identified. */
+  agentLabel: string | null;
   sessions: number;
 }
 
@@ -168,7 +168,7 @@ async function agentBreakdown(
     .groupBy(schema.recordingAgentViews.agentLabel)
     .orderBy(desc(sql`count(*)`), asc(schema.recordingAgentViews.agentLabel));
   return rows.map((row) => ({
-    agentLabel: row.agentLabel || UNKNOWN_AGENT_LABEL,
+    agentLabel: row.agentLabel || null,
     sessions: Number(row.sessions),
   }));
 }

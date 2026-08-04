@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getDbMock = vi.hoisted(() => vi.fn());
 const recordChangeMock = vi.hoisted(() => vi.fn());
 const notifyWithDeliveryMock = vi.hoisted(() => vi.fn(async () => undefined));
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -23,6 +24,12 @@ vi.mock("@agent-native/core/notifications", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@agent-native/core/notifications")>();
   return { ...actual, notifyWithDelivery: notifyWithDeliveryMock };
+});
+
+vi.mock("@agent-native/core/settings", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/settings")>();
+  return { ...actual, getUserSetting: getUserSettingMock };
 });
 
 import { schema } from "../db/index.js";
@@ -548,6 +555,8 @@ describe("ingestException", () => {
     getDbMock.mockReturnValue(db);
     recordChangeMock.mockReset();
     notifyWithDeliveryMock.mockClear();
+    getUserSettingMock.mockReset();
+    getUserSettingMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -580,6 +589,28 @@ describe("ingestException", () => {
     );
     // A brand new issue raises a best-effort notification.
     expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ channels: ["inbox"] }),
+      expect.anything(),
+    );
+  });
+
+  it("sends error email only when the owner opts in", async () => {
+    getUserSettingMock.mockResolvedValue({
+      errorEmailNotifications: true,
+    });
+
+    await ingestException(SCOPE, baseRaw(), derivedFor());
+
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: ["inbox", "email"],
+        metadata: expect.objectContaining({
+          emailRecipients: [SCOPE.ownerEmail],
+        }),
+      }),
+      expect.anything(),
+    );
   });
 
   it("bumps counts and first/last seen on repeat occurrences (same fingerprint)", async () => {
@@ -862,6 +893,8 @@ describe("matchErrorIssuesBySignatures", () => {
     getDbMock.mockReturnValue(db);
     recordChangeMock.mockReset();
     notifyWithDeliveryMock.mockClear();
+    getUserSettingMock.mockReset();
+    getUserSettingMock.mockResolvedValue(null);
   });
 
   afterEach(() => {

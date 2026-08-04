@@ -755,7 +755,7 @@ describe("transactional email worker", () => {
           {
             id: "agent-view-unknown",
             recordingId: clip.id,
-            agentLabel: "Agent",
+            agentLabel: null,
             firstSeenAt: "2026-08-01T00:00:00.000Z",
           },
         ],

@@ -29,9 +29,11 @@
  *     the actionable-today half of the loop — the agent can read and fix
  *     these findings without needing to "see" anything.
  *
- * Requires a real headless Chromium. Local dev has Playwright's browsers
- * installed (`playwright install chromium`, same as the design e2e suite);
- * hosted/serverless deploys (Netlify Functions) do not bundle a Chromium
+ * Requires a real headless Chromium. Local dev needs Playwright's headless
+ * shell (`playwright install --only-shell chromium`); plain
+ * `install chromium` also downloads the full headed browser — several hundred
+ * MB more disk, needed only by `pnpm e2e:headed`/`e2e:ui`, never by this
+ * action. Hosted/serverless deploys (Netlify Functions) do not bundle a Chromium
  * binary, so this action detects that failure and returns a structured,
  * model-actionable `{ ok: false, reason }` telling the agent to fall back to
  * `run-design-audit` instead of surfacing a raw stack trace.

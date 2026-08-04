@@ -14,6 +14,8 @@ import {
 import { resolveAnalyticsGongCredentials } from "./provider-credentials";
 
 const DEFAULT_API_BASE = "https://api.gong.io/v2";
+const MAX_GONG_SEARCH_PAGES = 50;
+const MAX_GONG_EXHAUSTIVE_RECORDS = 500;
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -541,6 +543,7 @@ export async function searchCallsForQueries(
   const matches = new Map<string, GongCall & { matchedQueries?: string[] }>();
   let searchedCallCount = 0;
   let cursor: string | undefined;
+  let pages = 0;
   do {
     const data = await apiPost<{
       calls?: unknown[];
@@ -553,12 +556,23 @@ export async function searchCallsForQueries(
       contentSelector: { exposedFields: { parties: true } },
       ...(cursor ? { cursor } : {}),
     });
+    pages += 1;
+    if (
+      options.exhaustive &&
+      typeof data.records?.totalRecords === "number" &&
+      data.records.totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive search found ${data.records.totalRecords.toLocaleString()} records in the requested window. ` +
+          "Use provider-corpus-job with staged call IDs for searches larger than 500 records so progress is checkpointed between batches.",
+      );
+    }
     const calls = (data.calls ?? [])
       .map(normalizeExtensiveCall)
       .filter((call): call is GongCall => Boolean(call))
       .filter(isExternalCall);
     searchedCallCount += calls.length;
-    cursor = data.records?.cursor;
+    const nextCursor = data.records?.cursor;
 
     for (const call of calls) {
       const parties = call.parties ?? [];
@@ -573,7 +587,16 @@ export async function searchCallsForQueries(
       }
       if (!options.exhaustive && matches.size >= normalizedLimit) break;
     }
-  } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (
+    cursor &&
+    pages < MAX_GONG_SEARCH_PAGES &&
+    (options.exhaustive || matches.size < normalizedLimit)
+  );
 
   const matchedCalls = Array.from(matches.values());
   return buildGongSearchResult(matchedCalls, normalizedLimit, {
@@ -611,11 +634,11 @@ export function buildGongSearchResult(
     return {
       calls: sorted,
       limit: sorted.length,
-      truncated: false,
+      truncated: Boolean(meta.cursor),
       searchedCallCount: meta.searchedCallCount,
       matchedCallCount: matchedCalls.length,
       queryCount: meta.queryCount,
-      coverageTruncated: false,
+      coverageTruncated: Boolean(meta.cursor),
     };
   }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);
