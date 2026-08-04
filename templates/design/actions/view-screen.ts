@@ -28,6 +28,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readDesignTemplateSource } from "../server/lib/design-template-data.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
@@ -331,6 +332,36 @@ export default defineAction({
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
+        try {
+          const templateSource = readDesignTemplateSource(data);
+          if (templateSource) {
+            (screen.design as Record<string, unknown>).createdFromTemplate = {
+              templateId: templateSource.templateId,
+              title: templateSource.title,
+              category: templateSource.category,
+              instantiatedAt: templateSource.instantiatedAt,
+              designSystemId: templateSource.appliedDesignSystemId,
+              lockedDimensions: templateSource.files.map((file) => ({
+                designFileId: file.designFileId,
+                filename: file.filename,
+                width: file.width,
+                height: file.height,
+              })),
+              lockedFonts: templateSource.fonts,
+              note:
+                "The screens below are edited copies of this template, so their current content no longer shows what the template specified. " +
+                "The dimensions and fonts above come from the template and stay authoritative for every request, including this one: keep each screen at exactly those dimensions and keep those font families. " +
+                "Do not resize the artboard, change canvasFrames width or height, switch the primary viewport, or substitute a typeface to fit new content. " +
+                `Refine with edit-design; do not call generate-design. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,
+            };
+          }
+        } catch (error) {
+          (screen.design as Record<string, unknown>).createdFromTemplate = {
+            unreadable:
+              error instanceof Error ? error.message : "unknown parse failure",
+            note: "This design claims a template that could not be read. Ask the user which template it came from instead of editing dimensions or typography.",
+          };
+        }
         const proposalPrefix = `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:`;
         const pendingPrefix = `${DESIGN_REPROMPT_PENDING_STATE_PREFIX}${designId}:`;
         const [proposalEntries, pendingEntries] = await Promise.all([

@@ -42,6 +42,9 @@ ladder.
 - Resolve templates or prior designs with `list-design-templates` and
   `list-designs`, copy with `create-design-from-template`, then inspect and
   adapt copied files with `get-design-snapshot` and `edit-design`.
+- Copied template screens are edited in place. Preserve
+  `createdFromTemplate.lockedDimensions`/`lockedFonts` from `view-screen` in
+  every edit; `get-design-template` returns the original.
 
 ## Core Rules
 
