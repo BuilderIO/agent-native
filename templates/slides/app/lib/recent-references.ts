@@ -28,8 +28,10 @@ function isRecentReference(value: unknown): value is RecentReference {
 }
 
 export function readRecentReferences(
-  storage: Pick<Storage, "getItem"> | null | undefined =
-    typeof window === "undefined" ? null : window.localStorage,
+  storage: Pick<Storage, "getItem"> | null | undefined = typeof window ===
+  "undefined"
+    ? null
+    : window.localStorage,
 ): RecentReferencesResult {
   if (!storage) return { items: [], readable: true };
 
@@ -56,8 +58,10 @@ export function readRecentReferences(
 
 export function rememberRecentReference(
   reference: Omit<RecentReference, "lastUsedAt">,
-  storage: Pick<Storage, "getItem" | "setItem"> | null | undefined =
-    typeof window === "undefined" ? null : window.localStorage,
+  storage:
+    | Pick<Storage, "getItem" | "setItem">
+    | null
+    | undefined = typeof window === "undefined" ? null : window.localStorage,
 ): RecentReferencesResult {
   const current = readRecentReferences(storage);
   if (!storage || !current.readable) return current;
