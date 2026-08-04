@@ -55,6 +55,11 @@ export async function failLoomImport(
   failureReason: string,
   claimId?: string,
 ): Promise<LoomImportJobResult> {
+  console.error("[loom-import] failed", {
+    recordingId,
+    claimId,
+    failureReason,
+  });
   const now = new Date().toISOString();
   const [updated] = await getDb()
     .update(schema.recordings)
@@ -140,9 +145,16 @@ export async function runLoomImportJob({
     );
   }
 
+  console.log("[loom-import] job started", { recordingId, claimId, loomId });
+
   let media: Awaited<ReturnType<typeof downloadLoomVideo>>;
   try {
     media = await downloadLoomVideo({ loomId, shareUrl });
+    console.log("[loom-import] download complete", {
+      recordingId,
+      bytes: media.sizeBytes,
+      mimeType: media.mimeType,
+    });
   } catch (err) {
     return failLoomImport(
       recordingId,
@@ -167,6 +179,10 @@ export async function runLoomImportJob({
         claimId,
       );
     }
+    console.log("[loom-import] reupload complete", {
+      recordingId,
+      videoUrl: upload.url,
+    });
 
     const now = new Date().toISOString();
     const [mediaReady] = await db
@@ -187,11 +203,15 @@ export async function runLoomImportJob({
       )
       .returning({ id: schema.recordings.id });
     if (!mediaReady) {
-      return {
-        status: "failed",
-        failureReason: "The Loom import lease was lost before media was saved.",
-      };
+      const failureReason =
+        "The Loom import lease was lost before media was saved.";
+      console.warn("[loom-import] lease lost before ready", {
+        recordingId,
+        claimId,
+      });
+      return { status: "failed", failureReason };
     }
+    console.log("[loom-import] recording ready", { recordingId });
 
     void queueBuilderMediaCompression({
       recordingId,

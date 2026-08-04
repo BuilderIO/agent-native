@@ -387,10 +387,17 @@ export default defineAction({
       await writeAppState("navigate", { view: "recording", recordingId: id });
 
       try {
+        console.log("[import-loom-recording] dispatching loom-import job", {
+          recordingId: id,
+          sourceUrl,
+        });
         await dispatchPostFinalizeJob({
           recordingId: id,
           kind: "loom-import",
           requireAccepted: true,
+        });
+        console.log("[import-loom-recording] loom-import job accepted", {
+          recordingId: id,
         });
       } catch (err) {
         const failureReason = `Could not start the Loom import: ${
