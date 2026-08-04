@@ -6,6 +6,7 @@ import type { ElementInfo } from "@/components/design/types";
 import {
   countGridTracks,
   declaredFlexOrder,
+  hasExplicitGridPlacement,
   DEFAULT_NUDGE_AMOUNTS,
   describeFlowContainer,
   escapesFlow,
@@ -118,6 +119,15 @@ describe("countGridTracks", () => {
 
   it("multiplies nested repeat groups", () => {
     expect(countGridTracks("repeat(2, 1fr 2fr)")).toBe(4);
+  });
+
+  it("returns null for auto-fit and auto-fill rather than guessing one track", () => {
+    expect(countGridTracks("repeat(auto-fit, minmax(200px, 1fr))")).toBeNull();
+    expect(countGridTracks("repeat(auto-fill, minmax(12rem, 1fr))")).toBeNull();
+  });
+
+  it("returns null when any part of the template is unresolved", () => {
+    expect(countGridTracks("200px repeat(auto-fit, 1fr)")).toBeNull();
   });
 
   it("returns null for none/empty", () => {
@@ -375,6 +385,23 @@ describe("declaredFlexOrder", () => {
   });
 });
 
+describe("hasExplicitGridPlacement", () => {
+  it("detects grid placement from styles and utilities", () => {
+    expect(
+      hasExplicitGridPlacement({ style: { "grid-column": "1 / 3" } }),
+    ).toBe(true);
+    expect(
+      hasExplicitGridPlacement({ style: {}, classes: ["col-span-2"] }),
+    ).toBe(true);
+  });
+
+  it("is false for an auto-placed child", () => {
+    expect(hasExplicitGridPlacement({ style: {}, classes: ["p-4"] })).toBe(
+      false,
+    );
+  });
+});
+
 describe("DEFAULT_NUDGE_AMOUNTS", () => {
   it("matches Figma's 1px / 10px defaults", () => {
     expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 10 });
@@ -603,6 +630,44 @@ describe("resolveElementNudgeIntent", () => {
         largeStep: false,
       }),
     ).toMatchObject({ kind: "reorder" });
+  });
+
+  it("does nothing when the rendered order comes from a stylesheet", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" style="display:flex">
+        <div data-agent-native-node-id="alpha" class="promoted">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    const selected = elementInfoFor("alpha");
+    (selected as { computedStyles: Record<string, string> }).computedStyles = {
+      order: "2",
+    };
+    expect(
+      resolveElementNudgeIntent({
+        content,
+        selectedElement: selected,
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("does nothing for an explicitly placed grid item", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid grid-cols-2">
+        <div data-agent-native-node-id="a" style="grid-column:1 / 3">A</div>
+        <div data-agent-native-node-id="b">B</div>
+      </section>
+    </body></html>`;
+    expect(
+      resolveElementNudgeIntent({
+        content,
+        selectedElement: elementInfoFor("a"),
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toEqual({ kind: "none" });
   });
 
   it("translates when there is no authored source to reorder against", () => {

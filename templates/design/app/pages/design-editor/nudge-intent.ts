@@ -83,15 +83,22 @@ export function countGridTracks(value: string | undefined): number | null {
   let count = 0;
   let depth = 0;
   let token = "";
+  let unresolved = false;
   const flush = () => {
     const item = token.trim();
     token = "";
     if (!item) return;
-    const repeat = /^repeat\(\s*(\d+)\s*,(.*)\)$/is.exec(item);
+    const repeat = /^repeat\(\s*([^,]+?)\s*,(.*)\)$/is.exec(item);
     if (repeat) {
       const times = Number.parseInt(repeat[1]!, 10);
-      const inner = countGridTracks(repeat[2]) ?? 1;
-      count += Number.isSafeInteger(times) && times > 0 ? times * inner : 1;
+      // `auto-fit`/`auto-fill` resolve against the container's width, so the
+      // track count is only knowable from layout. Counting the repeat as one
+      // track would make a cross-axis arrow move one sibling, not one row.
+      if (!Number.isSafeInteger(times) || times <= 0) {
+        unresolved = true;
+        return;
+      }
+      count += times * (countGridTracks(repeat[2]) ?? 1);
       return;
     }
     count += 1;
@@ -106,6 +113,7 @@ export function countGridTracks(value: string | undefined): number | null {
     token += char;
   }
   flush();
+  if (unresolved) return null;
   return count > 0 ? count : null;
 }
 
@@ -202,6 +210,39 @@ function gridTemplateFromUtilities(
 /** A declared flex/grid `order`, or null when the child leaves it at the
  * default. Tailwind's `order-first`/`order-last` map to the sentinels the
  * utility generates. */
+const GRID_PLACEMENT_PROPERTIES = [
+  "grid-row",
+  "grid-column",
+  "grid-area",
+  "grid-row-start",
+  "grid-column-start",
+];
+
+const GRID_PLACEMENT_UTILITY_PREFIXES = [
+  "col-span-",
+  "row-span-",
+  "col-start-",
+  "row-start-",
+  "col-end-",
+  "row-end-",
+];
+
+/** Explicit grid placement opts a child out of auto-placement, so moving it in
+ * the DOM leaves it in the same cell. */
+export function hasExplicitGridPlacement(
+  source: FlowContainerStyleSource,
+): boolean {
+  if (GRID_PLACEMENT_PROPERTIES.some((property) => source.style?.[property])) {
+    return true;
+  }
+  for (const token of utilitySet(source.classes)) {
+    if (GRID_PLACEMENT_UTILITY_PREFIXES.some((p) => token.startsWith(p))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function declaredFlexOrder(
   source: FlowContainerStyleSource,
 ): number | null {
@@ -387,15 +428,17 @@ export function resolveElementNudgeIntent(
     args.selectedElement.computedStyles?.position;
 
   const container = describeFlowContainer(parent);
-  // Flex/grid paint children in `order` sequence, so a DOM move cannot change
-  // where a child with a declared order appears. Reordering here would write
-  // a source change that produces no visible movement.
+  // Flex/grid paint children by `order` and explicit grid placement, not DOM
+  // position, so moving the node would write a source change that produces no
+  // visible movement.
   if (
     container.kind !== "none" &&
     siblingIds.some((id) => {
       const sibling = projection.nodes.find((candidate) => candidate.id === id);
-      const order = sibling ? declaredFlexOrder(sibling) : null;
-      return order !== null && order !== 0;
+      if (!sibling) return false;
+      const order = declaredFlexOrder(sibling);
+      if (order !== null && order !== 0) return true;
+      return container.kind === "grid" && hasExplicitGridPlacement(sibling);
     })
   ) {
     return { kind: "none" };
@@ -408,6 +451,18 @@ export function resolveElementNudgeIntent(
     container.kind === "none" &&
     !escapesFlow(position) &&
     isRenderedFlowDisplay(args.selectedElement.parentDisplay)
+  ) {
+    return { kind: "none" };
+  }
+
+  // Rendered `order` from the bridge sees stylesheet rules that the authored
+  // styles above cannot.
+  const renderedOrder = args.selectedElement.computedStyles?.order;
+  if (
+    container.kind !== "none" &&
+    renderedOrder !== undefined &&
+    renderedOrder !== "" &&
+    renderedOrder !== "0"
   ) {
     return { kind: "none" };
   }
