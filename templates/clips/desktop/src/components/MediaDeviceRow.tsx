@@ -104,7 +104,6 @@ export function MediaDeviceRow({
   const { open, setOpen, rowRef } = useRowMenu();
 
   const disabled = !on;
-  const canOpenMenu = !disabled || (kind === "mic" && !!onSystemAudioToggle);
   const defaultLabel = kind === "camera" ? "Default camera" : "Default mic";
   const accessLabel =
     kind === "camera" ? "Allow camera access" : "Allow microphone access";
@@ -119,10 +118,8 @@ export function MediaDeviceRow({
       <button
         type="button"
         className="row-button"
-        onClick={() => {
-          if (canOpenMenu) setOpen((v) => !v);
-        }}
-        disabled={!canOpenMenu}
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
         title={label}
       >
         <span className="row-label">{label}</span>
