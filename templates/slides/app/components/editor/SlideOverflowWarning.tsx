@@ -35,10 +35,8 @@ export function SlideOverflowWarning({
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
     >
-      {/* The only colored element left: without it the row reads as a note
-          rather than a warning. */}
       <IconAlertTriangle
-        className="h-3.5 w-3.5 flex-shrink-0 text-amber-400"
+        className="h-3.5 w-3.5 flex-shrink-0 text-foreground"
         stroke={2}
       />
       <span className="leading-tight">
