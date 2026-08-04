@@ -171,6 +171,9 @@ export function useOnboarding(
       return;
     }
     setFirstRun(false);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
+    }
     await fetchAll();
   }, [fetchAll]);
 
