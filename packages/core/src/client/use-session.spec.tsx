@@ -29,6 +29,11 @@ function SessionConsumers({ labels }: { labels: string[] }) {
   return labels.map((label) => <SessionConsumer key={label} label={label} />);
 }
 
+function StatusConsumer() {
+  const { status } = useSession();
+  return <div data-testid="status">{status}</div>;
+}
+
 async function renderConsumers(labels: string[]) {
   await act(async () => {
     root.render(<SessionConsumers labels={labels} />);
@@ -142,6 +147,27 @@ describe("useSession", () => {
     expect(container.textContent).toBe("retry@example.com");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledOnce();
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
+  });
+
+  it("stops retrying and reports unavailable when the endpoint keeps failing", async () => {
+    vi.useFakeTimers();
+    const failingFetch = vi.fn(async () => new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", failingFetch);
+
+    await act(async () => {
+      root.render(<StatusConsumer />);
+      await Promise.resolve();
+    });
+    expect(container.textContent).toBe("loading");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(container.textContent).toBe("unavailable");
+    expect(failingFetch).toHaveBeenCalledTimes(4);
+    // An unreadable endpoint must never be reported as a signed-out visitor.
+    expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
   });
 
   it("caches a definitive unauthenticated response", async () => {

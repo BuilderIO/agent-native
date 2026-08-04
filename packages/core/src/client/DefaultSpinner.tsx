@@ -10,6 +10,21 @@
  * is indistinguishable from a blank screen, and reads as "the app is broken"
  * rather than "look at the terminal" — that mis-read is what this text buys.
  */
+
+/**
+ * Production wording wins whenever the build mode is unreadable: core is often
+ * consumed as prebuilt dist, where the Vite env is absent. A hosted visitor has
+ * no dev-server terminal, so pointing them at one is worse than saying less.
+ */
+function stallHint(): string {
+  const env = import.meta.env as Record<string, unknown> | undefined;
+  const isDev = env?.DEV === true || env?.MODE === "development";
+  if (isDev) {
+    return "Still loading. A first run compiles dependencies and can take a minute — if it does not finish, check the terminal running the dev server for errors.";
+  }
+  return "Still loading. This is taking longer than usual — try reloading the page, and let us know if it keeps happening.";
+}
+
 export function DefaultSpinner() {
   return (
     <div
@@ -38,11 +53,7 @@ export function DefaultSpinner() {
       >
         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
       </svg>
-      <p className="an-stall-hint">
-        Still loading. A first run compiles dependencies and can take a minute —
-        if it does not finish, check the terminal running the dev server for
-        errors.
-      </p>
+      <p className="an-stall-hint">{stallHint()}</p>
       <style>{`
         @keyframes an-spin { to { transform: rotate(360deg) } }
         @keyframes an-stall-in { to { opacity: 0.6 } }
