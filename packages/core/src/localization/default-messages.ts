@@ -66,6 +66,11 @@ const messages = {
     scopeLabel: "Scope",
     scopePersonal: "Personal",
     scopeWorkspace: "Workspace",
+    testStoredValue: "Test",
+    candidateValueWorking: "New value works",
+    storedValueWorking: "Working",
+    invalid: "Invalid",
+    testFailed: "Test failed",
     scopePersonalDescription:
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
