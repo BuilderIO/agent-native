@@ -1226,7 +1226,7 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
-        const { subject, html, text, appSender } = renderResetPasswordEmail({
+        const { subject, html, text } = renderResetPasswordEmail({
           email: user.email,
           resetUrl,
         });
@@ -1235,7 +1235,6 @@ async function createBetterAuthInstance(
           subject,
           html,
           text,
-          appSender,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
         });
       },

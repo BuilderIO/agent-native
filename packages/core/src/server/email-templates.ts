@@ -200,8 +200,5 @@ export function renderResetPasswordEmail(
     subject: `Reset your ${brand} password`,
     html,
     text,
-    appSender: slug
-      ? { name: brand, slug, replyTo: AGENT_NATIVE_REPLY_TO }
-      : undefined,
   };
 }

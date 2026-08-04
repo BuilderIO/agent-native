@@ -78,9 +78,9 @@ export function registerCoreSystemEmails(): void {
     recipientLabel: "Account address",
     recipient:
       "The account address the reset was requested for, never an address supplied in the request body.",
-    senderLabel: "Default, app-branded",
+    senderLabel: "Configured no-reply",
     sender:
-      "The configured EMAIL_FROM, branded with the app name the reset was requested from.",
+      "The configured EMAIL_FROM with no Reply-To override. First-party deployments use noreply@agent-native.com.",
     preview: () =>
       renderResetPasswordEmail({
         email: SAMPLE_EMAIL,

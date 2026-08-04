@@ -1,6 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { renderVerifySignupEmail } from "./email-templates";
+import {
+  renderResetPasswordEmail,
+  renderVerifySignupEmail,
+} from "./email-templates";
+
+describe("renderResetPasswordEmail", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps app branding in the content without overriding the sender", () => {
+    vi.stubEnv("APP_NAME", "calendar");
+
+    const rendered = renderResetPasswordEmail({
+      email: "reader@example.com",
+      resetUrl: "https://example.com/reset?token=abc",
+    });
+
+    expect(rendered.subject).toBe("Reset your calendar password");
+    expect(rendered.appSender).toBeUndefined();
+  });
+});
 
 describe("renderVerifySignupEmail", () => {
   afterEach(() => {
