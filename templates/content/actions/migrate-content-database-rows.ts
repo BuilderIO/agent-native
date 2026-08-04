@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { isLocalDatabase, isPostgres } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -81,6 +82,24 @@ async function lockCurrentDatabaseMemberships(tx: any, databaseId: string) {
   );
 }
 
+async function flushMigrationDocuments(rows: Array<{ documentId: string }>) {
+  const accesses = await Promise.all(
+    rows.map((row) => assertAccess("document", row.documentId, "editor")),
+  );
+  const flushes = await Promise.allSettled(
+    rows.map((row, index) =>
+      flushOpenDocumentEditorToSql({
+        documentId: row.documentId,
+        ownerEmail: accesses[index]?.resource.ownerEmail,
+      }),
+    ),
+  );
+  const failed = flushes.find(
+    (flush): flush is PromiseRejectedResult => flush.status === "rejected",
+  );
+  if (failed) throw failed.reason;
+}
+
 export default defineAction({
   description:
     "Atomically migrate every active row in one ordinary Content database without attached Sources: validates an exact bounded plan, snapshots bodies, writes only new safe properties, and supports guarded rollback or legacy-property finalization.",
@@ -104,6 +123,8 @@ export default defineAction({
       args.phase === "apply" || args.phase === "validate"
         ? args.plan.databaseId
         : args.databaseId;
+    const localDatabase = isLocalDatabase();
+    const flushUnderDurableLock = isPostgres() && !localDatabase;
     return withContentDatabaseMutationLock(databaseId, async () => {
       const [database] = await db
         .select()
@@ -151,21 +172,17 @@ export default defineAction({
           validatePlan(
             args.plan,
             await snapshotMigration(tx, args.plan.databaseId),
-            { checkTimestamps: false },
           );
           return null;
         });
         if (replay) return replay;
-        for (const row of args.plan.rows) {
-          const access = await assertAccess(
-            "document",
-            row.documentId,
-            "editor",
+        if (!localDatabase && !flushUnderDurableLock) {
+          throw new Error(
+            "Database row migration requires PostgreSQL or a local SQLite/PGlite database so live editor saves can be serialized safely.",
           );
-          await flushOpenDocumentEditorToSql({
-            documentId: row.documentId,
-            ownerEmail: access.resource.ownerEmail,
-          });
+        }
+        if (!flushUnderDurableLock) {
+          await flushMigrationDocuments(args.plan.rows);
         }
       }
       if (args.phase === "rollback") {
@@ -213,16 +230,13 @@ export default defineAction({
           };
         });
         if (preflight.replay) return preflight.replay;
-        for (const prior of preflight.versions) {
-          const access = await assertAccess(
-            "document",
-            prior.documentId,
-            "editor",
+        if (!localDatabase && !flushUnderDurableLock) {
+          throw new Error(
+            "Database row migration requires PostgreSQL or a local SQLite/PGlite database so live editor saves can be serialized safely.",
           );
-          await flushOpenDocumentEditorToSql({
-            documentId: prior.documentId,
-            ownerEmail: access.resource.ownerEmail,
-          });
+        }
+        if (!flushUnderDurableLock) {
+          await flushMigrationDocuments(preflight.versions);
         }
       }
       if (args.phase === "verify" || args.phase === "finalize") {
@@ -340,6 +354,16 @@ export default defineAction({
                   "Applied migration has drifted; replay is refused.",
                 );
               return receiptResult(existing, true);
+            }
+            // A separate server can run the same migration while an editor is
+            // saving. Keep the durable database lock across the flush so that
+            // save is part of the state reloaded and validated by this writer.
+            if (flushUnderDurableLock) {
+              validatePlan(
+                args.plan,
+                await snapshotMigration(tx, args.plan.databaseId),
+              );
+              await flushMigrationDocuments(args.plan.rows);
             }
           }
           const snapshot = await snapshotMigration(tx, args.plan.databaseId);
@@ -623,6 +647,11 @@ export default defineAction({
           throw new Error(
             "Expected post-migration digest does not match receipt.",
           );
+        if (args.phase === "rollback" && flushUnderDurableLock) {
+          await flushMigrationDocuments(
+            parseJson(receipt.rollbackJson).versions ?? [],
+          );
+        }
         const current = await snapshotMigration(tx, args.databaseId);
         if (snapshotDigest(current) !== receipt.postDigest)
           throw new Error(

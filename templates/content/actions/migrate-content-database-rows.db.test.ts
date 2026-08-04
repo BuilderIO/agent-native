@@ -2,14 +2,51 @@ import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import * as coreDb from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+const durableLock = vi.hoisted(() => ({ entered: false }));
+const flushOpenDocumentEditorToSql = vi.hoisted(() => vi.fn());
+
+vi.mock("./_document-flush.js", () => ({
+  flushOpenDocumentEditorToSql,
+}));
+
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...original,
+    lockContentDatabaseMutation: async (
+      ...args: Parameters<typeof original.lockContentDatabaseMutation>
+    ) => {
+      durableLock.entered = true;
+      return original.lockContentDatabaseMutation(...args);
+    },
+  };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-database-row-migration-${process.pid}-${Date.now()}.sqlite`,
 );
+const PGLITE_DB_PATH = `${TEST_DB_PATH}.pglite`;
+const TEST_DATABASE_URL =
+  process.env.CONTENT_MIGRATION_TEST_BACKEND === "pglite"
+    ? `pglite:${PGLITE_DB_PATH}`
+    : `file:${TEST_DB_PATH}`;
 const OWNER = "synthetic-migration-owner@example.test";
 const OUTSIDER = "synthetic-migration-outsider@example.test";
 let getDb: () => any;
@@ -21,7 +58,7 @@ let serializeMigrationValue: typeof import("./_content-database-row-migration.js
 const now = () => new Date().toISOString();
 
 beforeAll(async () => {
-  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
+  process.env.DATABASE_URL = TEST_DATABASE_URL;
   const database = await import("../server/db/index.js");
   getDb = database.getDb;
   schema = database.schema;
@@ -34,11 +71,24 @@ beforeAll(async () => {
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
 
+beforeEach(() => {
+  vi.restoreAllMocks();
+  durableLock.entered = false;
+  flushOpenDocumentEditorToSql.mockReset();
+  flushOpenDocumentEditorToSql.mockResolvedValue(undefined);
+});
+
 afterAll(() => {
-  for (const suffix of ["", "-wal", "-shm"])
-    rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
-  for (const suffix of ["", "-wal", "-shm"])
-    expect(existsSync(`${TEST_DB_PATH}${suffix}`)).toBe(false);
+  if (TEST_DATABASE_URL.startsWith("file:")) {
+    for (const suffix of ["", "-wal", "-shm"])
+      rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
+    for (const suffix of ["", "-wal", "-shm"])
+      expect(existsSync(`${TEST_DB_PATH}${suffix}`)).toBe(false);
+  }
+  if (TEST_DATABASE_URL.startsWith("pglite:")) {
+    rmSync(PGLITE_DB_PATH, { force: true, recursive: true });
+    expect(existsSync(PGLITE_DB_PATH)).toBe(false);
+  }
 });
 
 async function fixture(rowCount = 20) {
@@ -335,6 +385,141 @@ async function readDurableMigrationState(
 }
 
 describe("migrate-content-database-rows", () => {
+  it.each(["apply", "rollback"] as const)(
+    "flushes local editor state before acquiring the durable lock during %s",
+    async (phase) => {
+      const seed = await fixture(1);
+      const input = plan(seed);
+      const applied =
+        phase === "rollback"
+          ? await runWithRequestContext({ userEmail: OWNER }, () =>
+              action.run({ phase: "apply", plan: input }),
+            )
+          : null;
+      durableLock.entered = false;
+      flushOpenDocumentEditorToSql.mockClear();
+      flushOpenDocumentEditorToSql.mockImplementation(async () => {
+        expect(durableLock.entered).toBe(false);
+      });
+
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        phase === "apply"
+          ? action.run({ phase: "apply", plan: input })
+          : action.run({
+              phase: "rollback",
+              databaseId: seed.databaseId,
+              idempotencyKey: input.idempotencyKey,
+              expectedPostDigest: applied!.postDigest,
+            }),
+      );
+
+      expect(flushOpenDocumentEditorToSql).toHaveBeenCalledOnce();
+      expect(durableLock.entered).toBe(true);
+    },
+  );
+
+  it("rejects a local editor change on the post-flush reload", async () => {
+    const seed = await fixture(1);
+    const input = plan(seed);
+    flushOpenDocumentEditorToSql.mockImplementationOnce(
+      async ({ documentId }: { documentId: string }) => {
+        await getDb()
+          .update(schema.documents)
+          .set({
+            content: "# Saved during flush",
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          })
+          .where(eq(schema.documents.id, documentId));
+      },
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      ),
+    ).rejects.toThrow("Stale row");
+    expect(durableLock.entered).toBe(true);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseMigrationReceipts)
+        .where(
+          eq(
+            schema.contentDatabaseMigrationReceipts.databaseId,
+            seed.databaseId,
+          ),
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("drains every local editor flush before reporting a failure", async () => {
+    const seed = await fixture(2);
+    const input = plan(seed);
+    let releaseSecond = () => {};
+    const secondReleased = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    let secondEntered = () => {};
+    const secondStarted = new Promise<void>((resolve) => {
+      secondEntered = resolve;
+    });
+    flushOpenDocumentEditorToSql
+      .mockRejectedValueOnce(new Error("Synthetic flush failure"))
+      .mockImplementationOnce(async () => {
+        secondEntered();
+        await secondReleased;
+      });
+
+    let settled = false;
+    const operation = runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    ).finally(() => {
+      settled = true;
+    });
+    await secondStarted;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(settled).toBe(false);
+    expect(durableLock.entered).toBe(false);
+    releaseSecond();
+    await expect(operation).rejects.toThrow("Synthetic flush failure");
+  });
+
+  it("fails closed on shared SQLite before flushing but permits a terminal replay", async () => {
+    const seed = await fixture(1);
+    const input = plan(seed);
+    const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
+      action.run({ phase: "apply", plan: input }),
+    );
+    const beforeReplay = await readDurableMigrationState(seed);
+    const localSpy = vi.spyOn(coreDb, "isLocalDatabase").mockReturnValue(false);
+    const postgresSpy = vi.spyOn(coreDb, "isPostgres").mockReturnValue(false);
+    try {
+      flushOpenDocumentEditorToSql.mockClear();
+      const replayed = await runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: input }),
+      );
+      expect(replayed).toMatchObject({
+        receiptId: applied.receiptId,
+        replayed: true,
+      });
+      expect(flushOpenDocumentEditorToSql).not.toHaveBeenCalled();
+      expect(await readDurableMigrationState(seed)).toEqual(beforeReplay);
+
+      const fresh = await fixture(1);
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase: "apply", plan: plan(fresh) }),
+        ),
+      ).rejects.toThrow(
+        "requires PostgreSQL or a local SQLite/PGlite database",
+      );
+      expect(flushOpenDocumentEditorToSql).not.toHaveBeenCalled();
+    } finally {
+      localSpy.mockRestore();
+      postgresSpy.mockRestore();
+    }
+  });
+
   it("validates without writes, applies all 20 synthetic rows, and replays without versions", async () => {
     const seed = await fixture();
     const input = plan(seed);
@@ -343,7 +528,17 @@ describe("migrate-content-database-rows", () => {
       action.run({ phase: "validate", plan: input }),
     );
     expect(validated).toMatchObject({ written: 0, counts: { rows: 20 } });
-    expect(await db.select().from(schema.documentVersions)).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          inArray(
+            schema.documentVersions.documentId,
+            seed.rows.map((row: any) => row.documentId),
+          ),
+        ),
+    ).toHaveLength(0);
     const applied = await runWithRequestContext({ userEmail: OWNER }, () =>
       action.run({ phase: "apply", plan: input }),
     );
@@ -516,65 +711,69 @@ describe("migrate-content-database-rows", () => {
     ).toHaveLength(0);
   });
 
-  it("rejects same-key changed plans and rolls all writes back on an abort trigger", async () => {
-    const seed = await fixture();
-    const input: any = structuredClone(plan(seed));
-    const db = getDb();
-    const before = await readFixtureState(seed);
-    await db.run(
-      sql.raw(
-        `CREATE TRIGGER synthetic_migration_abort BEFORE UPDATE ON documents WHEN NEW.id = '${seed.rows[8].documentId}' BEGIN SELECT RAISE(ABORT, 'synthetic migration abort'); END`,
-      ),
-    );
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({ phase: "apply", plan: input }),
-      ),
-    ).rejects.toThrow("synthetic migration abort");
-    expect(await readFixtureState(seed)).toEqual(before);
-    expect(
-      await db
-        .select()
-        .from(schema.documentVersions)
-        .where(
-          inArray(
-            schema.documentVersions.documentId,
-            seed.rows.map((row: any) => row.documentId),
+  it.skipIf(TEST_DATABASE_URL.startsWith("pglite:"))(
+    "rejects same-key changed plans and rolls all writes back on an abort trigger",
+    async () => {
+      const seed = await fixture();
+      const input: any = structuredClone(plan(seed));
+      const db = getDb();
+      const before = await readFixtureState(seed);
+      await db.run(
+        sql.raw(
+          `CREATE TRIGGER synthetic_migration_abort BEFORE UPDATE ON documents WHEN NEW.id = '${seed.rows[8].documentId}' BEGIN SELECT RAISE(ABORT, 'synthetic migration abort'); END`,
+        ),
+      );
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase: "apply", plan: input }),
+        ),
+      ).rejects.toThrow("synthetic migration abort");
+      expect(await readFixtureState(seed)).toEqual(before);
+      expect(
+        await db
+          .select()
+          .from(schema.documentVersions)
+          .where(
+            inArray(
+              schema.documentVersions.documentId,
+              seed.rows.map((row: any) => row.documentId),
+            ),
           ),
-        ),
-    ).toHaveLength(0);
-    expect(
-      await db
-        .select()
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          eq(schema.documentPropertyDefinitions.databaseId, seed.databaseId),
-        ),
-    ).toHaveLength(3);
-    expect(
-      await db
-        .select()
-        .from(schema.contentDatabaseMigrationReceipts)
-        .where(
-          eq(
-            schema.contentDatabaseMigrationReceipts.databaseId,
-            seed.databaseId,
+      ).toHaveLength(0);
+      expect(
+        await db
+          .select()
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            eq(schema.documentPropertyDefinitions.databaseId, seed.databaseId),
           ),
+      ).toHaveLength(3);
+      expect(
+        await db
+          .select()
+          .from(schema.contentDatabaseMigrationReceipts)
+          .where(
+            eq(
+              schema.contentDatabaseMigrationReceipts.databaseId,
+              seed.databaseId,
+            ),
+          ),
+      ).toHaveLength(0);
+      await db.run(sql`DROP TRIGGER synthetic_migration_abort`);
+      const applied: any = await runWithRequestContext(
+        { userEmail: OWNER },
+        () => action.run({ phase: "apply", plan: input }),
+      );
+      const changed = structuredClone(input);
+      changed.rows[0].content = "# Different synthetic body";
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase: "apply", plan: changed }),
         ),
-    ).toHaveLength(0);
-    await db.run(sql`DROP TRIGGER synthetic_migration_abort`);
-    const applied: any = await runWithRequestContext({ userEmail: OWNER }, () =>
-      action.run({ phase: "apply", plan: input }),
-    );
-    const changed = structuredClone(input);
-    changed.rows[0].content = "# Different synthetic body";
-    await expect(
-      runWithRequestContext({ userEmail: OWNER }, () =>
-        action.run({ phase: "apply", plan: changed }),
-      ),
-    ).rejects.toThrow("different migration plan");
-    expect(applied.state).toBe("applied");
-  });
+      ).rejects.toThrow("different migration plan");
+      expect(applied.state).toBe("applied");
+    },
+  );
 
   it("serializes simultaneous same-key applies into one commit and one replay", async () => {
     const seed = await fixture();

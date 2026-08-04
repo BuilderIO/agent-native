@@ -11,6 +11,7 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { renumberDatabaseRows } from "./_database-row-batch.js";
 
 const DELETE_BATCH_SIZE = 90;
@@ -101,6 +102,25 @@ async function selectDatabaseItemDocuments(
   return ownedRows.map((row) => ({ documentId: row.id }));
 }
 
+async function selectMembershipsForDocuments(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+) {
+  const rows: Array<{ id: string; databaseId: string }> = [];
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          databaseId: schema.contentDatabaseItems.databaseId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.documentId, batch))),
+    );
+  }
+  return rows;
+}
+
 async function collectDocumentSubtreeForDelete(
   db: ReturnType<typeof getDb>,
   rootId: string,
@@ -160,17 +180,87 @@ async function collectDocumentSubtreeForDelete(
   };
 }
 
+async function lockDatabasesForPermanentDelete(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownedDatabaseIds: string[],
+) {
+  const directMemberships = await selectMembershipsForDocuments(
+    db,
+    documentIds,
+  );
+  const lockedDatabaseIds = [
+    ...new Set([
+      ...ownedDatabaseIds,
+      ...directMemberships.map((membership) => membership.databaseId),
+    ]),
+  ].sort();
+  for (const databaseId of lockedDatabaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+  const ownedMembershipIds = (
+    await Promise.all(
+      [...ownedDatabaseIds]
+        .sort()
+        .map((databaseId) =>
+          db
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.databaseId, databaseId)),
+        ),
+    )
+  )
+    .flat()
+    .map((membership) => membership.id);
+  await lockDatabaseMemberships(db, [
+    ...ownedMembershipIds,
+    ...directMemberships.map((membership) => membership.id),
+  ]);
+}
+
+export async function lockDatabasesForTrash(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+) {
+  const subtree = await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  const memberships = await selectMembershipsForDocuments(
+    db,
+    subtree.documentIds,
+  );
+  const databaseIds = [
+    ...new Set([
+      ...memberships.map((membership) => membership.databaseId),
+      ...subtree.ownedDatabaseIds,
+    ]),
+  ].sort();
+  for (const databaseId of databaseIds) {
+    await lockContentDatabaseMutation(db, databaseId);
+  }
+  return new Set(databaseIds);
+}
+
 export async function trashDocumentSubtree(
   db: ReturnType<typeof getDb>,
   id: string,
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
+  lockedDatabaseIds?: ReadonlySet<string>,
 ): Promise<string[]> {
-  const { documentIds } = await collectDocumentSubtreeForDelete(
-    db,
-    id,
-    ownerEmail,
-  );
+  const { documentIds, ownedDatabaseIds } =
+    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  if (lockedDatabaseIds) {
+    const memberships = await selectMembershipsForDocuments(db, documentIds);
+    const unlockedDatabaseId = [
+      ...new Set([
+        ...ownedDatabaseIds,
+        ...memberships.map((membership) => membership.databaseId),
+      ]),
+    ].find((databaseId) => !lockedDatabaseIds.has(databaseId));
+    if (unlockedDatabaseId) {
+      throw new Error("Document subtree changed; retry deletion.");
+    }
+  }
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
   const independentlyTrashedDatabaseDocumentIds = new Set<string>();
@@ -210,6 +300,39 @@ export async function trashDocumentSubtree(
             !independentlyTrashedDatabaseDocumentIds.has(documentId),
         ),
     );
+  }
+
+  const activeMemberships = await selectMembershipsForDocuments(
+    db,
+    activeDocumentIds,
+  );
+  const transitioningOwnedDatabases: Array<{ id: string }> = [];
+  for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
+    transitioningOwnedDatabases.push(
+      ...(await db
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            inArray(schema.contentDatabases.documentId, batch),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )),
+    );
+  }
+  const transitioningOwnedDatabaseIds = new Set(
+    transitioningOwnedDatabases.map((database) => database.id),
+  );
+  const externalDatabaseIds = [
+    ...new Set(
+      activeMemberships
+        .map((membership) => membership.databaseId)
+        .filter((databaseId) => !transitioningOwnedDatabaseIds.has(databaseId)),
+    ),
+  ].sort();
+  for (const databaseId of externalDatabaseIds) {
+    await touchContentDatabase(db, databaseId, trashedAt);
   }
 
   for (const batch of chunks(activeDocumentIds, DELETE_BATCH_SIZE)) {
@@ -322,6 +445,7 @@ export async function deleteDocumentRecursive(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+  await lockDatabasesForPermanentDelete(db, documentIds, ownedDatabaseIds);
   return deleteCollectedDocuments(
     db,
     documentIds,
@@ -464,6 +588,17 @@ async function deleteCollectedDocuments(
     await db
       .delete(schema.contentDatabases)
       .where(inArray(schema.contentDatabases.id, databaseIdBatch));
+    // Receipts deliberately have no database foreign key. Removing them after
+    // the database row closes the race with a migration that already holds the
+    // row lock and commits its receipt before this deletion can continue.
+    await db
+      .delete(schema.contentDatabaseMigrationReceipts)
+      .where(
+        inArray(
+          schema.contentDatabaseMigrationReceipts.databaseId,
+          databaseIdBatch,
+        ),
+      );
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
@@ -558,6 +693,7 @@ export async function deleteTrashedDocumentSubtree(
     documentIds,
     ownerEmail,
   ).then((rows) => rows.map((database) => database.id));
+  await lockDatabasesForPermanentDelete(db, documentIds, ownedDatabaseIds);
 
   await db
     .update(schema.documents)
@@ -647,28 +783,19 @@ export default defineAction({
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
     }
-    const memberships = await db
-      .select({ databaseId: schema.contentDatabaseItems.databaseId })
-      .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.documentId, id));
-    const databaseIds = [
-      ...new Set(memberships.map((membership) => membership.databaseId)),
-    ].sort();
     const deleted = await db.transaction(async (tx) => {
-      for (const databaseId of databaseIds)
-        await lockContentDatabaseMutation(
-          tx as unknown as ReturnType<typeof getDb>,
-          databaseId,
-        );
-      for (const databaseId of databaseIds)
-        await touchContentDatabase(
-          tx as unknown as ReturnType<typeof getDb>,
-          databaseId,
-        );
-      return trashDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
+      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+      const lockedDatabaseIds = await lockDatabasesForTrash(
+        transactionDb,
         id,
         existing.ownerEmail as string,
+      );
+      return trashDocumentSubtree(
+        transactionDb,
+        id,
+        existing.ownerEmail as string,
+        undefined,
+        lockedDatabaseIds,
       );
     });
 

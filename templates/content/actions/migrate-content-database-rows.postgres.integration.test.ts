@@ -1,6 +1,20 @@
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq, inArray, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+const flushOpenDocumentEditorToSql = vi.hoisted(() => vi.fn());
+
+vi.mock("./_document-flush.js", () => ({
+  flushOpenDocumentEditorToSql,
+}));
 
 const POSTGRES_URL = process.env.CONTENT_MIGRATION_POSTGRES_URL;
 const OWNER = "synthetic-postgres-migration-owner@example.test";
@@ -10,6 +24,10 @@ let schema: typeof import("../server/db/schema.js");
 let action: typeof import("./migrate-content-database-rows.js").default;
 let setDocumentProperty: typeof import("./set-document-property.js").default;
 let configureDocumentProperty: typeof import("./configure-document-property.js").default;
+let lockContentDatabaseMutation: typeof import("./_content-database-mutation-lock.js").lockContentDatabaseMutation;
+let deleteDocument: typeof import("./delete-document.js").default;
+let deleteContentDatabase: typeof import("./delete-content-database.js").default;
+let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -27,8 +45,21 @@ beforeAll(async () => {
   setDocumentProperty = (await import("./set-document-property.js")).default;
   configureDocumentProperty = (await import("./configure-document-property.js"))
     .default;
+  lockContentDatabaseMutation = (
+    await import("./_content-database-mutation-lock.js")
+  ).lockContentDatabaseMutation;
+  deleteDocument = (await import("./delete-document.js")).default;
+  deleteContentDatabase = (await import("./delete-content-database.js"))
+    .default;
+  permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
+    .default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
 }, 60_000);
+
+beforeEach(() => {
+  flushOpenDocumentEditorToSql.mockReset();
+  flushOpenDocumentEditorToSql.mockResolvedValue(undefined);
+});
 
 afterAll(() => {
   delete process.env.DATABASE_URL;
@@ -210,6 +241,300 @@ async function waitForPostgresLockWait(minimum: number) {
 const postgresSuite = POSTGRES_URL ? describe : describe.skip;
 
 postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
+  it("rejects stale plans before requesting an editor flush", async () => {
+    const seed = await fixture();
+    try {
+      seed.plan.rows[0]!.expectedUpdatedAt = "2025-12-31T00:00:00.000Z";
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase: "apply", plan: seed.plan }),
+        ),
+      ).rejects.toThrow("Stale row");
+      expect(flushOpenDocumentEditorToSql).not.toHaveBeenCalled();
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
+  it("revalidates an editor save before applying the migration", async () => {
+    const seed = await fixture();
+    try {
+      flushOpenDocumentEditorToSql.mockImplementationOnce(
+        async (args: { documentId: string }) => {
+          await getDb()
+            .update(schema.documents)
+            .set({
+              content: "# New live editor body",
+              updatedAt: "2026-01-01T00:00:01.000Z",
+            })
+            .where(eq(schema.documents.id, args.documentId));
+        },
+      );
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run({ phase: "apply", plan: seed.plan }),
+        ),
+      ).rejects.toThrow("Stale row");
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseMigrationReceipts)
+          .where(
+            eq(
+              schema.contentDatabaseMigrationReceipts.databaseId,
+              seed.databaseId,
+            ),
+          ),
+      ).toHaveLength(0);
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
+  it.each(["apply", "rollback"] as const)(
+    "holds the durable database lock while flushing live editors during %s",
+    async (phase) => {
+      const seed = await fixture();
+      let releaseFlush = () => {};
+      let contender: Promise<unknown> | undefined;
+      let operation: Promise<unknown> | undefined;
+      try {
+        const applied =
+          phase === "rollback"
+            ? await runWithRequestContext({ userEmail: OWNER }, () =>
+                action.run({ phase: "apply", plan: seed.plan }),
+              )
+            : null;
+        const flushReleased = new Promise<void>((resolve) => {
+          releaseFlush = resolve;
+        });
+        let flushEntered!: () => void;
+        const flushStarted = new Promise<void>((resolve) => {
+          flushEntered = resolve;
+        });
+        flushOpenDocumentEditorToSql.mockImplementationOnce(
+          async (args: { documentId: string }) => {
+            await getDb()
+              .update(schema.documents)
+              .set({ content: phase === "apply" ? "# Before" : "# Migrated" })
+              .where(eq(schema.documents.id, args.documentId));
+            flushEntered();
+            await flushReleased;
+          },
+        );
+
+        operation = runWithRequestContext({ userEmail: OWNER }, () =>
+          phase === "apply"
+            ? action.run({ phase: "apply", plan: seed.plan })
+            : action.run({
+                phase: "rollback",
+                databaseId: seed.databaseId,
+                idempotencyKey: seed.plan.idempotencyKey,
+                expectedPostDigest: applied!.postDigest,
+              }),
+        );
+        await flushStarted;
+
+        let contenderEntered = false;
+        contender = getDb().transaction(async (tx: any) => {
+          await lockContentDatabaseMutation(tx, seed.databaseId);
+          contenderEntered = true;
+        });
+        await waitForPostgresLockWait(1);
+        expect(contenderEntered).toBe(false);
+
+        releaseFlush();
+        await operation;
+        await contender;
+        expect(contenderEntered).toBe(true);
+      } finally {
+        releaseFlush();
+        await Promise.allSettled(
+          [operation, contender].filter(
+            (pending): pending is Promise<unknown> => Boolean(pending),
+          ),
+        );
+        await cleanupFixture(seed);
+      }
+    },
+    60_000,
+  );
+
+  it("removes a receipt when permanent deletion follows a migration that held the database lock", async () => {
+    const seed = await fixture();
+    const rootId = `postgres_migration_root_${seed.databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: rootId,
+      ownerEmail: OWNER,
+      spaceId: "synthetic_space",
+      title: "Synthetic parent",
+      content: "",
+      visibility: "private",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ parentId: rootId })
+      .where(eq(schema.documents.id, seed.databaseDocumentId));
+    let releaseFlush = () => {};
+    let migration: Promise<any> | undefined;
+    let trash: Promise<any> | undefined;
+    try {
+      const flushReleased = new Promise<void>((resolve) => {
+        releaseFlush = resolve;
+      });
+      let flushEntered = () => {};
+      const flushStarted = new Promise<void>((resolve) => {
+        flushEntered = resolve;
+      });
+      flushOpenDocumentEditorToSql.mockImplementationOnce(async () => {
+        flushEntered();
+        await flushReleased;
+      });
+
+      migration = runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: seed.plan }),
+      );
+      await flushStarted;
+      trash = runWithRequestContext({ userEmail: OWNER }, () =>
+        deleteDocument.run({ id: rootId }),
+      );
+      await waitForPostgresLockWait(1);
+
+      releaseFlush();
+      await migration;
+      await trash;
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        permanentlyDeleteDocument.run({ id: rootId }),
+      );
+
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseMigrationReceipts)
+          .where(
+            eq(
+              schema.contentDatabaseMigrationReceipts.databaseId,
+              seed.databaseId,
+            ),
+          ),
+      ).toHaveLength(0);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, seed.databaseId)),
+      ).toHaveLength(0);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.databaseId, seed.databaseId)),
+      ).toHaveLength(0);
+    } finally {
+      releaseFlush();
+      await Promise.allSettled(
+        [migration, trash].filter((pending): pending is Promise<unknown> =>
+          Boolean(pending),
+        ),
+      );
+      await cleanupFixture(seed);
+      await getDb()
+        .delete(schema.documents)
+        .where(eq(schema.documents.id, rootId));
+    }
+  }, 60_000);
+
+  it("fails a migration cleanly when database deletion wins the durable lock", async () => {
+    const seed = await fixture();
+    const gate = 64_058;
+    const trigger = `synthetic_delete_gate_${seed.databaseId}`;
+    const functionName = `synthetic_delete_gate_fn_${seed.databaseId}`;
+    await getDb().execute(
+      sql.raw(
+        `CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(${gate}); RETURN NEW; END; $$`,
+      ),
+    );
+    await getDb().execute(
+      sql.raw(
+        `CREATE TRIGGER ${trigger} BEFORE UPDATE ON content_databases FOR EACH ROW WHEN (OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.owner_email = '${OWNER}') EXECUTE FUNCTION ${functionName}()`,
+      ),
+    );
+    let releaseGate = () => {};
+    let gateHolder: Promise<unknown> | undefined;
+    let trash: Promise<unknown> | undefined;
+    let permanentDelete: Promise<unknown> | undefined;
+    let migrationExpectation: Promise<unknown> | undefined;
+    try {
+      const gateReleased = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+      let gateHeld = () => {};
+      const gateAcquired = new Promise<void>((resolve) => {
+        gateHeld = resolve;
+      });
+      gateHolder = getDb().transaction(async (tx: any) => {
+        await tx.execute(sql.raw(`SELECT pg_advisory_xact_lock(${gate})`));
+        gateHeld();
+        await gateReleased;
+      });
+      await gateAcquired;
+      trash = runWithRequestContext({ userEmail: OWNER }, () =>
+        deleteContentDatabase.run({ databaseId: seed.databaseId }),
+      );
+      await waitForPostgresLockWait(1);
+
+      const migration = runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run({ phase: "apply", plan: seed.plan }),
+      );
+      migrationExpectation = Promise.resolve(
+        expect(migration).rejects.toThrow("Database not found"),
+      );
+      await waitForPostgresLockWait(2);
+      releaseGate();
+      await gateHolder;
+      await trash;
+      permanentDelete = runWithRequestContext({ userEmail: OWNER }, () =>
+        permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
+      );
+      await Promise.all([migrationExpectation, permanentDelete]);
+
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseMigrationReceipts)
+          .where(
+            eq(
+              schema.contentDatabaseMigrationReceipts.databaseId,
+              seed.databaseId,
+            ),
+          ),
+      ).toHaveLength(0);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, seed.databaseId)),
+      ).toHaveLength(0);
+      expect(flushOpenDocumentEditorToSql).not.toHaveBeenCalled();
+    } finally {
+      releaseGate();
+      await Promise.allSettled(
+        [gateHolder, trash, permanentDelete, migrationExpectation].filter(
+          (pending): pending is Promise<unknown> => Boolean(pending),
+        ),
+      );
+      await getDb().execute(
+        sql.raw(`DROP TRIGGER IF EXISTS ${trigger} ON content_databases`),
+      );
+      await getDb().execute(
+        sql.raw(`DROP FUNCTION IF EXISTS ${functionName}()`),
+      );
+      await cleanupFixture(seed);
+    }
+  }, 60_000);
+
   it.each(["value", "schema"] as const)(
     "serializes a migration behind a real %s writer transaction",
     async (writer) => {

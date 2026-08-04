@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, rmdirSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,6 +26,10 @@ try {
       database_id TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE documents (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL
+    );
     INSERT INTO content_databases (id, updated_at)
       VALUES ('synthetic_pglite_database', '2026-01-01T00:00:00.000Z');
     INSERT INTO content_database_items (id, database_id, updated_at)
@@ -32,6 +38,8 @@ try {
         'synthetic_pglite_database',
         '2026-01-01T00:00:00.000Z'
       );
+    INSERT INTO documents (id, content)
+      VALUES ('synthetic_pglite_document', '# Before');
   `);
 
   const databaseLock = await client.query(`
@@ -70,6 +78,98 @@ try {
     WHERE id = 'synthetic_pglite_database'
   `);
   assert.equal(touched.rows[0]?.updated_at, "2026-01-02T00:00:00.000Z");
+
+  let releaseTransaction = () => {};
+  const transactionReleased = new Promise((resolve) => {
+    releaseTransaction = resolve;
+  });
+  let lockAcquired = () => {};
+  const transactionLocked = new Promise((resolve) => {
+    lockAcquired = resolve;
+  });
+  const transaction = client.transaction(async (tx) => {
+    await tx.query(`
+      UPDATE content_databases
+      SET updated_at = updated_at
+      WHERE id = 'synthetic_pglite_database'
+    `);
+    lockAcquired();
+    await transactionReleased;
+  });
+  await transactionLocked;
+
+  let editorWriteFinished = false;
+  const editorWrite = client
+    .query(`
+      UPDATE documents
+      SET content = '# Saved editor body'
+      WHERE id = 'synthetic_pglite_document'
+    `)
+    .then(() => {
+      editorWriteFinished = true;
+    });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(editorWriteFinished, false);
+
+  releaseTransaction();
+  await transaction;
+  await editorWrite;
+  assert.equal(editorWriteFinished, true);
 } finally {
   await client.close();
+}
+
+const scopeDirectory = join(
+  process.cwd(),
+  "packages",
+  "core",
+  "node_modules",
+  "@electric-sql",
+);
+const driverLink = join(scopeDirectory, "pglite");
+const driverPackage = join(
+  installPrefix,
+  "node_modules",
+  "@electric-sql",
+  "pglite",
+);
+const scopeExisted = existsSync(scopeDirectory);
+if (existsSync(driverLink)) {
+  throw new Error(
+    `Refusing to replace existing PGlite driver at ${driverLink}`,
+  );
+}
+mkdirSync(scopeDirectory, { recursive: true });
+symlinkSync(driverPackage, driverLink, "dir");
+try {
+  const actionSuite = spawnSync(
+    "pnpm",
+    [
+      "--filter",
+      "content",
+      "exec",
+      "vitest",
+      "--run",
+      "actions/migrate-content-database-rows.db.test.ts",
+      "--config",
+      "vitest.config.ts",
+    ],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        CONTENT_MIGRATION_TEST_BACKEND: "pglite",
+      },
+      stdio: "inherit",
+    },
+  );
+  if (actionSuite.error) throw actionSuite.error;
+  if (actionSuite.status !== 0) {
+    throw new Error(
+      `PGlite migration action suite failed with status ${actionSuite.status}.`,
+    );
+  }
+} finally {
+  rmSync(driverLink);
+  if (!scopeExisted) rmdirSync(scopeDirectory);
 }

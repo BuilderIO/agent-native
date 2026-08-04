@@ -265,7 +265,7 @@ jobs:
           --prefix "$RUNNER_TEMP/s2573-pglite"
           @electric-sql/pglite@0.5.4
 
-      - name: Run PGlite lock semantics test
+      - name: Run PGlite lock and migration action semantics tests
         run: node scripts/test-content-database-lock-pglite.mjs
         env:
           S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
