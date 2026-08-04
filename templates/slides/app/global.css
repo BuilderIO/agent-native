@@ -155,16 +155,23 @@ button[title="Open agent sidebar"] {
   background: transparent;
 }
 
-.slide-style-inspector input,
-.slide-context-toolbar input {
+.slide-style-inspector input {
   border: 0;
   border-radius: 0.125rem;
   background: var(--slides-inspector-control-background);
   box-shadow: none;
 }
 
-.slide-style-inspector input:focus,
-.slide-context-toolbar input:focus {
+/* The toolbar sits on a muted surface, so its inputs need the opposite
+   treatment to stay readable: a light box rather than a darker fill. */
+.slide-context-toolbar input {
+  border: 1px solid var(--slides-inspector-divider);
+  border-radius: 0.25rem;
+  background: hsl(var(--background));
+  box-shadow: none;
+}
+
+.slide-style-inspector input:focus {
   border: 0;
 }
 
