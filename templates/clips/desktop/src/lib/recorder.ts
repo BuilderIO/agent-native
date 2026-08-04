@@ -229,6 +229,17 @@ export interface StartParams {
    * or turns the camera off).
    */
   preAcquiredCameraStream?: MediaStream | null;
+  /**
+   * Live screen capture handed over by the session this start is replacing
+   * (see `RestartHandoff`). Present only on a restart.
+   *
+   * Ownership is the OPPOSITE of `preAcquiredCameraStream`: the popover keeps
+   * the camera, but these streams belong to the recorder, so this session
+   * stops them on its own stop/cancel exactly as if it had acquired them.
+   */
+  preAcquiredDisplayStream?: MediaStream | null;
+  /** Live microphone capture handed over on restart. See `preAcquiredDisplayStream`. */
+  preAcquiredAudioStream?: MediaStream | null;
 }
 
 const REWIND_CLIP_ORIGINS_KEY = "clips.rewindClipOrigins.v1";
@@ -286,11 +297,27 @@ export function forgetRewindClipOrigin(recordingId: string): void {
   writeRewindClipOrigins(origins);
 }
 
+export const RESTART_CAPTURE_ENDED_MESSAGE =
+  "Screen sharing ended — start a new recording.";
+
+/**
+ * Live capture streams a discarded session hands to its replacement so the
+ * retake never calls `getDisplayMedia` again — a Tauri event listener carries
+ * no user activation, so re-acquiring here would always fail.
+ */
+export interface RestartHandoff {
+  /** Null when the backend re-acquires capture natively (no user gesture needed). */
+  displayStream: MediaStream | null;
+  audioStream: MediaStream | null;
+}
+
 export interface RecorderHandle {
   /** Stop the recording and resolve once the server has finalized. */
   stop(): Promise<RecorderStopResult>;
   /** Discard the recording without saving. */
   cancel(): Promise<void>;
+  /** Discard this take but keep gesture-bound capture alive for an immediate retake. */
+  discardForRestart(): Promise<RestartHandoff>;
 }
 
 export interface RecorderStopResult {
@@ -2327,7 +2354,7 @@ function captureSuspensionReleaser(
   };
 }
 
-function recorderWithCaptureSuspension(
+export function recorderWithCaptureSuspension(
   handle: RecorderHandle,
   release: () => Promise<void>,
 ): RecorderHandle {
@@ -2337,13 +2364,22 @@ function recorderWithCaptureSuspension(
   // the suspension after the physical recorder has actually torn down.
   const stop = handle.stop.bind(handle);
   const cancel = handle.cancel.bind(handle);
+  const discardForRestart = handle.discardForRestart.bind(handle);
   let stopPromise: Promise<RecorderStopResult> | null = null;
   let cancelPromise: Promise<void> | null = null;
+  let discardPromise: Promise<RestartHandoff> | null = null;
   handle.stop = async () => {
     if (stopPromise) return stopPromise;
     if (cancelPromise) {
       await cancelPromise;
       throw new Error("Recording was already cancelled");
+    }
+    // Without this a stop racing a restart reaches the backend's `stopped`
+    // short-circuit, which answers with the discarded take's id — the caller
+    // would publish an aborted recording as a finished one.
+    if (discardPromise) {
+      await discardPromise;
+      throw new Error("Recording was already discarded for a restart");
     }
     stopPromise = (async () => {
       try {
@@ -2362,12 +2398,44 @@ function recorderWithCaptureSuspension(
     }
     cancelPromise = (async () => {
       try {
+        // Cancelling after a restart discard means the retake will never take
+        // ownership of the capture handed to it, and nothing else would stop
+        // it. The backend's own cancel decides what else a late cancel owes.
+        const handoff = await discardPromise;
         await cancel();
+        [handoff?.displayStream, handoff?.audioStream].forEach((stream) =>
+          stream?.getTracks().forEach((track) => track.stop()),
+        );
       } finally {
         await release();
       }
     })();
     return cancelPromise;
+  };
+  handle.discardForRestart = async () => {
+    if (discardPromise) return discardPromise;
+    if (stopPromise) {
+      await stopPromise;
+      throw new Error("Recording was already stopped");
+    }
+    if (cancelPromise) {
+      await cancelPromise;
+      throw new Error("Recording was already cancelled");
+    }
+    discardPromise = (async () => {
+      const handoff = await discardForRestart();
+      // The discard succeeded and the caller now owns live capture. Letting a
+      // failed lease release reject in its place would strand those tracks
+      // with nobody holding a reference to stop them.
+      await release().catch((err) =>
+        console.error(
+          "[clips-recorder] capture suspension release failed after restart discard:",
+          err,
+        ),
+      );
+      return handoff;
+    })();
+    return discardPromise;
   };
   return handle;
 }
@@ -2569,6 +2637,7 @@ async function tryStartRewindFullscreenRecording(
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
   let cancelPromise: Promise<void> | null = null;
+  let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
   let pausedAt: number | null = null;
@@ -2601,9 +2670,56 @@ async function tryStartRewindFullscreenRecording(
     stateUnlistens = [];
   };
 
+  // End the whole recording session. `hide_overlays` destroys the camera bubble
+  // along with the recording chrome, and clearing the recording state releases
+  // the popover's blur auto-hide — both wrong between the two takes of a
+  // restart, which is why `discardTake` only runs this for a real cancel.
+  const endSession = async () => {
+    await invoke("hide_overlays").catch(() => {});
+    await clearRecordingState();
+  };
+
+  const discardTake = async (forRestart: boolean) => {
+    stopped = true;
+    cleanupUi();
+    transcriptionAborted = true;
+    const transcriptionTornDown = transcriptionCapture
+      ?.cancel()
+      .catch((err) => {
+        console.warn("[clips-recorder] transcription cancel failed:", err);
+      });
+    await invoke("rewind_clip_cancel").catch(() => {});
+    audioCue.cleanup();
+    if (forRestart) {
+      await invoke("hide_recording_chrome").catch(() => {});
+    } else {
+      await endSession();
+    }
+    if (!localOnly && id) {
+      forgetRewindClipOrigin(id);
+      await cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+        () => {},
+      );
+    }
+    // The transcription engine is process-global, so this stop must land
+    // before the replacement session starts it again.
+    if (forRestart) await transcriptionTornDown;
+  };
+
   const handle: RecorderHandle = {
     async stop() {
       if (stopPromise) return stopPromise;
+      // This handle runs unwrapped (the Rewind producer holds no capture
+      // suspension lease), so the terminal-transition guards live here.
+      // Answering with `id` would publish a take that was already trashed.
+      if (cancelPromise) {
+        await cancelPromise;
+        throw new Error("Recording was already cancelled");
+      }
+      if (discardPromise) {
+        await discardPromise;
+        throw new Error("Recording was already discarded for a restart");
+      }
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopPromise = (async () => {
         stopped = true;
@@ -2727,26 +2843,33 @@ async function tryStartRewindFullscreenRecording(
     },
     async cancel() {
       if (cancelPromise) return cancelPromise;
+      // A cancel landing on an already-discarded take still has to end the
+      // session — the restart skipped that half deliberately, so returning
+      // here would leave the bubble up and the recording state active.
+      if (discardPromise) {
+        cancelPromise = discardPromise.then(endSession);
+        return cancelPromise;
+      }
       if (stopped) return;
-      cancelPromise = (async () => {
-        stopped = true;
-        cleanupUi();
-        transcriptionAborted = true;
-        void transcriptionCapture?.cancel().catch((err) => {
-          console.warn("[clips-recorder] transcription cancel failed:", err);
-        });
-        await invoke("rewind_clip_cancel").catch(() => {});
-        audioCue.cleanup();
-        await invoke("hide_overlays").catch(() => {});
-        await clearRecordingState();
-        if (!localOnly && id) {
-          forgetRewindClipOrigin(id);
-          await cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-            () => {},
-          );
-        }
-      })();
+      cancelPromise = discardTake(false);
       return cancelPromise;
+    },
+    async discardForRestart() {
+      if (discardPromise) return discardPromise;
+      if (cancelPromise) {
+        await cancelPromise;
+        throw new Error("Recording was already cancelled");
+      }
+      if (stopped) {
+        throw new Error("Recording already finished — nothing to restart");
+      }
+      // The Rewind producer re-acquires capture natively, so the retake needs
+      // nothing handed to it.
+      discardPromise = discardTake(true).then(() => ({
+        displayStream: null,
+        audioStream: null,
+      }));
+      return discardPromise;
     },
   };
 
@@ -3125,6 +3248,7 @@ async function startNativeFullscreenRecording(
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
   let cancelPromise: Promise<void> | null = null;
+  let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
   let segmentRotateHandle: ReturnType<typeof setInterval> | null = null;
@@ -3196,6 +3320,65 @@ async function startNativeFullscreenRecording(
       elapsedMs,
     }).catch(() => {});
   }
+
+  // End the whole recording session. `hide_overlays` destroys the camera
+  // bubble window along with the countdown and toolbar, which is wrong between
+  // the two takes of a restart — hence the split with `discardTake`.
+  const endSession = async () => {
+    await invoke("hide_overlays").catch(() => {});
+  };
+
+  const discardTake = async (forRestart: boolean) => {
+    stopped = true;
+    clearSegmentRotator();
+    pauseQueue?.dispose();
+    if (tickHandle) {
+      clearInterval(tickHandle);
+      tickHandle = null;
+    }
+    stateUnlistens.forEach((u) => u());
+    stateUnlistens = [];
+    const transcriptionTornDown = transcriptionCapture
+      ?.cancel()
+      .catch((err) => {
+        console.warn(
+          "[clips-recorder] native transcription cancel failed:",
+          err,
+        );
+      });
+    await localCameraExport?.cancel().catch(() => {});
+    await invoke("native_fullscreen_recording_cancel").catch((err) =>
+      console.warn("[clips-recorder] native fullscreen cancel failed:", err),
+    );
+    if (bubbleCaptureExcluded) {
+      await invoke("set_bubble_capture_excluded", { excluded: false }).catch(
+        () => {},
+      );
+      bubbleCaptureExcluded = false;
+    }
+    if (localOwnsCameraStream) {
+      localCameraStream?.getTracks().forEach((track) => track.stop());
+    }
+    streamCleanups.forEach((cleanup) => cleanup());
+    if (forRestart) {
+      await invoke("hide_recording_chrome").catch(() => {});
+    } else {
+      await endSession();
+    }
+    if (!localOnly && id) {
+      void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+        (err) => {
+          console.warn(
+            "[clips-recorder] cancelled recording cleanup failed:",
+            err,
+          );
+        },
+      );
+    }
+    // The transcription engine is process-global, so this stop must land
+    // before the replacement session starts it again.
+    if (forRestart) await transcriptionTornDown;
+  };
 
   const handle: RecorderHandle = {
     async stop() {
@@ -3427,53 +3610,34 @@ async function startNativeFullscreenRecording(
 
     async cancel() {
       if (cancelPromise) return cancelPromise;
+      // A cancel landing on an already-discarded take still has to end the
+      // session — the restart skipped that half deliberately, so returning
+      // here would leave the camera bubble up.
+      if (discardPromise) {
+        cancelPromise = discardPromise.then(endSession);
+        return cancelPromise;
+      }
       if (stopped) return;
-      cancelPromise = (async () => {
-        stopped = true;
-        clearSegmentRotator();
-        pauseQueue?.dispose();
-        if (tickHandle) {
-          clearInterval(tickHandle);
-          tickHandle = null;
-        }
-        stateUnlistens.forEach((u) => u());
-        stateUnlistens = [];
-        void transcriptionCapture?.cancel().catch((err) => {
-          console.warn(
-            "[clips-recorder] native transcription cancel failed:",
-            err,
-          );
-        });
-        await localCameraExport?.cancel().catch(() => {});
-        await invoke("native_fullscreen_recording_cancel").catch((err) =>
-          console.warn(
-            "[clips-recorder] native fullscreen cancel failed:",
-            err,
-          ),
-        );
-        if (bubbleCaptureExcluded) {
-          await invoke("set_bubble_capture_excluded", {
-            excluded: false,
-          }).catch(() => {});
-          bubbleCaptureExcluded = false;
-        }
-        if (localOwnsCameraStream) {
-          localCameraStream?.getTracks().forEach((track) => track.stop());
-        }
-        streamCleanups.forEach((cleanup) => cleanup());
-        await invoke("hide_overlays").catch(() => {});
-        if (!localOnly && id) {
-          void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-            (err) => {
-              console.warn(
-                "[clips-recorder] cancelled recording cleanup failed:",
-                err,
-              );
-            },
-          );
-        }
-      })();
+      cancelPromise = discardTake(false);
       return cancelPromise;
+    },
+
+    async discardForRestart() {
+      if (discardPromise) return discardPromise;
+      if (cancelPromise) {
+        await cancelPromise;
+        throw new Error("Recording was already cancelled");
+      }
+      if (stopped) {
+        throw new Error("Recording already finished — nothing to restart");
+      }
+      // ScreenCaptureKit is driven from Rust, so the retake re-acquires
+      // capture natively without needing a user gesture.
+      discardPromise = discardTake(true).then(() => ({
+        displayStream: null,
+        audioStream: null,
+      }));
+      return discardPromise;
     },
   };
 
@@ -3667,12 +3831,58 @@ export async function startRecording(
   }
 }
 
+/**
+ * Vet the capture a restart inherited. A handed-off track can die between the
+ * restart click and this call — the user may have hit the OS "Stop sharing"
+ * control, or unplugged the microphone.
+ *
+ * The two are not interchangeable. Screen capture cannot be re-acquired here
+ * (this start carries no user activation), so an ended display share is fatal
+ * and has to name itself; re-acquiring would surface an activation error that
+ * blames the wrong thing. A microphone needs no gesture, so an ended one is
+ * simply dropped and picked up again by the normal acquisition path.
+ */
+export function resolveRestartHandoff(
+  params: StartParams,
+  wantsScreen: boolean,
+  wantsAudio: boolean,
+): RestartHandoff {
+  const stopStream = (stream: MediaStream | null) =>
+    stream?.getTracks().forEach((track) => track.stop());
+  const isLive = (stream: MediaStream) =>
+    stream.getTracks().length > 0 &&
+    stream.getTracks().every((track) => track.readyState === "live");
+
+  let displayStream = params.preAcquiredDisplayStream ?? null;
+  let audioStream = params.preAcquiredAudioStream ?? null;
+
+  // Nothing downstream will ever own capture this session did not ask for.
+  if (displayStream && !wantsScreen) {
+    stopStream(displayStream);
+    displayStream = null;
+  }
+  if (audioStream && (!wantsAudio || !isLive(audioStream))) {
+    stopStream(audioStream);
+    audioStream = null;
+  }
+
+  if (displayStream && !isLive(displayStream)) {
+    stopStream(displayStream);
+    stopStream(audioStream);
+    throw new Error(RESTART_CAPTURE_ENDED_MESSAGE);
+  }
+  return { displayStream, audioStream };
+}
+
 async function startRecordingInner(
   params: StartParams,
 ): Promise<RecorderHandle> {
   const wantsScreen = params.mode !== "camera";
   const wantsCamera = params.mode !== "screen" && params.cameraOn;
   const wantsAudio = params.micOn;
+  // Vetted before anything is acquired so an ended display share cannot strand
+  // a capture-suspension lease behind it.
+  const restartHandoff = resolveRestartHandoff(params, wantsScreen, wantsAudio);
   const wantsSystemAudio = wantsScreen && params.systemAudioOn !== false;
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
   const canTranscribeLocally =
@@ -3758,30 +3968,42 @@ async function startRecordingInner(
     requiresMicrophone: wantsAudio,
   });
 
-  const displayStreamPromise: Promise<MediaStream> | null = wantsScreen
-    ? (() => {
-        if (!devSyntheticCapture) {
-          // Do not pass displaySurface as an input constraint. Modern runtimes
-          // can reject it with "Invalid constraint", and it cannot reliably
-          // pre-filter the OS picker anyway; the selected track reports its
-          // actual surface through getSettings() after capture starts.
-          return navigator.mediaDevices.getDisplayMedia(
-            buildDesktopDisplayMediaOptions({
-              audio: wantsSystemAudio,
-              frameRate: CLOUD_CAPTURE_FRAME_RATE,
-              maxWidth: CLOUD_CAPTURE_MAX_WIDTH,
-              maxHeight: CLOUD_CAPTURE_MAX_HEIGHT,
-            }),
+  // A restart inherits live capture from the take it replaces, so the two
+  // gesture-bound acquisitions are skipped entirely. See `RestartHandoff`.
+  const resumedDisplayStream = restartHandoff.displayStream;
+  const resumedAudioStream = restartHandoff.audioStream;
+  if (resumedDisplayStream || resumedAudioStream) {
+    console.log("[clips-recorder] reusing handed-off capture streams", {
+      display: Boolean(resumedDisplayStream),
+      audio: Boolean(resumedAudioStream),
+    });
+  }
+  const displayStreamPromise: Promise<MediaStream> | null = resumedDisplayStream
+    ? Promise.resolve(resumedDisplayStream)
+    : wantsScreen
+      ? (() => {
+          if (!devSyntheticCapture) {
+            // Do not pass displaySurface as an input constraint. Modern runtimes
+            // can reject it with "Invalid constraint", and it cannot reliably
+            // pre-filter the OS picker anyway; the selected track reports its
+            // actual surface through getSettings() after capture starts.
+            return navigator.mediaDevices.getDisplayMedia(
+              buildDesktopDisplayMediaOptions({
+                audio: wantsSystemAudio,
+                frameRate: CLOUD_CAPTURE_FRAME_RATE,
+                maxWidth: CLOUD_CAPTURE_MAX_WIDTH,
+                maxHeight: CLOUD_CAPTURE_MAX_HEIGHT,
+              }),
+            );
+          }
+          console.warn(
+            "[clips-recorder] using opt-in dev synthetic screen capture; remove localStorage clips:dev-synthetic-capture to use the native picker",
           );
-        }
-        console.warn(
-          "[clips-recorder] using opt-in dev synthetic screen capture; remove localStorage clips:dev-synthetic-capture to use the native picker",
-        );
-        const syntheticDisplay = createSyntheticScreenStream();
-        streamCleanups.push(syntheticDisplay.cleanup);
-        return Promise.resolve(syntheticDisplay.stream);
-      })()
-    : null;
+          const syntheticDisplay = createSyntheticScreenStream();
+          streamCleanups.push(syntheticDisplay.cleanup);
+          return Promise.resolve(syntheticDisplay.stream);
+        })()
+      : null;
   // If the popover handed us a live camera stream from the pre-record
   // preview we reuse it verbatim and SKIP getUserMedia — see the
   // `preAcquiredCameraStream` field doc for the WebKit rationale. This
@@ -3800,9 +4022,11 @@ async function startRecordingInner(
     wantsCamera && !reusedCameraStream
       ? getCameraStreamWithFallback(params.cameraId)
       : null;
-  const audioStreamPromise: Promise<MediaStream> | null = wantsAudio
-    ? getAudioStreamWithFallback(params.micId, params.micLabel)
-    : null;
+  const audioStreamPromise: Promise<MediaStream> | null = resumedAudioStream
+    ? Promise.resolve(resumedAudioStream)
+    : wantsAudio
+      ? getAudioStreamWithFallback(params.micId, params.micLabel)
+      : null;
 
   let captureSuspension: RewindCaptureSuspensionLease;
   try {
@@ -4103,10 +4327,12 @@ async function startRecordingInner(
         }
       };
 
-      const stopOwnedStreams = () => {
-        [displayStream, audioStream].forEach((stream) =>
-          stream?.getTracks().forEach((track) => track.stop()),
-        );
+      const stopOwnedStreams = (keepCaptureStreams = false) => {
+        if (!keepCaptureStreams) {
+          [displayStream, audioStream].forEach((stream) =>
+            stream?.getTracks().forEach((track) => track.stop()),
+          );
+        }
         streamCleanups.forEach((cleanup) => cleanup());
         if (!popoverOwnsCamera) {
           bubbleCameraStream?.getTracks().forEach((track) => track.stop());
@@ -4117,6 +4343,25 @@ async function startRecordingInner(
         await invoke("hide_recording_chrome").catch((err) =>
           console.error(`[clips-recorder] hide_recording_chrome failed:`, err),
         );
+      };
+
+      const discardTake = async (
+        keepCaptureStreams: boolean,
+      ): Promise<RestartHandoff> => {
+        // Synthetic dev capture belongs to `streamCleanups`, which always runs
+        // here, so it is never handed over — the retake recreates it.
+        const handsOff = keepCaptureStreams && !devSyntheticCapture;
+        stopped = true;
+        if (tickHandle) clearInterval(tickHandle);
+        stateUnlistens.forEach((unlisten) => unlisten());
+        stateUnlistens = [];
+        await localExport.cancel();
+        detachCombinedStream();
+        stopOwnedStreams(handsOff);
+        await hideChrome();
+        return handsOff
+          ? { displayStream, audioStream }
+          : { displayStream: null, audioStream: null };
       };
 
       const handle: RecorderHandle = {
@@ -4157,14 +4402,14 @@ async function startRecordingInner(
 
         async cancel() {
           if (stopped) return;
-          stopped = true;
-          if (tickHandle) clearInterval(tickHandle);
-          stateUnlistens.forEach((unlisten) => unlisten());
-          stateUnlistens = [];
-          await localExport.cancel();
-          detachCombinedStream();
-          stopOwnedStreams();
-          await hideChrome();
+          await discardTake(false);
+        },
+
+        async discardForRestart() {
+          if (stopped) {
+            throw new Error("Recording already finished — nothing to restart");
+          }
+          return discardTake(true);
         },
       };
 
@@ -4885,68 +5130,101 @@ async function startRecordingInner(
       }
     };
 
+    const discardTake = async (
+      keepCaptureStreams: boolean,
+    ): Promise<RestartHandoff> => {
+      // Synthetic dev capture is owned by `streamCleanups`, which always runs
+      // here — so there is nothing to hand over, and the next session recreates
+      // it. It needs no user gesture either.
+      const handsOff = keepCaptureStreams && !devSyntheticCapture;
+      stopped = true;
+      if (tickHandle) clearInterval(tickHandle);
+      stateUnlistens.forEach((u) => u());
+      stateUnlistens = [];
+      const transcriptionTornDown = transcriptionCapture
+        ?.cancel()
+        .catch((err) => {
+          console.warn("[clips-recorder] transcription cancel failed:", err);
+        });
+      // Remove MediaRecorder's data handler so any final `ondataavailable`
+      // from the stop() below doesn't push a new Blob into `inflight`
+      // after we've decided to discard everything.
+      recorder.ondataavailable = null;
+      try {
+        if (recorder.state !== "inactive") recorder.stop();
+        // coercion-ok: the take is already discarded — a MediaRecorder that refuses to stop has nothing left to report
+      } catch {
+        // ignore
+      }
+      // Drop stream track references — same rationale as in stop(). This
+      // detaches only from the MediaStreams; the originating streams own the
+      // tracks and we stop them below.
+      try {
+        uploadCombined
+          .getTracks()
+          .forEach((t) => uploadCombined.removeTrack(t));
+        combined.getTracks().forEach((t) => combined.removeTrack(t));
+        // coercion-ok: detaching tracks is bookkeeping; the streams below are stopped or handed over either way
+      } catch {
+        // ignore
+      }
+      // Stop the streams WE own. Camera stays alive when the popover
+      // owns it (see stop() for the same split). On a restart the display and
+      // mic streams also stay alive and become the next session's to own.
+      if (!handsOff) {
+        [displayStream, audioStream].forEach((s) =>
+          s?.getTracks().forEach((t) => t.stop()),
+        );
+      }
+      streamCleanups.forEach((cleanup) => cleanup());
+      if (!popoverOwnsCamera) {
+        bubbleCameraStream?.getTracks().forEach((t) => t.stop());
+      }
+      // Drop remaining in-flight chunk Blobs aggressively. Their fetches
+      // will still settle (we don't AbortController them — dev server is
+      // local and won't hang long) but we no longer hold references to the
+      // Blobs via this Set. Combined with the `ondataavailable = null`
+      // above, this guarantees no new Blobs latch on during the stop.
+      inflight.clear();
+      await invoke("hide_recording_chrome").catch(() => {});
+      // Tell the server to abort the partial recording (drops chunks from
+      // application_state, flips the recording row to 'failed'), then trash
+      // it. This is best-effort background cleanup: redo/cancel must release
+      // the desktop chrome immediately even if the server is slow or offline.
+      if (id) {
+        void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+          (err) => {
+            console.warn("[clips-recorder] abort failed (non-fatal):", err);
+          },
+        );
+      }
+      await deleteBrowserRecordingBackup(id).catch((err) => {
+        console.warn("[clips-recorder] local backup cleanup failed:", err);
+      });
+      // The transcription engine is process-global, so this stop must land
+      // before the replacement session starts it again.
+      if (keepCaptureStreams) await transcriptionTornDown;
+      return handsOff
+        ? { displayStream, audioStream }
+        : { displayStream: null, audioStream: null };
+    };
+
     const handle: RecorderHandle = {
       stop: singleFlight(performStop),
 
       async cancel() {
         if (stopped) return;
-        stopped = true;
-        if (tickHandle) clearInterval(tickHandle);
-        stateUnlistens.forEach((u) => u());
-        stateUnlistens = [];
-        void transcriptionCapture?.cancel().catch((err) => {
-          console.warn("[clips-recorder] transcription cancel failed:", err);
-        });
-        // Remove MediaRecorder's data handler so any final `ondataavailable`
-        // from the stop() below doesn't push a new Blob into `inflight`
-        // after we've decided to discard everything.
-        recorder.ondataavailable = null;
-        try {
-          if (recorder.state !== "inactive") recorder.stop();
-        } catch {
-          // ignore
+        await discardTake(false);
+      },
+
+      // A restart reuses the same capture. `getDisplayMedia` cannot run from
+      // the Tauri event that carries the toolbar click, so the streams have to
+      // survive the take that is being thrown away.
+      async discardForRestart() {
+        if (stopped) {
+          throw new Error("Recording already finished — nothing to restart");
         }
-        // Drop stream track references — same rationale as in stop(). This
-        // detaches only from the MediaStreams; the originating streams own the
-        // tracks and we stop them below.
-        try {
-          uploadCombined
-            .getTracks()
-            .forEach((t) => uploadCombined.removeTrack(t));
-          combined.getTracks().forEach((t) => combined.removeTrack(t));
-        } catch {
-          // ignore
-        }
-        // Stop the streams WE own. Camera stays alive when the popover
-        // owns it (see stop() for the same split).
-        [displayStream, audioStream].forEach((s) =>
-          s?.getTracks().forEach((t) => t.stop()),
-        );
-        streamCleanups.forEach((cleanup) => cleanup());
-        if (!popoverOwnsCamera) {
-          bubbleCameraStream?.getTracks().forEach((t) => t.stop());
-        }
-        // Drop remaining in-flight chunk Blobs aggressively. Their fetches
-        // will still settle (we don't AbortController them — dev server is
-        // local and won't hang long) but we no longer hold references to the
-        // Blobs via this Set. Combined with the `ondataavailable = null`
-        // above, this guarantees no new Blobs latch on during the stop.
-        inflight.clear();
-        await invoke("hide_recording_chrome").catch(() => {});
-        // Tell the server to abort the partial recording (drops chunks from
-        // application_state, flips the recording row to 'failed'), then trash
-        // it. This is best-effort background cleanup: redo/cancel must release
-        // the desktop chrome immediately even if the server is slow or offline.
-        if (id) {
-          void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-            (err) => {
-              console.warn("[clips-recorder] abort failed (non-fatal):", err);
-            },
-          );
-        }
-        await deleteBrowserRecordingBackup(id).catch((err) => {
-          console.warn("[clips-recorder] local backup cleanup failed:", err);
-        });
+        return discardTake(true);
       },
     };
 
