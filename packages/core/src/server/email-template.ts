@@ -203,10 +203,12 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     : "";
 
   const footerHtml = args.footer
-    ? `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${resolveFooterLink(
+    ? // guard:allow-raw-color — inlined for email clients
+      `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${resolveFooterLink(
         escapeHtml(args.footer),
         args.footerLink,
         (link) =>
+          // guard:allow-raw-color — inlined for email clients
           `<a href="${escapeAttr(link.url)}" style="color:#a1a1aa; text-decoration:underline;">${escapeHtml(link.label)}</a>`,
       )}</p>`
     : "";

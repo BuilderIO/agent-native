@@ -1,3 +1,12 @@
+/**
+ * Email notifications for plan comments, replies, and mentions.
+ *
+ * Recipient reasons (owner, mention, thread participant) are Plan's own; the
+ * per-user `emailNotifications` opt-out is the shared one from
+ * `@agent-native/core/server`. Access requests are not routed through that
+ * preference — they have their own delivery path.
+ */
+
 import {
   emailStrong,
   getAppProductionUrl,
