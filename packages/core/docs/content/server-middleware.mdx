@@ -1,0 +1,51 @@
+---
+title: "Middleware"
+description: "Nitro middleware in server/middleware/ — what it is, how the auth guard works, and why it lives there instead of in a plugin or route."
+draft: true
+---
+
+# Middleware
+
+Nitro middleware runs on every incoming request before it reaches a route handler. Files in `server/middleware/` are picked up automatically — no registration needed.
+
+Every agent-native app ships one middleware file: `server/middleware/auth.ts`. It enforces authentication across all routes, including public page routes and custom `/api/*` routes that would otherwise bypass the framework's built-in auth.
+
+## The Auth Guard {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard` checks every request against the auth configuration set up by the [auth plugin](/docs/server-plugins#auth-plugin). If the request is unauthenticated and the path is not in `publicPaths`, it redirects to the sign-in page.
+
+## Why Middleware, Not a Plugin or Route Guard {#why-middleware}
+
+The framework handler's built-in middleware registry is scoped to `/_agent-native/*` routes. Without a separate middleware file, page routes (`/`, `/settings`) and custom API routes (`/api/*`) bypass authentication entirely — only framework routes would be protected.
+
+Plugins run at startup, not per-request, so they can't enforce per-request auth. A route-level guard in each custom route handler is error-prone and easy to forget. Middleware in `server/middleware/` is the one place that runs for every request regardless of path.
+
+## Adding Public Paths {#public-paths}
+
+To allow unauthenticated access to specific paths, pass them to `createAuthPlugin` in `server/plugins/auth.ts` — not to the middleware directly:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard` reads the configured public paths from the auth plugin at request time.
+
+## What's next
+
+- [**Plugins**](/docs/server-plugins) — auth plugin configuration that the middleware enforces
+- [**Routes**](/docs/server-routes) — custom routes that are protected by this middleware
+- [**Security**](/docs/security) — data scoping, access guards, and the full auth model

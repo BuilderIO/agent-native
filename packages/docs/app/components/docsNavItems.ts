@@ -86,6 +86,43 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     titleKey: "coreArchitecture",
     items: [
       { id: "server", labelKey: "server", slug: "server" },
+      {
+        id: "server-section",
+        labelKey: "server",
+        draft: true,
+        children: [
+          {
+            id: "server-overview",
+            labelKey: "serverOverview",
+            slug: "server-overview",
+            draft: true,
+          },
+          {
+            id: "server-database",
+            labelKey: "database",
+            slug: "server-database",
+            draft: true,
+          },
+          {
+            id: "server-middleware",
+            labelKey: "serverMiddleware",
+            slug: "server-middleware",
+            draft: true,
+          },
+          {
+            id: "server-plugins",
+            labelKey: "serverPlugins",
+            slug: "server-plugins",
+            draft: true,
+          },
+          {
+            id: "server-routes",
+            labelKey: "serverRoutes",
+            slug: "server-routes",
+            draft: true,
+          },
+        ],
+      },
       { id: "client", labelKey: "client", slug: "client" },
       { id: "routing", labelKey: "routing", slug: "routing" },
       { id: "actions", labelKey: "actions", slug: "actions" },
@@ -113,6 +150,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
       { id: "deployment", labelKey: "deployment", slug: "deployment" },
       { id: "progress", labelKey: "progress", slug: "progress" },
+      {
+        id: "agents-group",
+        labelKey: "agents",
+        draft: true,
+        children: [
+          {
+            id: "agents-overview",
+            labelKey: "agentsOverview",
+            slug: "agents",
+            draft: true,
+          },
+        ],
+      },
     ],
   },
   {

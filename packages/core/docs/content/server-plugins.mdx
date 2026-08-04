@@ -1,0 +1,120 @@
+---
+title: "Plugins"
+description: "The three startup plugins every agent-native app ships: database migrations, auth configuration, and the agent-chat plugin."
+draft: true
+---
+
+# Plugins
+
+Plugins live in `server/plugins/` and run at server startup, before any routes are served. Every app ships three: one that runs database migrations, one that configures authentication, and one that mounts the agent chat loop with your app's actions and system prompt.
+
+```text
+server/plugins/
+  db.ts          -> run migrations, create tables
+  auth.ts        -> configure auth provider and public paths
+  agent-chat.ts  -> mount the agent with your actions and system prompt
+```
+
+## Database Plugin {#database-plugin}
+
+`server/plugins/db.ts` runs schema migrations on startup using `runMigrations` from `@agent-native/core/db`. Migrations must be additive — never drop, rename, or destructively alter tables here.
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+Each entry needs a `version` number and a `sql` string. The `table` option names the migration tracking table — use a name unique to your app so it doesn't collide with framework migrations. See [Database](/docs/database) for the full schema authoring guide.
+
+<Callout tone="warning">
+  Migrations must be additive. Never put destructive SQL (`DROP TABLE`,
+  `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) in startup plugins.
+</Callout>
+
+## Auth Plugin {#auth-plugin}
+
+`server/plugins/auth.ts` configures how users sign in. `createAuthPlugin` from `@agent-native/core/server` wires up the auth provider and sets the sign-in page branding:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: [
+      "Feature one",
+      "Feature two",
+      "Feature three",
+    ],
+  },
+});
+```
+
+To open specific routes to unauthenticated users, pass `publicPaths`:
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+The auth plugin configures the guard; the auth middleware in `server/middleware/auth.ts` enforces it on every request. See [Middleware](/docs/server-middleware).
+
+## Agent-Chat Plugin {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts` mounts the agent loop with your app's actions, system prompt, and initial tool set. This is the plugin that makes your app an agent-native app.
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry` picks up every action exported from `actions/` through the generated registry. `initialToolNames` controls which actions the agent has access to at the start of a conversation — it can still call others as needed.
+
+## Startup Order {#startup-order}
+
+Nitro runs plugins in filesystem order. Within a single plugin file the default export is awaited before the next plugin starts. The typical order is:
+
+1. `db.ts` — migrations complete before any route or plugin reads the database
+2. `auth.ts` — auth configuration is in place before requests arrive
+3. `agent-chat.ts` — agent routes mount after auth is configured
+
+## What's next
+
+- [**Database**](/docs/database) — schema helpers and the `getDb` pattern used inside plugins
+- [**Middleware**](/docs/server-middleware) — the auth guard that enforces what the auth plugin configures
+- [**Routes**](/docs/server-routes) — custom file routes served after plugins complete
+- [**Writing Agent Instructions**](/docs/writing-agent-instructions) — how to craft the `systemPrompt` in the agent-chat plugin
