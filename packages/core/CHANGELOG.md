@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.137.1
+
+### Patch Changes
+
+- d1cb968: Let apps continue an initial prompt flow after first-run onboarding completes.
+- d1cb968: Keep developer-only startup guidance out of production loading shells.
+
 ## 0.137.0
 
 ### Minor Changes
