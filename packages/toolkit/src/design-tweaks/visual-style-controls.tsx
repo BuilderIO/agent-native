@@ -383,6 +383,7 @@ export function VisualColorPicker({
   mixed = false,
   mixedLabel = "Mixed",
   variant = "outline",
+  glyph,
 }: {
   label: string;
   value: string;
@@ -402,6 +403,8 @@ export function VisualColorPicker({
   mixedLabel?: string;
   /** `swatch` drops the value text and caret for dense horizontal toolbars. */
   variant?: "outline" | "filled" | "swatch";
+  /** With `swatch`, renders this over a bar of the current color instead of a plain square. */
+  glyph?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const color = parseCssColor(value) ?? FALLBACK_RGBA;
@@ -490,10 +493,25 @@ export function VisualColorPicker({
             className,
           )}
         >
-          <span
-            className="size-4 shrink-0 rounded-[3px] border border-border/70"
-            style={swatchBackground(mixed ? "transparent" : value)}
-          />
+          {glyph && variant === "swatch" ? (
+            <span className="flex flex-col items-center gap-[3px]">
+              <span
+                aria-hidden="true"
+                className="text-[13px] font-semibold leading-none text-foreground"
+              >
+                {glyph}
+              </span>
+              <span
+                className="h-[3px] w-4 rounded-[1px]"
+                style={swatchBackground(mixed ? "transparent" : value)}
+              />
+            </span>
+          ) : (
+            <span
+              className="size-4 shrink-0 rounded-[3px] border border-border/70"
+              style={swatchBackground(mixed ? "transparent" : value)}
+            />
+          )}
           {variant !== "swatch" && (
             <>
               <span className="min-w-0 flex-1 truncate text-left font-medium tabular-nums text-foreground">

@@ -243,6 +243,7 @@ export function SlideContextToolbar({
                 mixed={mixedTextStyles.includes("color")}
                 mixedLabel={t("styleInspector.mixed")}
                 variant="swatch"
+                glyph="A"
                 contentProps={inlineEditSurfaceProps}
                 onChange={(value) => onChange({ color: value })}
               />
