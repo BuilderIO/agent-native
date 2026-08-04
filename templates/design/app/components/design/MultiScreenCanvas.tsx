@@ -243,7 +243,10 @@ import {
   sameResolvedMetadata,
   type ResolvedMetadataCacheEntry,
 } from "./multi-screen/screen-content-cache";
-import { setWheelCameraGestureActive } from "./multi-screen/wheel-gesture-state";
+import {
+  isWheelCameraGestureActive,
+  setWheelCameraGestureActive,
+} from "./multi-screen/wheel-gesture-state";
 
 // Figma parity: a plain click (no drag) with the rectangle or ellipse tool
 // places a 100x100 shape. Both tools share this default via the "else"
@@ -339,6 +342,13 @@ import {
   screenPxToCanvasPx,
   stopPercentFromDraggedPoint,
 } from "./multi-screen/gradient-overlay-geometry";
+import {
+  applyScreenPaintSuppression,
+  collectScreenPaintTargets,
+  resolveSuppressedScreenIds,
+  type ScreenPaintCandidate,
+  type ScreenPaintTarget,
+} from "./multi-screen/paint-suppression";
 import {
   getPrimitiveDropTargetForPoint,
   getPrimitiveLowZoomHitRect,
@@ -648,26 +658,33 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : null,
     [boardFrameGeometry],
   );
+  // Both board layers must ask this one question: an empty <body> is a truthy
+  // string, and the replica is opaque, so a string-only gate slabs the board.
+  const boardSurfaceHtml = hasBoardSurfaceContent(boardFileContent)
+    ? boardFileContent
+    : undefined;
+  const boardHasSurfaceContent = boardSurfaceHtml !== undefined;
   const boardStaticPreviewContent = useMemo(() => {
     if (
       !boardFrameGeometry ||
       !boardStaticPreviewViewport ||
-      !boardFileContent
+      !boardSurfaceHtml
     ) {
       return null;
     }
     return getBoardSurfaceStaticPreviewContent({
-      html: boardFileContent,
+      html: boardSurfaceHtml,
       logicalGeometry: boardFrameGeometry,
       viewport: boardStaticPreviewViewport,
     });
-  }, [boardFileContent, boardFrameGeometry, boardStaticPreviewViewport]);
+  }, [boardSurfaceHtml, boardFrameGeometry, boardStaticPreviewViewport]);
   const showBoardStaticPreview = Boolean(
     boardFrameGeometry &&
     boardSurfaceRenderGeometry &&
     boardStaticPreviewContent &&
     shouldRenderBoardSurfaceStaticPreview({
       zoom: canvasZoom,
+      hasSurfaceContent: boardHasSurfaceContent,
       viewportGeometry: boardViewportGeometry,
       renderGeometry: boardSurfaceRenderGeometry,
     }),
@@ -957,6 +974,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const liveScreenIdsRef = useRef<Set<string>>(new Set());
   const lastVisibleEpochByScreenIdRef = useRef<Map<string, number>>(new Map());
   const cullAccessEpochRef = useRef(0);
+  const wheelGestureFilteredIframesRef = useRef<HTMLElement[]>([]);
+  // Paint suppression is resolved imperatively against the live camera, so its
+  // inputs live in refs readable from applyViewToDom's render-free tick.
+  const screenPaintCandidatesRef = useRef<ScreenPaintCandidate[]>([]);
+  const screenPaintTargetsRef = useRef<ScreenPaintTarget[]>([]);
+  const surfaceSizeRef = useRef({ width: 0, height: 0 });
   useEffect(() => {
     const liveScreenIds = new Set(screens.map((screen) => screen.id));
     for (const id of hasBeenVisibleScreenIdsRef.current) {
@@ -989,6 +1012,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const surface = surfaceRef.current;
     if (!surface) return;
     const updateSize = (width: number, height: number) => {
+      surfaceSizeRef.current = { width, height };
       setSurfaceSize((current) =>
         current.width === width && current.height === height
           ? current
@@ -6636,6 +6660,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [activeTool, localActiveTool, updateAltHoverMeasurement, updatePenPointer],
   );
 
+  // Overscan is deliberately excluded: this answers "is it on screen right
+  // now", and anything off screen costs nothing to leave unpainted.
+  const syncScreenPaintSuppression = useCallback(() => {
+    applyScreenPaintSuppression(
+      screenPaintTargetsRef.current,
+      resolveSuppressedScreenIds(
+        screenPaintCandidatesRef.current,
+        getOverscannedViewportCanvasBounds(
+          surfaceSizeRef.current,
+          panRef.current,
+          zoomRef.current,
+          0,
+        ),
+      ),
+      { relaxOnly: isWheelCameraGestureActive() },
+    );
+  }, []);
+
   // Push the current pan/zoom straight to the DOM. A wheel/pinch gesture must
   // NEVER re-render React's canvas tree during the gesture: each render re-runs
   // renderScreenContent (which re-creates the active screen's live DesignCanvas
@@ -6681,7 +6723,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       marqueeOverlay.style.width = `${Math.max(1, activeMarquee.width * nextScale)}px`;
       marqueeOverlay.style.height = `${Math.max(1, activeMarquee.height * nextScale)}px`;
     }
-  }, []);
+    // Same tick as the transform: a screen this move brings on screen must
+    // paint in the frame it becomes visible, not at the debounced commit.
+    syncScreenPaintSuppression();
+  }, [syncScreenPaintSuppression]);
 
   const startChromeSettle = useCallback(() => {
     if (chromeSettleTimerRef.current !== null) {
@@ -6707,6 +6752,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (wheelGestureActiveRef.current) {
       wheelGestureActiveRef.current = false;
       setWheelCameraGestureActive(false);
+      wheelGestureFilteredIframesRef.current.forEach((iframe) => {
+        if (iframe.isConnected) iframe.style.filter = "";
+      });
+      wheelGestureFilteredIframesRef.current = [];
       const muted = wheelGestureMutedElementsRef.current;
       wheelGestureMutedElementsRef.current = null;
       if (muted) {
@@ -6857,6 +6906,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         element.style.pointerEvents = "none";
       });
     wheelGestureMutedElementsRef.current = muted;
+    // A nested frame re-rasters on every scale change no matter what layer the
+    // canvas gets, starving the renderer. A filter — a no-op at this radius —
+    // gives each one a surface the compositor scales from cache. commitView must
+    // clear it, or they stay soft at rest.
+    const filtered: HTMLElement[] = [];
+    surface
+      .querySelectorAll<HTMLElement>("[data-screen-content] iframe")
+      .forEach((iframe) => {
+        iframe.style.filter = "blur(0.001px)";
+        filtered.push(iframe);
+      });
+    wheelGestureFilteredIframesRef.current = filtered;
   }, [cancelPendingStaticBoardSelection]);
 
   const flushPendingWheelGesture = useCallback(() => {
@@ -7607,23 +7668,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       pan,
       canvasZoom,
     );
+    const candidates = canvasFrames.map(({ screen, metadata, geometry }) => ({
+      id: screen.id,
+      geometry: getResponsiveScreenCullGeometry(
+        screen,
+        geometry,
+        (widthPx) =>
+          measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)],
+      ),
+      // Count only the breakpoint frames actually mounted (the row filters
+      // duplicates of the device width) so the iframe budget isn't
+      // over-consumed, prematurely evicting visible frames.
+      iframeCount:
+        1 +
+        visibleBreakpointWidths(screen.breakpointWidths, metadata.width).length,
+    }));
     const next = computeBoundedScreenCullState({
-      candidates: canvasFrames.map(({ screen, metadata, geometry }) => ({
-        id: screen.id,
-        geometry: getResponsiveScreenCullGeometry(
-          screen,
-          geometry,
-          (widthPx) =>
-            measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)],
-        ),
-        // Count only the breakpoint frames actually mounted (the row filters
-        // duplicates of the device width) so the iframe budget isn't
-        // over-consumed, prematurely evicting visible frames.
-        iframeCount:
-          1 +
-          visibleBreakpointWidths(screen.breakpointWidths, metadata.width)
-            .length,
-      })),
+      candidates,
       viewport,
       protectedScreenIds: protectedLiveScreenIds,
       previousLiveScreenIds: liveScreenIdsRef.current,
@@ -7634,6 +7695,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     liveScreenIdsRef.current = next.liveScreenIds;
     hasBeenVisibleScreenIdsRef.current = next.everVisibleScreenIds;
     lastVisibleEpochByScreenIdRef.current = next.lastVisibleEpochByScreenId;
+    screenPaintCandidatesRef.current = candidates.map(({ id, geometry }) => ({
+      id,
+      geometry,
+      tier: next.tierByScreenId.get(id) ?? "visible",
+    }));
     return next.tierByScreenId;
   }, [
     canvasFrames,
@@ -7643,6 +7709,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
+  // No dependency array on purpose: any render can mount, unmount, or reorder a
+  // screen's content wrapper, and a wrapper React just mounted carries none of
+  // the suppression state this owns.
+  useEffect(() => {
+    screenPaintTargetsRef.current = collectScreenPaintTargets(
+      surfaceRef.current,
+    );
+    syncScreenPaintSuppression();
+  });
+
   const topScreenId = useMemo(
     () =>
       selectedIds.find((id) =>
@@ -7889,7 +7965,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
         {boardFileId &&
           boardFileContent !== undefined &&
-          hasBoardSurfaceContent(boardFileContent) &&
+          boardHasSurfaceContent &&
           (() => {
             const boardGeo = boardSurfaceRenderGeometry ?? {
               x: 0,
@@ -9440,18 +9516,10 @@ const Screen = memo(function Screen({
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
   const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
-  // Overview viewport culling (PF22): a "culled" screen keeps its content
-  // (iframe/DesignCanvas) fully mounted — unmounting would lose all internal
-  // iframe state (scroll position, form input, in-progress Alpine/JS state)
-  // — but skips paint/layout cost for it via visibility:hidden +
-  // contentVisibility:"hidden" on the content wrapper. Deliberately NOT
-  // display:none (can drop layout/scroll state on some engines) and NOT
-  // will-change (a prior perf attempt using will-change on this same overview
-  // caused permanent blur by pinning a low-res compositor layer — see the
-  // world-transform comment near applyViewToDom). "placeholder" and
-  // "evicted" tiers have no mounted browsing context, so they render the
-  // chrome-only placeholder below regardless of this flag.
-  const { shouldMount: shouldMountContent, isHidden: isCulled } =
+  // Overview viewport culling (PF22): mounting only. Unmounting a culled screen
+  // would lose its iframe's scroll/form/Alpine state, so it stays mounted and
+  // paint-suppression.ts decides paint against the live camera instead.
+  const { shouldMount: shouldMountContent } =
     getScreenContentCullState(cullTier);
   const [directlyHovered, setDirectlyHovered] = useState(false);
   const frameDirectlyHovered =
@@ -9778,16 +9846,6 @@ const Screen = memo(function Screen({
           )}
           style={{
             pointerEvents: screenContentInteractive ? "auto" : "none",
-            // Tier B (PF22): keep the mounted iframe/DesignCanvas alive (see
-            // the isCulled comment above) but skip its paint/layout cost.
-            // visibility:hidden (not display:none) keeps the box in the
-            // layout/measurement tree; contentVisibility:"hidden" skips
-            // rendering its subtree entirely until it's shown again. Neither
-            // property touches will-change/compositor layers, so this can't
-            // reproduce the permanent-blur regression a prior will-change
-            // attempt on this same surface caused.
-            visibility: isCulled ? "hidden" : undefined,
-            contentVisibility: isCulled ? "hidden" : undefined,
           }}
         >
           {!shouldMountContent ? (
@@ -10159,7 +10217,7 @@ function BreakpointPreviewRow({
   // draft value of its width input.
   const [menuOpenForWidth, setMenuOpenForWidth] = useState<number | null>(null);
   const [widthDraft, setWidthDraft] = useState("");
-  const { shouldMount: shouldMountContent, isHidden: isCulled } =
+  const { shouldMount: shouldMountContent } =
     getScreenContentCullState(cullTier);
 
   return (
@@ -10468,10 +10526,6 @@ function BreakpointPreviewRow({
                 data-screen-content
                 data-cull-tier={cullTier}
                 className="relative block h-full w-full overflow-hidden rounded-[inherit] bg-white ring-1 ring-inset ring-border"
-                style={{
-                  visibility: isCulled ? "hidden" : undefined,
-                  contentVisibility: isCulled ? "hidden" : undefined,
-                }}
               >
                 {!shouldMountContent ? (
                   <div
