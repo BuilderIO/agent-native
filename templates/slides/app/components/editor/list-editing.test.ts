@@ -83,9 +83,9 @@ describe("toggleSlideList", () => {
     toggleSlideList(host, "bullet");
 
     expect(host.querySelector("ul")).toBeNull();
-    expect(
-      Array.from(host.children).map((child) => child.textContent),
-    ).toEqual(["One", "Two"]);
+    expect(Array.from(host.children).map((child) => child.textContent)).toEqual(
+      ["One", "Two"],
+    );
   });
 
   it("keeps the object's identity when the object itself is the list", () => {
