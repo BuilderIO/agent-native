@@ -75,6 +75,7 @@ interface ListCalendarEventsArgs {
 interface ListCalendarEventsOptions {
   ownedAccounts?: string[];
   range?: CalendarEventRange;
+  timezone?: string;
 }
 
 type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
@@ -579,7 +580,7 @@ export async function listCalendarEvents(
 ): Promise<CalendarEventsResult> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
-  const timezone = await getCalendarTimezone(email);
+  const timezone = options.timezone ?? (await getCalendarTimezone(email));
   const range =
     options.range ??
     resolveCalendarEventRange({
@@ -832,6 +833,9 @@ export default defineAction({
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
     const owner = inventory ? getRequestUserEmail() : undefined;
     if (inventory && !owner) throw new Error("no authenticated user");
+    const calendarTimezone = inventory
+      ? await getCalendarTimezone(owner!)
+      : undefined;
 
     // Reject invalid, expired, owner-bound, and query-bound cursors before any
     // provider call. Omitted account filters require the cheap owned-account
@@ -845,6 +849,7 @@ export default defineAction({
       preparedRange = resolveCalendarEventRange({
         from: args.from,
         to: args.to,
+        timezone: calendarTimezone,
       });
       preparedOwnedAccounts = args.accountEmails
         ? undefined
@@ -871,6 +876,7 @@ export default defineAction({
       {
         ownedAccounts: preparedOwnedAccounts,
         range: preparedRange,
+        timezone: calendarTimezone,
       },
     );
 
