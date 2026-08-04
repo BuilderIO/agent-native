@@ -43,6 +43,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { analyticsUrl } from "./app-url.js";
 
 declare global {
   var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
@@ -706,6 +707,12 @@ function monitorNotifyMetadata(monitor: Monitor): Record<string, unknown> {
     monitorName: monitor.name,
     url: monitor.url,
     emailRecipients: monitor.emailRecipients,
+    emailFooter:
+      "You received this because this monitor emails you. Change its recipients in {link}.",
+    emailFooterLinkLabel: "the monitor's settings",
+    emailFooterLinkUrl: analyticsUrl(
+      `/monitoring?view=uptime&monitor=${encodeURIComponent(monitor.id)}`,
+    ),
     requestedChannels: monitor.channels,
   };
 }

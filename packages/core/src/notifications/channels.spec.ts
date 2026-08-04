@@ -535,6 +535,49 @@ describe("email notification channel", () => {
     expect(sent.html).not.toContain("<pre>");
   });
 
+  it("links the sender's opt-out surface in the footer when one is named", async () => {
+    process.env.NOTIFICATIONS_EMAIL_CHANNEL = "1";
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "email")!;
+
+    await channel.deliver(
+      {
+        severity: "info",
+        title: "Generation finished",
+        metadata: {
+          emailRecipients: ["alice@example.com"],
+          emailFooter: "Email notifications are on in your {link}.",
+          emailFooterLinkLabel: "Assets settings",
+          emailFooterLinkUrl: "https://assets.example.test/settings",
+        },
+      },
+      { owner: "alice@example.com" },
+    );
+
+    const sent = sendEmail.mock.calls[0][0];
+    expect(sent.html).toContain(
+      '<a href="https://assets.example.test/settings"',
+    );
+    expect(sent.text).toContain(
+      "Email notifications are on in your Assets settings (https://assets.example.test/settings).",
+    );
+  });
+
+  it("adds no opt-out footer when the sender named none", async () => {
+    process.env.NOTIFICATIONS_EMAIL_CHANNEL = "1";
+    process.env.NOTIFICATIONS_EMAIL_RECIPIENTS = "ops@example.com";
+    const channels = await loadChannels();
+    const channel = channels.find((c) => c.name === "email")!;
+
+    await channel.deliver(
+      { severity: "critical", title: "Disk full" },
+      { owner: "ops@example.com" },
+    );
+
+    const sent = sendEmail.mock.calls[0][0];
+    expect(sent.text).not.toMatch(/turn|settings/i);
+  });
+
   it("does nothing when email has no recipients", async () => {
     process.env.NOTIFICATIONS_EMAIL_CHANNEL = "1";
     const channels = await loadChannels();

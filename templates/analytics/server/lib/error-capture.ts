@@ -36,6 +36,7 @@ import {
 
 import { ANALYTICS_USER_PREFS_KEY } from "../../shared/analytics-user-prefs";
 import { getDb, schema } from "../db/index.js";
+import { analyticsUrl } from "./app-url.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
 export type IssueStatus = "unresolved" | "resolved" | "ignored";
@@ -1012,6 +1013,10 @@ async function notifyNewIssue(
           ? {
               emailRecipients: [scope.ownerEmail],
               emailSubject: `New error in your app: ${issue.title}`,
+              emailFooter:
+                "You received this because new error emails are on in your {link}.",
+              emailFooterLinkLabel: "Analytics settings",
+              emailFooterLinkUrl: analyticsUrl("/settings"),
             }
           : {}),
       },
