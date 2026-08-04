@@ -171,6 +171,7 @@ const messages = {
       resources: "Resources",
       messaging: "Messaging",
       destinations: "Destinations",
+      transactionalEmail: "Transactional email",
       identities: "Identities",
       approvals: "Approvals",
       automations: "Automations",
@@ -201,6 +202,50 @@ const messages = {
       suggestionBuildApp: "Build a workspace app for X",
       suggestionRouteSlack: "Route Slack mentions to my analytics app",
       suggestionGrantKey: "Grant my OpenAI key to this app",
+    },
+    transactionalEmail: {
+      title: "Transactional email",
+      description:
+        "Every transactional email each app in this workspace can send, with its trigger, recipients, and delivery metrics.",
+      retentionTitle: "Activity feed retention is short",
+      retentionNote:
+        "The email provider's activity feed only retains recent messages, so an empty activity list does not mean nothing was sent.",
+      openRatesUnavailable: "Open rates unavailable",
+      catalogFanoutFailed: "Could not load app email catalogs",
+      retry: "Retry",
+      noApps: "No ready apps reported a transactional email catalog.",
+      catalogUnreadable: "This app's email catalog could not be read",
+      countsUnreadable: "Send counts could not be read",
+      appSendsNoEmail: "This app sends no transactional email.",
+      email: "Email",
+      trigger: "Trigger",
+      recipientAndSender: "Recipient / sender",
+      sends: "Sends",
+      openRate: "Open rate",
+      lastSent: "Last sent",
+      sendLogUnread:
+        "The send log could not be read, so the number of sends is unknown.",
+      failedCount: "{{count}} failed",
+      failuresUnknown: "failures unknown",
+      noProviderRecord:
+        "The provider reported no record for this email in the window.",
+      noDeliveredMail: "No delivered mail yet",
+      lastSentUnknown:
+        "The send log could not be read, so the last send time is unknown.",
+      preview: "Preview",
+      previewDescription:
+        "Rendered with dummy data. Scripts are disabled in this preview.",
+      previewFailed: "Preview could not be rendered",
+      previewFrameTitle: "Preview of {{name}}",
+      subject: "Subject",
+      activityLink: "Activity log",
+      activityTitle: "Activity for {{name}}",
+      activityUnavailable: "Activity feed unavailable",
+      activityEmpty: "No recent activity in the provider's retention window.",
+      recipient: "Recipient",
+      status: "Status",
+      opens: "Opens",
+      lastEvent: "Last event",
     },
     pages: {
       appsDescription:
