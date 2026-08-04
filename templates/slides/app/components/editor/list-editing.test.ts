@@ -53,6 +53,28 @@ describe("toggleSlideList", () => {
     ).toEqual(["Water weekly", "Move to shade"]);
   });
 
+  it("keeps text sitting outside an inline tag", () => {
+    // An inline child is not a line of its own; treating it as one would keep
+    // only its text and drop everything around it.
+    const host = element("Water <strong>weekly</strong> in summer");
+
+    toggleSlideList(host, "bullet");
+
+    const items = host.querySelectorAll("ul > li");
+    expect(items.length).toBe(1);
+    expect(items[0]?.textContent).toBe("Water weekly in summer");
+  });
+
+  it("splits on line breaks even when the lines carry inline markup", () => {
+    const host = element("Water <em>weekly</em><br>Move to shade");
+
+    toggleSlideList(host, "bullet");
+
+    expect(
+      Array.from(host.querySelectorAll("ul > li")).map((li) => li.textContent),
+    ).toEqual(["Water weekly", "Move to shade"]);
+  });
+
   it("drops the glyph when converting agent-styled bullet rows", () => {
     // Without this the row's own marker and the list marker both render.
     const host = element(
@@ -63,6 +85,25 @@ describe("toggleSlideList", () => {
 
     const item = host.querySelector("li");
     expect(item?.textContent).toBe("Water weekly");
+  });
+
+  it("states the marker type inline, since preflight sets list-style:none", () => {
+    const host = element("<div>Water weekly</div>");
+
+    toggleSlideList(host, "bullet");
+
+    const list = host.querySelector("ul") as HTMLElement;
+    expect(list.style.listStyleType).toBe("disc");
+  });
+
+  it("repaints the marker when switching kind, not just the tag", () => {
+    const host = element("<div>Water weekly</div>");
+
+    toggleSlideList(host, "bullet");
+    toggleSlideList(host, "ordered");
+
+    const list = host.querySelector("ol") as HTMLElement;
+    expect(list.style.listStyleType).toBe("decimal");
   });
 
   it("switches bullet to ordered by changing the tag, not just the style", () => {

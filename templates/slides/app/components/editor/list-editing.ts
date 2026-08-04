@@ -19,9 +19,18 @@ const LIST_TAG: Record<SlideListKind, "UL" | "OL"> = {
   ordered: "OL",
 };
 
-/** Markers sit inside the content box so a wrapped line aligns under its own
- * text rather than under the marker, matching how styled rows already read. */
-const LIST_STYLE = "margin:0;padding-left:1.25em;list-style-position:outside;";
+/**
+ * Tailwind's preflight sets `list-style: none` on every UL and OL, so the type
+ * has to be restated inline or the list renders with no markers at all. The
+ * marker sits outside the content box so a wrapped line aligns under its own
+ * text rather than under the marker, matching how styled rows already read.
+ */
+const LIST_STYLE: Record<SlideListKind, string> = {
+  bullet:
+    "margin:0;padding-left:1.25em;list-style-position:outside;list-style-type:disc;",
+  ordered:
+    "margin:0;padding-left:1.25em;list-style-position:outside;list-style-type:decimal;",
+};
 
 function isListTag(element: Element): boolean {
   return element.tagName === "UL" || element.tagName === "OL";
@@ -62,20 +71,55 @@ function retag(element: HTMLElement, tagName: string): HTMLElement {
   return replacement;
 }
 
+const BLOCK_TAGS = new Set([
+  "ARTICLE",
+  "BLOCKQUOTE",
+  "DIV",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "LI",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "UL",
+]);
+
+/**
+ * The object's children when it is built out of block elements, or null when
+ * it holds a single run of text. Bare text or an inline tag at the top level
+ * means the content is one line: treating `<strong>` as a block would keep
+ * only its text and silently drop everything around it.
+ */
+function blockChildren(source: HTMLElement): HTMLElement[] | null {
+  const blocks: HTMLElement[] = [];
+  for (const node of Array.from(source.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if ((node.textContent ?? "").trim()) return null;
+      continue;
+    }
+    if (!(node instanceof HTMLElement)) continue;
+    // A break separates lines within a block run; it never makes one.
+    if (node.tagName === "BR") continue;
+    if (!BLOCK_TAGS.has(node.tagName)) return null;
+    blocks.push(node);
+  }
+  return blocks.length > 0 ? blocks : null;
+}
+
 /**
  * The inner HTML of each line the object currently holds. A styled bullet row
  * contributes only its text, so converting agent-generated bullets to a real
  * list drops the now-duplicated marker instead of rendering two markers.
  */
 function readLines(source: HTMLElement): string[] {
-  // A break is a separator, not a block: a single line split by breaks must
-  // fall through below instead of reading as a set of empty blocks.
-  const blocks = Array.from(source.children).filter(
-    (child): child is HTMLElement =>
-      child instanceof HTMLElement && child.tagName !== "BR",
-  );
+  const blocks = blockChildren(source);
 
-  if (blocks.length > 0) {
+  if (blocks) {
     return blocks.flatMap((block) => {
       const stripped = block.cloneNode(true) as HTMLElement;
       for (const child of Array.from(stripped.children)) {
@@ -104,7 +148,7 @@ function buildList(
   lines: string[],
 ): HTMLElement {
   const list = doc.createElement(LIST_TAG[kind]);
-  list.setAttribute("style", LIST_STYLE);
+  list.setAttribute("style", LIST_STYLE[kind]);
   for (const line of lines) {
     const item = doc.createElement("li");
     item.innerHTML = line;
@@ -146,10 +190,16 @@ export function toggleSlideList(
   const lines = itemHtml(existing);
 
   if (existing.tagName !== LIST_TAG[kind]) {
-    // Same content, different marker: only the tag changes. When the object
-    // itself was the list, the retagged node replaces it and is what the
-    // caller must go on using, since `element` is now detached.
+    // Same content, different marker. The tag alone is not enough: an inline
+    // `list-style-type` from the other kind would keep painting the old
+    // marker, so restate it. When the object itself was the list, the retagged
+    // node replaces it and is what the caller must go on using, since
+    // `element` is now detached.
     const switched = retag(existing, LIST_TAG[kind]);
+    switched.style.setProperty(
+      "list-style-type",
+      kind === "ordered" ? "decimal" : "disc",
+    );
     return existing === element ? switched : element;
   }
 
@@ -160,6 +210,7 @@ export function toggleSlideList(
     unwrapped.replaceChildren(buildLines(doc, lines));
     unwrapped.style.removeProperty("padding-left");
     unwrapped.style.removeProperty("list-style-position");
+    unwrapped.style.removeProperty("list-style-type");
     return unwrapped;
   }
 
