@@ -23,13 +23,25 @@ import {
   formatShortcutKeycaps,
 } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { isApplePlatform } from "@/hooks/useDesignHotkeys";
+import {
+  MAX_NUDGE_AMOUNT,
+  MIN_NUDGE_AMOUNT,
+  normalizeNudgeAmount,
+} from "@/pages/design-editor/editor-preferences";
+import {
+  DEFAULT_NUDGE_AMOUNTS,
+  type NudgeAmounts,
+} from "@/pages/design-editor/nudge-intent";
 
 import { IconText } from "./inspector/design-icons";
 
 interface KeyboardShortcutsPanelProps {
   onClose: () => void;
+  nudgeAmounts?: NudgeAmounts;
+  onNudgeAmountsChange?: (next: NudgeAmounts) => void;
 }
 
 const TOOL_ICON_BY_SHORTCUT: Record<
@@ -164,8 +176,60 @@ function ShortcutBindings({ bindings }: { bindings: readonly string[] }) {
   );
 }
 
+function NudgeAmountFields({
+  amounts,
+  onChange,
+}: {
+  amounts: NudgeAmounts;
+  onChange: (next: NudgeAmounts) => void;
+}) {
+  const t = useT();
+  const field = (key: keyof NudgeAmounts, labelKey: string) => (
+    <label className="flex items-center gap-2 text-[11px] text-neutral-200">
+      <span className="min-w-20">{t(labelKey)}</span>
+      <Input
+        data-nudge-amount={key}
+        type="number"
+        min={MIN_NUDGE_AMOUNT}
+        max={MAX_NUDGE_AMOUNT}
+        value={amounts[key]}
+        onChange={(event) =>
+          onChange({
+            ...amounts,
+            [key]: normalizeNudgeAmount(event.target.value, amounts[key]),
+          })
+        }
+        className="h-7 w-20 bg-neutral-800 text-[11px] text-neutral-100"
+      />
+      <span className="text-neutral-400">
+        {t("designEditor.keyboardShortcuts.nudgeAmount.unit")}
+      </span>
+    </label>
+  );
+
+  return (
+    <section
+      data-nudge-amount-settings
+      className="mb-3 border-b border-neutral-800 pb-3"
+    >
+      <h3 className="mb-2 text-[11px] font-semibold text-neutral-100">
+        {t("designEditor.keyboardShortcuts.nudgeAmount.title")}
+      </h3>
+      <div className="flex flex-col gap-2">
+        {field("small", "designEditor.keyboardShortcuts.nudgeAmount.small")}
+        {field("big", "designEditor.keyboardShortcuts.nudgeAmount.big")}
+      </div>
+      <p className="mt-2 text-[10px] leading-4 text-neutral-400">
+        {t("designEditor.keyboardShortcuts.nudgeAmount.description")}
+      </p>
+    </section>
+  );
+}
+
 export function KeyboardShortcutsPanel({
   onClose,
+  nudgeAmounts = DEFAULT_NUDGE_AMOUNTS,
+  onNudgeAmountsChange,
 }: KeyboardShortcutsPanelProps) {
   const t = useT();
   const [category, setCategory] = useState<DesignShortcutCategory>("essential");
@@ -317,6 +381,12 @@ export function KeyboardShortcutsPanel({
                   data-shortcuts-content-column
                   className="mx-auto max-w-[400px]"
                 >
+                  {categoryId === "cursor" && onNudgeAmountsChange ? (
+                    <NudgeAmountFields
+                      amounts={nudgeAmounts}
+                      onChange={onNudgeAmountsChange}
+                    />
+                  ) : null}
                   {designRows.map((item) => (
                     <div
                       data-shortcut-id={item.id}
