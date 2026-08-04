@@ -28,6 +28,7 @@ let lockContentDatabaseMutation: typeof import("./_content-database-mutation-loc
 let deleteDocument: typeof import("./delete-document.js").default;
 let deleteContentDatabase: typeof import("./delete-content-database.js").default;
 let restoreDocument: typeof import("./restore-document.js").default;
+let restoreContentDatabase: typeof import("./restore-content-database.js").default;
 let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
 
 beforeAll(async () => {
@@ -53,6 +54,8 @@ beforeAll(async () => {
   deleteContentDatabase = (await import("./delete-content-database.js"))
     .default;
   restoreDocument = (await import("./restore-document.js")).default;
+  restoreContentDatabase = (await import("./restore-content-database.js"))
+    .default;
   permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
     .default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
@@ -448,6 +451,301 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       await getDb()
         .delete(schema.documents)
         .where(eq(schema.documents.id, restoredDocumentId));
+    }
+  }, 60_000);
+
+  it.each(["same-trash-root", "active"] as const)(
+    "rebuilds permanent-delete scope after a concurrent %s row insertion",
+    async (rowState) => {
+      const seed = await fixture();
+      const stamp = "2026-01-01T00:00:00.000Z";
+      const extraDocumentId = `postgres_delete_row_${seed.databaseId}`;
+      const extraItemId = `postgres_delete_item_${seed.databaseId}`;
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        deleteContentDatabase.run({ databaseId: seed.databaseId }),
+      );
+
+      let requestInsertion = () => {};
+      let releaseHolder = () => {};
+      let holder: Promise<unknown> | undefined;
+      let deletion: Promise<any> | undefined;
+      try {
+        const insertionRequested = new Promise<void>((resolve) => {
+          requestInsertion = resolve;
+        });
+        const holderReleased = new Promise<void>((resolve) => {
+          releaseHolder = resolve;
+        });
+        let holderEntered!: () => void;
+        const holderStarted = new Promise<void>((resolve) => {
+          holderEntered = resolve;
+        });
+        let rowInserted!: () => void;
+        const insertionCompleted = new Promise<void>((resolve) => {
+          rowInserted = resolve;
+        });
+        holder = getDb().transaction(async (tx: any) => {
+          await lockContentDatabaseMutation(tx, seed.databaseId);
+          holderEntered();
+          await insertionRequested;
+          await tx.insert(schema.documents).values({
+            id: extraDocumentId,
+            ownerEmail: OWNER,
+            spaceId: "synthetic_space",
+            parentId: seed.databaseDocumentId,
+            title: "Concurrent synthetic row",
+            content: "# Concurrent",
+            visibility: "private",
+            hideFromSearch: 1,
+            trashedAt: rowState === "same-trash-root" ? stamp : null,
+            trashRootId:
+              rowState === "same-trash-root" ? seed.databaseDocumentId : null,
+            createdAt: stamp,
+            updatedAt: stamp,
+          });
+          await tx.insert(schema.contentDatabaseItems).values({
+            id: extraItemId,
+            ownerEmail: OWNER,
+            databaseId: seed.databaseId,
+            documentId: extraDocumentId,
+            position: 1,
+            createdAt: stamp,
+            updatedAt: stamp,
+          });
+          rowInserted();
+          await holderReleased;
+        });
+        await holderStarted;
+
+        deletion = runWithRequestContext({ userEmail: OWNER }, () =>
+          permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
+        );
+        const deletionExpectation =
+          rowState === "active"
+            ? expect(deletion).rejects.toThrow(
+                "Database contains an active row outside this Trash item",
+              )
+            : null;
+        await waitForPostgresLockWait(1);
+        requestInsertion();
+        await insertionCompleted;
+        releaseHolder();
+        await holder;
+
+        if (deletionExpectation) {
+          await deletionExpectation;
+          expect(
+            await getDb()
+              .select()
+              .from(schema.contentDatabases)
+              .where(eq(schema.contentDatabases.id, seed.databaseId)),
+          ).toHaveLength(1);
+          expect(
+            await getDb()
+              .select()
+              .from(schema.documents)
+              .where(eq(schema.documents.id, extraDocumentId)),
+          ).toHaveLength(1);
+        } else {
+          await deletion;
+          expect(
+            await getDb()
+              .select()
+              .from(schema.contentDatabaseItems)
+              .where(eq(schema.contentDatabaseItems.id, extraItemId)),
+          ).toHaveLength(0);
+          expect(
+            await getDb()
+              .select()
+              .from(schema.documents)
+              .where(eq(schema.documents.id, extraDocumentId)),
+          ).toHaveLength(0);
+        }
+      } finally {
+        requestInsertion();
+        releaseHolder();
+        await Promise.allSettled(
+          [holder, deletion].filter((pending): pending is Promise<unknown> =>
+            Boolean(pending),
+          ),
+        );
+        await cleanupFixture(seed);
+        await getDb()
+          .delete(schema.documents)
+          .where(eq(schema.documents.id, extraDocumentId));
+      }
+    },
+    60_000,
+  );
+
+  it("retries permanent deletion when a new external membership expands the lock set", async () => {
+    const seed = await fixture();
+    const stamp = "2026-01-01T00:00:00.000Z";
+    const externalDatabaseId = `aaa_external_${seed.databaseId}`;
+    const externalDatabaseDocumentId = `external_page_${seed.databaseId}`;
+    const externalItemId = `external_item_${seed.databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: externalDatabaseDocumentId,
+      ownerEmail: OWNER,
+      spaceId: "synthetic_space",
+      title: "External synthetic database",
+      content: "",
+      visibility: "private",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: externalDatabaseId,
+      ownerEmail: OWNER,
+      spaceId: "synthetic_space",
+      documentId: externalDatabaseDocumentId,
+      title: "External synthetic database",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocument.run({ id: seed.documentId }),
+    );
+
+    let releaseHolder = () => {};
+    let holder: Promise<unknown> | undefined;
+    let deletion: Promise<any> | undefined;
+    try {
+      const holderReleased = new Promise<void>((resolve) => {
+        releaseHolder = resolve;
+      });
+      let holderEntered!: () => void;
+      const holderStarted = new Promise<void>((resolve) => {
+        holderEntered = resolve;
+      });
+      holder = getDb().transaction(async (tx: any) => {
+        await lockContentDatabaseMutation(tx, seed.databaseId);
+        holderEntered();
+        await holderReleased;
+      });
+      await holderStarted;
+
+      deletion = runWithRequestContext({ userEmail: OWNER }, () =>
+        permanentlyDeleteDocument.run({ id: seed.documentId }),
+      );
+      await waitForPostgresLockWait(1);
+      await getDb().transaction(async (tx: any) => {
+        await lockContentDatabaseMutation(tx, externalDatabaseId);
+        await tx.insert(schema.contentDatabaseItems).values({
+          id: externalItemId,
+          ownerEmail: OWNER,
+          databaseId: externalDatabaseId,
+          documentId: seed.documentId,
+          position: 0,
+          createdAt: stamp,
+          updatedAt: stamp,
+        });
+      });
+      releaseHolder();
+      await holder;
+      await deletion;
+
+      expect(
+        await getDb()
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, seed.documentId)),
+      ).toHaveLength(0);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseItems)
+          .where(eq(schema.contentDatabaseItems.id, externalItemId)),
+      ).toHaveLength(0);
+      expect(
+        await getDb()
+          .select()
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, externalDatabaseId)),
+      ).toHaveLength(1);
+    } finally {
+      releaseHolder();
+      await Promise.allSettled(
+        [holder, deletion].filter((pending): pending is Promise<unknown> =>
+          Boolean(pending),
+        ),
+      );
+      await cleanupFixture(seed);
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, externalDatabaseId));
+      await getDb()
+        .delete(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, externalDatabaseId));
+      await getDb()
+        .delete(schema.documents)
+        .where(eq(schema.documents.id, externalDatabaseDocumentId));
+    }
+  }, 60_000);
+
+  it("refuses permanent deletion when restore wins the lifecycle locks", async () => {
+    const seed = await fixture();
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteContentDatabase.run({ databaseId: seed.databaseId }),
+    );
+    let releaseHolder = () => {};
+    let holder: Promise<unknown> | undefined;
+    let restore: Promise<any> | undefined;
+    let deletion: Promise<any> | undefined;
+    try {
+      const holderReleased = new Promise<void>((resolve) => {
+        releaseHolder = resolve;
+      });
+      let holderEntered!: () => void;
+      const holderStarted = new Promise<void>((resolve) => {
+        holderEntered = resolve;
+      });
+      holder = getDb().transaction(async (tx: any) => {
+        await lockContentDatabaseMutation(tx, seed.databaseId);
+        holderEntered();
+        await holderReleased;
+      });
+      await holderStarted;
+
+      restore = runWithRequestContext({ userEmail: OWNER }, () =>
+        restoreContentDatabase.run({ databaseId: seed.databaseId }),
+      );
+      await waitForPostgresLockWait(1);
+      deletion = runWithRequestContext({ userEmail: OWNER }, () =>
+        permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      releaseHolder();
+      await holder;
+      await restore;
+      await expect(deletion).rejects.toThrow(
+        "Document must be in Trash and be a Trash root before permanent deletion",
+      );
+
+      expect(
+        (
+          await getDb()
+            .select({ deletedAt: schema.contentDatabases.deletedAt })
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.id, seed.databaseId))
+        )[0]?.deletedAt,
+      ).toBeNull();
+      expect(
+        (
+          await getDb()
+            .select({ trashedAt: schema.documents.trashedAt })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, seed.databaseDocumentId))
+        )[0]?.trashedAt,
+      ).toBeNull();
+    } finally {
+      releaseHolder();
+      await Promise.allSettled(
+        [holder, restore, deletion].filter(
+          (pending): pending is Promise<unknown> => Boolean(pending),
+        ),
+      );
+      await cleanupFixture(seed);
     }
   }, 60_000);
 

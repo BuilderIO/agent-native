@@ -16,6 +16,23 @@ import { renumberDatabaseRows } from "./_database-row-batch.js";
 
 const DELETE_BATCH_SIZE = 90;
 
+export class PermanentDeleteScopeChangedError extends Error {
+  constructor() {
+    super("Document deletion scope changed; retry deletion.");
+  }
+}
+
+type PermanentDeleteScope = {
+  documentIds: string[];
+  ownedDatabaseIds: string[];
+};
+
+function hasSameIds(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const rightIds = new Set(right);
+  return left.every((id) => rightIds.has(id));
+}
+
 async function selectDocumentChildren(
   db: ReturnType<typeof getDb>,
   parentIds: string[],
@@ -100,6 +117,42 @@ async function selectDatabaseItemDocuments(
   }
 
   return ownedRows.map((row) => ({ documentId: row.id }));
+}
+
+async function selectDatabaseItemDocumentTrashState(
+  db: ReturnType<typeof getDb>,
+  databaseIds: string[],
+  ownerEmail: string,
+) {
+  const itemDocuments = await selectDatabaseItemDocuments(
+    db,
+    databaseIds,
+    ownerEmail,
+  );
+  const rows: Array<{
+    id: string;
+    trashedAt: string | null;
+  }> = [];
+  for (const batch of chunks(
+    itemDocuments.map((item) => item.documentId),
+    DELETE_BATCH_SIZE,
+  )) {
+    rows.push(
+      ...(await db
+        .select({
+          id: schema.documents.id,
+          trashedAt: schema.documents.trashedAt,
+        })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, batch),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+  return rows;
 }
 
 async function selectMembershipsForDocuments(
@@ -196,42 +249,66 @@ async function collectDocumentSubtreeForDelete(
   };
 }
 
-async function lockDatabasesForPermanentDelete(
+async function lockPermanentDeleteScope(
   db: ReturnType<typeof getDb>,
-  documentIds: string[],
-  ownedDatabaseIds: string[],
+  collectScope: () => Promise<PermanentDeleteScope>,
 ) {
-  const directMemberships = await selectMembershipsForDocuments(
+  const initialScope = await collectScope();
+  const initialMemberships = await selectMembershipsForDocuments(
     db,
-    documentIds,
+    initialScope.documentIds,
   );
   const lockedDatabaseIds = [
     ...new Set([
-      ...ownedDatabaseIds,
-      ...directMemberships.map((membership) => membership.databaseId),
+      ...initialScope.ownedDatabaseIds,
+      ...initialMemberships.map((membership) => membership.databaseId),
     ]),
   ].sort();
   for (const databaseId of lockedDatabaseIds) {
     await lockContentDatabaseMutation(db, databaseId);
   }
-  const ownedMembershipIds = (
-    await Promise.all(
-      [...ownedDatabaseIds]
-        .sort()
-        .map((databaseId) =>
-          db
-            .select({ id: schema.contentDatabaseItems.id })
-            .from(schema.contentDatabaseItems)
-            .where(eq(schema.contentDatabaseItems.databaseId, databaseId)),
-        ),
-    )
-  )
-    .flat()
-    .map((membership) => membership.id);
-  await lockDatabaseMemberships(db, [
-    ...ownedMembershipIds,
-    ...directMemberships.map((membership) => membership.id),
-  ]);
+
+  const reloadedScope = await collectScope();
+  const reloadedMemberships = await selectMembershipsForDocuments(
+    db,
+    reloadedScope.documentIds,
+  );
+  const lockedDatabaseIdSet = new Set(lockedDatabaseIds);
+  const uncoveredDatabaseId = [
+    ...reloadedScope.ownedDatabaseIds,
+    ...reloadedMemberships.map((membership) => membership.databaseId),
+  ].find((databaseId) => !lockedDatabaseIdSet.has(databaseId));
+  if (uncoveredDatabaseId) {
+    throw new PermanentDeleteScopeChangedError();
+  }
+
+  const membershipIds = await selectMembershipIdsForDatabases(
+    db,
+    lockedDatabaseIds,
+  );
+  await lockDatabaseMemberships(db, membershipIds);
+
+  const lockedScope = await collectScope();
+  const lockedMemberships = await selectMembershipsForDocuments(
+    db,
+    lockedScope.documentIds,
+  );
+  const lockedMembershipIds = await selectMembershipIdsForDatabases(
+    db,
+    lockedDatabaseIds,
+  );
+  if (
+    !hasSameIds(reloadedScope.documentIds, lockedScope.documentIds) ||
+    !hasSameIds(reloadedScope.ownedDatabaseIds, lockedScope.ownedDatabaseIds) ||
+    !hasSameIds(membershipIds, lockedMembershipIds) ||
+    [
+      ...lockedScope.ownedDatabaseIds,
+      ...lockedMemberships.map((membership) => membership.databaseId),
+    ].some((databaseId) => !lockedDatabaseIdSet.has(databaseId))
+  ) {
+    throw new PermanentDeleteScopeChangedError();
+  }
+  return lockedScope;
 }
 
 export async function lockDatabasesForTrash(
@@ -495,9 +572,37 @@ export async function deleteDocumentRecursive(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  const { documentIds, ownedDatabaseIds } =
-    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
-  await lockDatabasesForPermanentDelete(db, documentIds, ownedDatabaseIds);
+  return deleteDocumentRootsRecursive(db, [id], ownerEmail);
+}
+
+export async function deleteDocumentRootsRecursive(
+  db: ReturnType<typeof getDb>,
+  rootIds: string[],
+  ownerEmail: string,
+): Promise<string[]> {
+  const collectScope = async () => {
+    const documentIds = new Set<string>();
+    const ownedDatabaseIds = new Set<string>();
+    for (const rootId of rootIds) {
+      const scope = await collectDocumentSubtreeForDelete(
+        db,
+        rootId,
+        ownerEmail,
+      );
+      for (const documentId of scope.documentIds) documentIds.add(documentId);
+      for (const databaseId of scope.ownedDatabaseIds) {
+        ownedDatabaseIds.add(databaseId);
+      }
+    }
+    return {
+      documentIds: [...documentIds],
+      ownedDatabaseIds: [...ownedDatabaseIds],
+    };
+  };
+  const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
+    db,
+    collectScope,
+  );
   return deleteCollectedDocuments(
     db,
     documentIds,
@@ -710,42 +815,64 @@ export async function deleteTrashedDocumentSubtree(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  const [root] = await db
-    .select({ id: schema.documents.id })
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, id),
-        eq(schema.documents.ownerEmail, ownerEmail),
-        eq(schema.documents.trashRootId, id),
-        isNotNull(schema.documents.trashedAt),
-      ),
-    )
-    .limit(1);
-  if (!root) {
-    throw new Error(
-      "Document must be in Trash and be a Trash root before permanent deletion",
-    );
-  }
-
-  const documentIds = (
-    await db
+  const collectScope = async () => {
+    const [root] = await db
       .select({ id: schema.documents.id })
       .from(schema.documents)
       .where(
         and(
+          eq(schema.documents.id, id),
           eq(schema.documents.ownerEmail, ownerEmail),
           eq(schema.documents.trashRootId, id),
           isNotNull(schema.documents.trashedAt),
         ),
       )
-  ).map((document) => document.id);
-  const ownedDatabaseIds = await selectOwnedDatabaseIds(
+      .limit(1);
+    if (!root) {
+      throw new Error(
+        "Document must be in Trash and be a Trash root before permanent deletion",
+      );
+    }
+
+    const documentIds = (
+      await db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.ownerEmail, ownerEmail),
+            eq(schema.documents.trashRootId, id),
+            isNotNull(schema.documents.trashedAt),
+          ),
+        )
+    ).map((document) => document.id);
+    const ownedDatabaseIds = await selectOwnedDatabaseIds(
+      db,
+      documentIds,
+      ownerEmail,
+    ).then((rows) => rows.map((database) => database.id));
+    const documentIdSet = new Set(documentIds);
+    const activeOutsideScope = (
+      await selectDatabaseItemDocumentTrashState(
+        db,
+        ownedDatabaseIds,
+        ownerEmail,
+      )
+    ).find(
+      (document) => !documentIdSet.has(document.id) && !document.trashedAt,
+    );
+    if (activeOutsideScope) {
+      throw new Error(
+        "Database contains an active row outside this Trash item",
+      );
+    }
+    return { documentIds, ownedDatabaseIds };
+  };
+
+  const { documentIds, ownedDatabaseIds } = await lockPermanentDeleteScope(
     db,
-    documentIds,
-    ownerEmail,
-  ).then((rows) => rows.map((database) => database.id));
-  await lockDatabasesForPermanentDelete(db, documentIds, ownedDatabaseIds);
+    collectScope,
+  );
 
   await db
     .update(schema.documents)
