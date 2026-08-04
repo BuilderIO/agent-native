@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "設定",
     description: "此應用的語言和工作區偏好設定。",
+    emailNotifications: "郵件通知",
+    emailNotificationsDescription:
+      "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
+    saveFailed: "儲存失敗",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
@@ -490,6 +494,8 @@ const messages = {
     promptPlaceholder: "描述你想要的幻燈片...",
   },
   presentation: {
+    loadFailed: "無法載入此簡報。",
+    tryAgain: "重試",
     presenterView: "簡報者檢視",
     speakerNotes: "簡報者備忘稿",
     noNotesForSlide: "此投影片沒有備忘稿",

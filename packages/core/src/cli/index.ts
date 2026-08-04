@@ -926,6 +926,21 @@ switch (command) {
     break;
   }
 
+  case "clean": {
+    // Reclaim disk by deleting regenerable build caches. Dry-run unless
+    // --apply, like `package add` and `eject`.
+    import("./clean.js")
+      .then(async (m) => {
+        const code = await m.runClean(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "code": {
     import("./code.js")
       .then((m) => m.runCode(args))
@@ -1301,6 +1316,10 @@ Usage:
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in
                                 changelog/; 'release' rolls them into CHANGELOG.md.
+  agent-native clean            Reclaim disk by deleting regenerable build
+                                caches (node_modules/.vite, .nitro). Dry-run
+                                unless --apply; --builds also selects build/,
+                                dist/, .output/ and .netlify bundles.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its
@@ -1322,6 +1341,8 @@ Options:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
+  --prewarm                     With workspace dev, warm non-default apps in the background
+  --no-prewarm                  With workspace dev, keep non-default apps lazy
   --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}

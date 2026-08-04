@@ -61,6 +61,6 @@ describe("agent CLI", () => {
     const entry = actions["source-search"];
 
     expect(entry.readOnly).toBe(true);
-    expect(entry.tool.description).toContain("source corpus");
+    expect(entry.tool.description).toContain("template corpus");
   });
 });

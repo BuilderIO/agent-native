@@ -52,23 +52,6 @@ afterEach(() => {
 });
 
 describe("shouldIncludeCorpusSourceFile", () => {
-  it("excludes localized Core docs from the published corpus", () => {
-    assert.equal(
-      shouldIncludeCorpusSourceFile(
-        "packages/core",
-        "packages/core/docs/content/locales/de-DE/workspace.mdx",
-      ),
-      false,
-    );
-    assert.equal(
-      shouldIncludeCorpusSourceFile(
-        "packages/core",
-        "packages/core/docs/content/workspace.mdx",
-      ),
-      true,
-    );
-  });
-
   it("keeps only the English example among template locale catalogs", () => {
     assert.equal(
       shouldIncludeCorpusSourceFile(
@@ -100,11 +83,11 @@ describe("shouldIncludeCorpusSourceFile", () => {
     );
   });
 
-  it("does not filter functional scaffold locales from Core source", () => {
+  it("does not filter functional scaffold locales inside a template", () => {
     assert.equal(
       shouldIncludeCorpusSourceFile(
-        "packages/core",
-        "packages/core/src/templates/default/app/i18n/de-DE.ts",
+        "templates",
+        "templates/plan/app/components/i18n/de-DE.ts",
       ),
       true,
     );

@@ -57,11 +57,20 @@ const messages = {
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
     profileMenuItem: "Profile",
+    manageAgentMenuItem: "Manage agent",
+    timezoneLabel: "Timezone",
+    timezoneSystem: "Follow this browser ({{zone}})",
+    timezoneHint: "Used for timestamps and scheduled automations.",
   },
   secrets: {
     scopeLabel: "Scope",
     scopePersonal: "Personal",
     scopeWorkspace: "Workspace",
+    testStoredValue: "Test",
+    candidateValueWorking: "New value works",
+    storedValueWorking: "Working",
+    invalid: "Invalid",
+    testFailed: "Test failed",
     scopePersonalDescription:
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
@@ -563,6 +572,7 @@ const messages = {
     systemOrdered: "System · ordered, not evictable",
   },
   jobs: {
+    timezone: "Timezone",
     pageTitle: "Automations",
     pageDescription:
       "Manage agent tasks that run on a schedule or in response to events.",
@@ -582,6 +592,28 @@ const messages = {
     paused: "Paused",
     nextRun: "Next run",
     lastRun: "Last run",
+    lastChecked: "Last checked",
+    lastStatus: "Last status",
+    neverRan: "Never",
+    notSet: "—",
+    status: "Status",
+    trigger: "Trigger",
+    scope: "Scope",
+    createdBy: "Created by",
+    model: "Model",
+    blockedTitle: "This automation is not running",
+    pastRuns: "Past runs",
+    runsLoadError: "Could not load run history.",
+    noRuns:
+      "This automation has not executed yet. Only real executions are recorded here.",
+    edit: "Edit",
+    editScheduleTitle: "Edit schedule — {{name}}",
+    editScheduleDescription:
+      "The clock time below is read in the timezone you pick, so 8:00 means 8:00 there.",
+    cronExpression: "Cron expression",
+    cronFormatHint: "minute hour day-of-month month day-of-week",
+    cronFieldCount: "A cron expression needs exactly 5 fields.",
+    saveSchedule: "Save schedule",
     details: "Details",
     pause: "Pause",
     resume: "Resume",
@@ -601,6 +633,10 @@ const messages = {
     deleteAutomationTitle: "Delete automation?",
     deleteAutomationDescription:
       "This permanently removes the automation and cannot be undone.",
+    runNow: "Run now",
+    runNowTitle: "Run automation now?",
+    runNowDescription:
+      "This runs the automation's real actions immediately. It may send messages or change data, and it will not change the next scheduled run.",
     automationDetails: "Automation details",
     automationEventDetails: "Runs when {{event}}.",
     condition: "Condition",
@@ -677,6 +713,11 @@ const messages = {
     finishedHours: "Finished {{count}}h ago",
     updatedDate: "Updated {{date}}",
     finishedDate: "Finished {{date}}",
+  },
+  agentTask: {
+    backgroundTask: "Background task",
+    stop: "Stop background task",
+    openThread: "Open task thread",
   },
   codeRequired: {
     fallbackDetail:

@@ -102,6 +102,8 @@ export interface RequestRunContext {
   userApiKey?: string;
   /** Thread ID for the current run (set by onRunStart). */
   threadId?: string;
+  /** Run ID for the current run (set by onRunStart). */
+  runId?: string;
   /** System prompt actually sent to the model for this run. */
   systemPrompt?: string;
   /** Engine instance for this run (set by onEngineResolved). */
@@ -140,6 +142,12 @@ export interface RequestContext {
    */
   authCapability?: string;
   timezone?: string;
+  /**
+   * The caller's browser analytics session id, when the request came from a
+   * page. Emitted as PostHog's `$session_id` so agent traces join to session
+   * replay; never used for authorization.
+   */
+  browserSessionId?: string;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind

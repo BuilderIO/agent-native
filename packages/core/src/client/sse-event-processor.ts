@@ -1304,6 +1304,68 @@ export function processEvent(
     };
   }
 
+  if (ev.type === "tool_input_start" || ev.type === "tool_input_delta") {
+    const tool = ev.tool?.trim() || "unknown";
+    const pendingToolCallIndex = findPendingActivityToolCallIndex(
+      content,
+      tool,
+      ev.id,
+    );
+    let toolCallIndex = pendingToolCallIndex;
+
+    if (toolCallIndex < 0) {
+      const hasCompletedSameTool = content.some(
+        (part) =>
+          part.type === "tool-call" &&
+          part.toolName === tool &&
+          part.result !== undefined &&
+          (!ev.id || part.toolCallId === ev.id),
+      );
+      if (!hasCompletedSameTool) {
+        content.push({
+          type: "tool-call",
+          toolCallId: ev.id ?? `tc_${++toolCallCounter.value}`,
+          toolName: tool,
+          argsText: "",
+          args: {},
+          activity: true,
+        });
+        toolCallIndex = content.length - 1;
+      }
+    }
+
+    const pending = toolCallIndex >= 0 ? content[toolCallIndex] : undefined;
+    if (pending?.type === "tool-call") {
+      if (ev.id && pending.toolCallId !== ev.id) {
+        pending.toolCallId = ev.id;
+      }
+      if (ev.type === "tool_input_delta" && ev.text) {
+        pending.argsText += ev.text;
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-input", {
+          detail: {
+            phase: ev.type === "tool_input_start" ? "start" : "delta",
+            tool,
+            ...(ev.id ? { id: ev.id } : {}),
+            argsText:
+              pending?.type === "tool-call" ? pending.argsText : undefined,
+            ...(ev.type === "tool_input_delta" ? { text: ev.text ?? "" } : {}),
+            tabId,
+          },
+        }),
+      );
+    }
+
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
@@ -1336,8 +1398,7 @@ export function processEvent(
     const pendingIsActivityPlaceholder =
       pendingToolCall?.type === "tool-call" &&
       pendingToolCall.activity === true &&
-      pendingToolCall.argsText === "" &&
-      Object.keys(pendingToolCall.args).length === 0;
+      pendingToolCall.result === undefined;
     // A re-emitted start for the SAME id — a retry/auto-continue clear that
     // keeps the in-flight card mounted, or a reconnect replay — must update the
     // existing card in place instead of pushing a duplicate. Matching on id

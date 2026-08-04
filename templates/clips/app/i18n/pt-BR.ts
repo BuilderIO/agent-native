@@ -632,6 +632,7 @@ const messages = {
     title: "Configurações",
     pageTitle: "Configurações · Clips",
     intro: "Preferências e serviços conectados para este espaço do Clips.",
+    preferencesTitle: "Preferências",
     languageTitle: "Idioma",
     languageDescription:
       "Escolha o idioma da interface para esta conta. O Clips lembrará em todos os seus dispositivos.",
@@ -669,9 +670,16 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     transcriptCleanupDescription:
       "Mostre a transcrição nativa imediatamente e depois limpe em segundo plano quando disponível.",
     notifications: "Notificações",
+    sharing: "Compartilhamento",
+    defaultVisibility: "Visibilidade padrão de novas gravações",
+    defaultVisibilityDescription:
+      "Aplicada a cada gravação que você cria. Você ainda pode mudar a visibilidade por gravação.",
+    visibilityPrivate: "Privado - somente você",
+    visibilityOrg: "Organização - qualquer pessoa do seu espaço",
+    visibilityPublic: "Público - qualquer pessoa com o link",
     emailNotifications: "Notificações por e-mail",
     emailNotificationsDescription:
-      "Receba um e-mail quando alguém comentar, reagir ou compartilhar uma gravação com você.",
+      "Receba um e-mail quando alguém comentar ou reagir à sua gravação.",
     saved: "Configurações salvas",
     saveFailed: "Falha ao salvar",
     builderConnectedToast: "Builder.io conectado",
@@ -831,6 +839,9 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     viewsCount_one: "{{count}} visualização",
     viewsCount_many: "{{count}} visualizações",
     viewsCount_other: "{{count}} visualizações",
+    agentViewsCount_one: "{{count}} visualização de agente de IA",
+    agentViewsCount_many: "{{count}} visualizações de agentes de IA",
+    agentViewsCount_other: "{{count}} visualizações de agentes de IA",
     totalViewsSummary:
       "{{total}} visualizações no total, {{unique}} visualizadores únicos",
     viewsTab: "Visualizações",
@@ -838,6 +849,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     humanViews: "Visualizações humanas",
     agentViews: "Visualizações de agentes de IA",
     noAgentViewsYet: "Ainda não há visualizações de agentes de IA.",
+    unknownAgent: "Agente desconhecido",
     totalVideoViews: "Total de visualizações do vídeo",
     averageCompletionRate: "Taxa média de conclusão",
     moreInsights: "Mais insights",

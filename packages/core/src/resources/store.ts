@@ -116,6 +116,17 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
   metadata?: string | Record<string, unknown> | null;
 }
 
+export interface ResourceConditionalWrite {
+  owner: string;
+  path: string;
+  content: string;
+  expectedId: string;
+  expectedUpdatedAt: number;
+  /** Also guards the rare case where two writes share the same millisecond. */
+  expectedContent: string;
+  mimeType?: string;
+}
+
 export interface ResourceListOptions {
   includeAgentScratch?: boolean;
   workspaceAppId?: string | null;
@@ -1337,6 +1348,59 @@ export async function resourcePut(
     expiresAt,
     metadata,
   };
+}
+
+/**
+ * Update an existing SQL resource only when the caller still owns the version
+ * it read. Completion bookkeeping uses this instead of an upsert because a
+ * run must never overwrite an edit or recreate a replacement at the same
+ * path. Local workspace artifacts have no atomic conditional-write primitive,
+ * so this helper fails closed for them.
+ */
+export async function resourcePutIfCurrent(
+  input: ResourceConditionalWrite,
+): Promise<Resource | null> {
+  await ensureTable();
+  if (
+    input.owner === WORKSPACE_OWNER &&
+    (await shouldHandleWorkspaceResourceAsLocal(input.path))
+  ) {
+    return null;
+  }
+  if (input.owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(input.path);
+  }
+
+  const client = getDbExec();
+  const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
+  const size = Buffer.byteLength(input.content, "utf8");
+  const mime = input.mimeType || "text/markdown";
+  const result = await client.execute({
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
+    args: [
+      input.content,
+      mime,
+      size,
+      now,
+      input.owner,
+      input.path,
+      input.expectedId,
+      input.expectedUpdatedAt,
+      input.expectedContent,
+    ],
+  });
+  const rowsAffected = (result as unknown as { rowsAffected?: number })
+    .rowsAffected;
+  if (typeof rowsAffected !== "number" || rowsAffected !== 1) return null;
+
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ? AND id = ?`,
+    args: [input.owner, input.path, input.expectedId],
+  });
+  if (rows.length === 0) return null;
+  const resource = rowToResource(rows[0]);
+  emitResourceChange(resource.id, resource.path, resource.owner);
+  return resource;
 }
 
 export async function resourceDelete(id: string): Promise<boolean> {

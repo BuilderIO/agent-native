@@ -54,8 +54,8 @@ When the user asks to find a previous conversation, use \`chat-history\` with ac
 
   "agent-teams": `### Agent Teams — Orchestration
 
-You can delegate to background sub-agents with the \`agent-teams\` tool:
-- \`agent-teams\` (action: "spawn") — Launch a sub-agent on a task. It runs in its own thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
+You can delegate to background tasks with the \`agent-teams\` tool. Call them background tasks or sub-agent tasks, never branches; reserve "branch" for source-control or Builder code handoffs:
+- \`agent-teams\` (action: "spawn") — Launch a background task on a self-contained job. It runs in its own task thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
 - \`agent-teams\` (action: "status") — Check a running sub-agent's progress.
 - \`agent-teams\` (action: "read-result") — Read a finished sub-agent's output.
 - \`agent-teams\` (action: "send") — Message a running sub-agent.

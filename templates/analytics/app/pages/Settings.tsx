@@ -1,15 +1,22 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
 import { IconBell } from "@tabler/icons-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,8 +27,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 import changelog from "../../CHANGELOG.md?raw";
+import {
+  ANALYTICS_USER_PREFS_KEY,
+  type AnalyticsUserPrefs,
+} from "../../shared/analytics-user-prefs";
 import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
 import { ReplayStorageHint } from "./sessions/SessionsPage";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
@@ -31,6 +43,47 @@ export default function Settings() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   const replayStorageStatus = useReplayStorageStatus();
+  const { data: analyticsPrefs, isLoading: analyticsPrefsLoading } =
+    useActionQuery<AnalyticsUserPrefs>("get-user-pref", {
+      key: ANALYTICS_USER_PREFS_KEY,
+    });
+  const saveAnalyticsPrefs = useActionMutation<
+    { success: boolean },
+    { key: string; value: Record<string, unknown> }
+  >("set-user-pref");
+  const [errorEmailEnabledOverride, setErrorEmailEnabledOverride] = useState<
+    boolean | null
+  >(null);
+
+  useEffect(() => {
+    if (analyticsPrefs) {
+      setErrorEmailEnabledOverride(
+        analyticsPrefs.errorEmailNotifications === true,
+      );
+    }
+  }, [analyticsPrefs]);
+
+  const errorEmailEnabled =
+    errorEmailEnabledOverride ??
+    analyticsPrefs?.errorEmailNotifications === true;
+
+  const saveErrorEmailPreference = (enabled: boolean) => {
+    const previous = errorEmailEnabled;
+    setErrorEmailEnabledOverride(enabled);
+    void saveAnalyticsPrefs
+      .mutateAsync({
+        key: ANALYTICS_USER_PREFS_KEY,
+        value: { errorEmailNotifications: enabled },
+      })
+      .catch((error) => {
+        setErrorEmailEnabledOverride(previous);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("settings.errorEmailNotificationsSaveFailed"),
+        );
+      });
+  };
 
   const extraTabs = useMemo<SettingsTabItem[]>(
     () => [
@@ -68,47 +121,56 @@ export default function Settings() {
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
-          <Card
-            id="credentials"
-            className="bg-card border-border/50 scroll-mt-16"
-          >
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.credentials")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">
-                {t("settings.credentialsDescription")}
-              </p>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/data-sources">
-                  {t("settings.manageDataSources")}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card
-            id="dashboard-templates"
-            className="bg-card border-border/50 scroll-mt-16"
-          >
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.dashboardTemplates")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.dashboardTemplatesDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/catalog">
-                  {t("settings.openDashboardTemplates")}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <SettingsGroup className="bg-card border-border/50">
+            <SettingsRow
+              id="credentials"
+              label={t("settings.credentials")}
+              description={t("settings.credentialsDescription")}
+              control={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/data-sources">
+                    {t("settings.manageDataSources")}
+                  </Link>
+                </Button>
+              }
+            />
+            <SettingsRow
+              id="dashboard-templates"
+              label={t("settings.dashboardTemplates")}
+              description={t("settings.dashboardTemplatesDescription")}
+              control={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/catalog">
+                    {t("settings.openDashboardTemplates")}
+                  </Link>
+                </Button>
+              }
+            />
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+            <SettingsRow
+              id="error-email-notifications"
+              label={t("settings.errorEmailNotifications")}
+              description={t("settings.errorEmailNotificationsDescription")}
+              control={
+                <Switch
+                  aria-label={t("settings.errorEmailNotifications")}
+                  checked={errorEmailEnabled}
+                  disabled={
+                    analyticsPrefsLoading || saveAnalyticsPrefs.isPending
+                  }
+                  onCheckedChange={saveErrorEmailPreference}
+                />
+              }
+            />
+          </SettingsGroup>
 
           {replayStorageStatus.data?.configured ? (
             <Card
@@ -128,18 +190,6 @@ export default function Settings() {
               </CardContent>
             </Card>
           ) : null}
-
-          <Card id="language" className="bg-card border-border/50 scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.languageTitle")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
 
           <Card id="about" className="bg-card border-border/50 scroll-mt-16">
             <CardHeader>

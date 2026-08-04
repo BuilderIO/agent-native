@@ -39,6 +39,14 @@ export interface SendEmailArgs {
   fromName?: string;
   cc?: string | string[];
   replyTo?: string;
+  /**
+   * Per-app branding for first-party agent-native.com deployments. Applied
+   * only when the configured EMAIL_FROM is already on agent-native.com, so a
+   * self-hosted deployment keeps its own verified sender and support mailbox
+   * instead of sending as an unverified address a provider would reject.
+   * An explicit `from` / `replyTo` always wins.
+   */
+  appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
   references?: string;
   attachments?: EmailAttachment[];
@@ -150,6 +158,56 @@ function withDisplayName(from: string, name: string): string {
   return `"${safe}" <${address}>`;
 }
 
+const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
+
+/**
+ * Resolve the per-app sender address, but only for deployments whose
+ * configured sender is already on agent-native.com. Any other (or missing)
+ * EMAIL_FROM means we cannot prove the branded address is a verified sender,
+ * so the deployment's own configuration is left untouched.
+ */
+let warnedAppSenderSuppressed = false;
+
+/**
+ * Suppressing the branding is correct for a sender we cannot prove we own,
+ * but it must not be invisible, or an operator sees generic senders with
+ * nothing pointing at why.
+ *
+ * EMAIL_FROM resolves per user/org/workspace through the scoped secret store,
+ * so the resolved address is tenant data and must never reach shared logs, and
+ * anything keyed by it would grow without bound in a warm worker. The message
+ * therefore carries no tenant values, which also makes it identical for every
+ * suppressed config — so emitting it once per process loses nothing.
+ */
+function warnAppSenderSuppressed(): void {
+  if (warnedAppSenderSuppressed) return;
+  warnedAppSenderSuppressed = true;
+  console.warn(
+    `[agent-native:email] Per-app sender branding is off because the ` +
+      `configured EMAIL_FROM is not on ${AGENT_NATIVE_SENDER_DOMAIN}. ` +
+      `Transactional email keeps the configured sender. Expected when self-hosting.`,
+  );
+}
+
+function resolveAppSender(
+  configuredFrom: string | undefined,
+  appSender: SendEmailArgs["appSender"],
+): { address: string; name: string; replyTo?: string } | undefined {
+  if (!appSender) return undefined;
+  const address = configuredFrom
+    ? parseSendGridFrom(configuredFrom).email.toLowerCase()
+    : undefined;
+  if (!address?.endsWith(`@${AGENT_NATIVE_SENDER_DOMAIN}`)) {
+    warnAppSenderSuppressed();
+    return undefined;
+  }
+  return {
+    address: `${appSender.slug}@${AGENT_NATIVE_SENDER_DOMAIN}`,
+    name: appSender.name,
+    replyTo: appSender.replyTo,
+  };
+}
+
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
@@ -157,7 +215,12 @@ async function sendEmailWithSignal(
   const config = await resolveEmailTransport();
   signal?.throwIfAborted();
   const provider = config.provider;
-  const from = getFromAddress(config, args.from, args.fromName);
+  const branded = resolveAppSender(config.from, args.appSender);
+  const from =
+    branded && !args.from
+      ? withDisplayName(branded.address, args.fromName ?? branded.name)
+      : getFromAddress(config, args.from, args.fromName);
+  const replyTo = args.replyTo ?? branded?.replyTo;
   const attachments = resolveAttachments(args);
 
   if (provider === "resend") {
@@ -169,7 +232,7 @@ async function sendEmailWithSignal(
       text: args.text,
     };
     if (args.cc) payload.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
-    if (args.replyTo) payload.reply_to = args.replyTo;
+    if (replyTo) payload.reply_to = replyTo;
     if (attachments?.length) {
       payload.attachments = attachments.map((a) => ({
         filename: a.filename,
@@ -220,7 +283,7 @@ async function sendEmailWithSignal(
         { type: "text/html", value: args.html },
       ],
     };
-    if (args.replyTo) sgPayload.reply_to = parseSendGridFrom(args.replyTo);
+    if (replyTo) sgPayload.reply_to = parseSendGridFrom(replyTo);
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;

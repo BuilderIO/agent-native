@@ -87,6 +87,30 @@ describe("provider API escape hatch", () => {
     expect(result.providers[0].corpusRecipes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          label: expect.stringContaining(
+            "Stage Gong calls with configured keyword tracker hits",
+          ),
+          request: {
+            method: "POST",
+            path: "/calls/extensive",
+            body: expect.objectContaining({
+              contentSelector: {
+                exposedFields: {
+                  content: {
+                    trackers: true,
+                    trackerOccurrences: true,
+                  },
+                },
+              },
+            }),
+          },
+          pagination: expect.objectContaining({
+            itemsPath: "calls",
+            nextCursorPath: "records.cursor",
+            cursorBodyPath: "cursor",
+          }),
+        }),
+        expect.objectContaining({
           label: expect.stringContaining("Batch-search Gong call transcripts"),
           request: {
             method: "POST",

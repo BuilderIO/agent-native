@@ -64,6 +64,11 @@ Templates with legacy global settings can provide `POST /api/local-migration` fo
 
 Organizations are **framework-managed**, not handled by Better Auth's organization plugin (which is intentionally NOT registered). Org data lives in the framework's own `organizations`, `org_members`, and `org_invitations` tables. Every app supports creating orgs, inviting members, and role-based access (owner/admin/member).
 
+Owners and admins can require Google sign-in for an organization from Team
+settings or `PUT /_agent-native/org/auth-provider` with `{ provider: "google" }`.
+Enabling it revokes current Better Auth and legacy sessions; password signup,
+password login, and non-Google social sessions are rejected for that org.
+
 The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
 When an authenticated user has no org memberships, the framework auto-creates a

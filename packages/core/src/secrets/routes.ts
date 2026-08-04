@@ -357,8 +357,8 @@ async function handleDelete(event: H3Event, secret: RegisteredSecret) {
 }
 
 /**
- * POST /_agent-native/secrets/:key/test — re-run the validator against the
- * current stored value without changing anything. Useful for the "Test" button.
+ * POST /_agent-native/secrets/:key/test — validate an optional candidate value
+ * or the current stored value without changing anything.
  */
 export function createTestSecretHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -383,25 +383,61 @@ export function createTestSecretHandler() {
       );
       return { ok: has };
     }
+
+    const body = (await readBody(event).catch(() => ({}))) as {
+      value?: unknown;
+    };
+    const hasCandidateValue = Object.hasOwn(body, "value");
+    const candidateValue =
+      typeof body.value === "string" ? body.value.trim() : undefined;
+
+    if (hasCandidateValue && !candidateValue) {
+      setResponseStatus(event, 400);
+      return { error: "value must be a non-empty string" };
+    }
+
+    const { scopeId, reason } = await resolveScopeId(event, secret.scope);
+    if (!scopeId) {
+      setResponseStatus(event, 401);
+      return { error: reason ?? "Unable to resolve scope" };
+    }
+    if (
+      secret.scope === "workspace" &&
+      !(await canMutateWorkspaceScope(event, scopeId))
+    ) {
+      setResponseStatus(event, 403);
+      return {
+        error:
+          "Only organization owners and admins can set workspace-scoped secrets",
+      };
+    }
+    if (secret.scope === "org" && !(await canMutateOrgScope(event, scopeId))) {
+      setResponseStatus(event, 403);
+      return {
+        error: "Only organization owners and admins can set org-scoped secrets",
+      };
+    }
+
     if (!secret.validator) {
       return { ok: true, note: "No validator registered" };
     }
-    const { scopeId } = await resolveScopeId(event, secret.scope);
-    if (!scopeId) {
-      setResponseStatus(event, 401);
-      return { error: "Unable to resolve scope" };
+
+    let value = candidateValue;
+    if (!value) {
+      const stored = await readAppSecret({
+        key: secret.key,
+        scope: secret.scope,
+        scopeId,
+      });
+      if (!stored) {
+        setResponseStatus(event, 404);
+        return { error: "No value stored" };
+      }
+      value = stored.value;
     }
-    const stored = await readAppSecret({
-      key: secret.key,
-      scope: secret.scope,
-      scopeId,
-    });
-    if (!stored) {
-      setResponseStatus(event, 404);
-      return { error: "No value stored" };
-    }
+
     try {
-      const result = await secret.validator(stored.value);
+      const result = await secret.validator(value);
       const ok = typeof result === "boolean" ? result : result?.ok === true;
       if (!ok) {
         const err =
@@ -410,7 +446,7 @@ export function createTestSecretHandler() {
             : "Validator rejected the value";
         return {
           ok: false,
-          error: redactSecretFromMessage(err, stored.value),
+          error: redactSecretFromMessage(err, value),
         };
       }
       return { ok: true };
@@ -421,7 +457,7 @@ export function createTestSecretHandler() {
           : "Validator threw";
       return {
         ok: false,
-        error: redactSecretFromMessage(message, stored.value),
+        error: redactSecretFromMessage(message, value),
       };
     }
   });

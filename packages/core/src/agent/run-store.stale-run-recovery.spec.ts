@@ -85,6 +85,7 @@ const {
   markTurnAborted,
   reapIfStale,
   reapAllStaleRuns,
+  BACKGROUND_PROCESSING_RUN_STALE_MS,
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
 
@@ -310,8 +311,8 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
   it("does NOT create a successor when the dying run has no dispatch_payload to carry over", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    // No dispatchPayload — e.g. a row whose payload was already cleared, or
-    // one that predates this fix.
+    // No dispatchPayload — an in-process background automation, which was never
+    // HTTP-dispatched and so has no request body to rehydrate.
     await insertRun(runId, thread, turn, { dispatchMode: "background" });
     await claimBackgroundRun(runId);
     setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
@@ -319,8 +320,42 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     const reaped = await reapIfStale(runId);
     expect(reaped).toBe(true);
     expect(readRow(runId)?.status).toBe("errored");
-    expect(readRow(runId)?.diag_stage).toContain("payload_missing");
+    // Named for what it is. "payload_missing" read as data loss in production
+    // forensics for the one case where nothing was ever lost.
+    expect(readRow(runId)?.diag_stage).toContain("not_redispatchable");
     expect(rowsForTurn(turn)).toHaveLength(1); // no successor inserted
+  });
+
+  it("gives a claimed run with no redispatch path the wider background stale window", async () => {
+    currentClient = makeRawClient(true);
+    // A payload-less claimed run is an in-process automation: reaping it at the
+    // 45s post-claim window kills a job that is still working and that nothing
+    // can recover. It must survive to the 90s background window instead.
+    const noPayload = ids();
+    await insertRun(noPayload.runId, noPayload.thread, noPayload.turn, {
+      dispatchMode: "background",
+    });
+    await claimBackgroundRun(noPayload.runId);
+    setStaleLiveness(
+      noPayload.runId,
+      Date.now() - (BACKGROUND_PROCESSING_RUN_STALE_MS + 5_000),
+    );
+    expect(await reapIfStale(noPayload.runId)).toBe(false);
+    expect(readRow(noPayload.runId)?.status).toBe("running");
+
+    // A genuine HTTP worker (payload present) keeps the tight window, because
+    // for it an early reap does buy a durable successor.
+    const withPayload = ids();
+    await insertRun(withPayload.runId, withPayload.thread, withPayload.turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ threadId: withPayload.thread }),
+    });
+    await claimBackgroundRun(withPayload.runId);
+    setStaleLiveness(
+      withPayload.runId,
+      Date.now() - (BACKGROUND_PROCESSING_RUN_STALE_MS + 5_000),
+    );
+    expect(await reapIfStale(withPayload.runId)).toBe(true);
   });
 
   it("does NOT create a successor when a newer run already exists for the same turn", async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.133.0",
+  "version": "0.136.5",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -21,11 +21,13 @@
     "agent-native.eject.json",
     "corpus",
     "dist",
+    "!dist/**/*.map",
     "docs",
     "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
-    "src",
+    "src/eject",
+    "src/integrations/eject",
     "!src/**/*.spec.ts",
     "!src/**/*.spec.tsx",
     "!src/**/*.test.ts",
@@ -61,6 +63,7 @@
       "default": "./dist/index.js"
     },
     "./vite": "./dist/vite/index.js",
+    "./vitest-config": "./dist/vitest-config.js",
     "./server": "./dist/server/index.js",
     "./server/edge": "./dist/server/edge.js",
     "./server/entry-server": "./dist/server/entry-server.js",
@@ -121,6 +124,7 @@
     "./client/resources/runtime": "./dist/client/resources/runtime.js",
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/settings": "./dist/client/settings/index.js",
+    "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/uploads": "./dist/client/uploads/index.js",
     "./client/widgets": "./dist/client/widgets/index.js",
@@ -159,6 +163,7 @@
     "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
+    "./deploy/function-bundle": "./dist/deploy/function-bundle.js",
     "./guards": {
       "types": "./dist/guards/index.d.ts",
       "default": "./dist/guards/index.js"
@@ -326,7 +331,7 @@
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run --dir src --maxWorkers=25%",
+    "test": "vitest --run --dir src",
     "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "postpack": "tsx ../../scripts/sync-core-first-party-templates.ts --clean",
     "prepublishOnly": "npm run build"
@@ -445,7 +450,7 @@
     "express": "^5.2.1",
     "mermaid": "11.15.0",
     "node-pty": "^1.1.0",
-    "playwright": "^1.61.1",
+    "playwright": "catalog:",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router": "^8.1.0",
@@ -485,7 +490,6 @@
     "react-dom": ">=19.2.7",
     "react-router": ">=8",
     "tailwindcss": ">=4",
-    "typescript": ">=5",
     "vite": ">=7",
     "ws": ">=8"
   },
@@ -584,7 +588,6 @@
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "officeparser": "^7.3.0",
-    "playwright": "^1.61.1",
     "sharp": "^0.35.3"
   },
   "engines": {

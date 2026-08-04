@@ -54,12 +54,12 @@ export function databaseItemBodyHydrationIsPending(
 }
 
 export function documentBodyHydrationIsPending(
-  document: Pick<Document, "content" | "databaseMembership">,
+  document: Pick<Document, "content" | "bodyHydration">,
 ) {
-  const hydration = document.databaseMembership?.bodyHydration;
+  const hydration = document.bodyHydration?.hydration;
   if (
     sourceBackedEmptyBodyNeedsHydration({
-      sourceId: document.databaseMembership?.sourceId,
+      sourceId: document.bodyHydration ? "source-backed" : undefined,
       content: document.content,
       hydration,
     })
@@ -81,7 +81,10 @@ export function newDocumentPageChoiceIsDisabled(args: {
 
 export function previewBodyHydrationIsPending(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
-  document: Pick<Document, "content" | "databaseMembership"> | null | undefined;
+  document:
+    | Pick<Document, "content" | "databaseMembership" | "bodyHydration">
+    | null
+    | undefined;
 }) {
   const membership =
     args.document?.databaseMembership ?? args.item.document.databaseMembership;
@@ -128,11 +131,14 @@ export function previewDraftConflictsWithHydratedBody(args: {
 
 export function previewBodyHydrationIsTerminalError(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
-  document: Pick<Document, "databaseMembership"> | null | undefined;
+  document:
+    | Pick<Document, "databaseMembership" | "bodyHydration">
+    | null
+    | undefined;
 }) {
   return (
     builderBodyHydrationIsTerminalError(
-      args.document?.databaseMembership?.bodyHydration,
+      args.document?.bodyHydration?.hydration,
     ) ||
     builderBodyHydrationIsTerminalError(
       args.item.bodyHydration ??

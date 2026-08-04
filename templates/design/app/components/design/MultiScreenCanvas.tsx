@@ -88,6 +88,7 @@ import {
   type ContentSizeSample,
 } from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
+import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { DesignCanvas } from "./DesignCanvas";
 import { dndHostLog } from "./dnd-debug";
 import {
@@ -180,6 +181,7 @@ const MAX_WHEEL_PAN_DELTA = 140;
  *  number as the var's fallback, so first paint and SSR are unaffected. */
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
 const PIXEL_GRID_ZOOM = 800;
+
 import {
   BOARD_SURFACE_BACKGROUND,
   getBoardContentKey,
@@ -449,6 +451,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onPrimitiveReparent,
   onCreateScreenFrame,
   onDeleteSelection,
+  onNudgeSelection,
   onZoomChange,
   renderScreenContent,
   renderBreakpointContent,
@@ -526,6 +529,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   } | null>(null);
   const onGeometryChangeRef = useRef(onGeometryChange);
   const onGeometryCommitRef = useRef(onGeometryCommit);
+  const onNudgeSelectionRef = useRef(onNudgeSelection);
   const screensRef = useRef(screens);
   const [draftPrimitives, setDraftPrimitives] = useState<DraftPrimitive[]>([]);
   const draftPrimitivesRef = useRef(draftPrimitives);
@@ -1078,6 +1082,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     onGeometryCommitRef.current = onGeometryCommit;
   }, [onGeometryCommit]);
+
+  useEffect(() => {
+    onNudgeSelectionRef.current = onNudgeSelection;
+  }, [onNudgeSelection]);
 
   useEffect(() => {
     onPrimitiveReparentRef.current = onPrimitiveReparent;
@@ -7083,6 +7091,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         draftPrimitivesRef.current.some((draft) => draft.id === id),
       );
       if (targetIds.length === 0 && targetDraftIds.length === 0) return;
+      if (onNudgeSelectionRef.current?.(targetIds) === false) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -9499,7 +9508,9 @@ const Screen = memo(function Screen({
     // editable DesignCanvas is supplied) still report their own height and
     // content-fit. The editable DesignCanvas path injects its own reporter.
     return injectSessionReplayIframeBootstrap(
-      appendContentSizeReporter(appendHitTestResponder(screen.content)),
+      appendContentSizeReporter(
+        appendHitTestResponder(withLocalRuntimes(screen.content)),
+      ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.content]);

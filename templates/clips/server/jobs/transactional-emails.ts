@@ -18,6 +18,13 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  computeMonthlyRecap,
+  listOwnersWithMonthlyAudience,
+  previousRecapMonth,
+  recapMonthRange,
+  type MonthlyRecap,
+} from "../lib/recap-metrics.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
   AI_DISPATCH_STALE_MS,
@@ -26,6 +33,7 @@ import {
   type TransactionalEmailJob,
 } from "../lib/transactional-email-store.js";
 import {
+  composeRecapCopy,
   sendClipsTransactionalEmail,
   type ClipsTransactionalEmailInput,
 } from "../lib/transactional-email-templates.js";
@@ -36,6 +44,7 @@ const RECONCILIATION_WRITE_CONCURRENCY = 8;
 const RECIPIENT_SHARE_BATCH_SIZE = 2;
 const DELIVERY_BATCH_SIZE = 25;
 const REMINDER_DELAY_MS = 48 * 60 * 60 * 1000;
+const RECAP_SEND_HOUR_UTC = 14;
 const SENDING_LEASE_MS = 2 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 60_000;
@@ -70,6 +79,17 @@ type CountedView = {
 
 type FirstViewCandidate = CountedView & {
   recordingId: string;
+  ownerEmail: string;
+};
+
+type AgentView = {
+  id: string;
+  recordingId: string;
+  agentLabel: string | null;
+  firstSeenAt: string;
+};
+
+type AgentViewCandidate = AgentView & {
   ownerEmail: string;
 };
 
@@ -109,6 +129,7 @@ export type TransactionalEmailStore = Pick<
   | "transitionSending"
   | "updateReconciliationCursor"
   | "enqueueOrConvergeFirstImport"
+  | "readJob"
 >;
 
 export interface TransactionalEmailRepository {
@@ -133,6 +154,15 @@ export interface TransactionalEmailRepository {
     cursor: ReconciliationCursor | null,
     limit: number,
   ): Promise<FirstViewCandidate[]>;
+  listAgentViews(
+    enabledAt: string,
+    cursor: ReconciliationCursor | null,
+    limit: number,
+  ): Promise<AgentViewCandidate[]>;
+  getFirstOwnerAgentView(
+    ownerEmail: string,
+    enabledAt: string,
+  ): Promise<AgentView | null>;
   listReadyImports(
     enabledAt: string,
     cursor: ReconciliationCursor | null,
@@ -164,6 +194,11 @@ export interface TransactionalEmailRepository {
     recipient: string,
     enabledAt: string,
   ): Promise<boolean>;
+  listOwnersWithMonthlyAudience(month: string): Promise<string[]>;
+  computeMonthlyRecap(
+    ownerEmail: string,
+    month: string,
+  ): Promise<MonthlyRecap | null>;
 }
 
 export interface TransactionalEmailWorkerDependencies {
@@ -372,6 +407,69 @@ function defaultRepository(): TransactionalEmailRepository {
         )
         .limit(limit);
     },
+    async listAgentViews(enabledAt, cursor, limit) {
+      return db
+        .select({
+          id: schema.recordingAgentViews.id,
+          recordingId: schema.recordingAgentViews.recordingId,
+          agentLabel: schema.recordingAgentViews.agentLabel,
+          firstSeenAt: schema.recordingAgentViews.firstSeenAt,
+          ownerEmail: schema.recordings.ownerEmail,
+        })
+        .from(schema.recordingAgentViews)
+        .innerJoin(
+          schema.recordings,
+          eq(schema.recordings.id, schema.recordingAgentViews.recordingId),
+        )
+        .where(
+          and(
+            gte(schema.recordingAgentViews.firstSeenAt, enabledAt),
+            cursor
+              ? or(
+                  gt(schema.recordingAgentViews.firstSeenAt, cursor.createdAt),
+                  and(
+                    eq(
+                      schema.recordingAgentViews.firstSeenAt,
+                      cursor.createdAt,
+                    ),
+                    gt(schema.recordingAgentViews.id, cursor.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(
+          asc(schema.recordingAgentViews.firstSeenAt),
+          asc(schema.recordingAgentViews.id),
+        )
+        .limit(limit);
+    },
+    async getFirstOwnerAgentView(ownerEmail, enabledAt) {
+      const [view] = await db
+        .select({
+          id: schema.recordingAgentViews.id,
+          recordingId: schema.recordingAgentViews.recordingId,
+          agentLabel: schema.recordingAgentViews.agentLabel,
+          firstSeenAt: schema.recordingAgentViews.firstSeenAt,
+        })
+        .from(schema.recordingAgentViews)
+        .innerJoin(
+          schema.recordings,
+          eq(schema.recordings.id, schema.recordingAgentViews.recordingId),
+        )
+        .where(
+          and(
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+            gte(schema.recordingAgentViews.firstSeenAt, enabledAt),
+          ),
+        )
+        .orderBy(
+          asc(schema.recordingAgentViews.firstSeenAt),
+          asc(schema.recordingAgentViews.id),
+        )
+        .limit(1);
+      return view ?? null;
+    },
     async listReadyImports(enabledAt, cursor, limit) {
       return db
         .select({
@@ -524,6 +622,8 @@ function defaultRepository(): TransactionalEmailRepository {
         .limit(1);
       return view ?? null;
     },
+    listOwnersWithMonthlyAudience,
+    computeMonthlyRecap,
     async isFirstImport(recording, recipient, enabledAt) {
       if (!isImportedRecording(recording)) return false;
       const imports = await db
@@ -700,6 +800,41 @@ async function reconcileFirstViews(
   };
 }
 
+async function reconcileFirstAgentViews(
+  repository: TransactionalEmailRepository,
+  store: TransactionalEmailStore,
+  enabledAt: string,
+  cursor: ReconciliationCursor | null,
+  limit: number,
+): Promise<{ enqueued: number; nextCursor: ReconciliationCursor | null }> {
+  const page = await repository.listAgentViews(enabledAt, cursor, limit);
+  let enqueued = 0;
+  for (const candidate of page) {
+    const ownerEmail = normalizedEmail(candidate.ownerEmail);
+    if (!ownerEmail || isSuppressedTransactionalRecipient(ownerEmail)) continue;
+    const firstAgentView = await repository.getFirstOwnerAgentView(
+      ownerEmail,
+      enabledAt,
+    );
+    if (!firstAgentView || firstAgentView.id !== candidate.id) continue;
+    const result = await store.enqueue(`first-agent-view:${ownerEmail}`, {
+      type: "first-agent-view",
+      recipient: ownerEmail,
+      recordingIds: [candidate.recordingId],
+      requestedBy: ownerEmail,
+    });
+    if (result.created) enqueued += 1;
+  }
+  const lastView = page[page.length - 1];
+  return {
+    enqueued,
+    nextCursor:
+      page.length >= limit && lastView
+        ? { createdAt: lastView.firstSeenAt, id: lastView.id }
+        : null,
+  };
+}
+
 async function reconcileFirstImports(
   repository: TransactionalEmailRepository,
   store: TransactionalEmailStore,
@@ -732,6 +867,49 @@ async function reconcileFirstImports(
   };
 }
 
+/**
+ * Recaps close on the UTC month boundary but wait until `RECAP_SEND_HOUR_UTC`
+ * on the 1st so they land mid-morning in the Americas rather than at midnight.
+ * A month is only ever enqueued once per owner, so a late first run of the day
+ * still sends rather than skipping the month.
+ */
+async function reconcileMonthlyRecaps(
+  repository: TransactionalEmailRepository,
+  store: TransactionalEmailStore,
+  enabledAt: string,
+  now: Date,
+): Promise<number> {
+  if (now.getUTCHours() < RECAP_SEND_HOUR_UTC) return 0;
+  const month = previousRecapMonth(now);
+  // Never recap a month that closed before transactional email was switched
+  // on. A month still open at that point does get a recap: the audience it
+  // reports is the owner's own, and skipping it would cost them a full month.
+  if (recapMonthRange(month).endAt <= enabledAt) return 0;
+
+  let enqueued = 0;
+  for (const ownerEmail of await repository.listOwnersWithMonthlyAudience(
+    month,
+  )) {
+    const recipient = normalizedEmail(ownerEmail);
+    if (!recipient || isSuppressedTransactionalRecipient(recipient)) continue;
+    const logicalKey = `monthly-recap:${recipient}:${month}`;
+    // Checked before the analytics work: this pass reruns every minute for the
+    // rest of the month, and recomputing a recap already queued is pure waste.
+    if (await store.readJob(logicalKey)) continue;
+    const recap = await repository.computeMonthlyRecap(recipient, month);
+    if (!recap) continue;
+    const result = await store.enqueue(logicalKey, {
+      type: "monthly-recap",
+      recipient,
+      recordingIds: [recap.topClip.recordingId],
+      requestedBy: recipient,
+      month,
+    });
+    if (result.created) enqueued += 1;
+  }
+  return enqueued;
+}
+
 async function makeSendInput(
   job: TransactionalEmailJob,
   repository: TransactionalEmailRepository,
@@ -739,6 +917,45 @@ async function makeSendInput(
 ): Promise<ClipsTransactionalEmailInput | null> {
   const recipient = normalizedEmail(job.recipient);
   if (!recipient || isSuppressedTransactionalRecipient(recipient)) return null;
+
+  if (job.type === "monthly-recap") {
+    // Ranked again at send time instead of trusting the queued clip: a month
+    // whose top clip was trashed or overtaken still deserves its recap, and
+    // the analytics already exclude clips the owner can no longer open.
+    if (!job.month) return null;
+    const recap = await repository.computeMonthlyRecap(recipient, job.month);
+    if (!recap) return null;
+    return {
+      kind: "monthly-recap",
+      to: recipient,
+      month: job.month,
+      humanViews: recap.humanViews,
+      agentSessions: recap.agentSessions,
+      topClip: {
+        recordingId: recap.topClip.recordingId,
+        title: recap.topClip.title,
+        thumbnailUrl: recap.topClip.thumbnailUrl,
+        durationMs: recap.topClip.durationMs,
+        recordedAt: recap.topClip.recordedAt,
+        humanViews: recap.topClip.humanViews,
+        agentSessions: recap.topClip.agentSessions,
+      },
+      copy: composeRecapCopy({
+        humanViews: recap.humanViews,
+        agentSessions: recap.agentSessions,
+        topClip: {
+          humanViews: recap.topClip.humanViews,
+          completedPct: recap.topClip.completedPct,
+          dropOffMs: recap.topClip.dropOffMs,
+          agentBreakdown: recap.topClip.agentBreakdown.map((entry) => ({
+            agentLabel: entry.agentLabel,
+            sessions: entry.sessions,
+          })),
+        },
+      }),
+    };
+  }
+
   const recordings = await Promise.all(
     job.recordingIds.map((recordingId) => repository.getRecording(recordingId)),
   );
@@ -785,6 +1002,24 @@ async function makeSendInput(
       kind: "two-clips",
       to: recipient,
       generatedSummary: job.generatedSummary,
+    };
+  }
+
+  if (job.type === "first-agent-view") {
+    if (normalizedEmail(recordings[0].ownerEmail) !== recipient) return null;
+    const firstAgentView = await repository.getFirstOwnerAgentView(
+      recipient,
+      enabledAt,
+    );
+    if (!firstAgentView || firstAgentView.recordingId !== recordings[0].id) {
+      return null;
+    }
+    return {
+      kind: "first-agent-view",
+      to: recipient,
+      recordingId: recordings[0].id,
+      title: recordings[0].title,
+      agentName: firstAgentView.agentLabel,
     };
   }
 
@@ -889,6 +1124,18 @@ export async function runTransactionalEmailsOnce(
       "firstViewCursor",
       firstViews.nextCursor,
     );
+    const firstAgentViews = await reconcileFirstAgentViews(
+      repository,
+      store,
+      config.enabledAt,
+      config.firstAgentViewCursor ?? null,
+      reconciliationLimit,
+    );
+    result.enqueued += firstAgentViews.enqueued;
+    await store.updateReconciliationCursor(
+      "firstAgentViewCursor",
+      firstAgentViews.nextCursor,
+    );
     const firstImports = await reconcileFirstImports(
       repository,
       store,
@@ -900,6 +1147,13 @@ export async function runTransactionalEmailsOnce(
     await store.updateReconciliationCursor(
       "firstImportCursor",
       firstImports.nextCursor,
+    );
+
+    result.enqueued += await reconcileMonthlyRecaps(
+      repository,
+      store,
+      config.enabledAt,
+      currentTime,
     );
 
     const jobs = await store.listJobs();
@@ -921,7 +1175,9 @@ export async function runTransactionalEmailsOnce(
         (job) =>
           job.state === "pending" &&
           (job.type === "first-view" ||
+            job.type === "first-agent-view" ||
             job.type === "first-import" ||
+            job.type === "monthly-recap" ||
             job.type === "unviewed-reminder"),
       ),
       (job) => store.transition(job.logicalKey, ["pending"], "ready"),

@@ -13,6 +13,7 @@ import { useActionMutation, useActionQuery } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
+import { SchedulingTimezoneField } from "./SchedulingTimezoneField.js";
 
 function profileInitials(name: string): string {
   return (
@@ -157,38 +158,39 @@ export function AccountSettingsForm({
           description={t("settings.profileNameDescription")}
           disabled={!email || profileQuery.isLoading || updateProfile.isPending}
         />
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-h-4 text-xs">
-            {updateProfile.isSuccess && (
-              <p className="text-green-600 dark:text-green-400">
-                {t("settings.profileSaved")}
-              </p>
-            )}
-            {updateProfile.error && (
-              <p className="text-destructive">
-                {t("settings.profileSaveError")}
-              </p>
-            )}
-          </div>
-          <ActionButton
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            size="compact"
-            pending={updateProfile.isPending}
-            disabled={
-              !email ||
-              profileQuery.isLoading ||
-              updateProfile.isPending ||
-              !name.trim()
-            }
-            onPress={handleProfileSave}
-          >
-            {updateProfile.isPending
-              ? t("settings.profileSaving")
-              : t("settings.profileSave")}
-          </ActionButton>
+      </div>
+
+      <div className="border-t border-border/60 pt-3">
+        <SchedulingTimezoneField />
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+        <div className="min-h-4 text-xs">
+          {updateProfile.isSuccess && (
+            <p className="text-primary">{t("settings.profileSaved")}</p>
+          )}
+          {updateProfile.error && (
+            <p className="text-destructive">{t("settings.profileSaveError")}</p>
+          )}
         </div>
+        <ActionButton
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          size="compact"
+          pending={updateProfile.isPending}
+          disabled={
+            !email ||
+            profileQuery.isLoading ||
+            updateProfile.isPending ||
+            !name.trim()
+          }
+          onPress={handleProfileSave}
+        >
+          {updateProfile.isPending
+            ? t("settings.profileSaving")
+            : t("settings.profileSave")}
+        </ActionButton>
       </div>
     </div>
   );

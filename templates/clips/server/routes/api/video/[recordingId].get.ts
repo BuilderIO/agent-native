@@ -64,12 +64,15 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
+import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
   organizationId?: string | null;
+  ownerEmail?: string | null;
   password?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -453,7 +456,45 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+          const db = getDb();
+          const [persistedMedia] = await db
+            .select({
+              videoUrl: schema.recordings.videoUrl,
+              editsJson: schema.recordings.editsJson,
+            })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, recordingId))
+            .limit(1);
+          const allowLegacyObjectKey = allowsLegacyS3ObjectForPersistedMedia({
+            requestedUrl: sourceUrl,
+            persistedUrl: persistedMedia?.videoUrl,
+            editsJson: persistedMedia?.editsJson,
+          });
+          const signedS3Response = await runWithRequestContext(
+            {
+              userEmail: rec.ownerEmail ?? undefined,
+              orgId: rec.organizationId ?? undefined,
+            },
+            () =>
+              fetchS3ObjectByUrl(sourceUrl, {
+                range: rangeHeader?.startsWith("bytes=")
+                  ? rangeHeader
+                  : undefined,
+                timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
+                recordingId,
+                ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
+              }),
+          );
+          if (
+            signedS3Response?.status === 200 ||
+            signedS3Response?.status === 206 ||
+            signedS3Response?.status === 416
+          ) {
+            upstream = signedS3Response;
+          } else {
+            await signedS3Response?.body?.cancel().catch(() => undefined);
+            upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
+          }
         } catch (err) {
           setResponseStatus(event, statusCodeForProviderFetchError(err));
           return { error: messageForProviderFetchError(err) };

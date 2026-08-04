@@ -485,7 +485,7 @@ export default defineAction({
   // model round trips while still staying well below the model context limit.
   maxResultChars: 100_000,
   description:
-    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For bounded account-level transcript mention/search questions, set transcriptQuery to search matching transcripts server-side and return coverage counts plus snippets instead of large transcript blobs. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true only when you need broad qualitative context rather than a specific term search. For an 'all calls' transcript review in a bounded account/date window, use exhaustive=true with after/before and includeTranscripts=true; the action batches transcript retrieval and reports complete/partial coverage instead of forcing one tool call per transcript. For very broad cohorts or defensible absence searches, use provider-api-catalog(provider='gong') and provider-corpus-job mode='batch-search' against /calls/transcript after call-id discovery.",
+    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded search by company/domain/person/email. For account-level transcript mention questions, transcriptQuery performs a case-insensitive local scan after batched transcript retrieval and returns coverage counts plus snippets; it is not Gong's server-side keyword search. Use includeTranscripts=true for bounded qualitative context. For broad keyword, tracker, cross-account, or absence-sensitive work, use provider-api-catalog/provider-api-docs, stage the raw Gong API response, then use query-staged-dataset or a Data Program; use provider-corpus-job only when raw transcript bodies are required.",
   schema: z.object({
     users: cliBoolean.optional().describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
@@ -538,7 +538,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Case-insensitive phrase to search inside matching call transcripts. Use this for bounded account/call searches where the matching set is already small. For broad cohort or exhaustive absence research, stage Gong calls/transcripts through provider-api-request and run-code instead. Returns coverage counts and short snippets only, not full transcripts.",
+        "Case-insensitive phrase to search inside matching call transcripts after batched retrieval. Use only for bounded account/call searches where the matching set is already small. For broad cohort or exhaustive absence research, use the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program, or provider-corpus-job when raw transcript bodies are required. Returns coverage counts and short snippets only, not full transcripts.",
       ),
     transcriptScanLimit: z.coerce
       .number()
@@ -552,7 +552,7 @@ export default defineAction({
     exhaustive: cliBoolean
       .optional()
       .describe(
-        "Return EVERY matching call in the window instead of stopping at `limit` — use this for complete cohort/account coverage when 'how many' or absence matters. By default this is metadata-only. With includeTranscripts=true, transcripts are fetched in batches up to transcriptLimit (all matched calls by default when there are 50 or fewer) and explicit coverage is returned. Always bound it with after/before or a small days window: an unbounded exhaustive scan pages the whole Gong org and can hit the function timeout.",
+        "Return EVERY matching call in the window instead of stopping at `limit` — use this only for bounded account/cohort coverage. By default this is metadata-only. With includeTranscripts=true, transcripts are fetched in batches and explicit coverage is returned. For broad or absence-sensitive work, prefer the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program; use provider-corpus-job for durable raw-transcript scans. Always bound this with after/before or a small days window.",
       ),
     after: z
       .string()

@@ -140,7 +140,7 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
-import type { RecurringJobContext } from "../jobs/scheduler.js";
+import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import {
   McpClientManager,
   loadMcpConfig,
@@ -730,6 +730,7 @@ export function createAgentChatPlugin(
         ...loopSettingsScripts,
       };
       const callAgentScript = await createCallAgentScriptEntry(options?.appId);
+      let runNowSchedulerDeps: SchedulerDeps | null = null;
       const browserTools = createBuilderBrowserTool({
         getOrigin: () =>
           getRequestRunContext()?.requestOrigin ?? "http://localhost:3000",
@@ -1099,16 +1100,19 @@ export function createAgentChatPlugin(
         });
       } catch {}
 
-      // Core send-email tool — only registered when RESEND_API_KEY or
-      // SENDGRID_API_KEY is set. Keyed "core-send-email" to avoid colliding
+      // Core send-email tool. Keyed "core-send-email" to avoid colliding
       // with the mail template's richer "send-email" action (template wins
       // when both surfaces spread into the same object, but distinct keys
       // keep both visible and avoid silent shadowing).
       let coreEmailTools: Record<string, ActionEntry> = {};
+      let backgroundCoreEmailTools: Record<string, ActionEntry> = {};
       try {
         const { createCoreEmailActionEntries } =
           await import("./email-actions.js");
         coreEmailTools = createCoreEmailActionEntries();
+        backgroundCoreEmailTools = createCoreEmailActionEntries({
+          unattended: true,
+        });
       } catch {}
 
       // Core read-attachment tool — always registered so the agent can page
@@ -1119,6 +1123,32 @@ export function createAgentChatPlugin(
           await import("./attachment-actions.js");
         coreAttachmentTools = createCoreAttachmentActionEntries();
       } catch {}
+
+      // Keep scheduler and event-trigger runs on one deliberately bounded
+      // background surface. Interactive-only tools stay out of it, while
+      // shared capabilities such as call-agent and core-send-email cannot
+      // drift independently between the two background entry points.
+      const getBackgroundActionEntries = (
+        automation?: RecurringJobContext,
+      ): Record<string, ActionEntry> => ({
+        ...templateScripts,
+        ...resourceScripts,
+        ...docsScripts,
+        ...(lazyContext ? frameworkContextTool : {}),
+        ...urlTools,
+        ...chatScripts,
+        ...callAgentScript,
+        ...jobTools,
+        ...automationTools,
+        ...notificationTools,
+        ...progressTools,
+        ...fetchTool,
+        ...webSearchTool,
+        ...toolActions,
+        ...backgroundCoreEmailTools,
+        ...coreAttachmentTools,
+        ...getJobMcpActionEntries(automation),
+      });
 
       // -----------------------------------------------------------------------
       // Production code-execution mode resolution.
@@ -2681,6 +2711,7 @@ export function createAgentChatPlugin(
         },
         getModel: () => getRequestRunContext()?.model ?? resolvedModel,
         getParentThreadId: () => getRequestRunContext()?.threadId ?? "",
+        getParentRunId: () => getRequestRunContext()?.runId ?? "",
         getSend: () => {
           // Return the send for the current run's thread
           const threadId = getRequestRunContext()?.threadId ?? "";
@@ -3185,11 +3216,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
+          runId: string,
         ) => {
           await recordPreRunGitStatus(threadId);
           _runSendByThread.set(threadId, send);
           const runCtx = ensureRequestRunContext();
-          if (runCtx) runCtx.threadId = threadId;
+          if (runCtx) {
+            runCtx.threadId = threadId;
+            runCtx.runId = runId;
+          }
         },
         onRunComplete: async (run: any, threadId: string | undefined) => {
           if (threadId) _runSendByThread.delete(threadId);
@@ -3237,11 +3272,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   event: import("../agent/types.js").AgentChatEvent,
                 ) => void,
                 threadId: string,
+                runId: string,
               ) => {
                 await recordPreRunGitStatus(threadId);
                 _runSendByThread.set(threadId, send);
                 const runCtx = ensureRequestRunContext();
-                if (runCtx) runCtx.threadId = threadId;
+                if (runCtx) {
+                  runCtx.threadId = threadId;
+                  runCtx.runId = runId;
+                }
               },
               onRunComplete: async (run: any, threadId: string | undefined) => {
                 if (threadId) _runSendByThread.delete(threadId);
@@ -3414,11 +3453,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
+            runId: string,
           ) => {
             await recordPreRunGitStatus(threadId);
             _runSendByThread.set(threadId, send);
             const runCtx = ensureRequestRunContext();
-            if (runCtx) runCtx.threadId = threadId;
+            if (runCtx) {
+              runCtx.threadId = threadId;
+              runCtx.runId = runId;
+            }
           },
           onRunComplete: async (run: any, threadId: string | undefined) => {
             if (threadId) _runSendByThread.delete(threadId);
@@ -5540,6 +5583,67 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const preparedMarker = (prepared.body as Record<string, unknown>)[
             AGENT_CHAT_BACKGROUND_RUN_FIELD
           ];
+          const automationRunId =
+            preparedMarker && typeof preparedMarker === "object"
+              ? (preparedMarker as Record<string, unknown>).automationRunId
+              : undefined;
+          if (typeof automationRunId === "string" && automationRunId) {
+            const runAutomation = async () => {
+              try {
+                if (!runNowSchedulerDeps) {
+                  throw new Error("Automation runner is not initialized.");
+                }
+                const { runQueuedAutomation } =
+                  await import("../jobs/scheduler.js");
+                const result = await runQueuedAutomation(
+                  automationRunId,
+                  runNowSchedulerDeps,
+                );
+                return { ok: true, automationRunId, ...result };
+              } catch (error) {
+                const message =
+                  error instanceof Error ? error.message : String(error);
+                const { finishAutomationRun } =
+                  await import("../jobs/run-history.js");
+                await finishAutomationRun(
+                  automationRunId,
+                  "error",
+                  `Automation worker failed: ${message}. No delivery was confirmed.`,
+                ).catch((finishError) => {
+                  console.warn(
+                    `[automations] could not record run-now worker failure for ${automationRunId}:`,
+                    finishError,
+                  );
+                });
+                console.error(
+                  `[automations] run-now worker failed for ${automationRunId}:`,
+                  error,
+                );
+                throw error;
+              }
+            };
+
+            // Netlify background functions must keep the handler open for the
+            // full automation. Other runtimes get an immediate receipt and
+            // use waitUntil when the platform provides it; long-lived Node
+            // processes can safely continue the promise after the response.
+            if (isInBackgroundFunctionRuntime()) {
+              try {
+                return await runAutomation();
+              } catch {
+                setResponseStatus(event, 500);
+                return { error: "Automation worker failed" };
+              }
+            }
+            const waitUntil = event.req?.waitUntil;
+            const runPromise = runAutomation().catch(() => {});
+            if (typeof waitUntil === "function") {
+              waitUntil(runPromise);
+            }
+            setResponseStatus(event, 202);
+            return { ok: true, accepted: true, automationRunId };
+          }
+
           const expectsBackgroundRuntime =
             backgroundRunMarkerExpectsBackgroundRuntime(preparedMarker);
           const runtimeGlobals = globalThis as Record<string, unknown>;
@@ -5720,62 +5824,49 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // Poll every 60 seconds for due recurring jobs and execute them.
       // Uses setInterval so it works in all deployment environments without
       // requiring Nitro experimental tasks configuration.
-      if (disableRecurringJobsRuntime) {
-        if (process.env.DEBUG) {
-          console.log(
-            "[recurring-jobs] Scheduler disabled for local development",
-          );
-        }
-      } else {
-        try {
-          const { processRecurringJobs } = await import("../jobs/scheduler.js");
+      try {
+        const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
-          const schedulerDeps = {
-            getActions: (job?: RecurringJobContext) => ({
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...(lazyContext ? frameworkContextTool : {}),
-              ...chatScripts,
-              ...jobTools,
-              ...automationTools,
-              ...notificationTools,
-              ...progressTools,
-              ...fetchTool,
-              ...webSearchTool,
-              ...toolActions,
-              ...getJobMcpActionEntries(job),
-            }),
-            getSystemPrompt: async (owner: string) => {
-              const resources = await loadResourcesForPrompt(
-                owner,
-                lazyContext,
-                options?.appId,
-              );
-              const schemaBlock = lazyContext
-                ? ""
-                : await buildSchemaBlock(owner, databaseToolsMode);
-              return basePrompt + resources + schemaBlock;
-            },
-            // `basePrompt` above is the same prompt the interactive chat
-            // handler builds, so it teaches the same template actions plus
-            // `manage-jobs` (Extended Capabilities / recurring jobs) and
-            // `manage-progress` (SHARED_RULE_14) BY NAME — both are present in
-            // getActions() via jobTools/progressTools. Keep the job runner's
-            // first request on the same compact surface as interactive chat
-            // instead of the full jobTools/automationTools/notificationTools/
-            // fetchTool/webSearchTool/toolActions catalog every tick.
-            getInitialToolNames: (job?: RecurringJobContext) => [
-              ...effectiveInitialToolNames,
-              "manage-jobs",
-              "manage-progress",
-              ...(job?.meta.mcpTools ?? []),
-            ],
-            apiKey: options?.apiKey,
-            model: options?.model,
-            appId: options?.appId,
-          };
+        const schedulerDeps: SchedulerDeps = {
+          getActions: getBackgroundActionEntries,
+          getSystemPrompt: async (owner: string) => {
+            const resources = await loadResourcesForPrompt(
+              owner,
+              lazyContext,
+              options?.appId,
+            );
+            const schemaBlock = lazyContext
+              ? ""
+              : await buildSchemaBlock(owner, databaseToolsMode);
+            return basePrompt + resources + schemaBlock;
+          },
+          // `basePrompt` above is the same prompt the interactive chat
+          // handler builds, so it teaches the same template actions plus
+          // `manage-jobs` (Extended Capabilities / recurring jobs) and
+          // `manage-progress` (SHARED_RULE_14) BY NAME — both are present in
+          // getActions() via jobTools/progressTools. Keep the job runner's
+          // first request on the same compact surface as interactive chat
+          // instead of the full jobTools/automationTools/notificationTools/
+          // fetchTool/webSearchTool/toolActions catalog every tick.
+          getInitialToolNames: (job?: RecurringJobContext) => [
+            ...effectiveInitialToolNames,
+            "manage-jobs",
+            "manage-progress",
+            ...(job?.meta.mcpTools ?? []),
+          ],
+          apiKey: options?.apiKey,
+          model: options?.model,
+          appId: options?.appId,
+        };
+        runNowSchedulerDeps = schedulerDeps;
 
+        if (disableRecurringJobsRuntime) {
+          if (process.env.DEBUG) {
+            console.log(
+              "[recurring-jobs] Scheduler disabled for local development",
+            );
+          }
+        } else {
           // Start after a 10-second delay to let the server fully initialize
           setTimeout(() => {
             setInterval(() => {
@@ -5789,10 +5880,38 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (process.env.DEBUG)
               console.log("[recurring-jobs] Scheduler started (60s interval)");
           }, 10_000);
-        } catch (err) {
-          // Jobs module not available — skip silently
         }
+      } catch (error) {
+        console.warn(
+          "[recurring-jobs] Scheduler module unavailable:",
+          error instanceof Error ? error.message : error,
+        );
       }
+
+      // A non-Netlify self-dispatch only waits for the request to leave the
+      // current invocation. Keep the durable history row as a retryable queue
+      // so a frozen serverless handoff is recovered on the next sweep.
+      (() => {
+        let inFlight = false;
+        const sweep = async () => {
+          if (inFlight) return;
+          inFlight = true;
+          try {
+            const { redispatchUnclaimedAutomationRuns } =
+              await import("../jobs/run-now.js");
+            await redispatchUnclaimedAutomationRuns();
+          } catch (error) {
+            console.warn(
+              "[automations] queued-run sweep failed; retrying next tick:",
+              error,
+            );
+          } finally {
+            inFlight = false;
+          }
+        };
+        setTimeout(() => void sweep(), 15_000);
+        setInterval(() => void sweep(), 30_000);
+      })();
 
       mcpInitializationPromise = initializeMcpManager().catch((err) => {
         console.warn(
@@ -6097,21 +6216,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { initTriggerDispatcher } =
             await import("../triggers/dispatcher.js");
           await initTriggerDispatcher({
-            getActions: (automation?: RecurringJobContext) => ({
-              ...templateScripts,
-              ...resourceScripts,
-              ...docsScripts,
-              ...(lazyContext ? frameworkContextTool : {}),
-              ...chatScripts,
-              ...jobTools,
-              ...automationTools,
-              ...notificationTools,
-              ...progressTools,
-              ...fetchTool,
-              ...webSearchTool,
-              ...toolActions,
-              ...getJobMcpActionEntries(automation),
-            }),
+            getActions: getBackgroundActionEntries,
             getSystemPrompt: async (owner: string) => {
               const resources = await loadResourcesForPrompt(
                 owner,

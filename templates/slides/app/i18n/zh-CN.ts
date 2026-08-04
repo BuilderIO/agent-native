@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "设置",
     description: "此应用的语言和工作区偏好设置。",
+    emailNotifications: "邮件通知",
+    emailNotificationsDescription:
+      "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
+    saveFailed: "保存失败",
     languageTitle: "语言",
     languageDescription: "选择界面语言。此偏好会保存到你的账户。",
     languageLabel: "界面语言",
@@ -495,6 +499,8 @@ const messages = {
     promptPlaceholder: "描述你想要的幻灯片...",
   },
   presentation: {
+    loadFailed: "无法加载此演示文稿。",
+    tryAgain: "重试",
     presenterView: "演讲者视图",
     speakerNotes: "演讲者备注",
     noNotesForSlide: "此幻灯片没有备注",

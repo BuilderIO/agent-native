@@ -1,9 +1,11 @@
 #!/usr/bin/env tsx
 
 import { randomBytes } from "node:crypto";
-import { existsSync, rmSync, cpSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { cloneServerBundleForFunction } from "@agent-native/core/deploy/function-bundle";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FUNCTIONS_DIR = path.join(ROOT, ".netlify", "functions-internal");
@@ -73,7 +75,7 @@ export const config = {
 function emitBackgroundWorker(token: string) {
   const dest = path.join(FUNCTIONS_DIR, WORKER_NAME);
   rmSync(dest, { recursive: true, force: true });
-  cpSync(SERVER_DIR, dest, { recursive: true });
+  cloneServerBundleForFunction(SERVER_DIR, dest);
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
@@ -217,7 +219,7 @@ export const config = {
 function emitAlertBackgroundWorker(token: string) {
   const dest = path.join(FUNCTIONS_DIR, ALERT_WORKER_NAME);
   rmSync(dest, { recursive: true, force: true });
-  cpSync(SERVER_DIR, dest, { recursive: true });
+  cloneServerBundleForFunction(SERVER_DIR, dest);
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
@@ -334,7 +336,7 @@ export const config = {
 function emitUptimeBackgroundWorker(token: string) {
   const dest = path.join(FUNCTIONS_DIR, UPTIME_WORKER_NAME);
   rmSync(dest, { recursive: true, force: true });
-  cpSync(SERVER_DIR, dest, { recursive: true });
+  cloneServerBundleForFunction(SERVER_DIR, dest);
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;

@@ -20,7 +20,7 @@ import { createError } from "h3";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
-  getOrganizationDefaultVisibility,
+  getDefaultRecordingVisibility,
   nanoid,
   requireOrganizationAccess,
   stringifySpaceIds,
@@ -53,7 +53,7 @@ export default defineAction({
       args.organizationId,
     );
     const defaultVisibility =
-      await getOrganizationDefaultVisibility(organizationId);
+      await getDefaultRecordingVisibility(organizationId);
 
     const spaceIds = (args.spaceIds ?? []).filter(
       (value, index, arr) => value && arr.indexOf(value) === index,

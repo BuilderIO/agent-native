@@ -828,6 +828,23 @@ describe("mountActionRoutes", () => {
         baseCurrency: z.string().optional(),
         includeSeries: z.boolean().optional(),
         limit: z.number().optional(),
+        tableQuery: z
+          .object({
+            filters: z.array(
+              z.object({
+                propertyId: z.string(),
+                operator: z.string(),
+                value: z.string(),
+              }),
+            ),
+            sorts: z.array(
+              z.object({
+                propertyId: z.string(),
+                direction: z.enum(["asc", "desc"]),
+              }),
+            ),
+          })
+          .optional(),
       }),
       run: async (params: any) => ({ params }),
     });
@@ -841,7 +858,24 @@ describe("mountActionRoutes", () => {
     const result = await mounted[0].handler({
       _method: "GET",
       req: {
-        url: "http://app.test/_agent-native/actions/instrument-overview?portfolioId=p1&isin=US67066G1040&includeSeries=true&limit=5",
+        url: `http://app.test/_agent-native/actions/instrument-overview?${new URLSearchParams(
+          {
+            portfolioId: "p1",
+            isin: "US67066G1040",
+            includeSeries: "true",
+            limit: "5",
+            tableQuery: JSON.stringify({
+              filters: [
+                {
+                  propertyId: "status",
+                  operator: "equals",
+                  value: "published",
+                },
+              ],
+              sorts: [{ propertyId: "date", direction: "desc" }],
+            }),
+          },
+        )}`,
       },
     });
 
@@ -851,6 +885,16 @@ describe("mountActionRoutes", () => {
         isin: "US67066G1040",
         includeSeries: true,
         limit: 5,
+        tableQuery: {
+          filters: [
+            {
+              propertyId: "status",
+              operator: "equals",
+              value: "published",
+            },
+          ],
+          sorts: [{ propertyId: "date", direction: "desc" }],
+        },
       },
     });
   });

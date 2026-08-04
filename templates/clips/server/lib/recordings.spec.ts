@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getDb: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getDb: vi.fn(),
+  getUserSetting: vi.fn(),
+  getRequestUserEmail: vi.fn(),
+}));
 
 const tables = vi.hoisted(() => ({
   recordingViewers: {
@@ -9,6 +13,10 @@ const tables = vi.hoisted(() => ({
   },
   recordingViews: {
     recordingId: "recording_views.recording_id",
+  },
+  organizationSettings: {
+    organizationId: "organization_settings.workspace_id",
+    defaultVisibility: "organization_settings.default_visibility",
   },
 }));
 
@@ -36,8 +44,13 @@ vi.mock("@agent-native/core/org", () => ({
 
 vi.mock("@agent-native/core/server", () => ({ getSession: vi.fn() }));
 
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: (...args: unknown[]) => mocks.getUserSetting(...args),
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: vi.fn(),
+  getRequestUserEmail: (...args: unknown[]) =>
+    mocks.getRequestUserEmail(...args),
   getRequestOrgId: vi.fn(),
 }));
 
@@ -46,7 +59,11 @@ vi.mock("../db/index.js", () => ({
   schema: tables,
 }));
 
-import { countedViewCondition, countRecordingViews } from "./recordings.js";
+import {
+  countedViewCondition,
+  countRecordingViews,
+  getDefaultRecordingVisibility,
+} from "./recordings.js";
 
 /**
  * Two counts come back per call — one per table — so the fake resolves each
@@ -145,5 +162,38 @@ describe("countRecordingViews", () => {
     mocks.getDb.mockReturnValue(db);
 
     await expect(countRecordingViews("rec-1")).resolves.toBe(12);
+  });
+});
+
+describe("getDefaultRecordingVisibility", () => {
+  it("prefers the personal default over the organization default", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("Owner@Example.test");
+    mocks.getUserSetting.mockResolvedValue({
+      defaultRecordingVisibility: "private",
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
+      "private",
+    );
+    expect(mocks.getUserSetting).toHaveBeenCalledWith(
+      "owner@example.test",
+      "clips-user-prefs",
+    );
+  });
+
+  it("falls back to the organization default when no preference is set", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    mocks.getUserSetting.mockResolvedValue({});
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [{ defaultVisibility: "org" }],
+          }),
+        }),
+      }),
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe("org");
   });
 });

@@ -8,6 +8,7 @@ export const organizations = table("organizations", {
   allowedDomain: text("allowed_domain"),
   a2aSecret: text("a2a_secret"),
   workspaceUrl: text("workspace_url"),
+  requiredAuthProvider: text("required_auth_provider"),
 });
 
 export const orgMembers = table("org_members", {

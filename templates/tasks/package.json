@@ -16,7 +16,7 @@
     "db:generate": "drizzle-kit generate",
     "test": "vitest --run --config vitest.config.ts",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install chromium",
+    "test:e2e:install": "playwright install --only-shell chromium",
     "test:all": "pnpm test && pnpm test:e2e"
   },
   "dependencies": {
@@ -36,7 +36,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.0",
+    "@playwright/test": "catalog:",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.8",
