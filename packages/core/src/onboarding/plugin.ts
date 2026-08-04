@@ -9,6 +9,7 @@
  */
 
 import {
+  deleteCookie,
   defineEventHandler,
   getMethod,
   getQuery,
@@ -24,6 +25,8 @@ import {
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { FIRST_RUN_ONBOARDING_COOKIE } from "../shared/first-run-onboarding.js";
+import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
 import type {
@@ -40,6 +43,8 @@ const DISMISSED_KEY = "onboarding:dismissed";
 export interface OnboardingPluginOptions {
   /** Skip registering the built-in default steps (llm, database, auth). */
   skipDefaultSteps?: boolean;
+  /** App id used to select the app-specific first-run capability profile. */
+  appId?: string;
 }
 
 /** Resolve the caller context used for onboarding and application-state scoping. */
@@ -134,6 +139,8 @@ export function createOnboardingPlugin(
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "onboarding");
     await awaitBootstrap(nitroApp);
+
+    const appProfile = getOnboardingAppProfile(options.appId);
 
     if (!options.skipDefaultSteps) {
       registerDefaultOnboardingSteps();
@@ -259,6 +266,31 @@ export function createOnboardingPlugin(
         } catch {
           return { dismissed: false, allComplete: false };
         }
+      }),
+    );
+
+    // GET /_agent-native/onboarding/profile
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/profile`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return appProfile;
+      }),
+    );
+
+    // POST /_agent-native/onboarding/first-run/complete
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/first-run/complete`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+        return { ok: true };
       }),
     );
   };

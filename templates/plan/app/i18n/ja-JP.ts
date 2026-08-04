@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Plan アートボードキャンバス",
       zoomIn: "ズームイン",
       zoomOut: "ズームアウト",
+      zoomHint: "⌘/Ctrl を押しながらスクロールしてズーム",
       markupSaveFailed:
         "マークアップを保存できませんでした。もう一度お試しください。",
     },

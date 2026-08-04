@@ -8,6 +8,7 @@ export interface BuilderExecutorInput {
   repository?: string | null;
   summary?: string | null;
   sourceUrl?: string | null;
+  instructions?: string | null;
 }
 
 export interface BuilderExecutorResult {
@@ -63,12 +64,15 @@ export async function startBuilderRun(
   const branchName = `factory/${input.itemId.slice(0, 12)}`;
   const prompt = [
     "Work on this approved Factory item.",
+    `Factory item: ${input.itemId}`,
     input.summary
       ? `Feedback: ${input.summary}`
       : "No feedback summary was supplied.",
     input.sourceUrl ? `Source: ${input.sourceUrl}` : "",
     input.repository ? `Repository: ${input.repository}` : "",
+    input.instructions ? `Triage instructions: ${input.instructions}` : "",
     "Inspect the repository, make the smallest safe fix, run validation, and open a pull request.",
+    "Include the Factory item id and source link in the pull request description.",
     "Do not touch protected areas: auth/session/identity, credentials/vault, migrations, payments, security, or publishable packages.",
   ]
     .filter(Boolean)

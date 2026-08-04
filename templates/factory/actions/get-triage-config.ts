@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -23,7 +23,7 @@ export default defineAction({
       await getDb()
         .select()
         .from(triageConfig)
-        .where(eq(triageConfig.id, orgId))
+        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
     if (!row) {
@@ -35,8 +35,19 @@ export default defineAction({
         lastSlackTs: null,
         slackHistoryCursor: null,
         repository: null,
+        githubPollingEnabled: false,
+        sentryPollingEnabled: false,
+        sentryOrgSlug: null,
+        sentryProjectSlug: null,
+        sentryEnvironment: null,
+        lastSentrySeenAt: null,
       };
     }
-    return { ...row, pollingEnabled: row.pollingEnabled === 1 };
+    return {
+      ...row,
+      pollingEnabled: row.pollingEnabled === 1,
+      githubPollingEnabled: row.githubPollingEnabled === 1,
+      sentryPollingEnabled: row.sentryPollingEnabled === 1,
+    };
   },
 });

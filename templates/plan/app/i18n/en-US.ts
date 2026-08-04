@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Plan artboard canvas",
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",
+      zoomHint: "Hold ⌘/Ctrl and scroll to zoom",
       markupSaveFailed: "Couldn't save markup. Try again.",
     },
     document: {

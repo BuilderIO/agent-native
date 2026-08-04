@@ -27,7 +27,7 @@ export default defineAction({
       await db
         .select()
         .from(triageConfig)
-        .where(eq(triageConfig.id, orgId))
+        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
     const channelId = requestedChannelId ?? config?.slackChannelId;
@@ -83,7 +83,6 @@ export default defineAction({
               channelId: envelope.channelId ?? null,
               threadTs: envelope.threadTs ?? null,
               coverage: envelope.coverage,
-              metadataJson: JSON.stringify(envelope.metadata ?? {}),
               lastSeenAt: now,
               updatedAt: now,
             },

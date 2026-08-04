@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Plan-Arbeitsflachen-Canvas",
       zoomIn: "Hereinzoomen",
       zoomOut: "Herauszoomen",
+      zoomHint: "⌘/Ctrl gedrückt halten und zum Zoomen scrollen",
       markupSaveFailed:
         "Markup konnte nicht gespeichert werden. Versuche es erneut.",
     },
