@@ -602,6 +602,21 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    // Transactional email catalog — mounted everywhere so Dispatch can ask any
+    // app what it sends without that app opting in.
+    [
+      "list-transactional-emails",
+      () => import("../email-catalog/actions/list-transactional-emails.js"),
+    ],
+    [
+      "render-transactional-email-preview",
+      () =>
+        import("../email-catalog/actions/render-transactional-email-preview.js"),
+    ],
+    [
+      "list-email-log",
+      () => import("../email-catalog/actions/list-email-log.js"),
+    ],
     [
       "get-feature-flags",
       () => import("../feature-flags/actions/get-feature-flags.js"),

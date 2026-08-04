@@ -59,6 +59,10 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+} from "../email-catalog/system-emails.js";
+import {
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
@@ -1226,7 +1230,14 @@ async function createBetterAuthInstance(
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+        });
       },
     },
     emailVerification: {
@@ -1252,7 +1263,14 @@ async function createBetterAuthInstance(
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
+        });
       },
     },
     socialProviders,

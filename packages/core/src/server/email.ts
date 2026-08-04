@@ -11,6 +11,8 @@
  */
 
 import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
+import { recordEmailSend } from "../email-catalog/log.js";
+import { getAppSlug } from "./app-name.js";
 import { resolveSecret } from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 
@@ -51,6 +53,15 @@ export interface SendEmailArgs {
   references?: string;
   attachments?: EmailAttachment[];
   timeoutMs?: number;
+  /**
+   * Registered transactional email id (see `defineTransactionalEmail`), e.g.
+   * `calendar.booking-confirmed`. Tags the message at the provider so delivery
+   * and open metrics attribute to one email instead of to the whole account,
+   * and keys the row written to `email_log`. Omit for genuinely one-off sends.
+   */
+  templateId?: string;
+  /** App slug that owns the send. Defaults to the running app. */
+  app?: string;
 }
 
 let cachedAgentNativeLogo: Buffer | undefined;
@@ -208,10 +219,15 @@ function resolveAppSender(
   };
 }
 
-async function sendEmailWithSignal(
+interface DeliveryOutcome {
+  provider: EmailProvider;
+  from: string;
+}
+
+async function deliverEmail(
   args: SendEmailArgs,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<DeliveryOutcome> {
   const config = await resolveEmailTransport();
   signal?.throwIfAborted();
   const provider = config.provider;
@@ -262,7 +278,7 @@ async function sendEmailWithSignal(
       const body = await res.text().catch(() => "");
       throw new Error(`Resend error ${res.status}: ${body}`);
     }
-    return;
+    return { provider, from };
   }
 
   if (provider === "sendgrid") {
@@ -284,6 +300,13 @@ async function sendEmailWithSignal(
       ],
     };
     if (replyTo) sgPayload.reply_to = parseSendGridFrom(replyTo);
+    // Categories are how per-email delivery/open stats are attributed. Without
+    // them every send lands in one undifferentiated account-wide bucket, which
+    // is indistinguishable from an email that never sent.
+    const categories = [args.templateId, args.app ?? getAppSlug()].filter(
+      (value): value is string => Boolean(value),
+    );
+    if (categories.length) sgPayload.categories = categories;
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;
@@ -314,7 +337,7 @@ async function sendEmailWithSignal(
       const body = await res.text().catch(() => "");
       throw new Error(`SendGrid error ${res.status}: ${body}`);
     }
-    return;
+    return { provider, from };
   }
 
   // Dev fallback — no provider configured. Logging the full body exposes
@@ -331,6 +354,42 @@ async function sendEmailWithSignal(
       `---\nTo: ${args.to}\nFrom: ${from}\nSubject: ${args.subject}\n\n` +
       `${args.text || stripHtml(args.html)}\n---\n`,
   );
+  return { provider, from };
+}
+
+/**
+ * Deliver, then record the attempt. Recording lives here rather than in each
+ * provider branch so a new transport cannot be added without being logged.
+ */
+async function sendEmailWithSignal(
+  args: SendEmailArgs,
+  signal?: AbortSignal,
+): Promise<void> {
+  let outcome: DeliveryOutcome | undefined;
+  try {
+    outcome = await deliverEmail(args, signal);
+  } catch (error) {
+    await recordEmailSend({
+      templateId: args.templateId,
+      app: args.app ?? getAppSlug() ?? undefined,
+      recipient: args.to,
+      sender: outcome?.from ?? args.from ?? "unknown",
+      subject: args.subject,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      provider: outcome?.provider ?? "unknown",
+    });
+    throw error;
+  }
+  await recordEmailSend({
+    templateId: args.templateId,
+    app: args.app ?? getAppSlug() ?? undefined,
+    recipient: args.to,
+    sender: outcome.from,
+    subject: args.subject,
+    status: "sent",
+    provider: outcome.provider,
+  });
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<void> {
