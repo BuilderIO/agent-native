@@ -1,5 +1,0 @@
----
-"@agent-native/core": patch
----
-
-Keep the dev server's route table live when route files are added or deleted. React Router's framework-mode plugin invalidates its virtual modules through Vite's deprecated back-compat module graph, which proxies only the `client` and `ssr` environments — never the Nitro environment that actually serves SSR. The route table therefore froze at whatever it was when the dev server booted: a new route file 404'd forever, and deleting one left the stale manifest importing a file that no longer existed, so every page returned `Internal Server Error: Failed to load url … Does the file exist?` until the process was restarted. Agent Native now mirrors that invalidation into every environment and reloads the affected server runners. Also escapes control bytes in dev SSR error bodies, so Vite's NUL-prefixed virtual-module ids print as `\0virtual:react-router/server-build` instead of making `curl` treat the response as binary and hide the only line describing the failure.
