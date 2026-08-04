@@ -173,6 +173,39 @@ describe("upsert-database-item-by-key", () => {
     ).rejects.toThrow();
   });
 
+  it("serializes conflicting concurrent payloads through their exact readbacks", async () => {
+    const { databaseId, propertyId } = await fixture();
+    const [first, second] = await Promise.all([
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "conflicting-race-key",
+          title: "Payload A",
+          body: "Body A",
+        }),
+      ),
+      asOwner(() =>
+        upsert.run({
+          databaseId,
+          keyPropertyId: propertyId,
+          keyValue: "conflicting-race-key",
+          title: "Payload B",
+          body: "Body B",
+        }),
+      ),
+    ]);
+
+    expect(new Set([first.itemId, second.itemId]).size).toBe(1);
+    expect(new Set([first.documentId, second.documentId]).size).toBe(1);
+    expect([first.status, second.status].sort()).toEqual([
+      "created",
+      "updated",
+    ]);
+    expect(first.readback.items[0]?.document.title).toBe("Payload A");
+    expect(second.readback.items[0]?.document.title).toBe("Payload B");
+  });
+
   it("advances updatedAt monotonically for an existing-row body projection", async () => {
     const { databaseId, propertyId } = await fixture();
     const created = await asOwner(() =>

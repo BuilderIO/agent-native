@@ -1,5 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  createDbExec,
+  getDatabaseUrl,
+  isLocalDatabase,
+  isPostgres,
+} from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
@@ -41,6 +47,44 @@ const upsertSchema = z.object({
 });
 
 type Identity = { itemId: string; documentId: string };
+
+async function withStableKeyReadbackLock<T>(
+  scope: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const runInProcess = () =>
+    withPositionLock(`stableKeyReadback:${scope}`, run);
+
+  // Every dialect needs one lock that spans both the write transaction and
+  // the exact post-commit readback; otherwise a later writer can legitimately
+  // overtake the first request between those phases and turn a committed
+  // mutation into an ambiguous 500 receipt. Real PostgreSQL workers also need
+  // the advisory lock because their in-process promise chains are independent.
+  if (!isPostgres() || isLocalDatabase()) return runInProcess();
+
+  // Never hold an advisory lock in the ordinary shared application pool: a
+  // small burst could occupy every connection while the lock winner still
+  // needs that pool to perform its write and readback. One process-wide gate
+  // bounds this action to one disposable lock connection per process while
+  // PostgreSQL coordinates the same scope across independent processes.
+  return withPositionLock("stableKeyReadback:postgres-connection", async () => {
+    const lockDb = await createDbExec({ url: getDatabaseUrl() });
+    try {
+      if (!lockDb.transaction) {
+        throw new Error("PostgreSQL stable-key locking requires transactions.");
+      }
+      return await lockDb.transaction(async (tx) => {
+        await tx.execute({
+          sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+          args: [scope],
+        });
+        return runInProcess();
+      });
+    } finally {
+      await lockDb.close?.();
+    }
+  });
+}
 
 export default defineAction({
   description:
@@ -142,6 +186,10 @@ export default defineAction({
     if (keyValueJson === "null" || keyValueJson === '\"\"')
       throw new Error("Stable key value must normalize to a non-empty value.");
 
+    // prettier-ignore
+    return withStableKeyReadbackLock(
+      JSON.stringify([databaseId, keyPropertyId, keyValueJson]),
+      async () => {
     const values = new Map<string, string>();
     for (const [propertyId, value] of Object.entries(propertyValues ?? {})) {
       const definition = definitionsById.get(propertyId);
@@ -760,5 +808,7 @@ export default defineAction({
       keyValue,
       readback: { items: readback.items, pagination: readback.pagination },
     };
+      },
+    );
   },
 });

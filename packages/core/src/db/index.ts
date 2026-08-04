@@ -39,6 +39,7 @@ export {
 export {
   getDbExec,
   createDbExec,
+  getDatabaseUrl,
   getDialect,
   isLocalDatabase,
   isPostgres,
