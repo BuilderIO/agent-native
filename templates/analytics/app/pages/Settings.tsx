@@ -63,7 +63,7 @@ export default function Settings() {
       setErrorEmailEnabledOverride(
         analyticsPrefs.errorEmailNotifications === true,
       );
-      setBellSoundEnabledOverride(analyticsPrefs.bellSoundEnabled !== false);
+      setBellSoundEnabledOverride(analyticsPrefs.bellSoundEnabled === true);
     }
   }, [analyticsPrefs]);
 
@@ -71,7 +71,7 @@ export default function Settings() {
     errorEmailEnabledOverride ??
     analyticsPrefs?.errorEmailNotifications === true;
   const bellSoundEnabled =
-    bellSoundEnabledOverride ?? analyticsPrefs?.bellSoundEnabled !== false;
+    bellSoundEnabledOverride ?? analyticsPrefs?.bellSoundEnabled === true;
 
   const currentAnalyticsPrefs: AnalyticsUserPrefs = {
     ...(analyticsPrefs ?? {}),

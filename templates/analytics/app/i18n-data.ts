@@ -200,7 +200,7 @@ const enUS = {
     errorEmailNotificationsSaveFailed: "Couldn't save the email preference.",
     bellSound: "Bell sound",
     bellSoundDescription:
-      "Play a sound when the agent finishes a run. On by default.",
+      "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
     about: "About",
     aboutDescription:
@@ -4266,7 +4266,7 @@ export const messagesByLocale = {
         "捕获新的 JavaScript 错误时发送电子邮件。默认关闭。",
       errorEmailNotificationsSaveFailed: "无法保存电子邮件偏好设置。",
       bellSound: "提示音",
-      bellSoundDescription: "代理完成运行时播放提示音。默认开启。",
+      bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
       bellSoundSaveFailed: "无法保存提示音偏好设置。",
       about: "关于",
       aboutDescription:
@@ -4493,7 +4493,7 @@ export const messagesByLocale = {
         "No se pudo guardar la preferencia de email.",
       bellSound: "Sonido de campana",
       bellSoundDescription:
-        "Reproduce un sonido cuando el agente termina una ejecución. Activado de forma predeterminada.",
+        "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
       bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
       about: "Acerca de",
       aboutDescription:
@@ -4725,7 +4725,7 @@ export const messagesByLocale = {
         "Impossible d’enregistrer la préférence e-mail.",
       bellSound: "Son de notification",
       bellSoundDescription:
-        "Jouer un son lorsque l’agent termine une exécution. Activé par défaut.",
+        "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
       bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
       about: "À propos",
       aboutDescription:
@@ -4963,7 +4963,7 @@ export const messagesByLocale = {
         "Die E-Mail-Einstellung konnte nicht gespeichert werden.",
       bellSound: "Signalton",
       bellSoundDescription:
-        "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig aktiviert.",
+        "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
       bellSoundSaveFailed:
         "Die Toneinstellung konnte nicht gespeichert werden.",
       about: "Info",
@@ -5192,7 +5192,7 @@ export const messagesByLocale = {
       errorEmailNotificationsSaveFailed: "メール設定を保存できませんでした。",
       bellSound: "完了サウンド",
       bellSoundDescription:
-        "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオンです。",
+        "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
       bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
       about: "概要",
       aboutDescription:
@@ -5419,7 +5419,7 @@ export const messagesByLocale = {
       errorEmailNotificationsSaveFailed: "이메일 설정을 저장하지 못했습니다.",
       bellSound: "완료 소리",
       bellSoundDescription:
-        "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 켜짐입니다.",
+        "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
       bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
       about: "정보",
       aboutDescription:
@@ -5651,7 +5651,7 @@ export const messagesByLocale = {
         "Não foi possível salvar a preferência de e-mail.",
       bellSound: "Som de conclusão",
       bellSoundDescription:
-        "Reproduzir um som quando o agente concluir uma execução. Ativado por padrão.",
+        "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
       bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
       about: "Sobre",
       aboutDescription:
@@ -5876,7 +5876,7 @@ export const messagesByLocale = {
         "नया JavaScript त्रुटि कैप्चर होने पर ईमेल भेजें। डिफ़ॉल्ट रूप से बंद।",
       errorEmailNotificationsSaveFailed: "ईमेल प्राथमिकता सहेजी नहीं जा सकी।",
       bellSound: "पूर्णता ध्वनि",
-      bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से चालू।",
+      bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
       bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
       about: "परिचय",
       aboutDescription:
@@ -6101,7 +6101,7 @@ export const messagesByLocale = {
         "إرسال بريد إلكتروني عند التقاط خطأ JavaScript جديد. معطّل افتراضيًا.",
       errorEmailNotificationsSaveFailed: "تعذّر حفظ تفضيل البريد الإلكتروني.",
       bellSound: "صوت الجرس",
-      bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. مفعّل افتراضيًا.",
+      bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
       bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
       about: "حول",
       aboutDescription:

@@ -47,7 +47,7 @@ describe("AgentCompletionSound", () => {
     vi.clearAllMocks();
   });
 
-  it("plays the bell once when a run finishes", async () => {
+  it("does not play when the preference is absent", async () => {
     await act(async () => {
       root.render(<AgentCompletionSound />);
     });
@@ -61,6 +61,32 @@ describe("AgentCompletionSound", () => {
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
           detail: { isRunning: false, tabId: "run-1" },
+        }),
+      );
+    });
+
+    expect(FakeAudio.instances).toHaveLength(0);
+  });
+
+  it("plays the bell once when enabled and a run finishes", async () => {
+    mocks.useActionQuery.mockReturnValue({
+      data: { bellSoundEnabled: true },
+      isError: false,
+    });
+
+    await act(async () => {
+      root.render(<AgentCompletionSound />);
+    });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "run-enabled" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "run-enabled" },
         }),
       );
     });

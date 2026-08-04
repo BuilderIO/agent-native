@@ -142,7 +142,7 @@ const messages = {
       "捕獲新的 JavaScript 錯誤時傳送電子郵件。預設為關閉。",
     errorEmailNotificationsSaveFailed: "無法儲存電子郵件偏好設定。",
     bellSound: "提示音",
-    bellSoundDescription: "代理完成工作時播放提示音。預設為開啟。",
+    bellSoundDescription: "代理完成工作時播放提示音。預設為關閉。",
     bellSoundSaveFailed: "無法儲存提示音偏好設定。",
     about: "關於",
     aboutDescription:

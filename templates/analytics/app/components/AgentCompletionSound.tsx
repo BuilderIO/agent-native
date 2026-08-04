@@ -29,16 +29,14 @@ export function AgentCompletionSound() {
     "get-user-pref",
     { key: ANALYTICS_USER_PREFS_KEY },
   );
-  const soundEnabledRef = useRef(true);
+  const soundEnabledRef = useRef(false);
   const runningTabsRef = useRef(new Set<string>());
   const autoContinuingTabsRef = useRef(new Set<string>());
   const failedTabsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    // An unreadable preference must not be treated as a successful read. The
-    // absent key is different: it preserves the Builder-internal default-on behavior.
-    soundEnabledRef.current =
-      !isError && (prefs === undefined || prefs.bellSoundEnabled !== false);
+    // Missing and unreadable preferences both keep the sound off until enabled.
+    soundEnabledRef.current = !isError && prefs?.bellSoundEnabled === true;
   }, [isError, prefs]);
 
   useEffect(() => {
