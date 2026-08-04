@@ -3998,17 +3998,25 @@ export default function SlideEditor({
   /** Bullet / numbered list toggle for the selected text object. */
   const handleToggleList = useCallback(
     (kind: SlideListKind) => {
-      const element = editingElRef.current ?? resolveSelectedElement();
-      if (!element) return;
+      const target = editingElRef.current ?? resolveSelectedElement();
+      if (!target) return;
+      // Editing one item still means "this list". Converting the LI itself
+      // would build a second list inside it instead of toggling the one it
+      // already belongs to.
+      const parentList =
+        target.tagName === "LI" ? target.closest("ul, ol") : null;
+      const element = (parentList as HTMLElement | null) ?? target;
 
-      const wasEditing = editingElRef.current === element;
+      const editing = editingElRef.current;
       const converted = toggleSlideList(element, kind);
       if (!converted) return;
 
-      // When the object is itself the list, switching kind replaces the node.
-      // An active inline edit would otherwise keep pointing at the detached
-      // original, so move the edit onto the element that is now in the page.
-      if (wasEditing && converted !== element) {
+      // Conversions retag and replace nodes, so an active edit can be left
+      // pointing at a node that is no longer in the page. Move it onto the
+      // element that replaced it rather than silently writing into nothing.
+      if (editing && !editing.isConnected) {
+        converted.contentEditable = "true";
+        converted.setAttribute("data-editing-block", "true");
         editingElRef.current = converted;
         setEditingEl(converted);
         converted.focus({ preventScroll: true });
@@ -4094,6 +4102,11 @@ export default function SlideEditor({
     !readOnly && !slide.excalidrawData ? (
       <div
         className="hidden shrink-0 lg:block"
+        // Snapshotting the range is only half the job: without this marker the
+        // click-outside handler exits the edit and clears the snapshot before
+        // the button's onClick runs, so partial-text formatting would silently
+        // apply to the whole object.
+        data-slide-inline-edit-surface="true"
         onPointerDownCapture={preserveRichTextSelection}
       >
         <SlideContextToolbar

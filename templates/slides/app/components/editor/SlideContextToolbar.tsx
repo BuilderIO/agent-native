@@ -161,6 +161,15 @@ export function SlideContextToolbar({
   const isItalic =
     !mixedTextStyles.includes("fontStyle") &&
     (snapshot?.fontStyle ?? "").startsWith("italic");
+  // A mixed selection has no single size, so the scrub input reports a step as
+  // a relative delta rather than a value. Writing that delta as an absolute
+  // size would set the whole selection to a few pixels; step from the block's
+  // own size instead, which also makes the selection consistent in one click.
+  const sizeFor = (value: number, meta?: { relativeDelta?: number }) => {
+    const delta = meta?.relativeDelta;
+    if (typeof delta !== "number") return value;
+    return Math.min(160, Math.max(8, (snapshot?.fontSize ?? 0) + delta));
+  };
   const decorationMixed = mixedTextStyles.includes("textDecoration");
   const isUnderline =
     !decorationMixed && (snapshot?.textDecoration ?? "").includes("underline");
@@ -226,8 +235,10 @@ export function SlideContextToolbar({
                 mixed={mixedTextStyles.includes("fontSize")}
                 mixedLabel={t("styleInspector.mixed")}
                 className={SIZE_SCRUB_CLASS}
-                onChange={(fontSize) =>
-                  onChange({ fontSize: `${formatValue(fontSize)}px` })
+                onChange={(fontSize, meta) =>
+                  onChange({
+                    fontSize: `${formatValue(sizeFor(fontSize, meta))}px`,
+                  })
                 }
               />
               <div className={TOOLBAR_DIVIDER} />

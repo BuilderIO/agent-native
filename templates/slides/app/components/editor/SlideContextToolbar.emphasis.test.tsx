@@ -62,6 +62,31 @@ function renderToolbar(
   return onChange;
 }
 
+describe("contextual toolbar size steppers", () => {
+  afterEach(cleanup);
+
+  it("steps from the block size when the selection has mixed sizes", () => {
+    // The scrub input reports a step on a mixed selection as a relative delta,
+    // because its displayed value is only a placeholder. Writing that delta
+    // straight through would set the whole selection to a couple of pixels.
+    const onChange = renderToolbar(
+      textSnapshot({ fontSize: 40, mixedTextStyles: ["fontSize"] }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Increase size" }));
+
+    expect(onChange).toHaveBeenCalledWith({ fontSize: "41px" });
+  });
+
+  it("writes the absolute value when the size is not mixed", () => {
+    const onChange = renderToolbar(textSnapshot({ fontSize: 40 }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Decrease size" }));
+
+    expect(onChange).toHaveBeenCalledWith({ fontSize: "39px" });
+  });
+});
+
 describe("contextual toolbar emphasis toggles", () => {
   afterEach(cleanup);
 
