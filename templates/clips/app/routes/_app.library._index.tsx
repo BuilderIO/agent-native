@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconPlayerRecord } from "@tabler/icons-react";
 import { NavLink } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
@@ -38,7 +37,6 @@ export default function LibraryIndexRoute() {
             asChild
           >
             <NavLink to="/record" aria-label={t("navigation.newRecording")}>
-              <IconPlayerRecord className="h-4 w-4" />
               <span className="hidden sm:inline">
                 {t("navigation.newRecording")}
               </span>
