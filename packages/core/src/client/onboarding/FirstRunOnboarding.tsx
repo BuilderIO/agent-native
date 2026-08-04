@@ -52,10 +52,6 @@ export function FirstRunOnboarding() {
 
   if (!firstRun) return null;
 
-  if (loading || !profile) {
-    return <OnboardingSkeleton />;
-  }
-
   if (error) {
     return (
       <OnboardingShell profile={profile} screen="choice">
@@ -76,6 +72,10 @@ export function FirstRunOnboarding() {
         </div>
       </OnboardingShell>
     );
+  }
+
+  if (loading || !profile) {
+    return <OnboardingSkeleton />;
   }
 
   const builderCapabilities = profile.capabilities.filter(
@@ -384,7 +384,7 @@ function OnboardingShell({
   screen,
   children,
 }: {
-  profile: OnboardingAppProfile;
+  profile: OnboardingAppProfile | null;
   screen: "intro" | "choice";
   children: React.ReactNode;
 }) {
@@ -394,7 +394,7 @@ function OnboardingShell({
       data-onboarding-screen={screen}
       role="dialog"
       aria-modal="true"
-      aria-label={`${profile.appName} setup`}
+      aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
       <header className="flex items-center justify-between border-b border-border px-5 py-4 text-xs text-muted-foreground sm:px-8">
         <div className="flex items-center gap-2">
@@ -404,7 +404,9 @@ function OnboardingShell({
             aria-hidden="true"
             className="h-4 w-auto shrink-0"
           />
-          <span className="font-medium text-foreground">{profile.appName}</span>
+          <span className="font-medium text-foreground">
+            {profile?.appName ?? "Your app"}
+          </span>
         </div>
         <span>{screen === "intro" ? "1 / 2" : "2 / 2"}</span>
       </header>

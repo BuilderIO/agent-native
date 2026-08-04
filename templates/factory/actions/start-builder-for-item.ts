@@ -1,4 +1,4 @@
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import { defineAction } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -38,14 +39,6 @@ function replyTextForItem(item: {
   ]
     .filter(Boolean)
     .join("\n");
-}
-
-function requireAutomation(context?: ActionRunContext): void {
-  if (context?.caller !== "automation") {
-    throw new Error(
-      "Builder triage dispatch is only available to Factory automations.",
-    );
-  }
 }
 
 async function writeMetadata(
@@ -123,9 +116,13 @@ export default defineAction({
     { itemId, clearBug, reason, productUxImplications, clearErrorReport },
     context,
   ) => {
-    requireAutomation(context);
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
+    );
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "builderDispatch",
     );
     const db = getDb();
     const item = (

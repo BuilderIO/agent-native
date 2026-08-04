@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -18,13 +19,13 @@ export default defineAction({
   schema: z.object({ limit: z.number().int().min(1).max(50).default(25) }),
   http: false,
   run: async ({ limit }, context) => {
-    if (context?.caller !== "automation") {
-      throw new Error(
-        "Sentry source polling is only available to Factory automations.",
-      );
-    }
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
+    );
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "sourcePolling",
     );
     const config = (
       await getDb()
@@ -33,7 +34,10 @@ export default defineAction({
         .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
-    if (!config?.sentryOrgSlug) {
+    if (config?.sentryPollingEnabled !== 1) {
+      throw new Error("Enable Sentry polling before polling Sentry.");
+    }
+    if (!config.sentryOrgSlug) {
       throw new Error("Configure a Sentry organization before polling Sentry.");
     }
     const query = [
@@ -54,19 +58,22 @@ export default defineAction({
     if (cursor !== null && Number.isNaN(cursor)) {
       throw new Error("Stored Sentry polling cursor is not a valid timestamp.");
     }
-    const newIssues = issues.filter((issue) => {
+    // Reconcile every bounded result by its stable Sentry issue id. Frequency
+    // ordering is not a safe timestamp cursor: an older issue can re-enter the
+    // top page after its frequency changes.
+    for (const issue of issues) {
       const firstSeen = Date.parse(issue.firstSeen);
       if (Number.isNaN(firstSeen))
         throw new Error(
           `Sentry issue ${issue.id} has an invalid firstSeen timestamp.`,
         );
-      return cursor === null || firstSeen > cursor;
-    });
+    }
+    const observedIssues = issues;
     const db = getDb();
     const now = new Date().toISOString();
 
     await db.transaction(async (tx) => {
-      for (const issue of newIssues) {
+      for (const issue of observedIssues) {
         const id = itemDedupeKey(
           { source: "sentry", externalId: issue.id },
           orgId,
@@ -133,7 +140,7 @@ export default defineAction({
         .update(triageConfig)
         .set({
           lastSentrySeenAt:
-            newIssues.reduce<string | null>((latest, issue) => {
+            observedIssues.reduce<string | null>((latest, issue) => {
               if (!latest) return issue.firstSeen;
               return Date.parse(issue.firstSeen) > Date.parse(latest)
                 ? issue.firstSeen
@@ -146,7 +153,7 @@ export default defineAction({
 
     return {
       ok: true,
-      observed: newIssues.length,
+      observed: observedIssues.length,
       fetched: issues.length,
       sentryOrgSlug: config.sentryOrgSlug,
     };

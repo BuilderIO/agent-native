@@ -81,9 +81,10 @@ export function useOnboarding(
       const stepsData: OnboardingStepStatus[] = await stepsRes.json();
       setSteps(stepsData);
 
-      if (profileRes.ok) {
-        setProfile((await profileRes.json()) as OnboardingAppProfile);
+      if (!profileRes.ok) {
+        throw new Error(`profile: ${profileRes.status}`);
       }
+      setProfile((await profileRes.json()) as OnboardingAppProfile);
 
       if (dismissRes.ok) {
         const d = (await dismissRes.json()) as {

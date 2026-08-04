@@ -37,10 +37,14 @@ export default defineAction({
     );
     const definition = definitions.find(
       (entry) =>
-        entry.meta.domain === "factory" &&
-        (entry.resource.id === automationId || entry.name === name),
+        entry.meta.domain === "factory" && entry.resource.id === automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
+    if (definition.name !== name) {
+      throw new Error(
+        "Factory automation id and name do not refer to the same automation.",
+      );
+    }
     const updated = await updateAutomation(
       { userEmail, orgId },
       {

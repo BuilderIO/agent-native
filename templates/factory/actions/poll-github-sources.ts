@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -20,14 +21,6 @@ function parseRepository(value: string): { owner: string; repo: string } {
   return { owner: match[1], repo: match[2] };
 }
 
-function requireAutomationCaller(caller: string | undefined): void {
-  if (caller !== "automation") {
-    throw new Error(
-      "GitHub source polling is only available to Factory automations.",
-    );
-  }
-}
-
 export default defineAction({
   description:
     "Poll the configured GitHub repository for bounded open issues and pull requests and record them in the Factory queue. This does not write to GitHub.",
@@ -37,9 +30,13 @@ export default defineAction({
   }),
   http: false,
   run: async ({ includeIssues, includePullRequests }, context) => {
-    requireAutomationCaller(context?.caller);
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
+    );
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "sourcePolling",
     );
     const config = (
       await getDb()
@@ -48,7 +45,10 @@ export default defineAction({
         .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
-    if (!config?.repository) {
+    if (config?.githubPollingEnabled !== 1) {
+      throw new Error("Enable GitHub polling before polling GitHub sources.");
+    }
+    if (!config.repository) {
       throw new Error("Configure a GitHub repository before polling GitHub.");
     }
 

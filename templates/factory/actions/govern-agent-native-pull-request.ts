@@ -1,4 +1,4 @@
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import { defineAction } from "@agent-native/core/action";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -9,6 +9,7 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -22,14 +23,6 @@ import {
 } from "../server/triage/metadata.js";
 import { reconcileBabysitState } from "../server/triage/pr-babysit.js";
 import { decidePullRequestGovernance } from "../server/triage/pr-policy.js";
-
-function requireAutomation(context?: ActionRunContext): void {
-  if (context?.caller !== "automation") {
-    throw new Error(
-      "Pull-request governance is only available to Factory automations.",
-    );
-  }
-}
 
 function repositoryRef(value: string): { owner: string; repo: string } {
   const match = /^([^/\s]+)\/([^/\s]+)$/.exec(value.trim());
@@ -60,6 +53,7 @@ async function hasVerifiedFactoryRun(input: {
     .select({
       itemId: triageRuns.itemId,
       provider: triageRuns.provider,
+      providerTaskId: triageRuns.providerTaskId,
       status: triageRuns.status,
     })
     .from(triageRuns)
@@ -70,24 +64,27 @@ async function hasVerifiedFactoryRun(input: {
       .filter(
         (run) =>
           (run.provider === "builder-http" || run.provider === "bot-tag") &&
-          run.status !== "failed" &&
-          run.status !== "cancelled",
+          run.status === "completed" &&
+          run.providerTaskId !== null,
       )
       .map((run) => run.itemId),
   );
-  if (input.itemId && verifiedItemIds.has(input.itemId)) return true;
-
   const body = input.pullRequestBody ?? "";
+  if (input.itemId && verifiedItemIds.has(input.itemId)) {
+    return (
+      input.headRef === `factory/${input.itemId.slice(0, 12)}` ||
+      body.includes(`Factory item: ${input.itemId}`)
+    );
+  }
+
   if (!body && !input.headRef.startsWith("factory/")) return false;
-  const slackItems = await db
+  const items = await db
     .select({ id: triageItems.id, sourceUrl: triageItems.sourceUrl })
     .from(triageItems)
-    .where(
-      and(eq(triageItems.orgId, input.orgId), eq(triageItems.source, "slack")),
-    )
+    .where(eq(triageItems.orgId, input.orgId))
     .orderBy(desc(triageItems.updatedAt))
     .limit(100);
-  return slackItems.some((item) => {
+  return items.some((item) => {
     if (!verifiedItemIds.has(item.id)) return false;
     return (
       body.includes(`Factory item: ${item.id}`) ||
@@ -120,10 +117,10 @@ export default defineAction({
     },
     context,
   ) => {
-    requireAutomation(context);
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    await requireFactoryAutomation(context, { userEmail, orgId }, "governance");
     const repository = repositoryRef(repo);
     const github = createGitHubClient({ ownerEmail: userEmail, orgId });
     const pullRequest = await github.getPullRequestSummary(
