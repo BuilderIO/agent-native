@@ -34,7 +34,7 @@ export default function SpacesIndexRoute() {
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
-  const { data, isLoading } = useSpaces(currentOrganizationId);
+  const { data, isLoading, refetch } = useSpaces(currentOrganizationId);
 
   const spaces: SpaceCardData[] = (data?.spaces ?? []).map((s: any) => ({
     id: s.id,
@@ -80,7 +80,7 @@ export default function SpacesIndexRoute() {
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {spaces.map((s) => (
-              <SpaceCard key={s.id} space={s} />
+              <SpaceCard key={s.id} space={s} onMutationSuccess={() => refetch?.()} />
             ))}
           </div>
         )}

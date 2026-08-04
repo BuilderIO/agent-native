@@ -1,7 +1,15 @@
-import { IconUsersGroup, IconVideo } from "@tabler/icons-react";
+import { IconUsersGroup, IconVideo, IconTrash, IconEdit } from "@tabler/icons-react";
 import { Link } from "react-router";
+import { useState } from "react";
 
 import { cn } from "@/lib/utils";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { SpaceDialogs } from "./space-dialogs";
 
 export interface SpaceCardData {
   id: string;
@@ -16,23 +24,30 @@ export interface SpaceCardData {
 interface SpaceCardProps {
   space: SpaceCardData;
   className?: string;
+  onMutationSuccess?: () => void;
 }
 
-export function SpaceCard({ space, className }: SpaceCardProps) {
+export function SpaceCard({ space, className, onMutationSuccess }: SpaceCardProps) {
   const color = space.color || "hsl(var(--primary))";
   const members = space.memberEmails ?? [];
   const initial = (space.name.trim().slice(0, 1) || "S").toUpperCase();
+  const [renameSpaceId, setRenameSpaceId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteSpaceId, setDeleteSpaceId] = useState<string | null>(null);
 
   return (
-    <Link
-      to={`/spaces/${space.id}`}
-      className={cn(
-        "group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-start",
-        "hover:border-primary/40",
-        "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
-        className,
-      )}
-    >
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <Link
+            to={`/spaces/${space.id}`}
+            className={cn(
+              "group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-start",
+              "hover:border-primary/40",
+              "shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md",
+              className,
+            )}
+          >
       <div
         className="relative flex h-24 items-center justify-center"
         style={{
@@ -90,6 +105,43 @@ export function SpaceCard({ space, className }: SpaceCardProps) {
           </div>
         )}
       </div>
-    </Link>
+          </Link>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem
+            onClick={(e) => {
+              e.preventDefault();
+              setRenameValue(space.name);
+              setRenameSpaceId(space.id);
+            }}
+          >
+            <IconEdit className="h-4 w-4 mr-2" />
+            Rename
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={(e) => {
+              e.preventDefault();
+              setDeleteSpaceId(space.id);
+            }}
+            className="text-destructive focus:text-destructive"
+          >
+            <IconTrash className="h-4 w-4 mr-2" />
+            Delete space
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+
+      <SpaceDialogs
+        renameSpaceId={renameSpaceId}
+        renameSpaceName={space.name}
+        setRenameSpaceId={setRenameSpaceId}
+        renameValue={renameValue}
+        setRenameValue={setRenameValue}
+        deleteSpaceId={deleteSpaceId}
+        deleteSpaceName={space.name}
+        setDeleteSpaceId={setDeleteSpaceId}
+        onMutationSuccess={onMutationSuccess}
+      />
+    </>
   );
 }
