@@ -314,6 +314,8 @@ export function SlideContextToolbar({
                 onChange={(value) => onChange({ color: value })}
               />
 
+              <div className={TOOLBAR_DIVIDER} />
+
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
