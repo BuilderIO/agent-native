@@ -198,6 +198,16 @@ export default defineAction({
           if (!lockedDefinition) {
             throw new Error(`Property "${args.id}" not found`);
           }
+          const [mappedSourceField] = await tx
+            .select({ id: schema.contentDatabaseSourceFields.id })
+            .from(schema.contentDatabaseSourceFields)
+            .where(eq(schema.contentDatabaseSourceFields.propertyId, args.id!))
+            .limit(1);
+          if (mappedSourceField) {
+            throw new Error(
+              "A property bound to a source field must be unbound before changing its type.",
+            );
+          }
           await tx
             .delete(schema.documentPropertyValues)
             .where(
@@ -207,6 +217,14 @@ export default defineAction({
                   schema.documentPropertyValues.ownerEmail,
                   document.ownerEmail,
                 ),
+              ),
+            );
+          await tx
+            .delete(schema.contentDatabaseItemKeyClaims)
+            .where(
+              and(
+                eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+                eq(schema.contentDatabaseItemKeyClaims.propertyId, args.id!),
               ),
             );
           if (

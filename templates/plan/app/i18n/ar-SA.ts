@@ -155,6 +155,7 @@ const messages = {
       artboardCanvas: "لوحة عمل Plan",
       zoomIn: "تكبير",
       zoomOut: "تصغير",
+      zoomHint: "اضغط مع الاستمرار على ⌘/Ctrl ومرّر للتكبير",
       markupSaveFailed: "تعذر حفظ الترميز. حاول مرة أخرى.",
     },
     document: {

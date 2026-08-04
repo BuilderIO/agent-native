@@ -910,6 +910,30 @@ const runContentMigrations = runMigrations(
     },
     {
       version: 78,
+      name: "content-database-item-stable-key-claims",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_item_key_claims (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        database_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        key_value_json TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_item_key_claims_database_property_value_unique ON content_database_item_key_claims (database_id, property_id, key_value_json);
+      CREATE INDEX IF NOT EXISTS content_database_item_key_claims_item_idx ON content_database_item_key_claims (item_id);
+      CREATE INDEX IF NOT EXISTS content_database_item_key_claims_document_idx ON content_database_item_key_claims (document_id)`,
+    },
+    {
+      version: 79,
+      name: "content-database-item-stable-key-single-active-claim",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_database_item_key_claims_database_property_document_unique ON content_database_item_key_claims (database_id, property_id, document_id)`,
+    },
+    {
+      version: 80,
       name: "content-database-migration-receipts",
       sql: `CREATE TABLE IF NOT EXISTS content_database_migration_receipts (
         id TEXT PRIMARY KEY,

@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -12,6 +12,7 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -160,6 +161,22 @@ export default defineAction({
 
     const valueJson = normalizedValueJson(type, value);
     await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
+      const [lockedDatabase] = await tx
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.id, database.id),
+            eq(schema.contentDatabases.documentId, database.documentId),
+            eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
       await lockDatabaseMemberships(tx, [membership.id]);
       const [lockedDefinition] = await tx
         .select()
@@ -195,6 +212,23 @@ export default defineAction({
       if (isComputedPropertyType(lockedType)) {
         throw new Error("Computed properties cannot be edited.");
       }
+      const [conflictingClaim] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+            eq(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+            ne(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+          ),
+        )
+        .limit(1);
+      if (conflictingClaim) {
+        throw new Error(
+          "This value is already claimed as another row's stable key.",
+        );
+      }
       const [existing] = await tx
         .select({ id: schema.documentPropertyValues.id })
         .from(schema.documentPropertyValues)
@@ -220,6 +254,16 @@ export default defineAction({
           updatedAt: now,
         });
       }
+      await tx
+        .delete(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+            eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+            ne(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+          ),
+        );
     });
 
     return {

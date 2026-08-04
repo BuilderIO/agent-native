@@ -66,6 +66,11 @@ const messages = {
     scopeLabel: "Scope",
     scopePersonal: "Personal",
     scopeWorkspace: "Workspace",
+    testStoredValue: "Test",
+    candidateValueWorking: "New value works",
+    storedValueWorking: "Working",
+    invalid: "Invalid",
+    testFailed: "Test failed",
     scopePersonalDescription:
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
@@ -628,6 +633,10 @@ const messages = {
     deleteAutomationTitle: "Delete automation?",
     deleteAutomationDescription:
       "This permanently removes the automation and cannot be undone.",
+    runNow: "Run now",
+    runNowTitle: "Run automation now?",
+    runNowDescription:
+      "This runs the automation's real actions immediately. It may send messages or change data, and it will not change the next scheduled run.",
     automationDetails: "Automation details",
     automationEventDetails: "Runs when {{event}}.",
     condition: "Condition",

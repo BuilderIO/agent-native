@@ -129,6 +129,21 @@ export default defineAction({
         .where(
           eq(schema.documentPropertyValues.documentId, lockedRow.document.id),
         );
+      const [claimedSource] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, row.database.id),
+            eq(schema.contentDatabaseItemKeyClaims.documentId, row.document.id),
+          ),
+        )
+        .limit(1);
+      if (claimedSource) {
+        throw new Error(
+          "Rows with active stable-key claims cannot be duplicated.",
+        );
+      }
       await tx
         .update(schema.contentDatabaseItems)
         .set({

@@ -572,7 +572,13 @@ export async function deleteDocumentRecursive(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  return deleteDocumentRootsRecursive(db, [id], ownerEmail);
+  return db.transaction((tx) =>
+    deleteDocumentRootsRecursive(
+      tx as unknown as ReturnType<typeof getDb>,
+      [id],
+      ownerEmail,
+    ),
+  );
 }
 
 export async function deleteDocumentRootsRecursive(
@@ -698,6 +704,28 @@ async function deleteCollectedDocuments(
       .delete(schema.documentBlockFieldContents)
       .where(
         inArray(schema.documentBlockFieldContents.propertyId, propertyIdBatch),
+      );
+  });
+
+  await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.databaseId,
+          databaseIdBatch,
+        ),
+      );
+  });
+
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.documentId,
+          documentIdBatch,
+        ),
       );
   });
 

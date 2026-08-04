@@ -113,6 +113,24 @@ export default defineAction({
           "Cannot duplicate database rows across Content spaces.",
         );
       }
+      const [claimedSource] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            inArray(
+              schema.contentDatabaseItemKeyClaims.documentId,
+              sourceDocumentIds,
+            ),
+          ),
+        )
+        .limit(1);
+      if (claimedSource) {
+        throw new Error(
+          "Rows with active stable-key claims cannot be duplicated.",
+        );
+      }
       const insertionPosition =
         Math.max(...lockedRows.map((lockedRow) => lockedRow.item.position)) + 1;
       const lockedDuplicates = duplicates.map((duplicate, index) => ({

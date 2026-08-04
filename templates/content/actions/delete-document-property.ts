@@ -105,6 +105,14 @@ export default defineAction({
         .delete(schema.documentPropertyValues)
         .where(eq(schema.documentPropertyValues.propertyId, propertyId));
       await tx
+        .delete(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+          ),
+        );
+      await tx
         .delete(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 

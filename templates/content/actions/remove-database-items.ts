@@ -160,6 +160,19 @@ export default defineAction({
         }
         if (removedItemIds.length > 0) {
           await tx
+            .delete(schema.contentDatabaseItemKeyClaims)
+            .where(
+              and(
+                eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+                inArray(
+                  schema.contentDatabaseItemKeyClaims.itemId,
+                  removedItemIds,
+                ),
+              ),
+            );
+        }
+        if (removedItemIds.length > 0) {
+          await tx
             .delete(schema.contentDatabaseItems)
             .where(inArray(schema.contentDatabaseItems.id, removedItemIds));
         }

@@ -4,7 +4,11 @@ import {
   buildTriggerContent,
   parseTriggerFrontmatter,
 } from "../triggers/dispatcher.js";
-import { classifyJobResource, processRecurringJobs } from "./scheduler.js";
+import {
+  classifyJobResource,
+  processRecurringJobs,
+  runJobNow,
+} from "./scheduler.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
@@ -213,6 +217,39 @@ Summarize the inbox.`,
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
+  });
+
+  it("does not manually overlap an active automation", async () => {
+    const resource = {
+      id: "resource-running",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/daily-report.md",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+      content: `---
+schedule: "* * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+lastRun: "${new Date().toISOString()}"
+lastStatus: running
+---
+
+Summarize the inbox.`,
+    };
+    resourceGetByPathMock.mockResolvedValueOnce(resource);
+
+    const result = await runJobNow(resource.owner, "daily-report", {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(result).toEqual({
+      status: "skipped",
+      error: "The automation is already running.",
+    });
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
   it("seeds a scheduled automation without dropping its automation metadata", async () => {

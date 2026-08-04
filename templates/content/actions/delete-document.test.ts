@@ -44,6 +44,10 @@ const { schema } = vi.hoisted(() => ({
       documentId: "contentDatabaseItems.documentId",
       ownerEmail: "contentDatabaseItems.ownerEmail",
     },
+    contentDatabaseItemKeyClaims: {
+      databaseId: "contentDatabaseItemKeyClaims.databaseId",
+      documentId: "contentDatabaseItemKeyClaims.documentId",
+    },
     contentSpaceCatalogItems: {
       id: "contentSpaceCatalogItems.id",
       documentId: "contentSpaceCatalogItems.documentId",
@@ -139,6 +143,8 @@ describe("deleteDocumentRecursive", () => {
   let deleteCalls: DeleteCall[];
   let selectRows: Record<string, Record<string, unknown>[]>;
   let db: any;
+  let transactionDepth: number;
+  let operationsOutsideTransaction: string[];
 
   beforeEach(() => {
     mutationLock.mockReset();
@@ -147,12 +153,16 @@ describe("deleteDocumentRecursive", () => {
     selectRows = {
       documents: [],
     };
+    transactionDepth = 0;
+    operationsOutsideTransaction = [];
 
     db = {
       select: () => ({
         from: (table: Record<string, string>) => ({
           where: async (cond: any) => {
             const name = tableNameFor(Object.values(table)[0] as string);
+            if (transactionDepth === 0)
+              operationsOutsideTransaction.push(`select:${name}`);
             const rows = selectRows[name] ?? [];
             return rows.filter((row) => matches(row, cond));
           },
@@ -161,10 +171,57 @@ describe("deleteDocumentRecursive", () => {
       delete: (table: Record<string, string>) => ({
         where: async (cond: any) => {
           const name = tableNameFor(Object.values(table)[0] as string);
+          if (transactionDepth === 0)
+            operationsOutsideTransaction.push(`delete:${name}`);
           deleteCalls.push({ table: name, cond });
         },
       }),
+      update: () => ({
+        set: () => ({
+          where: async () => [],
+        }),
+      }),
+      transaction: async (run: (tx: unknown) => Promise<unknown>) => {
+        transactionDepth += 1;
+        try {
+          return await run(db);
+        } finally {
+          transactionDepth -= 1;
+        }
+      },
     };
+  });
+
+  it("keeps lock, final recollection, and cleanup on one transaction handle", async () => {
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    expect(operationsOutsideTransaction).toEqual([]);
+    expect(transactionDepth).toBe(0);
+  });
+
+  it("locks a row document's parent database without deleting that database", async () => {
+    selectRows.contentDatabaseItems = [
+      {
+        id: "row-membership",
+        databaseId: "parent-database",
+        documentId: "row-document",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.contentDatabases = [
+      {
+        id: "parent-database",
+        documentId: "parent-database-document",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    await deleteDocumentRecursive(db, "row-document", "owner-a@example.com");
+
+    expect(mutationLock).toHaveBeenCalledWith(db, "parent-database");
+    const parentDatabaseDeletes = deleteCalls.filter(
+      (call) => call.table === "contentDatabases",
+    );
+    expect(parentDatabaseDeletes).toEqual([]);
   });
 
   it("deletes document_comments rows for the document being deleted (n38)", async () => {
@@ -254,6 +311,48 @@ describe("deleteDocumentRecursive", () => {
       db,
       expect.arrayContaining(["membership-1", "membership-2"]),
     );
+  });
+
+  it("recollects database rows after acquiring the permanent-cleanup lock", async () => {
+    selectRows.contentDatabases = [
+      {
+        id: "database-1",
+        documentId: "database-doc",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.contentDatabaseItems = [
+      {
+        databaseId: "database-1",
+        documentId: "row-doc-1",
+        ownerEmail: "owner-a@example.com",
+      },
+    ];
+    selectRows.documents = [
+      { id: "row-doc-1", ownerEmail: "owner-a@example.com" },
+    ];
+    mutationLock.mockImplementationOnce(async () => {
+      selectRows.contentDatabaseItems.push({
+        databaseId: "database-1",
+        documentId: "late-row-doc",
+        ownerEmail: "owner-a@example.com",
+      });
+      selectRows.documents.push({
+        id: "late-row-doc",
+        ownerEmail: "owner-a@example.com",
+      });
+    });
+
+    const deleted = await deleteDocumentRecursive(
+      db,
+      "database-doc",
+      "owner-a@example.com",
+    );
+
+    expect(deleted.sort()).toEqual(
+      ["database-doc", "late-row-doc", "row-doc-1"].sort(),
+    );
+    expect(operationsOutsideTransaction).toEqual([]);
   });
 
   it("does not collect foreign-owned database item documents", async () => {
