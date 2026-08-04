@@ -36,6 +36,7 @@ import {
   useAutomations,
   useManageAutomation,
   useManageRecurringJob,
+  useRunAutomationNow,
   useRecurringJobs,
   type Automation,
   type RecurringJob,
@@ -179,6 +180,7 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
   const personalAutomationsMutation = useManageAutomation("user");
   const organizationJobsMutation = useManageRecurringJob("org");
   const organizationAutomationsMutation = useManageAutomation("org");
+  const runAutomationMutation = useRunAutomationNow();
   const [deleteTarget, setDeleteTarget] = useState<ListedAutomation | null>(
     null,
   );
@@ -188,6 +190,7 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
   const [scheduleTarget, setScheduleTarget] = useState<ListedAutomation | null>(
     null,
   );
+  const [runTarget, setRunTarget] = useState<ListedAutomation | null>(null);
 
   const formatDateTime = (value: string | null) => {
     if (!value || Number.isNaN(new Date(value).getTime())) return null;
@@ -461,6 +464,19 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
                     </Button>
                     {resource.canUpdate ? (
                       <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="cursor-pointer px-2 text-xs"
+                          disabled={
+                            mutationPending || runAutomationMutation.isPending
+                          }
+                          onClick={() => setRunTarget(entry)}
+                        >
+                          <IconPlayerPlay className="size-3.5" />
+                          {t("jobs.runNow", { defaultValue: "Run now" })}
+                        </Button>
                         {entry.triggerType === "schedule" ? (
                           <Button
                             type="button"
@@ -523,7 +539,8 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
     personalJobsMutation.error ||
     personalAutomationsMutation.error ||
     organizationJobsMutation.error ||
-    organizationAutomationsMutation.error;
+    organizationAutomationsMutation.error ||
+    runAutomationMutation.error;
 
   return (
     <AgentTabFrame
@@ -636,6 +653,65 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
                 <IconLoader2 className="size-4 animate-spin" />
               ) : null}
               {t("jobs.delete", { defaultValue: "Delete" })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={runTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !runAutomationMutation.isPending) setRunTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t("jobs.runNowTitle", { defaultValue: "Run automation now?" })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("jobs.runNowDescription", {
+                defaultValue:
+                  "This runs the automation's real actions immediately. It may send messages or change data, and it will not change the next scheduled run.",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          {runAutomationMutation.error ? (
+            <p className="text-sm text-destructive">
+              {runAutomationMutation.error.message}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              disabled={runAutomationMutation.isPending}
+              onClick={() => setRunTarget(null)}
+            >
+              {t("jobs.cancel", { defaultValue: "Cancel" })}
+            </Button>
+            <Button
+              type="button"
+              className="cursor-pointer"
+              disabled={runAutomationMutation.isPending}
+              onClick={() => {
+                if (!runTarget) return;
+                runAutomationMutation.mutate(
+                  {
+                    name: runTarget.resource.name,
+                    scope: runTarget.resource.scope,
+                  },
+                  { onSuccess: () => setRunTarget(null) },
+                );
+              }}
+            >
+              {runAutomationMutation.isPending ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : (
+                <IconPlayerPlay className="size-4" />
+              )}
+              {t("jobs.runNow", { defaultValue: "Run now" })}
             </Button>
           </DialogFooter>
         </DialogContent>

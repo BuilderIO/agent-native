@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { getDbExec, intType, isPostgres } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 
 /**
  * "interrupted" is derived at read time, never stored: a process killed
@@ -71,18 +75,45 @@ async function ensureTable(): Promise<void> {
           status TEXT NOT NULL DEFAULT 'running',
           started_at ${intType()} NOT NULL,
           finished_at ${intType()},
-          error TEXT
+          error TEXT,
+          claimed_at ${intType()}
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
 
       if (isPostgres()) {
         await ensureTableExists(TABLE, createSql);
+        await ensureColumnExists(
+          TABLE,
+          "claimed_at",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
+        );
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
       }
 
       await client.execute(createSql);
+      const { rows } = await client.execute(`PRAGMA table_info("${TABLE}")`);
+      const hasClaimedAt = rows.some(
+        (row) => String((row as Record<string, unknown>).name) === "claimed_at",
+      );
+      if (!hasClaimedAt) {
+        try {
+          await client.execute(
+            `ALTER TABLE ${TABLE} ADD COLUMN claimed_at ${intType()}`,
+          );
+        } catch (error) {
+          const message = String(
+            (error as { message?: unknown } | null)?.message ?? error,
+          );
+          if (
+            !/duplicate column name/i.test(message) &&
+            !/column .* already exists/i.test(message)
+          ) {
+            throw error;
+          }
+        }
+      }
       await client.execute(indexSql);
     })().catch((err) => {
       _initPromise = undefined;
@@ -142,6 +173,28 @@ export async function startAutomationRun(
   });
   await pruneAutomationRuns(input.owner, input.automation);
   return id;
+}
+
+export async function getAutomationRun(
+  id: string,
+): Promise<AutomationRun | null> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `SELECT * FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    args: [id],
+  });
+  const row = result.rows?.[0] as Record<string, unknown> | undefined;
+  return row ? toRun(row, Date.now()) : null;
+}
+
+/** Claim a manually queued run exactly once before loading its automation. */
+export async function claimAutomationRun(id: string): Promise<boolean> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL AND status = 'running'`,
+    args: [Date.now(), id],
+  });
+  return Number(result.rowsAffected ?? 0) > 0;
 }
 
 /**

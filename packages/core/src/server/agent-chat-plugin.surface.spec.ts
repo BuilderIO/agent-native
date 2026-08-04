@@ -163,6 +163,22 @@ describe("interactive agent run options — wiring guards", () => {
   });
 });
 
+describe("background automation action surface — wiring guards", () => {
+  it("uses one shared background action builder with unattended email tools", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "backgroundCoreEmailTools = createCoreEmailActionEntries({",
+    );
+    expect(source).toContain("...backgroundCoreEmailTools,");
+    expect(
+      source.match(/getActions: getBackgroundActionEntries/g),
+    ).toHaveLength(2);
+  });
+});
+
 describe("delegated agent run policy — wiring guards", () => {
   it("forwards non-default delegated budgets to MCP ask_app", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {
