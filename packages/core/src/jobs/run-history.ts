@@ -42,6 +42,8 @@ export interface StartAutomationRunInput {
   orgId?: string | null;
   runId?: string | null;
   threadId?: string | null;
+  /** A pre-created row still waiting for its background worker handoff. */
+  dispatchPending?: boolean;
 }
 
 const TABLE = "automation_runs";
@@ -76,7 +78,8 @@ async function ensureTable(): Promise<void> {
           started_at ${intType()} NOT NULL,
           finished_at ${intType()},
           error TEXT,
-          claimed_at ${intType()}
+          claimed_at ${intType()},
+          dispatch_pending ${intType()} NOT NULL DEFAULT 0
         )
       `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation ON ${TABLE} (owner, automation, started_at)`;
@@ -88,19 +91,28 @@ async function ensureTable(): Promise<void> {
           "claimed_at",
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
         );
+        await ensureColumnExists(
+          TABLE,
+          "dispatch_pending",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS dispatch_pending ${intType()} NOT NULL DEFAULT 0`,
+        );
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
       }
 
       await client.execute(createSql);
       const { rows } = await client.execute(`PRAGMA table_info("${TABLE}")`);
-      const hasClaimedAt = rows.some(
-        (row) => String((row as Record<string, unknown>).name) === "claimed_at",
+      const columns = new Set(
+        rows.map((row) => String((row as Record<string, unknown>).name)),
       );
-      if (!hasClaimedAt) {
+      for (const [name, definition] of [
+        ["claimed_at", `${intType()}`],
+        ["dispatch_pending", `${intType()} NOT NULL DEFAULT 0`],
+      ] as const) {
+        if (columns.has(name)) continue;
         try {
           await client.execute(
-            `ALTER TABLE ${TABLE} ADD COLUMN claimed_at ${intType()}`,
+            `ALTER TABLE ${TABLE} ADD COLUMN ${name} ${definition}`,
           );
         } catch (error) {
           const message = String(
@@ -147,9 +159,9 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
 }
 
 /**
- * Record that an automation actually began executing. Returns the run id used
- * to close the record out. Only real executions get a row — a tick that
- * declined to run the automation must not appear in its history.
+ * Record an automation execution. Manual runs create the row before dispatch,
+ * so `dispatchPending` distinguishes that durable handoff from a run that has
+ * already entered the worker.
  */
 export async function startAutomationRun(
   input: StartAutomationRunInput,
@@ -157,8 +169,8 @@ export async function startAutomationRun(
   await ensureTable();
   const id = randomUUID();
   await getDbExec().execute({
-    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, run_id, thread_id, status, started_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)`,
+    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, run_id, thread_id, status, started_at, dispatch_pending)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
     args: [
       id,
       input.owner,
@@ -169,6 +181,7 @@ export async function startAutomationRun(
       input.runId ?? null,
       input.threadId ?? null,
       Date.now(),
+      input.dispatchPending ? 1 : 0,
     ],
   });
   await pruneAutomationRuns(input.owner, input.automation);
@@ -191,10 +204,35 @@ export async function getAutomationRun(
 export async function claimAutomationRun(id: string): Promise<boolean> {
   await ensureTable();
   const result = await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND claimed_at IS NULL AND status = 'running'`,
+    sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND claimed_at IS NULL AND status = 'running'`,
     args: [Date.now(), id],
   });
   return Number(result.rowsAffected ?? 0) > 0;
+}
+
+/**
+ * Find manual handoffs that have stayed unclaimed long enough to have missed
+ * their first self-dispatch. The row is the durable queue; callers may safely
+ * redeliver it because claimAutomationRun is an atomic CAS.
+ */
+export async function listUnclaimedAutomationRuns(options?: {
+  olderThanMs?: number;
+  limit?: number;
+}): Promise<AutomationRun[]> {
+  await ensureTable();
+  const olderThanMs = Math.max(options?.olderThanMs ?? 10_000, 0);
+  const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+  const result = await getDbExec().execute({
+    sql: `SELECT * FROM ${TABLE}
+          WHERE dispatch_pending = 1 AND claimed_at IS NULL AND status = 'running'
+            AND started_at <= ?
+          ORDER BY started_at ASC LIMIT ${limit}`,
+    args: [Date.now() - olderThanMs],
+  });
+  const now = Date.now();
+  return (result.rows ?? []).map((row) =>
+    toRun(row as Record<string, unknown>, now),
+  );
 }
 
 /**

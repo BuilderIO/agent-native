@@ -5862,6 +5862,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       }
 
+      // A non-Netlify self-dispatch only waits for the request to leave the
+      // current invocation. Keep the durable history row as a retryable queue
+      // so a frozen serverless handoff is recovered on the next sweep.
+      (() => {
+        let inFlight = false;
+        const sweep = async () => {
+          if (inFlight) return;
+          inFlight = true;
+          try {
+            const { redispatchUnclaimedAutomationRuns } =
+              await import("../jobs/run-now.js");
+            await redispatchUnclaimedAutomationRuns();
+          } catch (error) {
+            console.warn(
+              "[automations] queued-run sweep failed; retrying next tick:",
+              error,
+            );
+          } finally {
+            inFlight = false;
+          }
+        };
+        setTimeout(() => void sweep(), 15_000);
+        setInterval(() => void sweep(), 30_000);
+      })();
+
       mcpInitializationPromise = initializeMcpManager().catch((err) => {
         console.warn(
           `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,

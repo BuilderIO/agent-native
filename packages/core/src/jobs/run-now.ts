@@ -13,7 +13,11 @@ import {
 } from "../resources/store.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { parseJobResource } from "./frontmatter.js";
-import { startAutomationRun, finishAutomationRun } from "./run-history.js";
+import {
+  finishAutomationRun,
+  listUnclaimedAutomationRuns,
+  startAutomationRun,
+} from "./run-history.js";
 
 export interface RunAutomationNowInput {
   userEmail: string;
@@ -26,6 +30,23 @@ export interface QueuedAutomationRun {
   queued: true;
   runId: string;
   automationRunId: string;
+}
+
+async function dispatchAutomationRun(historyId: string): Promise<void> {
+  const dispatchPath = resolveAgentChatProcessRunDispatchPath();
+  await fireInternalDispatch({
+    path: dispatchPath,
+    taskId: historyId,
+    body: {
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+        runId: historyId,
+        automationRunId: historyId,
+      },
+    },
+    ...(dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath)
+      ? { awaitResponse: true, responseTimeoutMs: 5_000 }
+      : {}),
+  });
 }
 
 function ownerForScope(input: RunAutomationNowInput): string {
@@ -79,22 +100,10 @@ export async function queueAutomationRunNow(
     path: resource.path,
     scope: input.scope,
     orgId: input.scope === "organization" ? input.orgId : null,
+    dispatchPending: true,
   });
-  const dispatchPath = resolveAgentChatProcessRunDispatchPath();
   try {
-    await fireInternalDispatch({
-      path: dispatchPath,
-      taskId: historyId,
-      body: {
-        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
-          runId: historyId,
-          automationRunId: historyId,
-        },
-      },
-      ...(dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath)
-        ? { awaitResponse: true, responseTimeoutMs: 5_000 }
-        : {}),
-    });
+    await dispatchAutomationRun(historyId);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Background dispatch failed";
@@ -107,4 +116,26 @@ export async function queueAutomationRunNow(
   }
 
   return { queued: true, runId: historyId, automationRunId: historyId };
+}
+
+/**
+ * Recover manual rows whose first serverless handoff never reached a worker.
+ * This is intentionally a redelivery, not a second execution: the worker's
+ * claim CAS decides which request owns the run.
+ */
+export async function redispatchUnclaimedAutomationRuns(): Promise<number> {
+  const runs = await listUnclaimedAutomationRuns();
+  let attempted = 0;
+  for (const run of runs) {
+    try {
+      await dispatchAutomationRun(run.id);
+      attempted += 1;
+    } catch (error) {
+      console.error(
+        `[automations] Could not redeliver queued run ${run.id}:`,
+        error,
+      );
+    }
+  }
+  return attempted;
 }

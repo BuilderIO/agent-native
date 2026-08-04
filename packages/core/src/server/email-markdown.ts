@@ -35,14 +35,10 @@ function inlineMarkdown(value: string): string {
         url = url.slice(0, -1);
       }
       let label = "Open link";
-      try {
-        const host = new URL(url.replace(/&amp;/g, "&")).hostname.replace(
-          /^www\./,
-          "",
-        );
+      const normalizedUrl = url.replace(/&amp;/g, "&");
+      if (URL.canParse(normalizedUrl)) {
+        const host = new URL(normalizedUrl).hostname.replace(/^www\./, "");
         if (host) label = `Open ${host}`;
-      } catch {
-        // Keep the generic label for malformed URLs.
       }
       return `${prefix}<a href="${url}" style="color:${EMAIL_TEXT};text-decoration:underline;">${label}</a>${trailing}`;
     },

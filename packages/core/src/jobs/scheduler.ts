@@ -262,6 +262,21 @@ async function executeJob(
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
 
+  // Manual runs use the same resource row as scheduled runs for concurrency
+  // protection. The check is paired with the conditional write below: two
+  // requests that read the same idle snapshot cannot both claim it.
+  if (options.manual && isBackgroundAutomationRunActive(meta, now)) {
+    const error = "The automation is already running.";
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "error",
+        `${error} No delivery was confirmed.`,
+      );
+    }
+    return { status: "skipped", error };
+  }
+
   // Mark as running
   meta.lastRun = now.toISOString();
   meta.lastStatus = "running";
