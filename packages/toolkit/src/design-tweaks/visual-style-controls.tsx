@@ -494,10 +494,12 @@ export function VisualColorPicker({
           )}
         >
           {glyph && variant === "swatch" ? (
-            <span className="flex size-4 shrink-0 flex-col items-center justify-center gap-[3px]">
-              {/* A cap-height line box: leading-none still reserves descender
-                  space below the baseline, which reads as a crooked glyph
-                  sitting too high above its color bar. */}
+            <span className="relative flex size-4 shrink-0 items-center justify-center">
+              {/* The bar is positioned out of flow so the glyph keeps a
+                  sibling icon's centering. In flow it pushes the letter up by
+                  half the bar's height, which reads as a misaligned toolbar.
+                  leading-[10px] trims the reserved descender space so it is
+                  the letter's ink, not its line box, that gets centered. */}
               <span
                 aria-hidden="true"
                 className="block text-[13px] font-semibold leading-[10px] text-foreground"
@@ -505,7 +507,7 @@ export function VisualColorPicker({
                 {glyph}
               </span>
               <span
-                className="h-[3px] w-4 shrink-0 rounded-[1px]"
+                className="absolute -bottom-[3px] left-0 h-[3px] w-4 rounded-[1px]"
                 style={swatchBackground(mixed ? "transparent" : value)}
               />
             </span>
