@@ -215,7 +215,9 @@ describe("RequireSession", () => {
     // signed-in user to sign-in) nor "still loading" (which strands them).
     useSessionMock.mockReturnValue({
       session: null,
-      isLoading: false,
+      // The real hook keeps isLoading true for "unavailable" so legacy
+      // isLoading-only consumers never misread it as signed-out.
+      isLoading: true,
       status: "unavailable",
       error: new Error("Could not read the session after 4 attempts."),
       retry: vi.fn(),

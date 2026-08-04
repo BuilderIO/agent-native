@@ -170,6 +170,26 @@ describe("useSession", () => {
     expect(analyticsMocks.trackSessionStatus).not.toHaveBeenCalled();
   });
 
+  it("keeps legacy isLoading consumers from misreading unavailable as signed-out", async () => {
+    // Consumers that only read `isLoading`/`session` (not `status`) must never
+    // see a false "signed out" once retries are exhausted.
+    vi.useFakeTimers();
+    const failingFetch = vi.fn(async () => new Response(null, { status: 503 }));
+    vi.stubGlobal("fetch", failingFetch);
+
+    await act(async () => {
+      root.render(<SessionConsumers labels={["first"]} />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(failingFetch).toHaveBeenCalledTimes(4);
+    expect(container.textContent).toBe("loading");
+  });
+
   it("caches a definitive unauthenticated response", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({ error: "Not authenticated" }),

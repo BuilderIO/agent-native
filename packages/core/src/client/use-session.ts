@@ -147,5 +147,13 @@ export function useSession(): UseSessionResult {
     };
   }, [retryToken]);
 
-  return { session, isLoading: status === "loading", status, error, retry };
+  // Callers that only read `isLoading`/`session` (most of the codebase, not
+  // yet migrated to `status`) must not see "unavailable" as "signed out" —
+  // that bounces an authenticated user through sign-in-only UI over a
+  // transient blip. Keeping `isLoading` true here reproduces this hook's
+  // pre-existing behavior for those callers (an indefinite "still resolving"
+  // instead of a wrong answer); only `status`-aware callers get the distinct
+  // "unavailable" treatment with a retry affordance.
+  const isLoading = status === "loading" || status === "unavailable";
+  return { session, isLoading, status, error, retry };
 }
