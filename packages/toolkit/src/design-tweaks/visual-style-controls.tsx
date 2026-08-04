@@ -494,22 +494,15 @@ export function VisualColorPicker({
           )}
         >
           {glyph && variant === "swatch" ? (
-            <span className="relative flex size-4 shrink-0 items-center justify-center">
-              {/* The bar is positioned out of flow so the glyph keeps a
-                  sibling icon's centering. In flow it pushes the letter up by
-                  half the bar's height, which reads as a misaligned toolbar.
-                  leading-[10px] trims the reserved descender space so it is
-                  the letter's ink, not its line box, that gets centered. */}
-              <span
-                aria-hidden="true"
-                className="block text-[13px] font-semibold leading-[10px] text-foreground"
-              >
-                {glyph}
-              </span>
-              <span
-                className="absolute -bottom-[3px] left-0 h-[3px] w-4 rounded-[1px]"
-                style={swatchBackground(mixed ? "transparent" : value)}
-              />
+            /* A real underline rather than a stacked bar: the browser places
+               it against the glyph's baseline, so the pair cannot drift out of
+               alignment the way hand-positioned boxes do. */
+            <span
+              aria-hidden="true"
+              className="text-[13px] font-semibold leading-none text-foreground underline decoration-[3px] underline-offset-[3px]"
+              style={mixed ? undefined : { textDecorationColor: value }}
+            >
+              {glyph}
             </span>
           ) : (
             <span
