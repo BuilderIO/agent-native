@@ -55,6 +55,7 @@ beforeEach(() => {
         id: "org-1",
         slackWorkspace: "primary",
         slackChannelId: "C123",
+        pollingEnabled: 1,
         lastSlackTs: "0",
         slackHistoryCursor: null,
       },

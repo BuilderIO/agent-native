@@ -30,6 +30,9 @@ export default defineAction({
         .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
+    if (config?.pollingEnabled !== 1) {
+      throw new Error("Enable Slack polling before polling Slack.");
+    }
     const channelId = requestedChannelId ?? config?.slackChannelId;
     if (!channelId) {
       throw new Error("Configure a Slack channel before polling.");

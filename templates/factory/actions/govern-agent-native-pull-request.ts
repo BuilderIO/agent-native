@@ -49,6 +49,10 @@ async function hasVerifiedFactoryRun(input: {
   headRef: string;
 }): Promise<boolean> {
   const db = getDb();
+  const runConditions = [eq(triageRuns.orgId, input.orgId)];
+  if (input.itemId) {
+    runConditions.push(eq(triageRuns.itemId, input.itemId));
+  }
   const runs = await db
     .select({
       itemId: triageRuns.itemId,
@@ -57,7 +61,7 @@ async function hasVerifiedFactoryRun(input: {
       status: triageRuns.status,
     })
     .from(triageRuns)
-    .where(eq(triageRuns.orgId, input.orgId))
+    .where(and(...runConditions))
     .limit(200);
   const verifiedItemIds = new Set(
     runs
@@ -76,6 +80,7 @@ async function hasVerifiedFactoryRun(input: {
       body.includes(`Factory item: ${input.itemId}`)
     );
   }
+  if (input.itemId) return false;
 
   if (!body && !input.headRef.startsWith("factory/")) return false;
   const items = await db

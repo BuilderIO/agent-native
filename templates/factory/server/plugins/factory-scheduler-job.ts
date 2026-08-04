@@ -238,7 +238,6 @@ async function ensureDefaultTriageConfig(
 }
 
 async function ensureSchedulerJobs(): Promise<void> {
-  await disableLegacyObserver();
   const ownerEmail = workspaceOwnerEmail();
   if (!ownerEmail) {
     throw new Error(
@@ -253,6 +252,7 @@ async function ensureSchedulerJobs(): Promise<void> {
   }
   await ensureDefaultTriageConfig(ownerEmail, orgId);
   await ensureOrganizationAutomations(ownerEmail, orgId);
+  await disableLegacyObserver();
 }
 
 export default defineNitroPlugin(async () => {

@@ -158,8 +158,7 @@ export function useOnboarding(
   }, [fetchAll]);
 
   const completeFirstRun = useCallback(async () => {
-    setFirstRun(false);
-    await fetch(
+    const response = await fetch(
       agentNativePath("/_agent-native/onboarding/first-run/complete"),
       {
         method: "POST",
@@ -167,6 +166,11 @@ export function useOnboarding(
         body: "{}",
       },
     );
+    if (!response.ok) {
+      setError(`first-run completion: ${response.status}`);
+      return;
+    }
+    setFirstRun(false);
     await fetchAll();
   }, [fetchAll]);
 

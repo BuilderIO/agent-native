@@ -3432,9 +3432,11 @@ export function AgentSidebar({
   return (
     <AgentSidebarOnboardingContext.Provider value>
       <RealtimeVoiceModeProvider browserTabId={browserTabId}>
-        <Suspense fallback={null}>
-          <FirstRunOnboarding />
-        </Suspense>
+        {SHOW_FIRST_RUN_ONBOARDING && (
+          <Suspense fallback={null}>
+            <FirstRunOnboarding />
+          </Suspense>
+        )}
         <div
           className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
           data-agent-sidebar-position={position}

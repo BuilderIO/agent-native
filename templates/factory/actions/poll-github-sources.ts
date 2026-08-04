@@ -134,7 +134,6 @@ export default defineAction({
             externalId: `${repositoryName}#${pullRequest.number}`,
             repository: repositoryName,
             pullRequestNumber: pullRequest.number,
-            headSha: pullRequest.headSha,
           },
           orgId,
         );
