@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Tela de prancheta do Plan",
       zoomIn: "Aproximar",
       zoomOut: "Afastar",
+      zoomHint: "Segure ⌘/Ctrl e role para ampliar",
       markupSaveFailed: "Nao foi possivel salvar a marcacao. Tente novamente.",
     },
     document: {

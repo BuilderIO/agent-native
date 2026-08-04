@@ -12,12 +12,15 @@ export {
 export { OnboardingPanel } from "./OnboardingPanel.js";
 export { OnboardingBanner } from "./OnboardingBanner.js";
 export { SetupButton } from "./SetupButton.js";
+export { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 export type {
   OnboardingStep,
   OnboardingMethod,
   OnboardingMethodBadge,
   OnboardingFormField,
   OnboardingStepStatus,
+  OnboardingCapability,
+  OnboardingAppProfile,
 } from "../../onboarding/types.js";
 export {
   registerOnboardingStep,

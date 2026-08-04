@@ -112,11 +112,6 @@ export async function resolveConnectorSecret(
     if (legacySecret?.trim()) return legacySecret.trim();
   }
 
-  // Deployment-managed connector configuration is the last resort inside the
-  // resolver, never a parallel path in a provider client.
-  const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - deploy-level connector fallback
-  if (environmentSecret) return environmentSecret;
-
   const vaultOrgId = getVaultOrgId();
   if (vaultOrgId && !orgIds.includes(vaultOrgId)) {
     for (const scope of ["org", "workspace"] as const) {
@@ -124,6 +119,12 @@ export async function resolveConnectorSecret(
       if (vaultSecret) return vaultSecret;
     }
   }
+
+  // Deployment-managed connector configuration is the last resort inside the
+  // resolver, never a parallel path in a provider client. A designated
+  // Dispatch vault must win over a stale deployment copy of the same key.
+  const environmentSecret = process.env[key]?.trim(); // guard:allow-env-credential - deploy-level connector fallback
+  if (environmentSecret) return environmentSecret;
 
   return undefined;
 }
