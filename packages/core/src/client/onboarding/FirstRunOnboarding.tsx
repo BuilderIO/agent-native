@@ -459,7 +459,7 @@ export function FirstRunOnboarding() {
         footer={
           <div
             data-testid="onboarding-tools-footer"
-            className="mx-auto flex w-full max-w-3xl flex-col-reverse items-center justify-end gap-2 sm:flex-row"
+            className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-end gap-2"
           >
             <button
               type="button"
@@ -636,7 +636,7 @@ function OnboardingShell({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[100] flex min-h-screen flex-col bg-background text-foreground"
+      className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background text-foreground"
       data-onboarding-screen={screen}
       role="dialog"
       aria-modal="true"
@@ -695,7 +695,7 @@ function OnboardingShell({
 function OnboardingSkeleton() {
   return (
     <div
-      className="fixed inset-0 z-[100] flex min-h-screen flex-col bg-background px-5 py-5 sm:px-8"
+      className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background px-5 py-5 sm:px-8"
       data-onboarding-loading="true"
       aria-busy="true"
     >
