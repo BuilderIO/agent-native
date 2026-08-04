@@ -32,6 +32,17 @@ export const transactionalEmailStateSchema = z.enum([
   "failed",
 ]);
 
+export const recapMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+
+/** The three recap modules the agent writes; everything else is templated. */
+export const recapCopySchema = z
+  .object({
+    heroLine: nonEmptyStringSchema.max(400),
+    agentBreakdown: nonEmptyStringSchema.max(400),
+    completionNote: nonEmptyStringSchema.max(400),
+  })
+  .strict();
+
 const commonPayloadFields = {
   recipient: recipientSchema,
   shareId: nonEmptyStringSchema.optional(),
@@ -62,6 +73,22 @@ export const transactionalEmailPayloadSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      type: z.literal("first-agent-view"),
+      ...commonPayloadFields,
+      recordingIds: z.array(recordingIdSchema).length(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("monthly-recap"),
+      ...commonPayloadFields,
+      // The month's top clip, which anchors the card and the AI copy.
+      recordingIds: z.array(recordingIdSchema).length(1),
+      month: recapMonthSchema,
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("two-clips"),
       ...commonPayloadFields,
       recordingIds: z.array(recordingIdSchema).length(2),
@@ -85,6 +112,7 @@ export const transactionalEmailConfigSchema = z
     shareDiscoveryCursor: reconciliationCursorSchema,
     reminderCursor: reconciliationCursorSchema,
     firstViewCursor: reconciliationCursorSchema,
+    firstAgentViewCursor: reconciliationCursorSchema,
     firstImportCursor: reconciliationCursorSchema,
   })
   .strict();
@@ -93,6 +121,7 @@ export const transactionalEmailCursorNameSchema = z.enum([
   "shareDiscoveryCursor",
   "reminderCursor",
   "firstViewCursor",
+  "firstAgentViewCursor",
   "firstImportCursor",
 ]);
 
@@ -102,7 +131,9 @@ export const transactionalEmailJobSchema = z
     type: z.enum([
       "first-view",
       "unviewed-reminder",
+      "first-agent-view",
       "first-import",
+      "monthly-recap",
       "two-clips",
     ]),
     state: transactionalEmailStateSchema,
@@ -110,6 +141,7 @@ export const transactionalEmailJobSchema = z
     recordingIds: z.array(recordingIdSchema).min(1),
     shareId: nonEmptyStringSchema.optional(),
     requestedBy: nonEmptyStringSchema.optional(),
+    month: recapMonthSchema.optional(),
     generatedSummary: z.string().max(20_000).optional(),
     attempts: z.number().int().nonnegative(),
     createdAt: timestampSchema,
@@ -133,6 +165,7 @@ export const transactionalEmailJobSchema = z
       recordingIds: job.recordingIds,
       shareId: job.shareId,
       requestedBy: job.requestedBy,
+      ...(job.month === undefined ? {} : { month: job.month }),
     });
     if (!parsedPayload.success) {
       context.addIssue({
@@ -172,6 +205,12 @@ export type TransactionalEmailConfig = z.infer<
   typeof transactionalEmailConfigSchema
 >;
 export type TransactionalEmailJob = z.infer<typeof transactionalEmailJobSchema>;
+export type RecapCopy = z.infer<typeof recapCopySchema>;
+
+/** Job types whose copy is written by the agent before they can be sent. */
+export function isAiBackedType(type: TransactionalEmailJob["type"]): boolean {
+  return type === "two-clips";
+}
 
 export type TransactionalEmailStoreOptions = {
   root?: string;
@@ -625,7 +664,7 @@ export function createTransactionalEmailStore(
     const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
     return withJobLock(logicalKey, async () => {
       const job = await readJob(logicalKey);
-      if (!job || job.type !== "two-clips" || job.state !== "awaiting_ai") {
+      if (!job || !isAiBackedType(job.type) || job.state !== "awaiting_ai") {
         return null;
       }
       const timestamp = now().toISOString();
@@ -652,7 +691,7 @@ export function createTransactionalEmailStore(
       const dispatchedAt = job?.aiDispatchedAt ?? job?.updatedAt;
       if (
         !job ||
-        job.type !== "two-clips" ||
+        !isAiBackedType(job.type) ||
         job.state !== "ai_dispatched" ||
         !dispatchedAt ||
         Date.parse(dispatchedAt) > staleBefore.getTime()

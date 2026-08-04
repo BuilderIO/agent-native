@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { MonthlyRecap } from "../lib/recap-metrics.js";
 import { createTransactionalEmailStore } from "../lib/transactional-email-store.js";
 import {
   runTransactionalEmailsOnce,
@@ -15,6 +16,9 @@ type Share = Awaited<
 >[number];
 type Recording = NonNullable<
   Awaited<ReturnType<TransactionalEmailRepository["getRecording"]>>
+>;
+type AgentView = NonNullable<
+  Awaited<ReturnType<TransactionalEmailRepository["getFirstOwnerAgentView"]>>
 >;
 
 const roots: string[] = [];
@@ -49,7 +53,24 @@ function createRepository(state: {
   imports?: Recording[];
   displayNames?: Map<string, string>;
   brandLogoUrls?: Map<string, string>;
+  agentViews?: AgentView[];
+  monthlyAudience?: Map<string, string[]>;
+  recaps?: Map<string, MonthlyRecap>;
 }): TransactionalEmailRepository {
+  const agentViewsFor = (ownerEmail: string) =>
+    (state.agentViews ?? [])
+      .filter(
+        (view) =>
+          state.recordings
+            .get(view.recordingId)
+            ?.ownerEmail.trim()
+            .toLowerCase() === ownerEmail.trim().toLowerCase(),
+      )
+      .sort(
+        (left, right) =>
+          left.firstSeenAt.localeCompare(right.firstSeenAt) ||
+          left.id.localeCompare(right.id),
+      );
   const recipientKey = (recipient: string, recordingId: string) =>
     `${recipient.toLowerCase()}:${recordingId}`;
   return {
@@ -143,6 +164,33 @@ function createRepository(state: {
         )
         .slice(0, limit);
     },
+    async listAgentViews(enabledAt, cursor, limit) {
+      return (state.agentViews ?? [])
+        .flatMap((view) => {
+          const clip = state.recordings.get(view.recordingId);
+          return clip ? [{ ...view, ownerEmail: clip.ownerEmail }] : [];
+        })
+        .filter(
+          (view) =>
+            view.firstSeenAt >= enabledAt &&
+            (!cursor ||
+              view.firstSeenAt > cursor.createdAt ||
+              (view.firstSeenAt === cursor.createdAt && view.id > cursor.id)),
+        )
+        .sort(
+          (left, right) =>
+            left.firstSeenAt.localeCompare(right.firstSeenAt) ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, limit);
+    },
+    async getFirstOwnerAgentView(ownerEmail, enabledAt) {
+      return (
+        agentViewsFor(ownerEmail).find(
+          (view) => view.firstSeenAt >= enabledAt,
+        ) ?? null
+      );
+    },
     async listReadyImports(enabledAt, cursor, limit) {
       return (state.imports ?? [...state.recordings.values()])
         .filter(
@@ -211,6 +259,12 @@ function createRepository(state: {
             ).toISOString(),
             viewerEmail: views[index],
           };
+    },
+    async listOwnersWithMonthlyAudience(month) {
+      return state.monthlyAudience?.get(month) ?? [];
+    },
+    async computeMonthlyRecap(ownerEmail, month) {
+      return state.recaps?.get(`${ownerEmail}:${month}`) ?? null;
     },
     async isFirstImport(candidate, recipient, enabledAt) {
       const firstImport = (state.imports ?? [candidate])
@@ -635,6 +689,393 @@ describe("transactional email worker", () => {
       ).toMatchObject({ state: "cancelled" });
     },
   );
+
+  it("sends first-agent-view once per owner, naming the agent that read first", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const first = recording("agent-clip-1", ownerEmail);
+    const second = recording("agent-clip-2", ownerEmail);
+    const send = vi.fn();
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([
+        [first.id, first],
+        [second.id, second],
+      ]),
+      agentViews: [
+        {
+          id: "agent-view-1",
+          recordingId: first.id,
+          agentLabel: "Claude",
+          firstSeenAt: "2026-08-01T00:00:00.000Z",
+        },
+        {
+          id: "agent-view-2",
+          recordingId: second.id,
+          agentLabel: "ChatGPT",
+          firstSeenAt: "2026-08-01T01:00:00.000Z",
+        },
+      ],
+    });
+
+    const result = await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(result.enqueued).toBe(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({
+      kind: "first-agent-view",
+      to: ownerEmail,
+      recordingId: first.id,
+      title: first.title,
+      agentName: "Claude",
+    });
+    expect(
+      await clock.store.readJob(`first-agent-view:${ownerEmail}`),
+    ).toMatchObject({ state: "sent" });
+  });
+
+  it("leaves agentName unset when the reading agent is unidentified", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const clip = recording("agent-clip-unknown", ownerEmail);
+    const send = vi.fn();
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([[clip.id, clip]]),
+        agentViews: [
+          {
+            id: "agent-view-unknown",
+            recordingId: clip.id,
+            agentLabel: "Agent",
+            firstSeenAt: "2026-08-01T00:00:00.000Z",
+          },
+        ],
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "first-agent-view", agentName: null }),
+    );
+  });
+
+  it("does not enqueue first-agent-view for agent reads before enabledAt", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const clip = recording("agent-clip-old", ownerEmail);
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([[clip.id, clip]]),
+        agentViews: [
+          {
+            id: "agent-view-old",
+            recordingId: clip.id,
+            agentLabel: "Claude",
+            firstSeenAt: "2026-07-31T23:59:59.000Z",
+          },
+        ],
+      }),
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob(`first-agent-view:${ownerEmail}`),
+    ).toBeNull();
+  });
+
+  it("holds the monthly recap until the send hour, then enqueues it once", async () => {
+    const clock = await setup("2026-07-01T00:00:00.000Z");
+    const ownerEmail = "owner@example.com";
+    const top = recording("recap-top", ownerEmail);
+    const recap: MonthlyRecap = {
+      month: "2026-07",
+      humanViews: 9,
+      agentSessions: 4,
+      topClip: {
+        recordingId: top.id,
+        title: top.title,
+        thumbnailUrl: null,
+        durationMs: 252_000,
+        recordedAt: top.createdAt,
+        humanViews: 9,
+        agentSessions: 4,
+        completedPct: 71,
+        dropOffMs: 252_000,
+        agentBreakdown: [{ agentLabel: "Claude", sessions: 4 }],
+      },
+    };
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([[top.id, top]]),
+      monthlyAudience: new Map([["2026-07", [ownerEmail]]]),
+      recaps: new Map([[`${ownerEmail}:2026-07`, recap]]),
+    });
+    const logicalKey = `monthly-recap:${ownerEmail}:2026-07`;
+
+    clock.setNow("2026-08-01T09:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+    expect(await clock.store.readJob(logicalKey)).toBeNull();
+
+    clock.setNow("2026-08-01T14:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+    expect(await clock.store.readJob(logicalKey)).toMatchObject({
+      state: "ready",
+      month: "2026-07",
+      recordingIds: [top.id],
+    });
+
+    clock.setNow("2026-08-01T15:00:00.000Z");
+    const second = await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+    expect(second.enqueued).toBe(0);
+  });
+
+  it("recaps a month that was still open when email was enabled", async () => {
+    const clock = await setup("2026-07-10T00:00:00.000Z");
+    const ownerEmail = "owner@example.com";
+    const top = recording("recap-top", ownerEmail);
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([[top.id, top]]),
+      monthlyAudience: new Map([["2026-07", [ownerEmail]]]),
+      recaps: new Map([
+        [
+          `${ownerEmail}:2026-07`,
+          {
+            month: "2026-07",
+            humanViews: 2,
+            agentSessions: 1,
+            topClip: {
+              recordingId: top.id,
+              title: top.title,
+              thumbnailUrl: null,
+              durationMs: 1_000,
+              recordedAt: top.createdAt,
+              humanViews: 2,
+              agentSessions: 1,
+              completedPct: 50,
+              dropOffMs: null,
+              agentBreakdown: [],
+            },
+          } satisfies MonthlyRecap,
+        ],
+      ]),
+    });
+
+    clock.setNow("2026-08-01T14:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob(`monthly-recap:${ownerEmail}:2026-07`),
+    ).toMatchObject({ state: "ready", month: "2026-07" });
+  });
+
+  it("stops recomputing a recap once its job exists", async () => {
+    const clock = await setup("2026-07-01T00:00:00.000Z");
+    const ownerEmail = "owner@example.com";
+    const top = recording("recap-top", ownerEmail);
+    const computeMonthlyRecap = vi.fn(async () => ({
+      month: "2026-07",
+      humanViews: 9,
+      agentSessions: 4,
+      topClip: {
+        recordingId: top.id,
+        title: top.title,
+        thumbnailUrl: null,
+        durationMs: 252_000,
+        recordedAt: top.createdAt,
+        humanViews: 9,
+        agentSessions: 4,
+        completedPct: 71,
+        dropOffMs: 252_000,
+        agentBreakdown: [{ agentLabel: "Claude", sessions: 4 }],
+      },
+    }));
+    const repository = {
+      ...createRepository({
+        shares: [],
+        recordings: new Map([[top.id, top]]),
+        monthlyAudience: new Map([["2026-07", [ownerEmail]]]),
+      }),
+      computeMonthlyRecap,
+    };
+
+    clock.setNow("2026-08-01T14:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+    const afterEnqueue = computeMonthlyRecap.mock.calls.length;
+    expect(afterEnqueue).toBeGreaterThan(0);
+
+    clock.setNow("2026-08-01T15:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(computeMonthlyRecap.mock.calls.length).toBe(afterEnqueue);
+  });
+
+  it("sends a recap without any agent involvement", async () => {
+    const clock = await setup("2026-07-01T00:00:00.000Z");
+    const ownerEmail = "owner@example.com";
+    const top = recording("recap-top", ownerEmail);
+    const recap: MonthlyRecap = {
+      month: "2026-07",
+      humanViews: 9,
+      agentSessions: 4,
+      topClip: {
+        recordingId: top.id,
+        title: top.title,
+        thumbnailUrl: null,
+        durationMs: 252_000,
+        recordedAt: top.createdAt,
+        humanViews: 9,
+        agentSessions: 4,
+        completedPct: 71,
+        dropOffMs: 252_000,
+        agentBreakdown: [{ agentLabel: "Claude", sessions: 4 }],
+      },
+    };
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([[top.id, top]]),
+      monthlyAudience: new Map([["2026-07", [ownerEmail]]]),
+      recaps: new Map([[`${ownerEmail}:2026-07`, recap]]),
+    });
+    const logicalKey = `monthly-recap:${ownerEmail}:2026-07`;
+    const send = vi.fn();
+
+    clock.setNow("2026-08-01T14:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "monthly-recap",
+        to: ownerEmail,
+        month: "2026-07",
+        humanViews: 9,
+        agentSessions: 4,
+        copy: {
+          heroLine: "Your clips were watched 9 times. 4 agents read them.",
+          completionNote: "71% average completion \u00b7 most stopped at 4:12",
+          agentBreakdown: "4 from Claude",
+        },
+      }),
+    );
+    expect(await clock.store.readJob(logicalKey)).toMatchObject({
+      state: "sent",
+    });
+  });
+
+  it("sends the current top clip when the ranking changed after queueing", async () => {
+    const clock = await setup("2026-07-01T00:00:00.000Z");
+    const ownerEmail = "owner@example.com";
+    const enqueued = recording("recap-old-top", ownerEmail);
+    const usurper = recording("recap-new-top", ownerEmail);
+    const logicalKey = `monthly-recap:${ownerEmail}:2026-07`;
+    const send = vi.fn();
+
+    await clock.store.enqueue(logicalKey, {
+      type: "monthly-recap",
+      recipient: ownerEmail,
+      recordingIds: [enqueued.id],
+      requestedBy: ownerEmail,
+      month: "2026-07",
+    });
+
+    clock.setNow("2026-08-01T14:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([
+          [enqueued.id, enqueued],
+          [usurper.id, usurper],
+        ]),
+        recaps: new Map([
+          [
+            `${ownerEmail}:2026-07`,
+            {
+              month: "2026-07",
+              humanViews: 9,
+              agentSessions: 4,
+              topClip: {
+                recordingId: usurper.id,
+                title: usurper.title,
+                thumbnailUrl: null,
+                durationMs: 1_000,
+                recordedAt: usurper.createdAt,
+                humanViews: 9,
+                agentSessions: 4,
+                completedPct: 71,
+                dropOffMs: null,
+                agentBreakdown: [],
+              },
+            } satisfies MonthlyRecap,
+          ],
+        ]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "monthly-recap",
+        to: ownerEmail,
+        topClip: expect.objectContaining({ recordingId: usurper.id }),
+      }),
+    );
+    expect(await clock.store.readJob(logicalKey)).toMatchObject({
+      state: "sent",
+    });
+  });
 
   it("finds the second distinct Clip after more than 100 duplicate shares", async () => {
     const clock = await setup();

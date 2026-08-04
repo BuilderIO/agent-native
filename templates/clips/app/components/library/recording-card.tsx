@@ -17,6 +17,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 
+import { AgentViewCount } from "@/components/player/recording-views-badge";
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -365,6 +366,14 @@ export function RecordingCard({
                   })}
                 </span>
               )}
+              {recording.agentViewCount > 0 ? (
+                <AgentViewCount
+                  count={recording.agentViewCount}
+                  label={t("recordingInsights.agentViewsCount", {
+                    count: recording.agentViewCount,
+                  })}
+                />
+              ) : null}
             </div>
           </div>
 

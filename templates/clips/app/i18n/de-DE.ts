@@ -848,6 +848,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     noViewsYet: "Noch keine Aufrufe.",
     viewsCount_one: "{{count}} Aufruf",
     viewsCount_other: "{{count}} Aufrufe",
+    agentViewsCount_one: "{{count}} KI-Agenten-Aufruf",
+    agentViewsCount_other: "{{count}} KI-Agenten-Aufrufe",
     totalViewsSummary:
       "{{total}} Aufrufe insgesamt, {{unique}} eindeutige Zuschauer",
     viewsTab: "Aufrufe",
@@ -855,6 +857,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     humanViews: "Menschliche Aufrufe",
     agentViews: "Aufrufe durch KI-Agenten",
     noAgentViewsYet: "Noch keine Aufrufe durch KI-Agenten.",
+    unknownAgent: "Unbekannter Agent",
     totalVideoViews: "Videoaufrufe insgesamt",
     averageCompletionRate: "Durchschnittliche Abschlussrate",
     moreInsights: "Mehr Einblicke",

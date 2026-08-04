@@ -843,6 +843,9 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     viewsCount_one: "{{count}} vue",
     viewsCount_many: "{{count}} vues",
     viewsCount_other: "{{count}} vues",
+    agentViewsCount_one: "{{count}} vue d’agent IA",
+    agentViewsCount_many: "{{count}} vues d’agents IA",
+    agentViewsCount_other: "{{count}} vues d’agents IA",
     totalViewsSummary:
       "{{total}} vues au total, {{unique}} spectateurs uniques",
     viewsTab: "Vues",
@@ -850,6 +853,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     humanViews: "Vues humaines",
     agentViews: "Vues d’agents IA",
     noAgentViewsYet: "Aucune vue d’agent IA pour le moment.",
+    unknownAgent: "Agent inconnu",
     totalVideoViews: "Vues totales de la vidéo",
     averageCompletionRate: "Taux d’achèvement moyen",
     moreInsights: "Plus d’insights",

@@ -17,6 +17,7 @@ const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
 const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -79,8 +80,17 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
-    recordings: { id: "recordings.id", visibility: "recordings.visibility" },
+    recordings: {
+      id: "recordings.id",
+      visibility: "recordings.visibility",
+      videoUrl: "recordings.videoUrl",
+      editsJson: "recordings.editsJson",
+    },
   },
+}));
+
+vi.mock("../../../lib/s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
 import {
@@ -147,6 +157,7 @@ describe("/api/video/:recordingId route", () => {
     );
     mockSignShortLivedToken.mockReturnValue("renewed-token");
     mockVerifyShortLivedToken.mockReturnValue({ ok: false, reason: "expired" });
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -184,6 +195,176 @@ describe("/api/video/:recordingId route", () => {
 
     expect(event.status).toBe(504);
     expect(result).toEqual({ error: "Recording media fetch timed out." });
+  });
+
+  it("reads configured S3 media directly instead of rejecting its public URL as SSRF", async () => {
+    const sourceUrl =
+      "https://clips.example.com/api/storage/clips/recording.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        ownerEmail: "owner@example.com",
+        organizationId: "owner-org",
+        videoUrl: sourceUrl,
+      },
+    });
+    mockGetRequestHeader.mockImplementation((event, name) => {
+      if (String(name).toLowerCase() === "range") return "bytes=0-31";
+      return event.headers.get(String(name).toLowerCase()) ?? undefined;
+    });
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("s3 media", {
+        status: 206,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-range": "bytes 0-31/100",
+          "content-type": "video/webm",
+        },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(206);
+    expect((result as Response).headers.get("content-range")).toBe(
+      "bytes 0-31/100",
+    );
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(sourceUrl, {
+      range: "bytes=0-31",
+      timeoutMs: 30_000,
+      recordingId: "rec-1",
+    });
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      {
+        userEmail: "owner@example.com",
+        orgId: "owner-org",
+      },
+      expect.any(Function),
+    );
+    expect(mockIsBlockedExtensionUrlWithDns).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("authorizes the legacy S3 object layout only for pre-migration recordings", async () => {
+    const sourceUrl =
+      "https://clips.example.com/api/storage/clips/1722720000000-abc123xy.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        ownerEmail: "owner@example.com",
+        organizationId: "owner-org",
+        videoUrl: sourceUrl,
+      },
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResult([{ videoUrl: sourceUrl, editsJson: "{}" }]),
+    );
+    mockFetchS3ObjectByUrl.mockResolvedValue(new Response("legacy media"));
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(sourceUrl, {
+      range: undefined,
+      timeoutMs: 30_000,
+      recordingId: "rec-1",
+      allowLegacyObjectKey: true,
+    });
+  });
+
+  it("maps signed S3 read timeouts to the media timeout response", async () => {
+    const timeoutError = new Error("S3 request timed out");
+    timeoutError.name = "TimeoutError";
+    mockFetchS3ObjectByUrl.mockRejectedValue(timeoutError);
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(504);
+    expect(result).toEqual({ error: "Recording media fetch timed out." });
+  });
+
+  it("does not sign an S3 object that is not bound to the served recording", async () => {
+    const sourceUrl =
+      "https://clips.example.com/api/storage/clips/other-recording/video.webm";
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        ownerEmail: "owner@example.com",
+        organizationId: "owner-org",
+        videoUrl: sourceUrl,
+      },
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(null);
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(403);
+    expect(result).toEqual({
+      error: "Recording media URL points to a private/internal address",
+    });
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      sourceUrl,
+      expect.objectContaining({ recordingId: "rec-1" }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the safe public fetch when a signed S3 read is denied", async () => {
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("denied", { status: 403 }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(200);
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it("preserves a signed S3 unsatisfied range response", async () => {
+    mockGetRequestHeader.mockImplementation((event, name) => {
+      if (String(name).toLowerCase() === "range") return "bytes=9999-";
+      return event.headers.get(String(name).toLowerCase()) ?? undefined;
+    });
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response(null, {
+        status: 416,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-range": "bytes */100",
+        },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(416);
+    expect((result as Response).headers.get("content-range")).toBe(
+      "bytes */100",
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("serves only the persisted media URL until compression is published", async () => {
