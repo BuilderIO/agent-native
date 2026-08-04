@@ -1,3 +1,4 @@
+import { IPC } from "@shared/ipc-channels";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const electronState = vi.hoisted(() => {
@@ -62,23 +63,32 @@ vi.mock("electron", () => ({
 
 vi.mock("electron-updater", () => ({ autoUpdater: updaterState }));
 
-import { IPC } from "@shared/ipc-channels";
-
 let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
 let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
+async function reloadUpdates() {
+  ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
+    await import("./updates.js"));
+}
+
 describe("desktop updates", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    electronState.app.isPackaged = true;
+    electronState.app.getVersion.mockReturnValue("1.0.0");
+    electronState.app.whenReady.mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
     electronState.ipcMain.handlers.clear();
     updaterState.handlers.clear();
+    updaterState.autoDownload = false;
+    updaterState.autoInstallOnAppQuit = false;
     updaterState.checkForUpdates.mockReset();
     updaterState.downloadUpdate.mockReset();
     electronState.notification.isSupported.mockReturnValue(false);
     vi.resetModules();
-    ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
-      await import("./updates.js"));
+    await reloadUpdates();
   });
 
   it("shows a clear result when a manual check finds no update", async () => {
@@ -141,4 +151,71 @@ describe("desktop updates", () => {
     });
     expect(electronState.ipcMain.handlers.has(IPC.UPDATE_INSTALL)).toBe(true);
   });
+
+  it("gives a Desktop SSO canary no updater network, download, install, or result-notification capability", async () => {
+    electronState.app.getVersion.mockReturnValue(
+      "0.1.150-desktop-sso-canary.4",
+    );
+    electronState.notification.isSupported.mockReturnValue(true);
+    vi.resetModules();
+    await reloadUpdates();
+    const intervalSpy = vi.spyOn(globalThis, "setInterval");
+
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "unsupported",
+      reason: "Auto-update is disabled for this Desktop SSO canary build",
+    });
+    expect(updaterState.setFeedURL).not.toHaveBeenCalled();
+    expect(updaterState.on).not.toHaveBeenCalled();
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+    expect(electronState.app.whenReady).not.toHaveBeenCalled();
+    expect(intervalSpy).not.toHaveBeenCalled();
+
+    await electronState.ipcMain.handlers.get(IPC.UPDATE_CHECK)?.();
+    await electronState.ipcMain.handlers.get(IPC.UPDATE_DOWNLOAD)?.();
+    electronState.ipcMain.handlers.get(IPC.UPDATE_INSTALL)?.();
+
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+    expect(updaterState.downloadUpdate).not.toHaveBeenCalled();
+    expect(updaterState.quitAndInstall).not.toHaveBeenCalled();
+    expect(electronState.notification).not.toHaveBeenCalled();
+    intervalSpy.mockRestore();
+  });
+
+  it.each(["0.1.150", "0.1.150-beta.4"])(
+    "preserves updater setup for %s",
+    async (version) => {
+      electronState.app.getVersion.mockReturnValue(version);
+      electronState.app.whenReady.mockResolvedValue();
+      updaterState.checkForUpdates.mockResolvedValue(undefined);
+      vi.resetModules();
+      await reloadUpdates();
+      const intervalSpy = vi
+        .spyOn(globalThis, "setInterval")
+        .mockReturnValue({} as NodeJS.Timeout);
+
+      registerUpdatesIpc({
+        refreshApplicationMenu: vi.fn(),
+        focusMainWindow: vi.fn(),
+      });
+      await vi.waitFor(() => {
+        expect(updaterState.checkForUpdates).toHaveBeenCalledOnce();
+      });
+
+      expect(updaterState.setFeedURL).toHaveBeenCalledWith({
+        provider: "generic",
+        url: "https://agent-native.com/api/desktop-updates",
+      });
+      expect(updaterState.on).toHaveBeenCalled();
+      expect(updaterState.autoDownload).toBe(true);
+      expect(updaterState.autoInstallOnAppQuit).toBe(true);
+      expect(intervalSpy).toHaveBeenCalled();
+      intervalSpy.mockRestore();
+    },
+  );
 });

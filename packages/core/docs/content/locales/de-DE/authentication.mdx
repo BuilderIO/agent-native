@@ -139,6 +139,10 @@ zurück zum gemeinsamen `an_session`-Namen. Absichtlich eine Authentifizierungsd
 über Subdomains hinweg `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` daneben setzen
 `COOKIE_DOMAIN`.
 
+## Workspace-SSO in der Desktop-App {#desktop-workspace-sso}
+
+Die signierte Agent Native Desktop-App verwendet für kanonische gehostete First-Party-Apps eine eigene dauerhafte Dispatch-Identitätspartition. Jede App führt die normale [Cross-App SSO](/docs/cross-app-sso)-Föderation aus und prägt ihre eigene lokale Sitzung; Desktop überträgt nur das Sitzungscookie der Ziel-App nach `persist:app-<id>`. Benutzerdefinierte, hinzugefügte und Drittanbieter-Apps sind ausgeschlossen. Direkte Web-Anmeldung sowie das Opt-in, Canary und Rollback pro App mit `AGENT_NATIVE_IDENTITY_HUB_URL` bleiben unverändert. Der lokale Broker `desktop-sso.json` gilt nur für Loopback- und Nicht-Produktions-Entwicklung. Desktop-Abmeldung löscht die zentrale Identität und kanonische App-Sitzungen, nicht Browser-Sitzungen; Builder Connect ist unabhängig.
+
 ## QA-Konten {#qa-accounts}
 
 Lokale Entwicklung und Tests überspringen standardmäßig die Überprüfung der Anmelde-E-Mail, damit Sie

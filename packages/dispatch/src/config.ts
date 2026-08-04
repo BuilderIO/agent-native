@@ -13,6 +13,8 @@ export interface DispatchAuthConfig {
   googleOnly?: boolean;
   /** Marketing/branding copy passed straight through to `createAuthPlugin`. */
   marketing?: Record<string, unknown>;
+  /** Routes that perform their own authentication before the primary guard. */
+  publicPaths?: string[];
 }
 
 export interface DispatchIntegrationsConfig {

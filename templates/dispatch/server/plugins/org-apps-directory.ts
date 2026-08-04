@@ -51,11 +51,7 @@ import {
   getOrgDomain,
   resolveOrgByDomain,
 } from "@agent-native/core/org";
-import {
-  createAuthPlugin,
-  getH3App,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { getH3App, runWithRequestContext } from "@agent-native/core/server";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { defineEventHandler, getMethod, getRequestHeader } from "h3";
 import type { H3Event } from "h3";
@@ -181,14 +177,10 @@ const orgAppsHandler = defineEventHandler(
 );
 
 /**
- * Dispatch org-app-directory plugin. Mounts the directory route and
- * registers its exact path as a public path so the core auth guard does not
- * 401 the A2A peer call before our own JWT + same-org check runs. The
- * `createAuthPlugin({ publicPaths })` call is additive — it appends to the
- * live guard config without disturbing Dispatch's primary auth plugin
- * (same mechanism the identity-sso plugin relies on).
+ * Dispatch org-app-directory plugin. The primary Dispatch auth plugin owns
+ * the route's public-path registration so this handler can perform its own
+ * JWT and same-org checks without racing a second auth initializer.
  */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(ORG_APPS_PATH, orgAppsHandler);
-  return createAuthPlugin({ publicPaths: [ORG_APPS_PATH] })(nitroApp);
 };

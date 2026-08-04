@@ -239,6 +239,10 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 </Diagram>
 
+## 패키지된 Desktop 작업공간 {#desktop-workspace}
+
+서명된 Desktop은 이 페더레이션을 정식 퍼스트파티 레지스트리용 작업공간 로그인으로 구성합니다. 전용 영구 Dispatch ID 파티션은 중앙에 남지만 각 대상 앱은 자체 로컬 세션을 만들고 그 쿠키만 `persist:app-<id>`로 옮깁니다. Dispatch 쿠키나 앱 토큰은 공유하지 않습니다. 사용자 정의, 사용자가 추가한 앱 및 타사 앱은 제외됩니다. `desktop-sso.json`은 loopback 비프로덕션 로컬 broker로 남습니다. Desktop 로그아웃은 중앙 ID와 정식 앱 세션을 지우며 브라우저 로그아웃은 앱별로 남습니다. Builder Connect는 관련이 없습니다. 직접 로그인과 앱별 환경 변수 opt-in, canary, rollback은 유지됩니다.
+
 ## 자체 호스팅 {#self-hosting}
 
 모든 Dispatch 배포는 ID 허브 역할을 할 수 있습니다. `dispatch.agent-native.com`로 제한되지 않습니다. Dispatch 인스턴스를 가리키도록 각 클라이언트 앱의 `AGENT_NATIVE_IDENTITY_HUB_URL`를 설정하세요.

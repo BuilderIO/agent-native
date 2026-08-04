@@ -89,13 +89,47 @@ describe("multi-frontier app integration", () => {
 
     expect(guard(event)).toBe(true);
     expect(guard(event)).toBe(true);
+    await Promise.resolve();
     expect(dispose).toHaveBeenCalledOnce();
     settle();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(reissueQuit).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(reissueQuit).toHaveBeenCalledOnce());
     expect(guard(event)).toBe(false);
+  });
+
+  it("reissues quit when disposal throws synchronously", async () => {
+    const reissueQuit = vi.fn();
+    const guard = createMultiFrontierQuitGuard({
+      dispose: vi.fn(() => {
+        throw new Error("dispose failed");
+      }),
+      reissueQuit,
+    });
+    const event = { preventDefault: vi.fn() };
+
+    expect(guard(event)).toBe(true);
+    await vi.waitFor(() => expect(reissueQuit).toHaveBeenCalledOnce());
+    expect(guard(event)).toBe(false);
+  });
+
+  it("bounds disposal so application quit cannot hang indefinitely", async () => {
+    vi.useFakeTimers();
+    try {
+      const reissueQuit = vi.fn();
+      const guard = createMultiFrontierQuitGuard({
+        dispose: vi.fn(() => new Promise<void>(() => undefined)),
+        reissueQuit,
+        disposeTimeoutMs: 25,
+      });
+      const event = { preventDefault: vi.fn() };
+
+      expect(guard(event)).toBe(true);
+      await vi.advanceTimersByTimeAsync(25);
+
+      expect(reissueQuit).toHaveBeenCalledOnce();
+      expect(guard(event)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stores an immutable private patch with actual diff-check evidence and no all-zero hash", async () => {

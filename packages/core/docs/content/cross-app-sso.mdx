@@ -239,6 +239,28 @@ The just-in-time link is a single decision keyed entirely on the verified email:
 
 </Diagram>
 
+## Packaged Desktop workspace {#desktop-workspace}
+
+The signed Agent Native Desktop app composes this hosted federation into one
+workspace sign-in for its canonical first-party hosted app registry. Electron
+keeps the Dispatch authority session in a dedicated persistent identity
+partition. For each target app, it runs this app-local federation flow and
+copies only the completed target app's normal session cookie into that app's
+isolated `persist:app-<id>` partition. Each app still owns its session,
+database, authorization, and data isolation; Desktop does not distribute a
+Dispatch cookie or a shared app token.
+
+This boundary deliberately excludes custom, user-added, and third-party apps.
+The local `desktop-sso.json` broker remains a loopback, non-production
+development compatibility path; it is not used for packaged hosted SSO.
+Workspace-wide Desktop sign-out clears the central identity session and the
+canonical app sessions in Desktop, while standalone web sign-out remains
+app-local. Builder Connect and Builder credentials do not participate.
+
+Desktop does not change federation eligibility: each hosted app must still set
+`AGENT_NATIVE_IDENTITY_HUB_URL`, direct app login remains available, and the
+one-app-at-a-time canary and env-unset rollback below still apply.
+
 ## Self-hosting {#self-hosting}
 
 Any Dispatch deployment can serve as the identity hub — you are not limited to `dispatch.agent-native.com`. Set `AGENT_NATIVE_IDENTITY_HUB_URL` on each client app to point at your Dispatch instance:

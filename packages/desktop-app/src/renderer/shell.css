@@ -536,6 +536,12 @@ body {
   transform: translate3d(-200vw, 0, 0);
 }
 
+/* A macOS guest can eventually repaint into its old bounds while offscreen.
+   Shell modals must remove the native surface from layout without unmounting it. */
+.content-area--shell-modal-open .webview-slot {
+  display: none;
+}
+
 .content-area--code-agents .webview-slot {
   z-index: 0;
   opacity: 0;

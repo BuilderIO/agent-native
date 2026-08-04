@@ -13,7 +13,7 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpsertRequest,
 } from "@shared/desktop-shortcuts";
-import type { UpdateStatus } from "@shared/ipc-channels";
+import type { DesktopIdentityStatus, UpdateStatus } from "@shared/ipc-channels";
 import {
   IconX,
   IconPlus,
@@ -32,6 +32,8 @@ import {
   IconFolderPlus,
   IconAlertCircle,
   IconKeyboard,
+  IconLogout2,
+  IconUserCircle,
 } from "@tabler/icons-react";
 import {
   useState,
@@ -518,6 +520,8 @@ export default function AppSettings({
   );
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
+  const [identityStatus, setIdentityStatus] =
+    useState<DesktopIdentityStatus>("idle");
   const [isClosing, setIsClosing] = useState(false);
   const closingTimerRef = useRef<number | null>(null);
   const shortcutTargetApps = useMemo(
@@ -558,6 +562,20 @@ export default function AppSettings({
       });
     }
   }, [onFrameSettingsChanged]);
+
+  useEffect(() => {
+    const api = window.electronAPI?.identity;
+    if (!api) return;
+    void api.getStatus().then(setIdentityStatus);
+    return api.onStatusChange(setIdentityStatus);
+  }, []);
+
+  const handleIdentitySignOut = useCallback(async () => {
+    const api = window.electronAPI?.identity;
+    if (!api) return;
+    await api.signOut();
+    setIdentityStatus(await api.getStatus());
+  }, []);
 
   const refreshProviderSettings = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -873,6 +891,37 @@ export default function AppSettings({
           )}
 
           <SoftwareUpdateCard />
+
+          <div className="settings-mode-card">
+            <div className="settings-update-title">
+              <IconUserCircle size={18} />
+              <div>
+                <span className="settings-mode-card-title">
+                  Agent Native account
+                </span>
+                <span className="settings-mode-card-status">
+                  {identityStatus === "signed-in"
+                    ? "Signed in once for first-party apps"
+                    : identityStatus === "signing-in"
+                      ? "Signing in to your workspace…"
+                      : identityStatus === "failed"
+                        ? "Sign-in failed. Return to the app and try again."
+                        : "Open any first-party app and sign in there once"}
+                </span>
+              </div>
+            </div>
+            <div className="settings-update-actions">
+              {identityStatus === "signed-in" && (
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--ghost"
+                  onClick={handleIdentitySignOut}
+                >
+                  <IconLogout2 size={14} /> Sign out
+                </button>
+              )}
+            </div>
+          </div>
 
           {providerSettings && (
             <CodeProviderSettings

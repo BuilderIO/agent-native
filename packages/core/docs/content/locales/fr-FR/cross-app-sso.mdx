@@ -239,6 +239,10 @@ Le lien juste à temps est une décision unique entièrement saisie sur l’e-ma
 
 </Diagram>
 
+## Espace de travail Desktop empaqueté {#desktop-workspace}
+
+L’application Desktop signée compose cette fédération en une connexion d’espace de travail pour son registre propriétaire canonique : une partition d’identité Dispatch persistante reste centrale, mais chaque application cible crée sa propre session locale et seul son cookie est transféré vers `persist:app-<id>`. Aucun cookie Dispatch ni jeton d’application n’est partagé. Les applications personnalisées, ajoutées par l’utilisateur et tierces sont exclues. `desktop-sso.json` reste un broker local loopback hors production. La déconnexion Desktop efface l’identité centrale et les sessions canoniques, celle du navigateur reste locale à l’application ; Builder Connect est sans rapport. La connexion directe et l’opt-in, canari et retour arrière par variable d’environnement restent disponibles.
+
 ## Auto-hébergement {#self-hosting}
 
 Tout déploiement Dispatch peut servir de centre d'identité ; vous n'êtes pas limité à `dispatch.agent-native.com`. Définissez `AGENT_NATIVE_IDENTITY_HUB_URL` sur chaque application client pour pointer vers votre instance Dispatch :
