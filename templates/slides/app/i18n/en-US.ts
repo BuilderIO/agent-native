@@ -401,6 +401,8 @@ const messages = {
     strokeWeight: "Weight",
     typography: "Typography",
     weight: "Weight",
+    italic: "Italic",
+    underline: "Underline",
     align: "Align",
     decreaseSize: "Decrease font size",
     increaseSize: "Increase font size",

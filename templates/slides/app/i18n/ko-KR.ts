@@ -400,6 +400,8 @@ const messages = {
     strokeWeight: "두께",
     typography: "타이포그래피",
     weight: "굵기",
+    italic: "기울임",
+    underline: "밑줄",
     align: "정렬",
     decreaseSize: "글꼴 크기 줄이기",
     increaseSize: "글꼴 크기 늘리기",

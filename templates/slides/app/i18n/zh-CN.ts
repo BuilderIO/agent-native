@@ -395,6 +395,8 @@ const messages = {
     strokeWeight: "描边粗细",
     typography: "排版",
     weight: "字重",
+    italic: "斜体",
+    underline: "下划线",
     align: "对齐",
     decreaseSize: "减小字号",
     increaseSize: "增大字号",

@@ -23,6 +23,8 @@ export interface SlideStyleSnapshot {
   backgroundColor: string;
   fontSize: number;
   fontWeight: string;
+  fontStyle: string;
+  textDecoration: string;
   lineHeight: number;
   textAlign: string;
   opacity: number;
@@ -41,6 +43,8 @@ export type SlideStylePatch = Partial<{
   backgroundColor: string;
   fontSize: string;
   fontWeight: string;
+  fontStyle: string;
+  textDecoration: string;
   lineHeight: string;
   textAlign: string;
   opacity: string;

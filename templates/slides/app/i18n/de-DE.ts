@@ -406,6 +406,8 @@ const messages = {
     strokeWeight: "Stärke",
     typography: "Typografie",
     weight: "Schriftstärke",
+    italic: "Kursiv",
+    underline: "Unterstrichen",
     align: "Ausrichtung",
     decreaseSize: "Schrift verkleinern",
     increaseSize: "Schrift vergrößern",

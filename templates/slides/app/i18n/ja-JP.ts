@@ -403,6 +403,8 @@ const messages = {
     strokeWeight: "太さ",
     typography: "文字設定",
     weight: "太さ",
+    italic: "斜体",
+    underline: "下線",
     align: "配置",
     decreaseSize: "フォントサイズを小さく",
     increaseSize: "フォントサイズを大きく",

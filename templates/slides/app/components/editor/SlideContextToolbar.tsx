@@ -19,12 +19,14 @@ import {
   IconBoxPadding,
   IconDots,
   IconGridDots,
+  IconItalic,
   IconLayoutAlignLeft,
   IconLetterCase,
   IconSpacingHorizontal,
   IconSpacingVertical,
   IconStackBack,
   IconStackFront,
+  IconUnderline,
 } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
@@ -45,7 +47,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, shortcutLabel } from "@/lib/utils";
 
 import {
   backgroundCssValue,
@@ -65,6 +67,7 @@ const SCRUB_CLASS = "w-24 shrink-0";
 const SIZE_SCRUB_CLASS = "w-28 shrink-0 gap-0.5";
 const MENU_BUTTON_CLASS =
   "size-7 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground";
+const TOGGLE_ACTIVE_CLASS = "bg-accent text-foreground";
 const MENU_TRIGGER_BASE =
   "flex h-7 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const VALUE_MENU_CLASS = `${MENU_TRIGGER_BASE} min-w-14`;
@@ -148,6 +151,14 @@ export function SlideContextToolbar({
     "data-slide-inline-edit-surface": "true",
   };
   const mixedTextStyles = snapshot?.mixedTextStyles ?? [];
+  // A mixed selection has no single state to reflect, so the toggle reads as
+  // off and one click makes the whole selection consistent.
+  const isItalic =
+    !mixedTextStyles.includes("fontStyle") &&
+    (snapshot?.fontStyle ?? "").startsWith("italic");
+  const isUnderline =
+    !mixedTextStyles.includes("textDecoration") &&
+    (snapshot?.textDecoration ?? "").includes("underline");
   // Null means the slide uses a background this picker cannot represent (named
   // utility, gradient); surface that as Mixed rather than guessing a hex.
   const slideBackground = backgroundCssValue(background);
@@ -235,6 +246,56 @@ export function SlideContextToolbar({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      MENU_BUTTON_CLASS,
+                      isItalic && TOGGLE_ACTIVE_CLASS,
+                    )}
+                    aria-label={t("styleInspector.italic")}
+                    aria-pressed={isItalic}
+                    onClick={() =>
+                      onChange({ fontStyle: isItalic ? "normal" : "italic" })
+                    }
+                  >
+                    <IconItalic className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {`${t("styleInspector.italic")} (${shortcutLabel("cmd+i")})`}
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      MENU_BUTTON_CLASS,
+                      isUnderline && TOGGLE_ACTIVE_CLASS,
+                    )}
+                    aria-label={t("styleInspector.underline")}
+                    aria-pressed={isUnderline}
+                    onClick={() =>
+                      onChange({
+                        textDecoration: isUnderline ? "none" : "underline",
+                      })
+                    }
+                  >
+                    <IconUnderline className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {`${t("styleInspector.underline")} (${shortcutLabel("cmd+u")})`}
+                </TooltipContent>
+              </Tooltip>
 
               <VisualColorPicker
                 label={t("styleInspector.textColor")}

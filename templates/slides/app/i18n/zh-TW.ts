@@ -390,6 +390,8 @@ const messages = {
     strokeWeight: "描邊粗細",
     typography: "排版",
     weight: "字重",
+    italic: "斜體",
+    underline: "底線",
     align: "對齊",
     decreaseSize: "縮小字型",
     increaseSize: "放大字型",

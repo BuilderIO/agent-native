@@ -355,6 +355,8 @@ const INLINE_INSPECTOR_STYLE_KEYS = [
   "color",
   "fontSize",
   "fontWeight",
+  "fontStyle",
+  "textDecoration",
 ] as const satisfies readonly (keyof SlideStylePatch)[];
 
 function inlineInspectorStylePatch(
@@ -444,6 +446,8 @@ function buildStyleSnapshot(
   const selectedColor = selectedTextStyle?.values.color;
   const selectedFontSize = selectedTextStyle?.values.fontSize;
   const selectedFontWeight = selectedTextStyle?.values.fontWeight;
+  const selectedFontStyle = selectedTextStyle?.values.fontStyle;
+  const selectedTextDecoration = selectedTextStyle?.values.textDecoration;
 
   return {
     selector,
@@ -467,6 +471,8 @@ function buildStyleSnapshot(
       selectedFontWeight === null || selectedFontWeight === undefined
         ? normalizedFontWeight(computed.fontWeight)
         : normalizedFontWeight(selectedFontWeight),
+    fontStyle: selectedFontStyle ?? computed.fontStyle,
+    textDecoration: selectedTextDecoration ?? computed.textDecorationLine,
     lineHeight,
     textAlign: normalizedTextAlign(computed.textAlign),
     opacity: Math.round(Number(computed.opacity || 1) * 100),

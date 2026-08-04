@@ -403,6 +403,8 @@ const messages = {
     strokeWeight: "السُمك",
     typography: "الطباعة",
     weight: "الوزن",
+    italic: "مائل",
+    underline: "تسطير",
     align: "المحاذاة",
     decreaseSize: "تصغير حجم الخط",
     increaseSize: "تكبير حجم الخط",

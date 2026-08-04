@@ -398,6 +398,8 @@ const messages = {
     strokeWeight: "मोटाई",
     typography: "टाइपोग्राफी",
     weight: "मोटाई",
+    italic: "इटैलिक",
+    underline: "रेखांकित",
     align: "संरेखण",
     decreaseSize: "फ़ॉन्ट आकार घटाएँ",
     increaseSize: "फ़ॉन्ट आकार बढ़ाएँ",

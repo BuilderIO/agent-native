@@ -33,6 +33,8 @@ function snapshot(
     backgroundColor: "transparent",
     fontSize: 40,
     fontWeight: "700",
+    fontStyle: "normal",
+    textDecoration: "none",
     lineHeight: 1.2,
     textAlign: "left",
     opacity: 100,
