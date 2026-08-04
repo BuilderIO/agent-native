@@ -336,8 +336,7 @@ export default function EditorToolbar({
   // The contextual toolbar hosts the action cluster whenever it is on screen.
   // That row rides on SlideEditor, which only mounts for a real slide, so an
   // empty deck must keep this fallback or it has no way to add one.
-  const contextToolbarVisible =
-    canEdit && Boolean(currentSlide) && !currentSlide?.excalidrawData;
+  const contextToolbarVisible = canEdit && Boolean(currentSlide);
   const { undo, redo, canUndo, canRedo } = useDecks();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -464,9 +463,9 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* Add slide, undo/redo and the text-box tool live at the head of the
-       * contextual toolbar below. That row is desktop-only and hidden on
-       * Excalidraw slides, so keep a fallback here for those cases. */}
+      {/* Add slide and the text-box tool live at the head of the contextual
+       * toolbar below. That row is desktop-only and needs a slide to mount on,
+       * so keep a fallback here for narrow screens and empty decks. */}
       {canEdit && (
         <EditorActionCluster
           className={contextToolbarVisible ? "lg:hidden" : undefined}

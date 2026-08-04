@@ -294,7 +294,15 @@ function stripBuilderIds(html: string): string {
     cleaned = stripRoot?.innerHTML ?? doc.body.innerHTML;
   }
 
-  return cleaned.replace(/\s*data-builder-id="[^"]*"/g, "");
+  return (
+    cleaned
+      .replace(/\s*data-builder-id="[^"]*"/g, "")
+      // An active inline edit marks its host element. Serializing mid-edit —
+      // which the list toggles and the draft capture both do — would otherwise
+      // bake the editing state into saved slide content.
+      .replace(/\s*contenteditable="[^"]*"/gi, "")
+      .replace(/\s*data-editing-block="[^"]*"/g, "")
+  );
 }
 
 /**
@@ -4098,29 +4106,32 @@ export default function SlideEditor({
   const isSelectedElementDraggable = selectedForDrag
     ? getComputedStyle(selectedForDrag).position === "absolute"
     : false;
-  const contextToolbar =
-    !readOnly && !slide.excalidrawData ? (
-      <div
-        className="hidden shrink-0 lg:block"
-        // Snapshotting the range is only half the job: without this marker the
-        // click-outside handler exits the edit and clears the snapshot before
-        // the button's onClick runs, so partial-text formatting would silently
-        // apply to the whole object.
-        data-slide-inline-edit-surface="true"
-        onPointerDownCapture={preserveRichTextSelection}
-      >
-        <SlideContextToolbar
-          snapshot={selectedStyleSnapshot}
-          background={slide.background}
-          designSystem={designSystem}
-          leading={contextToolbarLeading}
-          onChange={applySelectedStylePatch}
-          onBackgroundChange={applySlideBackground}
-          onArrange={handleArrangeSelected}
-          onToggleList={handleToggleList}
-        />
-      </div>
-    ) : null;
+  // Excalidraw slides have no selectable slide content, so the row collapses
+  // to its slide-level state — but that state owns the background picker, and
+  // SlideRenderer paints `slide.background` behind the drawing, so the row has
+  // to stay mounted or that background becomes uneditable.
+  const contextToolbar = !readOnly ? (
+    <div
+      className="hidden shrink-0 lg:block"
+      // Snapshotting the range is only half the job: without this marker the
+      // click-outside handler exits the edit and clears the snapshot before
+      // the button's onClick runs, so partial-text formatting would silently
+      // apply to the whole object.
+      data-slide-inline-edit-surface="true"
+      onPointerDownCapture={preserveRichTextSelection}
+    >
+      <SlideContextToolbar
+        snapshot={selectedStyleSnapshot}
+        background={slide.background}
+        designSystem={designSystem}
+        leading={contextToolbarLeading}
+        onChange={applySelectedStylePatch}
+        onBackgroundChange={applySlideBackground}
+        onArrange={handleArrangeSelected}
+        onToggleList={handleToggleList}
+      />
+    </div>
+  ) : null;
 
   return (
     <div

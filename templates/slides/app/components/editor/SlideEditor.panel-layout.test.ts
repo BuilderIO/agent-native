@@ -34,9 +34,18 @@ describe("editor side panels", () => {
 describe("slide context toolbar", () => {
   const mountIndex = editorSource.indexOf("<SlideContextToolbar");
 
-  it("is the only styling surface, for editable non-Excalidraw slides", () => {
+  it("is the only styling surface, on every editable slide", () => {
     expect(mountIndex).toBeGreaterThan(-1);
-    expect(editorSource).toContain("!readOnly && !slide.excalidrawData");
+    // Excalidraw slides included: they have no selectable content, but
+    // SlideRenderer still paints slide.background behind the drawing, and this
+    // row is now the only place that background can be edited.
+    expect(editorSource).not.toContain("!readOnly && !slide.excalidrawData");
+  });
+
+  it("keeps the toolbar alive while text is being edited", () => {
+    // Without the marker the click-outside handler exits the edit and drops
+    // the saved range, so partial-text formatting would hit the whole object.
+    expect(editorSource).toContain('data-slide-inline-edit-surface="true"');
   });
 
   it("renders into the shell's full-width slot so it spans the slide rail", () => {
