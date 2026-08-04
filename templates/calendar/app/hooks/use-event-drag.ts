@@ -1,5 +1,5 @@
 import type { CalendarEvent } from "@shared/api";
-import { startOfDay, set, addMinutes } from "date-fns";
+import { startOfDay, set, addMinutes, parseISO } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { useState, useRef, useCallback, useEffect } from "react";
 
@@ -50,6 +50,32 @@ export interface UseEventDragOptions {
   /** All events (to find the event being dragged) */
   events: CalendarEvent[];
   timezone: string;
+}
+
+export function resolveDraggedEventTimes({
+  event,
+  mode,
+  start,
+  heightMinutes,
+  timezone,
+}: {
+  event: CalendarEvent;
+  mode: DragState["mode"];
+  start: Date;
+  heightMinutes: number;
+  timezone: string;
+}) {
+  const newStart = fromZonedTime(start, timezone);
+  const durationMinutes =
+    mode === "move"
+      ? (parseISO(event.end).getTime() - parseISO(event.start).getTime()) /
+        60_000
+      : heightMinutes;
+
+  return {
+    start: newStart,
+    end: addMinutes(newStart, durationMinutes),
+  };
 }
 
 export function useEventDrag({
@@ -304,13 +330,15 @@ export function useEventDrag({
         set(baseDay, { hours: startHour, minutes: 0, seconds: 0 }),
         topMinutes,
       );
-      const newEnd = addMinutes(newStart, heightMinutes);
+      const times = resolveDraggedEventTimes({
+        event: state.event,
+        mode: state.mode,
+        start: newStart,
+        heightMinutes,
+        timezone,
+      });
 
-      onEventTimeChange(
-        state.eventId,
-        fromZonedTime(newStart, timezone),
-        fromZonedTime(newEnd, timezone),
-      );
+      onEventTimeChange(state.eventId, times.start, times.end);
     }
 
     dragStateRef.current = null;
