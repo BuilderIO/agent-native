@@ -29,6 +29,49 @@ function finiteNumber(value: unknown): number | undefined {
     : undefined;
 }
 
+export function isCanvasFrameGeometryKey(key: string): boolean {
+  return (CANVAS_FRAME_GEOMETRY_KEYS as readonly string[]).includes(key);
+}
+
+function describeValue(value: unknown): string {
+  if (typeof value === "string") return "string " + JSON.stringify(value);
+  if (value === null) return "null";
+  if (typeof value === "number") return String(value);
+  return typeof value;
+}
+
+/**
+ * Reads drop any geometry field that is not a finite number, so a write
+ * carrying "595" persists happily and then renders as no dimension at all —
+ * indistinguishable from a successful resize. Writers must fail here rather
+ * than store a value this module will silently discard on the way back out.
+ */
+export function canvasFrameGeometryWriteErrors(
+  frame: unknown,
+  label: string,
+): string[] {
+  if (!frame || typeof frame !== "object" || Array.isArray(frame)) {
+    return [
+      label +
+        " must be an object of numeric pixel values, received " +
+        describeValue(frame),
+    ];
+  }
+  const raw = frame as Record<string, unknown>;
+  return CANVAS_FRAME_GEOMETRY_KEYS.flatMap((key) => {
+    if (!(key in raw) || raw[key] === undefined) return [];
+    return finiteNumber(raw[key]) === undefined
+      ? [
+          label +
+            "." +
+            key +
+            " must be a finite number of pixels, received " +
+            describeValue(raw[key]),
+        ]
+      : [];
+  });
+}
+
 export function parseCanvasFrameGeometry(
   value: unknown,
 ): CanvasFrameGeometry | null {

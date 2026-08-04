@@ -201,6 +201,57 @@ describe("update-design data concurrency", () => {
     mocks.assertAccess.mockResolvedValue(undefined);
   });
 
+  it("rejects string canvas dimensions that would read back empty", async () => {
+    const before = mocks.state.row.data;
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", "frame-a"],
+            value: { x: "651", y: "0", width: "595", height: "842", z: "0" },
+          },
+        ],
+        operationSource: "chat-1",
+        operationRevision: 1,
+      } as never),
+    ).rejects.toThrow("must be a finite number of pixels");
+    expect(mocks.state.row.data).toBe(before);
+  });
+
+  it("rejects a string dimension addressed at the leaf path", async () => {
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", "frame-a", "width"],
+            value: "595",
+          },
+        ],
+      } as never),
+    ).rejects.toThrow("canvasFrames.frame-a.width");
+  });
+
+  it("still accepts numeric canvas dimensions", async () => {
+    const result = await action.run({
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-a"],
+          value: { x: 651, y: 0, width: 595, height: 842, z: 0 },
+        },
+      ],
+    } as never);
+    expect(result).toMatchObject({ id: "design-1", updated: true });
+    expect(
+      JSON.parse(String(mocks.state.row.data)).canvasFrames["frame-a"],
+    ).toEqual({ x: 651, y: 0, width: 595, height: 842, z: 0 });
+  });
+
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {
     mocks.resetReadGate(2);
     const moveA = {

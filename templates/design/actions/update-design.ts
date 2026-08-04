@@ -4,6 +4,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  canvasFrameGeometryWriteErrors,
+  isCanvasFrameGeometryKey,
+} from "../shared/canvas-frames.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
@@ -41,6 +45,49 @@ const dataOperationSchema = z.discriminatedUnion("op", [
 type DataOperation = z.infer<typeof dataOperationSchema>;
 
 type DataOperationRevisions = Record<string, number>;
+
+/**
+ * Canvas geometry is the one part of `data` where a write that type-checks as
+ * JSON can still be inert: the readers keep only finite numbers, so string
+ * dimensions persist and then read back as no dimensions at all, and the
+ * caller is told the resize succeeded. Reject at the write instead.
+ */
+function canvasFrameWriteErrors(operations: DataOperation[]): string[] {
+  return operations.flatMap((operation) => {
+    if (operation.op !== "set") return [];
+    const [root, fileId, field] = operation.path;
+    if (root !== "canvasFrames") return [];
+
+    if (fileId === undefined) {
+      if (!isRecord(operation.value)) {
+        return ["canvasFrames must be an object keyed by design file id"];
+      }
+      return Object.entries(operation.value).flatMap(([id, frame]) =>
+        canvasFrameGeometryWriteErrors(frame, `canvasFrames.${id}`),
+      );
+    }
+    if (field === undefined) {
+      return canvasFrameGeometryWriteErrors(
+        operation.value,
+        `canvasFrames.${fileId}`,
+      );
+    }
+    if (!isCanvasFrameGeometryKey(field)) return [];
+    return canvasFrameGeometryWriteErrors(
+      { [field]: operation.value },
+      `canvasFrames.${fileId}`,
+    );
+  });
+}
+
+function assertCanvasFramesWritable(operations: DataOperation[]): void {
+  const errors = canvasFrameWriteErrors(operations);
+  if (errors.length === 0) return;
+  throw new Error(
+    `Canvas frame update rejected because the values would not persist: ${errors.join("; ")}. ` +
+      "Send canvas dimensions as JSON numbers, not strings.",
+  );
+}
 
 /**
  * Normalize affected-row metadata from every createGetDb backend: libSQL,
@@ -316,6 +363,8 @@ export default defineAction({
         .where(eq(schema.designs.id, id));
       return { id, updated: true };
     }
+
+    if (dataOperations) assertCanvasFramesWritable(dataOperations);
 
     const maxAttempts = dataOperations ? MAX_DATA_CAS_ATTEMPTS : 1;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {

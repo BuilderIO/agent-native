@@ -351,7 +351,8 @@ export default defineAction({
               note:
                 "The screens below are edited copies of this template, so their current content no longer shows what the template specified. " +
                 "The dimensions and fonts above come from the template and stay authoritative for every request, including this one: keep each screen at exactly those dimensions and keep those font families. " +
-                "Do not resize the artboard, change canvasFrames width or height, switch the primary viewport, or substitute a typeface to fit new content. " +
+                "Never change them as a side effect of another request — no resizing the artboard, changing canvasFrames width or height, switching the primary viewport, or substituting a typeface to fit new content. " +
+                "When the user explicitly asks for a different size, that request wins: change it with `update-design` dataOperations on `canvasFrames.<fileId>`, passing width and height as JSON numbers, and say that the design now differs from its template. " +
                 `Refine with edit-design; do not call generate-design. Call \`get-design-template --designId="${designId}"\` when you need the template's original markup or locked layers.`,
             };
           }

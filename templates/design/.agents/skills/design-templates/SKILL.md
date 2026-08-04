@@ -50,9 +50,21 @@ reports `design.createdFromTemplate` on every turn for a template-created
 design, carrying `lockedDimensions` per screen and `lockedFonts`. Both are
 captured from the template at copy time, so they describe the template even
 after the design has been edited many times. Honour them in every
-`edit-design` pass: never resize the artboard, change a `canvasFrames` width or
-height, switch the primary viewport, or substitute a typeface to fit new
-content.
+`edit-design` pass: never change them as a side effect of another request — no
+resizing the artboard, changing a `canvasFrames` width or height, switching the
+primary viewport, or substituting a typeface to fit new content.
+
+## Changing The Size On Purpose
+
+An explicit request for a different size wins over the template baseline. Apply
+it with `update-design` `dataOperations`, setting `canvasFrames.<fileId>`, and
+tell the user the design now differs from its template.
+
+Pass every geometry value as a JSON number. `canvasFrames` keeps only finite
+numbers on read, so `"width": "595"` writes successfully and then reads back as
+*no* width — the update looks applied and silently is not. `update-design` now
+rejects that write, and the error names the field; resend it as
+`"width": 595`.
 
 Call `get-design-template --designId="<id>"` when you need more than those two
 facts — the template's original markup, or its locked layers — for example
