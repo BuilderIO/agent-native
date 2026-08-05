@@ -13,21 +13,24 @@ const analyticsDbMocks = vi.hoisted(() => {
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
   const updateWhere = vi.fn();
+  const db: Record<string, any> = {};
+  db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
+    callback(db),
+  );
+  db.select = vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({ limit: selectLimit })),
+    })),
+  }));
+  db.insert = vi.fn(() => ({ values: insertValues }));
+  db.update = vi.fn(() => ({
+    set: vi.fn(() => ({ where: updateWhere })),
+  }));
   return {
     selectLimit,
     insertValues,
     updateWhere,
-    db: {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({ limit: selectLimit })),
-        })),
-      })),
-      insert: vi.fn(() => ({ values: insertValues })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: updateWhere })),
-      })),
-    },
+    db,
   };
 });
 
@@ -154,25 +157,28 @@ describe("recordAnalyticsEvents", () => {
       },
     ]);
 
-    expect(rollupMocks.upsert).toHaveBeenCalledWith([
-      expect.objectContaining({
-        eventName: "pageview",
-        ownerEmail: "owner@example.com",
-        orgId: null,
-        userKey: "user_1",
-      }),
-    ]);
+    expect(rollupMocks.upsert).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          eventName: "pageview",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          userKey: "user_1",
+        }),
+      ],
+      analyticsDbMocks.db,
+    );
     expect(
       analyticsDbMocks.insertValues.mock.invocationCallOrder[0],
     ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
   });
 
-  it("keeps raw ingestion successful when a rollup update fails", async () => {
+  it("rejects the ingest when a rollup update fails", async () => {
     rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
 
     await expect(
       recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
-    ).resolves.toMatchObject({ accepted: 1 });
+    ).rejects.toThrow("rollup unavailable");
     expect(analyticsDbMocks.insertValues).toHaveBeenCalled();
   });
 

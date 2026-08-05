@@ -4,8 +4,8 @@
 
 ### Patch Changes
 
-- 9d271fe: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
-- 9d271fe: Keep the public app-config export available to browser-safe toolkit consumers.
+- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
+- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
 
 ## 0.13.1
 

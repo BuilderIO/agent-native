@@ -4,9 +4,9 @@
 
 ### Patch Changes
 
-- 9d271fe: Clarify that a free Builder tier is available when connecting Dispatch app creation.
-- Updated dependencies [9d271fe]
-- Updated dependencies [9d271fe]
+- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
   - @agent-native/toolkit@0.13.2
 
 ## 0.17.2

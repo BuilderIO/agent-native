@@ -133,6 +133,7 @@ export default defineAction({
         `Click the button below to accept the invite and start collaborating.`,
       ],
       cta: { label: "Accept invite", url: inviteUrl },
+      // guard:allow-raw-color - email HTML cannot reference CSS theme tokens.
       brandColor: "#18181B",
     });
     try {

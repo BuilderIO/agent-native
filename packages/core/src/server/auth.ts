@@ -3695,7 +3695,9 @@ async function mountBetterAuthRoutes(
       const rawReturn = Array.isArray(query.return)
         ? query.return[0]
         : query.return;
-      setFirstRunOnboardingCookie(event);
+      if (await getSession(event)) {
+        setFirstRunOnboardingCookie(event);
+      }
       return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );

@@ -348,9 +348,9 @@ export default function RecordingPage() {
         // without requiring a manual refresh.
         const mediaKey = [
           rec.id,
-          rec.videoUrl,
           rec.durationMs ?? "",
           rec.videoSizeBytes ?? "",
+          rec.videoFormat ?? "",
         ].join(":");
         const now = Date.now();
         if (readyMediaPollRef.current?.key !== mediaKey) {
@@ -1601,6 +1601,10 @@ export default function RecordingPage() {
                   onVideoElementChange={setTrackedVideoEl}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
+                  mediaVersion={[
+                    recording.videoSizeBytes ?? "",
+                    recording.updatedAt ?? "",
+                  ].join(":")}
                   videoFormat={recording.videoFormat}
                   embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}
