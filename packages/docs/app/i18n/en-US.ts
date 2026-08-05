@@ -671,7 +671,7 @@ const enUS = {
       s005: "Can See + Hear",
       s006: "All Apps",
       s007: "Screen clips for humans and agents",
-      s008: "Paste a Clips link into an agent and it can hear the transcript, read summaries, and see timestamped frames even if its model cannot ingest raw video or audio.",
+      s008: "Record your screen. Share with people to save a meeting. Share with your AI agent to give it real insight into your work, from your words to your browser logs.",
       s009: "Start recording",
       s010: "What you can do",
       s011: "Record, transcribe, and debug — one app, one library, without the subscription stack.",
