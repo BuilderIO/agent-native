@@ -39,7 +39,7 @@ const ANALYTICS_ROLLUP_BACKFILL_STATEMENTS = {
       )
       SELECT
         md5(random()::text || clock_timestamp()::text), tenant_key,
-        owner_email, org_id, event_date, event_name, app, template,
+        MIN(owner_email), MIN(org_id), event_date, event_name, app, template,
         COUNT(*)::INTEGER
       FROM (
         SELECT
@@ -56,9 +56,12 @@ const ANALYTICS_ROLLUP_BACKFILL_STATEMENTS = {
         FROM analytics_events
       ) AS historical_events
       WHERE event_date <> ''
-      GROUP BY tenant_key, owner_email, org_id, event_date, event_name, app, template
+      GROUP BY tenant_key, event_date, event_name, app, template
       ON CONFLICT (tenant_key, event_date, event_name, app, template)
-      DO UPDATE SET event_count = EXCLUDED.event_count
+      DO UPDATE SET event_count = GREATEST(
+        analytics_event_daily_rollups.event_count,
+        EXCLUDED.event_count
+      )
     `,
     `
       INSERT INTO analytics_user_days (
@@ -91,7 +94,7 @@ const ANALYTICS_ROLLUP_BACKFILL_STATEMENTS = {
         app, template, event_count
       )
       SELECT
-        lower(hex(randomblob(16))), tenant_key, owner_email, org_id,
+        lower(hex(randomblob(16))), tenant_key, MIN(owner_email), MIN(org_id),
         event_date, event_name, app, template, COUNT(*)
       FROM (
         SELECT
@@ -108,7 +111,7 @@ const ANALYTICS_ROLLUP_BACKFILL_STATEMENTS = {
         FROM analytics_events
       ) AS historical_events
       WHERE event_date <> ''
-      GROUP BY tenant_key, owner_email, org_id, event_date, event_name, app, template
+      GROUP BY tenant_key, event_date, event_name, app, template
       ON CONFLICT (tenant_key, event_date, event_name, app, template)
       DO UPDATE SET event_count = excluded.event_count
     `,
@@ -149,18 +152,21 @@ async function runHistoricalAnalyticsRollupBackfill(): Promise<void> {
     }
 
     await db.transaction(async (tx) => {
-      // Ingest inserts raw events before it writes either compact table. Locking
-      // in that same order prevents a backfill snapshot from overwriting a live
-      // increment while still allowing read-only analytics queries to proceed.
-      await tx.execute(
-        "LOCK TABLE analytics_events IN SHARE ROW EXCLUSIVE MODE",
-      );
-      await tx.execute(
-        "LOCK TABLE analytics_event_daily_rollups IN SHARE ROW EXCLUSIVE MODE",
-      );
-      await tx.execute(
-        "LOCK TABLE analytics_user_days IN SHARE ROW EXCLUSIVE MODE",
-      );
+      // Only one serverless instance should perform the expensive scan. A
+      // try-lock is intentional: competing cold starts fail fast instead of
+      // holding pooled Neon connections while waiting for the winner. The
+      // monotonic rollup upsert below keeps a live increment from being
+      // overwritten if ingest commits during the historical snapshot.
+      const lockResult = await tx.execute({
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        args: ["agent-native:analytics-rollup-backfill"],
+      });
+      const acquired = lockResult.rows[0]?.acquired;
+      if (acquired !== true && acquired !== "t") {
+        throw new Error(
+          "Analytics rollup backfill is already running on another instance",
+        );
+      }
       for (const statement of ANALYTICS_ROLLUP_BACKFILL_STATEMENTS.postgres) {
         await tx.execute(statement);
       }
