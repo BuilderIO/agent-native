@@ -82,35 +82,4 @@ describe("get-design-system", () => {
     );
     expect(result.agentContext).toContain("override local proxy placeholders");
   });
-
-  it("requires generated CSS to reference colour tokens, not paste their values", async () => {
-    // Guidance in the skill file is advisory; this directive travels with every
-    // kit-linked generation, which is what makes a fill nameable at all.
-    mockParseBuilderDesignSystemProxyReference.mockReturnValue(null);
-    mockResolveAccess.mockResolvedValue({
-      resource: {
-        id: "local-ds-1",
-        title: "Carbon",
-        data: JSON.stringify({
-          colors: { primary: "#0F62FE", text: "#161616" },
-          customCSS: ":root{--cds-link-primary:#0f62fe}",
-        }),
-        assets: "[]",
-        isDefault: false,
-        visibility: "private",
-        createdAt: "2026-07-08T00:00:00.000Z",
-        updatedAt: "2026-07-08T00:00:00.000Z",
-      },
-    });
-
-    const result = await action.run({ id: "local-ds-1" });
-
-    expect(result.agentContext).toContain(
-      "Reference these color tokens, do not paste their values",
-    );
-    expect(result.agentContext).toContain("var(--color-accent, #0f62fe)");
-    // The kit's own vocabulary and the derived roles are both listed.
-    expect(result.agentContext).toContain("--cds-link-primary: #0f62fe");
-    expect(result.agentContext).toContain("--color-text: #161616");
-  });
 });

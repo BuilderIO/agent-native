@@ -27,10 +27,6 @@ import {
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import {
-  parseTokenReference,
-  type DesignSystemColorSwatch,
-} from "./design-system-swatches";
-import {
   buildGradientLayer,
   defaultGradientLayer,
   defaultGradientStops,
@@ -229,8 +225,6 @@ export function ColorInput({
   onBlendModeChange,
   supportsLayeredFills = false,
   documentColors,
-  designSystemColors,
-  resolvedColor,
   supportedPaintTypes,
   pickerKey,
   glslShaderContext,
@@ -276,8 +270,6 @@ export function ColorInput({
   supportsLayeredFills?: boolean;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
-  designSystemColors?: DesignSystemColorSwatch[];
-  resolvedColor?: string;
   /**
    * Restricts which paint-type tabs the popover renders. Omit for the full
    * set (solid + gradients + image + …). Pass `["solid"]` for properties
@@ -377,15 +369,7 @@ export function ColorInput({
     // before clobbering the last-known-good value in this component's own
     // state. Reject anything that doesn't parse as a plain solid color in
     // that case instead of forwarding it.
-    // A design system token reference is valid on a plain color property even
-    // though it is not itself a color, so it must survive this guard.
-    if (
-      !supportsLayeredFills &&
-      !parseCssColor(next) &&
-      !parseTokenReference(next)
-    ) {
-      return;
-    }
+    if (!supportsLayeredFills && !parseCssColor(next)) return;
     pendingGestureRef.current = phase === "preview";
     setDraft(next);
     onChange(next, { phase });
@@ -590,8 +574,6 @@ export function ColorInput({
       gradientType={activeGradient?.type}
       onGradientTypeChange={handleGradientTypeChange}
       documentColors={documentColors}
-      designSystemColors={designSystemColors}
-      resolvedColor={resolvedColor}
       supportedPaintTypes={supportedPaintTypes}
       glslShaderContext={glslShaderContext}
     />

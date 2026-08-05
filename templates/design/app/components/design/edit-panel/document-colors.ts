@@ -1,7 +1,6 @@
 import { parseCssColor, rgbaToHex } from "@shared/color-utils";
 
 import type { ElementInfo } from "../types";
-import { authoredColorValue } from "./interaction-state-helpers";
 
 export interface DocumentColorSourceFile {
   id: string;
@@ -64,16 +63,13 @@ export interface SelectionColorValue {
 export function selectionColorValues(
   element: ElementInfo,
 ): SelectionColorValue[] {
-  // Authored, not computed: getComputedStyle has already flattened `var()`.
+  const styles = element.computedStyles;
   const rawValues: SelectionColorValue[] = [
-    "color",
-    "backgroundColor",
-    "borderColor",
-    "outlineColor",
-  ].map((property) => ({
-    property,
-    value: authoredColorValue(element, property) as string,
-  }));
+    { property: "color", value: styles.color },
+    { property: "backgroundColor", value: styles.backgroundColor },
+    { property: "borderColor", value: styles.borderColor },
+    { property: "outlineColor", value: styles.outlineColor },
+  ];
   const seen = new Set<string>();
   return rawValues
     .map((color) => ({ ...color, value: color.value?.trim() }))

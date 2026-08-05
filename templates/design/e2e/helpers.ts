@@ -66,23 +66,6 @@ async function postAction(
   return res.json();
 }
 
-/** Create a Brand Kit from a production template and return its title. */
-export async function createDesignSystemFromTemplate(
-  page: Page,
-  templateId: string,
-): Promise<string> {
-  const created = await postAction(page, "create-design-system", {
-    templateId,
-  });
-  const title: string | undefined = created?.title ?? created?.data?.title;
-  if (!title) {
-    throw new Error(
-      `create-design-system did not return a title: ${JSON.stringify(created)}`,
-    );
-  }
-  return title;
-}
-
 export async function createFixtureDesign(
   page: Page,
   title = SEED_TITLE,

@@ -1,9 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import {
-  brandKitRoleTokens,
-  resolveBrandKitTokens,
-} from "@agent-native/core/brand-kit/tokens";
-import {
   hydrateBuilderDesignSystemReference,
   parseBuilderDesignSystemProxyReference,
 } from "@agent-native/core/server";
@@ -65,54 +61,6 @@ function formatTokenValues(tokenValues: Record<string, string>): string[] {
   ];
 }
 
-const MAX_LISTED_TOKENS = 40;
-
-/**
- * Require generated CSS to reference tokens rather than paste their values. A
- * colour cannot identify a token afterwards — Carbon points four at one blue.
- */
-function tokenReferenceDirective(data: unknown): string[] {
-  if (!data || typeof data !== "object") return [];
-  const kit = data as {
-    tokens?: unknown;
-    customCSS?: unknown;
-    colors?: object | null;
-    borders?: { radius?: string } | null;
-    spacing?: object | null;
-  };
-  const tokens = [
-    ...resolveBrandKitTokens(kit),
-    ...brandKitRoleTokens(kit),
-  ].filter((token) => token.type === "color");
-  if (tokens.length === 0) return [];
-
-  const seen = new Set<string>();
-  const listed: string[] = [];
-  for (const token of tokens) {
-    if (seen.has(token.cssVar)) continue;
-    seen.add(token.cssVar);
-    listed.push(`- ${token.cssVar}: ${token.value}`);
-    if (listed.length >= MAX_LISTED_TOKENS) break;
-  }
-
-  return [
-    "",
-    "### Reference these color tokens, do not paste their values",
-    "Write the token reference with its value as a fallback:",
-    // guard:allow-raw-color — the do/don't example shown to the generating agent
-    "  background: var(--color-accent, #0f62fe);   /* yes */",
-    // guard:allow-raw-color — the counter-example it must not copy
-    "  background: #0f62fe;                        /* no  */",
-    "The fallback is required — exports and unlinked designs define no custom",
-    "properties, and a bare var() renders transparent there. Define every token",
-    "you reference in the screen's `:root` block too.",
-    ...listed,
-    seen.size > MAX_LISTED_TOKENS
-      ? `- …and ${seen.size - MAX_LISTED_TOKENS} more; call get-design-system for the full set.`
-      : "",
-  ];
-}
-
 function buildDesignSystemAgentContext({
   id,
   title,
@@ -134,7 +82,6 @@ function buildDesignSystemAgentContext({
     "## Selected Design System Context",
     `Use "${title}" (id: ${id}) as the visual source of truth for this generation.`,
     "Apply these tokens, assets, and usage notes before choosing colors, type, spacing, radius, imagery, or component language.",
-    ...tokenReferenceDirective(parseJson(data)),
   ];
 
   if (description?.trim()) {

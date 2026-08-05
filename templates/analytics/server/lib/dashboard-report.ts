@@ -18,7 +18,6 @@ import {
   type DashboardReportCaptureOutcome,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
-import { ANALYTICS_DASHBOARD_REPORT_EMAIL_ID } from "./emails";
 
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date",
@@ -327,7 +326,6 @@ export async function sendDashboardReportSubscription(
         ? { attachments: rendered.attachments }
         : {}),
       timeoutMs: emailTimeoutMs,
-      templateId: ANALYTICS_DASHBOARD_REPORT_EMAIL_ID,
     });
   }
 

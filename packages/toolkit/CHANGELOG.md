@@ -1,12 +1,5 @@
 # @agent-native/toolkit
 
-## 0.13.2
-
-### Patch Changes
-
-- 9d271fe: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
-- 9d271fe: Keep the public app-config export available to browser-safe toolkit consumers.
-
 ## 0.13.1
 
 ### Patch Changes

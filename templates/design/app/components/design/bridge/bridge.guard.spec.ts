@@ -50,13 +50,7 @@ const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
-  "editor-chrome.bridge.ts": [
-    "@agent-native/toolkit/canvas-interactions",
-    // Dependency-free and inlined by esbuild, so the generated IIFE stays
-    // self-contained. It lives outside the bridge only so the cascade walk can
-    // be unit-tested against a real document.
-    "../../../../shared/authored-color-styles",
-  ],
+  "editor-chrome.bridge.ts": ["@agent-native/toolkit/canvas-interactions"],
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -10219,31 +10213,3 @@ it(
     }
   },
 );
-
-describe("inline style reporting covers colour properties", () => {
-  it("reports the authored colour declarations the inspector needs", () => {
-    // Dropping one silently shows a hex again, with nothing failing.
-    const source = readFileSync(
-      join(bridgeDir, "editor-chrome.bridge.ts"),
-      "utf-8",
-    );
-    const declaration = source.slice(
-      source.indexOf("var INLINE_STYLE_PROPERTIES = ["),
-      source.indexOf("function collectInlineStyles"),
-    );
-
-    for (const property of [
-      "color",
-      "backgroundColor",
-      "borderColor",
-      "outlineColor",
-    ]) {
-      expect(declaration).toContain(`"${property}"`);
-    }
-
-    // The generated bundle must carry them into the iframe.
-    for (const property of ["backgroundColor", "outlineColor"]) {
-      expect(editorChromeBridgeScript).toContain(`"${property}"`);
-    }
-  });
-});

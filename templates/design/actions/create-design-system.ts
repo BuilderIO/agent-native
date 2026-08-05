@@ -8,7 +8,6 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { assertStorableDesignSystemTokens } from "../server/lib/design-system-tokens.js";
 import {
   DESIGN_SYSTEM_TEMPLATE_IDS,
   getProductionDesignSystemTemplate,
@@ -40,13 +39,7 @@ export const createDesignSystemSchema = z
       .min(1, "data is required")
       .optional()
       .describe(
-        "JSON string of DesignSystemData (required without templateId; templates supply their verified token snapshot). " +
-          "Include a `tokens` array whenever the source names its tokens: " +
-          // guard:allow-raw-color — an agent-facing payload example, not a styled value
-          '[{ "name": "interactive-01", "cssVar": "--cds-interactive-01", "value": "#0F62FE", ' +
-          '"type": "color", "group": "Colors/Interactive", "source": "Carbon v11" }]. ' +
-          "The seven `colors` roles are a summary for generation, not a place to squash a " +
-          "real system's vocabulary into — send both.",
+        "JSON string of DesignSystemData (required without templateId; templates supply their verified token snapshot)",
       ),
     assets: z
       .string()
@@ -118,7 +111,15 @@ export default defineAction({
       throw new Error("title and data are required");
     }
 
-    assertStorableDesignSystemTokens(resolvedData);
+    // Validate that data is valid JSON and not an empty primitive.
+    try {
+      const parsed = JSON.parse(resolvedData);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error();
+      }
+    } catch {
+      throw new Error("data must be a valid JSON object string");
+    }
     if (assets) {
       try {
         JSON.parse(assets);
