@@ -54,6 +54,7 @@ export default defineAction({
       githubPollingEnabled: row.githubPollingEnabled === 1,
       sentryPollingEnabled: row.sentryPollingEnabled === 1,
       automationFailureAlertsEnabled: row.automationFailureAlertsEnabled === 1,
+      automationFailureAlertEmail: row.automationFailureAlertEmail,
       emailReadiness,
     };
   },

@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -50,6 +51,19 @@ export default defineAction({
     );
     const now = new Date().toISOString();
     const db = getDb();
+    const existing = (
+      await db
+        .select({
+          automationFailureAlertEmail: triageConfig.automationFailureAlertEmail,
+        })
+        .from(triageConfig)
+        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
+        .limit(1)
+    )[0];
+    const persistedAutomationFailureAlertEmail =
+      automationFailureAlertEmail ??
+      existing?.automationFailureAlertEmail ??
+      null;
     await db
       .insert(triageConfig)
       .values({
@@ -65,7 +79,7 @@ export default defineAction({
         sentryEnvironment: sentryEnvironment ?? null,
         repository: repository ?? null,
         automationFailureAlertsEnabled: automationFailureAlertsEnabled ? 1 : 0,
-        automationFailureAlertEmail: automationFailureAlertEmail ?? null,
+        automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
         createdAt: now,
         updatedAt: now,
         ownerEmail: userEmail,
@@ -87,7 +101,7 @@ export default defineAction({
           automationFailureAlertsEnabled: automationFailureAlertsEnabled
             ? 1
             : 0,
-          automationFailureAlertEmail: automationFailureAlertEmail ?? null,
+          automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
           updatedAt: now,
           ownerEmail: userEmail,
         },
@@ -99,7 +113,7 @@ export default defineAction({
       sentryPollingEnabled,
       slackChannelId: slackChannelId ?? null,
       automationFailureAlertsEnabled,
-      automationFailureAlertEmail: automationFailureAlertEmail ?? null,
+      automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
     };
   },
 });

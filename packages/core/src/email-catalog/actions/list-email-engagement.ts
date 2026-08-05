@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getRequestOrgId } from "../../server/request-context.js";
 import { authorizeTransactionalEmailRead } from "../authorize.js";
 import { fetchEmailEngagement } from "../provider-metrics.js";
 
@@ -14,5 +15,5 @@ export default defineAction({
   http: { method: "POST" },
   authorize: ({ templateIds }) => authorizeTransactionalEmailRead(templateIds),
   run: async ({ templateIds, windowDays }) =>
-    fetchEmailEngagement(templateIds, windowDays),
+    fetchEmailEngagement(templateIds, windowDays, getRequestOrgId()),
 });

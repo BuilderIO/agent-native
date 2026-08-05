@@ -12,6 +12,7 @@ vi.mock("../server/credential-provider.js", () => ({
   resolveSecret: mocks.resolveSecret,
 }));
 
+import { getScopedEmailProviderCategory } from "./log.js";
 import {
   fetchEmailActivity,
   fetchEmailEngagement,
@@ -29,7 +30,11 @@ describe("email provider metrics", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await fetchEmailEngagement(["core.reset-password"], 30);
+    const result = await fetchEmailEngagement(
+      ["core.reset-password"],
+      30,
+      "org-1",
+    );
 
     expect(result).toEqual({
       available: false,
@@ -46,7 +51,10 @@ describe("email provider metrics", () => {
       Response.json({
         stats: [
           {
-            name: "calendar.booking-confirmed",
+            name: getScopedEmailProviderCategory(
+              "calendar.booking-confirmed",
+              "org-1",
+            ),
             metrics: {
               delivered: 4,
               unique_opens: 3,
@@ -69,6 +77,7 @@ describe("email provider metrics", () => {
     const result = await fetchEmailEngagement(
       ["calendar.booking-confirmed"],
       30,
+      "org-1",
     );
 
     expect(result).toEqual({
@@ -99,13 +108,28 @@ describe("email provider metrics", () => {
     await fetchEmailActivity({
       templateId: "core.reset-password",
       limit: 25,
+      orgId: "org-1",
     });
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(url.pathname).toBe("/v3/messages");
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("query")).toBe(
-      'category="core.reset-password"',
+      `category="${getScopedEmailProviderCategory("core.reset-password", "org-1")}"`,
     );
+  });
+
+  it("fails closed when provider metrics lack an organization", async () => {
+    mocks.getEmailProvider.mockResolvedValue("sendgrid");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchEmailEngagement(["core.reset-password"], 30),
+    ).resolves.toEqual({
+      available: false,
+      reason: "Organization context is required for provider email metrics.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
