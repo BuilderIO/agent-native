@@ -234,27 +234,17 @@ export function AutomationEditorDialog({
       operation: automation ? "update" : "create",
       name: automation?.name ?? name.trim(),
       scope,
-      triggerType:
-        trigger === "email"
-          ? "event"
-          : trigger === "manual"
-            ? "manual"
-            : trigger,
+      triggerType: trigger === "email" ? "event" : trigger,
       body: body.trim(),
-      event:
-        trigger === "email"
-          ? EMAIL_EVENT
-          : trigger === "event"
-            ? eventName
-            : undefined,
-      schedule: trigger === "schedule" ? schedule : undefined,
-      timezone: trigger === "schedule" ? timezone : undefined,
-      condition:
-        trigger === "email"
-          ? emailCondition(emailFilters)
-          : trigger === "event"
-            ? eventCondition.trim() || null
-            : null,
+      ...(trigger === "schedule"
+        ? { schedule, timezone, condition: null }
+        : {}),
+      ...(trigger === "event"
+        ? { event: eventName, condition: eventCondition.trim() || null }
+        : {}),
+      ...(trigger === "email"
+        ? { event: EMAIL_EVENT, condition: emailCondition(emailFilters) }
+        : {}),
     };
     onSave(input);
   }

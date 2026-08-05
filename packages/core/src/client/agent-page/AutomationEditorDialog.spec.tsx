@@ -222,16 +222,65 @@ describe("AutomationEditorDialog", () => {
         scope,
         triggerType: "manual",
         body: "Summarize customer updates.",
-        event: undefined,
-        schedule: undefined,
-        timezone: undefined,
-        condition: null,
       });
       expect(document.body.textContent).toContain(
         `fixed to the ${scope} scope`,
       );
     },
   );
+
+  it("edits an existing manual automation without rejected trigger fields", () => {
+    render({
+      automation: explicitAutomation({
+        triggerType: "manual",
+        event: null,
+        schedule: null,
+        timezone: null,
+        condition: null,
+      }),
+    });
+
+    click("Save changes");
+
+    expect(onSave).toHaveBeenCalledWith({
+      operation: "update",
+      name: "customer-digest",
+      scope: "personal",
+      triggerType: "manual",
+      body: "Summarize customer updates.",
+    });
+    const payload = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
+    for (const field of ["event", "schedule", "timezone", "condition"]) {
+      expect(Object.hasOwn(payload, field)).toBe(false);
+    }
+  });
+
+  it("switches an existing event to manual without stale trigger fields", () => {
+    render({
+      automation: explicitAutomation({
+        triggerType: "event",
+        event: "issue.created",
+        schedule: null,
+        timezone: null,
+        condition: "Only customer-reported issues",
+      }),
+    });
+
+    click("On demand");
+    click("Save changes");
+
+    const payload = onSave.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload).toEqual({
+      operation: "update",
+      name: "customer-digest",
+      scope: "personal",
+      triggerType: "manual",
+      body: "Summarize customer updates.",
+    });
+    for (const field of ["event", "schedule", "timezone", "condition"]) {
+      expect(Object.hasOwn(payload, field)).toBe(false);
+    }
+  });
 
   it("submits and preserves an advanced cron schedule", () => {
     render();
