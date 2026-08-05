@@ -589,7 +589,7 @@ function AutomationsView({
   const healthQuery = useActionQuery<FactoryAutomationHealth>(
     "get-factory-automation-health",
     {},
-    { refetchInterval: 60_000, refetchIntervalInBackground: true },
+    { refetchInterval: 60_000 },
   );
   const saveMutation = useActionMutation("save-factory-automation");
   const runMutation = useActionMutation("run-factory-automation");
