@@ -80,7 +80,11 @@ export default function SpacesIndexRoute() {
         ) : (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))]">
             {spaces.map((s) => (
-              <SpaceCard key={s.id} space={s} onMutationSuccess={() => refetch?.()} />
+              <SpaceCard
+                key={s.id}
+                space={s}
+                onMutationSuccess={() => refetch?.()}
+              />
             ))}
           </div>
         )}
