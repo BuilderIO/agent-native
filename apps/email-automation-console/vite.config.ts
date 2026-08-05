@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "vite";
@@ -6,6 +8,10 @@ const reactRouterPlugins = reactRouter as unknown as () => any[];
 const agentNativePlugins = agentNative as unknown as (
   options?: Parameters<typeof agentNative>[0],
 ) => any[];
+const appRequire = createRequire(import.meta.url);
+const coreRequire = createRequire(
+  appRequire.resolve("@agent-native/core/vite"),
+);
 
 export default defineConfig({
   resolve: {
@@ -16,6 +22,16 @@ export default defineConfig({
       "@assistant-ui/core",
       "@assistant-ui/store",
       "@assistant-ui/tap",
+    ],
+    alias: [
+      {
+        find: /^assistant-stream$/,
+        replacement: coreRequire.resolve("assistant-stream"),
+      },
+      {
+        find: /^assistant-stream\/utils$/,
+        replacement: coreRequire.resolve("assistant-stream/utils"),
+      },
     ],
   },
   plugins: [

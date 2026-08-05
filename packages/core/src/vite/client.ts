@@ -963,6 +963,33 @@ function getReactRouterAliases(
 }
 
 /**
+ * Core's source graph can resolve assistant-stream from the framework
+ * checkout while the consuming app's assistant-ui package resolves a newer
+ * copy. Pin both public entry points to the consumer's installed peer graph.
+ */
+function getAssistantUiAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const coreViteEntry = appRequire.resolve("@agent-native/core/vite");
+    const coreRequire = createRequire(coreViteEntry);
+    return [
+      {
+        find: /^assistant-stream$/,
+        replacement: coreRequire.resolve("assistant-stream"),
+      },
+      {
+        find: /^assistant-stream\/utils$/,
+        replacement: coreRequire.resolve("assistant-stream/utils"),
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Every `@agent-native/core` subpath that gets a source alias. Must stay in
  * sync with `getCoreSourceAliases`. Used by `getDefaultOptimizeDeps` to skip
  * prebundling in monorepo mode, and by the consumer config to add them to
@@ -3527,6 +3554,7 @@ function createAgentNativeConfig(
       alias: [
         // Published npm installs: one react-router instance for app + core.
         ...getReactRouterAliases(cwd),
+        ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
