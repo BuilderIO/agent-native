@@ -14,12 +14,13 @@ import {
 
 export default defineAction({
   description:
-    "Compare the prepared appointment block windows against a work-calendar snapshot and identify overlapping events with external attendees. A connected-calendar agent can pass summarized events as lines like 'Customer call | Wed Oct 7, 2026 9am - 9:30am | attendees: person@example.com'. Do not report clear until a real calendar snapshot was checked.",
+    "Compare the prepared appointment block windows against a work-calendar snapshot and identify overlapping events with external attendees. A connected-calendar agent can pass summarized events as lines like 'Customer call | Wed Oct 7, 2026 9am - 9:30am | attendees: person@example.com'; an empty snapshot is a valid checked no-conflicts result. Do not report clear until a real calendar snapshot was checked.",
   schema: z.object({
     calendarText: z
       .string()
-      .min(1)
-      .describe("Bounded work-calendar events in the documented line format"),
+      .describe(
+        "Bounded work-calendar events in the documented line format; leave empty when the connected calendar returned no events",
+      ),
   }),
   outputSchema: appointmentPlanSchema,
   run: async ({ calendarText }) => {
@@ -27,8 +28,9 @@ export default defineAction({
     if (!stored)
       throw new Error("Prepare appointment blocks before checking conflicts.");
     const plan = appointmentPlanSchema.parse(stored);
-    const events = parseCalendarSnapshot(calendarText);
-    if (events.length === 0) {
+    const trimmedCalendarText = calendarText.trim();
+    const events = parseCalendarSnapshot(trimmedCalendarText);
+    if (events.length === 0 && trimmedCalendarText) {
       throw new Error(
         "No calendar events found. Include at least one dated event line or report that the connected calendar returned no events.",
       );

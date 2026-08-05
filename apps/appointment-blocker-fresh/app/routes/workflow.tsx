@@ -403,7 +403,7 @@ export default function AppointmentPlannerRoute() {
                   <Button
                     type="button"
                     onClick={checkConflicts}
-                    disabled={check.isPending || !calendarText.trim()}
+                    disabled={check.isPending}
                   >
                     {check.isPending ? "Checking..." : "Check conflicts"}
                   </Button>
@@ -466,7 +466,7 @@ export default function AppointmentPlannerRoute() {
                         type="button"
                         variant="outline"
                         onClick={checkConflicts}
-                        disabled={check.isPending || !calendarText.trim()}
+                        disabled={check.isPending}
                       >
                         {check.isPending ? "Checking..." : "Recheck conflicts"}
                       </Button>

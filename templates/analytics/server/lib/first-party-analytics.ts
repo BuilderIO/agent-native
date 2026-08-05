@@ -12,6 +12,7 @@ import {
   firstPartyCacheKey,
   withFirstPartyCache,
 } from "./first-party-analytics-cache.js";
+import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -42,10 +43,19 @@ export interface AnalyticsQueryOptions {
 
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
-const FIRST_PARTY_QUERY_TABLES = new Set([
+const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "analytics_events",
+  "analytics_event_daily_rollups",
+  "analytics_user_days",
   "session_recordings",
+] as const;
+const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
+const FIRST_PARTY_ROLLUP_TABLES = new Set([
+  "analytics_event_daily_rollups",
+  "analytics_user_days",
 ]);
+const FIRST_PARTY_QUERY_TABLE_PATTERN = FIRST_PARTY_QUERY_TABLE_NAMES.join("|");
+const FIRST_PARTY_QUERY_TABLE_LIST = FIRST_PARTY_QUERY_TABLE_NAMES.join(", ");
 const RESERVED_ALIAS_WORDS = new Set([
   "where",
   "on",
@@ -495,6 +505,19 @@ export async function recordAnalyticsEvents(
       .update(schema.analyticsPublicKeys)
       .set({ lastUsedAt: receivedAt })
       .where(eq(schema.analyticsPublicKeys.id, key.id));
+
+    try {
+      await upsertFirstPartyAnalyticsRollups(rows);
+    } catch (error) {
+      // Raw events are the durable ingest record. Keep /track available when
+      // a rollup write is temporarily unavailable; the warning preserves the
+      // failure signal for operators without turning a successful raw ingest
+      // into a client retry and duplicate event batch.
+      console.warn(
+        "[first-party-analytics] Rollup update failed after raw ingest:",
+        error,
+      );
+    }
   }
 
   // Fork captured exceptions into the dedicated error-capture tables. This is
@@ -608,13 +631,11 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
     }
     if (cteNames.has(ref)) continue;
     throw new Error(
-      `First-party analytics queries can only read analytics_events or session_recordings (found ${match[1]})`,
+      `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found ${match[1]})`,
     );
   }
   if (!usesAllowedTable) {
-    throw new Error(
-      "Query must read from analytics_events or session_recordings",
-    );
+    throw new Error(`Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`);
   }
 }
 
@@ -626,6 +647,22 @@ function scopedTableSource(
   sql: string;
   args: Array<string | null>;
 } {
+  if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
+    const tenantKeys = scope.orgId
+      ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
+      : [`user:${scope.userEmail}`];
+    const branches = tenantKeys.map(
+      () =>
+        `SELECT * FROM ${tableName} WHERE tenant_key = ? AND event_date <= ?`,
+    );
+    return {
+      // Rollups have a tenant_key/event_date index. Keep the org and personal
+      // fallback branches separate so rollup reads stay indexable as well.
+      sql: `(${branches.join(" UNION ALL ")})`,
+      args: tenantKeys.flatMap((tenantKey) => [tenantKey, today]),
+    };
+  }
+
   const freshness = freshnessClause(tableName);
   if (scope.orgId) {
     return {
@@ -655,8 +692,10 @@ export function scopedAnalyticsSql(
   today = todayIsoDate(),
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
-  const aliasRe =
-    /\b(from|join)\s+(analytics_events|session_recordings)\b(\s+(?:as\s+)?(?!where\b|on\b|group\b|order\b|limit\b|join\b|left\b|right\b|inner\b|outer\b|cross\b|full\b|having\b|union\b)([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
+  const aliasRe = new RegExp(
+    `\\b(from|join)\\s+(${FIRST_PARTY_QUERY_TABLE_PATTERN})\\b(\\s+(?:as\\s+)?(?!where\\b|on\\b|group\\b|order\\b|limit\\b|join\\b|left\\b|right\\b|inner\\b|outer\\b|cross\\b|full\\b|having\\b|union\\b)([a-zA-Z_][a-zA-Z0-9_]*))?`,
+    "gi",
+  );
   const rewritten = sql.replace(
     aliasRe,
     (full, keyword, tableName, aliasPart, alias) => {

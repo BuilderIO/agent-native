@@ -60,6 +60,11 @@ const MONTHS: Record<string, number> = {
 
 const DATE_RANGE_PATTERN =
   /(?:mon|tue|wed|thu|fri|sat|sun)?\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2}),?\s+(\d{4}).*?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i;
+const PACIFIC_TIME_ZONE = "America/Los_Angeles";
+const PACIFIC_OFFSET_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: PACIFIC_TIME_ZONE,
+  timeZoneName: "longOffset",
+});
 
 function parseClock(
   hour: string,
@@ -89,9 +94,23 @@ function formatIso(
   ).toISOString();
 }
 
-function offsetForText(line: string) {
+function offsetForPacificDate(year: number, month: number, day: number) {
+  const timeZoneName = PACIFIC_OFFSET_FORMATTER.formatToParts(
+    new Date(Date.UTC(year, month, day, 12)),
+  ).find((part) => part.type === "timeZoneName")?.value;
+  const match = timeZoneName?.match(/^GMT([+-]\d{2}:\d{2})$/);
+  if (!match) {
+    throw new Error(
+      `Could not determine the Pacific offset for ${year}-${month + 1}-${day}.`,
+    );
+  }
+  return match[1];
+}
+
+function offsetForText(line: string, year: number, month: number, day: number) {
   if (/\bPST\b/i.test(line)) return "-08:00";
-  return "-07:00";
+  if (/\bPDT\b/i.test(line)) return "-07:00";
+  return offsetForPacificDate(year, month, day);
 }
 
 export function parseDateRange(line: string) {
@@ -104,7 +123,7 @@ export function parseDateRange(line: string) {
   const day = Number(match[2]);
   const start = parseClock(match[4], match[5], match[6]);
   const end = parseClock(match[7], match[8], match[9]);
-  const offset = offsetForText(line);
+  const offset = offsetForText(line, year, month, day);
 
   return {
     startTime: formatIso(year, month, day, start.hour, start.minute, offset),
