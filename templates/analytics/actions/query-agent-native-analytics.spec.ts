@@ -54,7 +54,7 @@ describe("query-agent-native-analytics", () => {
       /updated transactionally with new ingest/i,
     );
     expect(action.description).toMatch(
-      /not automatically backfilled from existing analytics_events/i,
+      /durable scheduled job backfills existing analytics_events/i,
     );
     expect(action.description).toMatch(/bounded recent drill-downs/i);
     expect(action.description).toMatch(/all-time|lifetime/i);

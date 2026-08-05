@@ -28,12 +28,19 @@ does not require a customer warehouse connection.
 Before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
 `healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
-1M+ events, repeated slow queries, or a timeout/30-second query. If BigQuery is
-not configured, use the returned setup link or `data-source-status --key
-bigquery` to guide the user through the existing Data Sources walkthrough. Do
-not silently move the collector: `/track` still lands in first-party Analytics,
-and BigQuery is the opt-in backend for high-volume or historical analysis after
-the user connects it.
+1M+ events, repeated slow queries, or a timeout/30-second query. Treat that
+status as a compatibility name for an external-backend recommendation, not as
+a requirement to use BigQuery. The health result lists the supported options:
+
+- BigQuery for warehouse SQL and complete historical analysis.
+- Amplitude for product analytics, funnels, and retention.
+
+If a suitable backend is not configured, use its returned setup link or
+`data-source-status --key <provider>` to guide the user through the existing
+Data Sources walkthrough. Do not silently move the collector: `/track` still
+lands in first-party Analytics, and connecting a query backend does not
+automatically copy existing Neon events. Use the provider's explicit collection
+or export path before querying that backend.
 
 Example pageviews query for a local calendar day:
 

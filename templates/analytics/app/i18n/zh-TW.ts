@@ -511,6 +511,23 @@ const messages = {
     searchPlaceholder: "搜尋資料來源...",
     noMatch: "沒有資料來源匹配“{{search}}”",
   },
+  analyticsBackend: {
+    recommendationTitle: "針對大量歷史資料使用外部分析後端",
+    recommendationDescription:
+      "Neon 仍是近期營運分析的預設選擇。連線 BigQuery 以使用資料倉儲 SQL 和歷史分析，或連線 Amplitude 以進行產品分析、漏斗和留存分析。連線後不會自動搬移 /track 事件或回填現有 Neon 資料。",
+    connectedTitle: "外部分析後端已就緒",
+    connectedDescription:
+      "使用 BigQuery 進行資料倉儲 SQL 和歷史分析，或使用 Amplitude 進行產品分析、漏斗和留存分析。內建的 /track 收集器仍會寫入第一方 Analytics，除非您明確設定其他收集路徑。",
+    options: "外部選項",
+    monitorDescription:
+      "Neon 目前仍然適合。請留意事件量和查詢延遲；如果壓力增加，此卡片會建議外部後端。",
+    healthyDescription:
+      "Neon 目前適合這項第一方資料。如果事件量或查詢延遲增加，我們會建議 BigQuery 或 Amplitude。",
+    unavailableDescription:
+      "現在無法檢查第一方 Analytics 壓力。請重新載入後再嘗試更換後端。",
+    configured: "已設定",
+    setUp: "設定",
+  },
   panelEditor: {
     chartTypeLine: "線",
     chartTypeArea: "區域",

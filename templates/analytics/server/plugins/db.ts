@@ -1,4 +1,5 @@
 import {
+  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
@@ -9,6 +10,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { isHistoricalAnalyticsRollupBackfillComplete } from "../jobs/analytics-rollup-backfill.js";
 import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
@@ -1378,6 +1380,34 @@ const runAnalyticsMigrations = runMigrations(
       version: 132,
       name: "analytics-rollups-historical-backfill",
       sql: {},
+    },
+    {
+      version: 133,
+      name: "analytics-rollups-historical-backfill-state",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+      },
+    },
+    {
+      version: 134,
+      name: "analytics-rollups-historical-backfill-repair",
+      sql: {},
+      run: async () => {
+        if (!(await isHistoricalAnalyticsRollupBackfillComplete())) {
+          return deferMigration();
+        }
+      },
     },
   ],
   { table: "analytics_migrations" },
