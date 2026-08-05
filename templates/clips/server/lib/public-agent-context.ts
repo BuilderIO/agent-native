@@ -294,7 +294,9 @@ export async function loadPublicAgentAccess(
   // Every agent API route funnels through here, so this is the one place that
   // sees an outside agent read a clip. Owner requests are previews, not views.
   if (!viewerIsOwner) {
-    await recordAgentView(event, recording.id);
+    await recordAgentView(event, recording.id, {
+      agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
+    });
   }
 
   return {

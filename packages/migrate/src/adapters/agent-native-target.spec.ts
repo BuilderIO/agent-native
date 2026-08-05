@@ -101,6 +101,12 @@ describe("scaffoldAgentNativeTarget", () => {
     expect(packageJson.private).toBe(true);
     expect(packageJson.scripts.dev).toBe("agent-native dev --open");
 
+    const agentRoute = await fs.readFile(
+      path.join(outputRoot, "app/routes/agent.tsx"),
+      "utf-8",
+    );
+    expect(agentRoute).toContain("AgentTabsPage");
+
     const navigateAction = await fs.readFile(
       path.join(outputRoot, "actions/navigate.ts"),
       "utf-8",
@@ -204,7 +210,7 @@ describe("scaffoldAgentNativeTarget", () => {
     ).toHaveLength(1);
     expect(
       result.changedFiles.filter((file) => file.startsWith("app/routes/")),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(result.changedFiles).not.toContain("app/routes/.tsx");
   });
 

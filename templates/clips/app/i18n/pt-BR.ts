@@ -839,6 +839,9 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     viewsCount_one: "{{count}} visualização",
     viewsCount_many: "{{count}} visualizações",
     viewsCount_other: "{{count}} visualizações",
+    agentViewsCount_one: "{{count}} visualização de agente de IA",
+    agentViewsCount_many: "{{count}} visualizações de agentes de IA",
+    agentViewsCount_other: "{{count}} visualizações de agentes de IA",
     totalViewsSummary:
       "{{total}} visualizações no total, {{unique}} visualizadores únicos",
     viewsTab: "Visualizações",
@@ -846,6 +849,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     humanViews: "Visualizações humanas",
     agentViews: "Visualizações de agentes de IA",
     noAgentViewsYet: "Ainda não há visualizações de agentes de IA.",
+    unknownAgent: "Agente desconhecido",
     totalVideoViews: "Total de visualizações do vídeo",
     averageCompletionRate: "Taxa média de conclusão",
     moreInsights: "Mais insights",
@@ -1121,6 +1125,19 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     useColor: "Usar cor {{color}}",
     spaceCreated: "Espaço criado",
     createFailed: "Não foi possível criar o espaço",
+  },
+  spaceDialog: {
+    deleteSpace: "Excluir espaço",
+    renameSpace: "Renomear espaço",
+    deleteTitle: 'Excluir "{{name}}"?',
+    deleteDescription:
+      "Isso excluirá o espaço e o removerá de todas as gravações. Esta ação não pode ser desfeita.",
+    renamed: "Espaço renomeado",
+    deleted: '"{{name}}" excluído',
+    renameFailed: "Falha ao renomear o espaço",
+    deleteFailed: "Falha ao excluir o espaço",
+    renaming: "Renomeando...",
+    deleting: "Excluindo...",
   },
   signInPrompt: {
     title: "Entre para {{intent}}",

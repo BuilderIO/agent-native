@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -114,12 +114,13 @@ export default defineAction({
     }
 
     if (args.id) {
+      const propertyId = args.id;
       const [existing] = await db
         .select()
         .from(schema.documentPropertyDefinitions)
         .where(
           and(
-            eq(schema.documentPropertyDefinitions.id, args.id),
+            eq(schema.documentPropertyDefinitions.id, propertyId),
             eq(
               schema.documentPropertyDefinitions.ownerEmail,
               document.ownerEmail,
@@ -127,7 +128,7 @@ export default defineAction({
             eq(schema.documentPropertyDefinitions.databaseId, database.id),
           ),
         );
-      if (!existing) throw new Error(`Property "${args.id}" not found`);
+      if (!existing) throw new Error(`Property "${propertyId}" not found`);
       if (existing.systemRole) {
         throw new Error("System properties cannot be changed.");
       }
@@ -158,42 +159,122 @@ export default defineAction({
         optionsJson = serializePropertyOptions({ blocks: { primary: true } });
       }
 
-      if (existing.type !== type) {
-        await db
-          .delete(schema.documentPropertyValues)
+      await db.transaction(async (tx) => {
+        const [lockedDatabase] = await tx
+          .update(schema.contentDatabases)
+          .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
           .where(
             and(
-              eq(schema.documentPropertyValues.propertyId, args.id),
-              eq(schema.documentPropertyValues.ownerEmail, document.ownerEmail),
+              eq(schema.contentDatabases.id, database.id),
+              eq(schema.contentDatabases.documentId, database.documentId),
+              eq(schema.contentDatabases.ownerEmail, document.ownerEmail),
+              isNull(schema.contentDatabases.deletedAt),
             ),
-          );
-        // Switching a Blocks field to another type drops its independent content.
+          )
+          .returning({ id: schema.contentDatabases.id });
+        if (!lockedDatabase) throw new Error("Database is no longer active.");
+        const [lockedExisting] = await tx
+          .update(schema.documentPropertyDefinitions)
+          .set({
+            updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
+          })
+          .where(
+            and(
+              eq(schema.documentPropertyDefinitions.id, propertyId),
+              eq(
+                schema.documentPropertyDefinitions.ownerEmail,
+                document.ownerEmail,
+              ),
+              eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            ),
+          )
+          .returning();
+        if (!lockedExisting)
+          throw new Error(`Property "${propertyId}" not found`);
+        if (lockedExisting.systemRole)
+          throw new Error("System properties cannot be changed.");
         if (
-          isBlocksPropertyType(existing.type as DocumentPropertyType) &&
-          !isBlocksPropertyType(type)
+          isComputedPropertyType(lockedExisting.type as DocumentPropertyType) &&
+          lockedExisting.type !== type
         ) {
-          await db
-            .delete(schema.documentBlockFieldContents)
-            .where(eq(schema.documentBlockFieldContents.propertyId, args.id));
+          throw new Error("Computed property types cannot be changed.");
         }
-      }
+        const lockedIsPrimaryBlocks =
+          isBlocksPropertyType(lockedExisting.type as DocumentPropertyType) &&
+          isPrimaryBlocksField(
+            parsePropertyOptions(lockedExisting.optionsJson),
+          );
+        if (lockedIsPrimaryBlocks && lockedExisting.type !== type) {
+          throw new Error(
+            "The primary Content (Blocks) field cannot change type. Delete it from the database view to remove the body.",
+          );
+        }
 
-      await db
-        .update(schema.documentPropertyDefinitions)
-        .set({
-          name,
-          ...(args.description === undefined
-            ? {}
-            : { description: args.description.trim() }),
-          type,
-          visibility:
-            args.visibility === undefined
-              ? normalizePropertyVisibility(existing.visibility)
-              : normalizePropertyVisibility(args.visibility),
-          optionsJson,
-          updatedAt: now,
-        })
-        .where(eq(schema.documentPropertyDefinitions.id, args.id));
+        if (lockedExisting.type !== type) {
+          const [mappedSourceField] = await tx
+            .select({ id: schema.contentDatabaseSourceFields.id })
+            .from(schema.contentDatabaseSourceFields)
+            .where(
+              eq(schema.contentDatabaseSourceFields.propertyId, propertyId),
+            )
+            .limit(1);
+          if (mappedSourceField) {
+            throw new Error(
+              "A property bound to a source field must be unbound before changing its type.",
+            );
+          }
+          await tx
+            .delete(schema.documentPropertyValues)
+            .where(
+              and(
+                eq(schema.documentPropertyValues.propertyId, propertyId),
+                eq(
+                  schema.documentPropertyValues.ownerEmail,
+                  document.ownerEmail,
+                ),
+              ),
+            );
+          await tx
+            .delete(schema.contentDatabaseItemKeyClaims)
+            .where(
+              and(
+                eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+                eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+              ),
+            );
+          // Switching a Blocks field to another type drops its independent content.
+          if (
+            isBlocksPropertyType(lockedExisting.type as DocumentPropertyType) &&
+            !isBlocksPropertyType(type)
+          ) {
+            await tx
+              .delete(schema.documentBlockFieldContents)
+              .where(
+                eq(schema.documentBlockFieldContents.propertyId, propertyId),
+              );
+          }
+        }
+
+        await tx
+          .update(schema.documentPropertyDefinitions)
+          .set({
+            name,
+            ...(args.description === undefined
+              ? {}
+              : { description: args.description.trim() }),
+            type,
+            visibility:
+              args.visibility === undefined
+                ? normalizePropertyVisibility(lockedExisting.visibility)
+                : normalizePropertyVisibility(args.visibility),
+            optionsJson:
+              lockedIsPrimaryBlocks && isBlocksPropertyType(type)
+                ? serializePropertyOptions({ blocks: { primary: true } })
+                : optionsJson,
+            updatedAt: now,
+          })
+          .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+      });
     } else {
       await withPositionLock(
         propertyDefinitionsPositionScope(database.id),

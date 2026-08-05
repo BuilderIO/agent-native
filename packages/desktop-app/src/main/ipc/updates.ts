@@ -80,6 +80,13 @@ function publishDownloadedUpdate() {
   showUpdateReadyNotification(update.version);
 }
 
+function hasUpdateReadyToInstall(): boolean {
+  return (
+    pendingDownloadedUpdate !== null ||
+    currentUpdateStatus.state === "downloaded"
+  );
+}
+
 async function waitForDownloadedUpdate(
   downloadPromise: Promise<unknown> | null | undefined,
 ) {
@@ -92,7 +99,7 @@ export async function checkForAppUpdates(
   options: UpdateCheckOptions = {},
 ): Promise<UpdateStatus> {
   if (IS_DEV) return currentUpdateStatus;
-  if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
+  if (hasUpdateReadyToInstall()) return currentUpdateStatus;
 
   if (!updateCheckInFlight) {
     lastUpdateCheckStartedAt = Date.now();
@@ -121,7 +128,7 @@ export async function checkForAppUpdates(
 
 function maybeCheckForAppUpdates() {
   if (IS_DEV) return;
-  if (currentUpdateStatus.state === "downloaded") return;
+  if (hasUpdateReadyToInstall()) return;
   if (
     updateCheckInFlight ||
     Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
@@ -218,6 +225,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     autoUpdater.on("update-downloaded", (info) => {
       // On macOS this event precedes native Squirrel staging; publish only
       // after the download promise resolves so the first relaunch can install.
+      if (hasUpdateReadyToInstall()) return;
       pendingDownloadedUpdate = {
         state: "downloaded",
         version: info.version,
@@ -253,7 +261,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   });
 
   ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-    if (IS_DEV) return currentUpdateStatus;
+    if (IS_DEV || hasUpdateReadyToInstall()) return currentUpdateStatus;
     try {
       await waitForDownloadedUpdate(autoUpdater.downloadUpdate());
     } catch (err) {

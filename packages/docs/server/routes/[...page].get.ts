@@ -15,6 +15,7 @@ import {
 } from "h3";
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
+import { wrapDocumentResponse } from "../../lib/analytics";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,7 +57,7 @@ export default async function docsPageHandler(event: H3Event) {
   }
 
   const response = await ssrHandler(event);
-  return responseWithVaryAccept(response);
+  return responseWithVaryAccept(wrapDocumentResponse(response));
 }
 
 function setSsrCacheHeaders(event: H3Event) {

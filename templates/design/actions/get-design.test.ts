@@ -127,6 +127,15 @@ describe("get-design", () => {
     );
   });
 
+  it("returns an explicit not-found error for a deleted or inaccessible design", async () => {
+    mocks.resolveAccess.mockResolvedValueOnce(null);
+
+    await expect(action.run({ id: "missing-design" })).rejects.toMatchObject({
+      message: "Design not found",
+      statusCode: 404,
+    });
+  });
+
   it("returns only the read-only preview token to an editor", async () => {
     mocks.resolveAccess.mockResolvedValueOnce({
       role: "editor",

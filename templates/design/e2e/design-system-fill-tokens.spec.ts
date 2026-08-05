@@ -79,7 +79,9 @@ test("a picked design system token names the fill it came from", async ({
 
   // Selection colors reads the same authored declaration, so it must agree with
   // the Fill row rather than printing the hex the reference resolves to.
-  await page.keyboard.press("Escape");
+  // Not Escape: that reverts the hex input's draft to its last committed value
+  // and blurs, which rolls the pick back before this assertion can see it.
+  await trigger.click();
   await page
     .getByRole("button", { name: "Show selection colors" })
     .click()

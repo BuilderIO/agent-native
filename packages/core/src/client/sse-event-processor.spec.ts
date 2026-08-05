@@ -682,6 +682,72 @@ describe("SSE replay render pacing", () => {
     ]);
   });
 
+  it("streams partial tool input into one card before upgrading it", async () => {
+    const events = [
+      { type: "tool_input_start", id: "call-1", tool: "add-slide" },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\">',
+      },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: "<h1>Live title",
+      },
+      {
+        type: "tool_start",
+        id: "call-1",
+        tool: "add-slide",
+        input: {
+          deckId: "deck-1",
+          content: '<div class="fmd-slide"><h1>Live title</h1></div>',
+        },
+      },
+      {
+        type: "tool_done",
+        id: "call-1",
+        tool: "add-slide",
+        result: '{"slideId":"slide-1"}',
+      },
+      { type: "done" },
+    ];
+
+    const results = (await drain(
+      readSSEStream(eventStream(events), [], { value: 0 }, undefined),
+    )) as any[];
+
+    expect(results[2].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        activity: true,
+        argsText:
+          '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\"><h1>Live title',
+      }),
+    ]);
+    expect(results[3].content).toEqual([
+      {
+        type: "tool-call",
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        argsText: JSON.stringify(events[3].input),
+        args: events[3].input,
+      },
+    ]);
+    expect(results.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolCallId: "call-1",
+          toolName: "add-slide",
+          result: '{"slideId":"slide-1"}',
+        }),
+      ]),
+    );
+  });
+
   it("marks synthetic agent-call cards as presentation-only activity", async () => {
     const results = (await drain(
       readSSEStream(
@@ -1926,7 +1992,7 @@ describe("SSE event processor error classification", () => {
         type: "agent-chat:run-error",
         detail: {
           message:
-            "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+            "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
           details: "401 status code (no body)",
           tabId: "tab-provider-auth",
         },
@@ -1939,7 +2005,7 @@ describe("SSE event processor error classification", () => {
       content: [
         {
           type: "text",
-          text: "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+          text: "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
         },
       ],
       status: { type: "incomplete", reason: "error" },
@@ -1947,7 +2013,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           runError: {
             message:
-              "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+              "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
             details: "401 status code (no body)",
           },
         },

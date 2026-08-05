@@ -236,6 +236,18 @@ const migrations = [
         ON factory_comments (org_id, factory_id, created_at);
     `,
   },
+  {
+    version: 16,
+    name: "factory-source-polling-settings",
+    sql: `
+      ALTER TABLE factory_config ADD COLUMN github_polling_enabled INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE factory_config ADD COLUMN sentry_polling_enabled INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE factory_config ADD COLUMN sentry_org_slug TEXT;
+      ALTER TABLE factory_config ADD COLUMN sentry_project_slug TEXT;
+      ALTER TABLE factory_config ADD COLUMN sentry_environment TEXT;
+      ALTER TABLE factory_config ADD COLUMN last_sentry_seen_at TEXT;
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

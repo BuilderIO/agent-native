@@ -84,7 +84,6 @@ import {
   IconRotate3d,
   IconShadow,
   IconSquare,
-  IconTypography,
   IconUnlink,
   IconVector,
   IconWaveSine,
@@ -230,7 +229,6 @@ import {
   InspectorSegment,
   RowDragHandle,
   SectionIconButton,
-  SectionIconToggle,
   useRowDragReorder,
 } from "./edit-panel/inspector-controls";
 import {
@@ -337,7 +335,7 @@ import {
   type MotionKeyframeCssProperty,
   type ScrubInputChangeMeta,
 } from "./inspector";
-import { IconLayoutSettings } from "./inspector/design-icons";
+import { IconLayoutSettings, IconText } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
 import {
   GlslShaderEffectSection,
@@ -1165,7 +1163,7 @@ function CodeInspectPanel({
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
-  if (TEXT_TAGS.has(tag)) return IconTypography;
+  if (TEXT_TAGS.has(tag)) return IconText;
   if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
   if (tag === "svg" || tag === "path") return IconVector;
   if (tag === "button" || tag === "a") return IconComponents;
@@ -1587,9 +1585,19 @@ function ExportPreview({
 }) {
   const t = useT();
   const rect = element?.boundingRect;
-  const width = rect?.width ?? 0;
-  const height = rect?.height ?? 0;
-  const aspect = width > 0 && height > 0 ? width / height : 1;
+  // Selection sources disagree on whether boundingRect is populated (layer-tree
+  // picks in overview report nothing), so the rendered bitmap — which exists
+  // only once a real capture succeeded — is the honest size to caption with.
+  const [rendered, setRendered] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const width = rendered?.width ?? rect?.width ?? null;
+  const height = rendered?.height ?? rect?.height ?? null;
+  const aspect =
+    width != null && height != null && width > 0 && height > 0
+      ? width / height
+      : 1;
   const [state, setState] = useState<
     | { status: "idle" }
     | { status: "loading" }
@@ -1605,6 +1613,7 @@ function ExportPreview({
     let cancelled = false;
     let objectUrl: string | null = null;
     setState({ status: "loading" });
+    setRendered(null);
     void onRender()
       .then((blob) => {
         if (cancelled) return;
@@ -1638,6 +1647,12 @@ function ExportPreview({
             style={{
               imageRendering: "auto",
             }}
+            onLoad={(event) =>
+              setRendered({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              })
+            }
           />
         ) : (
           <div className="flex size-full items-center justify-center rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] px-2 text-center !text-[10px] text-muted-foreground">
@@ -1647,9 +1662,43 @@ function ExportPreview({
           </div>
         )}
       </div>
-      <p className="mt-2 text-center text-[10px] tabular-nums text-muted-foreground">
-        {Math.round(width)} × {Math.round(height)}
-      </p>
+      {width != null && height != null ? (
+        <p className="mt-2 text-center text-[10px] tabular-nums text-muted-foreground">
+          {Math.round(width)} × {Math.round(height)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Named, collapsed-by-default "Preview" row. An icon-only toggle in the
+ *  section header reads as "export an image", not "reveal what will export". */
+function ExportPreviewDisclosure({
+  element,
+  onRender,
+}: {
+  element: ElementInfo | null;
+  onRender?: () => Promise<Blob>;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = "Preview"; // i18n-ignore design inspector label
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((shown) => !shown)}
+        aria-expanded={open}
+        className="flex cursor-pointer items-center gap-1 !text-[11px] font-medium text-muted-foreground hover:text-foreground"
+      >
+        {open ? (
+          <IconChevronDown className="size-3 shrink-0" />
+        ) : (
+          <IconChevronRight className="size-3 shrink-0 rtl:-scale-x-100" />
+        )}
+        {label}
+      </button>
+      {open ? <ExportPreview element={element} onRender={onRender} /> : null}
     </div>
   );
 }
@@ -1821,7 +1870,6 @@ export const EditPanel = memo(function EditPanel({
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
     DEFAULT_EXPORT_SETTINGS,
   );
-  const [showExportPreview, setShowExportPreview] = useState(false);
   // Element interaction-state selector (Default / Hover / Focus / …). Owned
   // here (not lifted to the parent) per the mission contract — DesignEditor
   // only needs to react to changes via onInteractionStateChange, it doesn't
@@ -1966,7 +2014,6 @@ export const EditPanel = memo(function EditPanel({
 
   useEffect(() => {
     setExportSettings(DEFAULT_EXPORT_SETTINGS);
-    setShowExportPreview(false);
   }, [selectedElementKey]);
 
   useEffect(() => {
@@ -2411,22 +2458,7 @@ export const EditPanel = memo(function EditPanel({
                 </>
               )}
               {onExport ? (
-                <PanelSection
-                  title={t("editPanel.sections.export")}
-                  actions={
-                    <SectionIconToggle
-                      label={
-                        showExportPreview
-                          ? "Hide preview" /* i18n-ignore design inspector action */
-                          : "Show preview" /* i18n-ignore design inspector action */
-                      }
-                      active={showExportPreview}
-                      onClick={() => setShowExportPreview((shown) => !shown)}
-                    >
-                      <IconPhoto className="size-3.5" />
-                    </SectionIconToggle>
-                  }
-                >
+                <PanelSection title={t("editPanel.sections.export")}>
                   <ExportSettingsPanel
                     key={selectedElementKey}
                     value={exportSettings}
@@ -2445,12 +2477,14 @@ export const EditPanel = memo(function EditPanel({
                     }
                     onExport={onExport}
                   />
-                  {showExportPreview ? (
-                    <ExportPreview
-                      element={inspectorElement}
-                      onRender={onRenderExportPreview}
-                    />
-                  ) : null}
+                  {/* Distinct from the settings panel's key: two siblings
+                      sharing one key makes React duplicate the panel on every
+                      re-render, so the section grows an Export block per tick. */}
+                  <ExportPreviewDisclosure
+                    key={`${selectedElementKey}:preview`}
+                    element={inspectorElement}
+                    onRender={onRenderExportPreview}
+                  />
                 </PanelSection>
               ) : null}
 

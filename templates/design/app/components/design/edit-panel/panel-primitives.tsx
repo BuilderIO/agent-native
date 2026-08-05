@@ -3,6 +3,7 @@ import {
   rgbaToCss,
   withColorOpacity,
 } from "@shared/color-utils";
+import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -670,14 +671,9 @@ export function PropSlider({
 }
 
 /**
- * design-editor inspector section. Matches the design editor "Design" panel chrome:
- *   - NO left collapse chevron (the design editor uses none).
- *   - A thin divider line above each section.
- *   - A bold left-aligned title.
- *   - Right-aligned action icons (add layer, toggles, styles, etc.).
- *
- * The title is still clickable to collapse the body (design sections collapse
- * on title click) but renders no chevron glyph, just the same way.
+ * design-editor inspector section: divider above, title left, actions right.
+ * Without the leading chevron a collapsed section is indistinguishable from a
+ * section with nothing to show, so the panel reads as fixed, not expandable.
  */
 export function PanelSection({
   title,
@@ -697,10 +693,15 @@ export function PanelSection({
       <div className="flex min-h-9 items-center gap-2 px-3">
         <button
           type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center bg-transparent text-left"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 bg-transparent text-left"
           onClick={() => setCollapsed((c) => !c)}
           aria-expanded={!collapsed}
         >
+          {collapsed ? (
+            <IconChevronRight className="size-3 shrink-0 text-muted-foreground/50 rtl:-scale-x-100" />
+          ) : (
+            <IconChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
+          )}
           <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
             {title}
           </h3>

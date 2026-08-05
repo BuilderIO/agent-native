@@ -173,7 +173,7 @@ function sourcePolicyEnforcement(args: {
 
 export default defineAction({
   description:
-    "Answer a company-knowledge question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin. The external-facing public-agent company lookup: returns a cited answer plus deep links into the Brain knowledge/capture records.",
+    "Answer a company-knowledge question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin. Use this for every company-specific factual question instead of answering from general model knowledge. Returns a cited answer plus deep links into the Brain knowledge/capture records.",
   schema: z.object({
     question: z.string().min(1),
     mode: z.enum(["cited"]).default("cited"),

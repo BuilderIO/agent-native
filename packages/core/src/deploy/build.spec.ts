@@ -854,6 +854,8 @@ export default (event) =>
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("streamController.enqueue");
+    expect(html).not.toContain("dev server");
+    expect(html).not.toContain("browser console");
     expect(html).toContain("loaderData");
     expect(html).not.toContain("en-US");
   });
@@ -1595,6 +1597,35 @@ describe("runNitroBuildPipeline", () => {
     ).toBe(true);
   });
 
+  it("does not mirror again when the preset already mounted publicDir at the base path", async () => {
+    const { cwd, clientDir } = setupFixture();
+    // Nitro's netlify preset resolves publicDir to `dist{{ baseURL }}`, so the
+    // public dir IS the mount path. Mirroring again wrote a whole second client
+    // build at dist/docs/docs that only the workspace deploy ever deleted.
+    const publicOutputDir = path.join(cwd, "dist", "docs");
+    fs.mkdirSync(publicOutputDir, { recursive: true });
+
+    await runNitroBuildPipeline({
+      nitro: { options: { output: { publicDir: publicOutputDir } } },
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "/docs",
+      cwd,
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(publicOutputDir, "assets", "entry.client-abc.js"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(publicOutputDir, "docs"))).toBe(false);
+  });
+
   it("adds exact immutable route rules for copied hashed client assets", async () => {
     const { cwd, clientDir, publicOutputDir } = setupFixture();
     const nitro: any = {
@@ -1972,6 +2003,26 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain("cachedHandler(rewritten, context)");
     expect(entry).toMatch(/try\s*\{/);
     expect(entry).toContain("wrapper failed before reaching the route");
+  });
+
+  it("hard-links the handler bundle instead of writing a second copy of it", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    const source = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_libs",
+      "yjs.mjs",
+    );
+    const clone = path.join(backgroundDir(cwd), "_libs", "yjs.mjs");
+    // Same inode: the extra function costs its entry file, not another whole
+    // server bundle. Netlify still zips each function separately, so this is
+    // invisible to the deploy — a hard link IS a regular file to every reader.
+    expect(fs.statSync(clone).ino).toBe(fs.statSync(source).ino);
   });
 
   it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {

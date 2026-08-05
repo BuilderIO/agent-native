@@ -1,12 +1,12 @@
 /**
  * Core script: source-search
  *
- * Search and read the packaged Agent Native Core, Toolkit, and template corpus.
+ * Search and read the packaged Agent Native first-party template corpus.
  * The corpus is generated into @agent-native/core/corpus during package build.
  *
  * Usage:
  *   pnpm action source-search --query "defineAction"
- *   pnpm action source-search --path toolkit/src/index.ts
+ *   pnpm action source-search --path templates/chat/actions/hello.ts
  *   pnpm action source-search --path templates/plan/AGENTS.md
  *   pnpm action source-search --list
  */
@@ -295,7 +295,7 @@ function readCorpusPath(relative: string): string {
 
 function listCorpus(): unknown {
   const corpusRoot = getCorpusRoot();
-  const sections = ["core", "templates"];
+  const sections = ["templates"];
   return sections.map((section) => {
     const sectionRoot = path.join(corpusRoot, section);
     const files = listFiles(sectionRoot);

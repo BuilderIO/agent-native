@@ -60,13 +60,38 @@ describe("server/auth", () => {
       expect(shouldSkipEmailVerification()).toBe(false);
     }, 15_000);
 
-    it("is enabled by default for Netlify deploy previews", async () => {
+    it("does not control hosted deploy-preview signup policy", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AGENT_NATIVE_BUILD_DEPLOY_CONTEXT", "deploy-preview");
-      const { shouldSkipEmailVerification } =
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
+      const { resolveEmailPasswordAuthPolicy, shouldSkipEmailVerification } =
         await import("./better-auth-instance.js");
 
       expect(shouldSkipEmailVerification()).toBe(true);
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: true,
+        disableSignUp: false,
+      });
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: true,
+      });
+    }, 15_000);
+
+    it("requires verification in hosted production despite the skip flag", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: true,
+        disableSignUp: false,
+      });
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: true,
+      });
     }, 15_000);
 
     it("is enabled by AUTH_SKIP_EMAIL_VERIFICATION=1", async () => {
@@ -199,7 +224,7 @@ describe("server/auth", () => {
       errorSpy.mockRestore();
     });
 
-    it("lets logout opt the current browser out of AUTH_DISABLED inside an HTTPS iframe", async () => {
+    it("opts the current browser out and forwards Better Auth logout cookies", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
       delete process.env.ACCESS_TOKEN;
@@ -212,7 +237,14 @@ describe("server/auth", () => {
             getSession: vi.fn(async () => null),
             signInEmail: vi.fn(),
             signUpEmail: vi.fn(),
-            signOut: vi.fn(),
+            signOut: vi.fn(async () => {
+              const headers = new Headers();
+              headers.append(
+                "set-cookie",
+                "better-auth.session_data=; Max-Age=0; Path=/",
+              );
+              return { headers };
+            }),
           },
         })),
         getBetterAuthSync: vi.fn(() => undefined),
@@ -239,6 +271,9 @@ describe("server/auth", () => {
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
       expect(setCookie).toContain("Partitioned");
+      expect(setCookie).toContain(
+        "better-auth.session_data=; Max-Age=0; Path=/",
+      );
     });
 
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {

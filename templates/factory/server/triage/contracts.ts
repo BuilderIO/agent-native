@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-export const triageSourceSchema = z.enum(["slack", "github"]);
+export const triageSourceSchema = z.enum([
+  "slack",
+  "github",
+  "github_issue",
+  "sentry",
+]);
 export type TriageSource = z.infer<typeof triageSourceSchema>;
 
 export const triageItemStatusSchema = z.enum([
@@ -12,6 +17,10 @@ export const triageItemStatusSchema = z.enum([
   "needs_manual",
   "failed",
   "reconciliation_required",
+  "automation_started",
+  "pr_observed",
+  "auto_approved",
+  "merged",
 ]);
 export type TriageItemStatus = z.infer<typeof triageItemStatusSchema>;
 
@@ -37,6 +46,8 @@ export const triageDecisionOutcomeSchema = z.enum([
   "needs_manual",
   "propose_fix",
   "propose_review",
+  "auto_approve",
+  "auto_merge",
 ]);
 export type TriageDecisionOutcome = z.infer<typeof triageDecisionOutcomeSchema>;
 
@@ -68,6 +79,7 @@ export const triageGuardCodeSchema = z.enum([
   "path_denied",
   "diff_too_large",
   "unknown_change",
+  "owner_owned",
 ]);
 export type TriageGuardCode = z.infer<typeof triageGuardCodeSchema>;
 
@@ -81,6 +93,7 @@ export const hardNeverAutomateGuardCodes: TriageGuardCode[] = [
   "payments",
   "security",
   "publishable_package",
+  "owner_owned",
 ];
 
 export const triagePolicyGuardsSchema = z.object({

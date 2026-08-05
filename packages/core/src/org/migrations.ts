@@ -128,4 +128,8 @@ export const ORG_MIGRATIONS = [
     version: 1013,
     sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS workspace_url TEXT`,
   },
+  {
+    version: 1014,
+    sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT`,
+  },
 ];

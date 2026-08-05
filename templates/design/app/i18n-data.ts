@@ -746,6 +746,14 @@ const enUS = {
       close: "Close keyboard shortcuts",
       codeContext: "Code",
       screenContext: "Screen",
+      nudgeAmount: {
+        title: "Nudge amount",
+        small: "Small nudge",
+        big: "Big nudge",
+        unit: "px",
+        description:
+          "Arrow keys move by the small amount and Shift+arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
+      },
       keys: {
         or: "or",
         command: "Command",

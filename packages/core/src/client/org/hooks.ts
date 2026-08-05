@@ -332,6 +332,20 @@ export function useSetOrgWorkspaceUrl() {
   });
 }
 
+export function useSetOrgAuthProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: "google" | null) =>
+      apiFetch(`${ORG_BASE}/auth-provider`, {
+        method: "PUT",
+        body: JSON.stringify({ provider }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
 export interface AppRoleAssignment {
   email: string;
   role: string;

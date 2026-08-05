@@ -11,11 +11,17 @@ const mockedCreateSlackReader = vi.mocked(createSlackReader);
 const mockedSlackReader = {
   getChannelHistory: vi.fn(),
   getTeamInfo: vi.fn(),
+  getThread: vi.fn(),
+  addEyesReaction: vi.fn(),
+  postThreadReply: vi.fn(),
 };
 
 beforeEach(() => {
   mockedCreateSlackReader.mockReset().mockReturnValue(mockedSlackReader);
   mockedSlackReader.getChannelHistory.mockReset();
+  mockedSlackReader.getThread.mockReset();
+  mockedSlackReader.addEyesReaction.mockReset();
+  mockedSlackReader.postThreadReply.mockReset();
   mockedSlackReader.getTeamInfo
     .mockReset()
     .mockResolvedValue({ id: "T1", name: "Builder", domain: "builder" });
@@ -127,19 +133,12 @@ describe("pollSlackChannel", () => {
 
     expect(result.envelopes).toMatchObject([
       {
+        externalId: "C456:20.1",
         title: "Slack bot B123",
         sourceUrl: "https://builder.slack.com/archives/C456/p201",
         channelId: "C456",
         threadTs: "20.1",
         coverage: "partial",
-      },
-      {
-        title: "Slack user U123",
-        sourceUrl:
-          "https://builder.slack.com/archives/C456/p202?thread_ts=20.1",
-        channelId: "C456",
-        threadTs: "20.1",
-        coverage: "complete",
       },
     ]);
   });

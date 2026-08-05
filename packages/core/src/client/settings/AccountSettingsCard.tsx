@@ -167,9 +167,7 @@ export function AccountSettingsForm({
       <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
         <div className="min-h-4 text-xs">
           {updateProfile.isSuccess && (
-            <p className="text-green-600 dark:text-green-400">
-              {t("settings.profileSaved")}
-            </p>
+            <p className="text-primary">{t("settings.profileSaved")}</p>
           )}
           {updateProfile.error && (
             <p className="text-destructive">{t("settings.profileSaveError")}</p>

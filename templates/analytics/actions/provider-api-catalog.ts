@@ -20,6 +20,6 @@ export default createProviderApiCatalogAction(
     }),
     http: { method: "GET" },
     guidance:
-      "First-class provider actions in this app are convenience shortcuts, not capability limits. When an action cannot express the needed endpoint, object type, filter, request body, pagination mode, API version, or source-record body coverage, inspect docs/spec URLs and corpusRecipes here, then call provider-api-request or provider-corpus-job with the exact provider API method/path/query/body.",
+      "First-class provider actions in this app are bounded convenience shortcuts, not capability limits. When an action cannot express the needed endpoint, object type, filter, request body, pagination mode, API version, or source-record body coverage, inspect docs/spec URLs and corpusRecipes here. Use provider-api-request as the raw ingestion/staging step, then query-staged-dataset or save-data-program for broad searches, joins, and reusable aggregates; use provider-corpus-job for durable paginated or batched body scans.",
   },
 );

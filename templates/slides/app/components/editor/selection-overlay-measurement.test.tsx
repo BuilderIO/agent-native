@@ -32,7 +32,6 @@ function measurementKey(
   content: string,
   revision = 0,
   canvasZoom = 100,
-  stylePanelOpen = false,
 ) {
   return createSelectionOverlayMeasurementKey({
     slideId: "slide-1",
@@ -41,7 +40,6 @@ function measurementKey(
     selector: `[data-slide-object-id="${objectId}"]`,
     path: [0],
     canvasZoom,
-    stylePanelOpen,
     revision,
   });
 }
@@ -52,7 +50,6 @@ function SelectionOverlayHarness({
   currentRect,
   revision = 0,
   canvasZoom = 100,
-  stylePanelOpen = false,
   selectionSlideId = "slide-1",
   activeSlideId = "slide-1",
   onRender,
@@ -62,18 +59,11 @@ function SelectionOverlayHarness({
   currentRect: DOMRect;
   revision?: number;
   canvasZoom?: number;
-  stylePanelOpen?: boolean;
   selectionSlideId?: string;
   activeSlideId?: string;
   onRender: (left: number | null) => void;
 }) {
-  const key = measurementKey(
-    objectId,
-    content,
-    revision,
-    canvasZoom,
-    stylePanelOpen,
-  );
+  const key = measurementKey(objectId, content, revision, canvasZoom);
   const [measurement, setMeasurement] =
     useState<SelectionOverlayMeasurement | null>(null);
   const selectionIsOnActiveSlide = isSelectionOverlayOnActiveSlide(
@@ -177,7 +167,6 @@ describe("selection overlay measurement", () => {
       selector: '[data-slide-object-id="object-a"]',
       path: [0],
       canvasZoom: 75,
-      stylePanelOpen: false,
       revision: 0,
     });
 
@@ -245,7 +234,7 @@ describe("selection overlay measurement", () => {
     ).toBe("560");
   });
 
-  it("remeasures selected chrome after zoom and panel geometry changes", () => {
+  it("remeasures selected chrome after zoom changes", () => {
     const renderedLefts: Array<number | null> = [];
     const view = render(
       <SelectionOverlayHarness
@@ -267,24 +256,11 @@ describe("selection overlay measurement", () => {
       />,
     );
     expect(renderedLefts.slice(beforeZoom)).toEqual([null, 150]);
-
-    const beforePanel = renderedLefts.length;
-    view.rerender(
-      <SelectionOverlayHarness
-        objectId="object-a"
-        content="same content"
-        currentRect={rect(190)}
-        canvasZoom={125}
-        stylePanelOpen
-        onRender={(left) => renderedLefts.push(left)}
-      />,
-    );
-    expect(renderedLefts.slice(beforePanel)).toEqual([null, 190]);
     expect(
       view.container.firstElementChild?.getAttribute(
         "data-selection-overlay-left",
       ),
-    ).toBe("190");
+    ).toBe("150");
   });
 
   it("keeps the intrinsic AutoFit epoch settled across editor-only geometry", () => {
@@ -297,7 +273,6 @@ describe("selection overlay measurement", () => {
       "same content",
       0,
       125,
-      true,
     );
 
     expect(isSelectionOverlayAutofitSettled(autofitKey, autofitKey)).toBe(true);

@@ -150,7 +150,7 @@ Examples:
 - User says "archive marketing emails" \u2192 create rule with condition "marketing or promotional email" and action archive
 - User says "star emails from alice@example.com" \u2192 create rule with condition "from alice@example.com" and action star
 
-Rules are evaluated by a fast AI model (Haiku) and run every minute + when the user opens the app.
+Rules are evaluated by a low-cost text model, preferring GPT-5.6 Luna when a Luna-capable provider is available, and run every minute + when the user opens the app.
 Use trigger-automations to force immediate processing.
 
 Available action types: label (with labelName), archive, mark_read, star, trash.

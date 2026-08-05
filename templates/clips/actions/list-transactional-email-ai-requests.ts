@@ -10,6 +10,7 @@ import {
 } from "../server/lib/recordings.js";
 import {
   AI_DISPATCH_STALE_MS,
+  isAiBackedType,
   transactionalEmailStore,
   type TransactionalEmailJob,
 } from "../server/lib/transactional-email-store.js";
@@ -28,6 +29,7 @@ export type TransactionalEmailContextPacket = {
 };
 
 export type ClaimedTransactionalEmailAiRequest = {
+  kind: "two-clips";
   jobId: string;
   logicalKey: string;
   contextPackets: [
@@ -200,7 +202,7 @@ export async function claimTransactionalEmailAiRequests(
   const staleBefore = new Date(Date.now() - AI_DISPATCH_STALE_MS);
   const candidates = (await transactionalEmailStore.listJobs()).filter(
     (job) =>
-      job.type === "two-clips" &&
+      isAiBackedType(job.type) &&
       (job.state === "awaiting_ai" ||
         (job.state === "ai_dispatched" &&
           Date.parse(job.aiDispatchedAt ?? job.updatedAt) <=
@@ -230,6 +232,7 @@ export async function claimTransactionalEmailAiRequests(
           );
     if (!claimed) continue;
     requests.push({
+      kind: "two-clips",
       jobId: claimed.logicalKey,
       logicalKey: claimed.logicalKey,
       contextPackets,

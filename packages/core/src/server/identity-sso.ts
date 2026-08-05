@@ -48,6 +48,10 @@ import type { H3Event } from "h3";
 import { getMethod } from "h3";
 import * as jose from "jose";
 
+import {
+  GOOGLE_AUTH_REQUIRED_MESSAGE,
+  isGoogleSignInRequiredForEmail,
+} from "../org/auth-policy.js";
 import { getAppName } from "./app-name.js";
 import { getSession, safeReturnPath, isExpectedAuthFailure } from "./auth.js";
 import {
@@ -459,6 +463,12 @@ export async function handleIdentitySso(
         "This sign-in link was already used. Please try again.",
         loginPath,
       );
+    }
+
+    // Identity-hub federation is a separate provider from Google. Do not let
+    // it mint a legacy session that bypasses an org's Google-only policy.
+    if (await isGoogleSignInRequiredForEmail(identity.email)) {
+      return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
     }
 
     // JIT link STRICTLY by verified email — additive only. Existing users

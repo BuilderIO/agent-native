@@ -7,7 +7,9 @@ import {
 import { buildTriggerContent, initTriggerDispatcher } from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
@@ -29,7 +31,9 @@ vi.mock("../resources/store.js", () => ({
       ? owner.slice("__organization__:".length)
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
+  resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
 }));
 
 vi.mock("../event-bus/index.js", () => ({
@@ -153,7 +157,25 @@ createdBy: alice+triggers@agent-native.test
 Respond to the event.`,
       },
     ]);
+    resourceGetByPathMock.mockImplementation(
+      async (owner: string, path: string) => {
+        const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
+        const resources = latestListCall?.value
+          ? await latestListCall.value
+          : [];
+        return resources.find(
+          (resource: { owner: string; path: string }) =>
+            resource.owner === owner && resource.path === path,
+        );
+      },
+    );
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => {
+        await resourcePutMock(input.owner, input.path, input.content);
+        return { id: input.owner + input.path };
+      },
+    );
     createThreadMock.mockResolvedValue({ id: "thread-1" });
     subscribeMock.mockImplementation((eventName: string) => `sub-${eventName}`);
     runAgentLoopMock.mockResolvedValue({

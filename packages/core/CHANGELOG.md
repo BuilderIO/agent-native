@@ -1,5 +1,261 @@
 # @agent-native/core
 
+## 0.137.5
+
+### Patch Changes
+
+- e78a5c0: Clear Better Auth session cache cookies when signing out.
+
+## 0.137.4
+
+### Patch Changes
+
+- c71d383: Run due scheduled automations concurrently so one long-running job cannot starve other automations.
+- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
+- c71d383: Add a URL preview mode for replaying first-run onboarding without changing account setup state.
+- Updated dependencies [c71d383]
+  - @agent-native/toolkit@0.13.1
+
+## 0.137.3
+
+### Patch Changes
+
+- e0dcb10: Add what-is-agent-native localized translations for all 10 locales
+
+## 0.137.2
+
+### Patch Changes
+
+- Updated dependencies [106af0e]
+  - @agent-native/toolkit@0.13.0
+
+## 0.137.1
+
+### Patch Changes
+
+- d1cb968: Let apps continue an initial prompt flow after first-run onboarding completes.
+- d1cb968: Keep developer-only startup guidance out of production loading shells.
+
+## 0.137.0
+
+### Minor Changes
+
+- 043e5cd: Add a shared first-run onboarding flow with app-specific capability requirements, managed Builder setup, and BYOK guidance.
+
+### Patch Changes
+
+- 043e5cd: Render a bare URL in a transactional email as its own link text instead of an "Open <host>" label, so recipients can see where a link goes.
+- 043e5cd: Expose the shared automation service and run history so template-native factory surfaces can inspect and edit organization automations without duplicating scheduler behavior. Register Factory in the shared Slack, GitHub, and Sentry connection catalog so Dispatch can surface the same organization-owned credentials to it.
+- 043e5cd: Fix agent navigation between sibling apps in unified workspaces by using the workspace gateway path instead of resolving the target under the current app basename.
+
+## 0.136.5
+
+### Patch Changes
+
+- 79af4f8: Allow a replacement secret value to be validated before it is saved.
+
+## 0.136.4
+
+### Patch Changes
+
+- 81c522e: Add an explicit Run now flow for automations, including reliable unattended action delivery, durable run history, and clearer email output.
+
+## 0.136.3
+
+### Patch Changes
+
+- d14fbb9: Keep the dev server's route table live when route files are added or deleted. React Router's framework-mode plugin invalidates its virtual modules through Vite's deprecated back-compat module graph, which proxies only the `client` and `ssr` environments — never the Nitro environment that actually serves SSR. The route table therefore froze at whatever it was when the dev server booted: a new route file 404'd forever, and deleting one left the stale manifest importing a file that no longer existed, so every page returned `Internal Server Error: Failed to load url … Does the file exist?` until the process was restarted. Agent Native now mirrors that invalidation into every environment and reloads the affected server runners. Also escapes control bytes in dev SSR error bodies, so Vite's NUL-prefixed virtual-module ids print as `\0virtual:react-router/server-build` instead of making `curl` treat the response as binary and hide the only line describing the failure.
+
+## 0.136.2
+
+### Patch Changes
+
+- d6e7c5c: Recommend Playwright's headless shell instead of the full headed browser wherever a missing-browser message or install script tells you to run `playwright install chromium`, and say what the full download costs.
+- d6e7c5c: Stop shipping unused Playwright packages to consumers. `@agent-native/core`
+  declared `playwright` in both `devDependencies` and `optionalDependencies`
+  without ever importing it at runtime; the optional entry is gone, so it no
+  longer installs for every consumer. `@agent-native/recap-cli` no longer
+  declares `@playwright/test` as an optional dependency — its sibling `playwright`
+  optional dependency always resolved first, so the `@playwright/test` fallback
+  import could never be reached. That fallback now rethrows the original
+  `playwright` failure instead of a misleading "cannot find `@playwright/test`".
+- d6e7c5c: Keep the dev server's route table live when route files are added or deleted. React Router's framework-mode plugin invalidates its virtual modules through Vite's deprecated back-compat module graph, which proxies only the `client` and `ssr` environments — never the Nitro environment that actually serves SSR. The route table therefore froze at whatever it was when the dev server booted: a new route file 404'd forever, and deleting one left the stale manifest importing a file that no longer existed, so every page returned `Internal Server Error: Failed to load url … Does the file exist?` until the process was restarted. Agent Native now mirrors that invalidation into every environment and reloads the affected server runners. Also escapes control bytes in dev SSR error bodies, so Vite's NUL-prefixed virtual-module ids print as `\0virtual:react-router/server-build` instead of making `curl` treat the response as binary and hide the only line describing the failure.
+- d6e7c5c: Add Gong keyword-tracker and staged corpus guidance to the provider API catalog.
+- d6e7c5c: Prefer GPT-5.6 Luna for default server-side voice transcript cleanup when a
+  Luna-capable provider is available, while keeping audio transcription and
+  explicit Gemini provider selections unchanged.
+- d6e7c5c: Stop a second Chromium from being downloaded alongside the one already on disk.
+
+  First-party workspace packages now take Playwright from an exact catalog pin, so
+  a caret cannot resolve forward to a release tied to a different Chromium
+  revision. The two packages that declare Playwright as a published optional
+  dependency — `@agent-native/creative-context` and `@agent-native/recap-cli` —
+  deliberately keep a caret range instead: an exact range in a library stops a
+  consumer who already has a different Playwright from deduping, which forces a
+  nested copy and downloads exactly the second browser this change exists to
+  avoid.
+
+- 74f1e73: Scoped agent-access tokens can carry a signed `agentLabel` claim, so apps can name the agent a link was minted for instead of guessing from the user-agent. Like `viewerEmail`, it is audit/display-only and never consulted for authorisation.
+- Updated dependencies [d6e7c5c]
+- Updated dependencies [d6e7c5c]
+  - @agent-native/recap-cli@0.5.3
+
+## 0.136.1
+
+### Patch Changes
+
+- db4b4f0: Allow native OAuth clients to use ephemeral ports on registered HTTP loopback redirect URIs while rejecting fragments and userinfo.
+
+## 0.136.0
+
+### Minor Changes
+
+- 2b6fea3: Fix the Automations page reporting runs that never happened, and add run history and schedule editing.
+
+  A scheduler or dispatcher tick that declined to run an automation used to stamp
+  `lastRun` with the current time, so a permanently blocked automation reported a
+  fresh run every minute while its `nextRun` stayed frozen in the past. Skipped
+  ticks now record `lastCheck` instead, leave `lastRun` alone, and only rewrite the
+  resource when the failure state actually changes. The failure reason
+  (`lastError`) is surfaced on the row and in the details view instead of being
+  swallowed behind a bare `skipped` chip.
+
+  Schedules are also timezone-aware. Cron expressions used to be read in the
+  server's zone, so an automation created as "every day at 8am" ran at 8am UTC.
+  A schedule now stores the IANA zone it was written in, taken from a new
+  scheduling timezone preference in Account settings and falling back to the
+  caller's browser zone. Descriptions name their zone ("Every day at 8 AM
+  (America/New_York)"), and both the agent tools and the schedule editor accept a
+  timezone. Existing schedules keep their current host-relative meaning until
+  edited.
+
+  Also adds:
+  - `automation_runs` history for real executions, exposed through a new
+    `list-automation-runs` action and a Past runs section in the details view.
+  - A Details view that shows more than the list row: schedule, next/last run,
+    last checked, last status, scope, creator and model.
+  - An Edit affordance for changing a scheduled automation's cron expression and
+    timezone.
+  - A "Manage agent" entry in the sidebar organization switcher.
+
+  Run history is bounded and honest about interrupted runs: a row left `running`
+  past the point a run could still be alive is reported as `interrupted` rather
+  than shown as permanently in-flight, and rows are pruned per automation so a
+  frequent schedule cannot grow the table without limit. Recording a run's
+  outcome also re-reads the automation first, so a schedule edited while it was
+  running is no longer reverted by the completion write.
+
+  Also from review: a completion write no longer recreates an automation deleted
+  mid-run, a run-history write failure can no longer reclassify a completed
+  automation as failed, deleting an automation forgets its run history so a new
+  one reusing the name does not inherit it, an unusable `X-User-Timezone` header
+  is rejected rather than persisted, and a settings read failure surfaces instead
+  of silently pinning a schedule to the host zone.
+
+  Run history never blocks the automation it describes: opening the record,
+  attaching its thread and closing it out are all non-fatal, so an unwritable
+  history table costs the record rather than the run.
+
+### Patch Changes
+
+- 2b6fea3: Cache peer agent cards instead of re-probing every sibling app on each lookup.
+  `describe-workspace-apps` ships in the default first-request tool set and the
+  `<available-apps>` prompt block names it, so a single turn could probe every
+  peer and the next turn would do it all again. Against a local dev gateway each
+  probe also cold-starts the app it touches, so one tool call spawned a dev server
+  per sibling at once and the machine stalled behind them. Cards are now cached
+  per caller for 30s with concurrent probes collapsed onto one request; failures
+  expire after 5s so a peer that was still booting is retried promptly rather than
+  being reported skill-less.
+- 2b6fea3: Add `agent-native clean` to reclaim disk from regenerable build caches, and report disk usage in `agent-native doctor`. `clean` is a dry run unless `--apply`, prints the bytes it reclaims per category, and surfaces any delete it could not complete instead of reporting a clean total. It refuses any root it cannot confirm is an Agent Native project — a `package.json` that parses and depends on `@agent-native/core`, an `agent-native.json`, or a workspace with an app under `apps/` that has either; a manifest it cannot read or parse is a refusal naming the file and the reason, never a permit. Every target is a real directory entry matched by exact name, so a hand-written `Build/` is not selected by the `build` rule on a case-insensitive filesystem, and each one is re-checked against the identity recorded at scan time immediately before the delete, so a parent swapped mid-run is a reported failure rather than a delete somewhere else. It treats an unknown flag or a valueless `--cwd` as a usage error rather than guessing, and counts a hard-linked file only when every link to it is inside the delete set — one deploy bundle linked into several function directories counts once, and one still linked from `node_modules/` counts nothing, because removing it frees nothing. A byte is credited only where the run observed it removed, so an outcome it could not observe is a typed result rather than a number: a tree another process deleted first — a second `clean`, or Vite recreating `.vite` mid re-optimize — credits nothing instead of two runs both claiming it, a target already gone when re-checked is a no-op rather than a failure, a re-measure that cannot read what survived reports the bytes as unknown rather than as zero, and a scan stopped by the walk-depth cap says so instead of returning a short total. Under `apps/`, each app must confirm for itself that it is Agent Native before anything inside it is selected, so one app no longer licenses deleting a sibling Rust project's `build/` or a personal folder's `dist/`. Protected names — `data/`, `.git`, `node_modules`, `.env*` — now match case-insensitively while targets stay case-exact, so `Data/` is not descended into on a case-insensitive filesystem. The walk and the delete stop at a filesystem mount boundary. One unreadable directory is reported once rather than once per pass, a partial run's headline states the exact shortfall rather than rounding to look complete, and `--json --help` answers in JSON. `doctor` now shows free space on the volume holding the project and flags low free space; `doctor --disk` also measures how much `clean` could give back.
+- 2b6fea3: Keep workspace development lazy by default so unused apps do not build Vite
+  dependency caches and consume disk and memory. Background prewarming remains
+  available with `--prewarm` or `WORKSPACE_PREWARM=1`.
+- 2b6fea3: Fail closed when an `ai-sdk:*` engine has no provider key, instead of sending an
+  unauthenticated request. The provider factory was previously built with no
+  `apiKey`, so the SDK omitted the Authorization header and the gateway's 401 came
+  back as `http_401` "Missing Authentication header" — a transport error naming the
+  wrong cause, which a scheduled job then retried on every tick forever. It now
+  reports `missing_credentials` and names the env var it wants, matching what
+  `builder-engine` and `anthropic-engine` already did.
+
+  Also stop reaping in-process background automations (scheduler and trigger runs)
+  at the tight 45s post-claim stale window. That window exists to reach a durable
+  successor sooner, but these runs carry no `dispatch_payload` and have no
+  successor to reach, so an early reap killed still-working jobs that nothing could
+  recover. They now get the 90s background window, and the recovery path reports
+  `not_redispatchable` rather than `payload_missing`, which read as data loss for
+  the one case where nothing was ever lost.
+
+- 2b6fea3: Stop writing a second full copy of the server bundle for every extra Netlify
+  function. The durable-background, integration-recovery, workspace
+  `<app>-server`, and Vercel `<app>-server.func` emits now share one on-disk copy
+  through hard links, so a build no longer doubles (or, in a workspace, multiplies)
+  its function output. Each function still ships a complete, independent bundle —
+  only the wasted disk goes away. Builds also stop emitting the throwaway
+  `dist/<app>/<app>` client build for presets that already mount `publicDir` at the
+  app base path.
+- 2b6fea3: Harden hosted authentication and preview database isolation against account-claim exposure.
+- 2b6fea3: Stop writing sourcemaps into the Vite dependency pre-bundle cache, which roughly halves `node_modules/.vite/deps` (and the transient double-size peak during a re-optimize) so workspaces stop running out of disk. Set `AGENT_NATIVE_DEP_SOURCEMAPS=1` to restore them when stepping into third-party code in the debugger.
+- 2b6fea3: Stop workspaces from accumulating duplicate physical copies of
+  `@agent-native/core`.
+
+  `agent-native upgrade` now rewrites the `latest` specs it installs back to the
+  exact resolved versions, so a committed manifest pins one release instead of
+  re-resolving on every install. If a version cannot be read after a successful
+  install, upgrade reports which specs are still floating rather than claiming
+  the upgrade finished. A `package.json` that cannot be parsed is now named in
+  that report and stops the run, instead of being skipped as if it were clean.
+
+  Apps added to an existing workspace inherit the framework versions the
+  workspace root already pins, and freshly scaffolded workspaces resolve
+  `@types/node`, `esbuild`, `srvx`, and `zod` once workspace-wide. `typescript`
+  is no longer a peer dependency of core — core never imported it, and the peer
+  edge forked a separate ~175 MB copy of core per TypeScript version in use.
+
+- 2b6fea3: Keep the full Agent workspace reachable from chat-only sidebars, including generated migrated apps. The sidebar link now opens the Agent page where context, resources, connections, automations, and access are managed.
+- 2b6fea3: Allow organization owners and admins to require Google sign-in, revoke current sessions when enabled, and enforce the policy across all auth entry points.
+- 2b6fea3: Keep local package linking fast and deterministic when scaffolding during framework development.
+- 2b6fea3: Keep scaffolded workspaces compatible with the current h3 and srvx releases.
+- 2b6fea3: Share the browser's realtime sync transport across feature subscribers and reconnect local SSE streams after terminal failures.
+- 2b6fea3: Share one sync stream per origin across browser tabs instead of opening one per
+  tab. The browser caps HTTP/1.1 connections at roughly six per origin per browser
+  process, so every extra tab's EventSource permanently consumed one of them and
+  ordinary requests queued behind the held streams — worst in local development,
+  where the dev gateway serves every workspace app from a single origin. Tabs now
+  elect a stream holder through Web Locks and receive its frames over
+  BroadcastChannel; followers relax to the fallback poll cadence, and Web Locks
+  promotes a new holder automatically when that tab closes. Browsers without Web
+  Locks or BroadcastChannel keep the previous per-tab behavior.
+- 2b6fea3: Make browser Demo mode visible in the shared organization switcher, explain what it changes, and avoid showing the redacted anonymous email as the signed-in identity.
+- 2b6fea3: Shrink the published package by roughly 47 MB of allocated disk per install.
+  Source maps, the `corpus/core` and `corpus/toolkit` trees, and the `src/` tree
+  were three separate copies of source that already ships as `dist/`, `docs/`, and
+  `@agent-native/toolkit`'s own `src/`. The tarball now ships only the eject
+  entries and scaffolding templates out of `src/`, and `corpus/` carries the
+  first-party template source that `source-search` actually reads. Docs and
+  `source-search` now point at `dist/` for framework internals instead of a corpus
+  path that no longer exists.
+- 2b6fea3: Forward incremental action input to browser chat surfaces so apps can preview generated content while an action is being prepared.
+
+## 0.135.3
+
+### Patch Changes
+
+- d0bbe62: Rewrite what-is-agent-native doc for clarity and scannability
+
+## 0.135.2
+
+### Patch Changes
+
+- 60749ec: Split Getting Started into a focused four-page series with visual improvements
+
+## 0.135.1
+
+### Patch Changes
+
+- ed51b3d: Grant org-visibility access on shareable resources based on the caller's real organization membership, instead of only their currently active organization. Fixes real org members being denied access to org-shared resources (e.g. recordings) when a different org happened to be active in their session.
+
 ## 0.135.0
 
 ### Minor Changes

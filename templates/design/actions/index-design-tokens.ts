@@ -96,6 +96,21 @@ export default defineAction({
 
     /** cssVar -> latest layer that set it */
     const rawTokens: Map<string, RawToken> = new Map();
+    // Persisted Brand Kit JSON can outlive its schema. Keep one malformed token
+    // from taking down the whole read action while preserving valid siblings.
+    const setRawToken = (
+      cssVar: string,
+      value: unknown,
+      source: unknown,
+      provenance: Omit<RawToken, "value" | "source">,
+    ): void => {
+      if (typeof value !== "string") return;
+      rawTokens.set(cssVar, {
+        value,
+        source: typeof source === "string" && source ? source : "Unknown",
+        ...provenance,
+      });
+    };
 
     for (const file of files) {
       const state = {
@@ -110,7 +125,7 @@ export default defineAction({
       };
       extractCssVars(state, file.content);
       for (const [k, v] of Object.entries(state.cssCustomProperties)) {
-        rawTokens.set(k, { value: v, source: file.filename, origin: "design" });
+        setRawToken(k, v, file.filename, { origin: "design" });
       }
     }
 
@@ -139,22 +154,23 @@ export default defineAction({
           const dsData = JSON.parse(dsRow.data) as Partial<DesignSystemData>;
           // The role -> var mapping lives in core so a rewriter cannot drift.
           for (const token of brandKitRoleTokens(dsData)) {
-            rawTokens.set(token.cssVar, {
-              value: token.value,
-              source: "Brand Kit",
+            setRawToken(token.cssVar, token.value, "Brand Kit", {
               origin: "brand-kit",
             });
           }
           // Layered after the roles: the kit's own names win over the
           // seven-slot summary.
           for (const token of resolveBrandKitTokens(dsData, "Brand Kit")) {
-            rawTokens.set(token.cssVar, {
-              value: token.value,
-              source: token.source ?? "Brand Kit",
-              origin: "brand-kit",
-              name: token.name,
-              ...(token.group ? { group: token.group } : {}),
-            });
+            setRawToken(
+              token.cssVar,
+              token.value,
+              token.source ?? "Brand Kit",
+              {
+                origin: "brand-kit",
+                name: token.name,
+                ...(token.group ? { group: token.group } : {}),
+              },
+            );
           }
         } catch {
           // Malformed JSON — skip Brand Kit overlay silently.
@@ -209,9 +225,7 @@ export default defineAction({
     for (const [cssVar, value] of Object.entries(resolvedOverrides)) {
       // Retuning a value must not rename the token it came from.
       const inherited = rawTokens.get(cssVar);
-      rawTokens.set(cssVar, {
-        value,
-        source: tokenImportSources[cssVar] ?? "Tweaks",
+      setRawToken(cssVar, value, tokenImportSources[cssVar] ?? "Tweaks", {
         origin: inherited?.origin ?? "design",
         ...(inherited?.name ? { name: inherited.name } : {}),
         ...(inherited?.group ? { group: inherited.group } : {}),

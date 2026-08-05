@@ -1,5 +1,5 @@
 /**
- * Run the Gemini cleanup pass on a dictation's raw transcript text.
+ * Run the text-model cleanup pass on a dictation's raw transcript text.
  * Persists `cleanedText` on the dictation row.
  */
 
@@ -15,7 +15,7 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 export default defineAction({
   description:
-    "Clean up a dictation's raw text via the Gemini 3.1 Flash-Lite cleanup pass. Stores the result on `dictations.cleanedText`. Editor access required.",
+    "Clean up a dictation's raw text via the low-cost text-model cleanup pass. Stores the result on `dictations.cleanedText`. Editor access required.",
   schema: z.object({
     id: z.string().describe("Dictation id"),
   }),

@@ -243,6 +243,7 @@ describe("board surface pointer capture", () => {
     expect(
       shouldRenderBoardSurfaceStaticPreview({
         zoom: 2,
+        hasSurfaceContent: true,
         viewportGeometry: viewport,
         renderGeometry: active,
       }),
@@ -310,6 +311,33 @@ describe("board surface pointer capture", () => {
         boardSurfaceLocalPointToBoardPoint(localPoint, renderGeometry),
       ).toEqual(boardPoint);
     }
+  });
+
+  it("keeps the opaque board replica off when the board has nothing on it", () => {
+    // A board file can be a full HTML document with an empty <body> — truthy as
+    // a string, nothing to show. The replica paints itself in the board colour,
+    // so rendering it there covers the canvas in a full-board slab at low zoom.
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const active = makeGeom(-12288, -12288, 24576, 24576);
+    const viewport = makeGeom(-36000, -22500, 72000, 45000);
+
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        hasSurfaceContent: false,
+        viewportGeometry: viewport,
+        renderGeometry: active,
+      }),
+    ).toBe(false);
+    // Also below the pre-measurement zoom fallback.
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        hasSurfaceContent: false,
+        viewportGeometry: null,
+        renderGeometry: active,
+      }),
+    ).toBe(false);
   });
 
   it("treats empty board documents as having no surface content", () => {

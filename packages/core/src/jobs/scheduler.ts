@@ -1,7 +1,7 @@
 import {
   resourceGetByPath,
   resourceListAllOwners,
-  resourcePut,
+  resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
 import {
@@ -23,6 +23,11 @@ import {
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
+import {
+  claimAutomationRun,
+  finishAutomationRun,
+  getAutomationRun,
+} from "./run-history.js";
 
 // ─── Frontmatter parsing ────────────────────────────────────────────────────
 
@@ -66,7 +71,8 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
 }
 
-let _isRunning = false;
+const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
+const _activeScheduledJobs = new Set<string>();
 
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
@@ -98,12 +104,12 @@ function subscribeToJobsResourceEvents(): void {
 
 /**
  * Process all due recurring jobs. Called every 60 seconds.
- * Sequential execution with 5-minute timeout per job.
+ *
+ * Scans may overlap while a long-running job is executing. Each resource is
+ * still protected by its persisted running state and a process-local key, so
+ * one job cannot run twice while leaving other due jobs waiting behind it.
  */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
-  // Prevent concurrent runs
-  if (_isRunning) return;
-
   subscribeToJobsResourceEvents();
 
   // Skip if we recently confirmed there are no job resources to run.
@@ -115,7 +121,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  _isRunning = true;
+  const reservedJobKeys = new Set<string>();
+  const startedJobKeys = new Set<string>();
 
   try {
     const jobResources = await resourceListAllOwners("jobs/");
@@ -125,6 +132,13 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     _lastJobsCheck = nowMs;
     if (!_hasJobsCache) return;
     const now = new Date();
+
+    const dueJobs: Array<{
+      key: string;
+      resource: Resource;
+      meta: JobFrontmatter;
+      body: string;
+    }> = [];
 
     for (const resource of jobResources) {
       // Skip non-markdown or .keep files
@@ -168,8 +182,27 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       // Skip if body is empty
       if (!body.trim()) continue;
 
-      // Execute the job
-      await executeJob(resource, meta, body, deps, now);
+      const key = `${resource.owner}:${resource.path}`;
+      if (_activeScheduledJobs.has(key)) continue;
+      if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) continue;
+
+      _activeScheduledJobs.add(key);
+      reservedJobKeys.add(key);
+      dueJobs.push({ key, resource, meta, body });
+    }
+
+    const outcomes = await Promise.allSettled(
+      dueJobs.map(({ key, resource, meta, body }) => {
+        startedJobKeys.add(key);
+        return executeJob(resource, meta, body, deps, now).finally(() => {
+          _activeScheduledJobs.delete(key);
+        });
+      }),
+    );
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") {
+        console.error("[recurring-jobs] Job execution error:", outcome.reason);
+      }
     }
   } catch (err) {
     // Transient WS / connection drops (Neon serverless): silently retry next
@@ -188,11 +221,27 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         : ((err as any)?.error ?? (err as any)?.message ?? err);
     console.error("[recurring-jobs] Error processing jobs:", detail);
   } finally {
-    _isRunning = false;
+    // A scan can fail after reserving a job but before dispatching it. Do not
+    // leave that reservation blocking the job on every subsequent tick.
+    for (const key of reservedJobKeys) {
+      if (!startedJobKeys.has(key)) _activeScheduledJobs.delete(key);
+    }
   }
 }
 
 export const jobRunCutOffReason = backgroundRunCutOffReason;
+
+interface JobExecutionResult {
+  status: "success" | "error" | "skipped";
+  runId?: string;
+  error?: string;
+}
+
+interface ExecuteJobOptions {
+  advanceSchedule?: boolean;
+  historyId?: string;
+  manual?: boolean;
+}
 
 async function executeJob(
   resource: Resource,
@@ -200,7 +249,8 @@ async function executeJob(
   body: string,
   deps: SchedulerDeps,
   now: Date,
-): Promise<void> {
+  options: ExecuteJobOptions = {},
+): Promise<JobExecutionResult> {
   const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
 
   const jobContext: RecurringJobContext = {
@@ -232,16 +282,53 @@ async function executeJob(
     meta.lastStatus = "skipped";
     meta.lastError = identity.reason;
     if (!alreadyRecorded) await updateResource(resource, meta, body);
-    return;
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "error",
+        `Automation did not run: ${identity.reason}. No delivery was confirmed.`,
+      );
+    }
+    return { status: "skipped", error: identity.reason };
   }
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;
+
+  // Manual runs use the same resource row as scheduled runs for concurrency
+  // protection. The check is paired with the conditional write below: two
+  // requests that read the same idle snapshot cannot both claim it.
+  if (options.manual && isBackgroundAutomationRunActive(meta, now)) {
+    const error = "The automation is already running.";
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "error",
+        `${error} No delivery was confirmed.`,
+      );
+    }
+    return { status: "skipped", error };
+  }
 
   // Mark as running
   meta.lastRun = now.toISOString();
   meta.lastStatus = "running";
   meta.lastError = undefined;
-  await updateResource(resource, meta, body);
+  if (!(await updateResource(resource, meta, body))) {
+    console.log(
+      `[recurring-jobs] "${resource.path}" changed before it could start; dropping this tick.`,
+    );
+    if (options.historyId) {
+      await finishAutomationRun(
+        options.historyId,
+        "error",
+        "The automation changed before the run could start. No delivery was confirmed.",
+      );
+    }
+    return {
+      status: "error",
+      error: "The automation changed before the run could start.",
+    };
+  }
 
   const requestContext =
     meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
@@ -270,16 +357,20 @@ async function executeJob(
       : undefined;
 
   try {
-    await runBackgroundAutomation(
+    const result = await runBackgroundAutomation(
       {
         automation: jobContext,
         ownerEmail: jobUserEmail,
         orgId: jobOrgId,
-        prompt: `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
-        threadTitle: `Job: ${jobName} — ${now.toLocaleDateString()}`,
-        runIdPrefix: `job-${jobName}`,
-        usageLabel: `recurring-job:${jobName}`,
+        prompt: options.manual
+          ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
+          : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
+        threadTitle: `${options.manual ? "Automation" : "Job"}: ${jobName} — ${now.toLocaleDateString()}`,
+        runIdPrefix: `${options.manual ? "manual" : "job"}-${jobName}`,
+        usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
+        ...(options.historyId ? { historyId: options.historyId } : {}),
+        actionCaller: "automation" as const,
       },
       deps,
     );
@@ -288,34 +379,87 @@ async function executeJob(
       lastRun: meta.lastRun,
       lastStatus: "success",
       lastError: undefined,
+      advanceSchedule: options.advanceSchedule,
     });
     console.log(`[recurring-jobs] Job "${jobName}" completed.`);
+    return { status: "success", runId: result.runId };
   } catch (err) {
     const lastError =
       err instanceof Error ? err.message.slice(0, 200) : "Unknown error";
+    const reportedError = `${lastError}. No delivery was confirmed.`;
     await recordExecutionOutcome(resource, {
       lastRun: meta.lastRun,
       lastStatus: "error",
-      lastError,
+      lastError: reportedError,
+      advanceSchedule: options.advanceSchedule,
     });
-    console.error(`[recurring-jobs] Job "${jobName}" failed:`, lastError);
+    console.error(`[recurring-jobs] Job "${jobName}" failed:`, reportedError);
+    return { status: "error", error: reportedError };
   }
+}
+
+/** Execute one stored automation without changing its scheduled next run. */
+export async function runJobNow(
+  owner: string,
+  name: string,
+  deps: SchedulerDeps,
+  options: { historyId?: string } = {},
+): Promise<JobExecutionResult> {
+  const path = `jobs/${name}.md`;
+  const resource = await resourceGetByPath(owner, path);
+  if (!resource) throw new Error(`Automation "${name}" not found.`);
+  const { meta, body } = parseJobFrontmatter(resource.content);
+  if (!body.trim())
+    throw new Error(`Automation "${name}" has no instructions.`);
+  return executeJob(resource, meta, body, deps, new Date(), {
+    advanceSchedule: false,
+    historyId: options.historyId,
+    manual: true,
+  });
+}
+
+/** Process a durable run-now history row exactly once in the background worker. */
+export async function runQueuedAutomation(
+  historyId: string,
+  deps: SchedulerDeps,
+): Promise<{ skipped: boolean; runId?: string; error?: string }> {
+  const queued = await getAutomationRun(historyId);
+  if (!queued) throw new Error(`Automation run "${historyId}" not found.`);
+  if (!(await claimAutomationRun(historyId))) {
+    return { skipped: true };
+  }
+  const result = await runJobNow(queued.owner, queued.automation, deps, {
+    historyId,
+  });
+  return {
+    skipped: false,
+    ...(result.runId ? { runId: result.runId } : {}),
+    ...(result.error ? { error: result.error } : {}),
+  };
 }
 
 async function updateResource(
   resource: Resource,
   meta: JobFrontmatter,
   body: string,
-): Promise<void> {
+): Promise<boolean> {
   const content = buildJobContent(meta, body);
-  await resourcePut(resource.owner, resource.path, content);
+  const written = await resourcePutIfCurrent({
+    owner: resource.owner,
+    path: resource.path,
+    content,
+    expectedId: resource.id,
+    expectedUpdatedAt: resource.updatedAt,
+    expectedContent: resource.content,
+  });
+  return written !== null;
 }
 
 /** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
 type ExecutionOutcome = Pick<
   JobFrontmatter,
   "lastRun" | "lastCheck" | "lastStatus" | "lastError"
->;
+> & { advanceSchedule?: boolean };
 
 /**
  * Persist the result of a run without clobbering a concurrent edit.
@@ -339,10 +483,23 @@ async function recordExecutionOutcome(
     );
     return;
   }
+  if (latest.id !== resource.id) {
+    // The old definition was deleted and a new one reused the same path.
+    // Never attach the old run's outcome to the replacement definition.
+    console.log(
+      `[recurring-jobs] "${resource.path}" was replaced mid-run; dropping its outcome.`,
+    );
+    return;
+  }
   const current = parseJobResource(latest.content);
 
-  const meta: JobFrontmatter = { ...current.meta, ...outcome };
-  if (meta.schedule && isValidCron(meta.schedule)) {
+  const { advanceSchedule, ...execution } = outcome;
+  const meta: JobFrontmatter = { ...current.meta, ...execution };
+  if (
+    advanceSchedule !== false &&
+    meta.schedule &&
+    isValidCron(meta.schedule)
+  ) {
     // Measured from completion so a long run cannot immediately re-fire.
     meta.nextRun = nextOccurrence(
       meta.schedule,
@@ -350,5 +507,9 @@ async function recordExecutionOutcome(
       meta.timezone,
     ).toISOString();
   }
-  await updateResource(resource, meta, current.body);
+  if (!(await updateResource(latest, meta, current.body))) {
+    console.log(
+      `[recurring-jobs] "${resource.path}" changed while its outcome was being recorded; dropping the outcome.`,
+    );
+  }
 }

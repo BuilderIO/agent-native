@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -97,6 +97,28 @@ async function selectDatabaseItemDocuments(
   return ownedRows.map((row) => ({ documentId: row.id }));
 }
 
+async function selectMembershipDatabaseIds(
+  db: ReturnType<typeof getDb>,
+  documentIds: string[],
+  ownerEmail: string,
+) {
+  const rows: Array<{ databaseId: string }> = [];
+  for (const batch of chunks(documentIds, DELETE_BATCH_SIZE)) {
+    rows.push(
+      ...(await db
+        .select({ databaseId: schema.contentDatabaseItems.databaseId })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            inArray(schema.contentDatabaseItems.documentId, batch),
+            eq(schema.contentDatabaseItems.ownerEmail, ownerEmail),
+          ),
+        )),
+    );
+  }
+  return [...new Set(rows.map((row) => row.databaseId))];
+}
+
 async function collectDocumentSubtreeForDelete(
   db: ReturnType<typeof getDb>,
   rootId: string,
@@ -150,10 +172,52 @@ async function collectDocumentSubtreeForDelete(
     frontier = [...next];
   }
 
+  const collectedDocumentIds = [...documentIds];
+  const collectedOwnedDatabaseIds = [...ownedDatabaseIds];
   return {
-    documentIds: [...documentIds],
-    ownedDatabaseIds: [...ownedDatabaseIds],
+    documentIds: collectedDocumentIds,
+    ownedDatabaseIds: collectedOwnedDatabaseIds,
+    lockDatabaseIds: [
+      ...new Set([
+        ...collectedOwnedDatabaseIds,
+        ...(await selectMembershipDatabaseIds(
+          db,
+          collectedDocumentIds,
+          ownerEmail,
+        )),
+      ]),
+    ],
   };
+}
+
+async function lockDatabasesAndRecollect<
+  T extends { lockDatabaseIds: string[] },
+>(
+  db: ReturnType<typeof getDb>,
+  ownerEmail: string,
+  collect: () => Promise<T>,
+): Promise<T> {
+  const lockedDatabaseIds = new Set<string>();
+  let collected = await collect();
+  while (true) {
+    const unlockedDatabaseIds = collected.lockDatabaseIds.filter(
+      (databaseId) => !lockedDatabaseIds.has(databaseId),
+    );
+    if (unlockedDatabaseIds.length === 0) return collected;
+    for (const batch of chunks(unlockedDatabaseIds, DELETE_BATCH_SIZE)) {
+      await db
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            inArray(schema.contentDatabases.id, batch),
+            eq(schema.contentDatabases.ownerEmail, ownerEmail),
+          ),
+        );
+      for (const databaseId of batch) lockedDatabaseIds.add(databaseId);
+    }
+    collected = await collect();
+  }
 }
 
 export async function trashDocumentSubtree(
@@ -162,10 +226,29 @@ export async function trashDocumentSubtree(
   ownerEmail: string,
   trashedAt = new Date().toISOString(),
 ): Promise<string[]> {
-  const { documentIds } = await collectDocumentSubtreeForDelete(
-    db,
-    id,
-    ownerEmail,
+  return db.transaction((tx) =>
+    trashDocumentSubtreeInTransaction(
+      tx as unknown as ReturnType<typeof getDb>,
+      id,
+      ownerEmail,
+      trashedAt,
+    ),
+  );
+}
+
+async function trashDocumentSubtreeInTransaction(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+  trashedAt: string,
+): Promise<string[]> {
+  // Stable-key upserts lock their canonical database row before creating or
+  // updating children. Acquire the same locks, then collect again: an upsert
+  // that won the lock before this transaction may have added a child after the
+  // first traversal, while one that arrives later must wait until the database
+  // has been marked deleted and will fail closed.
+  const { documentIds } = await lockDatabasesAndRecollect(db, ownerEmail, () =>
+    collectDocumentSubtreeForDelete(db, id, ownerEmail),
   );
   await assertNotWorkspaceCatalogDocuments(db, documentIds, "deleted");
 
@@ -316,14 +399,20 @@ export async function deleteDocumentRecursive(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
-  const { documentIds, ownedDatabaseIds } =
-    await collectDocumentSubtreeForDelete(db, id, ownerEmail);
-  return deleteCollectedDocuments(
-    db,
-    documentIds,
-    ownedDatabaseIds,
-    ownerEmail,
-  );
+  return db.transaction(async (tx) => {
+    const scopedDb = tx as unknown as ReturnType<typeof getDb>;
+    const { documentIds, ownedDatabaseIds } = await lockDatabasesAndRecollect(
+      scopedDb,
+      ownerEmail,
+      () => collectDocumentSubtreeForDelete(scopedDb, id, ownerEmail),
+    );
+    return deleteCollectedDocuments(
+      scopedDb,
+      documentIds,
+      ownedDatabaseIds,
+      ownerEmail,
+    );
+  });
 }
 
 async function deleteCollectedDocuments(
@@ -413,6 +502,27 @@ async function deleteCollectedDocuments(
       .delete(schema.documentBlockFieldContents)
       .where(
         inArray(schema.documentBlockFieldContents.propertyId, propertyIdBatch),
+      );
+  });
+
+  await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.databaseId,
+          databaseIdBatch,
+        ),
+      );
+  });
+  await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(
+        inArray(
+          schema.contentDatabaseItemKeyClaims.documentId,
+          documentIdBatch,
+        ),
       );
   });
 
@@ -519,6 +629,20 @@ export async function deleteTrashedDocumentSubtree(
   id: string,
   ownerEmail: string,
 ): Promise<string[]> {
+  return db.transaction((tx) =>
+    deleteTrashedDocumentSubtreeInTransaction(
+      tx as unknown as ReturnType<typeof getDb>,
+      id,
+      ownerEmail,
+    ),
+  );
+}
+
+async function deleteTrashedDocumentSubtreeInTransaction(
+  db: ReturnType<typeof getDb>,
+  id: string,
+  ownerEmail: string,
+): Promise<string[]> {
   const [root] = await db
     .select({ id: schema.documents.id })
     .from(schema.documents)
@@ -537,23 +661,43 @@ export async function deleteTrashedDocumentSubtree(
     );
   }
 
-  const documentIds = (
-    await db
-      .select({ id: schema.documents.id })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.ownerEmail, ownerEmail),
-          eq(schema.documents.trashRootId, id),
-          isNotNull(schema.documents.trashedAt),
-        ),
-      )
-  ).map((document) => document.id);
-  const ownedDatabaseIds = await selectOwnedDatabaseIds(
+  const { documentIds, ownedDatabaseIds } = await lockDatabasesAndRecollect(
     db,
-    documentIds,
     ownerEmail,
-  ).then((rows) => rows.map((database) => database.id));
+    async () => {
+      const collectedDocumentIds = (
+        await db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.ownerEmail, ownerEmail),
+              eq(schema.documents.trashRootId, id),
+              isNotNull(schema.documents.trashedAt),
+            ),
+          )
+      ).map((document) => document.id);
+      const collectedDatabaseIds = await selectOwnedDatabaseIds(
+        db,
+        collectedDocumentIds,
+        ownerEmail,
+      ).then((rows) => rows.map((database) => database.id));
+      return {
+        documentIds: collectedDocumentIds,
+        ownedDatabaseIds: collectedDatabaseIds,
+        lockDatabaseIds: [
+          ...new Set([
+            ...collectedDatabaseIds,
+            ...(await selectMembershipDatabaseIds(
+              db,
+              collectedDocumentIds,
+              ownerEmail,
+            )),
+          ]),
+        ],
+      };
+    },
+  );
 
   await db
     .update(schema.documents)
@@ -633,12 +777,10 @@ export default defineAction({
     if (systemDatabase?.systemRole) {
       throw new Error("System Content database documents cannot be deleted");
     }
-    const deleted = await db.transaction((tx) =>
-      trashDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
-        id,
-        existing.ownerEmail as string,
-      ),
+    const deleted = await trashDocumentSubtree(
+      db,
+      id,
+      existing.ownerEmail as string,
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });

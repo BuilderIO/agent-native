@@ -848,6 +848,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     noViewsYet: "Noch keine Aufrufe.",
     viewsCount_one: "{{count}} Aufruf",
     viewsCount_other: "{{count}} Aufrufe",
+    agentViewsCount_one: "{{count}} KI-Agenten-Aufruf",
+    agentViewsCount_other: "{{count}} KI-Agenten-Aufrufe",
     totalViewsSummary:
       "{{total}} Aufrufe insgesamt, {{unique}} eindeutige Zuschauer",
     viewsTab: "Aufrufe",
@@ -855,6 +857,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     humanViews: "Menschliche Aufrufe",
     agentViews: "Aufrufe durch KI-Agenten",
     noAgentViewsYet: "Noch keine Aufrufe durch KI-Agenten.",
+    unknownAgent: "Unbekannter Agent",
     totalVideoViews: "Videoaufrufe insgesamt",
     averageCompletionRate: "Durchschnittliche Abschlussrate",
     moreInsights: "Mehr Einblicke",
@@ -1132,6 +1135,19 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     useColor: "Farbe {{color}} verwenden",
     spaceCreated: "Bereich erstellt",
     createFailed: "Bereich konnte nicht erstellt werden",
+  },
+  spaceDialog: {
+    deleteSpace: "Bereich löschen",
+    renameSpace: "Bereich umbenennen",
+    deleteTitle: "„{{name}}“ löschen?",
+    deleteDescription:
+      "Dadurch wird der Bereich gelöscht und aus allen Aufnahmen entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
+    renamed: "Bereich umbenannt",
+    deleted: "„{{name}}“ gelöscht",
+    renameFailed: "Bereich konnte nicht umbenannt werden",
+    deleteFailed: "Bereich konnte nicht gelöscht werden",
+    renaming: "Wird umbenannt...",
+    deleting: "Wird gelöscht...",
   },
   signInPrompt: {
     title: "Anmelden, um {{intent}}",
