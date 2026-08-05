@@ -50,29 +50,40 @@ const dataOperationSchema = z
     }
   });
 
-const agentDataOperationSchema = z.discriminatedUnion("op", [
-  z.object({
-    op: z.literal("set"),
-    path: dataPathSchema,
-    value: z
-      .union([
-        z.number(),
-        z.boolean(),
-        z.string(),
-        z.null(),
-        z.array(z.unknown()),
-        z.record(z.string(), z.unknown()),
-      ])
-      .describe(
-        "Value to set. Geometry and dimensions (x, y, width, height, rotation, z) " +
-          'are JSON numbers: 800, never "800" or "800px".',
-      ),
-  }),
-  z.object({
-    op: z.literal("delete"),
-    path: dataPathSchema,
-  }),
-]);
+const agentDataOperationSchema = z
+  .discriminatedUnion("op", [
+    z.object({
+      op: z.literal("set"),
+      path: dataPathSchema,
+      value: z
+        .union([
+          z.number(),
+          z.boolean(),
+          z.string(),
+          z.null(),
+          z.array(z.unknown()),
+          z.record(z.string(), z.unknown()),
+        ])
+        .describe(
+          "Value to set. Geometry and dimensions (x, y, width, height, rotation, z) " +
+            'are JSON numbers: 800, never "800" or "800px".',
+        ),
+    }),
+    z.object({
+      op: z.literal("delete"),
+      path: dataPathSchema,
+    }),
+  ])
+  .superRefine((operation, context) => {
+    if (operation.op !== "set") return;
+    const message = numericDesignDataWriteError(
+      operation.path,
+      operation.value,
+    );
+    if (message) {
+      context.addIssue({ code: "custom", path: ["value"], message });
+    }
+  });
 
 type DataOperation = z.infer<typeof dataOperationSchema>;
 
