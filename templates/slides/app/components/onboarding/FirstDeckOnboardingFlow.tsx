@@ -1,6 +1,7 @@
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type { FirstRunOnboardingExtensionProps } from "@agent-native/core/client/onboarding";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -24,8 +25,6 @@ import {
   rememberRecentReference,
   type RecentReference,
 } from "@/lib/recent-references";
-
-import type { FirstRunOnboardingExtensionProps } from "../../../../../packages/core/src/client/onboarding/first-run-registry.js";
 
 type FirstDeckStep = "prompt" | "references";
 

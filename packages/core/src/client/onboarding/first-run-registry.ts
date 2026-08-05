@@ -1,14 +1,19 @@
 import type { ComponentType } from "react";
 
-/** Props passed to an app-specific first-run onboarding step. */
+/**
+ * Props passed to an app-specific first-run onboarding step.
+ *
+ * Register one component per screen when an app needs a continuous, full-screen
+ * flow after the shared connection and agent-introduction screens.
+ */
 export interface FirstRunOnboardingExtensionProps {
   /** Finish this step and open the next registered step, if any. */
   onComplete: () => void;
-  /** Leave first-run onboarding without opening the app-specific flow. */
+  /** Abort first-run onboarding without opening another app-specific step. */
   onSkip: () => void;
 }
 
-/** A full-screen app flow that follows the framework's connection setup. */
+/** A full-screen app step that follows the framework's connection setup. */
 export interface FirstRunOnboardingExtension {
   id: string;
   component: ComponentType<FirstRunOnboardingExtensionProps>;

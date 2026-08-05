@@ -16,6 +16,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
+import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/onboarding";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,7 +40,6 @@ import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
 
-import { registerFirstRunOnboardingExtension } from "../../../packages/core/src/client/onboarding/first-run-registry.js";
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
