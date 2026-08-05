@@ -38,7 +38,7 @@ Actions cover the vast majority of app operations. Reach for a file route in `se
 
 <Comparison>
 
-### Use a custom route
+### Use a custom route {#use-custom-route}
 
 - File uploads or multipart form data
 - Streaming responses or server-sent events (SSE)
@@ -47,7 +47,7 @@ Actions cover the vast majority of app operations. Reach for a file route in `se
 - Public unauthenticated pages
 - External REST contracts that require a specific URL path or response shape
 
-### Use an action instead
+### Use an action instead {#use-action-instead}
 
 - Operations the UI and agent both need
 - Reading or writing app data
@@ -186,7 +186,7 @@ export default createH3SSRHandler(
 
 Every SSR response is an impersonal, public shell cached at the CDN. Never read cookies, session state, or auth branches in this handler. Personalization happens client-side after hydration.
 
-## What's next
+## What's next {#whats-next}
 
 - [**Actions**](/docs/actions): the preferred surface for app operations; reach for a route only when it doesn't fit
 - [**Plugins**](/docs/server-plugins): startup plugins that run before routes are served

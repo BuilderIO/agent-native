@@ -38,7 +38,7 @@ Actions 覆盖了绝大多数应用操作。只有当你需要 Action 无法表�
 
 <Comparison>
 
-### 使用自定义路由
+### 使用自定义路由 {#use-custom-route}
 
 - 文件上传或 multipart 表单数据
 - 流式响应或服务器发送事件（SSE）
@@ -47,7 +47,7 @@ Actions 覆盖了绝大多数应用操作。只有当你需要 Action 无法表�
 - 公开的、无需身份验证的页面
 - 需要特定 URL 路径或响应格式的外部 REST 契约
 
-### 改用 Action
+### 改用 Action {#use-action-instead}
 
 - UI 和代理都需要的操作
 - 读取或写入应用数据
@@ -185,7 +185,7 @@ export default createH3SSRHandler(
 
 每个 SSR 响应都是一个不针对个人的公共外壳，并会在 CDN 上被缓存。切勿在这个处理函数中读取 cookie、会话状态或身份验证分支，个性化内容应在客户端完成 hydration 之后进行。
 
-## 下一步
+## 下一步 {#whats-next}
 
 - [**Actions**](/docs/actions)：应用操作的首选表面；只有在不适用时才考虑路由
 - [**插件**](/docs/server-plugins)：在路由被处理之前运行的启动插件

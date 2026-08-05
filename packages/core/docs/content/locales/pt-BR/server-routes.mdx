@@ -38,7 +38,7 @@ As actions cobrem a grande maioria das operações do aplicativo. Recorra a uma 
 
 <Comparison>
 
-### Use uma rota personalizada
+### Use uma rota personalizada {#use-custom-route}
 
 - Uploads de arquivo ou dados de formulário multipart
 - Respostas em streaming ou server-sent events (SSE)
@@ -47,7 +47,7 @@ As actions cobrem a grande maioria das operações do aplicativo. Recorra a uma 
 - Páginas públicas não autenticadas
 - Contratos REST externos que exigem um caminho de URL ou formato de resposta específico
 
-### Use uma action em vez disso
+### Use uma action em vez disso {#use-action-instead}
 
 - Operações que a UI e o agente precisam de ambos
 - Leitura ou gravação de dados do aplicativo
@@ -186,7 +186,7 @@ export default createH3SSRHandler(
 
 Toda resposta de SSR é um shell público e impessoal, em cache no CDN. Nunca leia cookies, estado de sessão ou ramificações de auth nesse manipulador. A personalização acontece no lado do cliente, depois da hidratação.
 
-## O que vem a seguir
+## O que vem a seguir {#whats-next}
 
 - [**Actions**](/docs/actions): a superfície preferida para operações do aplicativo; recorra a uma rota apenas quando ela não se encaixar
 - [**Plugins**](/docs/server-plugins): plugins de inicialização que rodam antes de as rotas serem servidas

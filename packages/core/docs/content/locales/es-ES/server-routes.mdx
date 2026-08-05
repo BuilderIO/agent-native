@@ -38,7 +38,7 @@ Las actions cubren la gran mayoría de las operaciones de la aplicación. Recurr
 
 <Comparison>
 
-### Use una ruta personalizada
+### Use una ruta personalizada {#use-custom-route}
 
 - Cargas de archivos o datos de formulario multipart
 - Respuestas en streaming o eventos enviados por el servidor (SSE)
@@ -47,7 +47,7 @@ Las actions cubren la gran mayoría de las operaciones de la aplicación. Recurr
 - Páginas públicas sin autenticación
 - Contratos REST externos que requieren una ruta URL o una forma de respuesta específica
 
-### Use una action en su lugar
+### Use una action en su lugar {#use-action-instead}
 
 - Operaciones que tanto la UI como el agente necesitan
 - Lectura o escritura de datos de la aplicación
@@ -186,7 +186,7 @@ export default createH3SSRHandler(
 
 Cada respuesta SSR es un shell impersonal y público, cacheado en el CDN. Nunca lea cookies, estado de sesión ni ramas de autenticación en este manejador. La personalización ocurre del lado del cliente después de la hidratación.
 
-## ¿Qué sigue?
+## ¿Qué sigue? {#whats-next}
 
 - [**Actions**](/docs/actions): la superficie preferida para las operaciones de la aplicación; recurra a una ruta solo cuando no encaje
 - [**Plugins**](/docs/server-plugins): plugins de inicio que se ejecutan antes de servir las rutas

@@ -244,6 +244,20 @@ Schema changes are applied at startup via a Nitro plugin in `server/plugins/db.t
 
 `runMigrations` runs each entry in order once, then records the version so it is skipped on future restarts. Entries are idempotent. The plugin is safe to call on every boot.
 
+<Callout tone="warning">
+  Give every new migration a stable `name` (e.g. `{ version: 4, name:
+  "tasks-priority-index", sql: "..." }`). The plain `version` number is only a
+  position in a shared sequence: if two branches each add their own
+  migrations at, say, `version: 4`, whichever branch deploys first "uses up"
+  that version number in the bookkeeping table, and the other branch's DDL
+  silently never runs when it merges — the table looks fully migrated even
+  though the second branch's columns or tables don't exist. A `name` is
+  tracked independently of `version`, so it applies exactly once regardless
+  of what version number it shipped under or which branch merged first.
+  Unnamed legacy migrations keep working as-is; add `name` to migrations you
+  write from now on.
+</Callout>
+
 <Callout tone="risk">
   Never run `drizzle-kit push` against a production database. Template schemas
   only define app-specific tables; they do not include central framework tables
@@ -413,7 +427,7 @@ const { rows } = await getDbExec().execute({
 | `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite; `pglite:./data/pglite` = local Postgres opt-in) |
 | `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                            |
 
-## What's next
+## What's next {#whats-next}
 
 - [**Security — Data Scoping**](/docs/security#data-scoping): how `owner_email` and access helpers scope reads and writes
 - [**Sharing**](/docs/sharing#building): `ownableColumns()` and the visibility model for shared resources

@@ -38,7 +38,7 @@ Les actions couvrent la grande majorité des opérations d'application. Ne recou
 
 <Comparison>
 
-### Utiliser une route personnalisée
+### Utiliser une route personnalisée {#use-custom-route}
 
 - Téléversements de fichiers ou données de formulaire multipart
 - Réponses en streaming ou événements envoyés par le serveur (SSE)
@@ -47,7 +47,7 @@ Les actions couvrent la grande majorité des opérations d'application. Ne recou
 - Pages publiques non authentifiées
 - Contrats REST externes exigeant un chemin d'URL ou une forme de réponse spécifique
 
-### Utiliser une action à la place
+### Utiliser une action à la place {#use-action-instead}
 
 - Opérations dont l'UI et l'agent ont tous deux besoin
 - Lecture ou écriture des données de l'application
@@ -186,7 +186,7 @@ export default createH3SSRHandler(
 
 Chaque réponse SSR est une coquille publique et impersonnelle mise en cache au niveau du CDN. Ne lisez jamais les cookies, l'état de session, ou des branches d'authentification dans ce gestionnaire. La personnalisation se fait côté client après l'hydratation.
 
-## Quelle est la prochaine étape
+## Quelle est la prochaine étape {#whats-next}
 
 - [**Actions**](/docs/actions) : la surface privilégiée pour les opérations d'application ; ne recourez à une route que lorsqu'elle ne convient pas
 - [**Plugins**](/docs/server-plugins) : les plugins de démarrage qui s'exécutent avant que les routes ne soient servies

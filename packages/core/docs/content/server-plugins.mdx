@@ -93,6 +93,7 @@ export default runMigrations(
   [
     {
       version: 1,
+      name: "projects-table",
       sql: `CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -106,7 +107,7 @@ export default runMigrations(
 );
 ```
 
-Each entry needs a `version` number and a `sql` string. The `table` option names the migration tracking table. Use a name unique to your app so it does not collide with framework migrations. See [Database](/docs/server-database) for the full schema authoring guide.
+Each entry needs a `version` number and a `sql` string. Give it a stable `name` too — `runMigrations` tracks named entries independently of `version`, so it still applies exactly once even if another branch reuses the same version number for unrelated DDL. The `table` option names the migration tracking table. Use a name unique to your app so it does not collide with framework migrations. See [Database](/docs/server-database#migrations) for the full schema authoring guide and the name-based tracking rationale.
 
 <Callout tone="warning">
   Migrations must be additive. Never put destructive SQL (`DROP TABLE`,
@@ -135,15 +136,13 @@ Plugins can use any of Nitro's lifecycle hooks: `request`, `beforeResponse`, `cl
 
 ## Startup Order {#startup-order}
 
-Nitro runs plugins in alphabetical filename order. Within a single plugin file the default export is awaited before the next plugin starts. A typical ordering:
+Nitro discovers plugins in lexical filename order, so with the default names it invokes `agent-chat.ts`, then `auth.ts`, then `db.ts` — not the dependency order you might expect.
 
-1. `db.ts` — migrations complete before any route or plugin reads the database
-2. `auth.ts` — auth configuration is in place before requests arrive
-3. `agent-chat.ts` — agent routes mount after auth is configured
+File order controls only when each plugin *starts*, not when it *finishes*. Nitro does not await one plugin's async default export before invoking the next, so a later plugin's synchronous setup — and the first incoming request — can run while an earlier plugin's async work (like migrations) is still in flight. `createAuthPlugin` and `createAgentChatPlugin` coordinate internally so framework routes wait for both to finish initializing before serving requests. `runMigrations` has no equivalent coordination: nothing blocks an action or route from querying the database before `db.ts` finishes running its migrations.
 
-If you add custom plugins, prefix their filenames to control where they fall in the sequence.
+If you add custom plugins, prefix their filenames to control invocation order, but don't rely on filename order alone to sequence async work across plugins.
 
-## What's next
+## What's next {#whats-next}
 
 - [**Database**](/docs/server-database): schema helpers and the `getDb` pattern used inside plugins
 - [**Middleware**](/docs/server-middleware): the auth guard that enforces what the auth plugin configures
