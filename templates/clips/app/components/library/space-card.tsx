@@ -126,19 +126,19 @@ export function SpaceCard({
         {canManageOrg && (
           <ContextMenuContent>
             <ContextMenuItem
-              onClick={(e) => {
-                e.preventDefault();
-                setRenameValue(space.name);
-                setRenameSpaceId(space.id);
+              onSelect={() => {
+                setTimeout(() => {
+                  setRenameValue(space.name);
+                  setRenameSpaceId(space.id);
+                }, 0);
               }}
             >
               <IconEdit className="h-4 w-4 mr-2" />
               {t("spaceDialog.renameSpace")}
             </ContextMenuItem>
             <ContextMenuItem
-              onClick={(e) => {
-                e.preventDefault();
-                setDeleteSpaceId(space.id);
+              onSelect={() => {
+                setTimeout(() => setDeleteSpaceId(space.id), 0);
               }}
               className="text-destructive focus:text-destructive"
             >

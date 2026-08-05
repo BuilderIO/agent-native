@@ -603,7 +603,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                     }}
                                   >
                                     <IconEdit className="h-3.5 w-3.5 me-2" />
-                                    Rename
+                                    {t("spaceDialog.renameSpace")}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
                                     onSelect={() => {
@@ -615,7 +615,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                                     className="text-destructive"
                                   >
                                     <IconTrash className="h-3.5 w-3.5 me-2" />
-                                    Delete
+                                    {t("spaceDialog.deleteSpace")}
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>

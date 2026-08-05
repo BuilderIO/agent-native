@@ -94,7 +94,10 @@ export function SpaceDialogs({
           <div className="flex justify-end gap-2">
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleRename}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRename();
+              }}
               disabled={renameSpace.isPending || !renameValue.trim()}
             >
               {renameSpace.isPending
@@ -122,7 +125,10 @@ export function SpaceDialogs({
           <div className="flex justify-end gap-2">
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDelete();
+              }}
               disabled={deleteSpace.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
