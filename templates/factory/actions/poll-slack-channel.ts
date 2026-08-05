@@ -27,9 +27,12 @@ export default defineAction({
       await db
         .select()
         .from(triageConfig)
-        .where(eq(triageConfig.id, orgId))
+        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
+    if (config?.pollingEnabled !== 1) {
+      throw new Error("Enable Slack polling before polling Slack.");
+    }
     const channelId = requestedChannelId ?? config?.slackChannelId;
     if (!channelId) {
       throw new Error("Configure a Slack channel before polling.");
@@ -83,7 +86,6 @@ export default defineAction({
               channelId: envelope.channelId ?? null,
               threadTs: envelope.threadTs ?? null,
               coverage: envelope.coverage,
-              metadataJson: JSON.stringify(envelope.metadata ?? {}),
               lastSeenAt: now,
               updatedAt: now,
             },

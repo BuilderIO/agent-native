@@ -7,16 +7,14 @@ import {
   IconChevronDown,
   IconDeviceDesktop,
   IconDeviceScreen,
-  IconLink,
   IconMicrophone,
   IconPlayerRecord,
-  IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { ImportMenu } from "@/components/import-menu";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -66,15 +64,14 @@ export interface PreRecordPanelProps {
   initialDisplaySurface?: DisplaySurface | null;
   /** Called when the user picks a local video file to upload. */
   onUpload?: (file: File) => void;
-  /** When set, shows an "Import Loom" link pointing at the dedicated
-   * Loom-import page instead of an inline import form. */
+  /** When set, includes an "Import Loom" option in the shared import menu. */
   importLoomHref?: string;
   onCancel?: () => void;
   busy?: boolean;
   cameraSize?: CameraBubbleSize;
   onCameraSizeChange?: (size: CameraBubbleSize) => void;
   /** Opens the file picker once on mount, e.g. when arriving from a
-   * dedicated "Upload video" entry point elsewhere in the app. */
+   * dedicated upload entry point elsewhere in the app. */
   autoOpenUpload?: boolean;
 }
 
@@ -924,34 +921,13 @@ export function PreRecordPanel({
 
         {(onUpload || importLoomHref) && (
           <>
-            <div
-              className={cn(
-                "grid gap-2",
-                onUpload && importLoomHref && "sm:grid-cols-2",
-              )}
-            >
-              {onUpload ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <IconUpload className="h-4 w-4" />
-                  {t("preRecord.uploadVideo")}
-                </button>
-              ) : null}
-
-              {importLoomHref ? (
-                <Link
-                  to={importLoomHref}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <IconLink className="h-4 w-4" />
-                  {t("preRecord.importLoom")}
-                </Link>
-              ) : null}
-            </div>
+            <ImportMenu
+              onUpload={
+                onUpload ? () => fileInputRef.current?.click() : undefined
+              }
+              importLoomHref={importLoomHref}
+              disabled={busy}
+            />
 
             {onUpload ? (
               <input

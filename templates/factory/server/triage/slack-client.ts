@@ -1,10 +1,16 @@
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
   getChannelHistory as readChannelHistory,
+  addEyesReaction as writeEyesReaction,
+  getThread as readThread,
   getTeamInfo as readTeamInfo,
+  postThreadReply as writeThreadReply,
   type ChannelHistoryResult,
+  type SlackPostMessageResult,
+  type SlackReactionResult,
   type SlackTeamInfo,
   type SlackTokenResolver,
+  type ThreadRepliesResult,
   type Workspace,
 } from "../connectors/slack.js";
 
@@ -50,6 +56,43 @@ export function createSlackReader(identity: SlackReaderIdentity) {
     },
     getTeamInfo(workspace: Workspace): Promise<SlackTeamInfo> {
       return readTeamInfo(workspace, tokenResolver);
+    },
+    getThread(
+      workspace: Workspace,
+      channelId: string,
+      threadTs: string,
+      limit?: number,
+      cursor?: string,
+    ): Promise<ThreadRepliesResult> {
+      return readThread(
+        workspace,
+        channelId,
+        threadTs,
+        limit,
+        cursor,
+        tokenResolver,
+      );
+    },
+    addEyesReaction(
+      workspace: Workspace,
+      channelId: string,
+      timestamp: string,
+    ): Promise<SlackReactionResult> {
+      return writeEyesReaction(workspace, channelId, timestamp, tokenResolver);
+    },
+    postThreadReply(
+      workspace: Workspace,
+      channelId: string,
+      threadTs: string,
+      text: string,
+    ): Promise<SlackPostMessageResult> {
+      return writeThreadReply(
+        workspace,
+        channelId,
+        threadTs,
+        text,
+        tokenResolver,
+      );
     },
   };
 }

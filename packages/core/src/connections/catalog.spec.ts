@@ -123,6 +123,12 @@ describe("workspace connection provider catalog", () => {
         capability: "code",
       }).map((provider) => provider.id),
     ).toEqual(["github", "jira"]);
+
+    expect(
+      listWorkspaceConnectionProvidersForTemplate("factory").map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(expect.arrayContaining(["slack", "github", "sentry"]));
   });
 
   it("checks provider capabilities without exposing credential values", () => {

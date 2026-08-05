@@ -15,6 +15,19 @@ Il s'agit de la même primitive de confiance que [A2A](/docs/a2a-protocol) et [E
 
 </Callout>
 
+## Ce que voit l'utilisateur {#user-flow}
+
+Cross-App SSO doit donner l'impression de passer d'un produit à l'autre dans un même espace de travail, et non de créer un deuxième compte. Par exemple :
+
+1. Connectez-vous à [Dispatch](https://dispatch.agent-native.com), ou à toute application qui utilise déjà l'identité de l'espace de travail.
+2. Ouvrez [Mail](https://mail.agent-native.com), [Calendar](https://calendar.agent-native.com) ou une autre application activée dans un nouvel onglet.
+3. L'application n'envoie le navigateur vers Dispatch que si aucune session Dispatch n'existe. Si la session existe déjà, la redirection est pratiquement invisible.
+4. Revenez dans l'application déjà connectée, avec la même adresse e-mail, les mêmes données et le même contexte d'organisation.
+
+La distinction importante est qu'il s'agit **d'une seule connexion, et non d'un cookie partagé**. Chaque application hébergée séparément continue de créer et de gérer sa propre session locale. Dispatch confirme l'identité de l'utilisateur à l'entrée de l'application, puis celle-ci utilise son authentification locale et ses contrôles d'accès habituels.
+
+Pour une démonstration produit, enregistrez exactement cette séquence : connectez-vous une fois dans Dispatch, ouvrez deux autres applications hébergées, montrez qu'aucune ne demande de nouveaux identifiants, puis déconnectez-vous de l'une pour montrer que la session de l'autre reste indépendante. La limite de sécurité devient ainsi visible.
+
 ## Quoi et pourquoi {#what-why}
 
 Les magasins d'utilisateurs par application signifient qu'il n'existe pas d'endroit unique où un cookie de navigateur puisse résider et auquel chaque application fasse confiance. Le modèle de fédération nomme plutôt une application, **Dispatch**, comme autorité d'identité. Toute autre application peut déléguer « qui est cette personne ? » à Dispatch, récupérez une assertion signée de courte durée de l'adresse e-mail vérifiée de l'utilisateur, puis **associez-la à son propre compte local par e-mail**.

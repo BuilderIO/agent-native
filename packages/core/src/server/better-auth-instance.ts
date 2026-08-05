@@ -983,21 +983,22 @@ export interface GoogleAuthIdentity {
  * Ensure a verified Google identity has a canonical Better Auth user/account
  * before the legacy email-keyed session is issued. This prevents a later
  * password signup from becoming the first canonical identity for that email.
+ * Returns whether this call created the canonical user.
  */
 export async function ensureGoogleAuthIdentity(
   identity: GoogleAuthIdentity,
-): Promise<void> {
+): Promise<boolean> {
   const adapter = await getBetterAuthInternalAdapter();
   if (!adapter) {
     throw new Error("Better Auth internal adapter is unavailable");
   }
-  await ensureGoogleAuthIdentityWithAdapter(adapter, identity);
+  return ensureGoogleAuthIdentityWithAdapter(adapter, identity);
 }
 
 export async function ensureGoogleAuthIdentityWithAdapter(
   adapter: BetterAuthInternalAdapter,
   identity: GoogleAuthIdentity,
-): Promise<void> {
+): Promise<boolean> {
   const email = identity.email.trim().toLowerCase();
   const accountId = identity.accountId.trim();
   if (!email || !accountId) {
@@ -1017,7 +1018,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
     }
-    return;
+    return false;
   }
 
   if (!existing) {
@@ -1027,7 +1028,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           { email, name, emailVerified: true },
           { providerId: "google", accountId },
         );
-        return;
+        return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
         // continue if the canonical row now exists; otherwise preserve the
@@ -1046,7 +1047,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           if (linkedAccount.userId !== existing.user.id) {
             throw new Error("Google account is already linked to another user");
           }
-          return;
+          return false;
         }
       }
     } else {
@@ -1060,7 +1061,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
         providerId: "google",
         accountId,
       });
-      return;
+      return true;
     }
   }
 
@@ -1071,7 +1072,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     (account) =>
       account.providerId === "google" && account.accountId === accountId,
   );
-  if (alreadyLinked) return;
+  if (alreadyLinked) return false;
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
@@ -1095,13 +1096,14 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
-    return;
+    return false;
   }
   await adapter.linkAccount({
     userId: existing.user.id,
     providerId: "google",
     accountId,
   });
+  return false;
 }
 
 /** Reset for testing */

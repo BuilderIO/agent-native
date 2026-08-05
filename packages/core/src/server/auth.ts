@@ -17,6 +17,10 @@ import type { H3Event } from "h3";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
+  FIRST_RUN_ONBOARDING_COOKIE,
+  FIRST_RUN_ONBOARDING_MAX_AGE,
+} from "../shared/first-run-onboarding.js";
+import {
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -2467,6 +2471,15 @@ function crossSiteCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
+function setFirstRunOnboardingCookie(event: H3Event): void {
+  setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
+    ...crossSiteCookieAttrs(event),
+    httpOnly: false,
+    path: "/",
+    maxAge: FIRST_RUN_ONBOARDING_MAX_AGE,
+  });
+}
+
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   clearFrameworkSessionCookies(event);
   setCookie(event, COOKIE_NAME, token, {
@@ -2930,11 +2943,14 @@ async function mountBetterAuthRoutes(
           if (!googleAccountId) {
             throw new Error("Could not get Google account id");
           }
-          await ensureGoogleAuthIdentity({
+          const isNewGoogleUser = await ensureGoogleAuthIdentity({
             email,
             accountId: googleAccountId,
             name: typeof user.name === "string" ? user.name : undefined,
           });
+          if (isNewGoogleUser === true) {
+            setFirstRunOnboardingCookie(event);
+          }
           if (typeof user.picture === "string" && user.picture.trim()) {
             await putSetting(`avatar:${email}`, {
               image: user.picture,
@@ -3313,6 +3329,15 @@ async function mountBetterAuthRoutes(
         }
       }
 
+      if (
+        reqPath.includes("/sign-up/email") &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 300
+      ) {
+        setFirstRunOnboardingCookie(event);
+      }
+
       return response;
     }),
   );
@@ -3419,6 +3444,7 @@ async function mountBetterAuthRoutes(
           body: { email, password, name: email.split("@")[0], callbackURL },
           headers: event.headers,
         });
+        setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
@@ -3667,6 +3693,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
           body: { email, password, name: email.split("@")[0] },
           headers: event.headers,
         });
+        setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {

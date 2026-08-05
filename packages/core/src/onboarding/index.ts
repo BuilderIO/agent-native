@@ -13,7 +13,13 @@ export type {
   OnboardingMethodBadge,
   OnboardingFormField,
   OnboardingStepStatus,
+  OnboardingCapability,
+  OnboardingAppProfile,
 } from "./types.js";
+export {
+  getOnboardingAppProfile,
+  resolveOnboardingAppId,
+} from "./app-profile.js";
 export {
   createOnboardingPlugin,
   defaultOnboardingPlugin,

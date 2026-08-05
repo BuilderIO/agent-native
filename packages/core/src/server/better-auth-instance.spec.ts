@@ -114,12 +114,13 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
   it("creates a verified canonical user and Google account", async () => {
     const { adapter, createOAuthUser } = adapterFor();
 
-    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
       email: "  Owner@Example.com ",
       accountId: "google-sub-1",
       name: "Owner",
     });
 
+    expect(created).toBe(true);
     expect(createOAuthUser).toHaveBeenCalledWith(
       { email: "owner@example.com", name: "Owner", emailVerified: true },
       { providerId: "google", accountId: "google-sub-1" },
@@ -149,11 +150,12 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       });
     createOAuthUser.mockRejectedValueOnce(new Error("email already exists"));
 
-    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
       email: "owner@example.com",
       accountId: "google-sub-race",
     });
 
+    expect(created).toBe(false);
     expect(linkAccount).not.toHaveBeenCalled();
   });
 
@@ -168,11 +170,12 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     };
     const { adapter, linkAccount, createOAuthUser } = adapterFor(existing);
 
-    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
       email: "owner@example.com",
       accountId: "google-sub-1",
     });
 
+    expect(created).toBe(false);
     expect(linkAccount).toHaveBeenCalledWith({
       userId: "existing-user",
       providerId: "google",

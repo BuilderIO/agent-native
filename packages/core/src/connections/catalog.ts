@@ -16,6 +16,7 @@ export type WorkspaceConnectionTemplateUse =
   | "crm"
   | "design"
   | "dispatch"
+  | "factory"
   | "forms"
   | "mail"
   | "slides";
@@ -86,7 +87,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       },
     ],
     capabilities: ["search", "import", "messages"],
-    recommendedTemplateUses: ["brain", "dispatch", "analytics"],
+    recommendedTemplateUses: ["brain", "dispatch", "analytics", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "github",
@@ -109,7 +110,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       scopes: ["repo", "read:org", "read:user", "user:email"],
     },
     capabilities: ["search", "import", "code", "docs"],
-    recommendedTemplateUses: ["brain", "analytics", "dispatch"],
+    recommendedTemplateUses: ["brain", "analytics", "dispatch", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "figma",
@@ -333,7 +334,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       scopes: ["org:read", "project:read", "event:read", "team:read"],
     },
     capabilities: ["search", "import", "docs"],
-    recommendedTemplateUses: ["analytics", "brain", "dispatch"],
+    recommendedTemplateUses: ["analytics", "brain", "dispatch", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "granola",

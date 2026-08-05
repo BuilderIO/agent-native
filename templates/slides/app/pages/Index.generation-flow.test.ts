@@ -14,14 +14,16 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("persists and opens the empty editor before asking questions", () => {
+  it("persists and opens the empty editor before the agent asks dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
     const openEditorIndex = flow.indexOf("navigate(`/deck/${deck.id}`");
-    const askQuestionIndex = flow.indexOf("await askUserQuestion");
+    const askQuestionIndex = flow.indexOf("use the `ask-question` tool");
 
     expect(persistIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeGreaterThan(persistIndex);
     expect(askQuestionIndex).toBeGreaterThan(openEditorIndex);
+    expect(flow).not.toContain("await askUserQuestion");
+    expect(flow).toContain("prompt-specific question");
   });
 
   it("marks generation intent before submitting the agent run", () => {
@@ -52,5 +54,11 @@ describe("new deck generation flow", () => {
     expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
     expect(sparseTitleInstructionIndex).toBeGreaterThan(titlePatchIndex);
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
+  });
+
+  it("turns an imported PPTX into a reusable reference deck", () => {
+    expect(flow).toContain('callAction("import-pptx"');
+    expect(flow).toContain("referenceDeckId: imported.id");
+    expect(flow).toContain("generationFiles = uploaded.filter");
   });
 });

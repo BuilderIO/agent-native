@@ -41,16 +41,16 @@ function parseMissingChangesetPackages(log: string | undefined): string[] {
     .filter((pkg) => pkg.length > 0);
 }
 
-// Provider resolution wins when the provider knows it. `undefined` falls back
-// to reply state rather than clearing the thread: treating unknown as resolved
-// would silently mark every open thread handled whenever the provider's
-// resolution lookup fails.
+// A reply is an explicit human response even when the provider still reports
+// the thread as unresolved. That covers a deliberate "won't fix" explanation;
+// provider resolution handles outdated threads with no reply.
 function isAnswered(
   comment: ReviewCommentObservation,
   repliedToIds: ReadonlySet<string>,
 ): boolean {
+  if (repliedToIds.has(comment.id)) return true;
   if (comment.isResolved !== undefined) return comment.isResolved;
-  return repliedToIds.has(comment.id);
+  return false;
 }
 
 export function reconcileBabysitState(input: BabysitInput): BabysitProposal {

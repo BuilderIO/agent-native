@@ -7094,17 +7094,17 @@ function hasRuntimeCodeAgentLlmProvider(): boolean {
   return false;
 }
 
-function hasRuntimeNonCodexCodeAgentLlmProvider(): boolean {
+function hasRuntimeNonCodexCodeAgentLlmProvider(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   if (process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE !== undefined) {
     return true;
   }
-  if (process.env.AGENT_ENGINE) return true;
-  if (process.env.ANTHROPIC_API_KEY) return true;
-  if (process.env.OPENAI_API_KEY) return true;
-  if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
-  return Boolean(
-    process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
-  );
+  if (env.AGENT_ENGINE) return true;
+  if (env.ANTHROPIC_API_KEY) return true;
+  if (env.OPENAI_API_KEY) return true;
+  if (env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
+  return Boolean(env.BUILDER_PRIVATE_KEY && env.BUILDER_PUBLIC_KEY);
 }
 
 function normalizeCodeAgentRequestedEngine(
@@ -7130,7 +7130,12 @@ function ensureCodeAgentLlmProvider(): {
   }
   if (hasRuntimeCodeAgentLlmProvider()) return { ok: true };
 
-  if (hasRuntimeCodeAgentLlmProvider()) return { ok: true };
+  // Provider credentials saved in Desktop settings are intentionally kept out
+  // of the main process environment. Check the same effective environment
+  // that the runner receives before reporting a missing provider.
+  const providerEnv = AppStore.getCodeAgentProviderProcessEnv(process.env);
+  if (hasRuntimeNonCodexCodeAgentLlmProvider(providerEnv)) return { ok: true };
+
   const applyResult = AppStore.applyCodeAgentProviderCredentialsToEnv();
   if (applyResult.failedKeys.length > 0) {
     return {

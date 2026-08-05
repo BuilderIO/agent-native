@@ -65,7 +65,7 @@ describe("reconcileBabysitState", () => {
     expect(result.unansweredComments).toEqual([commentB]);
   });
 
-  it("keeps an unresolved thread unanswered even when a reply exists", () => {
+  it("treats a reply as handled even when the provider has not resolved the thread", () => {
     const result = reconcileBabysitState({
       ...baseInput,
       comments: [
@@ -74,9 +74,7 @@ describe("reconcileBabysitState", () => {
       ],
     });
 
-    expect(result.unansweredComments).toEqual([
-      comment({ id: "c1", isResolved: false }),
-    ]);
+    expect(result.unansweredComments).toEqual([]);
   });
 
   it("treats a resolved thread as answered even with no reply", () => {

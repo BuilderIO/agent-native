@@ -15,6 +15,19 @@ Esta es la misma primitiva de confianza que ya usan [A2A](/docs/a2a-protocol) y 
 
 </Callout>
 
+## Lo que ve el usuario {#user-flow}
+
+Cross-App SSO debe sentirse como pasar entre productos de un mismo espacio de trabajo, no como crear una segunda cuenta. Por ejemplo:
+
+1. Inicia sesión en [Dispatch](https://dispatch.agent-native.com) o en cualquier aplicación que ya use la identidad del espacio de trabajo.
+2. Abre [Mail](https://mail.agent-native.com), [Calendar](https://calendar.agent-native.com) u otra aplicación habilitada en una pestaña nueva.
+3. La aplicación envía el navegador a Dispatch solo si no existe una sesión de Dispatch. Si la sesión ya existe, la redirección es prácticamente invisible.
+4. Vuelves a la aplicación con la sesión iniciada, el mismo correo electrónico, los mismos registros y el mismo contexto de organización.
+
+La distinción importante es que se trata de **un inicio de sesión, no de una cookie compartida**. Cada aplicación alojada por separado sigue creando y administrando su propia sesión local. Dispatch demuestra la identidad del usuario en la entrada y la aplicación continúa con su autenticación local y sus controles de acceso normales.
+
+Para una demostración del producto, graba exactamente esta secuencia: inicia sesión una vez en Dispatch, abre otras dos aplicaciones alojadas, muestra que ninguna vuelve a pedir credenciales y cierra sesión en una para mostrar que la sesión de la otra es independiente. Así se hace visible el límite de seguridad.
+
 ## Qué y por qué {#what-why}
 
 Las tiendas de usuario por aplicación significan que no existe un único lugar en el que pueda alojarse una cookie del navegador en el que confíen todas las aplicaciones. En cambio, el modelo de federación nombra una aplicación, **Dispatch**, como autoridad de identidad. Cualquier otra aplicación puede delegar "¿quién es esta persona?" a Dispatch, obtenga una afirmación firmada de corta duración del correo electrónico verificado del usuario y luego **vincúlelo a su propia cuenta local por correo electrónico**.
