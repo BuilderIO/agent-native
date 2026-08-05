@@ -1261,6 +1261,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
+    micOffConfirmTitle: "Record without a microphone?",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
+    startWithoutMic: "Start without mic",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",

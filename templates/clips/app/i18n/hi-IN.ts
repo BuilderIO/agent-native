@@ -1253,6 +1253,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     cameraOff: "Camera off (स्थानीयकृत)",
     includeCameraAria: "Include camera in this recording (स्थानीयकृत)",
     startRecording: "Start recording (स्थानीयकृत)",
+    micOffConfirmTitle: "Record without a microphone? (स्थानीयकृत)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (स्थानीयकृत)",
+    startWithoutMic: "Start without mic (स्थानीयकृत)",
     uploadVideo: "Upload video (स्थानीयकृत)",
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",
