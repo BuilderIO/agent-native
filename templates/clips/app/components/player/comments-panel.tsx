@@ -60,7 +60,7 @@ const defaultLens: CommentsLens = {
     data ? { ...(data as object), comments: next } : data,
 };
 
-const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂"];
+const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂", "👀"];
 
 export interface Comment {
   id: string;
