@@ -10,7 +10,6 @@ import {
   IconLink,
   IconSparkles,
   IconUpload,
-  IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -374,9 +373,8 @@ export default function ImportRoute() {
                   </Link>
                   <Link
                     to={recordHref}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground"
                   >
-                    <IconVideo className="h-3.5 w-3.5" />
                     {t("preRecord.recordNew")}
                   </Link>
                 </div>

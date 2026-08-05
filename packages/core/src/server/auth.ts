@@ -17,6 +17,10 @@ import type { H3Event } from "h3";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
+  FIRST_RUN_ONBOARDING_COOKIE,
+  FIRST_RUN_ONBOARDING_MAX_AGE,
+} from "../shared/first-run-onboarding.js";
+import {
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
@@ -661,23 +665,23 @@ async function readDesktopSsoSafely(
  * user. Returns undefined if no session cookie was minted (the common
  * case — Better Auth's reset doesn't auto-sign-in by default).
  */
+function getSetCookieHeaders(headers: Headers): string[] {
+  const responseHeaders = headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  return typeof responseHeaders.getSetCookie === "function"
+    ? responseHeaders.getSetCookie()
+    : (responseHeaders.get("set-cookie") ?? "")
+        .split(/,(?=[^;]+=)/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+}
+
 function extractSessionTokenFromSetCookies(
   response: Response,
 ): string | undefined {
   try {
-    // Headers may have multiple Set-Cookie entries; iterate via getSetCookie
-    // when available (Node 20+ / undici), else fall back to comma split.
-    const headers = response.headers as Headers & {
-      getSetCookie?: () => string[];
-    };
-    const setCookies =
-      typeof headers.getSetCookie === "function"
-        ? headers.getSetCookie()
-        : (headers.get("set-cookie") ?? "")
-            .split(/,(?=[^;]+=)/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-    for (const sc of setCookies) {
+    for (const sc of getSetCookieHeaders(response.headers)) {
       // Better Auth's session cookie name is configurable but defaults to
       // `<prefix>.session_token`. Match either the Better Auth default or
       // our COOKIE_NAME (`an_session`) on the same line.
@@ -690,6 +694,15 @@ function extractSessionTokenFromSetCookies(
     // Best-effort; treat as no token.
   }
   return undefined;
+}
+
+function forwardBetterAuthSetCookies(event: H3Event, result: unknown): void {
+  if (!result || typeof result !== "object") return;
+  const headers = (result as { headers?: Headers }).headers;
+  if (!headers || typeof headers.get !== "function") return;
+  for (const cookie of getSetCookieHeaders(headers)) {
+    event.res?.headers?.append("set-cookie", cookie);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2467,6 +2480,15 @@ function crossSiteCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
+function setFirstRunOnboardingCookie(event: H3Event): void {
+  setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
+    ...crossSiteCookieAttrs(event),
+    httpOnly: false,
+    path: "/",
+    maxAge: FIRST_RUN_ONBOARDING_MAX_AGE,
+  });
+}
+
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   clearFrameworkSessionCookies(event);
   setCookie(event, COOKIE_NAME, token, {
@@ -2930,11 +2952,14 @@ async function mountBetterAuthRoutes(
           if (!googleAccountId) {
             throw new Error("Could not get Google account id");
           }
-          await ensureGoogleAuthIdentity({
+          const isNewGoogleUser = await ensureGoogleAuthIdentity({
             email,
             accountId: googleAccountId,
             name: typeof user.name === "string" ? user.name : undefined,
           });
+          if (isNewGoogleUser === true) {
+            setFirstRunOnboardingCookie(event);
+          }
           if (typeof user.picture === "string" && user.picture.trim()) {
             await putSetting(`avatar:${email}`, {
               image: user.picture,
@@ -3313,6 +3338,15 @@ async function mountBetterAuthRoutes(
         }
       }
 
+      if (
+        reqPath.includes("/sign-up/email") &&
+        isResponse &&
+        (response as Response).status >= 200 &&
+        (response as Response).status < 300
+      ) {
+        setFirstRunOnboardingCookie(event);
+      }
+
       return response;
     }),
   );
@@ -3419,6 +3453,7 @@ async function mountBetterAuthRoutes(
           body: { email, password, name: email.split("@")[0], callbackURL },
           headers: event.headers,
         });
+        setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
@@ -3444,7 +3479,11 @@ async function mountBetterAuthRoutes(
       optOutOfAuthDisabledSession(event);
 
       try {
-        await auth.api.signOut({ headers: event.headers });
+        const result = await auth.api.signOut({
+          headers: event.headers,
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result);
       } catch {
         // Ignore if no Better Auth session
       }
@@ -3511,7 +3550,11 @@ async function mountBetterAuthRoutes(
         clearFrameworkSessionCookies(event);
         optOutOfAuthDisabledSession(event);
         try {
-          await auth.api.signOut({ headers: event.headers });
+          const result = await auth.api.signOut({
+            headers: event.headers,
+            returnHeaders: true,
+          });
+          forwardBetterAuthSetCookies(event, result);
         } catch {
           // Ignore — sessions are already gone in DB.
         }
@@ -3667,6 +3710,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
           body: { email, password, name: email.split("@")[0] },
           headers: event.headers,
         });
+        setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
@@ -3692,7 +3736,11 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       try {
         const auth = await getBetterAuth();
-        await auth.api.signOut({ headers: event.headers });
+        const result = await auth.api.signOut({
+          headers: event.headers,
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result);
       } catch {
         // Ignore if Better Auth is still unavailable
       }

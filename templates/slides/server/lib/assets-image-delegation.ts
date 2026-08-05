@@ -10,6 +10,8 @@ import {
   type Task,
 } from "@agent-native/core/a2a";
 
+import { normalizeReferenceUrls } from "../../shared/api.js";
+
 /**
  * Slides never calls an image-generation API itself when the Assets app is
  * reachable: Assets owns brand libraries, presets, provenance, and the
@@ -92,7 +94,7 @@ function buildDelegationMessage(request: AssetsImageRequest): string {
     );
   }
 
-  const references = request.referenceImageUrls?.filter(Boolean) ?? [];
+  const references = normalizeReferenceUrls(request.referenceImageUrls);
 
   return (
     `Generate ${request.count ?? 1} brand-consistent image candidate(s) ` +
@@ -101,7 +103,7 @@ function buildDelegationMessage(request: AssetsImageRequest): string {
     `Aspect ratio: ${request.aspectRatio ?? "16:9"}\n` +
     (hints.length ? `Slide context: ${hints.join(", ")}\n` : "") +
     (references.length
-      ? `Condition the generation on these style reference images: ` +
+      ? `Condition the generation on these referenceImageUrls: ` +
         `${references.join(", ")}\n`
       : "") +
     `\nPick the best matching library via match-library if no libraryId is ` +

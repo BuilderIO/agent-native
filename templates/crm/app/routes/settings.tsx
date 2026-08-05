@@ -30,7 +30,7 @@ export function meta() {
 }
 
 /**
- * `/settings/<section>` deep links. `connections` is the shared workspace tab
+ * `/settings/<section>` deep links. `integrations` is the shared workspace tab
  * and `connection` is the CRM one, so the segment is matched exactly rather
  * than by substring.
  */
@@ -45,7 +45,7 @@ const SETTINGS_SECTIONS: readonly string[] = [
 
 function sectionFromPath(pathname: string): string {
   const section = pathname.split("/settings/")[1]?.split("/")[0] ?? "";
-  return SETTINGS_SECTIONS.includes(section) ? section : "general";
+  return SETTINGS_SECTIONS.includes(section) ? section : "integrations";
 }
 
 export default function SettingsRoute() {

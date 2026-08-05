@@ -923,6 +923,7 @@ h1 {
   background: var(--primary);
   color: var(--primary-foreground);
   cursor: pointer;
+  font-size: 13px;
   font-weight: 700;
 }
 

@@ -6,7 +6,7 @@ describe("getAgentSettingsSearchTabs", () => {
   it("exposes lightweight tab and section metadata with stable hashes", () => {
     const tabs = getAgentSettingsSearchTabs();
     const agent = tabs.find((tab) => tab.id === "agent");
-    const connections = tabs.find((tab) => tab.id === "connections");
+    const integrations = tabs.find((tab) => tab.id === "integrations");
 
     expect(agent?.searchEntries).toEqual(
       expect.arrayContaining([
@@ -16,10 +16,10 @@ describe("getAgentSettingsSearchTabs", () => {
         }),
       ]),
     );
-    expect(connections?.searchEntries).toEqual(
+    expect(integrations?.searchEntries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: "API Keys & Connections",
+          label: "API keys",
           hash: "secrets",
         }),
       ]),

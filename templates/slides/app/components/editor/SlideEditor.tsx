@@ -75,6 +75,11 @@ import {
 } from "./canvas-interactions";
 import ImageOverlay from "./ImageOverlay";
 import {
+  detectSlideListKind,
+  toggleSlideList,
+  type SlideListKind,
+} from "./list-editing";
+import {
   applyInlineTextStyle,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
@@ -119,13 +124,9 @@ import {
   type SlidesSelectionTool,
 } from "./slide-object-interactions";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
+import { type SlideStylePatch, type SlideStyleSnapshot } from "./slide-style";
+import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
-import {
-  SlideBackgroundInspector,
-  SlideStyleInspector,
-  type SlideStylePatch,
-  type SlideStyleSnapshot,
-} from "./SlideStyleInspector";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
 
 let builderIdCounter = 0;
@@ -293,7 +294,15 @@ function stripBuilderIds(html: string): string {
     cleaned = stripRoot?.innerHTML ?? doc.body.innerHTML;
   }
 
-  return cleaned.replace(/\s*data-builder-id="[^"]*"/g, "");
+  return (
+    cleaned
+      .replace(/\s*data-builder-id="[^"]*"/g, "")
+      // An active inline edit marks its host element. Serializing mid-edit —
+      // which the list toggles and the draft capture both do — would otherwise
+      // bake the editing state into saved slide content.
+      .replace(/\s*contenteditable="[^"]*"/gi, "")
+      .replace(/\s*data-editing-block="[^"]*"/g, "")
+  );
 }
 
 /**
@@ -359,6 +368,8 @@ const INLINE_INSPECTOR_STYLE_KEYS = [
   "color",
   "fontSize",
   "fontWeight",
+  "fontStyle",
+  "textDecoration",
 ] as const satisfies readonly (keyof SlideStylePatch)[];
 
 function inlineInspectorStylePatch(
@@ -448,6 +459,8 @@ function buildStyleSnapshot(
   const selectedColor = selectedTextStyle?.values.color;
   const selectedFontSize = selectedTextStyle?.values.fontSize;
   const selectedFontWeight = selectedTextStyle?.values.fontWeight;
+  const selectedFontStyle = selectedTextStyle?.values.fontStyle;
+  const selectedTextDecoration = selectedTextStyle?.values.textDecoration;
 
   return {
     selector,
@@ -471,6 +484,8 @@ function buildStyleSnapshot(
       selectedFontWeight === null || selectedFontWeight === undefined
         ? normalizedFontWeight(computed.fontWeight)
         : normalizedFontWeight(selectedFontWeight),
+    fontStyle: selectedFontStyle ?? computed.fontStyle,
+    textDecoration: selectedTextDecoration ?? computed.textDecorationLine,
     lineHeight,
     textAlign: normalizedTextAlign(computed.textAlign),
     opacity: Math.round(Number(computed.opacity || 1) * 100),
@@ -480,6 +495,7 @@ function buildStyleSnapshot(
     paddingX: Math.round((paddingLeft + paddingRight) / 2),
     paddingY: Math.round((paddingTop + paddingBottom) / 2),
     zIndex,
+    listKind: detectSlideListKind(element),
     textStyleScope: inlineTextStyle?.scope ?? "block",
     mixedTextStyles: selectedTextStyle?.mixed ?? [],
     isAbsolute,
@@ -565,6 +581,12 @@ interface SlideEditorProps {
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
   readOnly?: boolean;
+  /** Full-width host for the contextual style toolbar, rendered by the editor
+   *  shell above the slide rail. Selection state lives here, so the toolbar is
+   *  portaled out rather than lifted. Falls back to rendering in place. */
+  contextToolbarSlot?: HTMLElement | null;
+  /** Selection-independent actions for the head of the contextual toolbar. */
+  contextToolbarLeading?: ReactNode;
   onGenerateImage: () => void;
   onOpenAssetLibrary: (replaceSrc: string) => void;
   onUploadImage: (replaceSrc: string) => void;
@@ -601,10 +623,6 @@ interface SlideEditorProps {
   designSystem?: DesignSystemData;
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
-  /** Whether the right-side style inspector is visible */
-  stylePanelOpen?: boolean;
-  /** Close the right-side style inspector */
-  onCloseStylePanel?: () => void;
   /** Whether the draw-to-prompt overlay is visible */
   drawMode?: boolean;
   /** Called when the draw overlay should exit (Esc, Send, close button) */
@@ -1027,6 +1045,8 @@ export default function SlideEditor({
   slide,
   onUpdateSlide,
   readOnly = false,
+  contextToolbarSlot,
+  contextToolbarLeading,
   onGenerateImage,
   onOpenAssetLibrary,
   onUploadImage,
@@ -1040,8 +1060,6 @@ export default function SlideEditor({
   slideCount = 1,
   designSystem,
   aspectRatio,
-  stylePanelOpen = false,
-  onCloseStylePanel,
   drawMode,
   onExitDrawMode,
   pinMode,
@@ -1141,7 +1159,6 @@ export default function SlideEditor({
     selector: selectedElementSelector,
     path: selectedElementPath,
     canvasZoom,
-    stylePanelOpen,
     revision: selectionMeasurementRevision,
   });
   const selectedElementRect = currentSelectionOverlayRect(
@@ -3986,6 +4003,45 @@ export default function SlideEditor({
     ],
   );
 
+  /** Bullet / numbered list toggle for the selected text object. */
+  const handleToggleList = useCallback(
+    (kind: SlideListKind) => {
+      const target = editingElRef.current ?? resolveSelectedElement();
+      if (!target) return;
+      // Editing one item still means "this list". Converting the LI itself
+      // would build a second list inside it instead of toggling the one it
+      // already belongs to.
+      const parentList =
+        target.tagName === "LI" ? target.closest("ul, ol") : null;
+      const element = (parentList as HTMLElement | null) ?? target;
+
+      const editing = editingElRef.current;
+      const converted = toggleSlideList(element, kind);
+      if (!converted) return;
+
+      // Conversions retag and replace nodes, so an active edit can be left
+      // pointing at a node that is no longer in the page. Move it onto the
+      // element that replaced it rather than silently writing into nothing.
+      if (editing && !editing.isConnected) {
+        converted.contentEditable = "true";
+        converted.setAttribute("data-editing-block", "true");
+        editingElRef.current = converted;
+        setEditingEl(converted);
+        converted.focus({ preventScroll: true });
+      }
+
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      const selector = getBuilderSelector(converted);
+      if (selector) selectElementForStyling(converted, selector);
+    },
+    [
+      readCurrentSlideContentHtml,
+      resolveSelectedElement,
+      selectElementForStyling,
+    ],
+  );
+
   // --- Pending visual updates ---
   const [pendingUpdateCount, setPendingUpdateCount] = useState(0);
 
@@ -4050,11 +4106,42 @@ export default function SlideEditor({
   const isSelectedElementDraggable = selectedForDrag
     ? getComputedStyle(selectedForDrag).position === "absolute"
     : false;
+  // Excalidraw slides have no selectable slide content, so the row collapses
+  // to its slide-level state — but that state owns the background picker, and
+  // SlideRenderer paints `slide.background` behind the drawing, so the row has
+  // to stay mounted or that background becomes uneditable.
+  const contextToolbar = !readOnly ? (
+    <div
+      className="hidden shrink-0 lg:block"
+      // Snapshotting the range is only half the job: without this marker the
+      // click-outside handler exits the edit and clears the snapshot before
+      // the button's onClick runs, so partial-text formatting would silently
+      // apply to the whole object.
+      data-slide-inline-edit-surface="true"
+      onPointerDownCapture={preserveRichTextSelection}
+    >
+      <SlideContextToolbar
+        snapshot={selectedStyleSnapshot}
+        background={slide.background}
+        designSystem={designSystem}
+        leading={contextToolbarLeading}
+        onChange={applySelectedStylePatch}
+        onBackgroundChange={applySlideBackground}
+        onArrange={handleArrangeSelected}
+        onToggleList={handleToggleList}
+      />
+    </div>
+  ) : null;
+
   return (
     <div
       className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
+      {contextToolbarSlot
+        ? createPortal(contextToolbar, contextToolbarSlot)
+        : contextToolbar}
+
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
@@ -4197,37 +4284,6 @@ export default function SlideEditor({
             </div>
           )}
         </div>
-
-        {!readOnly && stylePanelOpen && (
-          <div
-            className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block"
-            data-slide-style-dock="true"
-            onPointerDownCapture={preserveRichTextSelection}
-          >
-            {selectedStyleSnapshot ? (
-              <SlideStyleInspector
-                snapshot={selectedStyleSnapshot}
-                designSystem={designSystem}
-                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-                onChange={applySelectedStylePatch}
-                onArrange={handleArrangeSelected}
-                onClose={() => {
-                  clearSelectedElement();
-                  syncSelectionToAppState(null);
-                  onCloseStylePanel?.();
-                }}
-              />
-            ) : (
-              <SlideBackgroundInspector
-                background={slide.background}
-                designSystem={designSystem}
-                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-                onChange={applySlideBackground}
-                onClose={onCloseStylePanel}
-              />
-            )}
-          </div>
-        )}
       </div>
 
       <SpeakerNotesPanel

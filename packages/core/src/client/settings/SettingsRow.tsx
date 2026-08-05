@@ -24,28 +24,22 @@ export function SettingsGroup({
   children,
 }: SettingsGroupProps) {
   return (
-    <section
-      id={id}
-      className={cn(
-        "scroll-mt-16 overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm",
-        className,
-      )}
-    >
+    <section id={id} className={cn("scroll-mt-16", className)}>
       {(title || description) && (
-        <header className="border-b border-border/60 px-5 py-4 sm:px-6">
+        <header className="mb-2.5">
           {title && (
-            <h2 className="text-base font-semibold leading-none tracking-tight">
-              {title}
-            </h2>
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
           )}
           {description && (
-            <p className="mt-1.5 text-sm leading-snug text-muted-foreground">
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {description}
             </p>
           )}
         </header>
       )}
-      <div className="divide-y divide-border/60">{children}</div>
+      <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
+        <div className="divide-y divide-border/60">{children}</div>
+      </div>
     </section>
   );
 }

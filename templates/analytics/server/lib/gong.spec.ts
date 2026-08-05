@@ -21,6 +21,7 @@ vi.mock("./provider-credentials", () => ({
 
 import {
   buildGongSearchResult,
+  getAllCalls,
   gongSearchVariants,
   matchesGongCallQuery,
   searchCallsForQueries,
@@ -74,6 +75,79 @@ describe("Gong call limits", () => {
 });
 
 describe("Gong call search matching", () => {
+  it("follows the cursor for exhaustive unfiltered call lists", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        const hasCursor = url.includes("cursor=next-page");
+        return new Response(
+          JSON.stringify(
+            hasCursor
+              ? {
+                  records: {},
+                  calls: [
+                    {
+                      id: "c2",
+                      title: "Quarterly planning",
+                      started: "2026-05-04T10:00:00Z",
+                    },
+                  ],
+                }
+              : {
+                  records: { cursor: "next-page", totalRecords: 2 },
+                  calls: [
+                    {
+                      id: "c1",
+                      title: "Edmunds discovery",
+                      started: "2026-05-03T10:00:00Z",
+                    },
+                  ],
+                },
+          ),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const result = await getAllCalls({
+      fromDateTime: "2026-04-18T00:00:00.000Z",
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toContain(
+      "/calls?fromDateTime=2026-04-18T00%3A00%3A00.000Z",
+    );
+    expect(requests[1]).toContain("cursor=next-page");
+    expect(result.calls.map((item) => item.id)).toEqual(["c1", "c2"]);
+    expect(result.pages).toBe(2);
+    expect(result.cursor).toBeUndefined();
+    expect(result.totalRecords).toBe(2);
+  });
+
+  it("rejects oversized exhaustive unfiltered lists before paging the cohort", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        return new Response(
+          JSON.stringify({
+            records: { totalRecords: 501, cursor: "next-page" },
+            calls: [],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      getAllCalls({ fromDateTime: "2026-04-19T00:00:00.000Z" }),
+    ).rejects.toThrow("Use provider-api-request with stageAs and pagination");
+    expect(requests).toHaveLength(1);
+  });
+
   it("generates Fusion-style account variants from deal names and domains", () => {
     expect(gongSearchVariants("The Knot Worldwide - New Deal")).toEqual(
       expect.arrayContaining(["the knot worldwide", "the knot", "@the."]),

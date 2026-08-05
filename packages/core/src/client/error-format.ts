@@ -164,7 +164,7 @@ export function normalizeChatError(
   if (isProviderAuthenticationError(text, errorCode)) {
     return {
       message:
-        "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+        "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
       details: text,
     };
   }

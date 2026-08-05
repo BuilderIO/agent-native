@@ -33,6 +33,17 @@ agent should know.
   not call model providers or AI SDK `generateText()` / `streamText()` directly;
   use `sendToAgentChat()`. Read `.agents/skills/delegate-to-agent/SKILL.md`
   before building agent-driven UI or "AI" features.
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right `AgentSidebar` for contextual AI and open it when a
+  domain button hands work to the agent.
+- Keep the first viewport focused: one primary action, progressive disclosure,
+  concise copy, and domain-specific navigation. Never use sparkle, wand,
+  magic, or robot icons as AI affordances.
+- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
+  type for content previews. Give the AgentSidebar a subtle surface/divider
+  boundary, and stack original/generated review vertically by default.
+- Every AI-labeled button must call `sendToAgentChat()` with
+  `openSidebar: true`; label deterministic local actions as local or preview.
 - Normal app data must flow through actions. Define `defineAction` files in
   `actions/`, mark reads with `http: { method: "GET" }`, and call them from React
   with `useActionQuery` / `useActionMutation`. Do not add `/api/*` routes that

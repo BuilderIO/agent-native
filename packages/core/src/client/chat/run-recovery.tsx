@@ -9,7 +9,6 @@ import {
   IconCopy,
   IconX,
   IconChevronDown,
-  IconExternalLink,
   IconGitFork,
   IconGauge,
   IconSettings,
@@ -287,10 +286,7 @@ export function BuilderConnectCta({
             Waiting…
           </>
         ) : (
-          <>
-            Connect
-            <IconExternalLink size={10} />
-          </>
+          "Connect"
         )}
       </button>
     </div>
@@ -688,9 +684,7 @@ export function RunErrorRecoveryCard({
           >
             {builderReconnect.connecting ? (
               <IconLoader2 size={13} className="animate-spin" />
-            ) : (
-              <IconExternalLink size={13} />
-            )}
+            ) : null}
             {builderReconnect.connecting
               ? "Connecting Builder.io"
               : "Reconnect Builder.io"}

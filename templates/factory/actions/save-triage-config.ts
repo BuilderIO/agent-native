@@ -12,12 +12,17 @@ const workspaceSchema = z.enum(["primary", "secondary"]);
 
 export default defineAction({
   description:
-    "Save Factory observation settings. This controls read-only Slack polling and repository metadata; it never starts an executor or changes a provider.",
+    "Save Factory source settings. This controls Slack, GitHub, and Sentry polling; organization automations decide when governed provider work may start.",
   schema: z.object({
     slackWorkspace: workspaceSchema.default("primary"),
     slackChannelId: z.string().trim().min(1).max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
     pollingEnabled: z.boolean().default(false),
+    githubPollingEnabled: z.boolean().default(false),
+    sentryPollingEnabled: z.boolean().default(false),
+    sentryOrgSlug: z.string().trim().max(200).optional(),
+    sentryProjectSlug: z.string().trim().max(200).optional(),
+    sentryEnvironment: z.string().trim().max(200).optional(),
     repository: z.string().trim().max(256).optional(),
   }),
   http: { method: "POST" },
@@ -27,6 +32,11 @@ export default defineAction({
       slackChannelId,
       slackChannelName,
       pollingEnabled,
+      githubPollingEnabled,
+      sentryPollingEnabled,
+      sentryOrgSlug,
+      sentryProjectSlug,
+      sentryEnvironment,
       repository,
     },
     context,
@@ -44,6 +54,11 @@ export default defineAction({
         slackChannelId: slackChannelId ?? null,
         slackChannelName: slackChannelName ?? null,
         pollingEnabled: pollingEnabled ? 1 : 0,
+        githubPollingEnabled: githubPollingEnabled ? 1 : 0,
+        sentryPollingEnabled: sentryPollingEnabled ? 1 : 0,
+        sentryOrgSlug: sentryOrgSlug ?? null,
+        sentryProjectSlug: sentryProjectSlug ?? null,
+        sentryEnvironment: sentryEnvironment ?? null,
         repository: repository ?? null,
         createdAt: now,
         updatedAt: now,
@@ -57,11 +72,22 @@ export default defineAction({
           slackChannelId: slackChannelId ?? null,
           slackChannelName: slackChannelName ?? null,
           pollingEnabled: pollingEnabled ? 1 : 0,
+          githubPollingEnabled: githubPollingEnabled ? 1 : 0,
+          sentryPollingEnabled: sentryPollingEnabled ? 1 : 0,
+          sentryOrgSlug: sentryOrgSlug ?? null,
+          sentryProjectSlug: sentryProjectSlug ?? null,
+          sentryEnvironment: sentryEnvironment ?? null,
           repository: repository ?? null,
           updatedAt: now,
           ownerEmail: userEmail,
         },
       });
-    return { ok: true, pollingEnabled, slackChannelId: slackChannelId ?? null };
+    return {
+      ok: true,
+      pollingEnabled,
+      githubPollingEnabled,
+      sentryPollingEnabled,
+      slackChannelId: slackChannelId ?? null,
+    };
   },
 });

@@ -21,13 +21,11 @@ export default defineAction({
     await assertAccess("document", database.documentId, "admin");
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
-    await db.transaction((tx) =>
-      trashDocumentSubtree(
-        tx as unknown as ReturnType<typeof getDb>,
-        database.documentId,
-        database.ownerEmail,
-        deletedAt,
-      ),
+    await trashDocumentSubtree(
+      db,
+      database.documentId,
+      database.ownerEmail,
+      deletedAt,
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });

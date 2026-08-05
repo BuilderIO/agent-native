@@ -15,6 +15,7 @@ import { resolveAnalyticsGongCredentials } from "./provider-credentials";
 
 const DEFAULT_API_BASE = "https://api.gong.io/v2";
 const MAX_GONG_SEARCH_PAGES = 50;
+const MAX_GONG_CALL_LIST_PAGES = 50;
 const MAX_GONG_EXHAUSTIVE_RECORDS = 500;
 
 const cache = new Map<string, { data: unknown; ts: number }>();
@@ -162,7 +163,7 @@ export async function getCalls(filters?: {
   fromDateTime?: string;
   toDateTime?: string;
   cursor?: string;
-}): Promise<{ calls: GongCall[]; cursor?: string }> {
+}): Promise<{ calls: GongCall[]; cursor?: string; totalRecords?: number }> {
   const params = new URLSearchParams();
   if (filters?.fromDateTime) params.set("fromDateTime", filters.fromDateTime);
   if (filters?.toDateTime) params.set("toDateTime", filters.toDateTime);
@@ -172,12 +173,60 @@ export async function getCalls(filters?: {
   const path = `/calls${query ? `?${query}` : ""}`;
   const data = await apiGet<{
     calls?: GongCall[];
-    records?: { cursor?: string };
+    records?: { cursor?: string; totalRecords?: number };
   }>(path);
   return {
     calls: data.calls ?? [],
     cursor: data.records?.cursor,
+    ...(typeof data.records?.totalRecords === "number"
+      ? { totalRecords: data.records.totalRecords }
+      : {}),
   };
+}
+
+export async function getAllCalls(filters?: {
+  fromDateTime?: string;
+  toDateTime?: string;
+}): Promise<{
+  calls: GongCall[];
+  cursor?: string;
+  pages: number;
+  totalRecords?: number;
+}> {
+  const calls: GongCall[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  let totalRecords: number | undefined;
+
+  do {
+    const page = await getCalls({
+      ...filters,
+      ...(cursor ? { cursor } : {}),
+    });
+    pages += 1;
+    if (typeof page.totalRecords === "number") {
+      totalRecords = page.totalRecords;
+    }
+    if (
+      typeof totalRecords === "number" &&
+      totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive call listing found ${totalRecords.toLocaleString()} records in the requested window. ` +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program, instead of returning the full cohort through gong-calls.",
+      );
+    }
+    calls.push(...page.calls);
+
+    const nextCursor = page.cursor;
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (cursor && pages < MAX_GONG_CALL_LIST_PAGES);
+
+  return { calls, cursor, pages, totalRecords };
 }
 
 export async function getCall(callId: string): Promise<GongCall | null> {
