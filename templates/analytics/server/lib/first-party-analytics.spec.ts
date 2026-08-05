@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
+const rollupMocks = vi.hoisted(() => ({
+  upsert: vi.fn(),
+}));
+const healthMocks = vi.hoisted(() => ({
+  classify: vi.fn(() => "other"),
+  outcome: vi.fn(() => "error"),
+  record: vi.fn(),
+}));
 const analyticsDbMocks = vi.hoisted(() => {
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
@@ -31,6 +39,14 @@ vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
   getDb: () => analyticsDbMocks.db,
 }));
+vi.mock("./first-party-analytics-rollups.js", () => ({
+  upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
+}));
+vi.mock("./first-party-analytics-health.js", () => ({
+  classifyFirstPartyAnalyticsQuery: healthMocks.classify,
+  queryOutcomeFromError: healthMocks.outcome,
+  recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
+}));
 
 import {
   isMarketingWebsiteSessionEvent,
@@ -52,6 +68,15 @@ beforeEach(() => {
   ]);
   analyticsDbMocks.insertValues.mockResolvedValue(undefined);
   analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
+  rollupMocks.upsert.mockResolvedValue({
+    eventCount: 1,
+    dailyRollupCount: 1,
+    userDayCount: 1,
+  });
+  healthMocks.classify.mockClear();
+  healthMocks.outcome.mockClear();
+  healthMocks.record.mockReset();
+  healthMocks.record.mockResolvedValue(undefined);
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
@@ -120,6 +145,37 @@ describe("isMarketingWebsiteSessionEvent", () => {
 });
 
 describe("recordAnalyticsEvents", () => {
+  it("updates compact rollups after persisting raw events", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        userId: "user_1",
+        properties: { app: "analytics", template: "analytics" },
+      },
+    ]);
+
+    expect(rollupMocks.upsert).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "pageview",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        userKey: "user_1",
+      }),
+    ]);
+    expect(
+      analyticsDbMocks.insertValues.mock.invocationCallOrder[0],
+    ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
+  });
+
+  it("keeps raw ingestion successful when a rollup update fails", async () => {
+    rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).resolves.toMatchObject({ accepted: 1 });
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalled();
+  });
+
   it("persists both sides of a signup identity bridge", async () => {
     await recordAnalyticsEvents("anpk_test", [
       {
@@ -180,6 +236,19 @@ describe("validateFirstPartyAnalyticsSql", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT app, COUNT(*) AS recordings FROM session_recordings WHERE owner_email = 'alice@example.com' GROUP BY app",
+      ),
+    ).not.toThrow();
+  });
+
+  it("allows compact event and user-day rollup queries", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
       ),
     ).not.toThrow();
   });
@@ -258,6 +327,38 @@ describe("scopedAnalyticsSql", () => {
 
     expect(scoped.sql).toContain("substr(started_at, 1, 10) <= ?");
     expect(scoped.args).toEqual(["alice@example.com", "2026-07-01"]);
+  });
+
+  it("scopes rollups by tenant key without changing all-time lower bounds", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM (SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ? UNION ALL SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ?)",
+    );
+    expect(scoped.sql).not.toContain("event_date >= ?");
+    expect(scoped.args).toEqual([
+      "org:org_123",
+      "2026-07-01",
+      "user:alice@example.com",
+      "2026-07-01",
+    ]);
+  });
+
+  it("uses the personal tenant key for user-day rollups without an org", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = ? AND event_date <= ?)",
+    );
+    expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
   });
 });
 

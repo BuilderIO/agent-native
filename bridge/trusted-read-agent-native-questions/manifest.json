@@ -1,0 +1,57 @@
+{
+  "bridgeVersion": "3.6",
+  "kind": "google-docs-trusted-read",
+  "status": "complete",
+  "outputDir": "/Users/steve/Projects/builder/agent-native/framework/bridge/trusted-read-agent-native-questions",
+  "target": {
+    "documentId": "1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "title": "Agent Native P&E Questions",
+    "revisionId": "AIroW373zLoNKzaMdBnIz-K0OzX-xP1JxBuAOr4-yD-JZbJTHySqS3w-dLBy2NM7dooDEo5NTwMmWcwT1XKEAjycXprnA3jlB3faX7278egn",
+    "documentUrl": "https://docs.google.com/document/d/1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "selectedTabId": "t.0"
+  },
+  "dropdownMetadata": {
+    "status": "unavailable",
+    "resolvedTool": null,
+    "authoritative": false,
+    "count": 0
+  },
+  "controlAwareness": {
+    "hasProtectedControls": false,
+    "authoritativeDropdownCount": 0,
+    "opaqueControlCount": 0,
+    "affectedParagraphCount": 0,
+    "nativeElementCounts": {},
+    "preservationRequired": false,
+    "recommendedBehavior": "No protected controls were detected in the scanned scope."
+  },
+  "warnings": [],
+  "files": {
+    "document_result": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/bridge/trusted-read-agent-native-questions/document-result.json",
+      "bytes": 166915,
+      "sha256": "b7c350dd0ee65c98ae2196d608fd196e38f6419fdd8f5b0e1dbfc048d2f33e89"
+    },
+    "control_inventory": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/bridge/trusted-read-agent-native-questions/control-inventory.json",
+      "bytes": 1033,
+      "sha256": "eaa0fc8a45dc3072e4d475393c36e6652f80d40b7259566be51f82111c6199e9"
+    },
+    "document_outline": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/bridge/trusted-read-agent-native-questions/document-outline.json",
+      "bytes": 34807,
+      "sha256": "99f29458edf27459f51c12ebd9093e7675a5293bca31247fd015973636d96994"
+    },
+    "document_text": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/bridge/trusted-read-agent-native-questions/document-text.md",
+      "bytes": 9406,
+      "sha256": "c7ae41b18ff6b813388479b12df9d12ae5283cd3e79f90411ed4d705c038d4e0"
+    },
+    "receipt": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/bridge/trusted-read-agent-native-questions/receipt.json",
+      "bytes": 964,
+      "sha256": "eefd15d6de2a557af89d7605aae3e0adc56c6b4de3d361b37b98cfee22239050"
+    }
+  },
+  "error": null
+}

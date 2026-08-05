@@ -15,6 +15,7 @@ vi.mock("../server/lib/credentials", () => ({
 
 vi.mock("../server/lib/credentials-context", () => ({
   requireRequestCredentialContext,
+  tryRequestCredentialContext: () => null,
 }));
 
 vi.mock("../server/lib/provider-credentials", () => ({
@@ -77,6 +78,27 @@ describe("provider API escape hatch", () => {
     });
     expect(result.providers[0].docsUrls[0]).toContain("hubspot");
     expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
+  it("exposes FullStory structured reads alongside its MCP replay path", async () => {
+    const result = (await providerApiCatalog.run({
+      provider: "fullstory",
+    })) as Record<string, any>;
+
+    expect(result.providers[0]).toMatchObject({
+      id: "fullstory",
+      defaultBaseUrl: "https://api.fullstory.com",
+      auth: "basic",
+      credentialKeys: ["FULLSTORY_API_KEY"],
+      allowedHostSuffixes: ["fullstory.com"],
+      examples: expect.arrayContaining([
+        expect.objectContaining({ path: "/sessions/v2" }),
+        expect.objectContaining({ path: "/v2/sessions/{sessionId}/events" }),
+      ]),
+    });
+    expect(result.providers[0].notes.join(" ")).toContain(
+      "connected FullStory MCP",
+    );
   });
 
   it("returns reusable corpus recipes for providers that define raw body search patterns", async () => {

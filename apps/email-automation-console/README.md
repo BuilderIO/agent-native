@@ -30,8 +30,10 @@ pnpm dev
 ```
 
 This test copy has an ignored `.env` with `AUTH_DISABLED=1`, so its local
-`/automations` screen opens without an account. Add `ANTHROPIC_API_KEY` or
-`OPENAI_API_KEY` to that local file if you want agent work without the setup
-prompt. Never commit or deploy `AUTH_DISABLED`.
+`/automations` screen opens without an account. Its committed
+`agent-native.json` shows the shared Connect AI / BYOK choice by default in
+development and skips the generic agent integrations catalog. Add
+`ANTHROPIC_API_KEY` or `OPENAI_API_KEY` to that local file if you want agent
+work without the setup prompt. Never commit or deploy `AUTH_DISABLED`.
 
 Full docs: [agent-native.com/docs/template-chat](https://agent-native.com/docs/template-chat).

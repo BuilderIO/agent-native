@@ -631,12 +631,16 @@ async function retryAfterNavigation<T>(
   throw lastError;
 }
 
-async function gotoCommitted(page: Page, url: string): Promise<void> {
+async function gotoCommitted(
+  page: Page,
+  url: string,
+  waitUntil: "commit" | "domcontentloaded" = "commit",
+): Promise<void> {
   const attempts = isCi ? 12 : 6;
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      await page.goto(url, { waitUntil: "commit", timeout: 90_000 });
+      await page.goto(url, { waitUntil, timeout: 90_000 });
       return;
     } catch (err) {
       lastError = err;
@@ -812,7 +816,11 @@ async function gotoAndWaitForAgentPage(
     httpErrors.length = 0;
 
     try {
-      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await gotoCommitted(
+        page,
+        `${running.baseUrl}${path}`,
+        "domcontentloaded",
+      );
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 30_000,
       });
@@ -861,7 +869,11 @@ async function gotoAndWaitForChatPage(
     httpErrors.length = 0;
 
     try {
-      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await gotoCommitted(
+        page,
+        `${running.baseUrl}${path}`,
+        "domcontentloaded",
+      );
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 30_000,
       });

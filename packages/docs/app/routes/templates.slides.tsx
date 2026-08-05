@@ -459,7 +459,7 @@ export default function SlidesTemplate() {
             {t("templateLanding.slides.s057")}
           </TemplateDocsLink>
           <Link
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             to={sitePathForLocale("/apps", locale)}
             className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >

@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -11,6 +11,8 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   listPropertiesForDocument,
   resolvePropertyDatabaseForDocument,
@@ -58,32 +60,22 @@ export default defineAction({
       throw new Error("System properties cannot be deleted.");
     }
 
-    const isBlocks = isBlocksPropertyType(
-      definition.type as DocumentPropertyType,
-    );
-    const isPrimaryBlocks =
-      isBlocks &&
-      isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson));
-
     await db.transaction(async (tx) => {
-      const [lockedDatabase] = await tx
-        .update(schema.contentDatabases)
-        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
-        .where(
-          and(
-            eq(schema.contentDatabases.id, database.id),
-            eq(schema.contentDatabases.documentId, database.documentId),
-            eq(schema.contentDatabases.ownerEmail, document.ownerEmail),
-            isNull(schema.contentDatabases.deletedAt),
-          ),
-        )
-        .returning({ id: schema.contentDatabases.id });
-      if (!lockedDatabase) throw new Error("Database is no longer active.");
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
+      const memberships = await tx
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+      await lockDatabaseMemberships(
+        tx,
+        memberships.map((membership) => membership.id),
+      );
       const [lockedDefinition] = await tx
-        .update(schema.documentPropertyDefinitions)
-        .set({
-          updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
-        })
+        .select()
+        .from(schema.documentPropertyDefinitions)
         .where(
           and(
             eq(schema.documentPropertyDefinitions.id, propertyId),
@@ -93,15 +85,21 @@ export default defineAction({
             ),
             eq(schema.documentPropertyDefinitions.databaseId, database.id),
           ),
-        )
-        .returning({
-          id: schema.documentPropertyDefinitions.id,
-          systemRole: schema.documentPropertyDefinitions.systemRole,
-        });
+        );
       if (!lockedDefinition)
         throw new Error(`Property "${propertyId}" not found`);
-      if (lockedDefinition.systemRole)
+      if (lockedDefinition.systemRole) {
         throw new Error("System properties cannot be deleted.");
+      }
+
+      const isBlocks = isBlocksPropertyType(
+        lockedDefinition.type as DocumentPropertyType,
+      );
+      const isPrimaryBlocks =
+        isBlocks &&
+        isPrimaryBlocksField(
+          parsePropertyOptions(lockedDefinition.optionsJson),
+        );
 
       await tx
         .delete(schema.documentPropertyValues)
@@ -119,19 +117,11 @@ export default defineAction({
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
       if (isBlocks) {
-        // Drop the independent content for this Blocks field across every row.
         await tx
           .delete(schema.documentBlockFieldContents)
           .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
 
-        // Deleting the primary "Content" field removes the body (documents.content)
-        // for every object of this type, per the delete warning shown in the UI.
         if (isPrimaryBlocks) {
-          // Record that the primary was intentionally removed: clear the single
-          // source of truth but LEAVE blocks_seeded = 1, so neither the read path
-          // nor the startup repair ever recreates it. Deleting the only Blocks
-          // field is an allowed product action that leaves the row metadata-only
-          // with ZERO Blocks fields.
           await tx
             .update(schema.contentDatabases)
             .set({
@@ -144,20 +134,21 @@ export default defineAction({
             .select({ documentId: schema.contentDatabaseItems.documentId })
             .from(schema.contentDatabaseItems)
             .where(eq(schema.contentDatabaseItems.databaseId, database.id));
-          const documentIds = items.map((item) => item.documentId);
-          if (documentIds.length > 0) {
+          if (items.length > 0) {
             const now = new Date().toISOString();
             await tx
               .update(schema.documents)
               .set({ content: "", updatedAt: now })
-              .where(inArray(schema.documents.id, documentIds));
+              .where(
+                inArray(
+                  schema.documents.id,
+                  items.map((item) => item.documentId),
+                ),
+              );
           }
         }
       }
 
-      // Free any source field that was mapped to this property so it returns to
-      // the "From source" picker immediately, instead of staying orphaned until
-      // the next source refresh reconciles it.
       const mappedFields = await tx
         .select({
           id: schema.contentDatabaseSourceFields.id,
@@ -165,19 +156,17 @@ export default defineAction({
         })
         .from(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.propertyId, propertyId));
-      if (mappedFields.length > 0) {
-        const now = new Date().toISOString();
-        for (const mapped of mappedFields) {
-          await tx
-            .update(schema.contentDatabaseSourceFields)
-            .set({
-              propertyId: null,
-              localFieldKey: mapped.sourceFieldKey,
-              mappingType: "property",
-              updatedAt: now,
-            })
-            .where(eq(schema.contentDatabaseSourceFields.id, mapped.id));
-        }
+      const now = new Date().toISOString();
+      for (const mapped of mappedFields) {
+        await tx
+          .update(schema.contentDatabaseSourceFields)
+          .set({
+            propertyId: null,
+            localFieldKey: mapped.sourceFieldKey,
+            mappingType: "property",
+            updatedAt: now,
+          })
+          .where(eq(schema.contentDatabaseSourceFields.id, mapped.id));
       }
     });
 

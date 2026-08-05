@@ -95,6 +95,15 @@ const EN_AUTH_COPY = {
   passwordMinPlaceholder: "At least 8 characters",
   confirmPasswordPlaceholder: "Confirm password",
   enterPasswordPlaceholder: "Enter password",
+  magicLinkTitle: "Sign in with a link",
+  magicLinkSubtitle:
+    "Enter your email and we'll send you a secure sign-in link",
+  sendMagicLink: "Email me a sign-in link",
+  magicLinkSent: "Check your email",
+  magicLinkSentCopy: "We sent a secure sign-in link to",
+  magicLinkFailed: "Could not send sign-in link.",
+  usePasswordInstead: "Use a password instead",
+  backToMagicLink: "Use a sign-in link instead",
   signupProgress: "Signup progress",
   progressAccount: "Account",
   progressVerify: "Verify",
@@ -190,6 +199,14 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "至少 8 个字符",
     confirmPasswordPlaceholder: "确认密码",
     enterPasswordPlaceholder: "输入密码",
+    magicLinkTitle: "使用链接登录",
+    magicLinkSubtitle: "输入邮箱，我们会发送安全登录链接",
+    sendMagicLink: "发送登录链接到邮箱",
+    magicLinkSent: "检查你的邮箱",
+    magicLinkSentCopy: "我们已向以下邮箱发送安全登录链接：",
+    magicLinkFailed: "无法发送登录链接。",
+    usePasswordInstead: "改用密码",
+    backToMagicLink: "改用登录链接",
     signupProgress: "注册进度",
     progressAccount: "账户",
     progressVerify: "验证",
@@ -279,6 +296,14 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "至少 8 個字元",
     confirmPasswordPlaceholder: "確認密碼",
     enterPasswordPlaceholder: "輸入密碼",
+    magicLinkTitle: "使用連結登入",
+    magicLinkSubtitle: "輸入電子郵件，我們會寄送安全登入連結",
+    sendMagicLink: "寄送登入連結",
+    magicLinkSent: "檢查你的電子郵件",
+    magicLinkSentCopy: "我們已向以下電子郵件寄送安全登入連結：",
+    magicLinkFailed: "無法寄送登入連結。",
+    usePasswordInstead: "改用密碼",
+    backToMagicLink: "改用登入連結",
     signupProgress: "註冊進度",
     progressAccount: "帳號",
     progressVerify: "驗證",
@@ -369,6 +394,14 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Al menos 8 caracteres",
     confirmPasswordPlaceholder: "Confirmar contraseña",
     enterPasswordPlaceholder: "Introduce la contraseña",
+    magicLinkTitle: "Inicia sesión con un enlace",
+    magicLinkSubtitle: "Introduce tu email y te enviaremos un enlace seguro",
+    sendMagicLink: "Enviarme un enlace de inicio de sesión",
+    magicLinkSent: "Revisa tu email",
+    magicLinkSentCopy: "Enviamos un enlace seguro a",
+    magicLinkFailed: "No se pudo enviar el enlace de inicio de sesión.",
+    usePasswordInstead: "Usar una contraseña",
+    backToMagicLink: "Usar un enlace de inicio de sesión",
     signupProgress: "Progreso de registro",
     progressAccount: "Cuenta",
     progressVerify: "Verificar",
@@ -466,6 +499,15 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Au moins 8 caractères",
     confirmPasswordPlaceholder: "Confirmer le mot de passe",
     enterPasswordPlaceholder: "Saisir le mot de passe",
+    magicLinkTitle: "Se connecter avec un lien",
+    magicLinkSubtitle:
+      "Saisissez votre e-mail et nous vous enverrons un lien sécurisé",
+    sendMagicLink: "M'envoyer un lien de connexion",
+    magicLinkSent: "Vérifiez votre e-mail",
+    magicLinkSentCopy: "Nous avons envoyé un lien sécurisé à",
+    magicLinkFailed: "Impossible d'envoyer le lien de connexion.",
+    usePasswordInstead: "Utiliser un mot de passe",
+    backToMagicLink: "Utiliser un lien de connexion",
     signupProgress: "Progression de l'inscription",
     progressAccount: "Compte",
     progressVerify: "Vérifier",
@@ -564,6 +606,15 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Mindestens 8 Zeichen",
     confirmPasswordPlaceholder: "Passwort bestätigen",
     enterPasswordPlaceholder: "Passwort eingeben",
+    magicLinkTitle: "Mit einem Link anmelden",
+    magicLinkSubtitle:
+      "Gib deine E-Mail ein und wir senden dir einen sicheren Anmeldelink",
+    sendMagicLink: "Anmeldelink per E-Mail senden",
+    magicLinkSent: "Prüfe deine E-Mail",
+    magicLinkSentCopy: "Wir haben einen sicheren Anmeldelink gesendet an",
+    magicLinkFailed: "Anmeldelink konnte nicht gesendet werden.",
+    usePasswordInstead: "Stattdessen Passwort verwenden",
+    backToMagicLink: "Stattdessen Anmeldelink verwenden",
     signupProgress: "Registrierungsfortschritt",
     progressAccount: "Konto",
     progressVerify: "Prüfen",
@@ -662,6 +713,15 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "8 文字以上",
     confirmPasswordPlaceholder: "パスワードを確認",
     enterPasswordPlaceholder: "パスワードを入力",
+    magicLinkTitle: "リンクでサインイン",
+    magicLinkSubtitle:
+      "メールアドレスを入力すると、安全なサインインリンクを送信します",
+    sendMagicLink: "サインインリンクをメールで送信",
+    magicLinkSent: "メールを確認してください",
+    magicLinkSentCopy: "安全なサインインリンクを送信しました：",
+    magicLinkFailed: "サインインリンクを送信できませんでした。",
+    usePasswordInstead: "パスワードを使用する",
+    backToMagicLink: "サインインリンクを使用する",
     signupProgress: "登録の進行状況",
     progressAccount: "アカウント",
     progressVerify: "確認",
@@ -759,6 +819,14 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "8자 이상",
     confirmPasswordPlaceholder: "비밀번호 확인",
     enterPasswordPlaceholder: "비밀번호 입력",
+    magicLinkTitle: "링크로 로그인",
+    magicLinkSubtitle: "이메일을 입력하면 안전한 로그인 링크를 보내드립니다",
+    sendMagicLink: "로그인 링크 이메일 받기",
+    magicLinkSent: "이메일을 확인하세요",
+    magicLinkSentCopy: "안전한 로그인 링크를 보냈습니다:",
+    magicLinkFailed: "로그인 링크를 보낼 수 없습니다.",
+    usePasswordInstead: "비밀번호 사용",
+    backToMagicLink: "로그인 링크 사용",
     signupProgress: "가입 진행 상황",
     progressAccount: "계정",
     progressVerify: "확인",
@@ -851,6 +919,14 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Pelo menos 8 caracteres",
     confirmPasswordPlaceholder: "Confirmar senha",
     enterPasswordPlaceholder: "Digite a senha",
+    magicLinkTitle: "Entrar com um link",
+    magicLinkSubtitle: "Digite seu email e enviaremos um link seguro de acesso",
+    sendMagicLink: "Enviar link de acesso por email",
+    magicLinkSent: "Confira seu email",
+    magicLinkSentCopy: "Enviamos um link seguro para",
+    magicLinkFailed: "Não foi possível enviar o link de acesso.",
+    usePasswordInstead: "Usar uma senha",
+    backToMagicLink: "Usar um link de acesso",
     signupProgress: "Progresso do cadastro",
     progressAccount: "Conta",
     progressVerify: "Verificar",
@@ -947,6 +1023,14 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "कम से कम 8 अक्षर",
     confirmPasswordPlaceholder: "पासवर्ड की पुष्टि करें",
     enterPasswordPlaceholder: "पासवर्ड दर्ज करें",
+    magicLinkTitle: "लिंक से साइन इन करें",
+    magicLinkSubtitle: "अपना ईमेल दर्ज करें और हम सुरक्षित साइन-इन लिंक भेजेंगे",
+    sendMagicLink: "मुझे साइन-इन लिंक ईमेल करें",
+    magicLinkSent: "अपना ईमेल देखें",
+    magicLinkSentCopy: "हमने सुरक्षित साइन-इन लिंक यहां भेजा है:",
+    magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
+    usePasswordInstead: "पासवर्ड का उपयोग करें",
+    backToMagicLink: "साइन-इन लिंक का उपयोग करें",
     signupProgress: "साइनअप प्रगति",
     progressAccount: "खाता",
     progressVerify: "सत्यापित करें",
@@ -1039,6 +1123,14 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "8 أحرف على الأقل",
     confirmPasswordPlaceholder: "تأكيد كلمة المرور",
     enterPasswordPlaceholder: "أدخل كلمة المرور",
+    magicLinkTitle: "تسجيل الدخول باستخدام رابط",
+    magicLinkSubtitle: "أدخل بريدك الإلكتروني وسنرسل لك رابط تسجيل دخول آمنًا",
+    sendMagicLink: "إرسال رابط تسجيل الدخول إلى بريدي",
+    magicLinkSent: "تحقق من بريدك الإلكتروني",
+    magicLinkSentCopy: "أرسلنا رابط تسجيل دخول آمنًا إلى",
+    magicLinkFailed: "تعذر إرسال رابط تسجيل الدخول.",
+    usePasswordInstead: "استخدام كلمة مرور بدلًا من ذلك",
+    backToMagicLink: "استخدام رابط تسجيل الدخول بدلًا من ذلك",
     signupProgress: "تقدم التسجيل",
     progressAccount: "الحساب",
     progressVerify: "التحقق",
@@ -1272,6 +1364,8 @@ export interface OnboardingHtmlOptions {
    * If Google OAuth env vars are not configured, an error message is shown.
    */
   googleOnly?: boolean;
+  /** Authentication surface to render. Defaults to the existing password flow. */
+  authMode?: "magic-link" | "password";
   /**
    * Product marketing content shown alongside the sign-in form.
    * When provided, the page uses a split layout: marketing on the left,
@@ -1320,6 +1414,8 @@ export interface OnboardingHtmlOptions {
 export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const showGoogle = hasGoogleOAuth();
   const googleOnly = !!opts.googleOnly;
+  const authMode = opts.authMode ?? "password";
+  const magicLinkMode = authMode === "magic-link";
   // In a Google-only app, Google is the sole sign-in method, so always render
   // a working button — never gate it on env vars detected at render time. The
   // login page is a public, CDN-cacheable shell served to everyone (per-user
@@ -2475,8 +2571,8 @@ ${marketingStyles}
 ${localePickerHtml}
 ${marketingPanelHtml}
 <div class="card">
-  <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : "welcomeTitle"))}</h1>
-  <p class="subtitle" id="subtitle"${i18nAttr(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle")}>${esc(t(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle"))}</p>
+  <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : magicLinkMode ? "magicLinkTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : magicLinkMode ? "magicLinkTitle" : "welcomeTitle"))}</h1>
+  <p class="subtitle" id="subtitle"${i18nAttr(googleOnly ? "googleOnlySubtitle" : magicLinkMode ? "magicLinkSubtitle" : "createAccountSubtitle")}>${esc(t(googleOnly ? "googleOnlySubtitle" : magicLinkMode ? "magicLinkSubtitle" : "createAccountSubtitle"))}</p>
   <p
     class="upgrade-note"
     id="upgrade-note"
@@ -2503,7 +2599,7 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `  <div class="tabs">
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">\n        <a href="#" id="use-password-link" class="link-button"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}  <div class="tabs"${magicLinkMode ? " hidden" : ""}>
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
@@ -2550,6 +2646,7 @@ ${signupLocalModeNoteHtml}
     <p style="margin-top:0.75rem;font-size:0.75rem;text-align:right">
       <a href="#" id="forgot-link" style="color:#888;text-decoration:underline;text-underline-offset:2px"${i18nAttr("forgotPassword")}>${esc(t("forgotPassword"))}</a>
     </p>
+    ${magicLinkMode ? `<p style="margin-top:0.5rem;font-size:0.75rem;text-align:center"><a href="#" id="back-to-magic-link" class="link-button"${i18nAttr("backToMagicLink")}>${esc(t("backToMagicLink"))}</a></p>` : ""}
   </form>
 
   <form id="forgot-form" class="form">
@@ -2601,7 +2698,8 @@ ${signInJourneyInlineScript()}
     var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(AUTH_MARKETING_LOCALE_COPY)};
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
-    var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
+    var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
+    var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : magicLinkMode ? "magicLink" : "signup")};
     function __anAuthLocaleIsSupported(value) {
       return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
     }
@@ -2669,6 +2767,7 @@ ${signInJourneyInlineScript()}
       if (view === 'forgot') return { heading: 'resetPasswordTitle', subtitle: 'resetPasswordSubtitle' };
       if (view === 'verification') return { heading: 'checkEmailTitle', subtitle: 'finishAccountSubtitle' };
       if (view === 'googleOnly') return { heading: 'signInTitle', subtitle: 'googleOnlySubtitle' };
+      if (view === 'magicLink') return { heading: 'magicLinkTitle', subtitle: 'magicLinkSubtitle' };
       return { heading: 'welcomeTitle', subtitle: 'createAccountSubtitle' };
     }
     function __anRefreshAuthViewCopy() {
@@ -3290,7 +3389,14 @@ ${
 	    function clearRememberedPendingSignupEmail() {
 	      rememberPendingSignupEmail('');
 	    }
-	    function setActiveTab(name, opts) {
+    function showMagicLinkForm() {
+      var form = document.getElementById('magic-link-form');
+      if (!form) return;
+      forms.forEach(function(x) { x.classList.remove('active'); });
+      form.classList.add('active');
+      __anSetAuthView('magicLink');
+    }
+    function setActiveTab(name, opts) {
 	      if (name !== 'signup' && name !== 'login') return;
 	      var form = document.getElementById(name + '-form');
 	      if (!form) return;
@@ -3397,7 +3503,10 @@ ${
         __anRedirectToSignedInApp();
         return { ok: true };
       }
-      var data = await res.json().catch(function() { return {}; });
+      var data = await res.json().catch(function(error) {
+        console.warn('[auth] Could not parse sign-in response', error);
+        return null;
+      });
       var error = (data && (data.error || data.message)) || __anT('finishSignInFailed');
       return {
         ok: false,
@@ -3540,7 +3649,7 @@ ${
       }
     }
     (function initActiveTab() {
-    var initial = 'signup';
+    var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';
     try {
       var params = new URLSearchParams(location.search);
       var qp = params.get('tab');
@@ -3559,7 +3668,8 @@ ${
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
     } catch (e) {}
-    setActiveTab(initial, { persist: false });
+    if (initial === 'magicLink') showMagicLinkForm();
+    else setActiveTab(initial, { persist: false });
 	      try {
 	        if (__anIsVerifiedRedirectSuccess()) {
 	          var rememberedEmail = readRememberedPendingSignupEmail();
@@ -3578,6 +3688,63 @@ ${
   tabs.forEach(function(t) { t.addEventListener('click', function() {
     setActiveTab(t.dataset.tab, { persist: true });
   }); });
+
+  var usePasswordLink = document.getElementById('use-password-link');
+  if (usePasswordLink) usePasswordLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    setActiveTab('login', { persist: false });
+    var magicEmail = document.getElementById('m-email');
+    var loginEmail = document.getElementById('l-email');
+    if (magicEmail && loginEmail && magicEmail.value) loginEmail.value = magicEmail.value;
+  });
+  var backToMagicLink = document.getElementById('back-to-magic-link');
+  if (backToMagicLink) backToMagicLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    showMagicLinkForm();
+  });
+
+  var magicLinkForm = document.getElementById('magic-link-form');
+  if (magicLinkForm) magicLinkForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = magicLinkForm.querySelector('button[type="submit"]');
+    var msg = document.getElementById('m-msg');
+    var emailInput = document.getElementById('m-email');
+    var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+    msg.classList.remove('show', 'error', 'success');
+    if (!__anIsValidAuthEmail(email)) {
+      __anShowEmailValidationError(emailInput, msg);
+      return;
+    }
+    var originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = __anT('sending');
+    try {
+      var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
+      });
+      var data = await res.json().catch(function(error) {
+        console.warn('[auth] Could not parse magic-link response', error);
+        return null;
+      });
+      if (res.ok) {
+        msg.textContent = __anT('magicLinkSent') + '. ' + __anT('magicLinkSentCopy') + ' ' + email + '.';
+        msg.classList.add('show', 'success');
+        btn.textContent = __anT('sent');
+        return;
+      }
+      msg.textContent = (data && (data.error || data.message)) || __anT('magicLinkFailed');
+      msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    } catch (err) {
+      msg.textContent = __anT('networkErrorDashRetry');
+      msg.classList.add('show', 'error');
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  });
 
   document.getElementById('signup-form').addEventListener('submit', async function(e) {
     e.preventDefault();

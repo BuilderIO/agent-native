@@ -1,0 +1,93 @@
+/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
+
+@source "./**/*.{ts,tsx}";
+
+:root {
+  --background: 38 38% 97%;
+  --foreground: 28 18% 15%;
+  --card: 40 33% 99%;
+  --card-foreground: 28 18% 15%;
+  --popover: 40 33% 99%;
+  --popover-foreground: 28 18% 15%;
+  --primary: 27 19% 18%;
+  --primary-foreground: 40 33% 98%;
+  --secondary: 36 25% 93%;
+  --secondary-foreground: 28 19% 18%;
+  --muted: 36 26% 94%;
+  --muted-foreground: 28 10% 45%;
+  --accent: 36 30% 92%;
+  --accent-foreground: 28 19% 18%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 33 20% 87%;
+  --input: 33 20% 85%;
+  --ring: 27 25% 43%;
+  --radius: 0.5rem;
+  --sidebar-background: 35 26% 93%;
+  --sidebar-foreground: 28 10% 45%;
+  --sidebar-primary: 27 19% 18%;
+  --sidebar-primary-foreground: 40 33% 98%;
+  --sidebar-accent: 36 30% 90%;
+  --sidebar-accent-foreground: 28 19% 18%;
+  --sidebar-border: 33 20% 87%;
+  --sidebar-ring: 27 25% 43%;
+}
+
+.dark {
+  --background: 28 13% 12%;
+  --foreground: 36 20% 92%;
+  --card: 28 12% 15%;
+  --card-foreground: 36 20% 92%;
+  --popover: 28 12% 15%;
+  --popover-foreground: 36 20% 92%;
+  --primary: 35 35% 78%;
+  --primary-foreground: 28 18% 15%;
+  --secondary: 28 13% 18%;
+  --secondary-foreground: 36 20% 92%;
+  --muted: 28 14% 17%;
+  --muted-foreground: 32 11% 62%;
+  --accent: 28 14% 20%;
+  --accent-foreground: 36 20% 92%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 28 12% 25%;
+  --input: 28 12% 25%;
+  --ring: 35 24% 64%;
+  --radius: 0.5rem;
+  --sidebar-background: 28 14% 9%;
+  --sidebar-foreground: 32 11% 62%;
+  --sidebar-primary: 35 35% 78%;
+  --sidebar-primary-foreground: 28 18% 15%;
+  --sidebar-accent: 28 14% 16%;
+  --sidebar-accent-foreground: 36 20% 92%;
+  --sidebar-border: 28 12% 22%;
+  --sidebar-ring: 35 24% 64%;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter Variable", "Inter", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}

@@ -131,7 +131,7 @@ export default function GenericTemplatePage() {
     return (
       <main className="mx-auto max-w-[900px] px-6 py-20">
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={sitePathForLocale("/apps", locale)}
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
         >

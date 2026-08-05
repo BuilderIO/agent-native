@@ -259,6 +259,58 @@ export const analyticsEvents = table("analytics_events", {
 });
 
 /**
+ * Compact daily event counts. The tenant key is non-null so the natural key
+ * remains unique for both organization-scoped and personal analytics keys.
+ */
+export const analyticsEventDailyRollups = table(
+  "analytics_event_daily_rollups",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    template: text("template").notNull().default(""),
+    eventCount: integer("event_count").notNull().default(0),
+  },
+);
+
+/** One row per identifiable visitor and normalized event day. */
+export const analyticsUserDays = table("analytics_user_days", {
+  id: text("id").primaryKey(),
+  tenantKey: text("tenant_key").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  eventDate: text("event_date").notNull(),
+  userKey: text("user_key").notNull(),
+});
+
+/**
+ * Compact pressure signals for first-party queries that are already slow or
+ * failing. Successful fast queries never write here, so the diagnostic path
+ * cannot become another hot-path event log.
+ */
+export const analyticsQueryPressureDaily = table(
+  "analytics_query_pressure_daily",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    queryClass: text("query_class").notNull(),
+    slowQueryCount: integer("slow_query_count").notNull().default(0),
+    timeoutCount: integer("timeout_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    totalDurationMs: integer("total_duration_ms").notNull().default(0),
+    maxDurationMs: integer("max_duration_ms").notNull().default(0),
+    lastSeenAt: text("last_seen_at").notNull(),
+  },
+);
+
+/**
  * Generic alert rules over first-party analytics events. Rules are owned by a
  * user/org but can target any app, template, event name, or event property.
  */

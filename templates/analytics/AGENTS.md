@@ -4,8 +4,8 @@ Analytics is an agent-native BI workspace for data sources, queries, dashboards,
 charts, and warehouse integrations. Dashboards are the canonical user-facing
 artifact; legacy analyses remain readable only for compatibility.
 
-**This agent is Claude with BigQuery/Gong/HubSpot/Prometheus access.** Reason
-over fetched data here; do not suggest another AI tool.
+Use all connected sources and MCP tools; reason over fetched data here, and do
+not suggest another AI tool.
 
 Prompt cap: 6,000; put detail in `.agents/skills/*`.
 

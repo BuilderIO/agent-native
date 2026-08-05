@@ -1211,6 +1211,16 @@ describe("buildCodeAgentSystemPrompt", () => {
     );
   });
 
+  it("scales verification to the changed area instead of requiring a ritual", () => {
+    const prompt = codeAgentSystemPrompt("/tmp/repo", "full-auto");
+    expect(prompt).toContain(
+      "use the narrowest relevant test, typecheck, formatter, or direct invocation",
+    );
+    expect(prompt).toContain(
+      "Do not restart a dev server or run broad checks as a generic post-edit ritual",
+    );
+  });
+
   it("caps truncated AGENTS.md and adds a note", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-cap-"));
     tmpRoots.push(root);

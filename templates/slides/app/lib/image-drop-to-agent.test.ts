@@ -14,7 +14,7 @@ describe("isMissingUploadProviderError", () => {
     expect(
       isMissingUploadProviderError(
         400,
-        "No file upload provider is configured. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+        "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
       ),
     ).toBe(true);
   });
@@ -60,7 +60,7 @@ describe("buildImageDropAgentPayload", () => {
         ok: false,
         status: 503,
         error:
-          "No file upload provider is configured. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+          "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
       },
       dataUrl,
     });

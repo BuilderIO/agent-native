@@ -375,7 +375,7 @@ export function CodeProviderSettings({
           <span className="settings-mode-card-status">
             {settings.configured
               ? `${settings.configuredProviders.join(", ")} ready`
-              : "Connect Builder.io, run codex login, or add an API key before chatting."}
+              : "Connect Builder.io (free tier available), run codex login, or add an API key before chatting."}
           </span>
         </div>
       </div>

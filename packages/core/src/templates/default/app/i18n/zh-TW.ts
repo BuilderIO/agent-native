@@ -316,7 +316,7 @@ const messages = {
     codeChangeBadge: "程式碼變更",
     connectBuilderTitle: "連線 Builder.io",
     connectBuilderDescription:
-      "Connect Builder 可從此應用程式啟用基於雲端的程式碼更改。",
+      "Connect Builder（提供免費方案）可從此應用程式啟用基於雲端的程式碼更改。",
     setupRequired: "需要設定",
     branchCreated: "已建立分支",
     close: "關閉",

@@ -79,17 +79,17 @@ pnpm typecheck    # type-check
 
 ## Environment Variables
 
-Templates read from `.env` in their own directory. Key variables:
+Templates read from `.env` in their own directory, and workspace development
+loads the root `.env` before app-local values. The complete repository-wide
+index is [docs/environment-variables.md](docs/environment-variables.md). It
+covers framework, template, local/test, build/deploy, CI-only, and credential
+variables, and is checked by `pnpm run guard:env-documentation`.
 
-| Variable                       | Purpose                                                          |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `DATABASE_URL`                 | Database connection string (see below)                           |
-| `ANTHROPIC_API_KEY`            | API key for Claude (required for agent chat)                     |
-| `ACCESS_TOKEN`                 | Static bearer fallback for MCP/connect clients; not browser auth |
-| `GOOGLE_SIGN_IN_CLIENT_ID`     | Preferred low-scope Google client ID for app login               |
-| `GOOGLE_SIGN_IN_CLIENT_SECRET` | Preferred low-scope Google client secret for app login           |
-| `GOOGLE_CLIENT_ID`             | Google API integration client ID, or legacy login fallback       |
-| `GOOGLE_CLIENT_SECRET`         | Google API integration secret, or legacy login fallback          |
+For the most common setup variables, start with `DATABASE_URL`,
+`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `A2A_SECRET`, and the provider key
+needed by the selected agent engine. User-, organization-, and workspace-scoped
+credentials should be stored through the scoped secret/credential store rather
+than added to `.env`.
 
 ### Database options
 
