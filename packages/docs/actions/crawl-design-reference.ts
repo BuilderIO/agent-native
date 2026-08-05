@@ -70,7 +70,11 @@ function getMetaContent(html: string, names: string[]) {
 }
 
 function truncateWords(value: string, maxWords: number) {
-  return cleanText(value).split(/\s+/).filter(Boolean).slice(0, maxWords).join(" ");
+  return cleanText(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, maxWords)
+    .join(" ");
 }
 
 function normalizeColor(value: string | undefined) {
@@ -94,7 +98,9 @@ function findCustomProperty(css: string, names: RegExp[]) {
 
 function findColors(css: string, themeColor: string) {
   const candidates = [
-    ...css.matchAll(/#[\da-f]{6}\b|#[\da-f]{3}\b|(?:rgb|hsl)a?\([^)]{3,80}\)/gi),
+    ...css.matchAll(
+      /#[\da-f]{6}\b|#[\da-f]{3}\b|(?:rgb|hsl)a?\([^)]{3,80}\)/gi,
+    ),
   ]
     .map((match) => normalizeColor(match[0]))
     .filter((value): value is string => Boolean(value));
@@ -112,18 +118,16 @@ function findColors(css: string, themeColor: string) {
 }
 
 function cleanFontFamily(value: string | undefined) {
-  return (
-    value
-      ?.split(",")[0]
-      ?.replace(/["']/g, "")
-      .trim() || null
-  );
+  return value?.split(",")[0]?.replace(/["']/g, "").trim() || null;
 }
 
 function findFont(css: string, selectors: RegExp[]) {
   for (const selector of selectors) {
     const match = css.match(
-      new RegExp(`${selector.source}[^{}]*\\{[^{}]*font-family\\s*:\\s*([^;}]+)`, "i"),
+      new RegExp(
+        `${selector.source}[^{}]*\\{[^{}]*font-family\\s*:\\s*([^;}]+)`,
+        "i",
+      ),
     );
     const font = cleanFontFamily(match?.[1]);
     if (font) return font;
@@ -168,16 +172,23 @@ export default defineAction({
   agentTool: false,
   run: async ({ url }) => {
     const parsedUrl = new URL(url);
-    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
       throw new Error("Enter a public HTTP or HTTPS URL.");
     }
     if (parsedUrl.username || parsedUrl.password) {
       throw new Error("URLs with embedded credentials are not supported.");
     }
 
-    const { response, text: html } = await fetchText(parsedUrl.href, MAX_HTML_BYTES);
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
+    const { response, text: html } = await fetchText(
+      parsedUrl.href,
+      MAX_HTML_BYTES,
+    );
+    const contentType =
+      response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (
+      !contentType.includes("text/html") &&
+      !contentType.includes("application/xhtml+xml")
+    ) {
       throw new Error("That URL did not return a web page.");
     }
 
@@ -187,7 +198,11 @@ export default defineAction({
         parsedUrl.hostname,
     ).slice(0, 120);
     const description = truncateWords(
-      getMetaContent(html, ["description", "og:description", "twitter:description"]),
+      getMetaContent(html, [
+        "description",
+        "og:description",
+        "twitter:description",
+      ]),
       14,
     );
     const themeColor = getMetaContent(html, ["theme-color"]);
@@ -214,10 +229,16 @@ export default defineAction({
     const colors = findColors(css, themeColor);
     const bodyFont =
       findFont(css, [/body/, /html/]) ||
-      cleanFontFamily(css.match(/--[\w-]*(?:body-)?font[\w-]*\s*:\s*([^;}]+)/i)?.[1]);
+      cleanFontFamily(
+        css.match(/--[\w-]*(?:body-)?font[\w-]*\s*:\s*([^;}]+)/i)?.[1],
+      );
     const headingFont =
       findFont(css, [/h1\b/, /h2\b/, /heading/]) ||
-      cleanFontFamily(css.match(/--[\w-]*(?:heading|display|title)-font[\w-]*\s*:\s*([^;}]+)/i)?.[1]) ||
+      cleanFontFamily(
+        css.match(
+          /--[\w-]*(?:heading|display|title)-font[\w-]*\s*:\s*([^;}]+)/i,
+        )?.[1],
+      ) ||
       bodyFont;
 
     return {

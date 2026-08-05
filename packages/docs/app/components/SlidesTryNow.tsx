@@ -1,12 +1,13 @@
-import { useT } from "@agent-native/core/client/i18n";
 import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowRight,
   IconExternalLink,
   IconLoader2,
   IconPalette,
 } from "@tabler/icons-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 
 type DesignReference = {
   title: string;
@@ -98,6 +99,34 @@ export function SlidesTryNow() {
         streamTimerRef.current = null;
       }
     }, 10);
+  }
+
+  function handlePromptKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Backspace" && event.key !== "Delete") return;
+    const selection = window.getSelection();
+    if (!selection?.isCollapsed || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    let candidate: ChildNode | null = null;
+
+    if (range.startContainer === event.currentTarget) {
+      candidate =
+        event.key === "Backspace"
+          ? (event.currentTarget.childNodes[range.startOffset - 1] ?? null)
+          : (event.currentTarget.childNodes[range.startOffset] ?? null);
+    } else if (range.startContainer.nodeType === Node.TEXT_NODE) {
+      const text = range.startContainer.textContent ?? "";
+      if (event.key === "Backspace" && range.startOffset === 0) {
+        candidate = range.startContainer.previousSibling;
+      }
+      if (event.key === "Delete" && range.startOffset === text.length) {
+        candidate = range.startContainer.nextSibling;
+      }
+    }
+
+    if (candidate instanceof HTMLSelectElement) {
+      event.preventDefault();
+      candidate.remove();
+    }
   }
 
   async function handleReferenceSubmit(event: FormEvent) {
@@ -211,9 +240,10 @@ export function SlidesTryNow() {
           aria-multiline="true"
           contentEditable
           suppressContentEditableWarning
+          onKeyDown={handlePromptKeyDown}
           className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition focus:border-[var(--docs-accent)]"
         >
-          {tn("promptCreatePrefix")} {" "}
+          {tn("promptCreatePrefix")}{" "}
           <select
             defaultValue="capital-raise"
             aria-label={tn("deckTypeLabel")}
@@ -224,7 +254,8 @@ export function SlidesTryNow() {
             <option value="b2b-sales">{tn("deckB2bSales")}</option>
             <option value="live-talk">{tn("deckLiveTalk")}</option>
           </select>{" "}
-          {tn("promptDeckFor")} {SUBJECT_PLACEHOLDER}. {tn("promptTextShouldBe")} {" "}
+          {tn("promptDeckFor")} {SUBJECT_PLACEHOLDER}.{" "}
+          {tn("promptTextShouldBe")}{" "}
           <select
             defaultValue="brief"
             aria-label={tn("textAmountLabel")}

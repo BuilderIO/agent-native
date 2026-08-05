@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
+
 import { SlidesTryNow } from "../components/SlidesTryNow";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -438,7 +439,10 @@ export default function SlidesTemplate() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[var(--docs-border)] py-16 text-center">
+      <section
+        id="build-now"
+        className="border-t border-[var(--docs-border)] py-16 text-center"
+      >
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           {t("templateLanding.slides.s055")}
         </h2>
