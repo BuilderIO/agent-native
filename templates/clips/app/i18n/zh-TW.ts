@@ -136,6 +136,8 @@ const messages = {
     pageTitle: "會議 · Clips",
   },
   recordingPage: {
+    buildingGif: "正在產生 GIF… {{percent}}%",
+    gifExportFailed: "無法從此剪輯產生 GIF",
     untitledClip: "無標題剪輯",
     recordingNotFound: "找不到錄製",
     noAccess: "您可能無權存取此剪輯。",
@@ -921,6 +923,14 @@ const messages = {
     updateTranscriptSharingFailed: "無法更新逐字稿分享設定",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "下載為 GIF",
+    buildingGif: "正在產生 GIF…",
+    archive: "封存",
+    unarchive: "取消封存",
+    archived: "剪輯已封存",
+    restoredFromArchive: "已從封存恢復剪輯",
+    archiveFailed: "封存剪輯失敗",
+    unarchiveFailed: "恢復剪輯失敗",
     movedToTrash: "剪輯已移至廢紙簍",
     deleteFailed: "刪除剪輯失敗",
     clipOptions: "剪輯選項",

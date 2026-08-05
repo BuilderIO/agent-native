@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "Meeting · Clips",
   },
   recordingPage: {
+    buildingGif: "Building GIF… {{percent}}%",
+    gifExportFailed: "Couldn't build a GIF from this clip",
     untitledClip: "Untitled Clip",
     recordingNotFound: "Recording not found",
     noAccess: "You may not have access to this clip.",
@@ -965,6 +967,14 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     updateTranscriptSharingFailed: "Couldn't update transcript sharing",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "Download as GIF",
+    buildingGif: "Building GIF...",
+    archive: "Archive",
+    unarchive: "Unarchive",
+    archived: "Clip archived",
+    restoredFromArchive: "Clip restored from archive",
+    archiveFailed: "Failed to archive clip",
+    unarchiveFailed: "Failed to restore clip",
     movedToTrash: "Clip moved to trash",
     deleteFailed: "Failed to delete clip",
     clipOptions: "Clip options",

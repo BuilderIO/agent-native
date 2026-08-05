@@ -141,6 +141,8 @@ const messages = {
     pageTitle: "ミーティング · Clips",
   },
   recordingPage: {
+    buildingGif: "GIF を作成中… {{percent}}%",
+    gifExportFailed: "このクリップから GIF を作成できませんでした",
     untitledClip: "無題のクリップ",
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
@@ -977,6 +979,14 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     updateTranscriptSharingFailed: "文字起こしの共有を更新できませんでした",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "GIF としてダウンロード",
+    buildingGif: "GIF を作成中…",
+    archive: "アーカイブ",
+    unarchive: "アーカイブ解除",
+    archived: "クリップをアーカイブしました",
+    restoredFromArchive: "アーカイブからクリップを復元しました",
+    archiveFailed: "クリップをアーカイブできませんでした",
+    unarchiveFailed: "クリップを復元できませんでした",
     movedToTrash: "クリップをゴミ箱に移動しました",
     deleteFailed: "クリップの削除に失敗しました",
     clipOptions: "クリップオプション",

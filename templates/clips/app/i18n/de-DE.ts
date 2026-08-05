@@ -142,6 +142,8 @@ const messages = {
     pageTitle: "Treffen · Clips",
   },
   recordingPage: {
+    buildingGif: "GIF wird erstellt… {{percent}} %",
+    gifExportFailed: "GIF konnte aus diesem Clip nicht erstellt werden",
     untitledClip: "Unbenannter Clip",
     recordingNotFound: "Aufnahme nicht gefunden",
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
@@ -999,6 +1001,14 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Die Transkriptfreigabe konnte nicht aktualisiert werden",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "Als GIF herunterladen",
+    buildingGif: "GIF wird erstellt…",
+    archive: "Archivieren",
+    unarchive: "Archivierung aufheben",
+    archived: "Clip archiviert",
+    restoredFromArchive: "Clip aus dem Archiv wiederhergestellt",
+    archiveFailed: "Clip konnte nicht archiviert werden",
+    unarchiveFailed: "Clip konnte nicht wiederhergestellt werden",
     movedToTrash: "Clip in den Papierkorb verschoben",
     deleteFailed: "Clip konnte nicht gelöscht werden",
     clipOptions: "Clip-Optionen",

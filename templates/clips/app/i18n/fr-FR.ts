@@ -141,6 +141,8 @@ const messages = {
     pageTitle: "Réunion · Clips",
   },
   recordingPage: {
+    buildingGif: "Création du GIF… {{percent}} %",
+    gifExportFailed: "Impossible de créer un GIF à partir de ce clip",
     untitledClip: "Extrait sans titre",
     recordingNotFound: "Enregistrement introuvable",
     noAccess: "Vous n’aurez peut-être pas accès à ce clip.",
@@ -994,6 +996,14 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Impossible de modifier le partage de la transcription",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "Télécharger en GIF",
+    buildingGif: "Création du GIF…",
+    archive: "Archiver",
+    unarchive: "Désarchiver",
+    archived: "Clip archivé",
+    restoredFromArchive: "Clip restauré depuis l’archive",
+    archiveFailed: "Échec de l’archivage du clip",
+    unarchiveFailed: "Échec de la restauration du clip",
     movedToTrash: "Clip déplacé vers la corbeille",
     deleteFailed: "Échec de la suppression du clip",
     clipOptions: "Options du clip",

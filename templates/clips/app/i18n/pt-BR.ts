@@ -141,6 +141,8 @@ const messages = {
     pageTitle: "Reunião · Clips",
   },
   recordingPage: {
+    buildingGif: "Gerando GIF… {{percent}}%",
+    gifExportFailed: "Não foi possível gerar um GIF deste clipe",
     untitledClip: "Clipe sem título",
     recordingNotFound: "Gravação não encontrada",
     noAccess: "Você pode não ter acesso a este clipe.",
@@ -989,6 +991,14 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Não foi possível atualizar o compartilhamento da transcrição",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "Baixar como GIF",
+    buildingGif: "Gerando GIF…",
+    archive: "Arquivar",
+    unarchive: "Desarquivar",
+    archived: "Clipe arquivado",
+    restoredFromArchive: "Clipe restaurado do arquivo",
+    archiveFailed: "Não foi possível arquivar o clipe",
+    unarchiveFailed: "Não foi possível restaurar o clipe",
     movedToTrash: "Clipe movido para a lixeira",
     deleteFailed: "Falha ao excluir clipe",
     clipOptions: "Opções do clipe",

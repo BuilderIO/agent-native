@@ -93,6 +93,7 @@ import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
+import { exportGif } from "@/lib/ffmpeg-export";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { recordingShareUrl } from "@/lib/recording-link";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
@@ -104,6 +105,11 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
+// GIF has no interframe compression, so a full-length clip at source
+// resolution is orders of magnitude larger than the MP4 it came from. 480px /
+// 12fps keeps a shareable GIF within a size a browser can actually encode.
+const GIF_DOWNLOAD_WIDTH = 480;
+const GIF_DOWNLOAD_FPS = 12;
 
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
@@ -288,6 +294,7 @@ export default function RecordingPage() {
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [exportingGif, setExportingGif] = useState(false);
   const [pendingLinkCopied, setPendingLinkCopied] = useState(false);
   const browserTabId = useMemo(() => getBrowserTabId(), []);
   const recordingScope = useMemo(
@@ -531,6 +538,8 @@ export default function RecordingPage() {
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
+  const canDownloadGif = Boolean(canDownloadRecording && recording?.durationMs);
+  const canArchiveRecording = canEdit;
   const downloadRecording = useCallback(async () => {
     if (!recording?.videoUrl) return;
     setDownloading(true);
@@ -558,6 +567,55 @@ export default function RecordingPage() {
       toast.dismiss(downloadToastId);
     }
   }, [recording?.title, recording?.videoFormat, recording?.videoUrl, t]);
+  const downloadGif = useCallback(async () => {
+    if (!recording?.videoUrl || !recording.durationMs) return;
+    setExportingGif(true);
+    const gifToastId = toast.loading(
+      t("recordingPage.buildingGif", { percent: 0 }),
+    );
+    try {
+      const blob = await exportGif(
+        {
+          id: recording.id,
+          videoUrl: recording.videoUrl,
+          videoFormat: recording.videoFormat,
+          durationMs: recording.durationMs,
+          title: recording.title,
+        },
+        0,
+        recording.durationMs,
+        (p) =>
+          toast.loading(
+            t("recordingPage.buildingGif", {
+              percent: Math.round(p.progress * 100),
+            }),
+            { id: gifToastId },
+          ),
+        { width: GIF_DOWNLOAD_WIDTH, fps: GIF_DOWNLOAD_FPS },
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizeFilename(recording.title || "clip")}.gif`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      toast.error(t("recordingPage.gifExportFailed"));
+    } finally {
+      setExportingGif(false);
+      toast.dismiss(gifToastId);
+    }
+  }, [
+    recording?.durationMs,
+    recording?.id,
+    recording?.title,
+    recording?.videoFormat,
+    recording?.videoUrl,
+    t,
+  ]);
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -1569,7 +1627,7 @@ export default function RecordingPage() {
             </ShareRecordingPopover>
           ) : null}
 
-          {canDelete || canDownloadRecording ? (
+          {canDelete || canDownloadRecording || canArchiveRecording ? (
             <RecordingOptionsMenu
               recordingId={recording.id}
               canDelete={canDelete}
@@ -1578,6 +1636,14 @@ export default function RecordingPage() {
               onDownload={() => {
                 void downloadRecording();
               }}
+              canDownloadGif={canDownloadGif}
+              gifPending={exportingGif}
+              onDownloadGif={() => {
+                void downloadGif();
+              }}
+              canArchive={canArchiveRecording}
+              isArchived={Boolean(recording.archivedAt)}
+              onArchiveChanged={() => navigate("/library", { replace: true })}
               onDeleted={() => navigate("/library", { replace: true })}
             />
           ) : null}

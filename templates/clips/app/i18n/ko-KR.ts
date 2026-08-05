@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "회의 · Clips",
   },
   recordingPage: {
+    buildingGif: "GIF 만드는 중… {{percent}}%",
+    gifExportFailed: "이 클립에서 GIF를 만들지 못했습니다",
     untitledClip: "제목 없는 클립",
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
@@ -966,6 +968,14 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     updateTranscriptSharingFailed: "스크립트 공유를 업데이트하지 못했습니다",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "GIF로 다운로드",
+    buildingGif: "GIF 만드는 중…",
+    archive: "보관",
+    unarchive: "보관 해제",
+    archived: "클립을 보관했습니다",
+    restoredFromArchive: "보관함에서 클립을 복원했습니다",
+    archiveFailed: "클립을 보관하지 못했습니다",
+    unarchiveFailed: "클립을 복원하지 못했습니다",
     movedToTrash: "클립이 휴지통으로 이동됨",
     deleteFailed: "클립 삭제 실패",
     clipOptions: "클립 옵션",

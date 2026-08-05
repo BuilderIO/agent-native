@@ -136,6 +136,8 @@ const messages = {
     pageTitle: "会议 · Clips",
   },
   recordingPage: {
+    buildingGif: "正在生成 GIF… {{percent}}%",
+    gifExportFailed: "无法从此剪辑生成 GIF",
     untitledClip: "无标题剪辑",
     recordingNotFound: "找不到录制",
     noAccess: "您可能无权访问此剪辑。",
@@ -927,6 +929,14 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     updateTranscriptSharingFailed: "无法更新转写共享设置",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "下载为 GIF",
+    buildingGif: "正在生成 GIF…",
+    archive: "归档",
+    unarchive: "取消归档",
+    archived: "剪辑已归档",
+    restoredFromArchive: "已从归档恢复剪辑",
+    archiveFailed: "归档剪辑失败",
+    unarchiveFailed: "恢复剪辑失败",
     movedToTrash: "剪辑已移至废纸篓",
     deleteFailed: "删除剪辑失败",
     clipOptions: "剪辑选项",

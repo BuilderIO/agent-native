@@ -140,6 +140,8 @@ const messages = {
     pageTitle: "मीटिंग · Clips",
   },
   recordingPage: {
+    buildingGif: "GIF बन रहा है… {{percent}}%",
+    gifExportFailed: "इस क्लिप से GIF नहीं बनाया जा सका",
     untitledClip: "शीर्षक रहित क्लिप",
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
@@ -958,6 +960,14 @@ Clips में उपयोगकर्ताओं को दिखने व�
     updateTranscriptSharingFailed: "ट्रांसक्रिप्ट शेयरिंग अपडेट नहीं हो सकी",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "GIF के रूप में डाउनलोड करें",
+    buildingGif: "GIF बन रहा है…",
+    archive: "आर्काइव",
+    unarchive: "आर्काइव से हटाएं",
+    archived: "क्लिप आर्काइव किया गया",
+    restoredFromArchive: "क्लिप आर्काइव से पुनर्स्थापित",
+    archiveFailed: "क्लिप आर्काइव नहीं किया जा सका",
+    unarchiveFailed: "क्लिप पुनर्स्थापित नहीं किया जा सका",
     movedToTrash: "क्लिप ट्रैश में ले जाया गया",
     deleteFailed: "क्लिप हटाने में विफल",
     clipOptions: "क्लिप विकल्प",

@@ -139,6 +139,8 @@ const messages = {
     pageTitle: "اجتماع · Clips",
   },
   recordingPage: {
+    buildingGif: "جارٍ إنشاء GIF… {{percent}}%",
+    gifExportFailed: "تعذر إنشاء GIF من هذا المقطع",
     untitledClip: "مقطع بدون عنوان",
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
@@ -978,6 +980,14 @@ const messages = {
     updateTranscriptSharingFailed: "تعذر تحديث مشاركة النص",
   },
   deleteRecordingMenu: {
+    downloadAsGif: "تنزيل كملف GIF",
+    buildingGif: "جارٍ إنشاء GIF…",
+    archive: "أرشفة",
+    unarchive: "إلغاء الأرشفة",
+    archived: "تمت أرشفة المقطع",
+    restoredFromArchive: "تمت استعادة المقطع من الأرشيف",
+    archiveFailed: "تعذرت أرشفة المقطع",
+    unarchiveFailed: "تعذرت استعادة المقطع",
     movedToTrash: "تم نقل المقطع إلى المهملات",
     deleteFailed: "فشل حذف المقطع",
     clipOptions: "خيارات المقطع",
