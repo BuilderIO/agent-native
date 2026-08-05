@@ -11,11 +11,21 @@ How agent-native apps work under the hood — the principles and the architectur
 
 Agent Native is a framework, not a single template. It has three layers:
 
-| Layer                                                    | What it is                                                                                                                                                                                            |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core - the framework**                                 | The foundational runtime contract: actions, SQL and Drizzle helpers, auth, application state, agent execution, access checks, routing, and live sync. Every app can use Core directly.                |
-| **Toolkit - optional reusable pieces for the framework** | Shared app-building UI and product systems such as primitives, editors, sharing, collaboration, settings, and agent UX. Apps can use, compose, or fork the pieces they need.                          |
-| **Templates - optional apps built on Core**              | Complete, domain-specific apps with routes, schema, actions, instructions, and visual identity. First-party and custom templates commonly use Toolkit, and can be forked and used as starting points. |
+<Cards>
+
+### Core — the framework
+
+The foundational runtime contract: actions, SQL and Drizzle helpers, auth, application state, agent execution, access checks, routing, and live sync. Every app can use Core directly.
+
+### Toolkit — optional reusable pieces
+
+Shared app-building UI and product systems such as primitives, editors, sharing, collaboration, settings, and agent UX. Apps can use, compose, or fork the pieces they need.
+
+### Templates — optional apps built on Core
+
+Complete, domain-specific apps with routes, schema, actions, instructions, and visual identity. First-party and custom templates commonly use Toolkit, and can be forked and used as starting points.
+
+</Cards>
 
 Core is the foundation. Toolkit and Templates are optional: a template can use Toolkit, but Toolkit is not required to build an app on Core.
 
@@ -128,22 +138,53 @@ and write the actual data.
 
 Five rules govern the architecture:
 
-1. **Data lives in SQL** — all app state lives in the database via Drizzle ORM
-2. **All AI goes through the agent** — no inline LLM calls
-3. **Actions for agent operations** — complex work runs as actions
-4. **Live sync keeps the UI in sync** — database changes stream over SSE with polling as the universal fallback
-5. **Application state in SQL** — ephemeral UI state lives in the database, readable by both agent and UI
+<Cards>
+
+### 1. Data lives in SQL
+
+All app state lives in the database via Drizzle ORM.
+
+### 2. All AI goes through the agent
+
+No inline LLM calls — every AI interaction flows through the agent chat bridge.
+
+### 3. Actions for agent operations
+
+Complex work runs as a typed action, not inline code.
+
+### 4. Live sync keeps the UI in sync
+
+Database changes stream over SSE, with polling as the universal fallback.
+
+### 5. Application state in SQL
+
+Ephemeral UI state lives in the database, readable by both agent and UI.
+
+</Cards>
 
 ## The four-area checklist {#four-area-checklist}
 
 Every user-facing feature should update all applicable areas. Skipping an applicable area breaks the agent-native contract; forcing a screen onto an automation that no human needs to browse is also a smell.
 
-| Area             | Description                                                    |
-| ---------------- | -------------------------------------------------------------- |
-| **1. UI**        | Page, component, or dialog the user interacts with             |
-| **2. Action**    | Agent-callable action in actions/ for the same operation       |
-| **3. Skills**    | Update AGENTS.md and/or create a skill documenting the pattern |
-| **4. App-State** | Navigation state, view-screen data, and navigate commands      |
+<Cards>
+
+### 1. UI
+
+Page, component, or dialog the user interacts with.
+
+### 2. Action
+
+Agent-callable action in `actions/` for the same operation.
+
+### 3. Skills
+
+Update `AGENTS.md` and/or create a skill documenting the pattern.
+
+### 4. App-State
+
+Navigation state, view-screen data, and navigate commands.
+
+</Cards>
 
 A feature with only UI is invisible to the agent. A full UI feature with only actions is invisible to the user. A feature without app-state means the agent is blind to what the user is doing. An automation-first operation can legitimately start with action + instructions and add chat, UI, or app-state later when humans need to browse, approve, configure, or share it.
 
@@ -253,6 +294,8 @@ pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 ```
 
+<Callout tone="decision">
+
 The production agent chat plugin defaults raw SQL tools to read-only
 (`frameworkTools: { database: "read" }`), so agents inspect app-owned data with
 `db-schema` / `db-query` and perform writes through typed app actions. Set
@@ -267,6 +310,8 @@ chat, and email. See
 [Production Agent Tools](/docs/deployment#production-agent-tools) for the full
 list, the `"minimal"` preset, and why disabling a group leaves its HTTP routes
 mounted.
+
+</Callout>
 
 ## Agent chat bridge {#agent-chat-bridge}
 
@@ -284,10 +329,25 @@ sendToAgentChat({
 
 Why not call an LLM inline?
 
-- **AI is non-deterministic.** You need conversation flow to give feedback and iterate — not one-shot buttons.
-- **Context matters.** The agent has the app's instructions, skills, and history. An inline call has none of that.
-- **The agent can do more.** It can run actions, browse the web, and chain multiple steps together.
-- **External execution.** Because everything goes through the agent and actions, any app can be driven from Slack, Telegram, scheduled jobs, scripts, or another agent via [A2A](/docs/a2a-protocol).
+<Cards>
+
+### AI is non-deterministic
+
+You need conversation flow to give feedback and iterate — not one-shot buttons.
+
+### Context matters
+
+The agent has the app's instructions, skills, and history. An inline call has none of that.
+
+### The agent can do more
+
+It can run actions, browse the web, and chain multiple steps together.
+
+### [External execution](/docs/a2a-protocol)
+
+Because everything goes through the agent and actions, any app can be driven from Slack, Telegram, scheduled jobs, scripts, or another agent via A2A.
+
+</Cards>
 
 ## Actions system {#actions-system}
 
@@ -310,6 +370,15 @@ export default defineAction({
 ```
 
 One `defineAction()` call gives you:
+
+```mermaid
+graph LR
+  A["defineAction()"] --> B[Agent tool]
+  A --> C[Frontend hook]
+  A --> D[Framework transport]
+  A --> E[CLI command]
+  A --> F[MCP / A2A tool]
+```
 
 - **Agent tool** — the agent sees it with the zod-derived JSON Schema and can call it.
 - **Frontend hook** — `useActionMutation("fetch-data")` with full TypeScript inference.
@@ -392,8 +461,17 @@ A _frame_ is the environment that hosts the agent next to your app — locally t
 
 Agent-native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work.
 
-- **Embedded Agent Panel** — Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free and open source.
-- **Cloud** — Deploy to any cloud with real-time collaboration, visual editing, roles and permissions. Best for teams.
+<Cards>
+
+### Embedded Agent Panel
+
+Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free and open source.
+
+### Cloud
+
+Deploy to any cloud with real-time collaboration, visual editing, roles and permissions. Best for teams.
+
+</Cards>
 
 ## Context awareness {#context-awareness}
 
@@ -405,7 +483,11 @@ For example, when you open an email thread the UI upserts a row like:
 { "key": "navigation", "value": { "view": "thread", "threadId": "th_abc123" } }
 ```
 
+<Callout tone="info">
+
 The UI writes this on route change; the agent reads it (via `view-screen`) before taking any action, so it always knows which thread — or chart, or slide — you're focused on.
+
+</Callout>
 
 See [Context Awareness](/docs/context-awareness) for the full pattern: navigation state, view-screen, navigate commands, and jitter prevention.
 
@@ -440,9 +522,21 @@ Every user gets a personal set of **agent resources** — instructions, skills, 
 
 These sit on top of the same contract and have their own deep dives:
 
-- **[Dispatch](/docs/dispatch)** — the workspace control plane: shared inbox, secrets vault, scheduled jobs, and an orchestrator that delegates to specialist apps over A2A.
-- **[Extensions](/docs/extensions)** — sandboxed Alpine.js mini-apps the agent creates at runtime, no source changes or migrations.
-- **[A2A Protocol](/docs/a2a-protocol)** — how apps in the same workspace discover and call each other over JSON-RPC.
+<Cards>
+
+### [Dispatch](/docs/dispatch)
+
+The workspace control plane: shared inbox, secrets vault, scheduled jobs, and an orchestrator that delegates to specialist apps over A2A.
+
+### [Extensions](/docs/extensions)
+
+Sandboxed Alpine.js mini-apps the agent creates at runtime, no source changes or migrations.
+
+### [A2A Protocol](/docs/a2a-protocol)
+
+How apps in the same workspace discover and call each other over JSON-RPC.
+
+</Cards>
 
 ## What you get for free {#what-you-get-for-free}
 
@@ -464,9 +558,30 @@ That's the "and everything else" you'd otherwise be gluing together yourself.
 
 ## What's next {#deep-dives}
 
-- [**What Is Agent-Native?**](/docs/what-is-agent-native) — the vision and philosophy behind these rules
-- [**Context Awareness**](/docs/context-awareness) — navigation state, view-screen, and navigate commands in depth
-- [**Skills Guide**](/docs/skills-guide) — framework skills, domain skills, and creating custom skills
-- [**Native Chat UI**](/docs/native-chat-ui) — action-declared tables, charts, and BYO runtime posture
-- [**Agent Surfaces**](/docs/agent-surfaces) — chat, native inline UI, full app pages, embedded sidecar, automation, and external-agent paths
-- [**A2A Protocol**](/docs/a2a-protocol) — agent-to-agent communication
+<Cards>
+
+### [What Is Agent-Native?](/docs/what-is-agent-native)
+
+The vision and philosophy behind these rules.
+
+### [Context Awareness](/docs/context-awareness)
+
+Navigation state, view-screen, and navigate commands in depth.
+
+### [Skills Guide](/docs/skills-guide)
+
+Framework skills, domain skills, and creating custom skills.
+
+### [Native Chat UI](/docs/native-chat-ui)
+
+Action-declared tables, charts, and BYO runtime posture.
+
+### [Agent Surfaces](/docs/agent-surfaces)
+
+Chat, native inline UI, full app pages, embedded sidecar, automation, and external-agent paths.
+
+### [A2A Protocol](/docs/a2a-protocol)
+
+Agent-to-agent communication.
+
+</Cards>
