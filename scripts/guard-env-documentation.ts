@@ -30,31 +30,49 @@ const PUBLIC_EXACT_KEYS = new Set([
   "AUTH_MAGIC_LINK",
   "AUTH_MODE",
   "AUTH_SKIP_EMAIL_VERIFICATION",
+  "BRAVE_SEARCH_API_KEY",
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
   "CI",
+  "COHERE_API_KEY",
   "COOKIE_DOMAIN",
   "CORS_ALLOWED_ORIGINS",
   "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "DEBUG",
+  "EMAIL_AGENT_ADDRESS",
+  "EMAIL_FROM",
+  "EMAIL_INBOUND_WEBHOOK_SECRET",
+  "EXA_API_KEY",
+  "FIRECRAWL_API_KEY",
+  "GEMINI_API_KEY",
   "GOOGLE_AUTH_MODE",
+  "GOOGLE_APPLICATION_CREDENTIALS",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GOOGLE_LEGACY_CLIENT_ID",
+  "GOOGLE_LEGACY_CLIENT_SECRET",
+  "GOOGLE_SERVICE_ACCOUNT_KEY",
   "GOOGLE_SIGN_IN_CLIENT_ID",
   "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  "GROQ_API_KEY",
+  "MISTRAL_API_KEY",
   "NODE_ENV",
   "NITRO_PRESET",
   "OAUTH_STATE_SECRET",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "OPENROUTER_API_KEY",
   "PORT",
+  "RESEND_API_KEY",
   "SECRETS_ENCRYPTION_KEY",
+  "SENDGRID_API_KEY",
+  "TAVILY_API_KEY",
   "WEBHOOK_BASE_URL",
   "WORKSPACE_SECRETS_ENCRYPTION_KEY",
   "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
 ]);
-
-const PUBLIC_RUNTIME_PATH =
-  /^(?:packages\/core\/src\/(?!templates\/)|packages\/dispatch\/src\/|packages\/frame\/src\/|packages\/mobile-app\/|packages\/desktop-app\/)/;
 
 const SOURCE_EXTENSIONS = new Set([
   ".cjs",
@@ -301,10 +319,7 @@ function readDocumentedPatterns(docPath: string): Set<string> {
 }
 
 function isPublicHardCodedKey(key: string): boolean {
-  if (PUBLIC_EXACT_KEYS.has(key)) return true;
-  return [...(references.get(key) ?? [])].some((location) =>
-    PUBLIC_RUNTIME_PATH.test(location),
-  );
+  return PUBLIC_EXACT_KEYS.has(key);
 }
 
 function isDocumented(key: string, patterns: Set<string>): boolean {
