@@ -89,8 +89,7 @@ const frFR = {
       titleAccent: "par votre équipe et vos agents",
       bodyLine1:
         "Tout ce que votre équipe peut cliquer, vos agents peuvent l’appeler.",
-      bodyLine2:
-        "Les mêmes actions, les mêmes données, la même app. Framework open source.",
+      bodyLine2: "Les mêmes actions, les mêmes données, la même app.",
       primaryCta: "Commencer à construire",
       secondaryCta: "Voir la documentation",
     },

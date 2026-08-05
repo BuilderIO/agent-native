@@ -89,8 +89,7 @@ const esES = {
       titleAccent: "tu equipo y tus agentes",
       bodyLine1:
         "Todo lo que tu equipo puede pulsar, tus agentes lo pueden ejecutar.",
-      bodyLine2:
-        "Las mismas acciones, los mismos datos, la misma app. Framework de código abierto.",
+      bodyLine2: "Las mismas acciones, los mismos datos, la misma app.",
       primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
     },

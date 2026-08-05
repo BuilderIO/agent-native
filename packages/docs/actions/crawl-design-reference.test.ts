@@ -1,166 +1,52 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const ssrfSafeFetch = vi.hoisted(() => vi.fn());
+const isBlockedExtensionUrlWithDns = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  isBlockedExtensionUrlWithDns,
   ssrfSafeFetch,
 }));
 
 import crawlDesignReference from "./crawl-design-reference";
 
+function extractionPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    url: "https://example.com/",
+    signals: {
+      title: "Example Studio",
+      description:
+        "Design software that helps teams build better products together every day worldwide with confidence",
+    },
+    designSystemData: {
+      colors: {
+        primary: "#1E3346",
+        secondary: "",
+        accent: "#0DA0A0",
+      },
+      typography: {
+        headingFont: "Sora",
+        bodyFont: "Poppins",
+      },
+    },
+    screenshotDataUrl: "data:image/png;base64,discarded",
+    ...overrides,
+  };
+}
+
 describe("crawl-design-reference", () => {
   beforeEach(() => {
     ssrfSafeFetch.mockReset();
-    vi.stubEnv("FIRECRAWL_API_KEY", "");
+    isBlockedExtensionUrlWithDns.mockReset();
+    isBlockedExtensionUrlWithDns.mockResolvedValue(false);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
-  });
-
-  it("extracts bounded brand metadata from a public page", async () => {
+  it("maps hosted design extraction into the Slides contract", async () => {
     ssrfSafeFetch
       .mockResolvedValueOnce(
-        new Response(
-          `<!doctype html>
-          <html>
-            <head>
-              <title>Example Studio</title>
-              <meta name="description" content="Design software that helps teams build better products together every day worldwide">
-              <meta name="theme-color" content="#123456">
-              <style>
-                :root { --accent-color: #ff6600; }
-                body { font-family: Inter, sans-serif; }
-                h1 { font-family: "Space Grotesk", sans-serif; }
-              </style>
-            </head>
-          </html>`,
-          {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            colors: [{ name: "Midnight Blue", requestedHex: "#123456" }],
-          }),
-          { headers: { "content-type": "application/json" } },
-        ),
-      );
-
-    const output = await crawlDesignReference.run({
-      url: "https://example.com",
-    });
-
-    expect(output).toEqual({
-      title: "Example Studio",
-      description:
-        "Design software that helps teams build better products together every day worldwide",
-      primaryColor: "#123456",
-      primaryColorName: "Midnight Blue",
-      accentColor: null,
-      accentColorName: null,
-      headingFont: "Space Grotesk",
-      bodyFont: "Inter",
-    });
-    expect(ssrfSafeFetch).toHaveBeenCalledWith(
-      "https://example.com/",
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      { maxRedirects: 3 },
-    );
-  });
-
-  it("extracts metadata from a same-origin SPA entry bundle", async () => {
-    ssrfSafeFetch
-      .mockResolvedValueOnce(
-        new Response(
-          `<!doctype html><html><head><script type="module" src="/assets/app.js"></script></head><body><div id="root"></div></body></html>`,
-          {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          `const card={title:"Salt & Wisdom Consulting",description:"A longer description for a nested consulting service that should not represent the homepage metadata.",canonical:"https://saltandwisdom.com/consulting"};const seo={title:"Salt & Wisdom | Tim Milazzo's Operating Studio",description:"Salt & Wisdom is Tim Milazzo's operating studio — spanning startups, open experiments, long-term ideas, and selective consulting work.",canonical:"https://saltandwisdom.com"};`,
-          {
-            headers: { "content-type": "text/javascript; charset=utf-8" },
-          },
-        ),
-      );
-
-    const output = await crawlDesignReference.run({
-      url: "https://saltandwisdom.com",
-    });
-
-    expect(output.title).toBe("Salt & Wisdom | Tim Milazzo's Operating Studio");
-    expect(output.description).toBe(
-      "Salt & Wisdom is Tim Milazzo's operating studio — spanning startups, open experiments, long-term",
-    );
-    expect(ssrfSafeFetch).toHaveBeenNthCalledWith(
-      2,
-      "https://saltandwisdom.com/assets/app.js",
-      expect.anything(),
-      { maxRedirects: 3 },
-    );
-  });
-
-  it("uses visible page copy when description metadata is missing", async () => {
-    ssrfSafeFetch.mockResolvedValueOnce(
-      new Response(
-        `<!doctype html>
-        <html>
-          <head><title>Salt and Wisdom</title></head>
-          <body>
-            <h1>Strategy and creative direction for ambitious brands building meaningful businesses in a changing world</h1>
-          </body>
-        </html>`,
-        {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        },
-      ),
-    );
-
-    const output = await crawlDesignReference.run({
-      url: "https://saltandwisdom.com",
-    });
-
-    expect(output.title).toBe("Salt and Wisdom");
-    expect(output.description).toBe(
-      "Strategy and creative direction for ambitious brands building meaningful businesses in a changing world",
-    );
-    expect(output.description.split(" ")).toHaveLength(14);
-  });
-
-  it("prefers rendered branding signals from Firecrawl", async () => {
-    vi.stubEnv("FIRECRAWL_API_KEY", "test-key");
-    const firecrawlFetch = vi.fn().mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            branding: {
-              colors: { primary: "#1E3346", accent: "#0DA0A0" },
-              typography: {
-                fontFamilies: { heading: "Sora", body: "Poppins" },
-              },
-            },
-          },
+        new Response(JSON.stringify(extractionPayload()), {
+          headers: { "content-type": "application/json" },
         }),
-        { headers: { "content-type": "application/json" } },
-      ),
-    );
-    vi.stubGlobal("fetch", firecrawlFetch);
-    ssrfSafeFetch
-      .mockResolvedValueOnce(
-        new Response(
-          `<!doctype html><html><head><title>Example Studio</title></head></html>`,
-          {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          },
-        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -178,14 +64,15 @@ describe("crawl-design-reference", () => {
       url: "https://example.com",
     });
 
-    expect(firecrawlFetch).toHaveBeenCalledWith(
-      "https://api.firecrawl.dev/v2/scrape",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({ authorization: "Bearer test-key" }),
-      }),
-    );
-    expect(output).toMatchObject({
+    const extractionUrl = new URL(ssrfSafeFetch.mock.calls[0][0]);
+    expect(extractionUrl.origin).toBe("https://freedesign.md");
+    expect(extractionUrl.pathname).toBe("/api/extract");
+    expect(extractionUrl.searchParams.get("url")).toBe("https://example.com/");
+    expect(extractionUrl.searchParams.get("format")).toBe("json");
+    expect(output).toEqual({
+      title: "Example Studio",
+      description:
+        "Design software that helps teams build better products together every day worldwide with confidence",
       primaryColor: "#1e3346",
       primaryColorName: "Blue Whale",
       accentColor: "#0da0a0",
@@ -195,36 +82,60 @@ describe("crawl-design-reference", () => {
     });
   });
 
-  it("ignores arbitrary stylesheet colors without explicit brand semantics", async () => {
-    ssrfSafeFetch.mockResolvedValueOnce(
-      new Response(
-        `<!doctype html>
-        <html>
-          <head>
-            <title>Example Studio</title>
-            <style>
-              :root { --accent-color: rgba(180, 0, 170, 1); }
-              .unused { --primary-color: rgba(0, 54, 255, 0.13); }
-              body { color: #111111; background: #ffffff; }
-            </style>
-          </head>
-        </html>`,
-        {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        },
-      ),
-    );
+  it("uses secondary color when no accent is returned", async () => {
+    ssrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify(
+            extractionPayload({
+              designSystemData: {
+                colors: { primary: "#145AB4", secondary: "#F0781E" },
+                typography: {},
+              },
+            }),
+          ),
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ colors: [] })));
 
     const output = await crawlDesignReference.run({
       url: "https://example.com",
     });
 
-    expect(output.primaryColor).toBeNull();
-    expect(output.accentColor).toBeNull();
-    expect(ssrfSafeFetch).toHaveBeenCalledOnce();
+    expect(output).toMatchObject({
+      primaryColor: "#145ab4",
+      accentColor: "#f0781e",
+      headingFont: null,
+      bodyFont: null,
+    });
   });
 
-  it("rejects credential-bearing URLs before fetching", async () => {
+  it("rejects unresolved challenge pages", async () => {
+    ssrfSafeFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify(
+          extractionPayload({
+            signals: { title: "Just a moment...", description: "" },
+          }),
+        ),
+      ),
+    );
+
+    await expect(
+      crawlDesignReference.run({ url: "https://example.com" }),
+    ).rejects.toThrow("blocked automated browser inspection");
+  });
+
+  it("rejects private hosts before calling the extraction service", async () => {
+    isBlockedExtensionUrlWithDns.mockResolvedValueOnce(true);
+
+    await expect(
+      crawlDesignReference.run({ url: "https://private.example.com" }),
+    ).rejects.toThrow("Private or internal");
+    expect(ssrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects credential-bearing URLs before calling the extraction service", async () => {
     await expect(
       crawlDesignReference.run({ url: "https://user:secret@example.com" }),
     ).rejects.toThrow("embedded credentials");

@@ -1,18 +1,37 @@
 import { defineAction } from "@agent-native/core/action";
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  isBlockedExtensionUrlWithDns,
+  ssrfSafeFetch,
+} from "@agent-native/core/extensions/url-safety";
 import { z } from "zod";
 
-const MAX_HTML_BYTES = 512_000;
-const MAX_CSS_BYTES = 192_000;
-const MAX_SCRIPT_BYTES = 2_000_000;
-const MAX_FIRECRAWL_BYTES = 256_000;
-const MAX_STYLESHEETS = 3;
+const MAX_EXTRACTION_BYTES = 12 * 1024 * 1024;
+const MAX_COLOR_NAME_BYTES = 64_000;
+
+type ExtractionPayload = {
+  url?: string;
+  signals?: {
+    title?: string;
+    description?: string;
+  };
+  designSystemData?: {
+    colors?: {
+      primary?: string;
+      secondary?: string;
+      accent?: string;
+    };
+    typography?: {
+      headingFont?: string;
+      bodyFont?: string;
+    };
+  };
+};
 
 async function readBoundedText(response: Response, maxBytes: number) {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     await response.body?.cancel();
-    throw new Error("That page is too large to inspect.");
+    throw new Error("That response is too large to inspect.");
   }
 
   const reader = response.body?.getReader();
@@ -28,128 +47,26 @@ async function readBoundedText(response: Response, maxBytes: number) {
     bytes += value.byteLength;
     if (bytes > maxBytes) {
       await reader.cancel();
-      throw new Error("That page is too large to inspect.");
+      throw new Error("That response is too large to inspect.");
     }
     text += decoder.decode(value, { stream: true });
   }
   return text + decoder.decode();
 }
 
-function decodeHtml(value: string) {
-  return value
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#(\d+);/g, (_, code: string) =>
-      String.fromCodePoint(Number(code)),
-    );
-}
-
-function cleanText(value: string) {
-  return decodeHtml(value.replace(/<[^>]*>/g, " "))
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getTagAttribute(tag: string, attribute: string) {
-  const match = tag.match(
-    new RegExp(`${attribute}\\s*=\\s*["']([^"']+)["']`, "i"),
-  );
-  return match?.[1]?.trim() ?? "";
-}
-
-function getMetaContent(html: string, names: string[]) {
-  const tags = html.match(/<meta\b[^>]*>/gi) ?? [];
-  for (const tag of tags) {
-    const name = (
-      getTagAttribute(tag, "name") || getTagAttribute(tag, "property")
-    ).toLowerCase();
-    if (names.includes(name)) return getTagAttribute(tag, "content");
-  }
-  return "";
-}
-
 function truncateWords(value: string, maxWords: number) {
-  return cleanText(value)
-    .split(/\s+/)
-    .filter(Boolean)
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
     .slice(0, maxWords)
     .join(" ");
 }
 
-function decodeJavaScriptString(value: string) {
-  try {
-    return JSON.parse(`"${value}"`) as string;
-  } catch {
-    return value;
-  }
-}
-
-function normalizedIdentity(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[^a-z\d]/g, "");
-}
-
-function getBundledMetadata(source: string, hostname: string) {
-  const brandIdentity = normalizedIdentity(
-    hostname.replace(/^www\./, "").split(".")[0] ?? "",
-  );
-  const candidates = [
-    ...source.matchAll(
-      /title:"((?:\\.|[^"\\]){1,200})",description:"((?:\\.|[^"\\]){1,500})"/g,
-    ),
-  ]
-    .map((match) => {
-      const title = cleanText(decodeJavaScriptString(match[1] ?? ""));
-      const description = cleanText(decodeJavaScriptString(match[2] ?? ""));
-      const identifiesBrand = [title, description].some((value) =>
-        normalizedIdentity(value).includes(brandIdentity),
-      );
-      const nearbySource = source.slice(match.index, match.index + 1_000);
-      const canonical = nearbySource.match(
-        /canonical:"((?:\\.|[^"\\]){1,500})"/,
-      )?.[1];
-      let isHomepage = false;
-      if (canonical) {
-        try {
-          const canonicalUrl = new URL(decodeJavaScriptString(canonical));
-          isHomepage =
-            canonicalUrl.hostname.replace(/^www\./, "").toLowerCase() ===
-              hostname.replace(/^www\./, "").toLowerCase() &&
-            canonicalUrl.pathname === "/";
-        } catch {
-          isHomepage = false;
-        }
-      }
-      return { title, description, identifiesBrand, isHomepage };
-    })
-    .sort(
-      (left, right) =>
-        Number(right.isHomepage) - Number(left.isHomepage) ||
-        Number(right.identifiesBrand) - Number(left.identifiesBrand) ||
-        right.description.length - left.description.length,
-    );
-  return {
-    title: candidates[0]?.title ?? "",
-    description: truncateWords(candidates[0]?.description ?? "", 14),
-  };
-}
-
-function normalizeColor(value: string | undefined) {
+function colorToHex(value: string | null | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
-  return /^(#[\da-f]{3,8}|(?:rgb|hsl)a?\([^)]{3,80}\))$/i.test(trimmed)
-    ? trimmed
-    : null;
-}
-
-function colorToHex(value: string | null) {
-  if (!value) return null;
-  const hex = value.match(/^#([\da-f]{3,8})$/i)?.[1];
+  const hex = trimmed.match(/^#([\da-f]{3,8})$/i)?.[1];
   if (hex) {
     const rgb =
       hex.length === 3 || hex.length === 4
@@ -161,7 +78,7 @@ function colorToHex(value: string | null) {
         : hex.slice(0, 6);
     return rgb.toLowerCase();
   }
-  const rgb = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+  const rgb = trimmed.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
   if (!rgb) return null;
   return rgb
     .slice(1, 4)
@@ -173,48 +90,33 @@ function colorToHex(value: string | null) {
     .join("");
 }
 
-type FirecrawlBranding = {
-  colors?: {
-    primary?: string;
-    secondary?: string;
-    accent?: string;
-  };
-  fonts?: Array<{ family?: string; role?: string }>;
-  typography?: {
-    fontFamilies?: {
-      primary?: string;
-      heading?: string;
-      body?: string;
-    };
-  };
-};
+function normalizedColor(value: string | null | undefined) {
+  const hex = colorToHex(value);
+  return hex ? `#${hex}` : null;
+}
 
-async function getFirecrawlBranding(url: string, apiKey: string) {
-  const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
+async function extractDesignReference(url: URL) {
+  if (await isBlockedExtensionUrlWithDns(url.href)) {
+    throw new Error("Private or internal website URLs are not supported.");
+  }
+  const endpoint = new URL("https://freedesign.md/api/extract");
+  endpoint.searchParams.set("url", url.href);
+  endpoint.searchParams.set("format", "json");
+  const response = await ssrfSafeFetch(
+    endpoint.href,
+    {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(60_000),
     },
-    body: JSON.stringify({
-      url,
-      formats: ["branding"],
-      waitFor: 1_500,
-      timeout: 30_000,
-    }),
-    signal: AbortSignal.timeout(45_000),
-  });
+    { maxRedirects: 2 },
+  );
   if (!response.ok) {
     await response.body?.cancel();
-    throw new Error(`Firecrawl returned ${response.status}.`);
+    throw new Error(`Design extraction returned ${response.status}.`);
   }
-  const payload = JSON.parse(
-    await readBoundedText(response, MAX_FIRECRAWL_BYTES),
-  ) as {
-    success?: boolean;
-    data?: { branding?: FirecrawlBranding };
-  };
-  return payload.success ? (payload.data?.branding ?? null) : null;
+  return JSON.parse(
+    await readBoundedText(response, MAX_EXTRACTION_BYTES),
+  ) as ExtractionPayload;
 }
 
 async function getColorNames(colors: Array<string | null>) {
@@ -225,65 +127,24 @@ async function getColorNames(colors: Array<string | null>) {
   const endpoint = new URL("https://api.color.pizza/v1/");
   endpoint.searchParams.set("values", values.join(","));
   endpoint.searchParams.set("goodnamesonly", "true");
-  const { text } = await fetchText(endpoint.href, 64_000);
-  const response = JSON.parse(text) as {
+  const response = await ssrfSafeFetch(
+    endpoint.href,
+    { signal: AbortSignal.timeout(8_000) },
+    { maxRedirects: 3 },
+  );
+  if (!response.ok)
+    throw new Error(`Color lookup returned ${response.status}.`);
+  const payload = JSON.parse(
+    await readBoundedText(response, MAX_COLOR_NAME_BYTES),
+  ) as {
     colors?: Array<{ name?: string; requestedHex?: string }>;
   };
   return new Map(
-    (response.colors ?? []).flatMap((color) => {
+    (payload.colors ?? []).flatMap((color) => {
       const requestedHex = color.requestedHex?.replace(/^#/, "").toLowerCase();
       return requestedHex && color.name ? [[requestedHex, color.name]] : [];
     }),
   );
-}
-
-function findColors(themeColor: string, branding: FirecrawlBranding | null) {
-  const primaryHex = colorToHex(
-    normalizeColor(branding?.colors?.primary) || normalizeColor(themeColor),
-  );
-  const accentHex = colorToHex(
-    normalizeColor(
-      branding?.colors?.accent || branding?.colors?.secondary || "",
-    ),
-  );
-  return {
-    primary: primaryHex ? `#${primaryHex}` : null,
-    accent: accentHex && accentHex !== primaryHex ? `#${accentHex}` : null,
-  };
-}
-
-function cleanFontFamily(value: string | undefined) {
-  return value?.split(",")[0]?.replace(/["']/g, "").trim() || null;
-}
-
-function findFont(css: string, selectors: RegExp[]) {
-  for (const selector of selectors) {
-    const match = css.match(
-      new RegExp(
-        `${selector.source}[^{}]*\\{[^{}]*font-family\\s*:\\s*([^;}]+)`,
-        "i",
-      ),
-    );
-    const font = cleanFontFamily(match?.[1]);
-    if (font) return font;
-  }
-  return null;
-}
-
-async function fetchText(url: string, maxBytes: number) {
-  const response = await ssrfSafeFetch(
-    url,
-    {
-      headers: {
-        accept: "text/html,text/css;q=0.9",
-        "user-agent": "Agent-Native-Design-Reference/1.0",
-      },
-      signal: AbortSignal.timeout(8_000),
-    },
-    { maxRedirects: 3 },
-  );
-  if (!response.ok) throw new Error(`That URL returned ${response.status}.`);
-  return { response, text: await readBoundedText(response, maxBytes) };
 }
 
 export default defineAction({
@@ -316,131 +177,36 @@ export default defineAction({
       throw new Error("URLs with embedded credentials are not supported.");
     }
 
-    const { response, text: html } = await fetchText(
-      parsedUrl.href,
-      MAX_HTML_BYTES,
-    );
-    const contentType =
-      response.headers.get("content-type")?.toLowerCase() ?? "";
-    if (
-      !contentType.includes("text/html") &&
-      !contentType.includes("application/xhtml+xml")
-    ) {
-      throw new Error("That URL did not return a web page.");
+    const extracted = await extractDesignReference(parsedUrl);
+    const title = extracted.signals?.title?.trim() || parsedUrl.hostname;
+    if (/just a moment|attention required|security verification/i.test(title)) {
+      throw new Error("That site blocked automated browser inspection.");
     }
-
-    const staticTitle = cleanText(
-      getMetaContent(html, ["og:title", "twitter:title"]) ||
-        html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ||
-        "",
-    ).slice(0, 120);
-    const staticDescription = truncateWords(
-      getMetaContent(html, [
-        "description",
-        "og:description",
-        "twitter:description",
-      ]) ||
-        html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ||
-        html.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ||
-        "",
-      14,
+    const primaryColor = normalizedColor(
+      extracted.designSystemData?.colors?.primary,
     );
-    const entryScriptPath = (
-      html.match(/<script\b[^>]*\btype=["']module["'][^>]*>/i) ?? []
-    )
-      .map((tag) => getTagAttribute(tag, "src"))
-      .find(Boolean);
-    let bundledMetadata = { title: "", description: "" };
-    if ((!staticTitle || !staticDescription) && entryScriptPath) {
-      const entryScriptUrl = new URL(
-        entryScriptPath,
-        response.url || parsedUrl.href,
-      );
-      if (entryScriptUrl.origin === parsedUrl.origin) {
-        try {
-          bundledMetadata = getBundledMetadata(
-            (await fetchText(entryScriptUrl.href, MAX_SCRIPT_BYTES)).text,
-            parsedUrl.hostname,
-          );
-        } catch {
-          bundledMetadata = { title: "", description: "" };
-        }
-      }
-    }
-    const title = (
-      staticTitle ||
-      bundledMetadata.title ||
-      parsedUrl.hostname
-    ).slice(0, 120);
-    const description = staticDescription || bundledMetadata.description;
-    const themeColor = getMetaContent(html, ["theme-color"]);
-    const inlineCss = (html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) ?? [])
-      .map((style) => style.replace(/^<style\b[^>]*>|<\/style>$/gi, ""))
-      .join("\n");
-    const stylesheetUrls = (html.match(/<link\b[^>]*>/gi) ?? [])
-      .filter((tag) => /rel\s*=\s*["'][^"']*stylesheet/i.test(tag))
-      .map((tag) => getTagAttribute(tag, "href"))
-      .filter(Boolean)
-      .slice(0, MAX_STYLESHEETS)
-      .map((href) => new URL(href, response.url || parsedUrl.href).href);
-
-    const externalCss = await Promise.all(
-      stylesheetUrls.map(async (stylesheetUrl) => {
-        try {
-          return (await fetchText(stylesheetUrl, MAX_CSS_BYTES)).text;
-        } catch {
-          return "";
-        }
-      }),
+    const accentColor = normalizedColor(
+      extracted.designSystemData?.colors?.accent ||
+        extracted.designSystemData?.colors?.secondary,
     );
-    const css = `${inlineCss}\n${externalCss.join("\n")}`;
-    let branding: FirecrawlBranding | null = null;
-    if (process.env.FIRECRAWL_API_KEY) {
-      try {
-        branding = await getFirecrawlBranding(
-          parsedUrl.href,
-          process.env.FIRECRAWL_API_KEY,
-        );
-      } catch {
-        branding = null;
-      }
-    }
-    const colors = findColors(themeColor, branding);
     let colorNames = new Map<string, string>();
     try {
-      colorNames = await getColorNames([colors.primary, colors.accent]);
+      colorNames = await getColorNames([primaryColor, accentColor]);
     } catch {
       colorNames = new Map();
     }
-    const bodyFont =
-      branding?.typography?.fontFamilies?.body ||
-      branding?.typography?.fontFamilies?.primary ||
-      branding?.fonts?.find((font) => font.role === "body")?.family ||
-      findFont(css, [/body/, /html/]) ||
-      cleanFontFamily(
-        css.match(/--[\w-]*(?:body-)?font[\w-]*\s*:\s*([^;}]+)/i)?.[1],
-      );
-    const headingFont =
-      branding?.typography?.fontFamilies?.heading ||
-      branding?.fonts?.find((font) => font.role === "heading")?.family ||
-      findFont(css, [/h1\b/, /h2\b/, /heading/]) ||
-      cleanFontFamily(
-        css.match(
-          /--[\w-]*(?:heading|display|title)-font[\w-]*\s*:\s*([^;}]+)/i,
-        )?.[1],
-      ) ||
-      bodyFont;
 
     return {
-      title,
-      description,
-      primaryColor: colors.primary,
-      primaryColorName:
-        colorNames.get(colorToHex(colors.primary) ?? "") ?? null,
-      accentColor: colors.accent,
-      accentColorName: colorNames.get(colorToHex(colors.accent) ?? "") ?? null,
-      headingFont,
-      bodyFont,
+      title: title.slice(0, 120),
+      description: truncateWords(extracted.signals?.description ?? "", 14),
+      primaryColor,
+      primaryColorName: colorNames.get(colorToHex(primaryColor) ?? "") ?? null,
+      accentColor,
+      accentColorName: colorNames.get(colorToHex(accentColor) ?? "") ?? null,
+      headingFont:
+        extracted.designSystemData?.typography?.headingFont?.trim() || null,
+      bodyFont:
+        extracted.designSystemData?.typography?.bodyFont?.trim() || null,
     };
   },
 });

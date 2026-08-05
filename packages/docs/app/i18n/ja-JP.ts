@@ -89,8 +89,7 @@ const jaJP = {
       titleAccent: "アプリを構築",
       bodyLine1:
         "チームがクリックできるものは、すべてエージェントが呼び出せます。",
-      bodyLine2:
-        "同じ action、同じデータ、同じアプリ。オープンソース framework です。",
+      bodyLine2: "同じ action、同じデータ、同じアプリ。",
       primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
     },

@@ -88,7 +88,7 @@ const hiIN = {
       titleAccent: "और agents साझा करें",
       bodyLine1:
         "आपकी team जिस पर click कर सकती है, आपके agents उसे call कर सकते हैं।",
-      bodyLine2: "वही actions, वही data, वही app। Open source framework।",
+      bodyLine2: "वही actions, वही data, वही app।",
       primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
     },

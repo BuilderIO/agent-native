@@ -99,7 +99,7 @@ const enUS = {
       titleLine1: "Build apps your team",
       titleAccent: "and agents share",
       bodyLine1: "Anything your team can click, your agents can call.",
-      bodyLine2: "Same actions, same data, same app. Open source framework.",
+      bodyLine2: "Same actions, same data, same app.",
       primaryCta: "Try an app",
       secondaryCta: "Read the docs",
     },

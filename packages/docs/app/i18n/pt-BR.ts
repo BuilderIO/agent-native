@@ -89,8 +89,7 @@ const ptBR = {
       titleAccent: "pela sua equipe e agents",
       bodyLine1:
         "Tudo em que sua equipe pode clicar, seus agents podem chamar.",
-      bodyLine2:
-        "As mesmas actions, os mesmos dados, a mesma app. Framework open source.",
+      bodyLine2: "As mesmas actions, os mesmos dados, a mesma app.",
       primaryCta: "Testar uma app",
       secondaryCta: "Ler a documentação",
     },

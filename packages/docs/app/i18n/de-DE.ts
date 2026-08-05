@@ -89,8 +89,7 @@ const deDE = {
       titleAccent: "und Agents gemeinsam nutzen",
       bodyLine1:
         "Alles, was dein Team anklicken kann, können deine Agents aufrufen.",
-      bodyLine2:
-        "Dieselben Actions, dieselben Daten, dieselbe App. Open-Source-Framework.",
+      bodyLine2: "Dieselben Actions, dieselben Daten, dieselbe App.",
       primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
     },
