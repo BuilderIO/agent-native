@@ -7,7 +7,7 @@ description: "Conecte um banco de dados SQL portátil ao seu aplicativo nativo d
 
 Todo aplicativo nativo do agente armazena seu estado em SQL. A UI e o agente leem e gravam as mesmas tabelas por meio das mesmas actions, usando o mesmo cliente [Drizzle ORM](https://orm.drizzle.team). Quando um dos dois lados altera dados, o outro percebe isso por meio da camada de polling.
 
-<Diagram id="doc-block-vykcz4" title="Como os dados fluem até o banco de dados" summary="A UI e o agente chegam ao banco de dados pela mesma camada de Actions. Ambos os chamadores usam o mesmo cliente getDb() e as mesmas tabelas SQL. Não existe um backend separado para cada um.">
+<Diagram id="doc-block-9mtx2f" title="Como os dados fluem até o banco de dados" summary="A UI e o agente chegam ao banco de dados pela mesma camada de Actions. Ambos os chamadores usam o mesmo cliente getDb() e as mesmas tabelas SQL. Não existe um backend separado para cada um.">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | Carimbo de data/hora atual independente de dialeto, para `.default(now())`   |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="A tabela tasks"
   summary={
     "Definida uma vez com os auxiliares da estrutura; o dialeto é escolhido em tempo de execução a partir de DATABASE_URL."
@@ -211,7 +211,7 @@ Importe `getDb` a partir desse caminho local do modelo em actions e rotas. Não 
 As alterações de esquema são aplicadas na inicialização por meio de um plugin Nitro em `server/plugins/db.ts`. Use `runMigrations` de `@agent-native/core/db`:
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="Um plugin de migração de inicialização"
   filename="server/plugins/db.ts"
   language="ts"
@@ -421,4 +421,4 @@ const { rows } = await getDbExec().execute({
 - [**Plugins**](/docs/server-plugins): o ciclo de vida dos plugins de inicialização onde as migrações rodam
 - [**Actions**](/docs/actions): a superfície onde as actions chamam `getDb()` para ler e gravar dados
 - [**Implantação**](/docs/deployment#persistent-database): conectando um banco de dados persistente por destino de implantação
-- [**Sincronização em tempo real**](/docs/real-time-sync): `useDbSync()` e o modelo completo de sincronização do lado do cliente
+- [**Sincronização em tempo real**](/docs/key-concepts#polling-sync): `useDbSync()` e o modelo completo de sincronização do lado do cliente

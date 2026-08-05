@@ -7,7 +7,7 @@ description: "为你的代理本机应用连接一个便携式 SQL 数据库：s
 
 每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。无论哪一方修改了数据，另一方都会通过轮询层看到变化。
 
-<Diagram id="doc-block-vykcz4" title="数据如何流向数据库" summary="UI 和代理都通过同一个 Actions 层访问数据库。两个调用方使用同一个 getDb() 客户端和同一批 SQL 表，彼此之间没有各自独立的后端。">
+<Diagram id="doc-block-9mtx2f" title="数据如何流向数据库" summary="UI 和代理都通过同一个 Actions 层访问数据库。两个调用方使用同一个 getDb() 客户端和同一批 SQL 表，彼此之间没有各自独立的后端。">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | 与方言无关的当前时间戳，用于 `.default(now())`                         |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="tasks 表"
   summary={
     "使用框架助手定义一次；具体方言在运行时根据 DATABASE_URL 选定。"
@@ -211,7 +211,7 @@ export const getDb = createGetDb(schema);
 Schema 的变更通过 `server/plugins/db.ts` 中的 Nitro 插件在启动时应用。使用 `@agent-native/core/db` 中的 `runMigrations`：
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="一个启动迁移插件"
   filename="server/plugins/db.ts"
   language="ts"
@@ -419,4 +419,4 @@ const { rows } = await getDbExec().execute({
 - [**插件**](/docs/server-plugins)：迁移运行所在的启动插件生命周期
 - [**Actions**](/docs/actions)：Actions 调用 `getDb()` 读写数据的表面
 - [**部署**](/docs/deployment#persistent-database)：为每个部署目标连接持久化数据库
-- [**实时同步**](/docs/real-time-sync)：`useDbSync()` 及完整的客户端同步模型
+- [**实时同步**](/docs/key-concepts#polling-sync)：`useDbSync()` 及完整的客户端同步模型

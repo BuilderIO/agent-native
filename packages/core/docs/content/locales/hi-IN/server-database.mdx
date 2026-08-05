@@ -7,7 +7,7 @@ description: "अपने एजेंट-नेटिव ऐप से एक 
 
 हर एजेंट-नेटिव ऐप अपनी स्थिति SQL में संग्रहीत करता है। UI और एजेंट दोनों एक ही [Drizzle ORM](https://orm.drizzle.team) क्लाइंट का उपयोग करते हुए, एक ही Actions के माध्यम से एक ही तालिकाओं को पढ़ते और लिखते हैं। जब कोई भी पक्ष डेटा बदलता है, तो दूसरा पक्ष पोलिंग परत के माध्यम से उसे देख लेता है।
 
-<Diagram id="doc-block-vykcz4" title="डेटा डेटाबेस तक कैसे प्रवाहित होता है" summary="UI और एजेंट दोनों एक ही Actions परत के माध्यम से डेटाबेस तक पहुँचते हैं। दोनों कॉलर एक ही getDb() क्लाइंट और एक ही SQL तालिकाओं का उपयोग करते हैं। हर एक के लिए कोई अलग बैकएंड नहीं है।">
+<Diagram id="doc-block-9mtx2f" title="डेटा डेटाबेस तक कैसे प्रवाहित होता है" summary="UI और एजेंट दोनों एक ही Actions परत के माध्यम से डेटाबेस तक पहुँचते हैं। दोनों कॉलर एक ही getDb() क्लाइंट और एक ही SQL तालिकाओं का उपयोग करते हैं। हर एक के लिए कोई अलग बैकएंड नहीं है।">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | `.default(now())` के लिए बोली-अज्ञेयवादी वर्तमान टाइमस्टैम्प           |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="tasks तालिका"
   summary={
     "फ्रेमवर्क हेल्पर्स के साथ एक बार परिभाषित; बोली को रनटाइम पर DATABASE_URL से चुना जाता है।"
@@ -211,7 +211,7 @@ actions और routes में `getDb` को इस टेम्पलेट-�
 स्कीमा परिवर्तन `server/plugins/db.ts` में एक Nitro प्लगइन के माध्यम से स्टार्टअप पर लागू होते हैं। `@agent-native/core/db` से `runMigrations` का उपयोग करें:
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="एक स्टार्टअप माइग्रेशन प्लगइन"
   filename="server/plugins/db.ts"
   language="ts"
@@ -421,4 +421,4 @@ const { rows } = await getDbExec().execute({
 - [**प्लगइन्स**](/docs/server-plugins): स्टार्टअप प्लगइन लाइफ़साइकिल जहां माइग्रेशन चलते हैं
 - [**Actions**](/docs/actions): वह सतह जहां actions डेटा पढ़ने और लिखने के लिए `getDb()` को कॉल करती हैं
 - [**तैनाती**](/docs/deployment#persistent-database): प्रति डिप्लॉय टारगेट एक स्थायी डेटाबेस कनेक्ट करना
-- [**Real-Time Sync**](/docs/real-time-sync): `useDbSync()` और पूरा क्लाइंट-साइड सिंक मॉडल
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()` और पूरा क्लाइंट-साइड सिंक मॉडल

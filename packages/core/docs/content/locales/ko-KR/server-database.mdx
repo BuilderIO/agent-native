@@ -7,7 +7,7 @@ description: "이식 가능한 SQL 데이터베이스를 에이전트 기반 앱
 
 모든 에이전트 기반 앱은 상태를 SQL에 저장합니다. UI와 에이전트는 동일한 [Drizzle ORM](https://orm.drizzle.team) 클라이언트를 사용해 동일한 액션을 통해 동일한 테이블을 읽고 씁니다. 어느 한쪽이 데이터를 변경하면 다른 쪽은 폴링 계층을 통해 이를 확인하게 됩니다.
 
-<Diagram id="doc-block-vykcz4" title="데이터가 데이터베이스로 흐르는 방식" summary="UI와 에이전트는 모두 동일한 Actions 계층을 통해 데이터베이스에 접근합니다. 두 호출자 모두 동일한 getDb() 클라이언트와 동일한 SQL 테이블을 사용합니다. 각각을 위한 별도의 백엔드는 없습니다.">
+<Diagram id="doc-block-9mtx2f" title="데이터가 데이터베이스로 흐르는 방식" summary="UI와 에이전트는 모두 동일한 Actions 계층을 통해 데이터베이스에 접근합니다. 두 호출자 모두 동일한 getDb() 클라이언트와 동일한 SQL 테이블을 사용합니다. 각각을 위한 별도의 백엔드는 없습니다.">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | `.default(now())`를 위한, 방언에 구애받지 않는 현재 타임스탬프       |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="tasks 테이블"
   summary={
     "프레임워크 도우미로 한 번만 정의하며, 방언은 런타임에 DATABASE_URL로부터 선택됩니다."
@@ -211,7 +211,7 @@ export const getDb = createGetDb(schema);
 스키마 변경 사항은 `server/plugins/db.ts`의 Nitro 플러그인을 통해 시작 시 적용됩니다. `@agent-native/core/db`의 `runMigrations`를 사용하세요.
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="시작 시 실행되는 마이그레이션 플러그인"
   filename="server/plugins/db.ts"
   language="ts"
@@ -420,4 +420,4 @@ const { rows } = await getDbExec().execute({
 - [**플러그인**](/docs/server-plugins): 마이그레이션이 실행되는 시작 플러그인 생명주기
 - [**Actions**](/docs/actions): 액션이 `getDb()`를 호출해 데이터를 읽고 쓰는 표면
 - [**Deployment**](/docs/deployment#persistent-database): 배포 대상마다 영구 데이터베이스를 연결하는 방법
-- [**Real-Time Sync**](/docs/real-time-sync): `useDbSync()`와 전체 클라이언트 측 동기화 모델
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()`와 전체 클라이언트 측 동기화 모델

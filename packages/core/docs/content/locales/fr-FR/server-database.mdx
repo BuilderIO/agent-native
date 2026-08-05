@@ -7,7 +7,7 @@ description: "Connectez une base de données SQL portable à votre application n
 
 Toute application native d'agent stocke son état en SQL. L'UI et l'agent lisent et écrivent tous deux dans les mêmes tables via les mêmes actions, en utilisant le même client [Drizzle ORM](https://orm.drizzle.team). Lorsqu'un côté modifie des données, l'autre le voit grâce à la couche de polling.
 
-<Diagram id="doc-block-vykcz4" title="Comment les données circulent vers la base de données" summary="L'UI et l'agent atteignent tous deux la base de données via la même couche Actions. Les deux appelants utilisent le même client getDb() et les mêmes tables SQL. Il n'existe pas de backend distinct pour chacun.">
+<Diagram id="doc-block-9mtx2f" title="Comment les données circulent vers la base de données" summary="L'UI et l'agent atteignent tous deux la base de données via la même couche Actions. Les deux appelants utilisent le même client getDb() et les mêmes tables SQL. Il n'existe pas de backend distinct pour chacun.">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | Horodatage actuel indépendant du dialecte pour `.default(now())`       |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="La table tasks"
   summary={
     "Définie une seule fois avec les assistants du framework ; le dialecte est choisi à l'exécution à partir de DATABASE_URL."
@@ -211,7 +211,7 @@ Importez `getDb` depuis ce chemin local au modèle dans les actions et les route
 Les modifications de schéma sont appliquées au démarrage via un plugin Nitro dans `server/plugins/db.ts`. Utilisez `runMigrations` depuis `@agent-native/core/db` :
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="Un plugin de migration au démarrage"
   filename="server/plugins/db.ts"
   language="ts"
@@ -421,4 +421,4 @@ const { rows } = await getDbExec().execute({
 - [**Plugins**](/docs/server-plugins) : le cycle de vie des plugins de démarrage où s'exécutent les migrations
 - [**Actions**](/docs/actions) : la surface où les actions appellent `getDb()` pour lire et écrire des données
 - [**Deployment**](/docs/deployment#persistent-database) : connecter une base de données persistante pour chaque cible de déploiement
-- [**Real-Time Sync**](/docs/real-time-sync) : `useDbSync()` et le modèle de synchronisation côté client complet
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync) : `useDbSync()` et le modèle de synchronisation côté client complet

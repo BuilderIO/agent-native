@@ -7,7 +7,7 @@ description: "قم بتوصيل قاعدة بيانات SQL محمولة بتط�
 
 يخزّن كل تطبيق أصلي للوكيل حالته في SQL. تقرأ واجهة المستخدم والوكيل الجداول نفسها وتكتبان إليها عبر Actions نفسها، باستخدام عميل [Drizzle ORM](https://orm.drizzle.team) نفسه. وعندما يغيّر أي من الطرفين البيانات، يرى الطرف الآخر ذلك عبر طبقة الاستطلاع (polling).
 
-<Diagram id="doc-block-vykcz4" title="كيف تتدفق البيانات إلى قاعدة البيانات" summary="تصل كل من واجهة المستخدم والوكيل إلى قاعدة البيانات عبر طبقة Actions نفسها. يستخدم كلا المستدعيين عميل getDb() نفسه وجداول SQL نفسها. لا توجد خلفية منفصلة لكل منهما.">
+<Diagram id="doc-block-9mtx2f" title="كيف تتدفق البيانات إلى قاعدة البيانات" summary="تصل كل من واجهة المستخدم والوكيل إلى قاعدة البيانات عبر طبقة Actions نفسها. يستخدم كلا المستدعيين عميل getDb() نفسه وجداول SQL نفسها. لا توجد خلفية منفصلة لكل منهما.">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | طابع زمني حالي محايد اللهجة لاستخدامه في `.default(now())`                   |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="جدول tasks"
   summary={
     "يُعرَّف مرة واحدة باستخدام مساعدات إطار العمل؛ وتُختار اللهجة وقت التشغيل من DATABASE_URL."
@@ -211,7 +211,7 @@ export const getDb = createGetDb(schema);
 تُطبَّق تغييرات المخطط عند بدء التشغيل عبر إضافة (plugin) من Nitro في `server/plugins/db.ts`. استخدم `runMigrations` من `@agent-native/core/db`:
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="إضافة ترحيل عند بدء التشغيل"
   filename="server/plugins/db.ts"
   language="ts"
@@ -420,4 +420,4 @@ const { rows } = await getDbExec().execute({
 - [**الإضافات**](/docs/server-plugins): دورة حياة إضافة بدء التشغيل حيث تعمل الترحيلات
 - [**Actions**](/docs/actions): السطح الذي تستدعي فيه actions دالة `getDb()` لقراءة البيانات وكتابتها
 - [**النشر**](/docs/deployment#persistent-database): توصيل قاعدة بيانات مستمرة لكل وجهة نشر
-- [**المزامنة الفورية**](/docs/real-time-sync): `useDbSync()` والنموذج الكامل للمزامنة من جانب العميل
+- [**المزامنة الفورية**](/docs/key-concepts#polling-sync): `useDbSync()` والنموذج الكامل للمزامنة من جانب العميل

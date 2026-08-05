@@ -7,7 +7,7 @@ description: "將便攜式 SQL 資料庫連線到您的 Agent-Native 應用：�
 
 每個 Agent-Native 應用都將其狀態儲存在 SQL 中。UI 與 agent 都透過同一組 actions，使用同一個 [Drizzle ORM](https://orm.drizzle.team) 用戶端，讀寫相同的資料表。當任一方變更資料時，另一方會透過輪詢層看到變化。
 
-<Diagram id="doc-block-vykcz4" title="資料如何流向資料庫" summary="UI 與 agent 都透過同一個 Actions 層存取資料庫。兩者都使用相同的 getDb() 用戶端與相同的 SQL 資料表。並不存在各自獨立的後端。">
+<Diagram id="doc-block-9mtx2f" title="資料如何流向資料庫" summary="UI 與 agent 都透過同一個 Actions 層存取資料庫。兩者都使用相同的 getDb() 用戶端與相同的 SQL 資料表。並不存在各自獨立的後端。">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | 與方言無關、供 `.default(now())` 使用的目前時間戳              |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="tasks 資料表"
   summary={
     "只需以框架幫手定義一次；方言會在執行時從 DATABASE_URL 選定。"
@@ -211,7 +211,7 @@ export const getDb = createGetDb(schema);
 架構變更是透過 `server/plugins/db.ts` 中的 Nitro 外掛在啟動時套用的。請使用 `@agent-native/core/db` 中的 `runMigrations`：
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="啟動時的遷移外掛"
   filename="server/plugins/db.ts"
   language="ts"
@@ -417,4 +417,4 @@ const { rows } = await getDbExec().execute({
 - [**外掛**](/docs/server-plugins)：遷移執行所在的啟動外掛生命週期
 - [**Actions**](/docs/actions)：actions 呼叫 `getDb()` 讀寫資料的介面
 - [**部署**](/docs/deployment#persistent-database)：為每個部署目標連線持久化資料庫
-- [**即時同步**](/docs/real-time-sync)：`useDbSync()` 與完整的用戶端同步模型
+- [**即時同步**](/docs/key-concepts#polling-sync)：`useDbSync()` 與完整的用戶端同步模型

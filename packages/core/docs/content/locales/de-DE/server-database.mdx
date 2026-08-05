@@ -7,7 +7,7 @@ description: "Verbinden Sie eine portable SQL-Datenbank mit Ihrer agentennativen
 
 Jede agentennative App speichert ihren Zustand in SQL. UI und Agent lesen und schreiben dieselben Tabellen über dieselben Actions, mit demselben [Drizzle ORM](https://orm.drizzle.team)-Client. Wenn eine Seite Daten ändert, sieht die andere das über die Polling-Schicht.
 
-<Diagram id="doc-block-vykcz4" title="Wie Daten zur Datenbank fließen" summary="UI und Agent erreichen die Datenbank beide über dieselbe Actions-Schicht. Beide Aufrufer verwenden denselben getDb()-Client und dieselben SQL-Tabellen. Es gibt kein separates Backend für jede Seite.">
+<Diagram id="doc-block-9mtx2f" title="Wie Daten zur Datenbank fließen" summary="UI und Agent erreichen die Datenbank beide über dieselbe Actions-Schicht. Beide Aufrufer verwenden denselben getDb()-Client und dieselben SQL-Tabellen. Es gibt kein separates Backend für jede Seite.">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | Dialektunabhängiger aktueller Zeitstempel für `.default(now())`                    |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="Die Aufgabentabelle"
   summary={
     "Einmal mit den Framework-Helfern definiert; der Dialekt wird zur Laufzeit aus DATABASE_URL gewählt."
@@ -211,7 +211,7 @@ Importieren Sie `getDb` in Actions und Routen von diesem vorlagenlokalen Pfad. I
 Schemaänderungen werden beim Start über ein Nitro-Plugin in `server/plugins/db.ts` angewendet. Verwenden Sie `runMigrations` aus `@agent-native/core/db`:
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="Ein Startup-Migrations-Plugin"
   filename="server/plugins/db.ts"
   language="ts"
@@ -421,4 +421,4 @@ const { rows } = await getDbExec().execute({
 - [**Plugins**](/docs/server-plugins): der Lebenszyklus der Startup-Plugins, in dem Migrationen laufen
 - [**Actions**](/docs/actions): die Oberfläche, über die Actions `getDb()` aufrufen, um Daten zu lesen und zu schreiben
 - [**Deployment**](/docs/deployment#persistent-database): Verbinden einer dauerhaften Datenbank je Deploy-Ziel
-- [**Real-Time Sync**](/docs/real-time-sync): `useDbSync()` und das vollständige clientseitige Sync-Modell
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()` und das vollständige clientseitige Sync-Modell

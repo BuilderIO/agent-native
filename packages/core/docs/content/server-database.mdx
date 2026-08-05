@@ -7,7 +7,7 @@ description: "Connect a portable SQL database to your agent-native app: schema h
 
 Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. When either side changes data, the other sees it through the polling layer.
 
-<Diagram id="doc-block-vykcz4" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same SQL tables. There is no separate backend for each.">
+<Diagram id="doc-block-9mtx2f" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same SQL tables. There is no separate backend for each.">
 
 ```html
 <div class="diagram-dbr">
@@ -138,7 +138,7 @@ export const tasks = table("tasks", {
 | `now`     | Dialect-agnostic current timestamp for `.default(now())`               |
 
 <DataModel
-  id="doc-block-14e70da"
+  id="doc-block-3hbven"
   title="The tasks table"
   summary={
     "Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
@@ -211,7 +211,7 @@ Import `getDb` from this template-local path in actions and routes. Do not impor
 Schema changes are applied at startup via a Nitro plugin in `server/plugins/db.ts`. Use `runMigrations` from `@agent-native/core/db`:
 
 <AnnotatedCode
-  id="doc-block-zaaj7e"
+  id="doc-block-7qwlpz"
   title="A startup migration plugin"
   filename="server/plugins/db.ts"
   language="ts"
@@ -420,4 +420,4 @@ const { rows } = await getDbExec().execute({
 - [**Plugins**](/docs/server-plugins): the startup plugin lifecycle where migrations run
 - [**Actions**](/docs/actions): the surface where actions call `getDb()` to read and write data
 - [**Deployment**](/docs/deployment#persistent-database): connecting a persistent database per deploy target
-- [**Real-Time Sync**](/docs/real-time-sync): `useDbSync()` and the full client-side sync model
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()` and the full client-side sync model
