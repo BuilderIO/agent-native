@@ -426,7 +426,10 @@ export interface BetterAuthInstance {
       };
       headers?: Headers;
     }) => Promise<any>;
-    signOut: (opts: { headers: Headers }) => Promise<any>;
+    signOut: (opts: {
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
   };
 }
 

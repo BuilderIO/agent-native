@@ -418,6 +418,47 @@ function findPendingToolCallIndexById(
   return -1;
 }
 
+/**
+ * Locate the tool call an `approval_required` event refers to.
+ *
+ * Stricter than `findPendingToolCallIndex`: when the server supplies a call id
+ * we never fall back to "newest pending call with this name". A paused
+ * `tool_done` resolves the call right after the gate fires, so a replayed or
+ * reordered approval would otherwise miss on id and silently attach this call's
+ * approvalKey to a *different* in-flight call of the same action — putting the
+ * wrong key behind a visible Approve button.
+ *
+ * The only tolerated fallback mirrors `findPendingActivityToolCallIndex`: a
+ * single unambiguous reader-local (`tc_N`) placeholder, which is how a call
+ * looks when an older server omitted the id on `tool_start`.
+ */
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (!toolCallId) {
+    return findPendingToolCallIndex(content, toolName);
+  }
+
+  const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+  if (exactIndex >= 0) return exactIndex;
+
+  const readerLocalCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined &&
+      /^tc_\d+$/.test(part.toolCallId)
+    ) {
+      readerLocalCandidates.push(i);
+    }
+  }
+  return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
+}
+
 function findOldestPendingActivityToolCallIndex(
   content: ContentPart[],
   toolName: string,
@@ -1449,10 +1490,13 @@ export function processEvent(
     const approvalTool = ev.tool ?? "unknown";
     const approvalKey = ev.approvalKey;
     if (approvalKey) {
-      const idx = findPendingToolCallIndex(
+      // `toolCallId` is the model-side id in the `approval_required` contract;
+      // `id` is only carried by older frames. Same precedence as the runtime
+      // path so both processors resolve an event to the same call.
+      const idx = findApprovalToolCallIndex(
         content,
         approvalTool,
-        ev.id ?? ev.toolCallId,
+        ev.toolCallId ?? ev.id,
       );
       if (idx >= 0) {
         const part = content[idx];

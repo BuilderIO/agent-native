@@ -289,7 +289,7 @@ describe("server/auth", () => {
       errorSpy.mockRestore();
     });
 
-    it("lets logout opt the current browser out of AUTH_DISABLED inside an HTTPS iframe", async () => {
+    it("opts the current browser out and forwards Better Auth logout cookies", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
       delete process.env.ACCESS_TOKEN;
@@ -302,7 +302,14 @@ describe("server/auth", () => {
             getSession: vi.fn(async () => null),
             signInEmail: vi.fn(),
             signUpEmail: vi.fn(),
-            signOut: vi.fn(),
+            signOut: vi.fn(async () => {
+              const headers = new Headers();
+              headers.append(
+                "set-cookie",
+                "better-auth.session_data=; Max-Age=0; Path=/",
+              );
+              return { headers };
+            }),
           },
         })),
         getBetterAuthSync: vi.fn(() => undefined),
@@ -329,6 +336,9 @@ describe("server/auth", () => {
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
       expect(setCookie).toContain("Partitioned");
+      expect(setCookie).toContain(
+        "better-auth.session_data=; Max-Age=0; Path=/",
+      );
     });
 
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {

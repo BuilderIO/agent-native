@@ -1113,6 +1113,19 @@ const messages = {
     spaceCreated: "تم إنشاء المساحة",
     createFailed: "تعذر إنشاء المساحة",
   },
+  spaceDialog: {
+    deleteSpace: "حذف المساحة",
+    renameSpace: "إعادة تسمية المساحة",
+    deleteTitle: 'حذف "{{name}}"؟',
+    deleteDescription:
+      "سيؤدي ذلك إلى حذف المساحة وإزالتها من جميع التسجيلات. لا يمكن التراجع عن هذا الإجراء.",
+    renamed: "تمت إعادة تسمية المساحة",
+    deleted: 'تم حذف "{{name}}"',
+    renameFailed: "فشلت إعادة تسمية المساحة",
+    deleteFailed: "فشل حذف المساحة",
+    renaming: "جارٍ إعادة التسمية...",
+    deleting: "جارٍ الحذف...",
+  },
   signInPrompt: {
     title: "سجّل الدخول من أجل {{intent}}",
     description:
