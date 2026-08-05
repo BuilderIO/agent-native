@@ -1553,6 +1553,7 @@ export default function RecordingPage() {
               initialVisibility={recording.visibility}
               initialRole={role}
               videoUrl={recording.videoUrl}
+              thumbnailUrl={recording.thumbnailUrl}
               animatedThumbnailUrl={recording.animatedThumbnailUrl}
               isLoomRecording={isLoomEmbedBacked}
               hasPassword={Boolean(recording.hasPassword)}

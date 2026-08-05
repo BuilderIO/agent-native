@@ -74,7 +74,7 @@ describe("first-party analytics pressure", () => {
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantKey: "org:org_123",
-        eventDate: expect.any(String),
+        eventDate: expect.stringMatching(/T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
         queryClass: "raw-events",
         slowQueryCount: 1,
         totalDurationMs: 5_000,

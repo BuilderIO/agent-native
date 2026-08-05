@@ -314,6 +314,7 @@
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",
     "./notifications": "./dist/notifications/index.js",
+    "./jobs": "./dist/jobs/index.js",
     "./client/notifications": "./dist/client/notifications/index.js",
     "./progress": "./dist/progress/index.js",
     "./client/progress": "./dist/client/progress/index.js",

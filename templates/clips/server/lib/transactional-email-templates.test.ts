@@ -70,6 +70,7 @@ describe("renderClipsTransactionalEmail", () => {
         title: "Imported demo",
       },
       subject: "Your first imported video is now Agent-Native",
+      templateId: "clips.first-import",
       heading: "Your video is ready for more than playback",
       cta: "Open your Agent-Native Clip: https://clips.example/r/rec-3",
     },
@@ -547,6 +548,7 @@ describe("sendClipsTransactionalEmail", () => {
       },
       replyTo: "hello@agent-native.com",
       timeoutMs: 60_000,
+      templateId: "clips.first-import",
     });
   });
 
@@ -578,6 +580,7 @@ describe("sendClipsTransactionalEmail", () => {
       },
       replyTo: "alex@example.com",
       timeoutMs: 60_000,
+      templateId: "clips.unviewed-reminder",
     });
   });
 

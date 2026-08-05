@@ -73,10 +73,6 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function todayIsoDate(): string {
-  return nowIso().slice(0, 10);
-}
-
 function tenantKey(scope: AnalyticsScope): string {
   return scope.orgId ? `org:${scope.orgId}` : `user:${scope.userEmail}`;
 }
@@ -152,7 +148,11 @@ export async function recordFirstPartyAnalyticsQueryPressure(
   if (!shouldRecordPressure(event)) return;
 
   const durationMs = normalizedDurationMs(event.durationMs);
-  const eventDate = todayIsoDate();
+  // New rows use the exact event timestamp in the legacy event_date column.
+  // This keeps the existing unique key additive while letting health reads use
+  // a real 24-hour cutoff. Older date-only rows are not reconstructed; a
+  // current-day legacy row is bounded by the start of the current day.
+  const eventDate = nowIso();
   const key = tenantKey(scope);
   const table = schema.analyticsQueryPressureDaily;
   const db = getDb() as any;
@@ -174,7 +174,7 @@ export async function recordFirstPartyAnalyticsQueryPressure(
       errorCount: event.outcome === "error" ? 1 : 0,
       totalDurationMs: durationMs,
       maxDurationMs: durationMs,
-      lastSeenAt: nowIso(),
+      lastSeenAt: eventDate,
     })
     .onConflictDoUpdate({
       target: [table.tenantKey, table.eventDate, table.queryClass],
@@ -184,7 +184,7 @@ export async function recordFirstPartyAnalyticsQueryPressure(
         errorCount: sql`${table.errorCount} + ${event.outcome === "error" ? 1 : 0}`,
         totalDurationMs: sql`${table.totalDurationMs} + ${durationMs}`,
         maxDurationMs: sql`CASE WHEN ${table.maxDurationMs} > ${durationMs} THEN ${table.maxDurationMs} ELSE ${durationMs} END`,
-        lastSeenAt: nowIso(),
+        lastSeenAt: eventDate,
       },
     });
 }
@@ -250,9 +250,8 @@ export async function getFirstPartyAnalyticsHealth(
 ): Promise<FirstPartyAnalyticsHealth> {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  const since24h = new Date(now.getTime() - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  const nowTimestamp = now.toISOString();
+  const since24h = new Date(now.getTime() - 86_400_000).toISOString();
   const keys = scope.orgId
     ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
     : [`user:${scope.userEmail}`];
@@ -285,7 +284,7 @@ export async function getFirstPartyAnalyticsHealth(
         and(
           inArray(pressure.tenantKey, keys),
           gte(pressure.eventDate, since24h),
-          lte(pressure.eventDate, today),
+          lte(pressure.eventDate, nowTimestamp),
         ),
       ),
     bigQueryStatus(scope),

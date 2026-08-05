@@ -218,13 +218,14 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
+        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         style={{ top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="flex items-center justify-between gap-3 px-3.5 pt-3 pb-2">
-          <span className="text-sm font-medium text-foreground/90">
-            {title}
-          </span>
+        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+          <span className="text-sm font-medium text-foreground">{title}</span>
           {onSkip && (
             <button
               type="button"
@@ -232,14 +233,14 @@ export default function PromptPopover({
                 onSkip();
                 onOpenChange(false);
               }}
-              className="shrink-0 cursor-pointer text-xs text-primary hover:text-primary/80"
+              className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {skipLabel}
             </button>
           )}
         </div>
 
-        <div className="px-2 pb-2">
+        <div className="px-2.5 pb-2.5">
           <PromptComposer
             autoFocus
             attachmentsEnabled

@@ -1,42 +1,52 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconArrowRight,
+  IconArrowLeft,
+  IconBrandFigma,
+  IconBrandGoogle,
   IconCheck,
+  IconChevronDown,
+  IconFileTypePdf,
   IconPalette,
   IconPresentation,
-  IconSearch,
-  IconStar,
-  IconUpload,
-  IconX,
+  IconWorld,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import type { Deck } from "@/context/DeckContext";
+import type { RecentReference } from "@/lib/recent-references";
 import { cn } from "@/lib/utils";
 
-import { GoogleSlidesReferenceImport } from "./GoogleSlidesReferenceImport";
-
+export interface NewDeckReferenceSelection {
+  designSystemId?: string | null;
+  referenceDeckId?: string | null;
+  referenceSource?: {
+    kind: "google-docs" | "website" | "figma";
+    value: string;
+  } | null;
+}
 interface DesignSystemOption {
   id: string;
   title: string;
@@ -49,41 +59,23 @@ interface NewDeckReferenceStepProps {
   decks: Deck[];
   defaultDesignSystemId: string | null;
   defaultReferenceDeckId: string | null;
-  selectedDesignSystemId: string | null;
-  selectedReferenceDeckId: string | null;
-  onSelectDesignSystem: (designSystemId: string | null) => void;
-  onSelectReferenceDeck: (referenceDeckId: string | null) => void;
+  recentReferences: RecentReference[];
+  onSelect: (selection: NewDeckReferenceSelection) => void;
   onImport: (files: File[]) => Promise<void>;
-  onContinue: () => void;
   onSkip: () => void;
   onOpenChange: (open: boolean) => void;
-  onGoogleSlidesImported: (imported: {
-    id: string;
-    title: string;
-  }) => void | Promise<void>;
   importing?: boolean;
   title: string;
-  description: string;
   designSystemLabel: string;
   referenceDeckLabel: string;
-  noneLabel: string;
-  importFileLabel: string;
+  chooseDeckLabel: string;
   importingLabel: string;
-  continueLabel: string;
   skipLabel: string;
   defaultSuffix: string;
   starredLabel: string;
   otherDecksLabel: string;
-  promptNote?: string;
   searchDecksLabel: string;
-  chooseAnotherDeckLabel: string;
-  noMatchingDecksLabel: string;
-  googleSlidesTitle: string;
-  googleSlidesConnectLabel: string;
-  googleSlidesChooseLabel: string;
-  googleSlidesPickingLabel: string;
-  googleSlidesConnectedLabel: string;
-  googleSlidesUnavailableLabel: string;
+  promptSummary?: string;
 }
 
 export function NewDeckReferenceStep({
@@ -92,83 +84,76 @@ export function NewDeckReferenceStep({
   decks,
   defaultDesignSystemId,
   defaultReferenceDeckId,
-  selectedDesignSystemId,
-  selectedReferenceDeckId,
-  onSelectDesignSystem,
-  onSelectReferenceDeck,
+  recentReferences,
+  onSelect,
   onImport,
-  onContinue,
   onSkip,
   onOpenChange,
-  onGoogleSlidesImported,
   importing = false,
   title,
-  description,
   designSystemLabel,
   referenceDeckLabel,
-  noneLabel,
-  importFileLabel,
+  chooseDeckLabel,
   importingLabel,
-  continueLabel,
   skipLabel,
   defaultSuffix,
   starredLabel,
   otherDecksLabel,
-  promptNote,
   searchDecksLabel,
-  chooseAnotherDeckLabel,
-  noMatchingDecksLabel,
-  googleSlidesTitle,
-  googleSlidesConnectLabel,
-  googleSlidesChooseLabel,
-  googleSlidesPickingLabel,
-  googleSlidesConnectedLabel,
-  googleSlidesUnavailableLabel,
+  promptSummary,
 }: NewDeckReferenceStepProps) {
-  const [query, setQuery] = useState("");
-  const [googleSlidesBusy, setGoogleSlidesBusy] = useState(false);
-  const designSystemById = useMemo(
-    () =>
-      new Map(
-        designSystems.map((designSystem) => [designSystem.id, designSystem]),
-      ),
-    [designSystems],
-  );
-  const deckById = useMemo(
-    () => new Map(decks.map((deck) => [deck.id, deck])),
-    [decks],
-  );
+  const t = useT();
+  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
+    string | null
+  >(defaultDesignSystemId);
+  const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState<
+    string | null
+  >(defaultReferenceDeckId);
+  const [selectedSource, setSelectedSource] =
+    useState<NewDeckReferenceSelection["referenceSource"]>(null);
+  const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
 
-  const filteredDecks = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) {
-      return {
-        starred: decks.filter((deck) => deck.starred),
-        other: decks.filter((deck) => !deck.starred),
-        flat: [] as Deck[],
-      };
-    }
-    const flat = decks.filter((deck) =>
-      deck.title.toLowerCase().includes(normalized),
+  const designSystemById = new Map(
+    designSystems.map((designSystem) => [designSystem.id, designSystem]),
+  );
+  const deckById = new Map(decks.map((deck) => [deck.id, deck]));
+  const recentOptions = recentReferences
+    .map((reference) => {
+      const item =
+        reference.kind === "design-system"
+          ? designSystemById.get(reference.id)
+          : deckById.get(reference.id);
+      return item ? { reference, item } : null;
+    })
+    .filter(
+      (
+        value,
+      ): value is {
+        reference: RecentReference;
+        item: DesignSystemOption | Deck;
+      } => value !== null,
     );
-    return { starred: [], other: [], flat };
-  }, [decks, query]);
+  const visibleRecentOptions = recentOptions.filter(({ reference }) =>
+    reference.kind === "design-system"
+      ? reference.id !== selectedDesignSystemId
+      : reference.id !== selectedReferenceDeckId,
+  );
+  const starredDecks = decks.filter((deck) => deck.starred);
+  const otherDecks = decks.filter((deck) => !deck.starred);
+  const selectedDesignSystem = selectedDesignSystemId
+    ? designSystemById.get(selectedDesignSystemId)
+    : undefined;
+  const selectedReferenceDeck = selectedReferenceDeckId
+    ? deckById.get(selectedReferenceDeckId)
+    : undefined;
 
-  const currentDesignSystem = selectedDesignSystemId
-    ? (designSystemById.get(selectedDesignSystemId) ?? null)
-    : null;
-  const selectedDesignSystemLabel =
-    currentDesignSystem?.title ?? designSystemLabel;
-  const selectedReferenceDeckLabel =
-    (selectedReferenceDeckId
-      ? deckById.get(selectedReferenceDeckId)?.title
-      : null) ?? referenceDeckLabel;
-  const selectedDesignSystemIsDefault =
-    !!selectedDesignSystemId &&
-    selectedDesignSystemId === defaultDesignSystemId;
-  const selectedReferenceDeckIsDefault =
-    !!selectedReferenceDeckId &&
-    selectedReferenceDeckId === defaultReferenceDeckId;
+  useEffect(() => {
+    if (!open) return;
+    setSelectedDesignSystemId(defaultDesignSystemId);
+    setSelectedReferenceDeckId(defaultReferenceDeckId);
+    setSelectedSource(null);
+    setReferenceDeckSearchOpen(false);
+  }, [open, defaultDesignSystemId, defaultReferenceDeckId]);
 
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -177,335 +162,452 @@ export function NewDeckReferenceStep({
     await onImport(files);
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(88vh,880px)] overflow-hidden sm:max-w-5xl">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+  const handleContinue = () => {
+    onSelect({
+      designSystemId: selectedDesignSystemId,
+      referenceDeckId: selectedReferenceDeckId,
+      referenceSource:
+        selectedSource && selectedSource.value.trim()
+          ? { ...selectedSource, value: selectedSource.value.trim() }
+          : null,
+    });
+  };
 
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">{promptNote ?? ""}</p>
-        </div>
+  const chooseSource = (
+    kind: NonNullable<NewDeckReferenceSelection["referenceSource"]>["kind"],
+  ) => {
+    setSelectedSource({ kind, value: "" });
+    if (kind === "website" || kind === "figma") {
+      setSelectedDesignSystemId(null);
+    } else {
+      setSelectedReferenceDeckId(null);
+    }
+  };
+  const selectedSourceLabel =
+    selectedSource?.kind === "google-docs"
+      ? "Google Slides"
+      : selectedSource?.kind === "website"
+        ? "Website"
+        : "Figma";
+  const selectedSourceIcon =
+    selectedSource?.kind === "google-docs" ? (
+      <IconBrandGoogle className="size-4" />
+    ) : selectedSource?.kind === "website" ? (
+      <IconWorld className="size-4" />
+    ) : (
+      <IconBrandFigma className="size-4" />
+    );
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
-          <div className="grid gap-4">
-            <Card className="border-border/70">
-              <CardHeader className="space-y-1 pb-3">
-                <CardTitle className="text-sm">{designSystemLabel}</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  {defaultDesignSystemId
-                    ? `${designSystemLabel}${defaultSuffix}`
-                    : noneLabel}
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Select
-                  value={selectedDesignSystemId ?? "none"}
-                  onValueChange={(value) =>
-                    onSelectDesignSystem(value === "none" ? null : value)
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={designSystemLabel} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>{designSystemLabel}</SelectLabel>
-                      <SelectItem value="none">{noneLabel}</SelectItem>
-                      {designSystems.map((designSystem) => (
-                        <SelectItem
-                          key={designSystem.id}
-                          value={designSystem.id}
-                        >
-                          {designSystem.title}
-                          {designSystem.isDefault ? defaultSuffix : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+  return open ? (
+    <div
+      className="fixed inset-0 z-[200] flex min-h-screen flex-col bg-background text-foreground"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <header className="flex h-14 shrink-0 items-center border-b border-border px-5 sm:px-8">
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="inline-flex items-center gap-2 rounded-md px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconArrowLeft className="size-4" />
+          <span>{title}</span>
+        </button>
+      </header>
 
-                <SelectionSummary
+      <main className="flex min-h-0 flex-1 justify-center overflow-y-auto px-5 py-10 sm:px-8 sm:py-14">
+        <div className="w-full max-w-2xl">
+          <h1 className="text-2xl font-semibold tracking-[-0.025em] text-foreground sm:text-3xl">
+            {t("home.chooseReferences")}
+          </h1>
+          {promptSummary?.trim() && (
+            <p className="mt-2 max-w-xl truncate text-sm text-muted-foreground">
+              “{promptSummary.trim()}”
+            </p>
+          )}
+
+          {(selectedDesignSystem || selectedSource) && (
+            <div className="mt-8 space-y-2">
+              {selectedDesignSystem && (
+                <ReferenceRow
                   icon={<IconPalette className="size-4" />}
-                  label={
-                    selectedDesignSystemId
-                      ? selectedDesignSystemLabel
-                      : noneLabel
-                  }
-                  meta={
-                    selectedDesignSystemIsDefault
-                      ? `${designSystemLabel}${defaultSuffix}`
-                      : selectedDesignSystemId
-                        ? designSystemLabel
-                        : noneLabel
-                  }
-                  onClear={
-                    selectedDesignSystemId
-                      ? () => onSelectDesignSystem(null)
-                      : undefined
-                  }
+                  label={selectedDesignSystem.title}
+                  meta={`${designSystemLabel}${defaultDesignSystemId === selectedDesignSystem.id ? defaultSuffix : ""}`}
+                  selected
+                  onClick={() => setSelectedDesignSystemId(null)}
                 />
-              </CardContent>
-            </Card>
-
-            <Card className="border-border/70">
-              <CardHeader className="space-y-1 pb-3">
-                <CardTitle className="text-sm">{googleSlidesTitle}</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  {googleSlidesConnectedLabel}
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <GoogleSlidesReferenceImport
-                  onImported={onGoogleSlidesImported}
-                  onBusyChange={setGoogleSlidesBusy}
-                  title={googleSlidesTitle}
-                  chooseLabel={googleSlidesChooseLabel}
-                  connectLabel={googleSlidesConnectLabel}
-                  pickingLabel={googleSlidesPickingLabel}
-                  connectedLabel={googleSlidesConnectedLabel}
-                  unavailableLabel={googleSlidesUnavailableLabel}
+              )}
+              {selectedSource && (
+                <ReferenceRow
+                  icon={selectedSourceIcon}
+                  label={selectedSourceLabel}
+                  meta={selectedSource.value || "Add a link below"}
+                  selected
+                  onClick={() => setSelectedSource(null)}
                 />
+              )}
+            </div>
+          )}
 
-                <label
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
-                    importing && "pointer-events-none opacity-60",
-                  )}
+          <div className="mt-10 space-y-6">
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {designSystemLabel}
+                </span>
+                {designSystems.length === 0 && (
+                  <a
+                    href="/design-systems"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
+                  >
+                    {t("home.addDesignSystem")}
+                  </a>
+                )}
+              </div>
+              <Select
+                value={selectedDesignSystemId ?? undefined}
+                onValueChange={(value) => {
+                  setSelectedDesignSystemId(value);
+                  setSelectedSource(null);
+                }}
+              >
+                <SelectTrigger
+                  className="w-full"
+                  disabled={designSystems.length === 0}
                 >
-                  <IconUpload className="size-4" />
-                  {importing ? importingLabel : importFileLabel}
-                  <input
-                    type="file"
-                    className="sr-only"
-                    accept=".pptx,.pdf,.docx"
-                    multiple
-                    disabled={importing}
-                    onChange={(event) => void handleImport(event)}
-                  />
-                </label>
-              </CardContent>
-            </Card>
-          </div>
+                  <SelectValue placeholder={designSystemLabel} />
+                </SelectTrigger>
+                <SelectContent>
+                  {designSystems.map((designSystem) => (
+                    <SelectItem key={designSystem.id} value={designSystem.id}>
+                      {designSystem.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <Card className="min-h-0 border-border/70">
-            <CardHeader className="space-y-1 pb-3">
-              <CardTitle className="text-sm">
-                {chooseAnotherDeckLabel}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                {searchDecksLabel}
-              </p>
-            </CardHeader>
-            <CardContent className="min-h-0 space-y-3">
-              <div className="relative">
-                <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  aria-label={searchDecksLabel}
-                  placeholder={searchDecksLabel}
-                  className="ps-9"
+            <div className="grid gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                {referenceDeckLabel}
+              </span>
+              <Popover
+                open={referenceDeckSearchOpen}
+                onOpenChange={setReferenceDeckSearchOpen}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    role="combobox"
+                    aria-expanded={referenceDeckSearchOpen}
+                    aria-label={referenceDeckLabel}
+                    disabled={decks.length === 0}
+                    className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="truncate">
+                      {selectedReferenceDeck?.title ?? chooseDeckLabel}
+                    </span>
+                    <IconChevronDown className="size-4 shrink-0 opacity-50" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  className="w-[--radix-popover-trigger-width] p-0"
+                >
+                  <Command
+                    filter={(value, search) =>
+                      value.toLowerCase().includes(search.toLowerCase().trim())
+                        ? 1
+                        : 0
+                    }
+                  >
+                    <CommandInput placeholder={searchDecksLabel} />
+                    <CommandList className="max-h-72">
+                      <CommandEmpty>{t("home.noMatchingDecks")}</CommandEmpty>
+                      {starredDecks.length > 0 && (
+                        <CommandGroup heading={starredLabel}>
+                          {starredDecks.map((deck) => (
+                            <CommandItem
+                              key={deck.id}
+                              value={`${deck.title} ${deck.id}`}
+                              onSelect={() => {
+                                setSelectedReferenceDeckId(deck.id);
+                                setSelectedSource(null);
+                                setReferenceDeckSearchOpen(false);
+                              }}
+                            >
+                              <IconCheck
+                                className={cn(
+                                  "me-2 size-4",
+                                  selectedReferenceDeckId === deck.id
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                              <span className="truncate">{deck.title}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                      {otherDecks.length > 0 && (
+                        <CommandGroup heading={otherDecksLabel}>
+                          {otherDecks.map((deck) => (
+                            <CommandItem
+                              key={deck.id}
+                              value={`${deck.title} ${deck.id}`}
+                              onSelect={() => {
+                                setSelectedReferenceDeckId(deck.id);
+                                setSelectedSource(null);
+                                setReferenceDeckSearchOpen(false);
+                              }}
+                            >
+                              <IconCheck
+                                className={cn(
+                                  "me-2 size-4",
+                                  selectedReferenceDeckId === deck.id
+                                    ? "opacity-100"
+                                    : "opacity-0",
+                                )}
+                              />
+                              <span className="truncate">{deck.title}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {visibleRecentOptions.length > 0 && (
+              <div className="border-t border-border pt-5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Recent
+                </span>
+                <div className="mt-2 space-y-2">
+                  {visibleRecentOptions.map(({ reference, item }) => (
+                    <ReferenceRow
+                      key={`${reference.kind}:${reference.id}`}
+                      compact
+                      icon={
+                        reference.kind === "design-system" ? (
+                          <IconPalette className="size-4" />
+                        ) : (
+                          <IconPresentation className="size-4" />
+                        )
+                      }
+                      label={item.title}
+                      meta={
+                        reference.kind === "design-system"
+                          ? designSystemLabel
+                          : referenceDeckLabel
+                      }
+                      onClick={() => {
+                        if (reference.kind === "design-system") {
+                          setSelectedDesignSystemId(reference.id);
+                        } else {
+                          setSelectedReferenceDeckId(reference.id);
+                        }
+                        setSelectedSource(null);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-border pt-5">
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("home.importFrom")}
+              </span>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <FileImportOption
+                  accept=".pptx"
+                  icon={<IconPresentation className="size-4" />}
+                  label="PPT"
+                  importing={importing}
+                  importingLabel={importingLabel}
+                  onChange={handleImport}
+                />
+                <FileImportOption
+                  accept=".pdf"
+                  icon={<IconFileTypePdf className="size-4" />}
+                  label="PDF"
+                  importing={importing}
+                  importingLabel={importingLabel}
+                  onChange={handleImport}
+                />
+                <ImportOption
+                  icon={<IconBrandGoogle className="size-4" />}
+                  label="GSlides"
+                  selected={selectedSource?.kind === "google-docs"}
+                  onClick={() => chooseSource("google-docs")}
+                />
+                <ImportOption
+                  icon={<IconWorld className="size-4" />}
+                  label="Website"
+                  selected={selectedSource?.kind === "website"}
+                  onClick={() => chooseSource("website")}
+                />
+                <ImportOption
+                  icon={<IconBrandFigma className="size-4" />}
+                  label="Figma"
+                  selected={selectedSource?.kind === "figma"}
+                  onClick={() => chooseSource("figma")}
                 />
               </div>
-
-              <ScrollArea className="max-h-[430px] pr-3">
-                <div className="space-y-4">
-                  {query.trim() ? (
-                    filteredDecks.flat.length > 0 ? (
-                      <div className="space-y-2">
-                        {filteredDecks.flat.map((deck) => (
-                          <DeckRow
-                            key={deck.id}
-                            deck={deck}
-                            selected={deck.id === selectedReferenceDeckId}
-                            onSelect={() => onSelectReferenceDeck(deck.id)}
-                            starredLabel={starredLabel}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
-                        {noMatchingDecksLabel}
-                      </div>
-                    )
-                  ) : (
-                    <>
-                      {filteredDecks.starred.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            {starredLabel}
-                          </div>
-                          {filteredDecks.starred.map((deck) => (
-                            <DeckRow
-                              key={deck.id}
-                              deck={deck}
-                              selected={deck.id === selectedReferenceDeckId}
-                              onSelect={() => onSelectReferenceDeck(deck.id)}
-                              starredLabel={starredLabel}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {filteredDecks.other.length > 0 && (
-                        <div className="space-y-2">
-                          {filteredDecks.starred.length > 0 && (
-                            <Separator className="my-1" />
-                          )}
-                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            {otherDecksLabel}
-                          </div>
-                          {filteredDecks.other.map((deck) => (
-                            <DeckRow
-                              key={deck.id}
-                              deck={deck}
-                              selected={deck.id === selectedReferenceDeckId}
-                              onSelect={() => onSelectReferenceDeck(deck.id)}
-                              starredLabel={starredLabel}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </ScrollArea>
-
-              <Separator />
-              <SelectionSummary
-                icon={<IconPresentation className="size-4" />}
-                label={
-                  selectedReferenceDeckId
-                    ? selectedReferenceDeckLabel
-                    : noneLabel
-                }
-                meta={
-                  selectedReferenceDeckIsDefault
-                    ? `${referenceDeckLabel}${defaultSuffix}`
-                    : selectedReferenceDeckId
-                      ? referenceDeckLabel
-                      : noneLabel
-                }
-                onClear={
-                  selectedReferenceDeckId
-                    ? () => onSelectReferenceDeck(null)
-                    : undefined
-                }
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="flex flex-col-reverse items-stretch justify-between gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onSkip}
-            disabled={importing || googleSlidesBusy}
-          >
-            {skipLabel}
-          </Button>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onContinue}
-              disabled={importing || googleSlidesBusy}
-            >
-              {continueLabel}
-            </Button>
-            <IconArrowRight className="size-4 text-muted-foreground" />
+              {selectedSource && (
+                <Input
+                  autoFocus
+                  className="mt-3"
+                  value={selectedSource.value}
+                  placeholder={`Paste a ${selectedSourceLabel} link`}
+                  aria-label={`${selectedSourceLabel} link`}
+                  onChange={(event) =>
+                    setSelectedSource({
+                      ...selectedSource,
+                      value: event.target.value,
+                    })
+                  }
+                />
+              )}
+            </div>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </main>
+
+      <footer className="flex shrink-0 items-center justify-between border-t border-border px-5 py-4 sm:px-8">
+        <Button type="button" variant="ghost" onClick={onSkip}>
+          {skipLabel}
+        </Button>
+        <Button
+          type="button"
+          onClick={handleContinue}
+          disabled={
+            importing || Boolean(selectedSource && !selectedSource.value.trim())
+          }
+        >
+          Continue
+          <IconCheck className="ms-1.5 size-4" />
+        </Button>
+      </footer>
+    </div>
+  ) : null;
+}
+
+function FileImportOption({
+  accept,
+  icon,
+  label,
+  importing,
+  importingLabel,
+  onChange,
+}: {
+  accept: string;
+  icon: ReactNode;
+  label: string;
+  importing: boolean;
+  importingLabel: string;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
+        importing && "pointer-events-none opacity-60",
+      )}
+    >
+      {icon}
+      <span>{importing ? importingLabel : label}</span>
+      <input
+        type="file"
+        className="sr-only"
+        accept={accept}
+        multiple
+        disabled={importing}
+        onChange={onChange}
+      />
+    </label>
   );
 }
 
-function SelectionSummary({
+function ImportOption({
   icon,
   label,
-  meta,
-  onClear,
+  selected = false,
+  onClick,
 }: {
   icon: ReactNode;
   label: string;
-  meta: string;
-  onClear?: () => void;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-3 rounded-lg border border-border/70 bg-background px-3 py-2">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-muted-foreground">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
-          {label}
-        </span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {meta}
-        </span>
-      </span>
-      {onClear && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
-          onClick={onClear}
-          aria-label={`Remove ${label}`}
-        >
-          <IconX className="size-4" />
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function DeckRow({
-  deck,
-  selected,
-  onSelect,
-  starredLabel,
-}: {
-  deck: Deck;
-  selected: boolean;
-  onSelect: () => void;
-  starredLabel: string;
+  selected?: boolean;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg border px-3 py-3 text-start transition-colors",
+        "flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected
+          ? "border-primary/50 bg-primary/5 text-primary"
+          : "border-border hover:bg-accent",
+      )}
+      aria-pressed={selected}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function ReferenceRow({
+  icon,
+  label,
+  meta,
+  selected = false,
+  compact = false,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  meta: string;
+  selected?: boolean;
+  compact?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full min-w-0 items-center gap-3 rounded-lg border px-4 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        compact ? "py-2.5" : "py-3.5",
         selected
           ? "border-primary/50 bg-primary/5"
-          : "border-border/70 bg-background hover:border-foreground/20 hover:bg-accent/35",
+          : "border-border bg-card/40 hover:border-foreground/30 hover:bg-accent/40",
       )}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent text-muted-foreground">
-        {deck.starred ? (
-          <IconStar className="size-4" />
-        ) : (
-          <IconPresentation className="size-4" />
+      <span
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-md",
+          selected
+            ? "bg-primary/10 text-primary"
+            : "bg-accent text-muted-foreground",
         )}
+      >
+        {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium text-foreground">
-          {deck.title}
-        </span>
+        <span className="block truncate text-sm font-medium">{label}</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {deck.starred ? starredLabel : ""}
+          {meta}
         </span>
       </span>
-      {selected ? (
-        <IconCheck className="size-4 shrink-0 text-primary" />
-      ) : (
-        <IconArrowRight className="size-4 shrink-0 text-muted-foreground" />
-      )}
+      {selected && <IconCheck className="size-4 shrink-0 text-primary" />}
     </button>
   );
 }

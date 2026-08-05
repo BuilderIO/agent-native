@@ -257,6 +257,11 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
       ),
     ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT e.event_date FROM analytics_events e JOIN analytics_user_days u ON u.event_date = e.event_date",
+      ),
+    ).not.toThrow();
   });
 
   it("rejects direct replay chunk queries", () => {
@@ -273,6 +278,25 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "WITH session_replay_chunks AS (SELECT id FROM analytics_events) SELECT COUNT(*) FROM session_replay_chunks",
       ),
     ).toThrow("session replay chunks");
+  });
+
+  it("rejects comma-separated sources instead of leaving the extra table unscoped", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT name FROM analytics_events, sqlite_master",
+      ),
+    ).toThrow("Comma-separated table sources");
+  });
+
+  it("rejects quoted table sources that the scoping rewriter cannot replace", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        'SELECT name FROM analytics_events, "sqlite_master"',
+      ),
+    ).toThrow("Comma-separated table sources");
+    expect(() =>
+      validateFirstPartyAnalyticsSql('SELECT name FROM "analytics_events"'),
+    ).toThrow("Quoted table identifiers");
   });
 });
 

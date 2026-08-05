@@ -985,6 +985,7 @@ export default function ShareRoute() {
                 initialVisibility={recording.visibility}
                 initialRole={viewerIsOwner ? "owner" : undefined}
                 videoUrl={recording.videoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}

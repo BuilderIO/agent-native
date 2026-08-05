@@ -22,6 +22,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const analyticsIngestTsSource = readFileSync(
+  new URL("../lib/first-party-analytics.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -201,6 +205,16 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
     expect(dbTsSource).toMatch(
       /ON CONFLICT \(tenant_key, event_date, user_key\) DO NOTHING/,
+    );
+  });
+
+  it("coordinates the historical backfill with live Postgres ingest", () => {
+    expect(dbTsSource).toContain("FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY");
+    expect(analyticsIngestTsSource).toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+    );
+    expect(analyticsIngestTsSource).toMatch(
+      /if \(isPostgres\(\)\)[\s\S]*?FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL/,
     );
   });
 

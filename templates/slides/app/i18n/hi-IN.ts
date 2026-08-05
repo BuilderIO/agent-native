@@ -656,6 +656,11 @@ const messages = {
     newDeckPromptTitle: "नया डेक",
     newDeckPlaceholder: "अपने डेक, विज़ुअल या डायग्राम का वर्णन करें...",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
+    firstDeckPromptTitle: "आप क्या बनाना चाहते हैं?",
+    firstDeckSkip: "छोड़ें",
+    chooseReferences: "संदर्भ चुनें",
+    addDesignSystem: "+ डिज़ाइन सिस्टम",
+    importFrom: "इससे आयात करें",
     designSystem: "डिज़ाइन सिस्टम",
     referenceDeck: "संदर्भ डेक",
     referenceDeckPlaceholder: "किसी मौजूदा डेक की शैली अपनाएँ",
@@ -700,7 +705,8 @@ const messages = {
     signInDescriptionWithFiles:
       "डेक जनरेट करने से पहले साइन इन करना होगा। हमने आपका प्रॉम्प्ट सहेज लिया है; वापस आने पर फ़ाइलें फिर जोड़ें।",
     signIn: "साइन इन",
-    emptyTitle: "अपना पहला डेक या विज़ुअल बनाएं",
+    emptyTitle: "अभी कोई डेक नहीं",
+    createFirstDeck: "अपना पहला डेक बनाएं",
     emptyDescription:
       "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन, स्वतंत्र विज़ुअल, डायग्राम और इमेज-समृद्ध कहानियां बनाएं।",
   },

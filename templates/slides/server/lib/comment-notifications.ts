@@ -21,6 +21,7 @@ import { and, eq } from "drizzle-orm";
 import { getDeckUrl } from "../../actions/_app-url.js";
 import { SLIDES_USER_PREFS_KEY } from "../../shared/slides-user-prefs.js";
 import { getDb, schema } from "../db/index.js";
+import { SLIDES_DECK_COMMENT_EMAIL_ID } from "./emails.js";
 
 /**
  * `deck-missing` stays distinct from `no-recipients`: one means the deck could
@@ -99,6 +100,41 @@ async function threadParticipants(
   return rows.map((row) => row.authorEmail);
 }
 
+export function renderDeckCommentEmail({
+  actor,
+  title,
+  url,
+  content,
+  isReply,
+}: {
+  actor: string;
+  title: string;
+  url: string;
+  content: string;
+  isReply: boolean;
+}) {
+  return {
+    subject: isReply
+      ? `${actor} replied to a comment on "${title}"`
+      : `${actor} commented on "${title}"`,
+    ...renderEmail({
+      preheader: isReply
+        ? `${actor} replied to a comment on ${title}.`
+        : `${actor} commented on ${title}.`,
+      heading: isReply ? "New reply on your deck" : "New comment",
+      paragraphs: [
+        isReply
+          ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(title)}.`
+          : `${emailStrong(actor)} commented on ${emailStrong(title)}.`,
+        `"${excerpt(content)}"`,
+      ],
+      cta: { label: "Open deck", url },
+      footer:
+        "You received this because you own or participated in this thread. Turn these off in Slides settings.",
+    }),
+  };
+}
+
 export async function notifyDeckComment(input: {
   deckId: string;
   slideId: string;
@@ -153,29 +189,16 @@ async function deliverDeckCommentEmails(input: {
     preferenceKey: SLIDES_USER_PREFS_KEY,
     logLabel: LOG_LABEL,
     send: async (to) => {
-      const { html, text } = renderEmail({
-        preheader: input.isReply
-          ? `${actor} replied to a comment on ${deck.title}.`
-          : `${actor} commented on ${deck.title}.`,
-        heading: input.isReply ? "New reply on your deck" : "New comment",
-        paragraphs: [
-          input.isReply
-            ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(deck.title)}.`
-            : `${emailStrong(actor)} commented on ${emailStrong(deck.title)}.`,
-          `"${excerpt(input.content)}"`,
-        ],
-        cta: { label: "Open deck", url },
-        footer:
-          "You received this because you own or participated in this thread. Turn these off in Slides settings.",
-      });
-
       await sendEmail({
+        ...renderDeckCommentEmail({
+          actor,
+          title: deck.title,
+          url,
+          content: input.content,
+          isReply: input.isReply,
+        }),
         to,
-        subject: input.isReply
-          ? `${actor} replied to a comment on "${deck.title}"`
-          : `${actor} commented on "${deck.title}"`,
-        html,
-        text,
+        templateId: SLIDES_DECK_COMMENT_EMAIL_ID,
       });
     },
   });

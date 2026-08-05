@@ -840,6 +840,42 @@ describe("agent-native app config", () => {
     }
   });
 
+  it("loads an agent-native.config.ts through the legacy defineConfig wrapper", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-legacy-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.config.ts"),
+      `export default ({ command }) => ({
+  version: 1,
+  onboarding: {
+    firstRun: command === "serve" ? "connect" : "connect-and-integrations",
+  },
+});\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const config = defineConfig();
+      const configPlugin = flatPlugins(config.plugins).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const resolved = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(resolved.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toEqual({
+        version: 1,
+        onboarding: { firstRun: "connect" },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it("loads agent-native.json defaults from the app root", async () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-json-config-"));

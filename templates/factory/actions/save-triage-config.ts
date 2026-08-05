@@ -24,6 +24,8 @@ export default defineAction({
     sentryProjectSlug: z.string().trim().max(200).optional(),
     sentryEnvironment: z.string().trim().max(200).optional(),
     repository: z.string().trim().max(256).optional(),
+    automationFailureAlertsEnabled: z.boolean().default(true),
+    automationFailureAlertEmail: z.string().trim().email().optional(),
   }),
   http: { method: "POST" },
   run: async (
@@ -38,6 +40,8 @@ export default defineAction({
       sentryProjectSlug,
       sentryEnvironment,
       repository,
+      automationFailureAlertsEnabled,
+      automationFailureAlertEmail,
     },
     context,
   ) => {
@@ -60,6 +64,8 @@ export default defineAction({
         sentryProjectSlug: sentryProjectSlug ?? null,
         sentryEnvironment: sentryEnvironment ?? null,
         repository: repository ?? null,
+        automationFailureAlertsEnabled: automationFailureAlertsEnabled ? 1 : 0,
+        automationFailureAlertEmail: automationFailureAlertEmail ?? null,
         createdAt: now,
         updatedAt: now,
         ownerEmail: userEmail,
@@ -78,6 +84,10 @@ export default defineAction({
           sentryProjectSlug: sentryProjectSlug ?? null,
           sentryEnvironment: sentryEnvironment ?? null,
           repository: repository ?? null,
+          automationFailureAlertsEnabled: automationFailureAlertsEnabled
+            ? 1
+            : 0,
+          automationFailureAlertEmail: automationFailureAlertEmail ?? null,
           updatedAt: now,
           ownerEmail: userEmail,
         },
@@ -88,6 +98,8 @@ export default defineAction({
       githubPollingEnabled,
       sentryPollingEnabled,
       slackChannelId: slackChannelId ?? null,
+      automationFailureAlertsEnabled,
+      automationFailureAlertEmail: automationFailureAlertEmail ?? null,
     };
   },
 });

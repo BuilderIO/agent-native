@@ -37,6 +37,7 @@ const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 import { getDbExec, isPostgres } from "../db/client.js";
+import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
@@ -338,7 +339,13 @@ async function inviteOne(
         acceptUrl: getInviteAppUrl(event),
         inviter: ctx.email,
       });
-      await sendEmail({ to: email, subject, html, text });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        templateId: CORE_INVITE_EMAIL_ID,
+      });
       emailSent = true;
     } catch (err) {
       emailError = err instanceof Error ? err.message : String(err);

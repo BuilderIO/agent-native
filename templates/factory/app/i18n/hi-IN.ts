@@ -172,6 +172,33 @@ const messages = {
     pastRunsEmpty: "अभी कोई रन दर्ज नहीं है।",
     saveAutomation: "सहेजें",
     runNow: "अभी रन करें",
+    automationHealthTitle: "शेड्यूलर की स्थिति",
+    automationHealthDescription:
+      "हार्टबीट दिखाता है कि तैनात आवर्ती-कार्य वर्कर अभी भी शेड्यूल जाँच रहा है या नहीं।",
+    automationHealthHealthy: "स्वस्थ",
+    automationHealthStale: "पुराना",
+    automationHealthError: "त्रुटि",
+    automationHealthNoData: "कोई हार्टबीट नहीं",
+    automationLastCheck: "अंतिम जाँच",
+    automationLastDispatch: "अंतिम डिस्पैच",
+    automationRuntime: "रनटाइम",
+    automationHealthNoDataHint:
+      "अभी तक शेड्यूलर की कोई हार्टबीट दर्ज नहीं हुई है। नवीनतम Factory बिल्ड तैनात करें, फिर दोबारा जाँचें।",
+    automationHealthStaleHint:
+      "शेड्यूलर ने हाल में जाँच नहीं की है। आम तौर पर इसका अर्थ है कि तैनात शेड्यूल्ड फ़ंक्शन या बैकग्राउंड वर्कर चल नहीं रहा है।",
+    automationHealthErrorDetail: "शेड्यूलर की अंतिम त्रुटि",
+    automationOpenThread: "थ्रेड खोलें",
+    automationFailureAlertsTitle: "ऑटोमेशन विफलता अलर्ट",
+    automationFailureAlertsDescription:
+      "Factory ऑटोमेशन विफल होने पर इन-ऐप अलर्ट और ईमेल भेजें। समान विफलताओं को 15 मिनट के लिए समूहित किया जाता है।",
+    automationFailureAlertsEnabled: "ऑटोमेशन विफल होने पर मुझे ईमेल करें",
+    automationFailureAlertEmail: "अलर्ट ईमेल",
+    automationFailureAlertEmailPlaceholder: "डिफ़ॉल्ट रूप से वर्कस्पेस मालिक",
+    automationFailureEmailReadiness: "ईमेल प्रदाता",
+    automationDiagnosticsLoadError:
+      "Factory डायग्नोस्टिक्स लोड नहीं हो सके। पहुँच, डिप्लॉयमेंट और डेटाबेस माइग्रेशन जाँचें, फिर दोबारा प्रयास करें।",
+    automationEmailReadinessHint:
+      "ईमेल संगठन के Dispatch वॉल्ट का उपयोग करता है। तैयार न होने पर वहाँ प्रदाता कॉन्फ़िगर करें।",
   },
   factoryCanvas: {
     dragHint: "फ़ैक्टरी का आकार बदलने के लिए नोड खींचें",
