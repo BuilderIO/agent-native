@@ -114,6 +114,18 @@ const NATIVE_CAPTURE_FPS: u32 = 24;
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
+
+// Wall-time budget for a full transcode pass, scaled to the recording length.
+// The flat 8-minute FFMPEG_TIMEOUT was sized for short clips and killed every
+// preset attempt on hour-plus recordings (observed: an 82-minute Retina
+// capture whose VideoToolbox pass was shot at 8 minutes, then each libx264
+// fallback after it, wasting 8 minutes per preset before uploading the raw
+// original). Budget 1.5x realtime plus the base headroom; a genuinely hung
+// ffmpeg still gets reaped, just later for long sources.
+fn ffmpeg_transcode_timeout(duration_ms: Option<u128>) -> Duration {
+    let duration_secs = duration_ms.unwrap_or(0).min(24 * 60 * 60 * 1000) as u64 / 1000;
+    FFMPEG_TIMEOUT + Duration::from_secs(duration_secs + duration_secs / 2)
+}
 const FFMPEG_AUDIO_PROBE_TIMEOUT: Duration = Duration::from_secs(90);
 const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
     "ffmpeg",
@@ -5222,7 +5234,7 @@ fn transcode_with_ffmpeg(
     let child = command
         .spawn()
         .map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
-    wait_for_transcode_child(child, FFMPEG_TIMEOUT, "ffmpeg")
+    wait_for_transcode_child(child, ffmpeg_transcode_timeout(duration_ms), "ffmpeg")
 }
 
 fn transcode_with_avconvert(source: &Path, output: &Path, preset: &str) -> Result<(), String> {
