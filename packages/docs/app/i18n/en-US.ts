@@ -1231,6 +1231,7 @@ const enUS = {
         crawlWebsite: "Inspect website",
         crawlError: "We couldn't inspect that website.",
         or: "or",
+        uploadDesignReference: "Upload Design Reference",
         importDesignSystem: "Import Design System",
         loginDesignSystems: "Login to manage design systems.",
         promptCreatePrefix: "Create a",

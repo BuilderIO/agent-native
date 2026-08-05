@@ -211,6 +211,13 @@ export function SlidesTryNow() {
         <button
           type="button"
           disabled
+          className="mb-2 w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2.5 text-sm font-medium text-[var(--fg-secondary)] opacity-50"
+        >
+          {tn("uploadDesignReference")}
+        </button>
+        <button
+          type="button"
+          disabled
           className="w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2.5 text-sm font-medium text-[var(--fg-secondary)] opacity-50"
         >
           {tn("importDesignSystem")}
