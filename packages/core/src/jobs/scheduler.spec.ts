@@ -4,10 +4,16 @@ import {
   buildTriggerContent,
   parseTriggerFrontmatter,
 } from "../triggers/dispatcher.js";
-import { classifyJobResource, processRecurringJobs } from "./scheduler.js";
+import {
+  classifyJobResource,
+  processRecurringJobs,
+  runJobNow,
+} from "./scheduler.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
@@ -28,6 +34,8 @@ vi.mock("../resources/store.js", () => ({
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
+  resourceGetByPath: resourceGetByPathMock,
   resourceGet: vi.fn(),
 }));
 
@@ -134,6 +142,38 @@ Summarize the inbox.`,
       },
     ]);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => {
+        await resourcePutMock(input.owner, input.path, input.content);
+        return { id: input.owner + input.path };
+      },
+    );
+    // Model a real store: a re-read returns whatever was last written. The
+    // scheduler re-reads before recording an outcome, and treats a missing
+    // resource as deleted mid-run.
+    resourceGetByPathMock.mockImplementation(
+      async (owner: string, path: string) => {
+        const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
+        const listedResources = latestListCall?.value
+          ? await latestListCall.value
+          : [];
+        const listed = listedResources.find(
+          (resource: { owner: string; path: string }) =>
+            resource.owner === owner && resource.path === path,
+        );
+        const written = resourcePutMock.mock.calls
+          .filter((call) => call[0] === owner && call[1] === path)
+          .at(-1);
+        return written
+          ? {
+              id: listed?.id ?? "resource-1",
+              owner,
+              path,
+              content: written[2],
+            }
+          : (listed ?? null);
+      },
+    );
     createThreadMock.mockResolvedValue({ id: "thread-1" });
     runAgentLoopMock.mockResolvedValue({
       inputTokens: 100,
@@ -177,6 +217,39 @@ Summarize the inbox.`,
       },
     );
     recordUsageMock.mockResolvedValue(undefined);
+  });
+
+  it("does not manually overlap an active automation", async () => {
+    const resource = {
+      id: "resource-running",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/daily-report.md",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+      content: `---
+schedule: "* * * * *"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+lastRun: "${new Date().toISOString()}"
+lastStatus: running
+---
+
+Summarize the inbox.`,
+    };
+    resourceGetByPathMock.mockResolvedValueOnce(resource);
+
+    const result = await runJobNow(resource.owner, "daily-report", {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(result).toEqual({
+      status: "skipped",
+      error: "The automation is already running.",
+    });
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
   it("seeds a scheduled automation without dropping its automation metadata", async () => {
@@ -263,6 +336,205 @@ Summarize the inbox.`,
         title: expect.stringContaining("Job: daily-report"),
       }),
     );
+  });
+
+  it("runs multiple due automations from one scan without serial starvation", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstRunGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let runCount = 0;
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-first",
+        owner: "__shared__",
+        path: "jobs/first.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the first job.`,
+      },
+      {
+        id: "resource-second",
+        owner: "__shared__",
+        path: "jobs/second.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the second job.`,
+      },
+    ]);
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      if (runCount === 1) await firstRunGate;
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    const scan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    let bothRunsStarted = false;
+    try {
+      await vi.waitFor(() => expect(runCount).toBe(2), { timeout: 1000 });
+      bothRunsStarted = true;
+    } finally {
+      releaseFirst();
+    }
+
+    await scan;
+    expect(bothRunsStarted).toBe(true);
+    expect(runCount).toBe(2);
+  });
+
+  it("allows a later scheduler scan to run while an earlier job is active", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstRunGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let resolveFirstStarted: () => void = () => {};
+    const firstRunStarted = new Promise<void>((resolve) => {
+      resolveFirstStarted = resolve;
+    });
+    let runCount = 0;
+    resourceListAllOwnersMock
+      .mockResolvedValueOnce([
+        {
+          id: "resource-first-scan",
+          owner: "__shared__",
+          path: "jobs/first-scan.md",
+          content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the first scan job.`,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "resource-second-scan",
+          owner: "__shared__",
+          path: "jobs/second-scan.md",
+          content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the second scan job.`,
+        },
+      ]);
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      if (runCount === 1) {
+        resolveFirstStarted();
+        await firstRunGate;
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    const firstScan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    await firstRunStarted;
+
+    const secondScan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    let laterRunStarted = false;
+    try {
+      await vi.waitFor(() => expect(runCount).toBe(2), { timeout: 1000 });
+      laterRunStarted = true;
+    } finally {
+      releaseFirst();
+    }
+
+    await Promise.all([firstScan, secondScan]);
+    expect(laterRunStarted).toBe(true);
+    expect(runCount).toBe(2);
+  });
+
+  it("caps the number of scheduled automations active in one process", async () => {
+    const resources = Array.from({ length: 9 }, (_, index) => ({
+      id: `resource-cap-${index}`,
+      owner: "__shared__",
+      path: `jobs/cap-${index}.md`,
+      content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run capped job ${index}.`,
+    }));
+    resourceListAllOwnersMock.mockResolvedValueOnce(resources);
+    let releaseJobs: () => void = () => {};
+    const allJobsGate = new Promise<void>((resolve) => {
+      releaseJobs = resolve;
+    });
+    let runCount = 0;
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      await allJobsGate;
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    const scan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    let capacityObserved = false;
+    try {
+      await vi.waitFor(() => expect(runCount).toBe(8), { timeout: 1000 });
+      capacityObserved = true;
+    } finally {
+      releaseJobs();
+    }
+
+    await scan;
+    expect(capacityObserved).toBe(true);
+    expect(runCount).toBe(8);
   });
 
   it("passes persisted MCP capabilities to the background action suppliers", async () => {
@@ -764,6 +1036,91 @@ Post the digest.`,
     expect(putContent).toContain("lastStatus: success");
   });
 
+  it("does not recreate a job deleted while it was running", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-doomed",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+---
+
+Post the digest.`,
+      },
+    ]);
+    // Deleted mid-run: the re-read finds nothing.
+    resourceGetByPathMock.mockResolvedValue(null);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    // The "mark as running" write happened before the delete; the completion
+    // write must not follow it and resurrect the job.
+    const writesAfterStart = resourcePutMock.mock.calls.filter((call) =>
+      String(call[2]).includes("lastStatus: success"),
+    );
+    expect(writesAfterStart).toHaveLength(0);
+  });
+
+  it("keeps a schedule edited mid-run instead of restoring the pre-run copy", async () => {
+    // The run holds the frontmatter it started with. Writing that snapshot
+    // back on completion would silently undo the user's edit.
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-edited",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
+schedule: "0 8 * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+---
+
+Post the digest.`,
+      },
+    ]);
+    // While the job runs, the user moves it to 9pm Tokyo and edits the body.
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-edited",
+      owner: "alice+jobs@agent-native.test",
+      path: "jobs/channel-digest.md",
+      content: `---
+schedule: "0 21 * * *"
+timezone: Asia/Tokyo
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+---
+
+Post the revised digest.`,
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    const putContent: string = resourcePutMock.mock.calls.at(-1)![2];
+    expect(putContent).toContain('schedule: "0 21 * * *"');
+    expect(putContent).toContain('timezone: "Asia/Tokyo"');
+    expect(putContent).toContain("Post the revised digest.");
+    expect(putContent).toContain("lastStatus: success");
+    // nextRun follows the edited schedule: 21:00 Tokyo is 12:00 UTC.
+    expect(putContent).toContain('nextRun: "');
+    expect(putContent).toMatch(/nextRun: "[\d-]+T12:00:00\.000Z"/);
+  });
+
   it("resets a job stuck in lastStatus:running after 10+ minutes without executing it", async () => {
     // P2 stale-running recovery: a serverless kill mid-job leaves
     // lastStatus:"running" forever. The scheduler must detect runs that have
@@ -840,6 +1197,75 @@ Do some work.`,
 
     // Still within 10-minute window — must be skipped without resetting.
     expect(createThreadMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("does not record a lastRun for a tick that never ran the job", async () => {
+    // A job whose run-as user no longer exists is skipped on every tick. It
+    // must not report a run it never performed — the reason goes in lastError
+    // and the evaluation time in lastCheck.
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-blocked",
+        owner: "ghost@agent-native.test",
+        path: "jobs/blocked-job.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ghost@agent-native.test
+---
+
+Do some work.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(resourcePutMock).toHaveBeenCalledOnce();
+    const content: string = resourcePutMock.mock.calls[0][2];
+    expect(content).toContain("lastStatus: skipped");
+    expect(content).toContain("no longer exists");
+    expect(content).toContain("lastCheck:");
+    expect(content).not.toContain("lastRun:");
+  });
+
+  it("stops rewriting a blocked job once its failure state is recorded", async () => {
+    // The skip path used to persist the resource on every 60s tick, churning
+    // the poll stream and moving the displayed timestamp forever.
+    dbExecuteMock.mockResolvedValue({ rows: [] });
+    const blocked = {
+      id: "resource-blocked",
+      owner: "ghost@agent-native.test",
+      path: "jobs/blocked-job.md",
+      content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ghost@agent-native.test
+lastStatus: skipped
+lastError: "user \\"ghost@agent-native.test\\" no longer exists"
+---
+
+Do some work.`,
+    };
+    resourceListAllOwnersMock.mockResolvedValueOnce([blocked]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
     expect(resourcePutMock).not.toHaveBeenCalled();
   });
 });

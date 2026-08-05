@@ -1083,6 +1083,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           source: "google",
           accountEmail: account.accountEmail,
           attendees: buildBookingEventAttendees({
+            organizerEmail: account.accountEmail,
             attendeeEmail,
             attendeeName,
             hostEmails: coHostEmails,

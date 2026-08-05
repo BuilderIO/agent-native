@@ -1,7 +1,7 @@
 /**
  * Regenerate the recording's title using its transcript.
  *
- * Title generation uses the same Gemini 3.1 Flash-Lite media-pipeline path as
+ * Title generation uses the same low-cost text-model media-pipeline path as
  * transcript cleanup so a freshly recorded clip can get a useful title without
  * waiting for the agent chat bridge. If the fast path is unavailable, we still
  * queue the older agent-chat request as a fallback.
@@ -174,7 +174,7 @@ export default defineAction({
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
     // Full-video mode needs the agent to watch the clip; skip the transcript-
-    // only Gemini fast path so we don't generate titles from audio alone.
+    // only text-model fast path so we don't generate titles from audio alone.
     if (includeFullVideoInAi) {
       await queueTitleRegenerationRequest({
         recordingId: args.recordingId,

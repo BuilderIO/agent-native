@@ -196,6 +196,10 @@ export interface MultiScreenCanvasProps {
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
+  /** Return false to keep the arrow key: the host's real selection is an
+   * element inside a screen, and this canvas still lists that screen in
+   * `selectedIds`. Same veto `onDeleteSelection` uses. */
+  onNudgeSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,

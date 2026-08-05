@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "設定",
     description: "このアプリの言語とワークスペース設定。",
+    emailNotifications: "メール通知",
+    emailNotificationsDescription:
+      "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
+    saveFailed: "保存に失敗しました",
     languageTitle: "言語",
     languageDescription:
       "インターフェース言語を選択します。この設定はアカウントに保存されます。",
@@ -402,6 +406,14 @@ const messages = {
     cornerRadius: "角の半径",
     strokeWeight: "太さ",
     typography: "文字設定",
+    weight: "太さ",
+    italic: "斜体",
+    underline: "下線",
+    bulletList: "箇条書き",
+    numberedList: "番号付きリスト",
+    align: "配置",
+    decreaseSize: "フォントサイズを小さく",
+    increaseSize: "フォントサイズを大きく",
     mixed: "混在",
     textColor: "文字色",
     primary: "Primary",
@@ -493,9 +505,10 @@ const messages = {
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
-    slides: "幻灯片",
   },
   presentation: {
+    loadFailed: "このプレゼンテーションを読み込めませんでした。",
+    tryAgain: "再試行",
     presenterView: "発表者ビュー",
     speakerNotes: "発表者ノート",
     noNotesForSlide: "このスライドのノートはありません",
@@ -654,6 +667,21 @@ const messages = {
     referenceDeckNone: "使用しない",
     referenceDeckStarredGroup: "スター付き",
     referenceDeckOtherGroup: "その他のデッキ",
+    referenceReviewTitle: "リファレンスを確認",
+    referenceReviewDescription:
+      "削除しない限り、デフォルトのデザインシステムとリファレンスデッキを使用します。別のデッキを検索するか、ファイルをインポートして、準備ができたら続行してください。",
+    chooseAnotherDeck: "別のデッキを選択",
+    noMatchingDecks: "一致するデッキが見つかりません。",
+    googleSlidesReferenceTitle: "Google Slides デッキ",
+    googleSlidesReferenceConnect:
+      "Slides デッキをインポートするには Google Drive に接続してください。",
+    googleSlidesReferenceChoose: "Google Slides デッキを選択",
+    googleSlidesReferencePicking: "処理中...",
+    googleSlidesReferenceConnected:
+      "接続済みです。再利用可能なリファレンスとしてインポートする Google Slides デッキを選択してください。",
+    googleSlidesReferenceUnavailable:
+      "Google Slides デッキをインポートするには、Google Drive に接続して Picker を設定してください。",
+    skipReferences: "リファレンスをスキップ",
     workspaceDefaultBadge: "ワークスペースのデフォルト",
     setWorkspaceDefault: "ワークスペースのデフォルトに設定",
     clearWorkspaceDefault: "ワークスペースのデフォルトを解除",

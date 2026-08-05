@@ -1,5 +1,30 @@
 # @agent-native/toolkit
 
+## 0.13.1
+
+### Patch Changes
+
+- c71d383: Include the shared creative-context and toolkit updates in the next package release.
+
+## 0.13.0
+
+### Minor Changes
+
+- 106af0e: Add dense horizontal variants to the design-tweak controls. `VisualColorPicker`
+  gains a `swatch` variant that drops the value text and caret, an optional
+  `glyph` rendered over the current color, and an app tooltip naming the property
+  it paints. `VisualScrubInput` gains a `steppers` option that replaces the
+  drag-scrub label with minus/plus buttons.
+
+## 0.12.2
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
 ## 0.12.1
 
 ### Patch Changes

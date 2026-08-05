@@ -635,6 +635,7 @@ const messages = {
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
+    preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
@@ -672,9 +673,16 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     transcriptCleanupDescription:
       "Muestra la transcripción nativa de inmediato y luego la mejora en segundo plano cuando esté disponible.",
     notifications: "Notificaciones",
+    sharing: "Compartir",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a cada grabación que crees. Puedes cambiar la visibilidad en cada grabación.",
+    visibilityPrivate: "Privado - solo tú",
+    visibilityOrg: "Organización - cualquiera de tu espacio",
+    visibilityPublic: "Público - cualquiera con el enlace",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
-      "Recibe un correo cuando alguien comenta, reacciona o comparte una grabación contigo.",
+      "Recibe un correo cuando alguien comente o reaccione a tu grabación.",
     saved: "Ajustes guardados",
     saveFailed: "No se pudo guardar",
     builderConnectedToast: "Builder.io conectado",
@@ -834,6 +842,9 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     viewsCount_one: "{{count}} visualización",
     viewsCount_many: "{{count}} visualizaciones",
     viewsCount_other: "{{count}} visualizaciones",
+    agentViewsCount_one: "{{count}} vista de agente de IA",
+    agentViewsCount_many: "{{count}} vistas de agentes de IA",
+    agentViewsCount_other: "{{count}} vistas de agentes de IA",
     totalViewsSummary:
       "{{total}} visualizaciones totales, {{unique}} espectadores únicos",
     viewsTab: "Vistas",
@@ -841,6 +852,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     humanViews: "Vistas humanas",
     agentViews: "Vistas de agentes de IA",
     noAgentViewsYet: "Todavía no hay vistas de agentes de IA.",
+    unknownAgent: "Agente desconocido",
     totalVideoViews: "Visualizaciones totales del vídeo",
     averageCompletionRate: "Tasa media de finalización",
     moreInsights: "Más estadísticas",
@@ -1116,6 +1128,19 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     useColor: "Usar color {{color}}",
     spaceCreated: "Espacio creado",
     createFailed: "No se pudo crear el espacio",
+  },
+  spaceDialog: {
+    deleteSpace: "Eliminar espacio",
+    renameSpace: "Renombrar espacio",
+    deleteTitle: "¿Eliminar «{{name}}»?",
+    deleteDescription:
+      "Esto eliminará el espacio y lo quitará de todas las grabaciones. Esta acción no se puede deshacer.",
+    renamed: "Espacio renombrado",
+    deleted: "Se eliminó «{{name}}»",
+    renameFailed: "No se pudo renombrar el espacio",
+    deleteFailed: "No se pudo eliminar el espacio",
+    renaming: "Renombrando...",
+    deleting: "Eliminando...",
   },
   signInPrompt: {
     title: "Inicia sesión para {{intent}}",

@@ -343,19 +343,19 @@ export async function createHeadlessBuiltinActions(): Promise<
       readOnly: true,
       tool: {
         description:
-          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
+          "Search and read the packaged Agent Native first-party template corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search template source, and --path to read a file.",
         parameters: {
           type: "object",
           properties: {
             query: {
               type: "string",
               description:
-                "Search term to find relevant core or template source, for example defineAction, useActionQuery, view-screen, or AgentComposerFrame.",
+                "Search term to find relevant template source, for example defineAction, useActionQuery, view-screen, or AgentComposerFrame.",
             },
             path: {
               type: "string",
               description:
-                "Read a specific corpus file or list a directory, for example templates/plan/AGENTS.md or core/src/action.ts.",
+                "Read a specific corpus file or list a directory, for example templates/plan/AGENTS.md or templates/chat/actions/hello.ts.",
             },
             list: {
               type: "string",

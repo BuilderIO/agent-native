@@ -11,7 +11,7 @@ describe("MCP server UI helpers", () => {
       "Enter a full URL, including https://.",
     );
     expect(getMcpUrlValidationError("http://mcp.example.com")).toBe(
-      "Use https:// for remote MCP servers. Plain http:// is only allowed for localhost.",
+      "Use https:// for remote agent integrations. Plain http:// is only allowed for localhost.",
     );
     expect(getMcpUrlValidationError("https://mcp.example.com/mcp")).toBeNull();
   });

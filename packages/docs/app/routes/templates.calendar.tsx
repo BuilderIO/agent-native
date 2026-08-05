@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
@@ -129,12 +130,13 @@ export default function CalendarTemplate() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={() =>
+                onClick={(event) => {
+                  applyFirstTouchAttributionToLink(event.currentTarget);
                   trackEvent("try live demo", {
                     template: "calendar",
                     location: "landing_page",
-                  })
-                }
+                  });
+                }}
               >
                 {t("templateLanding.calendar.s008")}
                 <svg

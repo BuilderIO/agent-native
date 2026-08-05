@@ -26,6 +26,7 @@ import {
 } from "./use-transactional-email-bridge";
 
 const request: ClaimedTransactionalEmailAiRequest = {
+  kind: "two-clips",
   jobId: "two-clips:recipient@example.test",
   logicalKey: "two-clips:recipient@example.test",
   contextPackets: [

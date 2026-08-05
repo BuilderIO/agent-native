@@ -40,6 +40,8 @@ import path from "node:path";
 
 import type { Browser, BrowserContext, Frame, Page } from "playwright";
 
+import { MISSING_BROWSER_HINT } from "./playwright-browser-hint";
+
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const requireFromCore = createRequire(
   path.join(repoRoot, "packages/core/package.json"),
@@ -251,7 +253,7 @@ async function launchBrowser(): Promise<Browser> {
           "Could not launch Playwright Chromium.",
           `Chrome channel error: ${first}`,
           `Bundled Chromium error: ${second}`,
-          "Install a browser with `pnpm exec playwright install chromium`.",
+          MISSING_BROWSER_HINT,
         ].join("\n"),
       );
     }

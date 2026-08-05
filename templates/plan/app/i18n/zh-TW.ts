@@ -151,6 +151,7 @@ const messages = {
       artboardCanvas: "Plan 畫板畫布",
       zoomIn: "放大",
       zoomOut: "縮小",
+      zoomHint: "按住 ⌘/Ctrl 並捲動以縮放",
       markupSaveFailed: "無法儲存標注。請重試。",
     },
     document: {

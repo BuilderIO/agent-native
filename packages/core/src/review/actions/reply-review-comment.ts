@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
+import { notifyReviewComment } from "../notifications.js";
 import {
   assertReviewableResourceAccess,
   normalizeReviewVisibility,
@@ -62,7 +63,7 @@ export default defineAction({
 
     const routeTarget =
       args.resolutionTarget ?? (mentions.length > 0 ? "human" : null);
-    return insertReviewReply(
+    const reply = await insertReviewReply(
       {
         resourceType: args.resourceType,
         resourceId: args.resourceId,
@@ -88,6 +89,8 @@ export default defineAction({
         resourceId: args.resourceId,
       },
     );
+
+    return { ...reply, notified: await notifyReviewComment(reply) };
   },
   audit: {
     target: (args, result) => {

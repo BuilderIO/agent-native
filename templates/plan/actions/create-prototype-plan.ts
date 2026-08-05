@@ -38,6 +38,7 @@ import {
   agentPlanContentSchema,
   planContentSchema,
 } from "../shared/plan-content.js";
+import { rejectMixedPlanSources } from "./validate-plan-input.js";
 
 const prototypeSurfaceSchema = z.enum([
   "desktop",
@@ -108,7 +109,7 @@ const prototypeTransitionSchema = z.object({
 });
 
 const CONTENT_DESCRIPTION =
-  "Full structured content when the caller has already authored a prototype. Prefer screens/transitions unless replacing the whole document.";
+  "Full structured content when the caller has already authored a prototype. This is a complete replacement: do not pass screens or transitions alongside it, or prototype CSS and other content will be rejected as conflicting input. Prefer screens/transitions unless replacing the whole document.";
 
 // Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
 // a compact `content` field instead of duplicating every other key. The
@@ -167,11 +168,12 @@ const createPrototypePlanSchema = z.object({
 
 export default defineAction({
   description:
-    'Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. If a functional prototype must also be high fidelity, set renderMode to "design" and put scoped styles in css; never embed style tags in html because they are rejected. Publish via this tool; never deliver the plan as inline chat text.',
-  schema: createPrototypePlanSchema.refine(
-    (args) => Boolean(args.brief || args.goal),
-    { message: "Either brief or goal is required." },
-  ),
+    'Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. If a functional prototype must also be high fidelity, set renderMode to "design" and put scoped styles in css; never embed style tags in html because they are rejected. Pass either screens/transitions or one complete content payload, never both. Publish via this tool; never deliver the plan as inline chat text.',
+  schema: createPrototypePlanSchema
+    .superRefine(rejectMixedPlanSources)
+    .refine((args) => Boolean(args.brief || args.goal), {
+      message: "Either brief or goal is required.",
+    }),
   // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
   // per-block-type union for a compact `type`-enum stand-in. Runtime
   // validation always runs the full schema above — see the `actions` skill.

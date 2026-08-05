@@ -149,19 +149,12 @@ export function isScreenRootElementInfo(info: ElementInfo | null | undefined) {
 }
 
 /**
- * Whether a plain Delete in overview mode targets an ELEMENT inside a screen
- * rather than the screen frames themselves. MultiScreenCanvas keeps the owning
- * screen in its `selectedIds` while an element inside it is selected (frame
- * z-order and "topmost screen" depend on that), so Delete reaches the editor as
- * "delete these screens" even when the real selection is one node. The more
- * specific target wins — the same precedence shouldSuppressFrameSelectionBox
- * already applies to the selection chrome.
- *
- * Layer ids are filtered the way getSelectedLayerSnapshots filters its
- * candidates: a screen's own file-id row and the `__`-prefixed pseudo rows are
- * screen/frame selections, not element selections.
+ * MultiScreenCanvas keeps the owning screen in `selectedIds` while an element
+ * inside it is selected, so every overview command reading that array (Delete,
+ * arrow-key nudge) sees "the screens" when the real target is one node. The
+ * more specific target wins. `__`-prefixed and file-id rows are frames.
  */
-export function overviewDeleteTargetsElement(args: {
+export function overviewSelectionTargetsElement(args: {
   selectedElement: ElementInfo | null | undefined;
   selectedLayerIds: readonly string[];
   fileIds: readonly string[];

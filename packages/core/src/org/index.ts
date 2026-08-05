@@ -8,6 +8,7 @@ export type {
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
+  RequiredAuthProvider,
 } from "./types.js";
 
 export {
@@ -57,6 +58,13 @@ export type {
 
 export { ORG_MIGRATIONS } from "./migrations.js";
 
+export {
+  getRequiredAuthProviderForEmail,
+  getRequiredAuthProviderForOrg,
+  isGoogleSignInRequiredForEmail,
+  setRequiredAuthProvider,
+} from "./auth-policy.js";
+
 export { createOrgPlugin, defaultOrgPlugin } from "./plugin.js";
 
 // Drizzle schema (re-exported so templates can write typed queries against
@@ -84,6 +92,7 @@ export {
   setA2ASecretHandler,
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
+  setRequiredAuthProviderHandler,
 } from "./handlers.js";
 
 export {
@@ -92,3 +101,5 @@ export {
 } from "./app-roles-handlers.js";
 
 export { isFreeEmailProvider } from "./free-email-providers.js";
+
+export { isOrgMember } from "./membership.js";

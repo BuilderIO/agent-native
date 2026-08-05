@@ -62,8 +62,10 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
   patchDocumentCaches,
+  documentQueryFilter,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -247,7 +249,10 @@ export function DocumentEditor({
   databaseId,
   databaseDocumentId,
 }: DocumentEditorProps) {
-  const documentQuery = useDocument(documentId);
+  const documentQuery = useDocument(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
   const {
     data: queriedDocument,
     isError,
@@ -445,6 +450,7 @@ export function documentEditorBreadcrumbNavigationItems(
     | "title"
     | "icon"
     | "position"
+    | "database"
     | "databaseMembership"
     | "source"
   >[], // i18n-ignore type expression
@@ -457,6 +463,9 @@ export function documentEditorBreadcrumbNavigationItems(
     workspacesTitle: string;
   },
 ): ToolbarBreadcrumbItem[] {
+  const peerDocuments = documents.filter(
+    (item) => !item.database?.systemRole && item.source?.kind !== "folder",
+  );
   const documentById = new Map(documents.map((item) => [item.id, item]));
   const workspaceDocumentIds = new Set(
     spaces.map((space) => space.filesDocumentId),
@@ -480,9 +489,8 @@ export function documentEditorBreadcrumbNavigationItems(
     if (!current) return item;
     const membershipDocumentId =
       current.databaseMembership?.databaseDocumentId ?? null;
-    const siblings = documents
+    const siblings = peerDocuments
       .filter((candidate) => {
-        if (candidate.source?.kind === "folder") return false;
         if (candidate.parentId !== current.parentId) return false;
         if (current.parentId) return true;
         return (
@@ -536,7 +544,7 @@ function DocumentEditorBody({
   const deleteDocument = useDeleteDocument();
   const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
-    document.databaseMembership?.databaseDocumentId ?? documentId,
+    document.bodyHydration?.databaseDocumentId ?? documentId,
   );
   const canEdit = document.canEdit ?? true;
   const canEditRef = useRef(canEdit);
@@ -661,24 +669,30 @@ function DocumentEditorBody({
   );
 
   useEffect(() => {
-    const membership = document.databaseMembership;
-    const hydration = membership?.bodyHydration;
+    const hydrationContext = document.bodyHydration;
+    const hydration = hydrationContext?.hydration;
     if (
-      !membership?.sourceId ||
+      !canEdit ||
+      !hydrationContext?.sourceId ||
       !hydration ||
       (hydration.status !== "pending" && hydration.status !== "error")
     ) {
       return;
     }
-    const promotionKey = `${membership.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
+    const promotionKey = `${hydrationContext.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
     if (promotedBuilderBodyRef.current === promotionKey) return;
     promotedBuilderBodyRef.current = promotionKey;
     processBuilderBodies.mutate({
-      sourceId: membership.sourceId,
+      sourceId: hydrationContext.sourceId,
       documentId,
       limit: 1,
     });
-  }, [document.databaseMembership, documentId, processBuilderBodies.mutate]);
+  }, [
+    canEdit,
+    document.bodyHydration,
+    documentId,
+    processBuilderBodies.mutate,
+  ]);
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -973,9 +987,8 @@ function DocumentEditorBody({
           description:
             error instanceof Error ? error.message : t("empty.genericError"),
         });
-        queryClient.setQueryData(
-          ["action", "get-document", { id: documentId }],
-          fileFirstDocument,
+        queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+          mergeDocumentIntoDocumentCache(old, fileFirstDocument),
         );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -1887,9 +1900,15 @@ function DocumentEditorBody({
                       if (bodyHydrationPending) {
                         return (
                           <BuilderBodySyncingNotice
-                            title={t("editor.builderBodySyncing")}
+                            title={t(
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncing"
+                                : "editor.pageBodySyncing",
+                            )}
                             description={t(
-                              "editor.builderBodySyncingDescription",
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncingDescription"
+                                : "editor.pageBodySyncingDescription",
                             )}
                           />
                         );

@@ -386,6 +386,61 @@ describe("database row batch actions", () => {
     ]);
   });
 
+  it("rejects single and batch duplication of a stable-key claimed row", async () => {
+    const db = getDb();
+    const { databaseId, rows } = await createDatabaseWithRows(1);
+    const now = new Date().toISOString();
+    const propertyId = nextId("claimed_property");
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "External ID",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyValues).values({
+      id: nextId("claimed_value"),
+      ownerEmail: OWNER,
+      documentId: rows[0].documentId,
+      propertyId,
+      valueJson: JSON.stringify("external-1"),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItemKeyClaims).values({
+      id: nextId("claimed_key"),
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId,
+      propertyId,
+      keyValueJson: JSON.stringify("external-1"),
+      itemId: rows[0].itemId,
+      documentId: rows[0].documentId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemAction.run({ itemId: rows[0].itemId }),
+      ),
+    ).rejects.toThrow(/active stable-key claims/i);
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemsAction.run({
+          databaseId,
+          itemIds: [rows[0].itemId],
+        }),
+      ),
+    ).rejects.toThrow(/active stable-key claims/i);
+    expect(await orderedRows(databaseId)).toHaveLength(1);
+  });
+
   it("rejects mixed database duplicate batches before writing", async () => {
     const first = await createDatabaseWithRows(2);
     const second = await createDatabaseWithRows(1);
@@ -536,6 +591,18 @@ describe("database row batch actions", () => {
       createdAt: now,
       updatedAt: now,
     });
+    await db.insert(schema.contentDatabaseItemKeyClaims).values({
+      id: nextId("stable_key_claim"),
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId,
+      propertyId,
+      keyValueJson: JSON.stringify("Remove me"),
+      itemId: rows[1].itemId,
+      documentId: rows[1].documentId,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
       removeDatabaseItemsAction.run({
@@ -595,6 +662,17 @@ describe("database row batch actions", () => {
         .from(schema.documentBlockFieldContents)
         .where(
           eq(schema.documentBlockFieldContents.documentId, rows[1].documentId),
+        ),
+    ).resolves.toEqual([]);
+    await expect(
+      db
+        .select()
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, databaseId),
+            eq(schema.contentDatabaseItemKeyClaims.itemId, rows[1].itemId),
+          ),
         ),
     ).resolves.toEqual([]);
 

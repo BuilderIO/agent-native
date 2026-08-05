@@ -22,6 +22,7 @@ vi.mock("electron", () => ({
 }));
 
 import {
+  getCodeAgentProviderProcessEnv,
   getCodeAgentProviderSettingsStatus,
   loadCodeAgentProviderCredentials,
   loadRemoteConnectorSettings,
@@ -65,6 +66,16 @@ describe("desktop privacy-safe status reads", () => {
   it("unlocks saved keys only for an explicit credential load", () => {
     loadCodeAgentProviderCredentials();
     expect(electronState.decryptString).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes saved credentials only through the runner environment", () => {
+    const env = getCodeAgentProviderProcessEnv({ NODE_ENV: "test" });
+
+    expect(env).toMatchObject({
+      NODE_ENV: "test",
+      BUILDER_PRIVATE_KEY: "sk-test-example",
+      BUILDER_PUBLIC_KEY: "sk-test-example",
+    });
   });
 
   it("defaults the background connector to disabled", () => {

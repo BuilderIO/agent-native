@@ -1458,13 +1458,17 @@ function localPackageTarball(packageDir: string): string {
   const packDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
-  const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  execFileSync(pnpm, ["pack", "--pack-destination", packDir], {
-    cwd: packageDir,
-    encoding: "utf-8",
-    env: { ...process.env, npm_config_ignore_scripts: "true" },
-    stdio: "pipe",
-  });
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  execFileSync(
+    npm,
+    ["pack", "--ignore-scripts", "--pack-destination", packDir],
+    {
+      cwd: packageDir,
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      stdio: "pipe",
+    },
+  );
 
   const tarballs = fs
     .readdirSync(packDir)
@@ -1475,9 +1479,108 @@ function localPackageTarball(packageDir: string): string {
     );
   }
 
-  const tarball = pathToFileURL(path.join(packDir, tarballs[0]!)).href;
+  const rawTarball = path.join(packDir, tarballs[0]!);
+  const unpackDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-unpack-"),
+  );
+  execFileSync("tar", ["-xzf", rawTarball, "-C", unpackDir], {
+    stdio: "pipe",
+  });
+  rewritePublishedPackageManifest(
+    path.join(unpackDir, "package", "package.json"),
+  );
+
+  const repackDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-repack-"),
+  );
+  execFileSync(
+    npm,
+    ["pack", "--ignore-scripts", "--pack-destination", repackDir],
+    {
+      cwd: path.join(unpackDir, "package"),
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      stdio: "pipe",
+    },
+  );
+  const repackedTarballs = fs
+    .readdirSync(repackDir)
+    .filter((entry) => entry.endsWith(".tgz"));
+  if (repackedTarballs.length !== 1) {
+    throw new Error(
+      `Expected one repacked local package artifact in ${repackDir}, found ${repackedTarballs.length}.`,
+    );
+  }
+
+  const tarball = pathToFileURL(
+    path.join(repackDir, repackedTarballs[0]!),
+  ).href;
   localPackageTarballs.set(packageDir, tarball);
   return tarball;
+}
+
+function rewritePublishedPackageManifest(manifestPath: string): void {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  const catalogs = loadCatalog();
+
+  for (const dependencyType of [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+  ] as const) {
+    const dependencies = manifest[dependencyType];
+    if (!dependencies) continue;
+    for (const [name, specifier] of Object.entries(dependencies)) {
+      if (specifier === "catalog:") {
+        const version = catalogs[name];
+        if (!version) {
+          throw new Error(
+            `Cannot resolve catalog dependency ${name} while linking a local package.`,
+          );
+        }
+        dependencies[name] = version;
+        continue;
+      }
+      if (specifier.startsWith("workspace:")) {
+        dependencies[name] = resolvePublishedWorkspaceSpecifier(
+          name,
+          specifier.slice("workspace:".length),
+        );
+      }
+    }
+  }
+
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function resolvePublishedWorkspaceSpecifier(
+  packageName: string,
+  workspaceSpecifier: string,
+): string {
+  if (workspaceSpecifier && !["*", "^", "~"].includes(workspaceSpecifier)) {
+    return workspaceSpecifier;
+  }
+
+  const localPackage = findLocalPackage(packageName);
+  if (!localPackage) return "*";
+  try {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(localPackage, "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    const version =
+      typeof packageJson.version === "string" ? packageJson.version : null;
+    if (!version) return "*";
+    if (workspaceSpecifier === "^" || workspaceSpecifier === "~") {
+      return `${workspaceSpecifier}${version}`;
+    }
+    return version;
+  } catch {
+    return "*";
+  }
 }
 
 /**

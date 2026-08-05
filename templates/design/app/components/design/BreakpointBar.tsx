@@ -181,142 +181,150 @@ export function BreakpointDeviceControl({
   return (
     <div
       data-breakpoint-device-control
-      className={cn(
-        "flex shrink-0 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5",
-        className,
-      )}
+      className={cn("flex shrink-0 items-center gap-1", className)}
     >
-      {/* Base segment — the primary/widest editing context. Icon-only with
+      {/* Only the selectable segments share the tinted, inset group. "+" adds a
+          breakpoint rather than targeting one, so it must stay outside this
+          surface — inside it, it reads as one more segment to select. */}
+      <div className="flex items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+        {/* Base segment — the primary/widest editing context. Icon-only with
           the label in the tooltip: this control shares one cramped
           inspector-header row with the collaborators menu and play/share
           actions (~300px total), so every segment stays as narrow as it
           can. */}
-      <button
-        type="button"
-        className={segmentClass(baseActive)}
-        aria-pressed={baseActive}
-        aria-label={t("designEditor.breakpointBar.base")}
-        onClick={() => onSelect(undefined)}
-        title={
-          baseWidthPx != null
-            ? `${t("designEditor.breakpointBar.base")} · ${Math.round(baseWidthPx)}px`
-            : t("designEditor.breakpointBar.base")
-        }
-      >
-        <IconViewportWide className="size-3.5" />
-      </button>
+        <button
+          type="button"
+          className={segmentClass(baseActive)}
+          aria-pressed={baseActive}
+          aria-label={t("designEditor.breakpointBar.base")}
+          onClick={() => onSelect(undefined)}
+          title={
+            baseWidthPx != null
+              ? `${t("designEditor.breakpointBar.base")} · ${Math.round(baseWidthPx)}px`
+              : t("designEditor.breakpointBar.base")
+          }
+        >
+          <IconViewportWide className="size-3.5" />
+        </button>
 
-      {/* One segment per breakpoint, widest → narrowest. Clicking always
+        {/* One segment per breakpoint, widest → narrowest. Clicking always
           SELECTS (never toggles off) — returning to Base is the Base
           segment, clicking the base frame/empty canvas, or Escape (the
           Framer click-to-target model). */}
-      {ordered.map((breakpoint) => {
-        const active = activeWidthPx === breakpoint.widthPx;
-        const menuOpen = menuOpenFor === breakpoint.id;
-        const showMenuAffordance = Boolean(
-          canEdit && (onRemove || onChangeWidth) && (active || menuOpen),
-        );
-        return (
-          <div key={breakpoint.id} className="relative flex items-center">
-            <button
-              type="button"
-              className={segmentClass(active)}
-              aria-pressed={active}
-              onClick={() => onSelect(breakpoint.widthPx)}
-              title={`${breakpoint.label} · ${breakpoint.widthPx}px`}
-            >
-              {/* ITEM 8a — device icon (by width bucket) + width number.
+        {ordered.map((breakpoint) => {
+          const active = activeWidthPx === breakpoint.widthPx;
+          const menuOpen = menuOpenFor === breakpoint.id;
+          const showMenuAffordance = Boolean(
+            canEdit && (onRemove || onChangeWidth) && (active || menuOpen),
+          );
+          return (
+            <div key={breakpoint.id} className="relative flex items-center">
+              <button
+                type="button"
+                className={segmentClass(active)}
+                aria-pressed={active}
+                onClick={() => onSelect(breakpoint.widthPx)}
+                title={`${breakpoint.label} · ${breakpoint.widthPx}px`}
+              >
+                {/* ITEM 8a — device icon (by width bucket) + width number.
                   Kept compact (size-3, one notch smaller than Base's
                   size-3.5) so the segment still fits this ~300px
                   inspector-header row next to play/share; the full label
                   stays in the tooltip. */}
-              <DeviceIcon widthPx={breakpoint.widthPx} />
-              <span>{breakpoint.widthPx}</span>
-            </button>
-            {/* "…" — per-breakpoint options (Change width / Remove). Shown
+                <DeviceIcon widthPx={breakpoint.widthPx} />
+                <span>{breakpoint.widthPx}</span>
+              </button>
+              {/* "…" — per-breakpoint options (Change width / Remove). Shown
                 for the ACTIVE segment (and while its menu is open) so idle
                 segments stay clean; replaces the old hover-"X" that both
                 shifted layout and, being buried in a floating bar, was easy
                 to miss entirely. */}
-            {showMenuAffordance ? (
-              <DropdownMenu
-                open={menuOpen}
-                onOpenChange={(open) => {
-                  setMenuOpenFor(open ? breakpoint.id : null);
-                  setWidthDraft(open ? String(breakpoint.widthPx) : "");
-                }}
-              >
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t("designEditor.breakpointBar.options")}
-                    className="flex h-6 w-4 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-muted-foreground hover:text-foreground"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <IconDots className="size-3" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
+              {showMenuAffordance ? (
+                <DropdownMenu
+                  open={menuOpen}
+                  onOpenChange={(open) => {
+                    setMenuOpenFor(open ? breakpoint.id : null);
+                    setWidthDraft(open ? String(breakpoint.widthPx) : "");
+                  }}
                 >
-                  {/* Change width — inline input row; Enter commits.
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("designEditor.breakpointBar.options")}
+                      className="flex h-6 w-4 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-muted-foreground hover:text-foreground"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <IconDots className="size-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
+                  >
+                    {/* Change width — inline input row; Enter commits.
                       Key events stay local (stopPropagation) so the menu's
                       typeahead/arrow navigation doesn't steal keystrokes
                       from the input. */}
-                  {onChangeWidth ? (
-                    <div className="flex items-center gap-1.5 px-1.5 py-1">
-                      <span className="shrink-0 !text-[11px] text-muted-foreground">
-                        {t("designEditor.breakpointBar.changeWidth")}
-                      </span>
-                      <Input
-                        type="number"
-                        min={320}
-                        max={3840}
-                        value={widthDraft}
-                        autoFocus
-                        onChange={(event) => setWidthDraft(event.target.value)}
-                        onKeyDown={(event) => {
-                          event.stopPropagation();
-                          if (event.key !== "Enter") return;
-                          event.preventDefault();
-                          const widthPx = parseBreakpointWidthInput(
-                            widthDraft,
-                            existingWidths.filter(
-                              (width) => width !== breakpoint.widthPx,
-                            ),
-                          );
-                          setMenuOpenFor(null);
-                          if (
-                            widthPx !== null &&
-                            widthPx !== breakpoint.widthPx
-                          ) {
-                            onChangeWidth(breakpoint.id, widthPx);
+                    {onChangeWidth ? (
+                      <div className="flex items-center gap-1.5 px-1.5 py-1">
+                        <span className="shrink-0 !text-[11px] text-muted-foreground">
+                          {t("designEditor.breakpointBar.changeWidth")}
+                        </span>
+                        <Input
+                          type="number"
+                          min={320}
+                          max={3840}
+                          value={widthDraft}
+                          autoFocus
+                          onChange={(event) =>
+                            setWidthDraft(event.target.value)
                           }
+                          onKeyDown={(event) => {
+                            event.stopPropagation();
+                            if (event.key !== "Enter") return;
+                            event.preventDefault();
+                            const widthPx = parseBreakpointWidthInput(
+                              widthDraft,
+                              existingWidths.filter(
+                                (width) => width !== breakpoint.widthPx,
+                              ),
+                            );
+                            setMenuOpenFor(null);
+                            if (
+                              widthPx !== null &&
+                              widthPx !== breakpoint.widthPx
+                            ) {
+                              onChangeWidth(breakpoint.id, widthPx);
+                            }
+                          }}
+                          className="h-6 px-1.5 !text-[11px] tabular-nums"
+                          aria-label={t(
+                            "designEditor.breakpointBar.changeWidth",
+                          )}
+                        />
+                      </div>
+                    ) : null}
+                    {onChangeWidth && onRemove ? (
+                      <DropdownMenuSeparator />
+                    ) : null}
+                    {onRemove ? (
+                      <DropdownMenuItem
+                        className="h-7 px-2 py-0 !text-[12px] text-destructive focus:text-destructive"
+                        onSelect={() => {
+                          setMenuOpenFor(null);
+                          onRemove(breakpoint.id);
                         }}
-                        className="h-6 px-1.5 !text-[11px] tabular-nums"
-                        aria-label={t("designEditor.breakpointBar.changeWidth")}
-                      />
-                    </div>
-                  ) : null}
-                  {onChangeWidth && onRemove ? <DropdownMenuSeparator /> : null}
-                  {onRemove ? (
-                    <DropdownMenuItem
-                      className="h-7 px-2 py-0 !text-[12px] text-destructive focus:text-destructive"
-                      onSelect={() => {
-                        setMenuOpenFor(null);
-                        onRemove(breakpoint.id);
-                      }}
-                    >
-                      {t("designEditor.breakpointBar.remove")}
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </div>
-        );
-      })}
+                      >
+                        {t("designEditor.breakpointBar.remove")}
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
 
       {/* "+" — Framer default widths or a custom width. */}
       {canEdit && onAdd ? (
@@ -325,7 +333,7 @@ export function BreakpointDeviceControl({
             <Button
               variant="ghost"
               size="icon"
-              className="size-6 cursor-pointer rounded-[5px] text-muted-foreground hover:text-foreground"
+              className="size-6 shrink-0 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
               title={t("designEditor.breakpointBar.addBreakpoint")}
             >
               <IconPlus className="size-3.5" />

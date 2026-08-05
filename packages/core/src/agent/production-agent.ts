@@ -1027,10 +1027,11 @@ export interface ProductionAgentOptions {
    * `AGENT_CHAT_DURABLE_BACKGROUND` flag so the background function is emitted.
    */
   durableBackgroundRuns?: boolean;
-  /** Called when a run starts, with the send function for emitting events and the threadId */
+  /** Called when a run starts, with the send function, threadId, and runId. */
   onRunStart?: (
     send: (event: AgentChatEvent) => void,
     threadId: string,
+    runId: string,
   ) => void | Promise<void>;
   /**
    * Called after the engine + model are resolved for this request. Used by
@@ -4577,6 +4578,11 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, 0);
                 trackActiveToolInput(key, event.name, 0);
               }
+              send({
+                type: "tool_input_start",
+                ...(event.name ? { tool: event.name } : {}),
+                ...(event.id ? { id: event.id } : {}),
+              });
               sendToolInputActivity(event.name, key, undefined, true);
               if (noteZeroByteToolInputStart(event.name)) {
                 send({
@@ -4610,6 +4616,14 @@ export async function runAgentLoop(opts: {
                     startedZeroByteInput = true;
                   }
                 }
+              }
+              if (event.text) {
+                send({
+                  type: "tool_input_delta",
+                  ...(toolName ? { tool: toolName } : {}),
+                  ...(event.id ? { id: event.id } : {}),
+                  text: event.text,
+                });
               }
               sendToolInputActivity(toolName, key, progressBytes);
               if (
@@ -8996,7 +9010,7 @@ export function createProductionAgentHandler(
 
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {
-          await options.onRunStart(send, threadId ?? runId);
+          await options.onRunStart(send, threadId ?? runId, runId);
         }
 
         // Resolve custom workspace agent mentions first.

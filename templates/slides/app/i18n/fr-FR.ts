@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Paramètres",
     description: "Préférences de langue et d’espace de travail pour cette app.",
+    emailNotifications: "Notifications par e-mail",
+    emailNotificationsDescription:
+      "Recevez un e-mail lorsqu’une personne commente votre deck ou répond dans un fil.",
+    saveFailed: "Échec de l’enregistrement",
     languageTitle: "Langue",
     languageDescription:
       "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
@@ -411,6 +415,14 @@ const messages = {
     cornerRadius: "Rayon des coins",
     strokeWeight: "Épaisseur",
     typography: "Typographie",
+    weight: "Graisse",
+    italic: "Italique",
+    underline: "Souligné",
+    bulletList: "Liste à puces",
+    numberedList: "Liste numérotée",
+    align: "Alignement",
+    decreaseSize: "Réduire la taille du texte",
+    increaseSize: "Augmenter la taille du texte",
     mixed: "Mixte",
     textColor: "Couleur du texte",
     primary: "Primary",
@@ -512,9 +524,10 @@ const messages = {
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
-    slides: "Diapositivas",
   },
   presentation: {
+    loadFailed: "Impossible de charger cette présentation.",
+    tryAgain: "Réessayer",
     presenterView: "Mode présentateur",
     speakerNotes: "Notes du présentateur",
     noNotesForSlide: "Aucune note pour cette diapositive",
@@ -679,6 +692,21 @@ const messages = {
     referenceDeckNone: "Ne pas en utiliser",
     referenceDeckStarredGroup: "Favoris",
     referenceDeckOtherGroup: "Autres decks",
+    referenceReviewTitle: "Vérifier les références",
+    referenceReviewDescription:
+      "Conservez le système de design et le deck de référence par défaut, sauf si vous les supprimez. Recherchez un autre deck, importez un fichier ou continuez lorsque vous êtes prêt.",
+    chooseAnotherDeck: "Choisir un autre deck",
+    noMatchingDecks: "Aucun deck correspondant trouvé.",
+    googleSlidesReferenceTitle: "Decks Google Slides",
+    googleSlidesReferenceConnect:
+      "Connectez Google Drive pour importer un deck Slides.",
+    googleSlidesReferenceChoose: "Choisir un deck Google Slides",
+    googleSlidesReferencePicking: "Traitement...",
+    googleSlidesReferenceConnected:
+      "Connecté. Choisissez un deck Google Slides à importer comme référence réutilisable.",
+    googleSlidesReferenceUnavailable:
+      "Connectez Google Drive et configurez Picker pour importer un deck Google Slides.",
+    skipReferences: "Ignorer les références",
     workspaceDefaultBadge: "Par défaut pour l'espace de travail",
     setWorkspaceDefault: "Définir par défaut pour l'espace de travail",
     clearWorkspaceDefault: "Retirer le deck par défaut de l'espace de travail",

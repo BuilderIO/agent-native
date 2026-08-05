@@ -5,7 +5,7 @@ description: "An agent-native digital asset manager and cross-agent generation s
 
 # Assets
 
-Assets is a workspace for creating and managing brand-consistent media — for anyone who needs on-brand images and video without wrangling prompts, models, and aspect ratios every time. It organizes uploads and generated results into libraries and folders, lets teams collect examples for blog heroes, diagrams, landing pages, product shots, videos, and logos, then routes generation through the agent chat so every asset can be reviewed and refined.
+Assets is a workspace for creating and managing brand-consistent media, especially when image or video models have a clear advantage. It organizes uploads and generated results into libraries and folders, lets teams collect approved references for product shots, logos, social images, photorealistic scenes, and other media to use in a Design composition or elsewhere, then routes generation through the agent chat so every asset can be reviewed and refined.
 
 <WireframeBlock id="doc-block-assets1">
   <Screen
@@ -81,6 +81,14 @@ When you open the app, the selected library, prompt, references, and generated c
 
 </Diagram>
 
+## Assets vs Design
+
+Use **Design** for most visual work. Start there for landing pages, ads, diagrams, and other compositions when you need HTML/CSS, precise layout, editable structure, or design-tool import/export.
+
+Use **Assets** when image or video models are better suited to the job and the result can be used as media rather than edited piece by piece. This includes photorealistic or pixel-based imagery, product shots, social images, and video. Hand-drawn or Excalidraw-style diagrams can be an exception when you want the generated image as-is.
+
+The intended workflow is to start in Design and let the Design agent delegate supporting image generation to Assets when a PNG or other media asset is the right fit. Use the result in the Design composition or in another app.
+
 ## When to pick it
 
 - **Your team needs reusable visual direction**, not one-off generic media prompts — collect approved logos, product shots, and style examples so generations stay on brand.
@@ -104,9 +112,11 @@ Live demo: [assets.agent-native.com](https://assets.agent-native.com).
    want to manage.
 2. **Upload references.** Add approved logos, product shots, style examples, or
    existing videos so the agent has concrete material to work from.
-3. **Generate from chat or a library.** Ask for a hero image, diagram, product
-   shot, or video variant. Assets stores the prompt, references, model, status,
-   and lineage for review.
+3. **Generate a media asset from chat or a library.** Ask for a product shot,
+   social image, photorealistic scene, image-based diagram, or video variant.
+   For a landing page, ad, or other editable composition, start in Design and
+   use Assets for supporting media. Assets stores the prompt, references,
+   model, status, and lineage for review.
 4. **Use the asset elsewhere.** Copy the export, embed the picker in another
    app, or let another agent call Assets over A2A.
 

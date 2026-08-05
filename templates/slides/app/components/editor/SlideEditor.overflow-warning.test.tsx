@@ -16,7 +16,7 @@ const source = readFileSync(
 describe("SlideEditor layout overflow warning", () => {
   afterEach(cleanup);
 
-  it("stays readable over arbitrary slide backgrounds", () => {
+  it("renders as plain amber text above the slide, not overlapping it", () => {
     render(
       <SlideOverflowWarning
         verticalOverflow={59}
@@ -27,11 +27,13 @@ describe("SlideEditor layout overflow warning", () => {
       />,
     );
 
-    expect(screen.getByRole("status").className).toContain(
-      "border-amber-400/70",
-    );
-    expect(screen.getByRole("status").className).toContain("bg-amber-950/95");
-    expect(screen.getByRole("status").className).toContain("text-amber-50");
+    const status = screen.getByRole("status");
+    expect(status.className).toContain("text-foreground");
+    expect(status.className).toContain("border-foreground/40");
+    // The old banner sat on the slide and covered its text; it now floats
+    // above the canvas with an outline instead of a filled surface.
+    expect(status.className).not.toContain("bg-amber-950/95");
+    expect(status.className).toContain("-top-12");
     expect(screen.getByText("Layout overflows by 59px")).toBeTruthy();
   });
 

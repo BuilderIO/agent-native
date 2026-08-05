@@ -5,6 +5,7 @@ import { Link } from "react-router";
 
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
+import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { TemplateDocsLink } from "./template-docs";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -267,12 +268,13 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           href={template.demoUrl}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={() =>
+          onClick={(event) => {
+            applyFirstTouchAttributionToLink(event.currentTarget);
             trackEvent("click try demo", {
               template: template.slug,
               location: "card",
-            })
-          }
+            });
+          }}
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >
           <svg

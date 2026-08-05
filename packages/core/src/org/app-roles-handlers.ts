@@ -5,7 +5,6 @@ import {
   type H3Event,
 } from "h3";
 
-import { getDbExec } from "../db/client.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   getRegisteredAppRoles,
@@ -14,6 +13,7 @@ import {
   type AppRolesDescriptor,
 } from "./app-roles.js";
 import { getOrgContext } from "./context.js";
+import { isOrgMember } from "./membership.js";
 import { canManageOrg } from "./permissions.js";
 
 /**
@@ -44,14 +44,6 @@ function extractMemberEmail(event: H3Event): string | undefined {
   const match =
     path.match(/^\/([^/]+)\/?$/) ?? path.match(/\/app-roles\/([^/]+)\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
-}
-
-async function isOrgMember(orgId: string, email: string): Promise<boolean> {
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-    args: [orgId, email.trim().toLowerCase()],
-  });
-  return rows.length > 0;
 }
 
 /**

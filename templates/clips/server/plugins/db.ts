@@ -193,6 +193,12 @@ const migrations = runMigrations(
       description TEXT NOT NULL DEFAULT '',
       thumbnail_url TEXT,
       animated_thumbnail_url TEXT,
+      filmstrip_url TEXT,
+      filmstrip_frame_count INTEGER NOT NULL DEFAULT 0,
+      filmstrip_columns INTEGER NOT NULL DEFAULT 0,
+      filmstrip_rows INTEGER NOT NULL DEFAULT 0,
+      filmstrip_frame_width INTEGER NOT NULL DEFAULT 0,
+      filmstrip_frame_height INTEGER NOT NULL DEFAULT 0,
       duration_ms INTEGER NOT NULL DEFAULT 0,
       video_url TEXT,
       video_format TEXT NOT NULL DEFAULT 'webm',
@@ -908,6 +914,22 @@ const migrations = runMigrations(
       version: 55,
       name: "recording-upload-generation-fence",
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_generation_id TEXT`,
+    },
+    {
+      version: 56,
+      name: "recording-agent-views-user-agent",
+      sql: `ALTER TABLE recording_agent_views ADD COLUMN IF NOT EXISTS user_agent TEXT`,
+    },
+    {
+      version: 57,
+      name: "recording-agent-views-clear-placeholder-label",
+      // Rows written before the user-agent column stored the literal placeholder
+      // 'Agent' for any agent the user-agent patterns could not name, which is
+      // indistinguishable from an agent that really is called "Agent". NULL is
+      // the one value that means "we don't know", so unnamed history renders as
+      // unknown too.
+      // guard:allow-unscoped — startup migration normalizes a legacy placeholder across all rows.
+      sql: `UPDATE recording_agent_views SET agent_label = NULL WHERE agent_label = 'Agent'`,
     },
   ],
   { table: "clips_migrations" },

@@ -55,6 +55,7 @@ import {
   createThread,
   getThread,
   grantThreadUserShare,
+  setThreadSourceIfMissing,
 } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
@@ -905,6 +906,11 @@ async function processIncomingMessage(
         () =>
           createThread(ownerEmail, {
             title: `${adapter.label}: ${incoming.senderName || incoming.senderId || "User"}`,
+            source: {
+              platform: incoming.platform,
+              appId: options.appId ?? null,
+              url: incoming.sourceUrl ?? null,
+            },
           }),
       );
       await saveThreadMapping(
@@ -924,6 +930,11 @@ async function processIncomingMessage(
     }
 
     threadId = mapping.internalThreadId;
+    await setThreadSourceIfMissing(threadId, {
+      platform: incoming.platform,
+      appId: options.appId ?? null,
+      url: incoming.sourceUrl ?? null,
+    });
     // Load existing thread history for context.
     thread = await getThread(threadId);
   } catch (error) {

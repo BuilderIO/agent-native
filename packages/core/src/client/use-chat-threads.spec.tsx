@@ -176,6 +176,84 @@ describe("useChatThreads", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("ignores stale history responses when the source mode changes", async () => {
+    const localThread: ChatThreadSummary = {
+      id: "local-thread",
+      title: "Local chat",
+      preview: "keep this out of the all-sources result",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: null,
+    };
+    const externalThread: ChatThreadSummary = {
+      id: "external-thread",
+      title: "Slack chat",
+      preview: "show this in all sources",
+      messageCount: 1,
+      createdAt: 2,
+      updatedAt: 2,
+      scope: null,
+      source: { platform: "slack" },
+    };
+    let resolveLocal!: (response: Response) => void;
+    let resolveExternal!: (response: Response) => void;
+    const localResponse = new Promise<Response>((resolve) => {
+      resolveLocal = resolve;
+    });
+    const externalResponse = new Promise<Response>((resolve) => {
+      resolveExternal = resolve;
+    });
+    const fetchMock = vi.fn((url: string) => {
+      if (url === "/chat/threads") return localResponse;
+      if (url === "/chat/threads?includeExternal=1") return externalResponse;
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ includeExternal }: { includeExternal: boolean }) {
+      hook = useChatThreads("/chat", "history-race", null, {
+        autoCreate: false,
+        includeExternal,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness includeExternal={false} />);
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith("/chat/threads");
+
+    await act(async () => {
+      root.render(<Harness includeExternal />);
+    });
+    await act(async () => {
+      hook!.refreshThreads();
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock).toHaveBeenCalledWith("/chat/threads?includeExternal=1");
+
+    await act(async () => {
+      resolveExternal(jsonResponse({ threads: [externalThread] }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "external-thread",
+    ]);
+
+    await act(async () => {
+      resolveLocal(jsonResponse({ threads: [localThread] }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "external-thread",
+    ]);
+  });
+
   it("fetches fresh chat history when a sidebar remounts", async () => {
     let cachedTitle = "Cached chat";
     const existingThread: ChatThreadSummary = {

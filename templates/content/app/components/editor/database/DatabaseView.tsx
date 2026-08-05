@@ -204,6 +204,7 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
+  documentQueryFilter,
   type DocumentUpdateResult,
   useDeleteDocument,
   useDocument,
@@ -4853,9 +4854,7 @@ function DatabaseItemPreview({
           void queryClient.invalidateQueries({
             queryKey: contentDatabaseQueryKey(databaseDocumentId),
           });
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-document", { id: document.id }],
-          });
+          void queryClient.invalidateQueries(documentQueryFilter(document.id));
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });

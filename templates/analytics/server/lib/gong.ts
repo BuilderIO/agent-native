@@ -14,6 +14,9 @@ import {
 import { resolveAnalyticsGongCredentials } from "./provider-credentials";
 
 const DEFAULT_API_BASE = "https://api.gong.io/v2";
+const MAX_GONG_SEARCH_PAGES = 50;
+const MAX_GONG_CALL_LIST_PAGES = 50;
+const MAX_GONG_EXHAUSTIVE_RECORDS = 500;
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -160,7 +163,7 @@ export async function getCalls(filters?: {
   fromDateTime?: string;
   toDateTime?: string;
   cursor?: string;
-}): Promise<{ calls: GongCall[]; cursor?: string }> {
+}): Promise<{ calls: GongCall[]; cursor?: string; totalRecords?: number }> {
   const params = new URLSearchParams();
   if (filters?.fromDateTime) params.set("fromDateTime", filters.fromDateTime);
   if (filters?.toDateTime) params.set("toDateTime", filters.toDateTime);
@@ -170,12 +173,60 @@ export async function getCalls(filters?: {
   const path = `/calls${query ? `?${query}` : ""}`;
   const data = await apiGet<{
     calls?: GongCall[];
-    records?: { cursor?: string };
+    records?: { cursor?: string; totalRecords?: number };
   }>(path);
   return {
     calls: data.calls ?? [],
     cursor: data.records?.cursor,
+    ...(typeof data.records?.totalRecords === "number"
+      ? { totalRecords: data.records.totalRecords }
+      : {}),
   };
+}
+
+export async function getAllCalls(filters?: {
+  fromDateTime?: string;
+  toDateTime?: string;
+}): Promise<{
+  calls: GongCall[];
+  cursor?: string;
+  pages: number;
+  totalRecords?: number;
+}> {
+  const calls: GongCall[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  let totalRecords: number | undefined;
+
+  do {
+    const page = await getCalls({
+      ...filters,
+      ...(cursor ? { cursor } : {}),
+    });
+    pages += 1;
+    if (typeof page.totalRecords === "number") {
+      totalRecords = page.totalRecords;
+    }
+    if (
+      typeof totalRecords === "number" &&
+      totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive call listing found ${totalRecords.toLocaleString()} records in the requested window. ` +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program, instead of returning the full cohort through gong-calls.",
+      );
+    }
+    calls.push(...page.calls);
+
+    const nextCursor = page.cursor;
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (cursor && pages < MAX_GONG_CALL_LIST_PAGES);
+
+  return { calls, cursor, pages, totalRecords };
 }
 
 export async function getCall(callId: string): Promise<GongCall | null> {
@@ -541,6 +592,7 @@ export async function searchCallsForQueries(
   const matches = new Map<string, GongCall & { matchedQueries?: string[] }>();
   let searchedCallCount = 0;
   let cursor: string | undefined;
+  let pages = 0;
   do {
     const data = await apiPost<{
       calls?: unknown[];
@@ -553,12 +605,23 @@ export async function searchCallsForQueries(
       contentSelector: { exposedFields: { parties: true } },
       ...(cursor ? { cursor } : {}),
     });
+    pages += 1;
+    if (
+      options.exhaustive &&
+      typeof data.records?.totalRecords === "number" &&
+      data.records.totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive search found ${data.records.totalRecords.toLocaleString()} records in the requested window. ` +
+          "Use provider-corpus-job with staged call IDs for searches larger than 500 records so progress is checkpointed between batches.",
+      );
+    }
     const calls = (data.calls ?? [])
       .map(normalizeExtensiveCall)
       .filter((call): call is GongCall => Boolean(call))
       .filter(isExternalCall);
     searchedCallCount += calls.length;
-    cursor = data.records?.cursor;
+    const nextCursor = data.records?.cursor;
 
     for (const call of calls) {
       const parties = call.parties ?? [];
@@ -573,7 +636,16 @@ export async function searchCallsForQueries(
       }
       if (!options.exhaustive && matches.size >= normalizedLimit) break;
     }
-  } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (
+    cursor &&
+    pages < MAX_GONG_SEARCH_PAGES &&
+    (options.exhaustive || matches.size < normalizedLimit)
+  );
 
   const matchedCalls = Array.from(matches.values());
   return buildGongSearchResult(matchedCalls, normalizedLimit, {
@@ -611,11 +683,11 @@ export function buildGongSearchResult(
     return {
       calls: sorted,
       limit: sorted.length,
-      truncated: false,
+      truncated: Boolean(meta.cursor),
       searchedCallCount: meta.searchedCallCount,
       matchedCallCount: matchedCalls.length,
       queryCount: meta.queryCount,
-      coverageTruncated: false,
+      coverageTruncated: Boolean(meta.cursor),
     };
   }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);

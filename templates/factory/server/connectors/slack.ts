@@ -26,8 +26,34 @@ export interface ChannelHistoryResult {
   next_cursor?: string;
 }
 
+export interface ThreadRepliesResult {
+  messages: SlackMessage[];
+  has_more: boolean;
+  next_cursor?: string;
+}
+
+export interface SlackReactionResult {
+  added: boolean;
+  already_present: boolean;
+}
+
+export interface SlackPostMessageResult {
+  ok?: boolean;
+  error?: string;
+  channel: string;
+  ts: string;
+  message?: SlackMessage;
+}
+
 const cache = new Map<string, { value: unknown; expiresAt: number }>();
 const cacheTtlMs = 120_000;
+
+function invalidateWorkspaceCache(workspace: Workspace): void {
+  const prefix = `${workspace}:`;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) cache.delete(key);
+  }
+}
 
 async function getToken(
   workspace: Workspace,
@@ -60,9 +86,37 @@ async function slackApi<T>(
       `Slack API error ${response.status}: ${await response.text()}`,
     );
   const data = (await response.json()) as T & { ok?: boolean; error?: string };
-  if (data.ok === false)
+  if (data.ok !== true)
     throw new Error(`Slack API error: ${data.error ?? "unknown_error"}`);
   cache.set(cacheKey, { value: data, expiresAt: Date.now() + cacheTtlMs });
+  return data;
+}
+
+async function slackWrite<T extends { ok?: boolean; error?: string }>(
+  workspace: Workspace,
+  method: string,
+  body: Record<string, string>,
+  tokenResolver?: SlackTokenResolver,
+): Promise<T> {
+  const token = await getToken(workspace, tokenResolver);
+  const response = await fetch(`https://slack.com/api/${method}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok)
+    throw new Error(
+      `Slack API error ${response.status}: ${await response.text()}`,
+    );
+  const data = (await response.json()) as T;
+  if (data.ok !== true)
+    throw new Error(`Slack API error: ${data.error ?? "unknown_error"}`);
+  // A successful reaction or message write makes cached reads stale. This is
+  // especially important when a retry follows a partially recorded handoff.
+  invalidateWorkspaceCache(workspace);
   return data;
 }
 
@@ -83,7 +137,10 @@ export async function getChannelHistory(
       messages?: SlackMessage[];
       has_more?: boolean;
     }>(workspace, "conversations.history", params, tokenResolver);
-    const messages = data.messages ?? [];
+    if (!Array.isArray(data.messages)) {
+      throw new Error("Slack history response is missing messages.");
+    }
+    const messages = data.messages;
     return {
       messages,
       has_more: Boolean(data.has_more),
@@ -100,19 +157,90 @@ export async function getChannelHistory(
       },
       body: JSON.stringify({ channel: channelId }),
     });
-    const joinedData = (await joined.json()) as { ok?: boolean };
-    if (!joinedData.ok) throw error;
+    const joinedData = (await joined.json()) as {
+      ok?: boolean;
+      error?: string;
+    };
+    if (joinedData.ok !== true) throw error;
     const data = await slackApi<{
       messages?: SlackMessage[];
       has_more?: boolean;
     }>(workspace, "conversations.history", params, tokenResolver);
-    const messages = data.messages ?? [];
+    if (!Array.isArray(data.messages)) {
+      throw new Error("Slack history response is missing messages.");
+    }
+    const messages = data.messages;
     return {
       messages,
       has_more: Boolean(data.has_more),
       next_cursor: messages[messages.length - 1]?.ts,
     };
   }
+}
+
+export async function getThread(
+  workspace: Workspace,
+  channelId: string,
+  threadTs: string,
+  limit = 100,
+  cursor?: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<ThreadRepliesResult> {
+  const params: Record<string, string> = {
+    channel: channelId,
+    ts: threadTs,
+    limit: String(Math.min(Math.max(limit, 1), 100)),
+  };
+  if (cursor) params.cursor = cursor;
+  const data = await slackApi<{
+    messages?: SlackMessage[];
+    has_more?: boolean;
+    response_metadata?: { next_cursor?: string };
+  }>(workspace, "conversations.replies", params, tokenResolver);
+  if (!Array.isArray(data.messages)) {
+    throw new Error("Slack thread response is missing messages.");
+  }
+  return {
+    messages: data.messages,
+    has_more: Boolean(data.has_more),
+    next_cursor: data.response_metadata?.next_cursor || undefined,
+  };
+}
+
+export async function addEyesReaction(
+  workspace: Workspace,
+  channelId: string,
+  timestamp: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackReactionResult> {
+  try {
+    await slackWrite(
+      workspace,
+      "reactions.add",
+      { channel: channelId, timestamp, name: "eyes" },
+      tokenResolver,
+    );
+    return { added: true, already_present: false };
+  } catch (error) {
+    if (!String(error).includes("already_reacted")) throw error;
+    return { added: false, already_present: true };
+  }
+}
+
+export async function postThreadReply(
+  workspace: Workspace,
+  channelId: string,
+  threadTs: string,
+  text: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackPostMessageResult> {
+  const data = await slackWrite<SlackPostMessageResult>(
+    workspace,
+    "chat.postMessage",
+    { channel: channelId, thread_ts: threadTs, text },
+    tokenResolver,
+  );
+  return data;
 }
 
 export async function getTeamInfo(

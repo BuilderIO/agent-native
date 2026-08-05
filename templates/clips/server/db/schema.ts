@@ -146,6 +146,16 @@ export const recordings = table("recordings", {
   thumbnailUrl: text("thumbnail_url"),
   animatedThumbnailUrl: text("animated_thumbnail_url"),
 
+  // Editor timeline filmstrip: one sprite image plus the grid geometry needed
+  // to address a cell. Null means "not generated yet", which is why the editor
+  // still has a browser-side extraction fallback.
+  filmstripUrl: text("filmstrip_url"),
+  filmstripFrameCount: integer("filmstrip_frame_count").notNull().default(0),
+  filmstripColumns: integer("filmstrip_columns").notNull().default(0),
+  filmstripRows: integer("filmstrip_rows").notNull().default(0),
+  filmstripFrameWidth: integer("filmstrip_frame_width").notNull().default(0),
+  filmstripFrameHeight: integer("filmstrip_frame_height").notNull().default(0),
+
   durationMs: integer("duration_ms").notNull().default(0),
   videoUrl: text("video_url"),
   videoFormat: text("video_format", { enum: ["webm", "mp4"] })
@@ -404,7 +414,11 @@ export const recordingAgentViews = table(
     recordingId: text("recording_id").notNull(),
     // sha256 of user-agent + request IP. Never stores the raw IP.
     agentKey: text("agent_key").notNull(),
+    // Null when nothing named the agent — distinct from a self-declared name.
     agentLabel: text("agent_label"),
+    // Raw (truncated) user-agent, kept so an unnamed agent stays identifiable
+    // and new AGENT_LABELS patterns come from real traffic, not guesses.
+    userAgent: text("user_agent"),
     // Time bucket that collapses one agent's burst of context/transcript/frame
     // polls into a single view.
     viewSessionId: text("view_session_id").notNull(),

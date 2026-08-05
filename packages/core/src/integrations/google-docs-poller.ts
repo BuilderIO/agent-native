@@ -16,6 +16,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import {
   createThread,
   getThread,
+  setThreadSourceIfMissing,
   updateThreadData,
 } from "../chat-threads/store.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
@@ -432,14 +433,24 @@ async function processComment(
     timestamp: Date.now(),
   };
 
+  const source = {
+    platform: PLATFORM,
+    url: `https://docs.google.com/document/d/${fileId}/edit`,
+  };
+
   let threadId = existingThreadId;
   if (!threadId) {
     const thread = await createThread(options.ownerEmail, {
       title: `Google Doc: ${senderName}`,
+      source,
     });
     await saveThreadMapping(PLATFORM, key, thread.id, { fileId, commentId });
     threadId = thread.id;
   }
+
+  // Older mapped conversations predate thread provenance. Backfill them as
+  // they are touched so Dispatch's default local-history view excludes them.
+  await setThreadSourceIfMissing(threadId, source);
 
   const thread = await getThread(threadId);
   const existingMessages: EngineMessage[] = [];

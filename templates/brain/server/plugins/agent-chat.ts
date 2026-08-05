@@ -9,6 +9,7 @@ import { and, desc, like, or } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { tryAnswerBrainA2AQuestion } from "../lib/a2a-fallback.js";
+import { brainFinalResponseGuard } from "../lib/brain-response-guard.js";
 
 const BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
@@ -42,6 +43,7 @@ export default createAgentChatPlugin({
   appId: "brain",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  finalResponseGuard: brainFinalResponseGuard,
   durableBackgroundRuns: true,
   runSoftTimeoutMs: BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
@@ -52,6 +54,7 @@ Use actions as the source of truth. Import raw material with import-capture or i
 
 Important rules:
 - Before answering, searching broadly, or distilling, call get-brain-settings when you do not already have current settings. Apply its guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, pre-save capture sanitization, redaction, and distillation instructions.
+- For every company-specific factual question, call get-brain-settings when current settings are not already in context, then call ask-brain before answering. Use only its cited Brain evidence. If it returns no citations, say the fact is unverified or unavailable; never fill the gap from general model knowledge.
 - Evidence quotes must be exact substrings of a raw capture. Use get-capture with includeRawContent=true only when you need exact quote validation; normal capture reads are redacted by default.
 - No vector database exists; search-knowledge uses SQL text matching.
 - Source policy matters: strict means answer from reviewed knowledge only; balanced means raw captures are fallback context when reviewed knowledge is thin; exploratory means raw captures and sources may be surfaced as clearly labeled leads.

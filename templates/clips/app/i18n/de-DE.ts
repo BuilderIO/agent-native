@@ -640,6 +640,7 @@ const messages = {
     pageTitle: "Einstellungen · Clips",
     intro:
       "Einstellungen und verbundene Dienste für diesen Clips-Arbeitsbereich.",
+    preferencesTitle: "Voreinstellungen",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
@@ -678,9 +679,16 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     transcriptCleanupDescription:
       "Zeige das native Transkript sofort an und bereinige es im Hintergrund, sobald es verfügbar ist.",
     notifications: "Benachrichtigungen",
+    sharing: "Teilen",
+    defaultVisibility: "Standard-Sichtbarkeit neuer Aufnahmen",
+    defaultVisibilityDescription:
+      "Gilt für jede Aufnahme, die du erstellst. Du kannst die Sichtbarkeit pro Aufnahme weiterhin ändern.",
+    visibilityPrivate: "Privat - nur du",
+    visibilityOrg: "Organisation - alle in deinem Workspace",
+    visibilityPublic: "Öffentlich - alle mit dem Link",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand eine Aufnahme kommentiert, reagiert oder mit dir teilt.",
+      "Erhalte eine E-Mail, wenn jemand deine Aufnahme kommentiert oder darauf reagiert.",
     saved: "Einstellungen gespeichert",
     saveFailed: "Speichern fehlgeschlagen",
     builderConnectedToast: "Builder.io verbunden",
@@ -840,6 +848,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     noViewsYet: "Noch keine Aufrufe.",
     viewsCount_one: "{{count}} Aufruf",
     viewsCount_other: "{{count}} Aufrufe",
+    agentViewsCount_one: "{{count}} KI-Agenten-Aufruf",
+    agentViewsCount_other: "{{count}} KI-Agenten-Aufrufe",
     totalViewsSummary:
       "{{total}} Aufrufe insgesamt, {{unique}} eindeutige Zuschauer",
     viewsTab: "Aufrufe",
@@ -847,6 +857,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     humanViews: "Menschliche Aufrufe",
     agentViews: "Aufrufe durch KI-Agenten",
     noAgentViewsYet: "Noch keine Aufrufe durch KI-Agenten.",
+    unknownAgent: "Unbekannter Agent",
     totalVideoViews: "Videoaufrufe insgesamt",
     averageCompletionRate: "Durchschnittliche Abschlussrate",
     moreInsights: "Mehr Einblicke",
@@ -1124,6 +1135,19 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     useColor: "Farbe {{color}} verwenden",
     spaceCreated: "Bereich erstellt",
     createFailed: "Bereich konnte nicht erstellt werden",
+  },
+  spaceDialog: {
+    deleteSpace: "Bereich löschen",
+    renameSpace: "Bereich umbenennen",
+    deleteTitle: "„{{name}}“ löschen?",
+    deleteDescription:
+      "Dadurch wird der Bereich gelöscht und aus allen Aufnahmen entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
+    renamed: "Bereich umbenannt",
+    deleted: "„{{name}}“ gelöscht",
+    renameFailed: "Bereich konnte nicht umbenannt werden",
+    deleteFailed: "Bereich konnte nicht gelöscht werden",
+    renaming: "Wird umbenannt...",
+    deleting: "Wird gelöscht...",
   },
   signInPrompt: {
     title: "Anmelden, um {{intent}}",

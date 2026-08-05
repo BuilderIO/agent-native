@@ -46,6 +46,10 @@ const messages = {
     metaTitle: "設定 - Content",
     title: "設定",
     description: "Content 的語言和工作區偏好設定。",
+    emailNotifications: "郵件通知",
+    emailNotificationsDescription:
+      "當有人評論你的文件、在討論串中回覆或提到你時，收到郵件通知。",
+    saveFailed: "儲存失敗",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
@@ -105,6 +109,9 @@ const messages = {
     builderBodySyncing: "內容仍在從 Builder 同步",
     builderBodySyncingDescription:
       "同步 Builder 正文完成前會暫停編輯，避免覆寫既有文章內容。",
+    pageBodySyncing: "此頁面的內容仍在同步",
+    pageBodySyncingDescription:
+      "在頁面正文完成同步之前，編輯會暫停，以免覆寫既有內容。",
     localFileSavedHistoryNotUpdated: "本機檔案已儲存，但歷史紀錄未更新",
     reorderField: "重新排序 {{name}}",
     title: "標題",
