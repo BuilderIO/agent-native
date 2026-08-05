@@ -270,8 +270,10 @@ export function AutomationEditorDialog({
               defaultValue: "This automation is fixed to the {{scope}} scope.",
               scope:
                 scope === "organization"
-                  ? t("jobs.organization", { defaultValue: "organization" })
-                  : t("jobs.personal", { defaultValue: "personal" }),
+                  ? t("jobs.editorScopeOrganization", {
+                      defaultValue: "organization",
+                    })
+                  : t("jobs.editorScopePersonal", { defaultValue: "personal" }),
             })}
           </DialogDescription>
         </DialogHeader>

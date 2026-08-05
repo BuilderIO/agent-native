@@ -1,9 +1,9 @@
 ---
 name: automations
 description: >-
-  Event-triggered and schedule-triggered automations with natural-language
-  conditions. Use when creating automations, wiring events, or understanding
-  how triggers fire.
+  Manual, event-triggered, and schedule-triggered automations with optional
+  event conditions. Use when creating automations, wiring events, running one
+  on demand, or understanding how triggers fire.
 metadata:
   internal: true
 ---
@@ -12,11 +12,11 @@ metadata:
 
 ## Rule
 
-Automations are the user-facing umbrella for agent-executed tasks that fire in
-response to events or on a cron schedule. **Scheduled** and **Event** are the
-two trigger types. Each automation is a markdown resource under `jobs/` with
-YAML frontmatter describing when and how it fires, and a body containing
-natural-language instructions the agent follows.
+Automations are the user-facing umbrella for agent-executed tasks that run on
+demand, in response to events, or on a cron schedule. **Schedule**, **Event**,
+and **Manual** are the three persisted trigger types. Each automation is a
+markdown resource under `jobs/` with YAML frontmatter describing when and how
+it fires, and a body containing natural-language instructions the agent follows.
 
 Recurring Jobs is the legacy name and API for scheduled automations.
 `manage-jobs`, `jobs/`, and `/agent#jobs` remain stable compatibility surfaces.
@@ -24,39 +24,53 @@ Use `manage-automations` for new personal or organization automations, including
 per-automation model overrides and MCP allowlists. Keep `manage-jobs` for
 existing schedule-only integrations and delivery metadata.
 
-## The Two Trigger Types
+## The Three Persisted Trigger Types
 
-| Type       | Fires when                                      | Key field           |
-| ---------- | ----------------------------------------------- | ------------------- |
-| `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (cron)   |
-| `event`    | A matching event is emitted on the event bus     | `event` (event name) |
+| Type | Fires when | Trigger-specific fields |
+| --- | --- | --- |
+| `schedule` | Cron expression matches (same as recurring jobs) | `schedule` (required), `timezone` |
+| `event` | A matching event is emitted on the event bus | `event` (required), `condition` (optional) |
+| `manual` | A user explicitly invokes `run-now` | None |
 
-Event triggers can optionally include a `condition` -- a natural-language string evaluated by Haiku against the event payload before dispatch. If the condition does not match, the automation is skipped.
+Event triggers can optionally include a `condition` -- a natural-language
+string evaluated against the event payload before dispatch. If the condition
+does not match, the automation is skipped. Manual automations have no
+`schedule`, `timezone`, `event`, or `condition`; they never fire from the
+scheduler or event bus and run only through `manage-automations`
+`action=run-now`.
+
+The UI's **Email received** choice is not a fourth persisted trigger type. It is
+a specialized event editor that persists `triggerType: event` with
+`event: mail.message.received` and represents email filters as the event
+condition.
 
 ## How It Works
 
 1. User asks the agent to create an automation (or uses the settings UI).
-2. Agent calls `manage-automations` with `action=list-events` to discover available events.
-3. Agent calls `manage-automations` with `action=define` to write a `jobs/<name>.md` resource.
-4. The trigger dispatcher subscribes to the event on the bus.
-5. When the event fires, the dispatcher loads all matching triggers, enforces
-   owner and organization scope, and evaluates conditions via Haiku.
-6. Event and cron acquisition converge on the shared background-automation
-   runner, which validates identity, resolves the configured model and MCP
-   allowlist, runs the agent loop, handles continuation and delivery, and
-   records usage.
-7. Status (`lastRun`, `lastStatus`, `lastError`) is written back to the resource frontmatter.
+2. For an event trigger, the agent calls `manage-automations` with
+   `action=list-events` to discover the exact registered event name and payload.
+3. Agent calls `manage-automations` with `action=define` to write a
+   `jobs/<name>.md` resource.
+4. The scheduler acquires due schedule triggers, the event dispatcher acquires
+   matching event triggers, and manual triggers wait for `action=run-now`.
+5. Event acquisition enforces owner and organization scope and evaluates any
+   condition against the event payload.
+6. Schedule, event, and explicit run-now acquisition converge on the shared
+   background-automation runner, which validates identity, resolves the
+   configured model and MCP allowlist, runs the agent loop, handles continuation
+   and delivery, and records usage.
+7. Status (`lastRun`, `lastStatus`, `lastError`) is written back to the resource
+   frontmatter.
 
 Trigger acquisition stays separate by design: the scheduler decides when a cron
-expression is due, while the event dispatcher matches event names, owners, and
-conditions. Everything after a trigger is accepted uses the same execution
-lifecycle.
+expression is due, the event dispatcher matches event names, owners, and
+conditions, and `run-now` is the only acquisition path for manual automations.
+Everything after a trigger is accepted uses the same execution lifecycle.
 
 ## Markdown Format
 
 ```yaml
 ---
-schedule: ""
 enabled: true
 triggerType: event
 event: calendar.booking.created
@@ -77,9 +91,9 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 | ------------- | ------------------------------ | ------------------------------------------------------ |
 | `schedule`    | `string`                       | Cron expression (required for schedule triggers)       |
 | `enabled`     | `boolean`                      | Whether the automation is active                       |
-| `triggerType` | `"schedule" \| "event"`        | How the automation fires                               |
-| `event`       | `string?`                      | Event name to subscribe to (event triggers)            |
-| `condition`   | `string?`                      | Natural-language condition evaluated before dispatch   |
+| `triggerType` | `"schedule" \| "event" \| "manual"` | How the automation fires                        |
+| `event`       | `string?`                      | Event name to subscribe to (event triggers only)       |
+| `condition`   | `string?`                      | Natural-language event condition (event triggers only) |
 | `mode`        | `"agentic"`                    | Full agent loop (only supported mode; `"deterministic"` was removed — never implemented, rejected at define time) |
 | `model`       | `string?`                      | Override the model for this trigger's agent loop       |
 | `domain`      | `string?`                      | Grouping tag (mail, calendar, clips, etc.)             |
@@ -97,21 +111,31 @@ All automation operations are accessed through a single `manage-automations` too
 
 | Action        | Purpose                                                              |
 | ------------- | -------------------------------------------------------------------- |
-| `list-events` | Discover all registered events with descriptions and payload schemas |
-| `list`        | List all automations with status, filter by domain or enabled        |
-| `define`      | Create a new automation (name, trigger type, event, condition, body)  |
-| `update`      | Update an existing automation (enabled, condition, body)             |
-| `delete`      | Delete an automation (always confirm with user first)                |
-| `fire-test`   | Emit a `test.event.fired` event to validate automations              |
-| `run-now`     | Run one automation immediately with its real actions and side effects |
+| `list-events` | Discover registered event names, descriptions, and payload schemas before defining or changing an event trigger |
+| `list` | List automations and their trigger, status, model, tools, and delivery metadata |
+| `define` | Create an automation after confirming the summary with the user; requires `name`, `trigger_type`, and `body` |
+| `update` | Update an existing automation in its original scope without changing its creator |
+| `delete` | Delete an automation (always confirm with user first) |
+| `fire-test` | Emit a `test.event.fired` event to validate event automations |
+| `run-now` | Explicitly run one automation immediately with real actions and side effects |
+
+Use `list-events` only when selecting an event trigger; schedule and manual
+triggers do not need event discovery. For **Email received**, use the registered
+`mail.message.received` event rather than inventing an email trigger type.
+
+For `define` and `update`, send `trigger_type: schedule` with a cron `schedule`,
+`trigger_type: event` with an exact registered `event` and optional `condition`,
+or `trigger_type: manual` with none of those trigger-specific fields. Pass the
+same `scope` when updating an existing automation. `manage-automations` supports
+`model` and `mcpTools` on define/update; the MCP allowlist is enforced, not
+advisory.
+
+Use `run-now` only for an explicit user-authorized execution. It can run any
+persisted trigger type immediately, is the sole execution path for manual
+automations, returns a durable run id, and does not change the next scheduled
+run.
 
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
-
-`manage-automations` accepts personal or organization scope and supports
-`model` and `mcpTools` on define/update. An MCP allowlist is enforced, not
-advisory: every named tool must resolve in the creator's request context or the
-run fails clearly, and the runner never widens access beyond the configured
-names.
 
 ## Organization Event Automations
 
@@ -199,10 +223,10 @@ Automations use the `web-request` tool for outbound HTTP. It supports `${keys.NA
 ## UI
 
 The full-page Agent surface's **Automations** tab is the primary management
-surface for scheduled and event-triggered automations. Users can view status,
-enable/disable, inspect, and delete automations there. Its URL remains
-`/agent#jobs` for compatibility even though the visible tab is Automations.
-Creation typically happens through the agent chat.
+surface for schedule, event, and manual automations. Users can create, edit,
+run now, view status, enable/disable, inspect, and delete automations there. Its
+URL remains `/agent#jobs` for compatibility even though the visible tab is
+Automations.
 
 ## Example
 
@@ -228,7 +252,7 @@ Agent flow:
 | `packages/core/src/triggers/types.ts`          | `TriggerFrontmatter` interface                   |
 | `packages/core/src/triggers/actions.ts`        | Agent tools (define, list, update, delete, test)  |
 | `packages/core/src/triggers/dispatcher.ts`     | Event subscription and agentic dispatch          |
-| `packages/core/src/jobs/background-automation-runner.ts` | Shared schedule/event execution lifecycle |
+| `packages/core/src/jobs/background-automation-runner.ts` | Shared schedule/event/manual execution lifecycle |
 | `packages/core/src/triggers/condition-evaluator.ts` | Haiku condition classification with caching |
 | `packages/core/src/event-bus/`                 | Event bus (register, emit, subscribe)            |
 | `packages/core/src/tools/fetch-tool.ts`        | `web-request` tool with key substitution         |
