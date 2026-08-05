@@ -82,7 +82,7 @@ function isProviderRateLimit(text: string, errorCode?: string): boolean {
   );
 }
 
-function isProviderAuthenticationError(
+export function isProviderAuthenticationError(
   text: string,
   errorCode?: string,
 ): boolean {
@@ -100,6 +100,8 @@ function isProviderAuthenticationError(
     lower.includes("invalid api key") ||
     lower.includes("incorrect api key") ||
     lower.includes("api key is invalid") ||
+    lower.includes("rejected the saved api key") ||
+    lower.includes("saved provider key was rejected") ||
     (lower.includes("authentication_error") && lower.includes("api"))
   );
 }
@@ -164,7 +166,7 @@ export function normalizeChatError(
   if (isProviderAuthenticationError(text, errorCode)) {
     return {
       message:
-        "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+        "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
       details: text,
     };
   }

@@ -673,17 +673,17 @@ const messages = {
     deckCount_one: "deck",
     deckCount_many: "decks",
     deckCount_other: "decks",
-    createDeckOrVisual: "Crear un deck o una visual",
+    createDeckOrVisual: "Crear una presentación",
     noMineDecks: "Aún no has creado decks.",
     deleteDeckTitle: "¿Eliminar deck?",
     deleteDeckDescription:
       "Esto eliminará permanentemente este deck y todas sus diapositivas. Esta acción no se puede deshacer.",
     cancel: "Cancelar",
     delete: "Eliminar",
-    newDeckPromptTitle: "Nuevo deck",
-    newDeckPlaceholder: "Describe tu deck, visual o diagrama...",
+    newDeckPromptTitle: "Nueva presentación",
+    newDeckPlaceholder: "Describe la presentación que quieres generar...",
     skipPrompt: "Omitir prompt",
-    firstDeckPromptTitle: "¿Qué quieres crear?",
+    firstDeckPromptTitle: "¿Qué tipo de presentación quieres que generemos?",
     firstDeckSkip: "Omitir",
     chooseReferences: "Elegir referencias",
     addDesignSystem: "+ Sistema de diseño",
@@ -740,7 +740,7 @@ const messages = {
     emptyTitle: "Aún no hay decks",
     createFirstDeck: "Crea tu primer deck",
     emptyDescription:
-      "Crea presentaciones bonitas, visuales independientes, diagramas e historias ricas en imágenes con generación impulsada por IA.",
+      "Crea presentaciones bonitas con generación impulsada por IA.",
   },
 };
 

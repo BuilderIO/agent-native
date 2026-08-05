@@ -5609,6 +5609,7 @@ const AssistantChatInner = forwardRef<
                                     }}
                                     onRetry={retryAfterRunError}
                                     onFork={onForkChat}
+                                    onProviderConnected={handleBuilderConnected}
                                     onDismiss={() => {
                                       if (visibleRunErrorKey) {
                                         setDismissedRunErrorKey(

@@ -123,11 +123,11 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError(raw, "authentication_error");
 
     expect(normalized.message).toBe(
-      "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+      "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
     expect(normalized.details).toBe(raw);
     expect(formatChatErrorText(raw, undefined, "authentication_error")).toBe(
-      "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+      "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
   });
 
@@ -135,13 +135,22 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError("401 status code (no body)");
 
     expect(normalized.message).toBe(
-      "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+      "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
     expect(normalized.details).toBe("401 status code (no body)");
     expect(normalized.message).not.toContain("no body");
     expect(formatChatErrorText("401 status code (no body)")).toBe(
-      "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+      "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
+  });
+
+  it("normalizes the stored credential failure marker without an error code", () => {
+    expect(
+      normalizeChatError("The model provider rejected the saved API key."),
+    ).toMatchObject({
+      message:
+        "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+    });
   });
 
   it("normalizes provider network failures into an actionable retry message", () => {

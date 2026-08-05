@@ -100,4 +100,26 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Add your own keys");
     expect(container.querySelector("svg")).toBeNull();
   });
+
+  it("shows the AI setup flow and retry for a rejected provider key", async () => {
+    await act(async () => {
+      root.render(
+        <RunErrorRecoveryCard
+          info={{
+            message:
+              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+            errorCode: "authentication_error",
+            details: '401 {"error":{"type":"authentication_error"}}',
+          }}
+          onContinue={vi.fn()}
+          onRetry={vi.fn()}
+          onDismiss={vi.fn()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Add your own keys");
+    expect(container.textContent).toContain("Retry");
+  });
 });
