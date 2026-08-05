@@ -1060,6 +1060,18 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     spaceCreated: "空间已创建",
     createFailed: "无法创建空间",
   },
+  spaceDialog: {
+    deleteSpace: "删除空间",
+    renameSpace: "重命名空间",
+    deleteTitle: "删除“{{name}}”？",
+    deleteDescription: "这将删除空间，并将其从所有录音中移除。此操作无法撤销。",
+    renamed: "空间已重命名",
+    deleted: "已删除“{{name}}”",
+    renameFailed: "重命名空间失败",
+    deleteFailed: "删除空间失败",
+    renaming: "正在重命名...",
+    deleting: "正在删除...",
+  },
   signInPrompt: {
     title: "登录以{{intent}}",
     description:

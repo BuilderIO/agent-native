@@ -1102,6 +1102,19 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     spaceCreated: "공간이 생성되었습니다",
     createFailed: "공간을 만들 수 없습니다",
   },
+  spaceDialog: {
+    deleteSpace: "스페이스 삭제",
+    renameSpace: "스페이스 이름 변경",
+    deleteTitle: "“{{name}}”을(를) 삭제할까요?",
+    deleteDescription:
+      "스페이스가 삭제되고 모든 녹화에서 제거됩니다. 이 작업은 취소할 수 없습니다.",
+    renamed: "스페이스 이름이 변경됨",
+    deleted: "“{{name}}” 삭제됨",
+    renameFailed: "스페이스 이름 변경 실패",
+    deleteFailed: "스페이스 삭제 실패",
+    renaming: "이름 변경 중...",
+    deleting: "삭제 중...",
+  },
   signInPrompt: {
     title: "{{intent}}하려면 로그인",
     description:
