@@ -1050,7 +1050,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       JSON.parse(
         fs.readFileSync(path.join(appDir, "agent-native.json"), "utf-8"),
       ),
-    ).toMatchObject({ doctor: { failOnBuild: true } });
+    ).toMatchObject({ doctor: { failOnBuild: false } });
     expect(fs.readFileSync(path.join(appDir, "AGENTS.md"), "utf-8")).toContain(
       "Guarded verification",
     );

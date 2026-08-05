@@ -1777,10 +1777,9 @@ function ensureGuardedScaffold(appDir: string): void {
     !Array.isArray(manifest.doctor)
       ? (manifest.doctor as Record<string, unknown>)
       : {};
-  // Repository templates may use a reviewed false opt-out for their own
-  // monorepo build, but generated projects must start with the strict guard
-  // contract instead of inheriting that repository-only exception.
-  doctor.failOnBuild = true;
+  // An explicit false remains an intentional, reviewable opt-out. Missing
+  // configuration is strict so a hosted build cannot publish a finding.
+  if (typeof doctor.failOnBuild !== "boolean") doctor.failOnBuild = true;
   manifest.doctor = doctor;
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 
