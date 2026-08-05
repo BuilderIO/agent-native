@@ -965,7 +965,10 @@ function readHtmlAttribute(tag: string, attribute: string): string | undefined {
 function resolveHttpUrl(
   value: string | undefined,
   baseUrl: string,
-): { kind: "missing" } | { kind: "resolved"; url: string } | { kind: "invalid"; value: string } {
+):
+  | { kind: "missing" }
+  | { kind: "resolved"; url: string }
+  | { kind: "invalid"; value: string } {
   if (!value) return { kind: "missing" };
   try {
     const parsed = new URL(value, baseUrl);
@@ -1255,8 +1258,7 @@ export async function extractDesignTokensFromUrl(
   const ogImage = readMetaContent(html, "property", "og:image");
   if (ogImage) {
     const resolved = resolveHttpUrl(ogImage, pageUrl);
-    result.ogImage =
-      resolved.kind === "resolved" ? resolved.url : ogImage;
+    result.ogImage = resolved.kind === "resolved" ? resolved.url : ogImage;
   }
 
   // Favicon
