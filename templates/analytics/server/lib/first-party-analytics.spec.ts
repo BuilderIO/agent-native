@@ -173,6 +173,12 @@ describe("recordAnalyticsEvents", () => {
     ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
   });
 
+  it("does not acquire the retired historical-backfill lock during ingest", async () => {
+    await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("rejects the ingest when a rollup update fails", async () => {
     rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
 

@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { getDbExec } from "@agent-native/core/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
@@ -17,11 +17,7 @@ import {
   queryOutcomeFromError,
   recordFirstPartyAnalyticsQueryPressure,
 } from "./first-party-analytics-health.js";
-import {
-  FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY,
-  FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL,
-  upsertFirstPartyAnalyticsRollups,
-} from "./first-party-analytics-rollups.js";
+import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -510,16 +506,9 @@ export async function recordAnalyticsEvents(
 
   if (rows.length) {
     await db.transaction(async (tx: any) => {
-      if (isPostgres()) {
-        // The historical backfill takes this lock before its raw-event
-        // snapshot. Holding it through ingest's rollup increment prevents the
-        // backfill's monotonic upsert from losing a concurrently committed
-        // event.
-        await tx.execute({
-          sql: FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL,
-          args: [FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY],
-        });
-      }
+      // Raw events and incremental rollups share this transaction. The
+      // historical boot backfill is disabled, so no global cross-request lock
+      // is needed to coordinate a second writer.
       await tx.insert(schema.analyticsEvents).values(rows);
       await tx
         .update(schema.analyticsPublicKeys)

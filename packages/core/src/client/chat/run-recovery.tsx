@@ -598,6 +598,11 @@ export function RunErrorRecoveryCard({
     onDismiss();
   }, [onDismiss]);
 
+  const handleProviderConnected = useCallback(() => {
+    onProviderConnected?.();
+    onDismiss();
+  }, [onDismiss, onProviderConnected]);
+
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
     setForking(true);
@@ -637,7 +642,7 @@ export function RunErrorRecoveryCard({
             <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
               <BuilderSetupContent
                 layout="sidebar"
-                onConnected={onProviderConnected}
+                onConnected={handleProviderConnected}
               />
             </div>
           )}

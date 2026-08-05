@@ -51,7 +51,10 @@ describe("query-agent-native-analytics", () => {
     expect(action.description).toContain("analytics_event_daily_rollups");
     expect(action.description).toContain("analytics_user_days");
     expect(action.description).toMatch(
-      /backfilled from existing analytics_events/i,
+      /updated transactionally with new ingest/i,
+    );
+    expect(action.description).toMatch(
+      /not automatically backfilled from existing analytics_events/i,
     );
     expect(action.description).toMatch(/bounded recent drill-downs/i);
     expect(action.description).toMatch(/all-time|lifetime/i);

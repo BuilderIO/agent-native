@@ -290,6 +290,24 @@ function configFromSettings(data: Record<string, unknown>): {
   return { title, config: data };
 }
 
+function stringProperty(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const property = (value as Record<string, unknown>)[key];
+  return typeof property === "string" ? property : null;
+}
+
+function catalogMetadataFromConfig(config: Record<string, unknown>): {
+  configName: string | null;
+  catalogTemplateId: string | null;
+  demoId: string | null;
+} {
+  return {
+    configName: typeof config.name === "string" ? config.name : null,
+    catalogTemplateId: stringProperty(config.catalog, "templateId"),
+    demoId: stringProperty(config.demo, "id"),
+  };
+}
+
 async function migrateDashboardFromSettings(
   id: string,
   kind: DashboardKind,
@@ -619,15 +637,20 @@ export async function listDashboardSummaries(
       seen.add(id);
       const config = value as Record<string, unknown>;
       const { title } = configFromSettings(config);
+      const catalogMetadata = includeCatalogMetadata
+        ? catalogMetadataFromConfig(config)
+        : {
+            configName: null,
+            catalogTemplateId: null,
+            demoId: null,
+          };
       const createdAt =
         typeof config.createdAt === "string" ? config.createdAt : nowIso();
       out.push({
         id,
         kind,
         name: title,
-        configName: null,
-        catalogTemplateId: null,
-        demoId: null,
+        ...catalogMetadata,
         parentId: typeof config.parentId === "string" ? config.parentId : null,
         ownerEmail: ctx.email,
         orgId,

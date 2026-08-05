@@ -8,8 +8,16 @@ const clipboardMock = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
 }));
 
+const agentEngineKeyMock = vi.hoisted(() => ({
+  saveAgentEngineApiKey: vi.fn(),
+}));
+
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
+}));
+
+vi.mock("../agent-engine-key.js", () => ({
+  saveAgentEngineApiKey: agentEngineKeyMock.saveAgentEngineApiKey,
 }));
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
@@ -34,6 +42,8 @@ describe("run recovery surfaces", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     clipboardMock.writeClipboardText.mockReset();
+    agentEngineKeyMock.saveAgentEngineApiKey.mockReset();
+    agentEngineKeyMock.saveAgentEngineApiKey.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -121,5 +131,57 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Add your own keys");
     expect(container.textContent).toContain("Retry");
+  });
+
+  it("dismisses the recovery card after saving a provider key", async () => {
+    const onDismiss = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <RunErrorRecoveryCard
+          info={{
+            message:
+              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+            errorCode: "authentication_error",
+          }}
+          onContinue={vi.fn()}
+          onRetry={vi.fn()}
+          onDismiss={onDismiss}
+        />,
+      );
+    });
+
+    const addKeysButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add your own keys"),
+    );
+    await act(async () => {
+      addKeysButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const input = container.querySelector(
+      'input[type="password"]',
+    ) as HTMLInputElement;
+    const inputSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      inputSetter?.call(input, "sk-test");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const saveButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Save"),
+    );
+    await act(async () => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(agentEngineKeyMock.saveAgentEngineApiKey).toHaveBeenCalledWith({
+      provider: "anthropic",
+      apiKey: "sk-test",
+    });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

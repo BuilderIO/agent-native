@@ -195,15 +195,18 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "LOCK TABLE analytics_event_daily_rollups",
     );
     expect(dbTsSource).not.toContain("LOCK TABLE analytics_events");
+    expect(dbTsSource).toContain("new migration identity");
+    expect(dbTsSource).toContain("out-of-band job");
   });
 
   it("keeps incremental rollup ingest independent of boot migrations", () => {
-    expect(analyticsIngestTsSource).toContain(
+    expect(analyticsIngestTsSource).not.toContain(
       "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
     );
-    expect(analyticsIngestTsSource).toMatch(
-      /if \(isPostgres\(\)\)[\s\S]*?FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL/,
+    expect(analyticsIngestTsSource).not.toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
     );
+    expect(analyticsIngestTsSource).not.toContain("pg_advisory_xact_lock");
   });
 
   it("does not scan every dashboard during serverless startup", () => {

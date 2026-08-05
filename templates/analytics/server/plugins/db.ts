@@ -1372,7 +1372,8 @@ const runAnalyticsMigrations = runMigrations(
     // boot-time run. Scanning analytics_events here makes every concurrent
     // serverless migration runner hold a database connection for the full
     // history; v126-v131 continue to maintain the compact tables incrementally.
-    // A controlled backfill can use this same name's intent later.
+    // Any future one-shot backfill must use a new migration identity or an
+    // explicit out-of-band job because this marker is permanently applied.
     {
       version: 132,
       name: "analytics-rollups-historical-backfill",

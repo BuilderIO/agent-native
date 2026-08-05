@@ -220,6 +220,27 @@ describe("listDashboardSummaries", () => {
     expect(state.insert).not.toHaveBeenCalled();
   });
 
+  it("preserves catalog metadata on legacy summaries when requested", async () => {
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-legacy-catalog": {
+        name: "Legacy catalog dashboard",
+        catalog: { templateId: "node-exporter-full" },
+        demo: { id: "demo-node-exporter" },
+      },
+    };
+
+    const result = await listDashboardSummaries(ctx, {
+      kind: "sql",
+      includeCatalogMetadata: true,
+    });
+
+    expect(result[0]).toMatchObject({
+      configName: "Legacy catalog dashboard",
+      catalogTemplateId: "node-exporter-full",
+      demoId: "demo-node-exporter",
+    });
+  });
+
   it("applies access, kind, active, and visible filters to the SQL query", async () => {
     await listDashboardSummaries(ctx, { kind: "explorer" });
 
