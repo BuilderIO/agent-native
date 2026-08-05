@@ -190,7 +190,7 @@ export default function DeckCard({
             {deck.starred ? (
               <IconStarFilled className="h-3.5 w-3.5 text-[#F5C451]" />
             ) : (
-              <IconStar className="h-3.5 w-3.5 text-foreground/70" />
+              <IconStar className="h-3.5 w-3.5 text-white/70" />
             )}
           </button>
         )}
@@ -208,7 +208,7 @@ export default function DeckCard({
               }`}
               aria-label={t("raw.deckOptions")}
             >
-              <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+              <IconDots className="w-3.5 h-3.5 text-white/70" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
