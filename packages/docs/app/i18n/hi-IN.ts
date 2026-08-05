@@ -86,7 +86,9 @@ const hiIN = {
     hero: {
       titleLine1: "ऐसे apps बनाएं जिन्हें आपकी team",
       titleAccent: "और agents साझा करें",
-      body: "आपकी team जिस पर click कर सकती है, आपके agents उसे call कर सकते हैं। वही actions, वही data, वही app। Open source framework; code आपका है।",
+      bodyLine1:
+        "आपकी team जिस पर click कर सकती है, आपके agents उसे call कर सकते हैं।",
+      bodyLine2: "वही actions, वही data, वही app। Open source framework।",
       primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
     },

@@ -87,7 +87,10 @@ const frFR = {
     hero: {
       titleLine1: "Créez des apps partagées",
       titleAccent: "par votre équipe et vos agents",
-      body: "Tout ce que votre équipe peut cliquer, vos agents peuvent l’appeler. Les mêmes actions, les mêmes données, la même app. Framework open source ; le code vous appartient.",
+      bodyLine1:
+        "Tout ce que votre équipe peut cliquer, vos agents peuvent l’appeler.",
+      bodyLine2:
+        "Les mêmes actions, les mêmes données, la même app. Framework open source.",
       primaryCta: "Commencer à construire",
       secondaryCta: "Voir la documentation",
     },

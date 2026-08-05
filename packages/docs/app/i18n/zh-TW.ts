@@ -84,7 +84,8 @@ const messages = {
     hero: {
       titleLine1: "打造團隊與 agent",
       titleAccent: "共享的 app",
-      body: "團隊能點擊的，agent 都能呼叫。同一組 action、同一份資料、同一個 app。開源 framework，程式碼歸你所有。",
+      bodyLine1: "團隊能點擊的，agent 都能呼叫。",
+      bodyLine2: "同一組 action、同一份資料、同一個 app。開源 framework。",
       primaryCta: "試用一個 app",
       secondaryCta: "閱讀檔案",
     },

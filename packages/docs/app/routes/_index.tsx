@@ -631,7 +631,8 @@ export default defineAction({
               </h1>
 
               <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-                {t("home.hero.body")}
+                <span className="block">{t("home.hero.bodyLine1")}</span>
+                <span className="block">{t("home.hero.bodyLine2")}</span>
               </p>
 
               <div className="flex flex-wrap items-center justify-center gap-4">

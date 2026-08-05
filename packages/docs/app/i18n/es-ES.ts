@@ -87,7 +87,10 @@ const esES = {
     hero: {
       titleLine1: "Crea apps que compartan",
       titleAccent: "tu equipo y tus agentes",
-      body: "Todo lo que tu equipo puede pulsar, tus agentes lo pueden ejecutar. Las mismas acciones, los mismos datos, la misma app. Framework de código abierto; el código es tuyo.",
+      bodyLine1:
+        "Todo lo que tu equipo puede pulsar, tus agentes lo pueden ejecutar.",
+      bodyLine2:
+        "Las mismas acciones, los mismos datos, la misma app. Framework de código abierto.",
       primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
     },

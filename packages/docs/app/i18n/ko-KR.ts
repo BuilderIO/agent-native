@@ -87,7 +87,9 @@ const koKR = {
     hero: {
       titleLine1: "팀과 에이전트가 함께 쓰는",
       titleAccent: "앱을 만드세요",
-      body: "팀이 클릭할 수 있는 모든 것을 에이전트가 호출할 수 있습니다. 같은 action, 같은 데이터, 같은 앱. 오픈 소스 framework이며 코드는 여러분의 것입니다.",
+      bodyLine1: "팀이 클릭할 수 있는 모든 것을 에이전트가 호출할 수 있습니다.",
+      bodyLine2:
+        "같은 action, 같은 데이터, 같은 앱. 오픈 소스 framework입니다.",
       primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
     },

@@ -87,7 +87,10 @@ const ptBR = {
     hero: {
       titleLine1: "Crie apps compartilhadas",
       titleAccent: "pela sua equipe e agents",
-      body: "Tudo em que sua equipe pode clicar, seus agents podem chamar. As mesmas actions, os mesmos dados, a mesma app. Framework open source; o código é seu.",
+      bodyLine1:
+        "Tudo em que sua equipe pode clicar, seus agents podem chamar.",
+      bodyLine2:
+        "As mesmas actions, os mesmos dados, a mesma app. Framework open source.",
       primaryCta: "Testar uma app",
       secondaryCta: "Ler a documentação",
     },

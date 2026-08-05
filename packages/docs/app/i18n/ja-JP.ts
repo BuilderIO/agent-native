@@ -87,7 +87,10 @@ const jaJP = {
     hero: {
       titleLine1: "チームとエージェントが共有する",
       titleAccent: "アプリを構築",
-      body: "チームがクリックできるものは、すべてエージェントが呼び出せます。同じ action、同じデータ、同じアプリ。オープンソース framework で、コードはあなたのものです。",
+      bodyLine1:
+        "チームがクリックできるものは、すべてエージェントが呼び出せます。",
+      bodyLine2:
+        "同じ action、同じデータ、同じアプリ。オープンソース framework です。",
       primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
     },

@@ -98,7 +98,8 @@ const enUS = {
     hero: {
       titleLine1: "Build apps your team",
       titleAccent: "and agents share",
-      body: "Anything your team can click, your agents can call. Same actions, same data, same app. Open source framework; you own the code.",
+      bodyLine1: "Anything your team can click, your agents can call.",
+      bodyLine2: "Same actions, same data, same app. Open source framework.",
       primaryCta: "Try an app",
       secondaryCta: "Read the docs",
     },

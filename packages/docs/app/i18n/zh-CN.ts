@@ -86,7 +86,8 @@ const zhCN = {
     hero: {
       titleLine1: "构建团队和 agent",
       titleAccent: "共享的应用",
-      body: "团队能点击的，agent 都能调用。同一组 action、同一份数据、同一个 app。开源框架，代码归你所有。",
+      bodyLine1: "团队能点击的，agent 都能调用。",
+      bodyLine2: "同一组 action、同一份数据、同一个 app。开源框架。",
       primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
     },
