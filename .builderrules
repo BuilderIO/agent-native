@@ -1,0 +1,10 @@
+## Verification Policy
+
+Optimize for fast iteration during interactive Builder sessions.
+
+- Do not eagerly run full test suites, workspace-wide typechecks, production builds, or broad verification commands after routine changes.
+- Do not restart the dev server unless it has stopped, configuration or environment variables changed, or the current change explicitly requires a restart.
+- For small, localized changes, perform only the fastest relevant static check. Prefer inspecting the changed code or running a narrowly scoped check for the affected app or file.
+- Do not repeatedly verify the same behavior during one task.
+- Run broader tests or typechecks only when the change is high-risk, affects shared infrastructure, the user explicitly requests them, or immediately before a final delivery when reasonably fast.
+- If broader verification is skipped, state that briefly in the final response rather than running it automatically.
