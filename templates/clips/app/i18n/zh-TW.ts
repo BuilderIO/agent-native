@@ -1054,6 +1054,18 @@ const messages = {
     spaceCreated: "空間已建立",
     createFailed: "無法建立空間",
   },
+  spaceDialog: {
+    deleteSpace: "刪除空間",
+    renameSpace: "重新命名空間",
+    deleteTitle: "要刪除「{{name}}」嗎？",
+    deleteDescription: "這會刪除空間，並將其從所有錄影中移除。此操作無法復原。",
+    renamed: "空間已重新命名",
+    deleted: "已刪除「{{name}}」",
+    renameFailed: "重新命名空間失敗",
+    deleteFailed: "刪除空間失敗",
+    renaming: "正在重新命名...",
+    deleting: "正在刪除...",
+  },
   signInPrompt: {
     title: "登入以{{intent}}",
     description:
@@ -1207,6 +1219,10 @@ const messages = {
     cameraOff: "攝影機已關閉",
     includeCameraAria: "在此錄製中包含攝影機",
     startRecording: "開始錄製",
+    micOffConfirmTitle: "要在沒有麥克風的情況下錄製嗎？",
+    micOffConfirmDescription:
+      "麥克風已關閉，這段錄製將不會收錄任何音訊。若需要旁白，請先開啟麥克風再開始錄製。",
+    startWithoutMic: "仍要開始",
     uploadVideo: "上傳影片",
     importLoom: "匯入 Loom",
     importing: "正在匯入...",

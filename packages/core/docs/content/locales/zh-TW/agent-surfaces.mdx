@@ -52,7 +52,7 @@ Agent-Native 是故意可組合的。不用太多就可以使用代理 UI，
 代理只需執行一個操作，就會以表格或圖表的形式出現在聊天中，然後成為
 應用程式中的全螢幕，而不更改代理呼叫的操作。
 
-<Diagram id="doc-block-8alt4q" title={"表面光譜"} summary={"一個操作介面，四種產品形狀——每一種都增加了 UI，而不改變下面的操作。"}>
+<Diagram id="doc-block-8alt4q" title="表面光譜" summary="一個操作介面，四種產品形狀——每一種都增加了 UI，而不改變下面的操作。">
 
 ```html
 <div class="diagram-spectrum">
@@ -187,7 +187,7 @@ export default defineAction({
 - **UI** — 透過 `useActionQuery`、`useActionMutation` 或 `callAction`
 - **代理工具** - 來自內建聊天迴圈
 
-<Endpoint id="doc-block-ok1gi5" title={"透過 HTTP 呼叫操作"} method="POST" path="/_agent-native/actions/summarize-week" summary={"透過 HTTP 按名稱呼叫任何操作"} request={{
+<Endpoint id="doc-block-ok1gi5" title="透過 HTTP 呼叫操作" method="POST" path="/_agent-native/actions/summarize-week" summary="透過 HTTP 按名稱呼叫任何操作" request={{
   "contentType": "application/json",
   "example": "{ \"formId\": \"form_123\" }"
 }} responses={[
@@ -423,7 +423,7 @@ export function AppShell({ children }) {
 }
 ```
 
-<Diagram id="doc-block-t9iu4i" title={"Sidecar 如何橋接到主機應用程式"} summary={"該外掛在伺服器端掛載 Agent-Native 路由； React sidecar 流輸入頁面脈絡並輸出主機指令。"}>
+<Diagram id="doc-block-t9iu4i" title="Sidecar 如何橋接到主機應用程式" summary="該外掛在伺服器端掛載 Agent-Native 路由； React sidecar 流輸入頁面脈絡並輸出主機指令。">
 
 ```html
 <div class="diagram-sidecar">

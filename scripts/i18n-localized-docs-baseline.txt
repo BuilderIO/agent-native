@@ -15,8 +15,6 @@ packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creativ
 packages/core/docs/content/locales/ar-SA/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ar-SA/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/ar-SA/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/ar-SA/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/ar-SA/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/de-DE/messaging.mdx|Microsoft Teams
@@ -29,9 +27,6 @@ packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question
 packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/de-DE/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/de-DE/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/de-DE/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/de-DE/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/de-DE/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/es-ES/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/es-ES/messaging.mdx|Microsoft Teams
@@ -45,9 +40,6 @@ packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/es-ES/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/es-ES/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/es-ES/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/es-ES/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/es-ES/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/es-ES/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/fr-FR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/fr-FR/messaging.mdx|Microsoft Teams
@@ -62,8 +54,6 @@ packages/core/docs/content/locales/fr-FR/toolkit-capability-packages.mdx|Creativ
 packages/core/docs/content/locales/fr-FR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/fr-FR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/fr-FR/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/fr-FR/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/fr-FR/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/hi-IN/messaging.mdx|Microsoft Teams
@@ -77,9 +67,16 @@ packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/hi-IN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/hi-IN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Agent Resources
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Agent Surfaces
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Getting Started
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Key Concepts
+packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|One action, defined once
+packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|One implementation
+packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Team-wide rules
+packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Tool surface
+packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Typed contract
+packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|`/slash` commands
 packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ja-JP/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ja-JP/messaging.mdx|Microsoft Teams
@@ -93,9 +90,6 @@ packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ja-JP/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ja-JP/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ja-JP/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/ja-JP/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/ja-JP/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/ja-JP/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/ko-KR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ko-KR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ko-KR/messaging.mdx|Microsoft Teams
@@ -110,9 +104,6 @@ packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ko-KR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ko-KR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ko-KR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/ko-KR/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/ko-KR/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/ko-KR/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/pt-BR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/pt-BR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/pt-BR/messaging.mdx|Microsoft Teams
@@ -126,9 +117,6 @@ packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/pt-BR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/pt-BR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/pt-BR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/pt-BR/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/pt-BR/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/pt-BR/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/zh-CN/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/zh-CN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-CN/messaging.mdx|Microsoft Teams
@@ -142,9 +130,6 @@ packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/zh-CN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-CN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/zh-CN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/zh-CN/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/zh-CN/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/zh-CN/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/zh-TW/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/zh-TW/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-TW/messaging.mdx|Microsoft Teams
@@ -158,6 +143,6 @@ packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/zh-TW/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-TW/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/zh-TW/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|Key Concepts
+packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|Agent Resources
+packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A.
+packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|The `description` is what the agent reads to decide when to call this as a tool.

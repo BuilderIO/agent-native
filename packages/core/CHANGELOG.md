@@ -1,5 +1,53 @@
 # @agent-native/core
 
+## 0.137.7
+
+### Patch Changes
+
+- 34e3dc3: Keep needsApproval Approve/Deny visible
+
+## 0.137.6
+
+### Patch Changes
+
+- bd50f3a: Fix a server hang caused by run reconciliation never reaching a fixed point. A run row already holding its reconciled terminal values still matched the repair UPDATE, and an unchanged rewrite counts as an affected row, so `reconcileTerminalRunFromEvents` reported a repair on every call. `getRunByThread` re-reconciles whenever a repair is reported, so a single settled `errored`/`stale_run` row made every lookup for that thread recurse without terminating, pinning the event loop and hanging all requests.
+
+## 0.137.5
+
+### Patch Changes
+
+- e78a5c0: Clear Better Auth session cache cookies when signing out.
+
+## 0.137.4
+
+### Patch Changes
+
+- c71d383: Run due scheduled automations concurrently so one long-running job cannot starve other automations.
+- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
+- c71d383: Add a URL preview mode for replaying first-run onboarding without changing account setup state.
+- Updated dependencies [c71d383]
+  - @agent-native/toolkit@0.13.1
+
+## 0.137.3
+
+### Patch Changes
+
+- e0dcb10: Add what-is-agent-native localized translations for all 10 locales
+
+## 0.137.2
+
+### Patch Changes
+
+- Updated dependencies [106af0e]
+  - @agent-native/toolkit@0.13.0
+
+## 0.137.1
+
+### Patch Changes
+
+- d1cb968: Let apps continue an initial prompt flow after first-run onboarding completes.
+- d1cb968: Keep developer-only startup guidance out of production loading shells.
+
 ## 0.137.0
 
 ### Minor Changes

@@ -10,6 +10,7 @@ const createThreadMock = vi.hoisted(() => vi.fn());
 const getThreadMock = vi.hoisted(() => vi.fn());
 const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const grantThreadUserShareMock = vi.hoisted(() => vi.fn());
+const setThreadSourceIfMissingMock = vi.hoisted(() => vi.fn());
 const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
@@ -70,6 +71,7 @@ vi.mock("../chat-threads/store.js", () => ({
   getThread: getThreadMock,
   updateThreadData: updateThreadDataMock,
   grantThreadUserShare: grantThreadUserShareMock,
+  setThreadSourceIfMissing: setThreadSourceIfMissingMock,
 }));
 
 vi.mock("../agent/durable-background.js", () => ({
@@ -330,6 +332,7 @@ describe("integration webhook handler engine resolution", () => {
     getThreadMock.mockResolvedValue({ threadData: "{}" });
     updateThreadDataMock.mockResolvedValue(undefined);
     grantThreadUserShareMock.mockResolvedValue(undefined);
+    setThreadSourceIfMissingMock.mockResolvedValue(false);
     isInBackgroundFunctionRuntimeMock.mockReturnValue(false);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     getOrgA2ASecretMock.mockResolvedValue(null);

@@ -8,12 +8,7 @@ import {
   type BugReportContext,
   type BugReportSeverity,
 } from "@shared/bug-report";
-import {
-  IconArrowRight,
-  IconBug,
-  IconExternalLink,
-  IconShieldCheck,
-} from "@tabler/icons-react";
+import { IconBug, IconShieldCheck } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useOutlet } from "react-router";
 
@@ -245,9 +240,7 @@ export default function BugReportRoute() {
             </div>
 
             <Button className="h-11 w-full" onClick={startRecording}>
-              <IconExternalLink size={18} />
               {t("bugReportRoute.startRecording")}
-              <IconArrowRight size={18} className="ms-auto" />
             </Button>
           </div>
 

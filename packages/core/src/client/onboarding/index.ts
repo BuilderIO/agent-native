@@ -8,6 +8,9 @@ export { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
 export {
   useOnboardingPreviewMode,
   ONBOARDING_PREVIEW_STORAGE_KEY,
+  ONBOARDING_PREVIEW_QUERY_PARAM,
+  ONBOARDING_PREVIEW_QUERY_VALUE,
+  isOnboardingPreviewQuery,
 } from "./use-preview-mode.js";
 export { OnboardingPanel } from "./OnboardingPanel.js";
 export { OnboardingBanner } from "./OnboardingBanner.js";

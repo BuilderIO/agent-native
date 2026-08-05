@@ -35,7 +35,7 @@ finds that existing organization and seeds its organization-owned automations.
 If Dispatch synced the vault into a different organization, set
 `AGENT_VAULT_ORG_ID` to that existing org id instead of creating a new org.
 
-Connect Slack in Dispatch or in Settings -> Connections. Factory resolves
+Connect Slack in Dispatch or in Settings -> Integrations. Factory resolves
 Slack, GitHub, Sentry, and Builder credentials from the shared workspace vault
 and only uses matching deployment env vars as a last-resort fallback. All apps
 that read shared `app_secrets` rows must use the same

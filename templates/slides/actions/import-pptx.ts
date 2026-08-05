@@ -60,6 +60,139 @@ async function uploadFirstSlideImage(
   }
 }
 
+export async function importPptxBufferToDeck(args: {
+  fileBuffer: Buffer;
+  title?: string;
+  deckId?: string;
+  source?: string;
+}): Promise<{
+  id: string;
+  title: string;
+  slideCount: number;
+  theme: Awaited<ReturnType<typeof parsePptx>>["theme"];
+  imported: true;
+  url: string;
+  imagesSkipped?: number;
+}> {
+  const { fileBuffer, title, deckId, source = "import-pptx" } = args;
+  const presentation = await parsePptx(fileBuffer);
+  const deckTitle = title || presentation.title || "Imported Presentation";
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) throw new Error("no authenticated user");
+  const themeFont = presentation.theme?.fonts?.[0];
+
+  // Check edit access before uploading any embedded images — uploads are
+  // a side effect with real storage cost, so an unauthorized caller must
+  // be rejected before that side effect happens, not after.
+  if (deckId) {
+    await assertAccess("deck", deckId, "editor");
+  }
+
+  // Convert each parsed slide to our HTML format, uploading the first
+  // embedded image (if any) so it renders as a real image instead of a
+  // text placeholder. Concurrency is capped so a large deck doesn't fire
+  // one outbound upload per slide at once. An image can end up unused
+  // (unsupported format, or upload storage not configured) without
+  // failing the whole import — the slide's text still imports fine — but
+  // that shouldn't be a silent, invisible degradation, so it's counted
+  // and returned to the caller.
+  const uploadLimit = pLimit(4);
+  const results = await Promise.all(
+    presentation.slides.map((parsedSlide, i) =>
+      uploadLimit(async () => {
+        const imageUrl = await uploadFirstSlideImage(
+          parsedSlide,
+          i,
+          ownerEmail,
+        );
+        const html = convertToSlideHtml(parsedSlide, imageUrl, themeFont);
+        return {
+          slide: {
+            id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            content: html,
+            layout: parsedSlide.layoutHint ?? "content",
+            notes: parsedSlide.notes,
+          },
+          // Only the first image on a slide is ever uploaded, so every
+          // other image on that slide is unconditionally dropped too —
+          // not just the first one when it's unsupported.
+          imageSkippedCount: Math.max(
+            0,
+            parsedSlide.images.length - (imageUrl ? 1 : 0),
+          ),
+        };
+      }),
+    ),
+  );
+  const slides = results.map((r) => r.slide);
+  const imagesSkipped = results.reduce(
+    (total, r) => total + r.imageSkippedCount,
+    0,
+  );
+
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  if (deckId) {
+    const existing = await db
+      .select()
+      .from(schema.decks)
+      .where(eq(schema.decks.id, deckId));
+
+    if (!existing.length) {
+      throw new Error(`Deck ${deckId} not found`);
+    }
+
+    const data = { title: deckTitle, slides, updatedAt: now };
+    await db
+      .update(schema.decks)
+      .set({ title: deckTitle, data: JSON.stringify(data), updatedAt: now })
+      .where(eq(schema.decks.id, deckId));
+
+    notifyClients(deckId);
+    await writeAppState("refresh-signal", {
+      ts: now,
+      source,
+    });
+
+    return {
+      id: deckId,
+      title: deckTitle,
+      slideCount: slides.length,
+      theme: presentation.theme,
+      imported: true,
+      url: getDeckUrl(deckId),
+      ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    };
+  }
+
+  // Create new deck
+  const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const data = { title: deckTitle, slides, createdAt: now, updatedAt: now };
+  await db.insert(schema.decks).values({
+    id,
+    title: deckTitle,
+    data: JSON.stringify(data),
+    ownerEmail,
+    orgId: getRequestOrgId(),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  notifyClients(id);
+  await writeAppState("refresh-signal", { ts: now, source });
+
+  return {
+    id,
+    title: deckTitle,
+    slideCount: slides.length,
+    theme: presentation.theme,
+    imported: true,
+    url: getDeckUrl(id),
+    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+  };
+}
+
 export default defineAction({
   description:
     "Import a PPTX file and create a slide deck from it. " +
@@ -85,122 +218,6 @@ export default defineAction({
   }),
   run: async ({ filePath, deckId, title }) => {
     const { data: fileBuffer } = await readUserUploadedFile(filePath);
-    const presentation = await parsePptx(fileBuffer);
-
-    const deckTitle = title || presentation.title || "Imported Presentation";
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const themeFont = presentation.theme?.fonts?.[0];
-
-    // Check edit access before uploading any embedded images — uploads are
-    // a side effect with real storage cost, so an unauthorized caller must
-    // be rejected before that side effect happens, not after.
-    if (deckId) {
-      await assertAccess("deck", deckId, "editor");
-    }
-
-    // Convert each parsed slide to our HTML format, uploading the first
-    // embedded image (if any) so it renders as a real image instead of a
-    // text placeholder. Concurrency is capped so a large deck doesn't fire
-    // one outbound upload per slide at once. An image can end up unused
-    // (unsupported format, or upload storage not configured) without
-    // failing the whole import — the slide's text still imports fine — but
-    // that shouldn't be a silent, invisible degradation, so it's counted
-    // and returned to the caller.
-    const uploadLimit = pLimit(4);
-    const results = await Promise.all(
-      presentation.slides.map((parsedSlide, i) =>
-        uploadLimit(async () => {
-          const imageUrl = await uploadFirstSlideImage(
-            parsedSlide,
-            i,
-            ownerEmail,
-          );
-          const html = convertToSlideHtml(parsedSlide, imageUrl, themeFont);
-          return {
-            slide: {
-              id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              content: html,
-              layout: parsedSlide.layoutHint ?? "content",
-              notes: parsedSlide.notes,
-            },
-            // Only the first image on a slide is ever uploaded, so every
-            // other image on that slide is unconditionally dropped too —
-            // not just the first one when it's unsupported.
-            imageSkippedCount: Math.max(
-              0,
-              parsedSlide.images.length - (imageUrl ? 1 : 0),
-            ),
-          };
-        }),
-      ),
-    );
-    const slides = results.map((r) => r.slide);
-    const imagesSkipped = results.reduce(
-      (total, r) => total + r.imageSkippedCount,
-      0,
-    );
-
-    const db = getDb();
-    const now = new Date().toISOString();
-
-    if (deckId) {
-      const existing = await db
-        .select()
-        .from(schema.decks)
-        .where(eq(schema.decks.id, deckId));
-
-      if (!existing.length) {
-        throw new Error(`Deck ${deckId} not found`);
-      }
-
-      const data = { title: deckTitle, slides, updatedAt: now };
-      await db
-        .update(schema.decks)
-        .set({ title: deckTitle, data: JSON.stringify(data), updatedAt: now })
-        .where(eq(schema.decks.id, deckId));
-
-      notifyClients(deckId);
-      await writeAppState("refresh-signal", {
-        ts: now,
-        source: "import-pptx",
-      });
-
-      return {
-        id: deckId,
-        title: deckTitle,
-        slideCount: slides.length,
-        theme: presentation.theme,
-        imported: true,
-        url: getDeckUrl(deckId),
-        ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-      };
-    }
-
-    // Create new deck
-    const id = `deck-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const data = { title: deckTitle, slides, createdAt: now, updatedAt: now };
-    await db.insert(schema.decks).values({
-      id,
-      title: deckTitle,
-      data: JSON.stringify(data),
-      ownerEmail,
-      orgId: getRequestOrgId(),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    notifyClients(id);
-    await writeAppState("refresh-signal", { ts: now, source: "import-pptx" });
-
-    return {
-      id,
-      title: deckTitle,
-      slideCount: slides.length,
-      theme: presentation.theme,
-      imported: true,
-      url: getDeckUrl(id),
-      ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-    };
+    return importPptxBufferToDeck({ fileBuffer, deckId, title });
   },
 });

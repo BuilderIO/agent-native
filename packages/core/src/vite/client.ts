@@ -615,6 +615,7 @@ function findLocalWorkspacePackageDeps(
 
     return packages;
   } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -783,6 +784,13 @@ function getClientDedupe(cwd: string): string[] {
     "react",
     "react-dom",
     "react-dom/client",
+    // AgentSidebar and the shared composers exchange context through these
+    // packages. Keep the source graph and published toolkit graph on one
+    // assistant-ui store when core is linked into a consumer app.
+    "@assistant-ui/react",
+    "@assistant-ui/core",
+    "@assistant-ui/store",
+    "@assistant-ui/tap",
     // Framework routers must share one react-router instance so
     // FrameworkContext (Meta/Links/Scripts) matches ServerRouter/HydratedRouter.
     ...(hasDep("react-router", cwd)
@@ -951,6 +959,55 @@ function getReactRouterAliases(
       { find: /^react-router$/, replacement: req.resolve("react-router") },
     ];
   } catch {
+    return [];
+  }
+}
+
+/**
+ * Core's source graph can resolve assistant-stream from the framework
+ * checkout while the consuming app's assistant-ui package resolves a newer
+ * copy. Pin both public entry points to the consumer's installed peer graph.
+ */
+function getAssistantUiAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const coreViteEntry = appRequire.resolve("@agent-native/core/vite");
+    const coreRequire = createRequire(coreViteEntry);
+    return [
+      // A linked framework checkout can otherwise resolve the assistant-ui
+      // imports in core's source graph from the checkout's React 19.2.7 peer
+      // tree while Vite prebundles the app's React 19.2.8 tree. Dedupe does
+      // not rewrite those /@fs source imports, so pin the singleton packages
+      // to the consuming app's installed peer graph explicitly.
+      {
+        find: /^@assistant-ui\/react$/,
+        replacement: coreRequire.resolve("@assistant-ui/react"),
+      },
+      {
+        find: /^@assistant-ui\/core$/,
+        replacement: coreRequire.resolve("@assistant-ui/core"),
+      },
+      {
+        find: /^@assistant-ui\/store$/,
+        replacement: coreRequire.resolve("@assistant-ui/store"),
+      },
+      {
+        find: /^@assistant-ui\/tap$/,
+        replacement: coreRequire.resolve("@assistant-ui/tap"),
+      },
+      {
+        find: /^assistant-stream$/,
+        replacement: coreRequire.resolve("assistant-stream"),
+      },
+      {
+        find: /^assistant-stream\/utils$/,
+        replacement: coreRequire.resolve("assistant-stream/utils"),
+      },
+    ];
+  } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -3520,6 +3577,7 @@ function createAgentNativeConfig(
       alias: [
         // Published npm installs: one react-router instance for app + core.
         ...getReactRouterAliases(cwd),
+        ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
