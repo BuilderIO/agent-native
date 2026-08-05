@@ -1234,7 +1234,8 @@ const jaJP = {
         websiteUrl: "ウェブサイトの URL",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "ウェブサイトを確認",
-        crawlError: "そのウェブサイトを確認できませんでした。",
+        crawlError:
+          "このサイトを確認できませんでした。自動アクセスがブロックされている可能性があります。別の URL を試すか、デザイン資料をアップロードしてください。",
         or: "または",
         uploadDesignReference: "デザインの参考資料をアップロード",
         importDesignSystem: "デザインシステムをインポート",

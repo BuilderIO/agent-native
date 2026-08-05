@@ -1239,7 +1239,8 @@ const deDE = {
         websiteUrl: "Website-URL",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "Website prüfen",
-        crawlError: "Wir konnten diese Website nicht prüfen.",
+        crawlError:
+          "Wir konnten diese Website nicht prüfen. Möglicherweise blockiert sie automatisierte Zugriffe. Versuche eine andere URL oder lade eine Designreferenz hoch.",
         or: "oder",
         uploadDesignReference: "Designreferenz hochladen",
         importDesignSystem: "Designsystem importieren",

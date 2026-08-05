@@ -1232,7 +1232,8 @@ const ptBR = {
         websiteUrl: "URL do site",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "Inspecionar site",
-        crawlError: "Não foi possível inspecionar esse site.",
+        crawlError:
+          "Não foi possível inspecionar este site. Talvez ele bloqueie o acesso automatizado. Tente outra URL ou envie uma referência de design.",
         or: "ou",
         uploadDesignReference: "Enviar referência de design",
         importDesignSystem: "Importar sistema de design",

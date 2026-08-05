@@ -1216,7 +1216,8 @@ const messages = {
         websiteUrl: "網站 URL",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "檢視網站",
-        crawlError: "我們無法檢視該網站。",
+        crawlError:
+          "我們無法檢視此網站。它可能封鎖了自動存取。請嘗試其他網址，或上傳設計參考。",
         or: "或",
         uploadDesignReference: "上傳設計參考",
         importDesignSystem: "匯入設計系統",

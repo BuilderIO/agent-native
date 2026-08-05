@@ -1218,7 +1218,8 @@ const zhCN = {
         websiteUrl: "网站 URL",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "检查网站",
-        crawlError: "我们无法检查该网站。",
+        crawlError:
+          "我们无法检查此网站。它可能阻止了自动访问。请尝试其他网址，或上传设计参考。",
         or: "或",
         uploadDesignReference: "上传设计参考",
         importDesignSystem: "导入设计系统",

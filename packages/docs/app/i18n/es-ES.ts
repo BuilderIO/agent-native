@@ -1237,7 +1237,8 @@ const esES = {
         websiteUrl: "URL del sitio web",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "Inspeccionar sitio web",
-        crawlError: "No pudimos inspeccionar ese sitio web.",
+        crawlError:
+          "No pudimos inspeccionar este sitio. Es posible que bloquee el acceso automatizado. Prueba con otra URL o sube una referencia de diseño.",
         or: "o",
         uploadDesignReference: "Subir referencia de diseño",
         importDesignSystem: "Importar sistema de diseño",

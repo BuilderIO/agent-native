@@ -1228,7 +1228,8 @@ const arSA = {
         websiteUrl: "عنوان URL للموقع",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "فحص الموقع",
-        crawlError: "تعذر علينا فحص ذلك الموقع.",
+        crawlError:
+          "تعذر علينا فحص هذا الموقع. ربما يحظر الوصول الآلي. جرّب عنوان URL آخر أو حمّل مرجعًا للتصميم.",
         or: "أو",
         uploadDesignReference: "رفع مرجع التصميم",
         importDesignSystem: "استيراد نظام التصميم",

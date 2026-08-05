@@ -1231,7 +1231,8 @@ const koKR = {
         websiteUrl: "웹사이트 URL",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "웹사이트 살펴보기",
-        crawlError: "해당 웹사이트를 살펴볼 수 없습니다.",
+        crawlError:
+          "이 사이트를 살펴볼 수 없습니다. 자동 접근을 차단하고 있을 수 있습니다. 다른 URL을 사용하거나 디자인 참고 자료를 업로드해 주세요.",
         or: "또는",
         uploadDesignReference: "디자인 참고 자료 업로드",
         importDesignSystem: "디자인 시스템 가져오기",

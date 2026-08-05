@@ -1238,7 +1238,8 @@ const frFR = {
         websiteUrl: "URL du site web",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "Inspecter le site web",
-        crawlError: "Nous n’avons pas pu inspecter ce site web.",
+        crawlError:
+          "Nous n’avons pas pu inspecter ce site. Il bloque peut-être les accès automatisés. Essayez une autre URL ou importez une référence de design.",
         or: "ou",
         uploadDesignReference: "Importer une référence de design",
         importDesignSystem: "Importer un système de design",

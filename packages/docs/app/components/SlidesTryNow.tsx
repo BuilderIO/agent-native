@@ -1,6 +1,7 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAlertCircle,
   IconArrowRight,
   IconExternalLink,
   IconLoader2,
@@ -190,8 +191,8 @@ export function SlidesTryNow() {
         { method: "GET" },
       )) as DesignReference;
       streamStyleGuide(reference);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : tn("crawlError"));
+    } catch {
+      setError(tn("crawlError"));
     } finally {
       setIsLoading(false);
     }
@@ -236,8 +237,16 @@ export function SlidesTryNow() {
             </button>
           </div>
           {error && (
-            <p className="mb-0 mt-2 text-xs text-red-600 dark:text-red-400">
-              {error}
+            <p
+              role="status"
+              className="mb-0 mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-[var(--fg-secondary)]"
+            >
+              <IconAlertCircle
+                aria-hidden="true"
+                className="mt-0.5 shrink-0"
+                size={14}
+              />
+              <span>{error}</span>
             </p>
           )}
         </form>

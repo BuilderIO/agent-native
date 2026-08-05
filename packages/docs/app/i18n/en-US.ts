@@ -1229,7 +1229,8 @@ const enUS = {
         websiteUrl: "Website URL",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "Inspect website",
-        crawlError: "We couldn't inspect that website.",
+        crawlError:
+          "We couldn't inspect this site. It may block automated access. Try another URL or upload a design reference instead.",
         or: "or",
         uploadDesignReference: "Upload Design Reference",
         importDesignSystem: "Import Design System",

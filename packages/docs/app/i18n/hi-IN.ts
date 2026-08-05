@@ -1228,7 +1228,8 @@ const hiIN = {
         websiteUrl: "वेबसाइट URL",
         websiteUrlPlaceholder: "https://example.com",
         crawlWebsite: "वेबसाइट की जाँच करें",
-        crawlError: "हम उस वेबसाइट की जाँच नहीं कर सके।",
+        crawlError:
+          "हम इस वेबसाइट की जाँच नहीं कर सके। हो सकता है यह स्वचालित पहुँच को रोकती हो। कोई दूसरा URL आज़माएँ या डिज़ाइन संदर्भ अपलोड करें।",
         or: "या",
         uploadDesignReference: "डिज़ाइन संदर्भ अपलोड करें",
         importDesignSystem: "डिज़ाइन सिस्टम इंपोर्ट करें",
