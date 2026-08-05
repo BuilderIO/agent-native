@@ -1180,7 +1180,7 @@ const enUS = {
       s053: "Subscription",
       s054: "Free & open source",
       s055: "Build a slide deck now",
-      s056: "Start with a prompt, then add a design reference from any public website.",
+      s056: "Choose your design preferences and prompt to start. Always free.",
       s057: "Read the docs",
       s058: "View all apps",
       howItWorksDescribe:
