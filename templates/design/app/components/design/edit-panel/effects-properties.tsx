@@ -42,6 +42,7 @@ import {
   type GlslShaderPanelContext,
 } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
+import type { DesignSystemColorSwatch } from "./design-system-swatches";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
@@ -51,6 +52,7 @@ import {
   SectionIconButton,
   useRowDragReorder,
 } from "./inspector-controls";
+import { authoredColorValue } from "./interaction-state-helpers";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,
@@ -295,10 +297,15 @@ function ShadowEffectRow({
   rowProps,
   handleProps,
   element,
+  designSystemColors,
+  resolvedColor,
   motionKeyframeContext,
 }: {
   layer: ShadowLayer;
   index: number;
+  designSystemColors?: DesignSystemColorSwatch[];
+  /** The layer's painted colour, for the swatch when `layer.color` is a token. */
+  resolvedColor?: string;
   onChange: (patch: Partial<ShadowLayer>, meta?: StyleChangeMeta) => void;
   onRemove: () => void;
   onToggleVisibility: () => void;
@@ -452,6 +459,8 @@ function ShadowEffectRow({
           <ColorInput
             label={t("editPanel.labels.color")}
             value={cssColorOrFallback(layer.color, "rgba(0, 0, 0, 0.25)")}
+            designSystemColors={designSystemColors}
+            resolvedColor={resolvedColor}
             onChange={(value, meta) => onChange({ color: value }, meta)}
           />
         </div>
@@ -464,12 +473,15 @@ export function EffectsProperties({
   element,
   onStyleChange,
   onStylesChange,
+  designSystemColors,
   glslShaderContext,
   motionKeyframeContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  /** Kit tokens offered by name in the drop-shadow colour picker. */
+  designSystemColors?: DesignSystemColorSwatch[];
   /**
    * Persistence context for the code-backed Shader effect type (GLSL
    * overlay rendered above the element's content, saved into the screen
@@ -508,11 +520,13 @@ export function EffectsProperties({
   const shadowTargetsText = isTextElement(element);
   // Read from the same property the writer targets, or the rows would show a
   // box-shadow that is no longer what this element uses.
+  const shadowProperty = shadowTargetsText ? "textShadow" : "boxShadow";
+  const paintedShadowLayers = effectsAreMixed
+    ? []
+    : parseShadowLayers(styles[shadowProperty]);
   const shadowLayers = effectsAreMixed
     ? []
-    : parseShadowLayers(
-        shadowTargetsText ? styles.textShadow : styles.boxShadow,
-      );
+    : parseShadowLayers(authoredColorValue(element, shadowProperty));
   const setShadowLayers = (layers: ShadowLayer[], meta?: StyleChangeMeta) => {
     setHiddenEffectStash((stash) =>
       remapIndexedShadowStash(stash, effectStashKey, layers),
@@ -676,6 +690,8 @@ export function EffectsProperties({
                       }
                       rowProps={shadowDrag.getRowProps(index)}
                       handleProps={shadowDrag.getHandleProps(index)}
+                      designSystemColors={designSystemColors}
+                      resolvedColor={paintedShadowLayers[index]?.color}
                       onChange={(patch, meta) => {
                         const next = shadowLayers.map((candidate) =>
                           candidate.id === layer.id
