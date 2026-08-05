@@ -32,7 +32,8 @@ function threadIdFromPath(pathname: string): string | null {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
-    } catch { // coercion-ok: localStorage is optional browser persistence.
+  } catch {
+    // coercion-ok: localStorage is optional browser persistence.
     return null;
   }
 }

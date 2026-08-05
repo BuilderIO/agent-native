@@ -103,7 +103,8 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
 function persistedActiveThreadId() {
   try {
     return localStorage.getItem(CHAT_ACTIVE_THREAD_KEY);
-  } catch { // coercion-ok: localStorage is optional browser persistence.
+  } catch {
+    // coercion-ok: localStorage is optional browser persistence.
     return null;
   }
 }
@@ -120,7 +121,8 @@ function threadIdFromPath(pathname: string) {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
-  } catch { // coercion-ok: malformed route input has no usable thread id.
+  } catch {
+    // coercion-ok: malformed route input has no usable thread id.
     return null;
   }
 }

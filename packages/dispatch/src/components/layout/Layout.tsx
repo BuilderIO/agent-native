@@ -332,7 +332,8 @@ function readChatHistoryIncludesExternal(): boolean {
   if (typeof window === "undefined") return false;
   try {
     return localStorage.getItem(CHAT_HISTORY_SOURCE_KEY) === "all";
-  } catch { // coercion-ok: localStorage is optional browser persistence.
+  } catch {
+    // coercion-ok: localStorage is optional browser persistence.
     return false;
   }
 }
