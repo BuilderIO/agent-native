@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.137.5
+
+### Patch Changes
+
+- e78a5c0: Clear Better Auth session cache cookies when signing out.
+
 ## 0.137.4
 
 ### Patch Changes
