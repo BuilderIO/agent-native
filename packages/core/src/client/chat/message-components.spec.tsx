@@ -309,6 +309,36 @@ describe("assistantMessageHasCustomUi", () => {
       ]),
     ).toBe(false);
   });
+
+  it("keeps pending needsApproval affordances expanded", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "start-prospect-run",
+          result: "Awaiting human approval — did NOT execute.",
+          approval: { approvalKey: "start-prospect-run:{}" },
+        },
+        {
+          type: "text",
+          text: "Waiting for your approval to run start-prospect-run.",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "start-prospect-run",
+          result: "Awaiting human approval — did NOT execute.",
+          approval: {
+            approvalKey: "start-prospect-run:{}",
+            dismissed: true,
+          },
+        },
+      ]),
+    ).toBe(false);
+  });
 });
 
 describe("messageTextFromContent", () => {
@@ -585,6 +615,26 @@ describe("isCollapsibleAssistantWorkPart", () => {
         chatUI: { renderer: "todo-demo.todo-list-inline" },
       }),
     ).toBe(false);
+  });
+
+  it("keeps pending needsApproval tools outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "start-prospect-run",
+        approval: { approvalKey: "start-prospect-run:{}" },
+      }),
+    ).toBe(false);
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "start-prospect-run",
+        approval: {
+          approvalKey: "start-prospect-run:{}",
+          dismissed: true,
+        },
+      }),
+    ).toBe(true);
   });
 });
 

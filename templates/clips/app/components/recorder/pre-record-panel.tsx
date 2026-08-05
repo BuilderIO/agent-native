@@ -14,6 +14,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import { ImportMenu } from "@/components/import-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -425,6 +435,35 @@ export function PreRecordPanel({
       t("preRecord.shortMicLabel", { id: micId.slice(0, 4) })
     );
   }, [micId, micLabel, mics, t]);
+
+  const [micWarningOpen, setMicWarningOpen] = useState(false);
+
+  const buildStartOpts = useCallback(
+    () => ({
+      // If the user toggled off the camera inside screen+camera mode,
+      // downgrade to screen-only so the recorder engine doesn't try
+      // to acquire a webcam stream.
+      mode: (mode === "screen+camera" && !needsCamera
+        ? "screen"
+        : mode) as RecordingMode,
+      displaySurface: normalizeDisplaySurfaceForRuntime(displaySurface),
+      micDeviceId: micId === "default" ? null : micId,
+      micDeviceLabel:
+        micId === "default" || micId === NO_MIC_DEVICE_ID
+          ? null
+          : selectedMicLabel,
+      cameraDeviceId: needsCamera && cameraId !== "default" ? cameraId : null,
+    }),
+    [mode, needsCamera, displaySurface, micId, selectedMicLabel, cameraId],
+  );
+
+  const handleStartClick = useCallback(() => {
+    if (micId === NO_MIC_DEVICE_ID) {
+      setMicWarningOpen(true);
+      return;
+    }
+    onStart(buildStartOpts());
+  }, [micId, buildStartOpts, onStart]);
 
   const selectedCameraLabel = useMemo(() => {
     if (!needsCamera) return null;
@@ -893,24 +932,7 @@ export function PreRecordPanel({
           )}
           <Button
             disabled={startDisabled}
-            onClick={() =>
-              onStart({
-                // If the user toggled off the camera inside screen+camera mode,
-                // downgrade to screen-only so the recorder engine doesn't try
-                // to acquire a webcam stream.
-                mode:
-                  mode === "screen+camera" && !needsCamera ? "screen" : mode,
-                displaySurface:
-                  normalizeDisplaySurfaceForRuntime(displaySurface),
-                micDeviceId: micId === "default" ? null : micId,
-                micDeviceLabel:
-                  micId === "default" || micId === NO_MIC_DEVICE_ID
-                    ? null
-                    : selectedMicLabel,
-                cameraDeviceId:
-                  needsCamera && cameraId !== "default" ? cameraId : null,
-              })
-            }
+            onClick={handleStartClick}
             className={cn("h-12", onCancel ? "flex-1" : "w-full")}
           >
             {t("preRecord.startRecording")}
@@ -943,6 +965,31 @@ export function PreRecordPanel({
           </>
         )}
       </div>
+
+      <AlertDialog open={micWarningOpen} onOpenChange={setMicWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("preRecord.micOffConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("preRecord.micOffConfirmDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                setMicWarningOpen(false);
+                onStart(buildStartOpts());
+              }}
+            >
+              {t("preRecord.startWithoutMic")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

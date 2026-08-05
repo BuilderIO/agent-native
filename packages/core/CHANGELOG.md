@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.137.7
+
+### Patch Changes
+
+- 34e3dc3: Keep needsApproval Approve/Deny visible
+
+## 0.137.6
+
+### Patch Changes
+
+- bd50f3a: Fix a server hang caused by run reconciliation never reaching a fixed point. A run row already holding its reconciled terminal values still matched the repair UPDATE, and an unchanged rewrite counts as an affected row, so `reconcileTerminalRunFromEvents` reported a repair on every call. `getRunByThread` re-reconciles whenever a repair is reported, so a single settled `errored`/`stale_run` row made every lookup for that thread recurse without terminating, pinning the event loop and hanging all requests.
+
+## 0.137.5
+
+### Patch Changes
+
+- e78a5c0: Clear Better Auth session cache cookies when signing out.
+
 ## 0.137.4
 
 ### Patch Changes

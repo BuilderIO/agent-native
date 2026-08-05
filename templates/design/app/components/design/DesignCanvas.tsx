@@ -1293,6 +1293,10 @@ export function DesignCanvas({
     [probeBridgeReadinessUntilDrained],
   );
   const [renderedContent, setRenderedContent] = useState(content);
+  // What a freshly loaded document already contains, since srcdoc is built from
+  // it. The load handler below needs this to skip redundant pushes.
+  const renderedContentRef = useRef(renderedContent);
+  renderedContentRef.current = renderedContent;
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -4043,6 +4047,9 @@ export function DesignCanvas({
     const replaceLatestRuntimeContent = () => {
       const nextContent = runtimeReplacementContentRef.current;
       if (nextContent === undefined) return;
+      // The document that just loaded was built from these bytes; swapping it
+      // for itself only costs a blank frame.
+      if (renderedContentRef.current === nextContent) return;
       if (replaceRuntimeContentInPlace(nextContent)) {
         lastRuntimeReplacementKeyRef.current = runtimeReplacementKeyRef.current;
         lastRuntimeReplacementContentRef.current = nextContent;
