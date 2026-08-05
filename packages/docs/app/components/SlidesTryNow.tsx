@@ -46,6 +46,7 @@ function appendStyleGuideTarget(editor: HTMLDivElement) {
   editor.append(document.createElement("br"), document.createElement("br"));
   const target = document.createElement("span");
   target.dataset.styleGuide = "true";
+  target.className = "whitespace-pre-wrap";
   editor.append(target);
   return target;
 }
@@ -66,7 +67,7 @@ export function SlidesTryNow() {
     [],
   );
 
-  function streamStyleGuide(reference: DesignReference) {
+  function streamStyleGuide(reference: DesignReference, sourceUrl: string) {
     const editor = editorRef.current;
     if (!editor) return;
 
@@ -76,9 +77,6 @@ export function SlidesTryNow() {
     if (subject) replaceSubjectPlaceholder(editor, subject);
 
     const findings = [
-      reference.title && `${tn("findingTitle")}: ${reference.title}`,
-      reference.description &&
-        `${tn("findingDescription")}: ${reference.description}`,
       reference.primaryColor &&
         `${tn("findingPrimaryColor")}: ${reference.primaryColor}`,
       reference.accentColor &&
@@ -87,7 +85,10 @@ export function SlidesTryNow() {
         `${tn("findingHeadingFont")}: ${reference.headingFont}`,
       reference.bodyFont && `${tn("findingBodyFont")}: ${reference.bodyFont}`,
     ].filter(Boolean);
-    const text = `${tn("styleGuidePrefix")} ${findings.join("; ")}.`;
+    const header = [sourceUrl, reference.description].filter(Boolean).join(", ");
+    const text = `${tn("styleGuidePrefix")} ${header}${
+      findings.length ? `\n${findings.join("\n")}` : ""
+    }`;
     const target = appendStyleGuideTarget(editor);
     let cursor = 0;
     if (streamTimerRef.current) clearInterval(streamTimerRef.current);
@@ -149,7 +150,7 @@ export function SlidesTryNow() {
         { url: safeUrl },
         { method: "GET" },
       )) as DesignReference;
-      streamStyleGuide(reference);
+      streamStyleGuide(reference, safeUrl);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : tn("crawlError"));
     } finally {

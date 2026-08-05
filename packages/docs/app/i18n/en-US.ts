@@ -1251,7 +1251,7 @@ const enUS = {
         findingAccentColor: "accent color",
         findingHeadingFont: "heading font",
         findingBodyFont: "body font",
-        styleGuidePrefix: "Style guide:",
+        styleGuidePrefix: "Style guide for",
       },
     },
   },
