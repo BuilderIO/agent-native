@@ -73,7 +73,7 @@ const TOKEN_REFERENCE = /^var\(\s*(--[-_a-zA-Z0-9]+)\s*(?:,\s*([^()]+))?\)$/;
 
 export interface TokenReference {
   cssVar: string;
-  /** Literal after the comma, e.g. `#0f62fe`. Absent for a bare `var(--x)`. */
+  /** Literal after the comma. Absent for a bare `var(--x)`. */
   fallback: string | null;
 }
 
