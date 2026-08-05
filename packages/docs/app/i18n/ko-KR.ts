@@ -85,9 +85,9 @@ const koKR = {
   },
   home: {
     hero: {
-      titleLine1: "agentic apps 를 위한",
-      titleAccent: "framework",
-      body: "앱과 에이전트 중 하나를 고를 필요가 없습니다. Agent-Native 앱은 둘 다입니다.",
+      titleLine1: "팀과 에이전트가 함께 쓰는",
+      titleAccent: "앱을 만드세요",
+      body: "팀이 클릭할 수 있는 모든 것을 에이전트가 호출할 수 있습니다. 같은 action, 같은 데이터, 같은 앱. 오픈 소스 framework이며 코드는 여러분의 것입니다.",
       primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
     },

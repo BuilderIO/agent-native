@@ -85,9 +85,9 @@ const deDE = {
   },
   home: {
     hero: {
-      titleLine1: "Das Framework für",
-      titleAccent: "agentic Apps",
-      body: "Entscheide dich nicht zwischen Apps und Agents. Agent-Native-Apps sind beides.",
+      titleLine1: "Baue Apps, die dein Team",
+      titleAccent: "und Agents gemeinsam nutzen",
+      body: "Alles, was dein Team anklicken kann, können deine Agents aufrufen. Dieselben Actions, dieselben Daten, dieselbe App. Open-Source-Framework; der Code gehört dir.",
       primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
     },

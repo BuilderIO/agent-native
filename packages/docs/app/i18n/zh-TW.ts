@@ -82,9 +82,9 @@ const messages = {
   },
   home: {
     hero: {
-      titleLine1: "面向",
-      titleAccent: "agentic apps 的框架",
-      body: "不用在 app 與 agent 之間做選擇。Agent-Native app 兩者兼具。",
+      titleLine1: "打造團隊與 agent",
+      titleAccent: "共享的 app",
+      body: "團隊能點擊的，agent 都能呼叫。同一組 action、同一份資料、同一個 app。開源 framework，程式碼歸你所有。",
       primaryCta: "試用一個 app",
       secondaryCta: "閱讀檔案",
     },

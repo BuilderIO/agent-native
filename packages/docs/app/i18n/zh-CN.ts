@@ -84,9 +84,9 @@ const zhCN = {
   },
   home: {
     hero: {
-      titleLine1: "面向",
-      titleAccent: "agentic apps 的框架",
-      body: "无需在应用和 agent 之间做选择。Agent-Native 应用两者兼具。",
+      titleLine1: "构建团队和 agent",
+      titleAccent: "共享的应用",
+      body: "团队能点击的，agent 都能调用。同一组 action、同一份数据、同一个 app。开源框架，代码归你所有。",
       primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
     },

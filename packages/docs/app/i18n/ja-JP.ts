@@ -85,9 +85,9 @@ const jaJP = {
   },
   home: {
     hero: {
-      titleLine1: "agentic apps のための",
-      titleAccent: "framework",
-      body: "アプリとエージェントのどちらかを選ぶ必要はありません。Agent-Native アプリはその両方です。",
+      titleLine1: "チームとエージェントが共有する",
+      titleAccent: "アプリを構築",
+      body: "チームがクリックできるものは、すべてエージェントが呼び出せます。同じ action、同じデータ、同じアプリ。オープンソース framework で、コードはあなたのものです。",
       primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
     },

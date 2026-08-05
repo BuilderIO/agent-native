@@ -85,9 +85,9 @@ const frFR = {
   },
   home: {
     hero: {
-      titleLine1: "Le framework pour",
-      titleAccent: "apps agentic",
-      body: "Ne choisissez pas entre les apps et les agents. Les apps Agent-Native sont les deux.",
+      titleLine1: "Créez des apps partagées",
+      titleAccent: "par votre équipe et vos agents",
+      body: "Tout ce que votre équipe peut cliquer, vos agents peuvent l’appeler. Les mêmes actions, les mêmes données, la même app. Framework open source ; le code vous appartient.",
       primaryCta: "Commencer à construire",
       secondaryCta: "Voir la documentation",
     },

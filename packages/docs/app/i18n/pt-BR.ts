@@ -85,9 +85,9 @@ const ptBR = {
   },
   home: {
     hero: {
-      titleLine1: "O framework para",
-      titleAccent: "apps agentic",
-      body: "Não escolha entre apps e agents. As apps Agent-Native são as duas coisas.",
+      titleLine1: "Crie apps compartilhadas",
+      titleAccent: "pela sua equipe e agents",
+      body: "Tudo em que sua equipe pode clicar, seus agents podem chamar. As mesmas actions, os mesmos dados, a mesma app. Framework open source; o código é seu.",
       primaryCta: "Testar uma app",
       secondaryCta: "Ler a documentação",
     },

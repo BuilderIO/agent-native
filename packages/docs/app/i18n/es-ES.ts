@@ -85,9 +85,9 @@ const esES = {
   },
   home: {
     hero: {
-      titleLine1: "El framework para",
-      titleAccent: "apps agentic",
-      body: "No elijas entre apps o agentes. Las apps Agent-Native son ambas cosas.",
+      titleLine1: "Crea apps que compartan",
+      titleAccent: "tu equipo y tus agentes",
+      body: "Todo lo que tu equipo puede pulsar, tus agentes lo pueden ejecutar. Las mismas acciones, los mismos datos, la misma app. Framework de código abierto; el código es tuyo.",
       primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
     },

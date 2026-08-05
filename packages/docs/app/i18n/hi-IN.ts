@@ -84,9 +84,9 @@ const hiIN = {
   },
   home: {
     hero: {
-      titleLine1: "agentic apps के लिए",
-      titleAccent: "framework",
-      body: "ऐप्स या एजेंट्स में से किसी एक को न चुनें। Agent-Native apps दोनों हैं।",
+      titleLine1: "ऐसे apps बनाएं जिन्हें आपकी team",
+      titleAccent: "और agents साझा करें",
+      body: "आपकी team जिस पर click कर सकती है, आपके agents उसे call कर सकते हैं। वही actions, वही data, वही app। Open source framework; code आपका है।",
       primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
     },

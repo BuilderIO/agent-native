@@ -96,9 +96,9 @@ const enUS = {
   },
   home: {
     hero: {
-      titleLine1: "The framework for",
-      titleAccent: "agentic apps",
-      body: "Don't pick between apps or agents. Agent-Native apps are both.",
+      titleLine1: "Build apps your team",
+      titleAccent: "and agents share",
+      body: "Anything your team can click, your agents can call. Same actions, same data, same app. Open source framework; you own the code.",
       primaryCta: "Try an app",
       secondaryCta: "Read the docs",
     },
