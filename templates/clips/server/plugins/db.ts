@@ -798,7 +798,6 @@ const migrations = runMigrations(
     },
     {
       version: 45,
-      name: "clips-video-projects",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_video_projects (
           id TEXT PRIMARY KEY,
@@ -829,7 +828,6 @@ const migrations = runMigrations(
     },
     {
       version: 46,
-      name: "clips-editor-media-assets",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_editor_media_assets (
           id TEXT PRIMARY KEY,
@@ -847,7 +845,6 @@ const migrations = runMigrations(
     },
     {
       version: 47,
-      name: "clips-annotations",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_annotations (
           id TEXT PRIMARY KEY,
@@ -873,7 +870,6 @@ const migrations = runMigrations(
     },
     {
       version: 48,
-      name: "clips-edit-versions",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_edit_versions (
           id TEXT PRIMARY KEY,
@@ -897,7 +893,6 @@ const migrations = runMigrations(
     },
     {
       version: 49,
-      name: "recording-transcripts-raw-snapshot",
       sql: [
         `ALTER TABLE recording_transcripts ADD COLUMN raw_full_text TEXT`,
         `ALTER TABLE recording_transcripts ADD COLUMN raw_segments_json TEXT`,
