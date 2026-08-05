@@ -317,9 +317,114 @@ describe("createAgentNativeChatRuntime", () => {
       },
     });
   });
+
+  it("carries the model-side toolCallId from approval_required", async () => {
+    // The server sends the paused call's id as `toolCallId`, never as `id`.
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "tool_start",
+          id: "call-1",
+          tool: "start-prospect-run",
+          input: {},
+        },
+        {
+          type: "approval_required",
+          tool: "start-prospect-run",
+          input: {},
+          approvalKey: "start-prospect-run:{}",
+          toolCallId: "call-1",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approval",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: "run it" });
+    const events = await drain(turn.events);
+
+    expect(
+      events.find((event) => event.type === "approval-request"),
+    ).toMatchObject({
+      approvalId: "start-prospect-run:{}",
+      toolCallId: "call-1",
+      toolName: "start-prospect-run",
+    });
+  });
 });
 
 describe("createAgentChatRuntimeAdapter", () => {
+  it("attaches approval to the call matching toolCallId, not the latest same-named call", async () => {
+    const runtime: AgentChatRuntime = {
+      id: "external:test",
+      kind: "external-agent",
+      label: "Test",
+      capabilities: {
+        messages: { streaming: true },
+        sessions: { create: true },
+      },
+      async createSession() {
+        return {
+          id: "session-1",
+          runtimeId: "external:test",
+          async startTurn() {
+            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+              // Two calls to the same action are in flight at once.
+              yield {
+                type: "tool-start",
+                toolCall: { id: "call-1", name: "start-prospect-run" },
+              };
+              yield {
+                type: "tool-start",
+                toolCall: { id: "call-2", name: "start-prospect-run" },
+              };
+              // The gate pauses the FIRST one.
+              yield {
+                type: "approval-request",
+                approvalId: "start-prospect-run:call-1",
+                toolCallId: "call-1",
+                toolName: "start-prospect-run",
+                message: "Approve this tool call?",
+              };
+              yield { type: "done", reason: "complete" };
+            }
+            return {
+              id: "turn-1",
+              sessionId: "session-1",
+              runId: "run-1",
+              events: events(),
+            };
+          },
+        };
+      },
+    };
+    const adapter = createAgentChatRuntimeAdapter(runtime);
+
+    const results = await drain(
+      adapter.run({
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        abortSignal: new AbortController().signal,
+        runConfig: {},
+      } as any),
+    );
+
+    const toolCalls = (results.at(-1)?.content ?? []).filter(
+      (part: any) => part.type === "tool-call",
+    ) as any[];
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls[0]).toMatchObject({
+      toolCallId: "call-1",
+      approval: { approvalKey: "start-prospect-run:call-1" },
+    });
+    expect(toolCalls[1].approval).toBeUndefined();
+  });
+
   it("adapts runtime events into assistant-ui content", async () => {
     const runtime: AgentChatRuntime = {
       id: "external:test",

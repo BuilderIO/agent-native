@@ -1360,7 +1360,10 @@ function mapAgentNativeEvent(
         type: "approval-request",
         ...base,
         approvalId: ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
-        toolCallId: ev.id,
+        // `approval_required` carries the model-side call id as `toolCallId`,
+        // not `id`. Without this the request falls back to matching by tool
+        // name, which picks the wrong call when two are pending at once.
+        toolCallId: ev.toolCallId ?? ev.id,
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
         input: ev.input,
@@ -1632,15 +1635,27 @@ function applyRuntimeEventToContent(
     return { content: [...content] } as ChatModelRunResult;
   }
   if (typed.type === "approval-request") {
-    const part = [...content]
-      .reverse()
-      .find(
-        (candidate): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-          candidate.type === "tool-call" &&
-          (candidate.toolCallId === typed.toolCallId ||
-            candidate.toolName === typed.toolName),
+    const reversed = [...content].reverse();
+    const isToolCall = (
+      candidate: ContentPart,
+    ): candidate is Extract<ContentPart, { type: "tool-call" }> =>
+      candidate.type === "tool-call";
+    // Prefer the exact call id. Matching on tool name alone attaches the gate
+    // to the most recent same-named call, which is the wrong one when several
+    // calls to the same action are in flight.
+    const part =
+      (typed.toolCallId
+        ? reversed.find(
+            (candidate) =>
+              isToolCall(candidate) &&
+              candidate.toolCallId === typed.toolCallId,
+          )
+        : undefined) ??
+      reversed.find(
+        (candidate) =>
+          isToolCall(candidate) && candidate.toolName === typed.toolName,
       );
-    if (part) {
+    if (part && part.type === "tool-call") {
       part.approval = { approvalKey: typed.approvalId };
     } else {
       content.push({
