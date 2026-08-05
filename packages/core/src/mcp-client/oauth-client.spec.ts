@@ -195,6 +195,7 @@ describe("MCP OAuth client", () => {
     await expect(
       fetchFn!("https://127.0.0.1/.well-known/oauth-authorization-server"),
     ).rejects.toThrow(/private\/internal address/);
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
     const provider = new McpOAuthClientProvider({
       serverUrl: "https://mcp.example.com/mcp",
       redirectUrl: "https://app.example.com/callback",
@@ -205,6 +206,44 @@ describe("MCP OAuth client", () => {
         authorizationServerUrl: "https://10.0.0.5/oauth",
       }),
     ).toThrow(/private\/internal address/);
+  });
+
+  it("routes OAuth discovery through the DNS-aware SSRF guard", async () => {
+    let fetchFn:
+      | ((url: string | URL, init?: RequestInit) => Promise<Response>)
+      | undefined;
+    authMock.mockImplementationOnce(
+      async (
+        provider: McpOAuthClientProvider,
+        options: { fetchFn?: typeof fetchFn },
+      ) => {
+        fetchFn = options.fetchFn;
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+    ssrfSafeFetchMock.mockResolvedValueOnce(new Response("ok"));
+
+    await startMcpOAuthAuthorization({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+    await fetchFn!("https://auth.example.com/discovery");
+
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      "https://auth.example.com/discovery",
+      expect.objectContaining({ redirect: "manual" }),
+      expect.objectContaining({
+        maxRedirects: 0,
+        followRedirects: false,
+        allowedPrivateOrigins: [],
+      }),
+    );
   });
 
   it("validates every OAuth redirect hop and strips credentials across origins", async () => {

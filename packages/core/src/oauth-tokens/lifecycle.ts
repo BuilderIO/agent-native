@@ -198,17 +198,14 @@ function startLeaseHeartbeat(
   holder: string,
   leaseMs: number,
   dependencies: LifecycleDependencies,
-  onLeaseLost: () => void,
 ): () => Promise<void> {
   let renewal: Promise<void> | undefined;
   const timer = setInterval(
     () => {
       if (renewal) return;
       renewal = acquireLease(identity, holder, leaseMs, dependencies.now())
-        .then((renewed) => {
-          if (!renewed) onLeaseLost();
-        })
-        .catch(onLeaseLost)
+        .then(() => undefined)
+        .catch(() => undefined)
         .finally(() => {
           renewal = undefined;
         });
@@ -412,15 +409,11 @@ export async function resolveOAuthCredentialAccess<
         };
       }
       try {
-        let leaseHealthy = true;
         const stopHeartbeat = startLeaseHeartbeat(
           identity,
           holder,
           leaseMs,
           dependencies,
-          () => {
-            leaseHealthy = false;
-          },
         );
         const refreshed = withLifecycle(
           identity,
@@ -428,9 +421,6 @@ export async function resolveOAuthCredentialAccess<
             .refresh({ identity, credential: state.credential })
             .finally(stopHeartbeat),
         );
-        if (!leaseHealthy) {
-          throw new Error("OAuth refresh lease was lost.");
-        }
         const saved = await replaceOAuthTokensIfRevision(
           identity.provider,
           storageAccountId(identity, options.legacyAccountKey),
@@ -458,6 +448,16 @@ export async function resolveOAuthCredentialAccess<
               : null,
         };
       } catch {
+        const stillOwnsLease = await acquireLease(
+          identity,
+          holder,
+          leaseMs,
+          dependencies.now(),
+        );
+        if (!stillOwnsLease) {
+          await dependencies.sleep(waitMs);
+          continue;
+        }
         const latest = await readOAuthCredentialState<T>(identity, {
           allowLegacy: options.allowLegacy,
           legacyAccountKey: options.legacyAccountKey,

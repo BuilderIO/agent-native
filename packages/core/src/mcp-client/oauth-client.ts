@@ -38,6 +38,7 @@ import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const MAX_OAUTH_REDIRECTS = 5;
+const MCP_OAUTH_PRIVATE_ORIGINS_ENV = "AGENT_NATIVE_MCP_OAUTH_PRIVATE_ORIGINS";
 
 type GuardedFetch = (
   url: string | URL,
@@ -55,12 +56,22 @@ function checkedRemoteUrl(value: string | URL, label: string): URL {
 }
 
 function guardedOAuthFetch(): GuardedFetch {
+  const allowedPrivateOrigins = (
+    process.env[MCP_OAUTH_PRIVATE_ORIGINS_ENV] ?? ""
+  )
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
   return async (url, init) => {
     let currentUrl = checkedRemoteUrl(url, "request");
     let currentInit: RequestInit = { ...init, redirect: "manual" };
 
     for (let redirectCount = 0; ; redirectCount += 1) {
-      const response = await fetch(currentUrl, currentInit);
+      const response = await ssrfSafeFetch(currentUrl.href, currentInit, {
+        maxRedirects: 0,
+        followRedirects: false,
+        allowedPrivateOrigins,
+      });
       if (![301, 302, 303, 307, 308].includes(response.status)) {
         return response;
       }

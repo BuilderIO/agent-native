@@ -130,6 +130,21 @@ describe("ssrfSafeFetch per-hop policies", () => {
     expect(redirectResponse.bodyUsed).toBe(true);
   });
 
+  it("can return a validated redirect for a caller with its own redirect policy", async () => {
+    const redirectResponse = new Response("moved", {
+      status: 302,
+      headers: { location: httpOrigin },
+    });
+    const fetchMock = vi.fn(async () => redirectResponse);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ssrfSafeFetch(httpsOrigin, {}, { followRedirects: false }),
+    ).resolves.toBe(redirectResponse);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(redirectResponse.bodyUsed).toBe(false);
+  });
+
   it("allows configured loopback aliases without allowing an unconfigured port", async () => {
     const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

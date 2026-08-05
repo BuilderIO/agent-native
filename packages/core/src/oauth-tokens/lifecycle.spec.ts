@@ -302,6 +302,94 @@ describe("OAuth credential lifecycle", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves a successful rotated token when the refresh lease is stolen", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    let finishRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const refresh = vi.fn(async ({ credential: current }) => {
+      await refreshGate;
+      return {
+        ...current,
+        tokens: {
+          ...current.tokens,
+          access_token: "<LEASE_LOSS_ACCESS_TOKEN>",
+          refresh_token: "<LEASE_LOSS_REFRESH_TOKEN>",
+        },
+        tokenExpiresAt: Date.now() + 3_600_000,
+      };
+    });
+
+    const pending = resolveOAuthCredentialAccess(identity, {
+      refresh,
+      leaseMs: 12,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const key = [...state.settings.keys()][0];
+    state.settings.set(key, {
+      holder: "competing-process",
+      expiresAt: Date.now() + 10_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    finishRefresh();
+
+    await expect(pending).resolves.toMatchObject({
+      accessToken: "<LEASE_LOSS_ACCESS_TOKEN>",
+      state: { kind: "connected" },
+    });
+    await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
+      kind: "connected",
+      credential: {
+        tokens: { refresh_token: "<LEASE_LOSS_REFRESH_TOKEN>" },
+      },
+    });
+  });
+
+  it("reloads the winning rotation instead of marking reconnect after lease loss", async () => {
+    await saveOAuthCredential(
+      identity,
+      credential({ expiresAt: Date.now() - 1 }),
+    );
+    let rejectRefresh!: () => void;
+    const refreshGate = new Promise<never>((_resolve, reject) => {
+      rejectRefresh = () => reject(new Error("rotating token already used"));
+    });
+
+    const pending = resolveOAuthCredentialAccess(identity, {
+      refresh: async () => refreshGate,
+      leaseMs: 12,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const key = [...state.settings.keys()][0];
+    state.settings.set(key, {
+      holder: "competing-process",
+      expiresAt: Date.now() + 10_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    rejectRefresh();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await saveOAuthCredential(
+      identity,
+      credential({
+        access: "<WINNING_ACCESS_TOKEN>",
+        refresh: "<WINNING_REFRESH_TOKEN>",
+      }),
+    );
+
+    await expect(pending).resolves.toMatchObject({
+      accessToken: "<WINNING_ACCESS_TOKEN>",
+      state: { kind: "connected" },
+    });
+  });
+
   it("marks an expired credential for reconnect after refresh fails", async () => {
     await saveOAuthCredential(
       identity,

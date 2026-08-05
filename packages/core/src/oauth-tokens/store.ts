@@ -333,10 +333,10 @@ export async function saveOAuthTokens(
     ...cleanedIncomingTokens,
   };
 
-  await client.execute({
+  const result = await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=GREATEST(${table}.updated_at + 1, EXCLUDED.updated_at)`
-      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=excluded.owner, display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=MAX(${table}.updated_at + 1, excluded.updated_at)`,
+      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=GREATEST(${table}.updated_at + 1, EXCLUDED.updated_at) WHERE ${table}.owner = EXCLUDED.owner`
+      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=MAX(${table}.updated_at + 1, excluded.updated_at) WHERE ${table}.owner = excluded.owner`,
     args: [
       provider,
       accountId,
@@ -346,6 +346,22 @@ export async function saveOAuthTokens(
       Date.now(),
     ],
   });
+  if (result.rowsAffected === 1) return;
+
+  const { rows: conflict } = await client.execute({
+    sql: `SELECT owner FROM ${table} WHERE provider = ? AND account_id = ?`,
+    args: [provider, accountId],
+  });
+  const conflictOwner = (conflict[0]?.owner as string | undefined) ?? "";
+  if (conflictOwner && conflictOwner !== resolvedOwner) {
+    throw new OAuthAccountOwnedByOtherUserError({
+      provider,
+      accountId,
+      existingOwner: conflictOwner,
+      attemptedOwner: resolvedOwner,
+    });
+  }
+  throw new Error(`OAuth account ${provider}:${accountId} was not saved.`);
 }
 
 export async function deleteOAuthTokens(

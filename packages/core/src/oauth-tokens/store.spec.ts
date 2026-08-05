@@ -17,12 +17,31 @@ let existingOwner: string | null = null;
 let existingTokens: Record<string, unknown> | null = null;
 let existingRevision = 100;
 let mockPostgres = false;
+let conflictOwnerAfterUpsert: string | null = null;
+let upsertAttempted = false;
 
 const mockDb = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
     const sql = typeof input === "string" ? input : input.sql;
     const args = typeof input === "string" ? [] : (input.args ?? []);
     execCalls.push({ sql, args });
+
+    if (/^\s*INSERT\s+INTO\s+(?:public\.)?oauth_tokens/i.test(sql)) {
+      upsertAttempted = true;
+      return {
+        rows: [],
+        rowsAffected: conflictOwnerAfterUpsert ? 0 : 1,
+      };
+    }
+
+    if (/SELECT owner FROM (?:public\.)?oauth_tokens/i.test(sql)) {
+      const owner =
+        existingOwner ?? (upsertAttempted ? conflictOwnerAfterUpsert : null);
+      return {
+        rows: owner ? [{ owner }] : [],
+        rowsAffected: 0,
+      };
+    }
 
     if (
       /SELECT owner, tokens, updated_at FROM (?:public\.)?oauth_tokens/i.test(
@@ -98,6 +117,8 @@ describe("oauth token store", () => {
     existingTokens = null;
     existingRevision = 100;
     mockPostgres = false;
+    conflictOwnerAfterUpsert = null;
+    upsertAttempted = false;
     vi.clearAllMocks();
   });
 
@@ -116,6 +137,27 @@ describe("oauth token store", () => {
       existingOwner: "other@example.com",
       attemptedOwner: "steve@builder.io",
     });
+  });
+
+  it("refuses a different owner that wins the row between the pre-read and upsert", async () => {
+    conflictOwnerAfterUpsert = "other@example.com";
+
+    await expect(
+      saveOAuthTokens(
+        "google",
+        "steve@builder.io",
+        { access_token: "new-token" },
+        "steve@builder.io",
+      ),
+    ).rejects.toMatchObject({
+      name: "OAuthAccountOwnedByOtherUserError",
+      existingOwner: "other@example.com",
+      attemptedOwner: "steve@builder.io",
+    });
+
+    expect(lastInsert().sql).toContain(
+      "WHERE oauth_tokens.owner = excluded.owner",
+    );
   });
 
   it("supports owner-scoped reads and deletes for tenant-bound OAuth credentials", async () => {
