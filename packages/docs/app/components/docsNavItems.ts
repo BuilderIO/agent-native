@@ -60,12 +60,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "whatIsAgentNative",
         slug: "what-is-agent-native",
       },
+      { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "agent-surfaces",
         labelKey: "agentSurfaces",
         slug: "agent-surfaces",
       },
-      { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "cloneable-saas",
         labelKey: "templatesOverview",
