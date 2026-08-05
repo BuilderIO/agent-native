@@ -199,16 +199,23 @@ export function startCreativeContextImportSweep(input: {
   if (!appId) throw new Error("appId is required.");
   const existing = sweepTimers.get(appId);
   if (!existing) {
+    let running = false;
     const run = () => {
+      if (running) return;
+      running = true;
       void Promise.all([
         processDueCreativeContextImportJobs({ appId }),
         processDueCreativeContextBackgroundJobs({ appId }),
-      ]).catch((error) => {
-        console.error(
-          "[creative-context] due job sweep failed:",
-          error instanceof Error ? error.message : error,
-        );
-      });
+      ])
+        .catch((error) => {
+          console.error(
+            "[creative-context] due job sweep failed:",
+            error instanceof Error ? error.message : error,
+          );
+        })
+        .finally(() => {
+          running = false;
+        });
     };
     run();
     const timer = setInterval(

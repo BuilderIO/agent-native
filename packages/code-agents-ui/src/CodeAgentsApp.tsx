@@ -337,6 +337,31 @@ const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
 const CODE_AGENT_VIEWED_RUN_IDS_KEY = "agent-native-code:viewed-run-ids";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
 const DEFAULT_REMOTE_RELAY_URL = "https://dispatch.agent-native.com";
+const HOST_CALL_TIMEOUT_MIN_MS = 10_000;
+
+function getHostCallTimeoutMs(pollIntervalMs: number): number {
+  return Math.max(HOST_CALL_TIMEOUT_MIN_MS, pollIntervalMs * 4);
+}
+
+/**
+ * Bounds a host RPC call so a hung host process can't pin a poll's in-flight
+ * guard forever. The host call itself keeps running in the background if it
+ * loses the race, but nothing is listening to it anymore, so a late
+ * resolution cannot clobber state set by a newer poll cycle.
+ */
+function withHostCallTimeout<T>(
+  call: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Host call timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
+}
 
 function appUrlForRemotePairing(app: AppConfig): string {
   if ((app.mode ?? "prod") === "dev") {
@@ -550,7 +575,10 @@ export default function CodeAgentsApp({
   const loadRuns = useCallback(
     async (_busy = false) => {
       try {
-        const result = await host.listRuns(selectedGoal.id);
+        const result = await withHostCallTimeout(
+          host.listRuns(selectedGoal.id),
+          getHostCallTimeoutMs(2_000),
+        );
         setStatus(result.status);
         setError(result.error ?? null);
         setRuns(result.runs);
@@ -613,10 +641,13 @@ export default function CodeAgentsApp({
       }
       if (busy) setTranscriptLoading(true);
       try {
-        const result = await host.readTranscript({
-          goalId: selectedGoal.id,
-          runId,
-        });
+        const result = await withHostCallTimeout(
+          host.readTranscript({
+            goalId: selectedGoal.id,
+            runId,
+          }),
+          getHostCallTimeoutMs(1_000),
+        );
         setTranscriptEvents(result.events);
         setTranscriptError(result.error ?? null);
       } catch (err) {
@@ -651,7 +682,10 @@ export default function CodeAgentsApp({
   const loadRemoteConnectorStatus = useCallback(async () => {
     if (!host.getRemoteConnectorStatus) return;
     try {
-      const result = await host.getRemoteConnectorStatus();
+      const result = await withHostCallTimeout(
+        host.getRemoteConnectorStatus(),
+        getHostCallTimeoutMs(5_000),
+      );
       setRemoteConnectorStatus(result);
       setRemoteConnectorError(null);
     } catch (err) {
@@ -709,8 +743,14 @@ export default function CodeAgentsApp({
   useEffect(() => {
     if (!isActive || !host.getHostMetadata) return;
     let cancelled = false;
+    let inFlight = false;
     const refresh = () => {
-      void host.getHostMetadata!()
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      void withHostCallTimeout(
+        host.getHostMetadata!(),
+        getHostCallTimeoutMs(5_000),
+      )
         .then((result) => {
           if (!cancelled) setHostMetadata(result);
         })
@@ -721,6 +761,9 @@ export default function CodeAgentsApp({
               error: err instanceof Error ? err.message : String(err),
             });
           }
+        })
+        .finally(() => {
+          inFlight = false;
         });
     };
     refresh();
@@ -877,11 +920,16 @@ export default function CodeAgentsApp({
 
   useEffect(() => {
     if (!isActive || !host.getRemoteConnectorStatus) return;
-    void loadRemoteConnectorStatus();
-    const timer = window.setInterval(
-      () => void loadRemoteConnectorStatus(),
-      5000,
-    );
+    let inFlight = false;
+    const tick = () => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      void loadRemoteConnectorStatus().finally(() => {
+        inFlight = false;
+      });
+    };
+    tick();
+    const timer = window.setInterval(tick, 5000);
     return () => window.clearInterval(timer);
   }, [host.getRemoteConnectorStatus, isActive, loadRemoteConnectorStatus]);
 
@@ -1048,11 +1096,16 @@ export default function CodeAgentsApp({
 
   useEffect(() => {
     if (!isActive) return;
-    void loadRuns();
-    const interval = window.setInterval(
-      () => void loadRuns(),
-      hasActiveRuns ? 2_000 : 10_000,
-    );
+    let inFlight = false;
+    const tick = () => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      void loadRuns().finally(() => {
+        inFlight = false;
+      });
+    };
+    tick();
+    const interval = window.setInterval(tick, hasActiveRuns ? 2_000 : 10_000);
     return () => window.clearInterval(interval);
   }, [hasActiveRuns, isActive, loadRuns]);
 
@@ -1083,10 +1136,14 @@ export default function CodeAgentsApp({
       : selectedRunIsActive
         ? 1_000
         : 5_000;
-    const interval = window.setInterval(
-      () => void loadTranscript(selectedRunId),
-      pollMs,
-    );
+    let inFlight = false;
+    const interval = window.setInterval(() => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      void loadTranscript(selectedRunId).finally(() => {
+        inFlight = false;
+      });
+    }, pollMs);
     return () => {
       unsubscribe?.();
       window.clearInterval(interval);

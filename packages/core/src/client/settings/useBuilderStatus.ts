@@ -5,6 +5,7 @@ import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
+import { usePollLoop } from "../use-poll-loop.js";
 
 export interface BuilderStatus {
   configured: boolean;
@@ -207,6 +208,10 @@ export interface BuilderConnectFlow {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+// Fallback timeout for callers of fetchStatus() with no external signal of
+// their own (the initial status fetch, the popup-open branches in `start`).
+// The connect-flow poll loop below gets its timeout from usePollLoop instead.
+const STATUS_FETCH_ABORT_MS = 10_000;
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
@@ -577,7 +582,6 @@ export function useBuilderConnectFlow(
   // still-good direct URL (desktop) or refresh a new one inside the popup
   // gesture path (browser/editor embeds).
   const statusConnectUrlAtRef = useRef<number | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectStartedAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const notifiedConnectedRef = useRef(false);
@@ -585,40 +589,57 @@ export function useBuilderConnectFlow(
   // caller passes an inline arrow function.
   const onConnectedRef = useRef(onConnected);
   onConnectedRef.current = onConnected;
+  // Tracking identity for whichever click is currently connecting, read by
+  // the poll loop's timeout-failure event below.
+  const activeTrackingRef = useRef<{ source: string; flow?: string }>({
+    source: trackingSource,
+    flow: trackingFlow,
+  });
 
-  const stopPoll = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }, []);
-
-  const fetchStatus = useCallback(async () => {
-    if (!enabled) return null;
-    const origin = getCallbackOrigin() || window.location.origin;
-    try {
-      const r = await fetch(
-        new URL(
-          agentNativePath("/_agent-native/connection-status/builder"),
-          origin,
-        ).href,
-      );
-      if (!r.ok) return null;
-      return (await r.json()) as {
-        configured: boolean;
-        envManaged?: boolean;
-        builderEnabled?: boolean;
-        orgName?: string | null;
-        connectUrl?: string;
-        cliAuthUrl?: string;
-        credentialSource?: "user" | "org" | "workspace" | "env";
-        connectError?: { message: string; at: number };
-        authError?: { message: string; at: number };
-      };
-    } catch {
-      return null;
-    }
-  }, [enabled]);
+  // Accepts an optional external `signal` so the connect-flow poll loop below
+  // can cancel this fetch via its own timeout instead of racing a second,
+  // separately-constructed AbortController. Callers with no signal of their
+  // own (the initial status fetch, the popup-open branches in `start`) keep
+  // the internal fallback timeout.
+  const fetchStatus = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!enabled) return null;
+      const origin = getCallbackOrigin() || window.location.origin;
+      const ownController =
+        !signal && typeof AbortController !== "undefined"
+          ? new AbortController()
+          : null;
+      const timeoutId = ownController
+        ? setTimeout(() => ownController.abort(), STATUS_FETCH_ABORT_MS)
+        : null;
+      try {
+        const r = await fetch(
+          new URL(
+            agentNativePath("/_agent-native/connection-status/builder"),
+            origin,
+          ).href,
+          { signal: signal ?? ownController?.signal },
+        );
+        if (!r.ok) return null;
+        return (await r.json()) as {
+          configured: boolean;
+          envManaged?: boolean;
+          builderEnabled?: boolean;
+          orgName?: string | null;
+          connectUrl?: string;
+          cliAuthUrl?: string;
+          credentialSource?: "user" | "org" | "workspace" | "env";
+          connectError?: { message: string; at: number };
+          authError?: { message: string; at: number };
+        };
+      } catch {
+        return null;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    },
+    [enabled],
+  );
 
   // Initial fetch + focus/visibility refresh so if the user completed the
   // flow in another tab (or a downgraded same-tab nav) we notice it. Also
@@ -637,7 +658,6 @@ export function useBuilderConnectFlow(
       setStatusResolved(false);
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
-      stopPoll();
       return;
     }
     mountedRef.current = true;
@@ -698,19 +718,21 @@ export function useBuilderConnectFlow(
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("agent-engine:configured-changed", refresh);
-      stopPoll();
     };
-  }, [enabled, fetchStatus, stopPoll]);
+  }, [enabled, fetchStatus]);
 
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
       if (!enabled) return;
-      stopPoll();
       const started = Date.now();
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
       connectStartedAtRef.current = started;
+      activeTrackingRef.current = {
+        source: clickTrackingSource,
+        flow: clickTrackingFlow,
+      };
       setConnecting(true);
       setError(null);
 
@@ -789,7 +811,6 @@ export function useBuilderConnectFlow(
             const openedByHost =
               await openBuilderConnectViaMcpHost(trackedHostUrl);
             if (!mountedRef.current || openedByHost) return;
-            stopPoll();
             connectStartedAtRef.current = null;
             setConnecting(false);
             setError(
@@ -838,7 +859,6 @@ export function useBuilderConnectFlow(
               } catch {
                 // Ignore close failures.
               }
-              stopPoll();
               connectStartedAtRef.current = null;
               setConnecting(false);
               setError(
@@ -851,7 +871,6 @@ export function useBuilderConnectFlow(
               flow: clickTrackingFlow,
             });
             if (!navigateBuilderConnectPopup(opened, trackedFreshUrl)) {
-              stopPoll();
               connectStartedAtRef.current = null;
               setConnecting(false);
               setError(
@@ -861,70 +880,76 @@ export function useBuilderConnectFlow(
           })();
         }
       }
-
-      pollRef.current = setInterval(async () => {
-        const s = await fetchStatus();
-        if (!mountedRef.current) {
-          stopPoll();
-          return;
-        }
-        if (s?.configured) {
-          stopPoll();
-          setConfigured(true);
-          setEnvManaged(!!s.envManaged);
-          setBuilderEnabled(!!s.builderEnabled);
-          const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
-          setStatusConnectUrl(nextConnectUrl);
-          statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
-          const org = s.orgName ?? null;
-          setOrgName(org);
-          setConnecting(false);
-          connectStartedAtRef.current = null;
-          notifiedConnectedRef.current = true;
-          notifyAgentEngineConfiguredChanged("builder-connect");
-          try {
-            await onConnectedRef.current?.({ orgName: org });
-          } catch {
-            // Consumer's callback failed; we've already flipped the UI state
-            // to connected. Swallow so we don't re-arm the flow.
-          }
-        } else if (isCurrentConnectError(s?.connectError, started)) {
-          // OAuth callback ran but writeBuilderCredentials threw — surface the
-          // real error instead of letting the user wait 5 minutes for timeout.
-          stopPoll();
-          connectStartedAtRef.current = null;
-          setConnecting(false);
-          setError(
-            `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
-          );
-        } else if (Date.now() - started > POLL_TIMEOUT_MS) {
-          stopPoll();
-          connectStartedAtRef.current = null;
-          setConnecting(false);
-          trackEvent("builder connect failed", {
-            feature: "builder",
-            stage: "client",
-            reason: "timeout",
-            source: clickTrackingSource,
-            flow:
-              cleanTrackingParam(clickTrackingFlow) ??
-              inferBuilderConnectTrackingFlow(clickTrackingSource),
-          });
-          setError(
-            "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
-          );
-        }
-      }, POLL_INTERVAL_MS);
     },
     [
       enabled,
       fetchStatus,
       popupUrl,
       statusConnectUrl,
-      stopPoll,
       trackingFlow,
       trackingSource,
     ],
+  );
+
+  // Connect-flow poll: while `connecting`, checks the server every 2s for the
+  // popup callback to have landed. `enabled` here folds in both the hook's
+  // own `enabled` option and the 5-minute overall cap (checked below and
+  // enforced by flipping `connecting` false, which then disables this loop).
+  usePollLoop(
+    async (signal) => {
+      const started = connectStartedAtRef.current;
+      if (started == null) return;
+      const s = await fetchStatus(signal);
+      if (!mountedRef.current) return;
+      if (s?.configured) {
+        setConfigured(true);
+        setEnvManaged(!!s.envManaged);
+        setBuilderEnabled(!!s.builderEnabled);
+        const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+        setStatusConnectUrl(nextConnectUrl);
+        statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
+        const org = s.orgName ?? null;
+        setOrgName(org);
+        setConnecting(false);
+        connectStartedAtRef.current = null;
+        notifiedConnectedRef.current = true;
+        notifyAgentEngineConfiguredChanged("builder-connect");
+        try {
+          await onConnectedRef.current?.({ orgName: org });
+        } catch {
+          // Consumer's callback failed; we've already flipped the UI state
+          // to connected. Swallow so we don't re-arm the flow.
+        }
+      } else if (isCurrentConnectError(s?.connectError, started)) {
+        // OAuth callback ran but writeBuilderCredentials threw \u2014 surface the
+        // real error instead of letting the user wait 5 minutes for timeout.
+        connectStartedAtRef.current = null;
+        setConnecting(false);
+        setError(
+          `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
+        );
+      } else if (Date.now() - started > POLL_TIMEOUT_MS) {
+        connectStartedAtRef.current = null;
+        setConnecting(false);
+        const { source, flow } = activeTrackingRef.current;
+        trackEvent("builder connect failed", {
+          feature: "builder",
+          stage: "client",
+          reason: "timeout",
+          source,
+          flow:
+            cleanTrackingParam(flow) ?? inferBuilderConnectTrackingFlow(source),
+        });
+        setError(
+          "Didn't hear back from Builder in 5 minutes. Allow popups and try again.",
+        );
+      }
+    },
+    {
+      intervalMs: POLL_INTERVAL_MS,
+      leading: false,
+      enabled: enabled && connecting,
+    },
   );
 
   // Popup-side fast path: the callback page broadcasts a message so we stop
@@ -934,11 +959,10 @@ export function useBuilderConnectFlow(
   // AND on window.message (legacy path for environments without BC or for
   // popups that still have opener access). Both paths are safe to have open
   // simultaneously \u2014 the first one to fire wins and the error is deduplicated
-  // by the stopPoll() call which is idempotent.
+  // by the setConnecting(false) call, which is idempotent.
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
     const handleError = (message: string) => {
-      stopPoll();
       connectStartedAtRef.current = null;
       setConnecting(false);
       setError(`Couldn't save Builder credentials: ${message}.`);
@@ -977,7 +1001,6 @@ export function useBuilderConnectFlow(
           setOrgName(s.orgName ?? null);
         }
         if (connectError) {
-          stopPoll();
           connectStartedAtRef.current = null;
           setConnecting(false);
           setError(
@@ -986,7 +1009,6 @@ export function useBuilderConnectFlow(
         }
         return;
       }
-      stopPoll();
       setHasFetchedStatus(true);
       setConfigured(true);
       setEnvManaged(!!s.envManaged);
@@ -1042,7 +1064,7 @@ export function useBuilderConnectFlow(
       channel?.close();
       window.removeEventListener("message", handler);
     };
-  }, [fetchStatus, stopPoll]);
+  }, [fetchStatus]);
 
   return {
     configured,

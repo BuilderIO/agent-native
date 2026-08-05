@@ -20,6 +20,10 @@ import {
   updateThreadData,
 } from "../chat-threads/store.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   getServiceAccountAccessToken,
@@ -71,7 +75,7 @@ export interface GoogleDocsPollerOptions {
   webhookUrl?: string;
 }
 
-let pollerInterval: ReturnType<typeof setInterval> | null = null;
+let pollerJob: IntervalJobHandle | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
 
 // ─── Watch Channel Management ───────────────────────────────────────────────
@@ -624,7 +628,7 @@ async function persistThreadData(
 export async function startGoogleDocsPoller(
   options: GoogleDocsPollerOptions,
 ): Promise<void> {
-  if (pollerInterval) {
+  if (pollerJob) {
     console.warn("[google-docs] Already running");
     return;
   }
@@ -670,7 +674,7 @@ function startPollLoop(
   let disabledUntil = 0;
   let disabledAtConfigWriteEpoch = -1;
 
-  async function poll() {
+  async function poll(): Promise<void> {
     try {
       // The loop starts even when google-docs was never configured (so it picks
       // up a later enable), which used to mean one `integration_configs` read
@@ -699,8 +703,13 @@ function startPollLoop(
     }
   }
 
-  setTimeout(poll, 5000);
-  pollerInterval = setInterval(poll, intervalMs);
+  // processChanges ultimately calls the Drive/Docs REST API
+  // (adapters/google-docs.ts), none of whose fetch()s carry a request
+  // timeout — startIntervalJob's own cadence-scaled timeout backstops a hung
+  // call, same convention as SyncTransport's poll abort.
+  setTimeout(() => {
+    pollerJob = startIntervalJob(poll, { intervalMs });
+  }, 5000);
 
   const email = getServiceAccountEmail();
   if (process.env.DEBUG) {
@@ -714,9 +723,9 @@ function startPollLoop(
  * Stop the Google Docs integration.
  */
 export async function stopGoogleDocsPoller(): Promise<void> {
-  if (pollerInterval) {
-    clearInterval(pollerInterval);
-    pollerInterval = null;
+  if (pollerJob) {
+    pollerJob.stop();
+    pollerJob = null;
   }
   if (watchRenewalTimer) {
     clearTimeout(watchRenewalTimer);

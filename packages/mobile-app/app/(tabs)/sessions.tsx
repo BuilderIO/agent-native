@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
@@ -40,8 +41,28 @@ import {
 import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 
 const POLL_INTERVAL_MS = 4000;
+const POLL_TIMEOUT_MS = Math.max(10_000, POLL_INTERVAL_MS * 4);
 const GOAL_ID = "task";
 type RelayState = "checking" | "online" | "offline" | "error" | "signed-out";
+
+/**
+ * Bounds a poll cycle so a hung relay request can't pin `inFlight` forever.
+ * The underlying request keeps running if it loses the race, but nothing is
+ * listening to it anymore, so a late resolution can't clobber a newer cycle.
+ */
+function withPollTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Poll timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 export default function SessionsScreen() {
   const router = useRouter();
@@ -220,14 +241,30 @@ export default function SessionsScreen() {
   }, [loadRunDetail, loadTranscript, selectedRunId]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      void refresh(true);
+    let active = AppState.currentState === "active";
+    let inFlight = false;
+    const tick = () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      const pending = [refresh(true)];
       if (selectedRunId) {
-        void loadRunDetail(selectedRunId);
-        void loadTranscript(selectedRunId, true);
+        pending.push(loadRunDetail(selectedRunId));
+        pending.push(loadTranscript(selectedRunId, true));
       }
-    }, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
+      void withPollTimeout(Promise.all(pending), POLL_TIMEOUT_MS)
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = false;
+        });
+    };
+    const interval = setInterval(tick, POLL_INTERVAL_MS);
+    const subscription = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
   }, [loadRunDetail, loadTranscript, refresh, selectedRunId]);
 
   const selectedHost = hosts.find((host) => host.id === selectedHostId);

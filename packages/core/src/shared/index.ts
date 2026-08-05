@@ -55,6 +55,11 @@ export {
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
 export {
+  createPollEngine,
+  type PollEngineOptions,
+  type PollEngineHandle,
+} from "./poll-engine.js";
+export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,

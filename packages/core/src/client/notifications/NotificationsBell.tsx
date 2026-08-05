@@ -16,7 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { usePausingInterval } from "../use-pausing-interval.js";
+import { usePollLoop } from "../use-poll-loop.js";
 
 interface NotificationsBellProps {
   /** Poll interval in ms. Set to 0 to disable polling. Default: 10000. */
@@ -93,57 +93,64 @@ export function NotificationsBell({
   // the popup loop — no second /count request), and pop Notification() for
   // any new ids. When off, we fetch just /count. The unread-list branch also
   // opts out of visibility pause so popups still fire for backgrounded tabs.
-  const refresh = useCallback(async () => {
-    if (browserNotifications) {
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      if (browserNotifications) {
+        try {
+          const res = await fetch(
+            agentNativePath(
+              "/_agent-native/notifications?unread=true&limit=20",
+            ),
+            { signal },
+          );
+          if (!res.ok) return;
+          const rows = (await res.json()) as NotificationDto[];
+          setUnreadCount(rows.length);
+          // First run: treat everything as already seen so we don't pop
+          // retroactively on page load. After that, rebuild from the current
+          // unread list so ids for read/archived rows drop out — keeps the
+          // set bounded to the unread fetch limit (~20).
+          const prev = seenIdsRef.current;
+          const seen = new Set<string>();
+          for (const n of rows) {
+            const alreadySeen = prev?.has(n.id) ?? true;
+            seen.add(n.id);
+            if (alreadySeen) continue;
+            if (!SUPPORTS_NOTIFICATION) continue;
+            if (Notification.permission !== "granted") continue;
+            try {
+              new Notification(n.title, { body: n.body, tag: n.id });
+            } catch {
+              // Safari / restricted contexts may throw even when permission
+              // claims to be granted — silent no-op.
+            }
+          }
+          seenIdsRef.current = seen;
+        } catch {
+          // best-effort
+        }
+        return;
+      }
       try {
         const res = await fetch(
-          agentNativePath("/_agent-native/notifications?unread=true&limit=20"),
+          agentNativePath("/_agent-native/notifications/count"),
+          { signal },
         );
         if (!res.ok) return;
-        const rows = (await res.json()) as NotificationDto[];
-        setUnreadCount(rows.length);
-        // First run: treat everything as already seen so we don't pop
-        // retroactively on page load. After that, rebuild from the current
-        // unread list so ids for read/archived rows drop out — keeps the
-        // set bounded to the unread fetch limit (~20).
-        const prev = seenIdsRef.current;
-        const seen = new Set<string>();
-        for (const n of rows) {
-          const alreadySeen = prev?.has(n.id) ?? true;
-          seen.add(n.id);
-          if (alreadySeen) continue;
-          if (!SUPPORTS_NOTIFICATION) continue;
-          if (Notification.permission !== "granted") continue;
-          try {
-            new Notification(n.title, { body: n.body, tag: n.id });
-          } catch {
-            // Safari / restricted contexts may throw even when permission
-            // claims to be granted — silent no-op.
-          }
-        }
-        seenIdsRef.current = seen;
+        const data = (await res.json()) as { count: number };
+        setUnreadCount(data.count);
       } catch {
         // best-effort
       }
-      return;
-    }
-    try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/notifications/count"),
-      );
-      if (!res.ok) return;
-      const data = (await res.json()) as { count: number };
-      setUnreadCount(data.count);
-    } catch {
-      // best-effort
-    }
-  }, [browserNotifications]);
-
-  usePausingInterval(
-    refresh,
-    pollMs,
-    /* pauseWhenHidden */ !browserNotifications,
+    },
+    [browserNotifications],
   );
+
+  usePollLoop(refresh, {
+    intervalMs: pollMs,
+    enabled: pollMs > 0,
+    pauseWhenHidden: !browserNotifications,
+  });
 
   useEffect(() => {
     if (!open) return;

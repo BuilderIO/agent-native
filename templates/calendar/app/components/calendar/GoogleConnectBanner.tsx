@@ -73,6 +73,11 @@ function getSetupSteps(t: CalendarT) {
   ];
 }
 
+const STATUS_POLL_INTERVAL_MS = 2000;
+// Bounds each status poll so a hung fetch can't leave the in-flight guard
+// permanently stuck and stall the interval forever.
+const STATUS_POLL_ABORT_MS = Math.max(10_000, STATUS_POLL_INTERVAL_MS * 4);
+
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
@@ -99,6 +104,8 @@ export function GoogleConnectBanner({
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
   const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const authPollInFlightRef = useRef(false);
+  const addAccountPollInFlightRef = useRef(false);
   const {
     isDesktopGoogleAuth,
     isGoogleDesktopAuthPending,
@@ -165,21 +172,34 @@ export function GoogleConnectBanner({
 
     if (authPollRef.current) clearInterval(authPollRef.current);
     authPollRef.current = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.connected) {
-          if (authPollRef.current) {
-            clearInterval(authPollRef.current);
-            authPollRef.current = null;
+      if (document.hidden || authPollInFlightRef.current) return;
+      authPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        STATUS_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        ).catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.connected) {
+            if (authPollRef.current) {
+              clearInterval(authPollRef.current);
+              authPollRef.current = null;
+            }
+            setDismissed(true);
+            window.location.reload();
           }
-          setDismissed(true);
-          window.location.reload();
         }
+      } finally {
+        clearTimeout(abortTimer);
+        authPollInFlightRef.current = false;
       }
-    }, 2000);
+    }, STATUS_POLL_INTERVAL_MS);
   }, [wantAuthUrl, authUrl.data, isBuilderFrame]);
 
   // When auth URL fails with missing credentials, show wizard
@@ -242,20 +262,33 @@ export function GoogleConnectBanner({
     const prevCount = accounts.length;
     if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     addAccountPollRef.current = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.accounts?.length > prevCount) {
-          if (addAccountPollRef.current) {
-            clearInterval(addAccountPollRef.current);
-            addAccountPollRef.current = null;
+      if (document.hidden || addAccountPollInFlightRef.current) return;
+      addAccountPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        STATUS_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        ).catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > prevCount) {
+            if (addAccountPollRef.current) {
+              clearInterval(addAccountPollRef.current);
+              addAccountPollRef.current = null;
+            }
+            window.location.reload();
           }
-          window.location.reload();
         }
+      } finally {
+        clearTimeout(abortTimer);
+        addAccountPollInFlightRef.current = false;
       }
-    }, 2000);
+    }, STATUS_POLL_INTERVAL_MS);
     // accounts.length is captured into prevCount above; including it in deps
     // would tear down and recreate the interval whenever the count changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps

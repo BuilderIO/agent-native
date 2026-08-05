@@ -83,11 +83,17 @@ export function FusionAppBanner({
   // ── Building: poll sync-fusion-app on mount + every ~8s while building ────
   const syncMutateRef = useRef(syncMutation.mutate);
   syncMutateRef.current = syncMutation.mutate;
+  const syncInFlightRef = useRef(false);
   useEffect(() => {
     if (status !== "building") return;
     syncMutateRef.current({ designId } as any);
     const interval = window.setInterval(() => {
-      syncMutateRef.current({ designId } as any);
+      if (document.hidden || syncInFlightRef.current) return;
+      syncInFlightRef.current = true;
+      syncMutateRef.current(
+        { designId } as any,
+        { onSettled: () => (syncInFlightRef.current = false) } as any,
+      );
     }, SYNC_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [designId, status]);

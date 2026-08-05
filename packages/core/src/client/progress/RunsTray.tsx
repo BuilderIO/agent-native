@@ -24,7 +24,7 @@ import {
 } from "../components/ui/dropdown-menu.js";
 import { useFormatters, useT } from "../i18n.js";
 import { useChangeVersion } from "../use-change-version.js";
-import { usePausingInterval } from "../use-pausing-interval.js";
+import { usePollLoop } from "../use-poll-loop.js";
 import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
@@ -75,20 +75,24 @@ function useRunsTrayState({
   const includeRecent = showRecent ?? !hideWhenIdle;
   const runsVersion = useChangeVersion("runs");
 
-  const refresh = useCallback(async () => {
-    try {
-      const query = new URLSearchParams({ limit: String(limit) });
-      if (!includeRecent) query.set("active", "true");
-      const res = await fetch(
-        agentNativePath(`/_agent-native/runs?${query.toString()}`),
-      );
-      if (!res.ok) return;
-      const rows = (await res.json()) as AgentRunDto[];
-      setRuns(rows);
-    } catch {
-      // best-effort
-    }
-  }, [includeRecent, limit]);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const query = new URLSearchParams({ limit: String(limit) });
+        if (!includeRecent) query.set("active", "true");
+        const res = await fetch(
+          agentNativePath(`/_agent-native/runs?${query.toString()}`),
+          { signal },
+        );
+        if (!res.ok) return;
+        const rows = (await res.json()) as AgentRunDto[];
+        setRuns(rows);
+      } catch {
+        // best-effort
+      }
+    },
+    [includeRecent, limit],
+  );
 
   useEffect(() => {
     void refresh();
@@ -103,7 +107,7 @@ function useRunsTrayState({
     return () => window.clearTimeout(timeout);
   }, [refresh, runsVersion]);
 
-  usePausingInterval(refresh, pollMs);
+  usePollLoop(refresh, { intervalMs: pollMs, enabled: pollMs > 0 });
 
   const dismissRun = useCallback(
     async (runId: string) => {

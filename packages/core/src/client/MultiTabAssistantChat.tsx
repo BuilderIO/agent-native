@@ -67,6 +67,7 @@ import {
   type ChatThreadScope,
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
+import { usePollLoop } from "./use-poll-loop.js";
 import { cn } from "./utils.js";
 
 interface ModelSelection {
@@ -562,6 +563,7 @@ function chatTabStatusFromAgentTeamStatus(
 }
 
 const STALE_THREAD_THRESHOLD_MS = 12 * 60 * 60 * 1000;
+const DEFAULT_AGENT_TEAM_POLL_MS = 3000;
 const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
 const hasOwn = Object.prototype.hasOwnProperty;
@@ -737,6 +739,8 @@ export type MultiTabAssistantChatProps = Omit<
   scope?: ChatThreadScope | null;
   /** @deprecated Scope context is now rendered in the composer. */
   showScopeBadge?: boolean;
+  /** Cadence for hydrating agent-team sub-agent tab status. Default: 3000. */
+  agentTeamPollMs?: number;
 };
 
 export function MultiTabAssistantChat({
@@ -750,6 +754,7 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
+  agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -1400,14 +1405,11 @@ export function MultiTabAssistantChat({
     }
   }, [isLoading, openTabIds, activeThreadId, createThread, writeThreadUrl]);
 
-  useEffect(() => {
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
-
-    async function hydrateAgentTeamTabs() {
+  usePollLoop(
+    async (signal) => {
+      const runsUrl = `${apiUrl.replace(/\/$/, "")}/runs/list?goalId=agent-team`;
       try {
-        const res = await fetch(runsUrl);
+        const res = await fetch(runsUrl, { signal });
         if (res.ok) {
           const data = (await res.json()) as { runs?: AgentTeamRunSummary[] };
           const infos = Array.isArray(data.runs)
@@ -1493,19 +1495,10 @@ export function MultiTabAssistantChat({
         }
       } catch {
         // Best effort: task cards and manual history still work if this poll fails.
-      } finally {
-        if (!stopped) {
-          timer = setTimeout(hydrateAgentTeamTabs, 3000);
-        }
       }
-    }
-
-    hydrateAgentTeamTabs();
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [apiUrl, refreshThreads]);
+    },
+    { intervalMs: agentTeamPollMs, pauseWhenHidden: true },
+  );
 
   // Focus the composer when switching tabs
   useEffect(() => {

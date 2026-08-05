@@ -144,10 +144,24 @@ async function testConnection(
   return res.json();
 }
 
+// Bounds the GitHub status fetch so a hang can't leave the connect poll's
+// `inFlight` guard stuck and stall the interval forever.
+const GITHUB_OAUTH_STATUS_ABORT_MS = 10_000;
+
 async function fetchGitHubOAuthStatus(): Promise<GitHubOAuthStatus> {
-  const res = await fetch(
-    agentNativePath("/_agent-native/oauth/github/status"),
+  const controller = new AbortController();
+  const abortTimer = setTimeout(
+    () => controller.abort(),
+    GITHUB_OAUTH_STATUS_ABORT_MS,
   );
+  let res: Response;
+  try {
+    res = await fetch(agentNativePath("/_agent-native/oauth/github/status"), {
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(abortTimer);
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || "Failed to load GitHub status");
@@ -352,8 +366,18 @@ function GitHubOAuthView({
     },
     onSuccess: () => {
       const startedAt = Date.now();
-      const pollId = window.setInterval(() => {
-        refresh();
+      let inFlight = false;
+      const pollId = window.setInterval(async () => {
+        if (document.hidden || inFlight) return;
+        inFlight = true;
+        try {
+          await queryClient.invalidateQueries({
+            queryKey: ["github-oauth-status"],
+          });
+          onSaved();
+        } finally {
+          inFlight = false;
+        }
         if (Date.now() - startedAt > 120_000) {
           window.clearInterval(pollId);
         }

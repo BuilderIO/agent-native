@@ -194,6 +194,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
+import { startIntervalJob } from "./interval-job.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
@@ -6099,50 +6100,47 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // FAST sweep — redispatch-only, tight cadence. See the invariant
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
-      (() => {
-        setTimeout(() => {
-          (async () => {
-            const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
-              await import("../agent/run-store.js");
-            setInterval(() => {
-              (async () => {
-                const {
-                  listUnclaimedBackgroundRunRows,
-                  shouldRedispatchUnclaimedBackgroundRun,
-                  reapAllStaleRuns,
-                } = await import("../agent/run-store.js");
-                // The unclaimed-background sweep below only matches
-                // dispatch_mode='background' — handoffs a worker never
-                // claimed. Once a worker CLAIMS a row nothing periodic looked
-                // at it again, so a dead producer was only reaped when some
-                // client request path or an unrelated run's cleanup happened
-                // to notice (prod: 24 minutes after the last heartbeat,
-                // against a 45s window). `reapAllStaleRuns` is per-row,
-                // idempotent, re-checks staleness at UPDATE time and honours
-                // the in-flight grace, so it is safe on this cadence.
-                await reapAllStaleRuns().catch(() => {});
-                let rows: UnclaimedBackgroundRunRow[];
-                try {
-                  rows = await listUnclaimedBackgroundRunRows();
-                } catch {
-                  return; // Table may not exist yet on first boot
-                }
-                for (const row of rows) {
-                  if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
-                  await attemptUnclaimedBackgroundRunRedispatch(row).catch(
-                    () => {},
-                  );
-                }
-              })().catch(() => {
-                // best-effort — never break the server
-              });
-            }, UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS);
-          })().catch(() => {
-            // best-effort — if run-store fails to load, the slow sweep below
-            // still provides eventual (loud) recovery.
-          });
-        }, 10_000); // Start 10s after init — before the slow sweep's first tick.
-      })();
+      setTimeout(() => {
+        (async () => {
+          const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
+            await import("../agent/run-store.js");
+          startIntervalJob(
+            async () => {
+              const {
+                listUnclaimedBackgroundRunRows,
+                shouldRedispatchUnclaimedBackgroundRun,
+                reapAllStaleRuns,
+              } = await import("../agent/run-store.js");
+              // The unclaimed-background sweep below only matches
+              // dispatch_mode='background' — handoffs a worker never
+              // claimed. Once a worker CLAIMS a row nothing periodic looked
+              // at it again, so a dead producer was only reaped when some
+              // client request path or an unrelated run's cleanup happened
+              // to notice (prod: 24 minutes after the last heartbeat,
+              // against a 45s window). `reapAllStaleRuns` is per-row,
+              // idempotent, re-checks staleness at UPDATE time and honours
+              // the in-flight grace, so it is safe on this cadence.
+              await reapAllStaleRuns().catch(() => {});
+              let rows: UnclaimedBackgroundRunRow[];
+              try {
+                rows = await listUnclaimedBackgroundRunRows();
+              } catch {
+                return; // Table may not exist yet on first boot
+              }
+              for (const row of rows) {
+                if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
+                await attemptUnclaimedBackgroundRunRedispatch(row).catch(
+                  () => {},
+                );
+              }
+            },
+            { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
+          );
+        })().catch(() => {
+          // best-effort — if run-store fails to load, the slow sweep below
+          // still provides eventual (loud) recovery.
+        });
+      }, 10_000); // Start 10s after init — before the slow sweep's first tick.
 
       // SLOW sweep — redispatch AND the loud-failure reap fallback past the
       // redispatch bound. Kept on its original 2-minute cadence: it is not

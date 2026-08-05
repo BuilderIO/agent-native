@@ -68,7 +68,16 @@ function enqueue(
 ): void {
   const queue = getQueue();
   queue.push({ url, body, headers });
-  if (options?.flushImmediately || queue.length >= MAX_BATCH_SIZE) {
+  // The batch timer is unref'd so it never keeps a long-lived server alive —
+  // but on Netlify/Vercel/Lambda the execution environment can freeze the
+  // moment the event loop looks empty, which is exactly when an unref'd timer
+  // doesn't count. Without a signal, a warm container freezing between
+  // invocations never fires that timer, silently dropping every provider's
+  // queued events for a request that ends in a crash. Default to flushing
+  // synchronously with the response in that environment; a caller (e.g.
+  // Agent Native Analytics' flush-mode override) can still force either way.
+  const flushImmediately = options?.flushImmediately ?? isServerlessRuntime();
+  if (flushImmediately || queue.length >= MAX_BATCH_SIZE) {
     void drainQueue();
   } else if (!getTimer()) {
     const timer = setTimeout(() => {

@@ -45,6 +45,7 @@ import React, {
   useImperativeHandle,
 } from "react";
 
+import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
@@ -294,6 +295,13 @@ export function createUserMessageRunConfig(
 }
 
 const PENDING_SELECTION_KEY = "pending-selection-context";
+// Bounds an in-flight poll fetch so its own boolean in-flight guard is
+// guaranteed to release even if the server never responds. Mirrors
+// use-db-sync.ts's getPollAbortMs.
+const POLL_ABORT_MIN_MS = 10_000;
+function getPollAbortMs(interval: number): number {
+  return Math.max(POLL_ABORT_MIN_MS, interval * 4);
+}
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
 const BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS = 13 * 60_000;
@@ -2868,29 +2876,46 @@ const AssistantChatInner = forwardRef<
     [threadRuntime],
   );
 
-  const refreshThreadFromServer = useCallback(async (): Promise<any | null> => {
-    if (loadHistoryRepository) {
+  // Accepts an optional external `signal` so poll loops (e.g. the reconnect
+  // thread-poll engine below) can cancel this fetch via their own timeout
+  // instead of racing a second, separately-constructed AbortController.
+  // Callers with no signal of their own keep the internal fallback timeout.
+  const refreshThreadFromServer = useCallback(
+    async (signal?: AbortSignal): Promise<any | null> => {
+      if (loadHistoryRepository) {
+        try {
+          const repo = await loadHistoryRepository();
+          if (!repo) return null;
+          return importThreadData(repo);
+        } catch {
+          return null;
+        }
+      }
+      if (!threadId) return null;
+      const ownAbort =
+        !signal && typeof AbortController !== "undefined"
+          ? new AbortController()
+          : null;
+      const ownAbortTimer = ownAbort
+        ? setTimeout(() => ownAbort.abort(), getPollAbortMs(2000))
+        : null;
       try {
-        const repo = await loadHistoryRepository();
-        if (!repo) return null;
-        return importThreadData(repo);
+        const refreshRes = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+          { signal: signal ?? ownAbort?.signal },
+        );
+        if (!refreshRes.ok) return null;
+        const refreshData = await refreshRes.json();
+        if (!refreshData.threadData) return null;
+        return importThreadData(refreshData.threadData);
       } catch {
         return null;
+      } finally {
+        if (ownAbortTimer) clearTimeout(ownAbortTimer);
       }
-    }
-    if (!threadId) return null;
-    try {
-      const refreshRes = await fetch(
-        `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
-      );
-      if (!refreshRes.ok) return null;
-      const refreshData = await refreshRes.json();
-      if (!refreshData.threadData) return null;
-      return importThreadData(refreshData.threadData);
-    } catch {
-      return null;
-    }
-  }, [apiUrl, importThreadData, loadHistoryRepository, threadId]);
+    },
+    [apiUrl, importThreadData, loadHistoryRepository, threadId],
+  );
 
   const exportCleanThreadRepo = useCallback(
     () =>
@@ -3088,14 +3113,19 @@ const AssistantChatInner = forwardRef<
         null;
       const reconnectStuckThresholdMs = activeRunStuckThresholdMs(runInfo);
 
-      const watchdog = setInterval(async () => {
-        try {
+      // This lives inside a useCallback, not component render, so it can't
+      // use the usePollLoop hook (Rules of Hooks) — createPollEngine gives
+      // the same never-overlaps/never-stalls guarantees imperatively.
+      const watchdog = createPollEngine(
+        async (signal) => {
+          if (document.hidden) return;
           const res = await fetch(
             `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
+            { signal },
           );
           if (!res.ok) {
             abortCtrl.abort();
-            clearInterval(watchdog);
+            watchdog.stop();
             return;
           }
           const info = (await res.json()) as ActiveRunLookup;
@@ -3106,7 +3136,7 @@ const AssistantChatInner = forwardRef<
           // this covers the reader itself.
           if (isRuntimeRunningRef.current) {
             abortCtrl.abort();
-            clearInterval(watchdog);
+            watchdog.stop();
             return;
           }
           if (isReplayableTerminalRun(info)) {
@@ -3114,12 +3144,12 @@ const AssistantChatInner = forwardRef<
           }
           if (info.status !== "running" || activeRunLooksStale(info)) {
             abortCtrl.abort();
-            clearInterval(watchdog);
+            watchdog.stop();
           }
-        } catch {
-          // Network blip — keep polling.
-        }
-      }, 1000);
+        },
+        { intervalMs: 1000 },
+      );
+      watchdog.start();
 
       let reconnectTimedOut = false;
       // Idle deadline, NOT a total-duration cap. A long-but-healthy run (image
@@ -3147,7 +3177,7 @@ const AssistantChatInner = forwardRef<
         }
         reconnectTimedOut = true;
         abortCtrl.abort();
-        clearInterval(watchdog);
+        watchdog.stop();
         clearInterval(idleCheck);
       }, 1000);
 
@@ -3188,18 +3218,27 @@ const AssistantChatInner = forwardRef<
             return "unknown";
           }
         };
-        const threadPollInterval =
+        const threadPollEngine =
           afterSeq > 0
-            ? window.setInterval(() => {
-                if (reconnectRunIdRef.current !== runId) return;
-                // Adapter took over mid-poll — skip imports that would race the
-                // live stream and flicker tool cards back to older snapshots.
-                if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
-                  return;
-                }
-                void refreshThreadFromServer();
-              }, 2000)
+            ? createPollEngine(
+                async (signal) => {
+                  if (document.hidden) return;
+                  if (reconnectRunIdRef.current !== runId) return;
+                  // Adapter took over mid-poll — skip imports that would race
+                  // the live stream and flicker tool cards back to older
+                  // snapshots.
+                  if (
+                    isRuntimeRunningRef.current ||
+                    isAutoResumingRef.current
+                  ) {
+                    return;
+                  }
+                  await refreshThreadFromServer(signal);
+                },
+                { intervalMs: 2000, leading: false },
+              )
             : undefined;
+        threadPollEngine?.start();
         try {
           const content: ContentPart[] = [];
           latestContent = content;
@@ -3299,10 +3338,8 @@ const AssistantChatInner = forwardRef<
             noProgressDuringReconnect = true;
           }
         } finally {
-          if (threadPollInterval !== undefined) {
-            window.clearInterval(threadPollInterval);
-          }
-          clearInterval(watchdog);
+          threadPollEngine?.stop();
+          watchdog.stop();
           clearInterval(idleCheck);
         }
 

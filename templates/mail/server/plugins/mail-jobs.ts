@@ -18,7 +18,12 @@ import {
 
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
+// Backstop for the whole tick (job sends + Gmail watch renewal, both outbound
+// network calls with no timeout of their own). Without this a single hung
+// call would leave `running` stuck forever instead of just double-firing.
+const TICK_ABORT_MS = Math.max(10_000, INTERVAL_MS * 4);
 let lastWatchRenewalAt = 0;
+let running = false;
 // Vite's dev server initializes Nitro plugins more than once during boot
 // (initial load + post-init). Module-scope flag ensures the "skipping" log
 // fires at most once per process.
@@ -125,23 +130,45 @@ export default () => {
   }
 
   setInterval(async () => {
-    try {
-      await processJobs();
-    } catch (err) {
-      console.error("[mail-jobs] processJobs failed:", err);
-    }
-    try {
-      await processAutomations();
-    } catch (err) {
-      console.error("[mail-jobs] processAutomations failed:", err);
-    }
-    if (Date.now() - lastWatchRenewalAt > WATCH_RENEW_INTERVAL_MS) {
-      lastWatchRenewalAt = Date.now();
+    if (running) return;
+    running = true;
+    let timedOut = false;
+
+    const work = (async () => {
       try {
-        await renewAllWatches();
+        await processJobs();
       } catch (err) {
-        console.error("[mail-jobs] renewAllWatches failed:", err);
+        console.error("[mail-jobs] processJobs failed:", err);
       }
-    }
+      try {
+        await processAutomations();
+      } catch (err) {
+        console.error("[mail-jobs] processAutomations failed:", err);
+      }
+      if (Date.now() - lastWatchRenewalAt > WATCH_RENEW_INTERVAL_MS) {
+        lastWatchRenewalAt = Date.now();
+        try {
+          await renewAllWatches();
+        } catch (err) {
+          console.error("[mail-jobs] renewAllWatches failed:", err);
+        }
+      }
+    })().finally(() => {
+      // Only release the guard here if the timeout below hasn't already
+      // released it for a newer cycle — a late-settling hung call must not
+      // clobber that cycle's `running` state.
+      if (!timedOut) running = false;
+    });
+
+    const timeout = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        timedOut = true;
+        console.error("[mail-jobs] tick exceeded time budget; releasing guard");
+        running = false;
+        resolve();
+      }, TICK_ABORT_MS);
+    });
+
+    await Promise.race([work, timeout]);
   }, INTERVAL_MS);
 };
