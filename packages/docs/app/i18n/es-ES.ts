@@ -1189,6 +1189,8 @@ const esES = {
       s056: "Responde tres preguntas rápidas y mira cómo tu prompt se escribe solo — o simplemente empieza a escribir.",
       s057: "Lea los documentos",
       s058: "Ver todas las plantillas",
+      howItWorksDescribe:
+        "Describe tu tema, audiencia y tono. Adjunta una presentación de referencia. Empieza en la interfaz o desde tu propio flujo de trabajo de IA.",
       tryNow: {
         step: "Paso {{current}} de {{total}}",
         q1: "¿Qué tipo de presentación necesitas?",

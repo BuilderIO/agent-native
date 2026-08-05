@@ -1189,6 +1189,8 @@ const frFR = {
       s056: "Répondez à trois questions rapides et regardez votre prompt s'écrire tout seul — ou commencez simplement à taper.",
       s057: "Lire la documentation",
       s058: "Afficher tous les modèles",
+      howItWorksDescribe:
+        "Décrivez votre sujet, votre public et le ton souhaité. Joignez une présentation de référence. Commencez dans l’interface ou via votre propre flux de travail IA.",
       tryNow: {
         step: "Étape {{current}} sur {{total}}",
         q1: "Quel type de présentation vous faut-il ?",

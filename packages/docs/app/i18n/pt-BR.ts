@@ -1186,6 +1186,8 @@ const ptBR = {
       s056: "Responda a três perguntas rápidas e veja seu prompt se escrever sozinho — ou simplesmente comece a digitar.",
       s057: "Leia os documentos",
       s058: "Ver todos os modelos",
+      howItWorksDescribe:
+        "Descreva seu tema, público e tom. Anexe uma apresentação de referência. Comece pela interface ou pelo seu próprio fluxo de trabalho de IA.",
       tryNow: {
         step: "Etapa {{current}} de {{total}}",
         q1: "Que tipo de apresentação você precisa?",

@@ -1190,6 +1190,8 @@ const deDE = {
       s056: "Beantworten Sie drei kurze Fragen und sehen Sie zu, wie sich Ihr Prompt von selbst schreibt — oder legen Sie einfach los.",
       s057: "Lesen Sie die Dokumente",
       s058: "Alle Vorlagen anzeigen",
+      howItWorksDescribe:
+        "Beschreiben Sie Ihr Thema, Ihre Zielgruppe und den gewünschten Ton. Fügen Sie eine Referenzpräsentation an. Starten Sie in der Benutzeroberfläche oder über Ihren eigenen KI-Workflow.",
       tryNow: {
         step: "Schritt {{current}} von {{total}}",
         q1: "Welche Art von Präsentation brauchen Sie?",
