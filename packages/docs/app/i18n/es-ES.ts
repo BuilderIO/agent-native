@@ -1186,7 +1186,7 @@ const esES = {
       s053: "Suscripción",
       s054: "Gratis y de código abierto",
       s055: "Crea una presentación ahora",
-      s056: "Empieza con un prompt y añade una referencia de diseño de cualquier sitio web público.",
+      s056: "Elige tus preferencias de diseño y escribe un prompt para empezar. Siempre gratis.",
       s057: "Lea los documentos",
       s058: "Ver todas las plantillas",
       howItWorksDescribe:

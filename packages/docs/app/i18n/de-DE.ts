@@ -1187,7 +1187,7 @@ const deDE = {
       s053: "Abonnement",
       s054: "Kostenlos und Open Source",
       s055: "Jetzt eine Präsentation erstellen",
-      s056: "Beginnen Sie mit einem Prompt und fügen Sie dann eine Designreferenz von einer beliebigen öffentlichen Website hinzu.",
+      s056: "Wählen Sie Ihre Designvorlieben und geben Sie zum Start einen Prompt ein. Immer kostenlos.",
       s057: "Lesen Sie die Dokumente",
       s058: "Alle Vorlagen anzeigen",
       howItWorksDescribe:

@@ -1183,7 +1183,7 @@ const ptBR = {
       s053: "Assinatura",
       s054: "Gratuito e de código aberto",
       s055: "Crie uma apresentação de slides agora",
-      s056: "Comece com um prompt e depois adicione uma referência de design de qualquer site público.",
+      s056: "Escolha suas preferências de design e insira um prompt para começar. Sempre grátis.",
       s057: "Leia os documentos",
       s058: "Ver todos os modelos",
       howItWorksDescribe:

@@ -1186,7 +1186,7 @@ const frFR = {
       s053: "Abonnement",
       s054: "Gratuit et open source",
       s055: "Créez une présentation maintenant",
-      s056: "Commencez par un prompt, puis ajoutez une référence de design provenant de n’importe quel site web public.",
+      s056: "Choisissez vos préférences de design et rédigez un prompt pour commencer. Toujours gratuit.",
       s057: "Lire la documentation",
       s058: "Afficher tous les modèles",
       howItWorksDescribe:
