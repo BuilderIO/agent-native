@@ -12,6 +12,11 @@ import {
   firstPartyCacheKey,
   withFirstPartyCache,
 } from "./first-party-analytics-cache.js";
+import {
+  classifyFirstPartyAnalyticsQuery,
+  queryOutcomeFromError,
+  recordFirstPartyAnalyticsQueryPressure,
+} from "./first-party-analytics-health.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 
 export interface AnalyticsScope {
@@ -750,18 +755,45 @@ export async function queryFirstPartyAnalytics(
   // org_id/owner_email (see scopeClause) — a cache hit can only ever return
   // rows the same tenant was already entitled to query.
   const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
+  const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const compute = async (
     queryTimeoutMs = timeoutMs,
   ): Promise<AnalyticsQueryResult> => {
     const exec = getDbExec();
-    const result = await exec.execute({
-      sql: wrappedSql,
-      args: scoped.args,
-      timeoutMs: queryTimeoutMs,
-      maxAttempts: 1,
-    });
-    const rows = result.rows as Record<string, unknown>[];
-    return { rows, schema: inferSchema(rows) };
+    const startedAt = Date.now();
+    try {
+      const result = await exec.execute({
+        sql: wrappedSql,
+        args: scoped.args,
+        timeoutMs: queryTimeoutMs,
+        maxAttempts: 1,
+      });
+      const durationMs = Date.now() - startedAt;
+      void recordFirstPartyAnalyticsQueryPressure(scope, {
+        durationMs,
+        outcome: "success",
+        queryClass,
+      }).catch((error) => {
+        console.warn(
+          "[first-party-analytics] Query pressure recording failed:",
+          error,
+        );
+      });
+      const rows = result.rows as Record<string, unknown>[];
+      return { rows, schema: inferSchema(rows) };
+    } catch (error) {
+      void recordFirstPartyAnalyticsQueryPressure(scope, {
+        durationMs: Date.now() - startedAt,
+        outcome: queryOutcomeFromError(error),
+        queryClass,
+      }).catch((recordingError) => {
+        console.warn(
+          "[first-party-analytics] Query pressure recording failed:",
+          recordingError,
+        );
+      });
+      throw error;
+    }
   };
   if (!options.cache) return compute();
   return withFirstPartyCache(cacheKey, wrappedSql, compute, { timeoutMs });

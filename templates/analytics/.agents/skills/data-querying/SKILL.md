@@ -25,6 +25,16 @@ tenant-scoped daily event and user-day rollups. Use `analytics_events` only for 
 bounded recent drill-down with an explicit date/time range; the built-in source
 does not require a customer warehouse connection.
 
+Before a large or historical first-party query, call
+`get-first-party-analytics-health`. Keep Neon as the default while its status is
+`healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
+1M+ events, repeated slow queries, or a timeout/30-second query. If BigQuery is
+not configured, use the returned setup link or `data-source-status --key
+bigquery` to guide the user through the existing Data Sources walkthrough. Do
+not silently move the collector: `/track` still lands in first-party Analytics,
+and BigQuery is the opt-in backend for high-volume or historical analysis after
+the user connects it.
+
 Example pageviews query for a local calendar day:
 
 ```sql

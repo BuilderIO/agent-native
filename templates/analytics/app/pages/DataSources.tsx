@@ -10,7 +10,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { oauthRedirectUri } from "@agent-native/core/client/host";
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconCheck,
@@ -116,6 +116,18 @@ interface GitHubOAuthStatus {
     htmlUrl?: string | null;
   };
   error?: string;
+}
+
+interface FirstPartyAnalyticsHealthResponse {
+  status: "healthy" | "monitor" | "recommend_bigquery" | "unavailable";
+  metrics: {
+    eventCount: number;
+    slowQueryCount24h: number;
+    maxQueryDurationMs24h: number;
+  };
+  bigQuery: {
+    configured: boolean | null;
+  };
 }
 
 const firstPartyAnalyticsEndpoint =
@@ -1577,6 +1589,7 @@ function AddDataSourceCTA() {
 
 function FirstPartyAnalyticsCard() {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
@@ -1592,6 +1605,33 @@ function FirstPartyAnalyticsCard() {
     (key) => !key.revokedAt,
   );
   const connected = keys.length > 0;
+  const {
+    data: rawHealth,
+    isLoading: isHealthLoading,
+    isError: isHealthError,
+  } = useActionQuery("get-first-party-analytics-health", undefined, {
+    staleTime: 30_000,
+    retry: false,
+  });
+  const health = rawHealth as FirstPartyAnalyticsHealthResponse | undefined;
+  const healthStatus = isHealthError ? "unavailable" : health?.status;
+  const bigQueryConfigured = health?.bigQuery.configured === true;
+  const healthTitleKey =
+    healthStatus === "recommend_bigquery"
+      ? bigQueryConfigured
+        ? "dataSources.bigQueryConnectedTitle"
+        : "dataSources.bigQueryRecommendationTitle"
+      : null;
+  const healthDescriptionKey =
+    healthStatus === "recommend_bigquery"
+      ? bigQueryConfigured
+        ? "dataSources.bigQueryConnectedDescription"
+        : "dataSources.bigQueryRecommendationDescription"
+      : healthStatus === "monitor"
+        ? "dataSources.bigQueryMonitorDescription"
+        : healthStatus === "healthy"
+          ? "dataSources.bigQueryHealthyDescription"
+          : "dataSources.bigQueryHealthUnavailable";
 
   const createKey = useActionMutation("create-analytics-public-key", {
     onSuccess: (result: any) => {
@@ -1665,6 +1705,79 @@ function FirstPartyAnalyticsCard() {
       {expanded && (
         <CardContent className="border-t border-border/50 px-5 py-4">
           <div className="space-y-4">
+            {isHealthLoading ? (
+              <Skeleton className="h-28 w-full rounded-md" />
+            ) : (
+              <div
+                className={`rounded-md border p-3 text-xs ${
+                  healthStatus === "recommend_bigquery"
+                    ? "border-amber-500/30 bg-amber-500/10"
+                    : "border-border/50 bg-muted/20"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <IconAlertCircle
+                      className={`mt-px h-3.5 w-3.5 shrink-0 ${
+                        healthStatus === "recommend_bigquery"
+                          ? "text-amber-500"
+                          : "text-muted-foreground"
+                      }`}
+                    />
+                    <div className="min-w-0 space-y-1">
+                      {healthTitleKey && (
+                        <p className="font-medium text-foreground">
+                          {t(healthTitleKey)}
+                        </p>
+                      )}
+                      <p className="text-muted-foreground">
+                        {t(healthDescriptionKey)}
+                      </p>
+                    </div>
+                  </div>
+                  {healthStatus === "recommend_bigquery" &&
+                  !bigQueryConfigured ? (
+                    <Button asChild size="sm" className="shrink-0 text-xs">
+                      <Link to="/data-sources?source=bigquery">
+                        {t("dataSources.bigQuerySetup")}
+                      </Link>
+                    </Button>
+                  ) : null}
+                </div>
+                {health && healthStatus !== "unavailable" && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/30 pt-3">
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.analyticsEventCount")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(health.metrics.eventCount)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.slowQueries24h")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(health.metrics.slowQueryCount24h)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dataSources.maxQueryDuration")}
+                      </div>
+                      <div className="font-medium text-foreground">
+                        {formatNumber(
+                          health.metrics.maxQueryDurationMs24h / 1_000,
+                          { maximumFractionDigits: 1 },
+                        )}
+                        s
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">

@@ -4,6 +4,11 @@ const execute = vi.fn();
 const rollupMocks = vi.hoisted(() => ({
   upsert: vi.fn(),
 }));
+const healthMocks = vi.hoisted(() => ({
+  classify: vi.fn(() => "other"),
+  outcome: vi.fn(() => "error"),
+  record: vi.fn(),
+}));
 const analyticsDbMocks = vi.hoisted(() => {
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
@@ -37,6 +42,11 @@ vi.mock("../db/index.js", async (importOriginal) => ({
 vi.mock("./first-party-analytics-rollups.js", () => ({
   upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
 }));
+vi.mock("./first-party-analytics-health.js", () => ({
+  classifyFirstPartyAnalyticsQuery: healthMocks.classify,
+  queryOutcomeFromError: healthMocks.outcome,
+  recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
+}));
 
 import {
   isMarketingWebsiteSessionEvent,
@@ -63,6 +73,10 @@ beforeEach(() => {
     dailyRollupCount: 1,
     userDayCount: 1,
   });
+  healthMocks.classify.mockClear();
+  healthMocks.outcome.mockClear();
+  healthMocks.record.mockReset();
+  healthMocks.record.mockResolvedValue(undefined);
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
