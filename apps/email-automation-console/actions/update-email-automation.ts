@@ -39,8 +39,18 @@ export default defineAction({
           prompt: args.prompt ?? DEFAULT_AUTOMATION.prompt,
           updatedAt: now,
         })
+        .onConflictDoNothing({
+          target: [
+            schema.emailAutomations.ownerEmail,
+            schema.emailAutomations.slug,
+          ],
+        })
         .returning();
-      return automationResponse(created[0] ?? null);
+      if (created[0]) return automationResponse(created[0]);
+
+      // Another first save won the unique insert race. Read its row so both
+      // callers return the same durable default automation.
+      return automationResponse(await findAutomation(ownerEmail));
     }
 
     const updated = await db()

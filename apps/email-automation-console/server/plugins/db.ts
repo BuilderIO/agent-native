@@ -35,6 +35,25 @@ export default runMigrations(
       CREATE INDEX IF NOT EXISTS email_automation_runs_owner_created_idx
         ON email_automation_runs (owner_email, created_at);`,
     },
+    {
+      version: 2,
+      name: "email-automation-console-unique-defaults",
+      sql: `DELETE FROM email_automations
+        WHERE EXISTS (
+          SELECT 1 FROM email_automations older
+          WHERE older.owner_email = email_automations.owner_email
+            AND older.slug = email_automations.slug
+            AND (
+              older.updated_at < email_automations.updated_at
+              OR (
+                older.updated_at = email_automations.updated_at
+                AND older.id < email_automations.id
+              )
+            )
+        );
+      CREATE UNIQUE INDEX IF NOT EXISTS email_automations_owner_slug_unique_idx
+        ON email_automations (owner_email, slug);`,
+    },
   ],
   { table: "email_automation_console_migrations" },
 );

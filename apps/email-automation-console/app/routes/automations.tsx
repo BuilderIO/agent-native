@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { refreshAndSelectRun } from "@/lib/automation-runs";
 import { TAB_ID } from "@/lib/tab-id";
 
 type Run = {
@@ -127,8 +128,12 @@ export default function AutomationsRoute() {
       const run = await runTest.mutateAsync({
         automationId: saved.id ?? undefined,
       });
+      await refreshAndSelectRun(
+        () => runsQuery.refetch(),
+        run.id,
+        setActiveRunId,
+      );
       setIsEditing(false);
-      setActiveRunId(run.id);
       toast.success(t("automation.previewToast"));
       sendToAgentChat({
         message:
