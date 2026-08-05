@@ -975,6 +975,27 @@ function getAssistantUiAliases(
     const coreViteEntry = appRequire.resolve("@agent-native/core/vite");
     const coreRequire = createRequire(coreViteEntry);
     return [
+      // A linked framework checkout can otherwise resolve the assistant-ui
+      // imports in core's source graph from the checkout's React 19.2.7 peer
+      // tree while Vite prebundles the app's React 19.2.8 tree. Dedupe does
+      // not rewrite those /@fs source imports, so pin the singleton packages
+      // to the consuming app's installed peer graph explicitly.
+      {
+        find: /^@assistant-ui\/react$/,
+        replacement: coreRequire.resolve("@assistant-ui/react"),
+      },
+      {
+        find: /^@assistant-ui\/core$/,
+        replacement: coreRequire.resolve("@assistant-ui/core"),
+      },
+      {
+        find: /^@assistant-ui\/store$/,
+        replacement: coreRequire.resolve("@assistant-ui/store"),
+      },
+      {
+        find: /^@assistant-ui\/tap$/,
+        replacement: coreRequire.resolve("@assistant-ui/tap"),
+      },
       {
         find: /^assistant-stream$/,
         replacement: coreRequire.resolve("assistant-stream"),

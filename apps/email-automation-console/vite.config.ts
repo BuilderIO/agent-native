@@ -25,6 +25,22 @@ export default defineConfig({
     ],
     alias: [
       {
+        find: /^@assistant-ui\/react$/,
+        replacement: coreRequire.resolve("@assistant-ui/react"),
+      },
+      {
+        find: /^@assistant-ui\/core$/,
+        replacement: coreRequire.resolve("@assistant-ui/core"),
+      },
+      {
+        find: /^@assistant-ui\/store$/,
+        replacement: coreRequire.resolve("@assistant-ui/store"),
+      },
+      {
+        find: /^@assistant-ui\/tap$/,
+        replacement: coreRequire.resolve("@assistant-ui/tap"),
+      },
+      {
         find: /^assistant-stream$/,
         replacement: coreRequire.resolve("assistant-stream"),
       },
