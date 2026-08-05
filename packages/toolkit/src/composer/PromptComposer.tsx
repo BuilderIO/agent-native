@@ -309,6 +309,7 @@ function ImagePreviewLightbox({
   alt: string;
   onClose: () => void;
 }) {
+  const t = useComposerRuntimeAdapters().translate!;
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -324,7 +325,9 @@ function ImagePreviewLightbox({
   return (
     <div
       role="dialog"
-      aria-label="Image preview"
+      aria-label={t("agentChat.composer.imagePreview", {
+        defaultValue: "Image preview",
+      })}
       onClick={onClose}
       className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-6 cursor-zoom-out"
     >
@@ -337,7 +340,9 @@ function ImagePreviewLightbox({
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close preview"
+        aria-label={t("agentChat.composer.closePreview", {
+          defaultValue: "Close preview",
+        })}
         className="absolute end-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
       >
         <IconX className="h-4 w-4" />
@@ -355,6 +360,7 @@ function AttachmentChip({
 }) {
   const src = useMemo(() => getImageSrc(attachment), [attachment]);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const t = useComposerRuntimeAdapters().translate!;
   useEffect(
     () => () => {
       if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
@@ -372,7 +378,10 @@ function AttachmentChip({
         <button
           type="button"
           onClick={() => setPreviewOpen(true)}
-          aria-label={`Preview ${attachment.name}`}
+          aria-label={t("agentChat.composer.previewAttachment", {
+            name: attachment.name,
+            defaultValue: `Preview ${attachment.name}`,
+          })}
           className="agent-composer-attachment-image group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
         >
           <img
@@ -394,7 +403,10 @@ function AttachmentChip({
                 onRemove(attachment.id);
               }
             }}
-            aria-label={`Remove ${attachment.name}`}
+            aria-label={t("agentChat.composer.removeAttachment", {
+              name: attachment.name,
+              defaultValue: `Remove ${attachment.name}`,
+            })}
             className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
           >
             <IconX className="h-3 w-3" />
@@ -414,13 +426,17 @@ function AttachmentChip({
   return (
     <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background text-[9px] font-semibold uppercase text-muted-foreground">
-        {attachment.name.split(".").pop() || "file"}
+        {attachment.name.split(".").pop() ||
+          t("agentChat.composer.file", { defaultValue: "file" })}
       </div>
       <span className="min-w-0 truncate font-medium">{attachment.name}</span>
       <button
         type="button"
         onClick={() => onRemove(attachment.id)}
-        aria-label={`Remove ${attachment.name}`}
+        aria-label={t("agentChat.composer.removeAttachment", {
+          name: attachment.name,
+          defaultValue: `Remove ${attachment.name}`,
+        })}
         className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
       >
         <IconX className="h-3 w-3" />
@@ -497,6 +513,7 @@ function PromptComposerInner({
   composerRef,
 }: PromptComposerProps) {
   const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
   const modelsAdapter = adapters.models!;
   const BuilderSetupCard = modelsAdapter.BuilderSetupCard;
   const BuilderSetupContent = modelsAdapter.BuilderSetupContent;
@@ -630,7 +647,11 @@ function PromptComposerInner({
           focusRef={handleRef}
           disabled={disabled || gateComposer}
           placeholder={
-            gateComposer ? "Connect AI above to continue..." : placeholder
+            gateComposer
+              ? t("agentChat.composer.connectAbove", {
+                  defaultValue: "Connect AI above to continue...",
+                })
+              : placeholder
           }
           initialText={initialText}
           initialTextKey={initialTextKey}

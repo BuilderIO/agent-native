@@ -174,8 +174,15 @@ export interface ComposerRuntimeAdapters {
 }
 
 const identityPath = (path: string) => path;
-const fallbackTranslate: ComposerTranslate = (key, options) =>
-  typeof options?.defaultValue === "string" ? options.defaultValue : key;
+const fallbackTranslate: ComposerTranslate = (key, options) => {
+  const template =
+    typeof options?.defaultValue === "string" ? options.defaultValue : key;
+
+  return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
+    const value = options?.[name];
+    return value == null ? match : String(value);
+  });
+};
 const fallbackModels = {
   useChatModels: () => ({
     selectedModel: "auto",

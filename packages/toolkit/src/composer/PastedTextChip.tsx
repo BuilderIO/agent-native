@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { cn } from "../utils.js";
 import { countLines, unwrapAttachmentEnvelope } from "./pasted-text.js";
+import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 
 function readAttachmentText(attachment: Attachment): Promise<string> | string {
   if ("file" in attachment && attachment.file instanceof File) {
@@ -58,6 +59,7 @@ export function PastedTextChip({
 }: PastedTextChipProps) {
   const [open, setOpen] = useState(false);
   const { text, lines, chars } = usePastedAttachmentText(attachment);
+  const t = useComposerRuntimeAdapters().translate!;
 
   const handleRemove = useCallback(
     (event: React.MouseEvent) => {
@@ -67,7 +69,17 @@ export function PastedTextChip({
     [attachment.id, onRemove],
   );
 
-  const summary = lines > 0 ? `${lines} lines` : `${chars} chars`;
+  const lineSummary = t("agentChat.pastedText.lines", {
+    count: lines,
+    formattedCount: lines.toLocaleString(),
+    defaultValue: `${lines} lines`,
+  });
+  const charSummary = t("agentChat.pastedText.characters", {
+    count: chars,
+    formattedCount: chars.toLocaleString(),
+    defaultValue: `${chars} chars`,
+  });
+  const summary = lines > 0 ? lineSummary : charSummary;
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -81,7 +93,9 @@ export function PastedTextChip({
               : "max-w-[260px] px-2.5 py-2 text-xs",
             onRemove && !compact && "pe-7",
           )}
-          aria-label="Preview pasted text"
+          aria-label={t("agentChat.pastedText.preview", {
+            defaultValue: "Preview pasted text",
+          })}
         >
           <span
             className={cn(
@@ -94,7 +108,11 @@ export function PastedTextChip({
             />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-medium">Pasted text</span>
+            <span className="block truncate font-medium">
+              {t("agentChat.pastedText.title", {
+                defaultValue: "Pasted text",
+              })}
+            </span>
             <span className="block text-[11px] text-muted-foreground">
               {summary}
             </span>
@@ -104,7 +122,9 @@ export function PastedTextChip({
               role="button"
               tabIndex={-1}
               onClick={handleRemove}
-              aria-label="Remove pasted text"
+              aria-label={t("agentChat.pastedText.remove", {
+                defaultValue: "Remove pasted text",
+              })}
               className={cn(
                 "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground",
                 compact ? "" : "absolute end-1.5 top-1.5",
@@ -126,15 +146,21 @@ export function PastedTextChip({
           <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
             <div className="flex items-center gap-2 min-w-0">
               <IconClipboardText className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="text-sm font-medium truncate">Pasted text</span>
+              <span className="text-sm font-medium truncate">
+                {t("agentChat.pastedText.title", {
+                  defaultValue: "Pasted text",
+                })}
+              </span>
               <span className="text-[11px] text-muted-foreground shrink-0">
-                {lines} lines · {chars} chars
+                {lineSummary} · {charSummary}
               </span>
             </div>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              aria-label="Close preview"
+              aria-label={t("agentChat.composer.closePreview", {
+                defaultValue: "Close preview",
+              })}
               className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
             >
               <IconX className="h-3.5 w-3.5" />
