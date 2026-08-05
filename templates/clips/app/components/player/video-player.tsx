@@ -1291,11 +1291,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ? "loading"
           : "ready"
         : null;
-    const centerOverlayLabel = isPlayPending
-      ? "Starting playback"
-      : isBuffering
-        ? "Buffering"
-        : "Preparing clip";
+    const centerOverlayLabel =
+      isPlayPending && !hasPlaybackStarted
+        ? "Starting playback"
+        : isPlayPending || isBuffering
+          ? "Buffering"
+          : "Preparing clip";
 
     return (
       <div

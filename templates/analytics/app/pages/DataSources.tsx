@@ -1681,6 +1681,18 @@ function FirstPartyAnalyticsCard() {
             <div className="flex shrink-0 items-center gap-2">
               {isLoading ? (
                 <Skeleton className="h-4 w-20 rounded-full" />
+              ) : healthStatus === "recommend_bigquery" ? (
+                <span
+                  className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-amber-500"
+                  title={healthTitleKey ? t(healthTitleKey) : undefined}
+                >
+                  <IconAlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="max-w-[12rem] truncate">
+                    {healthTitleKey
+                      ? t(healthTitleKey)
+                      : t("dataSources.bigQueryRecommendationTitle")}
+                  </span>
+                </span>
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
