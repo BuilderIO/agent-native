@@ -1490,10 +1490,13 @@ export function processEvent(
     const approvalTool = ev.tool ?? "unknown";
     const approvalKey = ev.approvalKey;
     if (approvalKey) {
+      // `toolCallId` is the model-side id in the `approval_required` contract;
+      // `id` is only carried by older frames. Same precedence as the runtime
+      // path so both processors resolve an event to the same call.
       const idx = findApprovalToolCallIndex(
         content,
         approvalTool,
-        ev.id ?? ev.toolCallId,
+        ev.toolCallId ?? ev.id,
       );
       if (idx >= 0) {
         const part = content[idx];

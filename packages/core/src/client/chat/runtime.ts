@@ -1655,10 +1655,14 @@ function applyRuntimeEventToContent(
         );
     if (part && part.type === "tool-call") {
       part.approval = { approvalKey: typed.approvalId };
-    } else {
+    } else if (!typed.toolCallId) {
+      // Only runtimes that never announced the call (no id) get a synthesized
+      // card. An id that matches nothing means the call was never observed or
+      // is already resolved, and inventing an Approve/Deny card for it would
+      // gate something the user cannot see.
       content.push({
         type: "tool-call",
-        toolCallId: typed.toolCallId ?? typed.approvalId,
+        toolCallId: typed.approvalId,
         toolName: typed.toolName ?? "approval",
         argsText: typed.input ? JSON.stringify(typed.input) : "",
         args: toContentPartInput(typed.input),

@@ -480,6 +480,63 @@ describe("createAgentChatRuntimeAdapter", () => {
     ) as any[];
     const call2 = toolCalls.find((part) => part.toolCallId === "call-2");
     expect(call2?.approval).toBeUndefined();
+    // And no phantom Approve/Deny card was invented for the unseen call.
+    expect(toolCalls).toHaveLength(1);
+  });
+
+  it("still synthesizes a card for a legacy approval with no call id", async () => {
+    const runtime: AgentChatRuntime = {
+      id: "external:test",
+      kind: "external-agent",
+      label: "Test",
+      capabilities: {
+        messages: { streaming: true },
+        sessions: { create: true },
+      },
+      async createSession() {
+        return {
+          id: "session-1",
+          runtimeId: "external:test",
+          async startTurn() {
+            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+              // An external runtime that never announced the call via
+              // tool-start still needs a visible gate.
+              yield {
+                type: "approval-request",
+                approvalId: "legacy-approval",
+                toolName: "send-email",
+                message: "Approve this tool call?",
+              };
+              yield { type: "done", reason: "complete" };
+            }
+            return {
+              id: "turn-1",
+              sessionId: "session-1",
+              runId: "run-1",
+              events: events(),
+            };
+          },
+        };
+      },
+    };
+    const adapter = createAgentChatRuntimeAdapter(runtime);
+
+    const results = await drain(
+      adapter.run({
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        abortSignal: new AbortController().signal,
+        runConfig: {},
+      } as any),
+    );
+
+    const toolCalls = (results.at(-1)?.content ?? []).filter(
+      (part: any) => part.type === "tool-call",
+    ) as any[];
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({
+      toolName: "send-email",
+      approval: { approvalKey: "legacy-approval" },
+    });
   });
 
   it("adapts runtime events into assistant-ui content", async () => {

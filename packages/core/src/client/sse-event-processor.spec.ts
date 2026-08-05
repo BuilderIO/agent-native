@@ -3677,6 +3677,38 @@ describe("SSE event processor tool id matching", () => {
     });
   });
 
+  it("prefers toolCallId over id when an approval carries both", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "send-email", id: "call-1", input: {} },
+          { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:call-2",
+            // `toolCallId` is the contract field; `id` is a stale older frame.
+            toolCallId: "call-2",
+            id: "call-1",
+            input: {},
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find((p: any) => p.type === "tool-call" && p.toolCallId === id);
+    expect(byId("call-2")?.approval).toEqual({
+      approvalKey: "send-email:call-2",
+    });
+    expect(byId("call-1")?.approval).toBeUndefined();
+  });
+
   it("does not attach a replayed approval to a different call of the same action", async () => {
     // call-1 is gated and resolved by its paused tool_done. call-2 is a second
     // in-flight call to the same action. Replaying call-1's approval must not
