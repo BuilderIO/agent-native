@@ -1,5 +1,5 @@
-import { useState } from "react";
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -20,7 +20,7 @@ interface SpaceDialogsProps {
   deleteSpaceId: string | null;
   deleteSpaceName: string;
   setDeleteSpaceId: (id: string | null) => void;
-  onMutationSuccess?: () => void;
+  onMutationSuccess?: (deletedSpaceId?: string) => void;
 }
 
 export function SpaceDialogs({
@@ -50,7 +50,7 @@ export function SpaceDialogs({
       onMutationSuccess?.();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to rename space"
+        err instanceof Error ? err.message : "Failed to rename space",
       );
     }
   };
@@ -61,9 +61,11 @@ export function SpaceDialogs({
       await deleteSpace.mutateAsync({ id: deleteSpaceId });
       toast.success(`Deleted "${deleteSpaceName}"`);
       setDeleteSpaceId(null);
-      onMutationSuccess?.();
+      onMutationSuccess?.(deleteSpaceId);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete space");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to delete space",
+      );
     }
   };
 

@@ -38,7 +38,7 @@ import {
   IconEdit,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { NavLink, useLocation, useParams } from "react-router";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -108,6 +108,7 @@ function ClipsAgentToggleButton() {
 
 export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const t = useT();
   // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
   // meetings, dictate, and settings stay unscoped — those are list-y views
@@ -619,43 +620,45 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                               </div>
                               <span className="truncate">{s.name}</span>
                             </NavLink>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label={`${s.name}: ${t("root.commandActions")}`}
-                                  title={`${s.name}: ${t("root.commandActions")}`}
-                                  className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-                                >
-                                  <IconDots className="h-3.5 w-3.5" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start" side="right">
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    setTimeout(() => {
-                                      setRenameSpaceValue(s.name);
-                                      setRenameSpaceId(s.id);
-                                    }, 0);
-                                  }}
-                                >
-                                  <IconEdit className="h-3.5 w-3.5 me-2" />
-                                  Rename
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    setTimeout(() => {
-                                      setDeleteSpaceId(s.id);
-                                      setDeleteSpaceName(s.name);
-                                    }, 0);
-                                  }}
-                                  className="text-destructive"
-                                >
-                                  <IconTrash className="h-3.5 w-3.5 me-2" />
-                                  Delete
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            {canManageOrg && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    aria-label={`${s.name}: ${t("root.commandActions")}`}
+                                    title={`${s.name}: ${t("root.commandActions")}`}
+                                    className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                                  >
+                                    <IconDots className="h-3.5 w-3.5" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start" side="right">
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setTimeout(() => {
+                                        setRenameSpaceValue(s.name);
+                                        setRenameSpaceId(s.id);
+                                      }, 0);
+                                    }}
+                                  >
+                                    <IconEdit className="h-3.5 w-3.5 me-2" />
+                                    Rename
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onSelect={() => {
+                                      setTimeout(() => {
+                                        setDeleteSpaceId(s.id);
+                                        setDeleteSpaceName(s.name);
+                                      }, 0);
+                                    }}
+                                    className="text-destructive"
+                                  >
+                                    <IconTrash className="h-3.5 w-3.5 me-2" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
                           </div>
                         </li>
                       );
@@ -889,7 +892,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         deleteSpaceId={deleteSpaceId}
         deleteSpaceName={deleteSpaceName}
         setDeleteSpaceId={setDeleteSpaceId}
-        onMutationSuccess={() => refetchSpaces?.()}
+        onMutationSuccess={(deletedSpaceId) => {
+          if (deletedSpaceId && spaceId === deletedSpaceId) {
+            navigate("/spaces");
+          }
+          refetchSpaces?.();
+        }}
       />
     </div>
   );
