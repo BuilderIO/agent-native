@@ -12,7 +12,6 @@ import {
 
 const ALWAYS_OPEN_SECTION_INDEX = 0;
 
-
 function normalizePath(pathname: string) {
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
 }
