@@ -28,8 +28,12 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
-import { NEW_CHAT_ACTION_HREF } from "../error-format.js";
+import {
+  localizeKnownChatErrorText,
+  NEW_CHAT_ACTION_HREF,
+} from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
+import { useT } from "../i18n.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
 import {
@@ -689,6 +693,7 @@ export function SmoothMarkdownText({
 // ─── MarkdownText ──────────────────────────────────────────────────────────────
 
 export function MarkdownText() {
+  const t = useT();
   const textPart = useMessagePartText();
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
@@ -702,7 +707,7 @@ export function MarkdownText() {
 
   return (
     <SmoothMarkdownText
-      text={textPart.text}
+      text={localizeKnownChatErrorText(textPart.text, t)}
       streaming={textStreaming && isLastAssistantMessage}
       resetKey={`${message.id}:${statusType}`}
       statusType={statusType}

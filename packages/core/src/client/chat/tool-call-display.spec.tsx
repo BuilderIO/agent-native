@@ -1413,6 +1413,13 @@ describe("formatWorkedDuration", () => {
     expect(formatWorkedDuration(125_000)).toBe("2m 5s");
     expect(formatWorkedDuration(3_600_000)).toBe("1h");
     expect(formatWorkedDuration(3_900_000)).toBe("1h 5m");
+    expect(
+      formatWorkedDuration(125_000, {
+        locale: "de-DE",
+        minute: " Min.",
+        second: " Sek.",
+      }),
+    ).toBe("2 Min. 5 Sek.");
   });
 });
 

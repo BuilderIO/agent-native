@@ -1283,7 +1283,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain(
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
-    expect(source).toContain('aria-label="Scroll to bottom"');
+    expect(source).toContain('"agentChat.composer.scrollToBottom"');
     expect(source).toContain("autoScroll={false}");
     expect(source).not.toContain("scrollAnchor");
     expect(source).toContain("composerContextItems.length > 0");
@@ -1564,6 +1564,28 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
     ).toBe("Preparing generate-design action");
   });
 
+  it("localizes Core-owned activity labels while preserving the tool name", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Preparing generate-design...",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          working: "Arbeitet",
+          contactingModel: "Modell wird kontaktiert",
+          starting: (activity) => `${activity} wird gestartet...`,
+          preparing: (activity) => `${activity} wird vorbereitet...`,
+          writing: (activity) => `${activity} wird geschrieben...`,
+          stillGenerating: (activity) => `${activity} wird weiterhin generiert`,
+        },
+      }),
+    ).toBe("generate-design wird vorbereitet...");
+  });
+
   it("shows replayed recovery as still working instead of reconnecting", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
@@ -1571,8 +1593,13 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: true,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Still working");
+    ).toBe("Arbeitet weiter");
   });
 
   it("keeps bare reconnect recovery as thinking", () => {
@@ -1582,8 +1609,13 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Thinking");
+    ).toBe("Denkt nach");
   });
 });
 
