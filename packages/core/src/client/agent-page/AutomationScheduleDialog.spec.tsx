@@ -8,7 +8,36 @@ vi.mock("../i18n.js", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, string | undefined>): string =>
-      String(options?.defaultValue ?? key),
+      String(options?.defaultValue ?? key).replace(
+        /{{(\w+)}}/g,
+        (_, name: string) => options?.[name] ?? `{{${name}}}`,
+      ),
+}));
+
+vi.mock("./TimezoneSelect.js", () => ({
+  browserTimezone: () => "UTC",
+  TimezoneSelect: ({
+    id,
+    value,
+    disabled,
+    onChange,
+  }: {
+    id?: string;
+    value: string;
+    disabled?: boolean;
+    onChange: (value: string) => void;
+  }) => (
+    <select
+      id={id}
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    >
+      <option value="UTC">UTC</option>
+      <option value="America/New_York">America/New_York</option>
+      <option value="Europe/Paris">Europe/Paris</option>
+    </select>
+  ),
 }));
 
 import { AutomationScheduleDialog } from "./AutomationScheduleDialog.js";
@@ -19,6 +48,23 @@ function findButton(container: HTMLElement, text: string): HTMLButtonElement {
   );
   if (!match) throw new Error(`no button starting with "${text}"`);
   return match as HTMLButtonElement;
+}
+
+function changeValue(
+  element: HTMLInputElement | HTMLSelectElement,
+  value: string,
+) {
+  const prototype =
+    element instanceof HTMLSelectElement
+      ? HTMLSelectElement.prototype
+      : HTMLInputElement.prototype;
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  if (!setter) throw new Error("value setter unavailable");
+  act(() => {
+    setter.call(element, value);
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }
 
 describe("AutomationScheduleDialog", () => {
@@ -58,20 +104,66 @@ describe("AutomationScheduleDialog", () => {
     });
   }
 
-  it("saves the automation's stored zone alongside an edited schedule", () => {
+  it("saves the automation's stored zone alongside a friendly schedule edit", () => {
     render({ schedule: "0 8 * * *", timezone: "America/New_York" });
 
-    act(() => {
-      findButton(document.body, "Every hour").click();
-    });
-    act(() => {
-      findButton(document.body, "Save").click();
-    });
+    const time = document.querySelector<HTMLInputElement>("#automation-time");
+    if (!time) throw new Error("time field unavailable");
+    changeValue(time, "08:30");
+    act(() => findButton(document.body, "Save").click());
 
     expect(onSave).toHaveBeenCalledWith({
-      schedule: "0 * * * *",
+      schedule: "30 8 * * *",
       timezone: "America/New_York",
     });
+  });
+
+  it("shows friendly controls and a live schedule summary", () => {
+    render({ schedule: "0 9 * * 1-5", timezone: "Europe/Paris" });
+
+    expect(document.body.textContent).toContain("Frequency");
+    expect(document.body.textContent).toContain("Weekdays");
+    expect(document.body.textContent).toContain(
+      "Weekdays at 09:00 (Europe/Paris)",
+    );
+  });
+
+  it("opens irregular valid cron in Advanced mode and preserves its bytes", () => {
+    const irregular = "  */15 * * * *  ";
+    render({ schedule: irregular, timezone: "UTC" });
+
+    const cron = document.querySelector<HTMLInputElement>(
+      "#automation-schedule",
+    );
+    expect(cron?.value).toBe(irregular);
+    expect(document.body.textContent).toContain("custom cron pattern");
+
+    const timezone = document.querySelector<HTMLSelectElement>(
+      "#automation-timezone",
+    );
+    if (!timezone) throw new Error("timezone field unavailable");
+    changeValue(timezone, "Europe/Paris");
+    act(() => findButton(document.body, "Save").click());
+
+    expect(onSave).toHaveBeenCalledWith({
+      schedule: irregular,
+      timezone: "Europe/Paris",
+    });
+  });
+
+  it("keeps Advanced input synchronized with friendly edits", () => {
+    render({ schedule: "0 8 * * *", timezone: "UTC" });
+    act(() => findButton(document.body, "Advanced").click());
+
+    const cron = document.querySelector<HTMLInputElement>(
+      "#automation-schedule",
+    );
+    expect(cron?.value).toBe("0 8 * * *");
+
+    const time = document.querySelector<HTMLInputElement>("#automation-time");
+    if (!time) throw new Error("time field unavailable");
+    changeValue(time, "17:45");
+    expect(cron?.value).toBe("45 17 * * *");
   });
 
   it("keeps Save disabled until something actually changes", () => {

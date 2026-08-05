@@ -1,5 +1,4 @@
 import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -12,20 +11,9 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
-import { TimezoneSelect, browserTimezone } from "./TimezoneSelect.js";
-
-const PRESETS: { label: string; cron: string }[] = [
-  { label: "Every hour", cron: "0 * * * *" },
-  { label: "Every day at 8:00", cron: "0 8 * * *" },
-  { label: "Every weekday at 9:00", cron: "0 9 * * 1-5" },
-  { label: "Every Monday at 8:00", cron: "0 8 * * 1" },
-];
-
-const CRON_FIELD_COUNT = 5;
-
-function looksLikeCron(value: string): boolean {
-  return value.trim().split(/\s+/).length === CRON_FIELD_COUNT;
-}
+import { isValidAutomationSchedule } from "./automation-schedule-fields.js";
+import { AutomationScheduleFields } from "./AutomationScheduleFields.js";
+import { browserTimezone } from "./TimezoneSelect.js";
 
 export interface AutomationScheduleDialogProps {
   open: boolean;
@@ -58,10 +46,9 @@ export function AutomationScheduleDialog({
     setZone(timezone || browserTimezone());
   }, [open, schedule, timezone]);
 
-  const trimmed = value.trim();
-  const valid = looksLikeCron(trimmed);
+  const valid = isValidAutomationSchedule(value);
   const changed =
-    trimmed !== schedule.trim() || zone !== (timezone || browserTimezone());
+    value !== schedule || zone !== (timezone || browserTimezone());
 
   return (
     <Dialog
@@ -87,67 +74,18 @@ export function AutomationScheduleDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div>
-            <label
-              className="text-xs font-medium text-foreground"
-              htmlFor="automation-schedule"
-            >
-              {t("jobs.cronExpression", { defaultValue: "Cron expression" })}
-            </label>
-            <Input
-              id="automation-schedule"
-              className="mt-1 font-mono text-sm"
-              value={value}
-              spellCheck={false}
-              autoComplete="off"
-              disabled={saving}
-              onChange={(event) => setValue(event.target.value)}
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {t("jobs.cronFormatHint", {
-                defaultValue: "minute hour day-of-month month day-of-week",
-              })}
-            </p>
-          </div>
+          <AutomationScheduleFields
+            schedule={value}
+            timezone={zone}
+            disabled={saving}
+            onScheduleChange={setValue}
+            onTimezoneChange={setZone}
+          />
 
-          <div className="flex flex-wrap gap-1.5">
-            {PRESETS.map((preset) => (
-              <Button
-                key={preset.cron}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 cursor-pointer text-[11px]"
-                disabled={saving}
-                onClick={() => setValue(preset.cron)}
-              >
-                {preset.label}
-              </Button>
-            ))}
-          </div>
-
-          <div>
-            <label
-              className="text-xs font-medium text-foreground"
-              htmlFor="automation-timezone"
-            >
-              {t("jobs.timezone", { defaultValue: "Timezone" })}
-            </label>
-            <div className="mt-1">
-              <TimezoneSelect
-                id="automation-timezone"
-                value={zone}
-                disabled={saving}
-                onChange={setZone}
-                suggested={[browserTimezone()]}
-              />
-            </div>
-          </div>
-
-          {trimmed && !valid ? (
+          {value && !valid ? (
             <p className="text-xs text-destructive">
-              {t("jobs.cronFieldCount", {
-                defaultValue: "A cron expression needs exactly 5 fields.",
+              {t("jobs.cronInvalid", {
+                defaultValue: "Enter a valid cron expression.",
               })}
             </p>
           ) : null}
@@ -168,7 +106,7 @@ export function AutomationScheduleDialog({
             type="button"
             className="cursor-pointer"
             disabled={saving || !valid || !changed}
-            onClick={() => onSave({ schedule: trimmed, timezone: zone })}
+            onClick={() => onSave({ schedule: value, timezone: zone })}
           >
             {saving ? <IconLoader2 className="size-4 animate-spin" /> : null}
             {t("jobs.saveSchedule", { defaultValue: "Save schedule" })}
