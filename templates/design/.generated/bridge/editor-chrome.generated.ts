@@ -461,7 +461,37 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     return /\\s/.test(trimmed) ? null : trimmed;
   }
-  function readRules(element, rules, out) {
+  function selectorSpecificity(selector) {
+    const cleaned = selector.replace(/\\\\./g, "").replace(/\\[[^\\]]*\\]/g, " :attr ").replace(/\\(([^()]*)\\)/g, " ");
+    const count = (pattern) => (cleaned.match(pattern) ?? []).length;
+    const ids = count(/#[\\w-]+/g);
+    const classes = count(/\\.[\\w-]+/g) + count(/:(?!:)[\\w-]+/g);
+    const types = count(/(?:^|[\\s>+~])[a-zA-Z][\\w-]*/g) + count(/::[\\w-]+/g);
+    return ids * 1e4 + classes * 100 + types;
+  }
+  function matchedSpecificity(element, selectorText) {
+    let best = -1;
+    for (const selector of selectorText.split(",")) {
+      const trimmed = selector.trim();
+      if (!trimmed) continue;
+      try {
+        if (!element.matches(trimmed)) continue;
+      } catch {
+        continue;
+      }
+      best = Math.max(best, selectorSpecificity(trimmed));
+    }
+    return best;
+  }
+  function beats(next, current) {
+    if (!current) return true;
+    if (next.important !== current.important) return next.important;
+    if (next.specificity !== current.specificity) {
+      return next.specificity > current.specificity;
+    }
+    return next.order >= current.order;
+  }
+  function readRules(element, rules, out, counter) {
     if (!rules) return;
     for (let index = 0; index < rules.length; index += 1) {
       const rule = rules[index];
@@ -473,29 +503,36 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch {
           applies = false;
         }
-        if (applies) readRules(element, rule.cssRules, out);
+        if (applies) readRules(element, rule.cssRules, out, counter);
         continue;
       }
       if (!rule.selectorText || !rule.style) continue;
-      let matches = false;
-      try {
-        matches = element.matches(rule.selectorText);
-      } catch {
-        continue;
-      }
-      if (!matches) continue;
+      const specificity = matchedSpecificity(element, rule.selectorText);
+      if (specificity < 0) continue;
+      const order = counter.order++;
+      const style = rule.style;
+      const priority = (name) => style.getPropertyPriority?.(name) === "important";
+      const offer = (property, value, cssName) => {
+        const candidate = {
+          value,
+          important: priority(cssName),
+          specificity,
+          order
+        };
+        if (beats(candidate, out[property])) out[property] = candidate;
+      };
       for (const property of AUTHORED_COLOR_PROPERTIES) {
-        const declared = rule.style[property];
+        const declared = style[property];
         if (isAuthoredColor(declared)) {
-          out[property] = declared;
+          offer(property, declared, cssPropertyName(property));
           continue;
         }
         const shorthand = SHORTHAND_FALLBACK[property];
         if (!shorthand) continue;
-        const shorthandValue = rule.style[shorthand];
+        const shorthandValue = style[shorthand];
         if (typeof shorthandValue !== "string") continue;
         const colorOnly = shorthandColorValue(shorthand, shorthandValue);
-        if (colorOnly) out[property] = colorOnly;
+        if (colorOnly) offer(property, colorOnly, shorthand);
       }
     }
   }
@@ -528,7 +565,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     return resolved === "" || resolved === painted;
   }
   function collectForElement(element) {
-    const out = {};
+    const ranked = {};
+    const counter = { order: 0 };
     try {
       const doc = element.ownerDocument;
       const sheets = [
@@ -544,13 +582,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch {
           continue;
         }
-        readRules(element, rules, out);
+        readRules(element, rules, ranked, counter);
       }
     } catch (error) {
       console.warn(
         "[design] could not read stylesheets for authored colours; token names will fall back to resolved values",
         error
       );
+    }
+    const out = {};
+    for (const [property, candidate] of Object.entries(ranked)) {
+      out[property] = candidate.value;
     }
     const inline = element.style;
     if (inline) {

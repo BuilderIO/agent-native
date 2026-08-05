@@ -235,15 +235,42 @@ describe("collectAuthoredColorStyles", () => {
     );
   });
 
-  it("drops a token the cascade outranks by specificity", () => {
-    // Rules are read in document order, so the later class rule's token wins the
-    // walk while the engine paints the earlier id rule's green.
+  it("prefers the more specific rule over a later, weaker one", () => {
     render(
       `<style>:root{--color-text:#161616}#t{color:#24a148}.label{color:var(--color-text)}</style>` +
         `<p id="t" class="label">+18.6%</p>`,
     );
 
-    expect(collectAuthoredColorStyles(target()).color).toBeUndefined();
+    const authored = collectAuthoredColorStyles(target()).color ?? "";
+    expect(parseCssColor(authored)).toMatchObject({ r: 36, g: 161, b: 72 });
+  });
+
+  it("prefers the more specific token even when both resolve alike", () => {
+    // Both tokens are #161616, so the painted colour cannot break the tie and
+    // only the cascade can say which token the design actually references.
+    render(
+      `<style>
+         :root{--near:#161616;--far:#161616}
+         #t{color:var(--near)}
+         .label{color:var(--far)}
+       </style>
+       <p id="t" class="label">x</p>`,
+    );
+
+    expect(collectAuthoredColorStyles(target()).color).toBe("var(--near)");
+  });
+
+  it("lets !important beat a more specific rule", () => {
+    render(
+      `<style>
+         :root{--near:#161616;--far:#161616}
+         #t{color:var(--near)}
+         .label{color:var(--far) !important}
+       </style>
+       <p id="t" class="label">x</p>`,
+    );
+
+    expect(collectAuthoredColorStyles(target()).color).toBe("var(--far)");
   });
 });
 

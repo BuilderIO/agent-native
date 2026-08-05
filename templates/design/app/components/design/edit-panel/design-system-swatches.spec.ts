@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   groupColorSwatches,
+  hiddenColorWrite,
   parseTokenReference,
   resolveTokenNameForColor,
   swatchLabel,
@@ -159,10 +160,41 @@ describe("parseTokenReference", () => {
     });
   });
 
-  it("ignores plain colours and nested expressions", () => {
+  it("ignores plain colours", () => {
     expect(parseTokenReference("#0f62fe")).toBeNull();
     expect(parseTokenReference("rgb(15, 98, 254)")).toBeNull();
-    expect(parseTokenReference("var(--a, var(--b))")).toBeNull();
+  });
+
+  it("reads a fallback that is itself a colour function", () => {
+    expect(parseTokenReference("var(--brand, rgb(1, 2, 3))")).toEqual({
+      cssVar: "--brand",
+      fallback: "rgb(1, 2, 3)",
+    });
+    expect(parseTokenReference("var(--brand, oklch(0.7 0.1 250))")).toEqual({
+      cssVar: "--brand",
+      fallback: "oklch(0.7 0.1 250)",
+    });
+    expect(
+      parseTokenReference("var(--brand, color(display-p3 1 0 0))"),
+    ).toEqual({
+      cssVar: "--brand",
+      fallback: "color(display-p3 1 0 0)",
+    });
+  });
+
+  it("reads a nested var() fallback", () => {
+    expect(parseTokenReference("var(--a, var(--b))")).toEqual({
+      cssVar: "--a",
+      fallback: "var(--b)",
+    });
+  });
+
+  it("rejects anything trailing the reference", () => {
+    // A layered value is not a lone token reference, and treating it as one
+    // would persist only the first layer.
+    expect(parseTokenReference("var(--a) var(--b)")).toBeNull();
+    expect(parseTokenReference("var(--a, #fff) 0 0")).toBeNull();
+    expect(parseTokenReference("var(--a")).toBeNull();
   });
 });
 
@@ -221,5 +253,39 @@ describe("swatchLabel", () => {
         value: "#0f62fe",
       }),
     ).toBe("cds-background-brand");
+  });
+});
+
+describe("hiddenColorWrite", () => {
+  const zero = (literal: string) =>
+    literal.startsWith("#") || literal.startsWith("rgb")
+      ? "rgba(0, 0, 0, 0)"
+      : null;
+
+  it("parks the reference and zeroes its fallback", () => {
+    expect(hiddenColorWrite("var(--cds-link-primary, #0f62fe)", zero)).toEqual({
+      value: "rgba(0, 0, 0, 0)",
+      parkedToken: "var(--cds-link-primary, #0f62fe)",
+    });
+  });
+
+  it("parks nothing for a plain colour", () => {
+    expect(hiddenColorWrite("#0f62fe", zero)).toEqual({
+      value: "rgba(0, 0, 0, 0)",
+      parkedToken: null,
+    });
+  });
+
+  it("falls back to transparent when nothing parses", () => {
+    // A reference with no fallback has no channels to zero, so there is
+    // nothing to restore and parking it would strand the hide.
+    expect(hiddenColorWrite("var(--cds-focus)", zero)).toEqual({
+      value: "transparent",
+      parkedToken: null,
+    });
+    expect(hiddenColorWrite("transparent", zero)).toEqual({
+      value: "transparent",
+      parkedToken: null,
+    });
   });
 });

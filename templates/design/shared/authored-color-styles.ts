@@ -117,15 +117,69 @@ export function shorthandColorValue(
 
 type StyleRuleLike = {
   selectorText?: string;
-  style?: Record<string, string>;
+  style?: Record<string, string> & {
+    getPropertyPriority?: (property: string) => string;
+  };
   conditionText?: string;
   cssRules?: ArrayLike<unknown>;
 };
 
+/**
+ * Approximate CSS specificity as one comparable number. Approximate is safe:
+ * it only orders selectors that already match, and `authoredMatchesPainted`
+ * still discards a winner that is not what paints. `:is()`/`:not()` inner
+ * specificity is not counted.
+ */
+function selectorSpecificity(selector: string): number {
+  const cleaned = selector
+    .replace(/\\./g, "")
+    .replace(/\[[^\]]*\]/g, " :attr ")
+    .replace(/\(([^()]*)\)/g, " ");
+  const count = (pattern: RegExp) => (cleaned.match(pattern) ?? []).length;
+  const ids = count(/#[\w-]+/g);
+  const classes = count(/\.[\w-]+/g) + count(/:(?!:)[\w-]+/g);
+  const types = count(/(?:^|[\s>+~])[a-zA-Z][\w-]*/g) + count(/::[\w-]+/g);
+  return ids * 10000 + classes * 100 + types;
+}
+
+/** Specificity of the selector in a comma list that actually matches. */
+function matchedSpecificity(element: Element, selectorText: string): number {
+  let best = -1;
+  for (const selector of selectorText.split(",")) {
+    const trimmed = selector.trim();
+    if (!trimmed) continue;
+    try {
+      if (!element.matches(trimmed)) continue;
+    } catch {
+      continue;
+    }
+    best = Math.max(best, selectorSpecificity(trimmed));
+  }
+  return best;
+}
+
+interface Candidate {
+  value: string;
+  important: boolean;
+  specificity: number;
+  order: number;
+}
+
+/** Cascade order for declarations that all match: important, then specificity. */
+function beats(next: Candidate, current: Candidate | undefined): boolean {
+  if (!current) return true;
+  if (next.important !== current.important) return next.important;
+  if (next.specificity !== current.specificity) {
+    return next.specificity > current.specificity;
+  }
+  return next.order >= current.order;
+}
+
 function readRules(
   element: Element,
   rules: ArrayLike<unknown> | undefined,
-  out: Record<string, string>,
+  out: Record<string, Candidate>,
+  counter: { order: number },
 ): void {
   if (!rules) return;
   for (let index = 0; index < rules.length; index += 1) {
@@ -144,31 +198,40 @@ function readRules(
       } catch {
         applies = false;
       }
-      if (applies) readRules(element, rule.cssRules, out);
+      if (applies) readRules(element, rule.cssRules, out, counter);
       continue;
     }
 
     if (!rule.selectorText || !rule.style) continue;
-    let matches = false;
-    try {
-      matches = element.matches(rule.selectorText);
-    } catch {
-      continue;
-    }
-    if (!matches) continue;
+    const specificity = matchedSpecificity(element, rule.selectorText);
+    if (specificity < 0) continue;
+    const order = counter.order++;
+    const style = rule.style;
+    const priority = (name: string) =>
+      style.getPropertyPriority?.(name) === "important";
+
+    const offer = (property: string, value: string, cssName: string) => {
+      const candidate: Candidate = {
+        value,
+        important: priority(cssName),
+        specificity,
+        order,
+      };
+      if (beats(candidate, out[property])) out[property] = candidate;
+    };
 
     for (const property of AUTHORED_COLOR_PROPERTIES) {
-      const declared = rule.style[property];
+      const declared = style[property];
       if (isAuthoredColor(declared)) {
-        out[property] = declared;
+        offer(property, declared, cssPropertyName(property));
         continue;
       }
       const shorthand = SHORTHAND_FALLBACK[property];
       if (!shorthand) continue;
-      const shorthandValue = rule.style[shorthand];
+      const shorthandValue = style[shorthand];
       if (typeof shorthandValue !== "string") continue;
       const colorOnly = shorthandColorValue(shorthand, shorthandValue);
-      if (colorOnly) out[property] = colorOnly;
+      if (colorOnly) offer(property, colorOnly, shorthand);
     }
   }
 }
@@ -228,7 +291,8 @@ export function authoredMatchesPainted(
 }
 
 function collectForElement(element: Element): Record<string, string> {
-  const out: Record<string, string> = {};
+  const ranked: Record<string, Candidate> = {};
+  const counter = { order: 0 };
 
   try {
     const doc = element.ownerDocument;
@@ -249,7 +313,7 @@ function collectForElement(element: Element): Record<string, string> {
         // A cross-origin sheet cannot be read; skip it.
         continue;
       }
-      readRules(element, rules, out);
+      readRules(element, rules, ranked, counter);
     }
   } catch (error) {
     // Silently losing the walk downgrades every token colour to a hex.
@@ -257,6 +321,11 @@ function collectForElement(element: Element): Record<string, string> {
       "[design] could not read stylesheets for authored colours; token names will fall back to resolved values",
       error,
     );
+  }
+
+  const out: Record<string, string> = {};
+  for (const [property, candidate] of Object.entries(ranked)) {
+    out[property] = candidate.value;
   }
 
   // Inline beats every rule, so it is applied last.

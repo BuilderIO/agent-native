@@ -24,6 +24,7 @@ import { DesignColorPicker, imageFillToBackgroundStyles } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import {
+  hiddenColorWrite,
   parseTokenReference,
   type DesignSystemColorSwatch,
 } from "./design-system-swatches";
@@ -56,6 +57,7 @@ import {
   colorHasVisibleAlpha,
   cssColorOrFallback,
   swatchStyle,
+  zeroAlphaLiteral,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
@@ -152,6 +154,11 @@ export function FillProperties({
   const [hiddenFillSizeStash, setHiddenFillSizeStash] = useState<
     Record<string, string>
   >({});
+  // Hiding zeroes the colour's alpha, which needs a literal — so a token-backed
+  // fill has to park its reference here or showing it again restores a bare hex.
+  const [hiddenFillTokenStash, setHiddenFillTokenStash] = useState<
+    Record<string, string>
+  >({});
   const fillStashKey = elementStableKey(element);
   // getComputedStyle resolves `var()` before we can read it, so a token-backed
   // fill would come back as a bare colour and lose the name it was set from.
@@ -199,25 +206,41 @@ export function FillProperties({
   // color-list channels are real data, unlike comments — verified
   // separately: computed style strips comments but keeps rgba() channels).
   // Showing again just restores alpha to 1 using those same channels, so no
-  // stash is required and the hide survives reselect/reload.
+  // stash is required and the hide survives reselect/reload. Only a token
+  // reference, which has no channels to carry, still needs the stash above.
   const isHidden = !colorHasVisibleAlpha(fillValue);
+  const fillTokenStashKey = `${fillStashKey}:${fillProperty}:token`;
+
   const handleFillVisibilityToggle = () => {
-    const parsed = parseCssColor(fillValue);
     if (isHidden) {
+      const parkedToken = hiddenFillTokenStash[fillTokenStashKey];
+      if (parkedToken) {
+        setHiddenFillTokenStash((stash) => {
+          const next = { ...stash };
+          delete next[fillTokenStashKey];
+          return next;
+        });
+        onStyleChange(fillProperty, parkedToken);
+        return;
+      }
+      const parsed = parseCssColor(fillValue);
       const restored = parsed
         ? rgbaToCss(withColorOpacity(parsed, 100))
         : isTextFillElement
           ? "#000000"
           : "#ffffff";
       onStyleChange(fillProperty, restored);
-    } else if (parsed) {
-      onStyleChange(fillProperty, rgbaToCss(withColorOpacity(parsed, 0)));
-    } else {
-      // Value wasn't a parseable color (e.g. already the literal
-      // "transparent") — nothing to preserve, transparent is the best we
-      // can do.
-      onStyleChange(fillProperty, "transparent");
+      return;
     }
+    // "transparent" when nothing parses: there are no channels to preserve.
+    const hidden = hiddenColorWrite(fillValue, zeroAlphaLiteral);
+    if (hidden.parkedToken) {
+      setHiddenFillTokenStash((stash) => ({
+        ...stash,
+        [fillTokenStashKey]: hidden.parkedToken as string,
+      }));
+    }
+    onStyleChange(fillProperty, hidden.value);
   };
 
   // Reorder fill layers by dragging: permute all four index-aligned parallel

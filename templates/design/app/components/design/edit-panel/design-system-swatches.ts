@@ -1,4 +1,4 @@
-import { parseCssColor, rgbaToHex } from "@shared/color-utils";
+import { parseCssColorExtended, rgbaToHex } from "@shared/color-utils";
 
 /** One colour token from the design's linked Brand Kit, as the kit names it. */
 export interface DesignSystemColorSwatch {
@@ -19,8 +19,9 @@ interface IndexedToken {
   origin?: string;
 }
 
+/** Extended: the classifier stores `oklch()`/`color()` tokens as colours. */
 function normalizeHex(value: string): string | null {
-  const parsed = parseCssColor(value.trim());
+  const parsed = parseCssColorExtended(value.trim());
   return parsed ? rgbaToHex(parsed).toUpperCase() : null;
 }
 
@@ -69,7 +70,7 @@ export function swatchLabel(swatch: DesignSystemColorSwatch): string {
   return swatch.cssVar.replace(/^--/, "");
 }
 
-const TOKEN_REFERENCE = /^var\(\s*(--[-_a-zA-Z0-9]+)\s*(?:,\s*([^()]+))?\)$/;
+const TOKEN_REFERENCE_HEAD = /^var\(\s*(--[-_a-zA-Z0-9]+)\s*(,?)/;
 
 export interface TokenReference {
   cssVar: string;
@@ -77,10 +78,29 @@ export interface TokenReference {
   fallback: string | null;
 }
 
+/**
+ * A fallback is itself a CSS value, so it can nest parentheses. Scanning to the
+ * balanced close rather than matching `[^()]+` is what keeps a function-valued
+ * token from reading as "not a token" and being dropped by the commit guard.
+ */
 export function parseTokenReference(value: string): TokenReference | null {
-  const match = TOKEN_REFERENCE.exec(value.trim());
-  if (!match) return null;
-  return { cssVar: match[1], fallback: match[2]?.trim() || null };
+  const trimmed = value.trim();
+  const head = TOKEN_REFERENCE_HEAD.exec(trimmed);
+  if (!head) return null;
+
+  let depth = 1;
+  let index = head[0].length;
+  for (; index < trimmed.length && depth > 0; index += 1) {
+    const char = trimmed[index];
+    if (char === "(") depth += 1;
+    else if (char === ")") depth -= 1;
+  }
+  // Anything after the matching `)` means this is not a lone reference.
+  if (depth !== 0 || index !== trimmed.length) return null;
+
+  const fallback = trimmed.slice(head[0].length, index - 1).trim();
+  if (fallback && !head[2]) return null;
+  return { cssVar: head[1], fallback: fallback || null };
 }
 
 /**
@@ -92,6 +112,24 @@ export function parseTokenReference(value: string): TokenReference | null {
  */
 export function tokenReferenceValue(swatch: DesignSystemColorSwatch): string {
   return `var(${swatch.cssVar}, ${swatch.value})`;
+}
+
+/**
+ * What to write when hiding a colour, and the reference to park so showing can
+ * restore it. Hiding zeroes the alpha channel, which a `var()` reference has
+ * none of — so its fallback supplies the channels and the reference itself has
+ * to be carried out of band or the token is gone once hidden.
+ */
+export function hiddenColorWrite(
+  color: string,
+  zeroAlpha: (literal: string) => string | null,
+): { value: string; parkedToken: string | null } {
+  const reference = parseTokenReference(color);
+  const zeroed = zeroAlpha(reference?.fallback ?? color);
+  return {
+    value: zeroed ?? "transparent",
+    parkedToken: reference && zeroed ? color : null,
+  };
 }
 
 /**

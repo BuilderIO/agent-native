@@ -11,6 +11,7 @@ import {
   IconMinus,
   IconPlus,
 } from "@tabler/icons-react";
+import { useState } from "react";
 
 import {
   Select,
@@ -24,10 +25,12 @@ import { ScrubInput } from "../inspector";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
 import {
+  hiddenColorWrite,
   parseTokenReference,
   type DesignSystemColorSwatch,
 } from "./design-system-swatches";
 import { isTextElement } from "./element-classification";
+import { elementStableKey } from "./element-identity";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import { SectionIconButton } from "./inspector-controls";
 import { ColorInput, PanelSection } from "./panel-primitives";
@@ -45,6 +48,7 @@ import {
   strokeShowPatch,
   textStrokeAddPatch,
   textStrokeIsVisible,
+  zeroAlphaLiteral,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
@@ -89,6 +93,8 @@ function StrokeLayerControl({
   visible,
   color,
   designSystemColors,
+  stashedToken,
+  onStashToken,
   width,
   styleValue,
   outlineOffset,
@@ -103,6 +109,9 @@ function StrokeLayerControl({
   visible: boolean;
   color: string;
   designSystemColors?: DesignSystemColorSwatch[];
+  /** Reference parked when this stroke was hidden, so showing restores it. */
+  stashedToken?: string;
+  onStashToken?: (value: string | null) => void;
   width: string;
   styleValue: string;
   /** Only meaningful when `kind === "outline"` — distinguishes outside vs
@@ -209,21 +218,25 @@ function StrokeLayerControl({
             // style permanently, since there is no round-trippable "unset"
             // for that keyword once it's overwritten.
             if (visible) {
-              const parsed = parseCssColor(color);
-              onStyleChange(
-                `${prefix}Color`,
-                parsed ? rgbaToCss(withColorOpacity(parsed, 0)) : "transparent",
-              );
+              const hidden = hiddenColorWrite(color, zeroAlphaLiteral);
+              if (hidden.parkedToken) onStashToken?.(hidden.parkedToken);
+              onStyleChange(`${prefix}Color`, hidden.value);
               return;
             }
             // Restore color/width/style as ONE commit (single undo step)
             // rather than three sequential onStyleChange calls — see
             // strokeShowPatch's doc comment.
-            commitStylePatch(
-              strokeShowPatch(prefix, color, width, styleValue),
-              onStyleChange,
-              onStylesChange,
+            const showPatch = strokeShowPatch(
+              prefix,
+              stashedToken ?? color,
+              width,
+              styleValue,
             );
+            if (stashedToken) {
+              showPatch[`${prefix}Color`] = stashedToken;
+              onStashToken?.(null);
+            }
+            commitStylePatch(showPatch, onStyleChange, onStylesChange);
           }}
         >
           {visible ? (
@@ -332,6 +345,20 @@ export function StrokeProperties({
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
   const t = useT();
+  const [hiddenStrokeTokenStash, setHiddenStrokeTokenStash] = useState<
+    Record<string, string>
+  >({});
+  const strokeStashKey = elementStableKey(element);
+  const stashToken = (prefix: string) => (value: string | null) =>
+    setHiddenStrokeTokenStash((stash) => {
+      const key = `${strokeStashKey}:${prefix}`;
+      if (!value) {
+        const next = { ...stash };
+        delete next[key];
+        return next;
+      }
+      return { ...stash, [key]: value };
+    });
   const styles = element.computedStyles;
   // R94 fix — Figma semantics: a text node's "Stroke" is the glyph outline
   // (-webkit-text-stroke), never a box border. Route text nodes to their own
@@ -484,6 +511,8 @@ export function StrokeProperties({
                 styles.borderColor,
               )}
               designSystemColors={designSystemColors}
+              stashedToken={hiddenStrokeTokenStash[`${strokeStashKey}:border`]}
+              onStashToken={stashToken("border")}
               width={styles.borderWidth || "0px"}
               styleValue={styles.borderStyle || "none"}
               onStyleChange={onStyleChange}
@@ -510,6 +539,8 @@ export function StrokeProperties({
                 styles.outlineColor || styles.borderColor,
               )}
               designSystemColors={designSystemColors}
+              stashedToken={hiddenStrokeTokenStash[`${strokeStashKey}:outline`]}
+              onStashToken={stashToken("outline")}
               width={styles.outlineWidth || "0px"}
               styleValue={styles.outlineStyle || "solid"}
               outlineOffset={styles.outlineOffset || "0px"}
