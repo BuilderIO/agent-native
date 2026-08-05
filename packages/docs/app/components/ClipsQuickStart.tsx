@@ -26,14 +26,34 @@ export function ClipsQuickStart() {
   if (mode !== "camera") recordUrl.searchParams.set("surface", surface);
 
   const modes = [
-    { value: "screen+camera" as const, label: tq("modeScreenCamera"), Icon: IconVideo },
-    { value: "screen" as const, label: tq("modeScreenOnly"), Icon: IconDeviceScreen },
+    {
+      value: "screen+camera" as const,
+      label: tq("modeScreenCamera"),
+      Icon: IconVideo,
+    },
+    {
+      value: "screen" as const,
+      label: tq("modeScreenOnly"),
+      Icon: IconDeviceScreen,
+    },
     { value: "camera" as const, label: tq("modeCameraOnly"), Icon: IconCamera },
   ];
   const sources = [
-    { value: "window" as const, label: tq("surfaceWindow"), Icon: IconDeviceDesktop },
-    { value: "browser" as const, label: tq("surfaceBrowser"), Icon: IconBrowser },
-    { value: "monitor" as const, label: tq("surfaceScreen"), Icon: IconDeviceScreen },
+    {
+      value: "window" as const,
+      label: tq("surfaceWindow"),
+      Icon: IconDeviceDesktop,
+    },
+    {
+      value: "browser" as const,
+      label: tq("surfaceBrowser"),
+      Icon: IconBrowser,
+    },
+    {
+      value: "monitor" as const,
+      label: tq("surfaceScreen"),
+      Icon: IconDeviceScreen,
+    },
   ];
 
   const optionClass = (active: boolean) =>
@@ -61,7 +81,9 @@ export function ClipsQuickStart() {
               <span className="mb-4 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--bg-secondary)] text-[var(--fg-secondary)]">
                 <Icon size={18} stroke={1.8} />
               </span>
-              <span className="text-sm font-medium text-[var(--fg)]">{label}</span>
+              <span className="text-sm font-medium text-[var(--fg)]">
+                {label}
+              </span>
             </button>
           ))}
         </div>

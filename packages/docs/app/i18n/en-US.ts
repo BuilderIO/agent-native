@@ -715,7 +715,7 @@ const enUS = {
       s049: "Data ownership",
       s050: "Vendor's storage",
       s051: "Vendor's cloud",
-      s052: "You own the code",
+      s052: "You own your data and even the app code itself.",
       s053: "Pricing",
       s054: "$15-30/mo per user",
       s055: "Free + paid tiers",

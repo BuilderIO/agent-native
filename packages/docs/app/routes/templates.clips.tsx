@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
+
 import { ClipsQuickStart } from "../components/ClipsQuickStart";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -584,30 +585,6 @@ export default function ClipsTemplate() {
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s037")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s034")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s038")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s034")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
                   {t("templateLanding.clips.s039")}
                 </td>
                 <td className="px-5 py-3">{t("templateLanding.clips.s040")}</td>
@@ -672,7 +649,10 @@ export default function ClipsTemplate() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-[var(--docs-border)] py-16 text-center">
+      <section
+        id="start-now"
+        className="border-t border-[var(--docs-border)] py-16 text-center"
+      >
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           {t("templateLanding.clips.s059")}
         </h2>
