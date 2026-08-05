@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.141.0
+
+### Minor Changes
+
+- 277be3f: Make the portable security guard contract automatic for every CLI-generated app and workspace.
+- 277be3f: Use magic-link sign-in by default when outbound email is configured, while keeping password sign-in available and adding optional password management in account settings.
+- 277be3f: Add a bounded `framework-search` tool that searches version-matched docs and readable framework source together, with substring, glob, SQL-like, and safe-regex modes.
+
+### Patch Changes
+
+- 277be3f: Show the AI connection setup card before an unconfigured chat can be submitted.
+- 277be3f: Avoid empty-plugin database startup work and keep cold-start route and chat surfaces responsive.
+- 277be3f: Keep agent-triggered action refresh notifications from blocking tool completion on a slow local database.
+- 277be3f: Stop interrupted extension-update reconnect cards from appearing to run indefinitely.
+- 277be3f: Keep run-only database migrations on the shared pool so serverless cold starts do not open an unnecessary direct Postgres connection.
+- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
+- 277be3f: Keep Neon connection pools bounded in concurrent durable background workers so async A2A tasks do not starve the database before they can complete.
+- 277be3f: Persist first-run onboarding completion so the signup flow does not replay after sign-in.
+- 277be3f: Show a delayed destination spinner during slow client-side route loading and move route warmup to the persistent app provider shell.
+- 277be3f: Keep assistant threads scoped to the active resource so a Slides deck cannot display another deck's agent run or completion message.
+- 277be3f: Keep magic-link onboarding callbacks session-bound and document the password fallback accurately.
+- 277be3f: Add typed `agent-native.json` and `agent-native.config.ts` app defaults for shared first-run onboarding.
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+  - @agent-native/toolkit@0.13.2
+
 ## 0.140.0
 
 ### Minor Changes
