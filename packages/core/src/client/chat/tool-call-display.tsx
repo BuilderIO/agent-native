@@ -1353,7 +1353,12 @@ function isReconnectSummarizablePart(part: ContentPart): boolean {
     (part.type === "tool-call" &&
       part.toolName !== "connect-builder" &&
       part.chatUI === undefined &&
-      part.mcpApp === undefined)
+      part.mcpApp === undefined &&
+      !(
+        typeof part.approval?.approvalKey === "string" &&
+        part.approval.approvalKey.length > 0 &&
+        part.approval.dismissed !== true
+      ))
   );
 }
 

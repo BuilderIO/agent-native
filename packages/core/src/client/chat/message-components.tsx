@@ -938,6 +938,18 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   });
 }
 
+/** Pending human-in-the-loop gate still waiting for Approve/Deny. */
+export function toolCallHasPendingApproval(part: {
+  approval?: { approvalKey?: string; dismissed?: boolean } | null;
+}): boolean {
+  const approval = part.approval;
+  return (
+    typeof approval?.approvalKey === "string" &&
+    approval.approvalKey.length > 0 &&
+    approval.dismissed !== true
+  );
+}
+
 export function assistantMessageHasCompletedCustomUi(
   content: unknown,
 ): boolean {
@@ -966,6 +978,7 @@ export function assistantMessageHasCompletedCustomUi(
       activity?: unknown;
       chatUI?: unknown;
       mcpApp?: unknown;
+      approval?: { approvalKey?: string; dismissed?: boolean };
     };
     if (
       record.type !== "tool-call" ||
@@ -978,7 +991,9 @@ export function assistantMessageHasCompletedCustomUi(
     }
     hasCompletedTool = true;
     lastCompletedToolIsCustomUi =
-      record.chatUI !== undefined || record.mcpApp !== undefined;
+      record.chatUI !== undefined ||
+      record.mcpApp !== undefined ||
+      toolCallHasPendingApproval(record);
   }
   return hasCompletedTool && lastCompletedToolIsCustomUi;
 }
@@ -991,10 +1006,13 @@ export function assistantMessageHasCustomUi(content: unknown): boolean {
       type?: unknown;
       chatUI?: unknown;
       mcpApp?: unknown;
+      approval?: { approvalKey?: string; dismissed?: boolean };
     };
     return (
       record.type === "tool-call" &&
-      (record.chatUI !== undefined || record.mcpApp !== undefined)
+      (record.chatUI !== undefined ||
+        record.mcpApp !== undefined ||
+        toolCallHasPendingApproval(record))
     );
   });
 }
@@ -1171,13 +1189,18 @@ export function isCollapsibleAssistantWorkPart(part: {
   toolName?: string;
   chatUI?: unknown;
   mcpApp?: unknown;
+  approval?: { approvalKey?: string; dismissed?: boolean };
 }): boolean {
   if (part.type === "reasoning") return true;
   return (
     part.type === "tool-call" &&
     !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "") &&
     part.chatUI === undefined &&
-    part.mcpApp === undefined
+    part.mcpApp === undefined &&
+    // Keep the Approve/Deny affordance outside "Worked for…" — needsApproval
+    // tools finish with a result string, so without this they collapse and the
+    // human gate disappears from the viewport.
+    !toolCallHasPendingApproval(part)
   );
 }
 
@@ -1189,6 +1212,7 @@ export function getAssistantToolSummaryInfo(
     args?: Record<string, unknown>;
     chatUI?: unknown;
     mcpApp?: unknown;
+    approval?: { approvalKey?: string; dismissed?: boolean };
   }[],
 ): { startIndex: number; hiddenToolCount: number } {
   const toolCallIndices = parts.reduce<number[]>((indices, part, index) => {
@@ -1224,6 +1248,7 @@ function groupAssistantWorkParts(
     args?: Record<string, unknown>;
     chatUI?: unknown;
     mcpApp?: unknown;
+    approval?: { approvalKey?: string; dismissed?: boolean };
   },
   index: number,
   parts: readonly {
@@ -1233,6 +1258,7 @@ function groupAssistantWorkParts(
     args?: Record<string, unknown>;
     chatUI?: unknown;
     mcpApp?: unknown;
+    approval?: { approvalKey?: string; dismissed?: boolean };
   }[],
 ): ["group-work"] | ["group-work", "group-ran-tools"] | null {
   if (isCallAgentToolCallShadowed(parts, index)) return null;

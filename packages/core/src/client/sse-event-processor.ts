@@ -78,6 +78,8 @@ export interface SSEEvent {
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
    *  paused `needsApproval` tool call. Present on `approval_required` events. */
   approvalKey?: string;
+  /** Model-side tool-call id for `approval_required` (mirrors AgentChatEvent). */
+  toolCallId?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -953,6 +955,7 @@ function coalesceJournalRecoveredTool(
       }
       if (current.mcpApp) prior.mcpApp = current.mcpApp;
       if (current.chatUI) prior.chatUI = current.chatUI;
+      if (current.approval) prior.approval = { ...current.approval };
     }
     content.splice(completedIndex, 1);
     return true;
@@ -1380,7 +1383,11 @@ export function processEvent(
     const approvalTool = ev.tool ?? "unknown";
     const approvalKey = ev.approvalKey;
     if (approvalKey) {
-      const idx = findPendingToolCallIndex(content, approvalTool, ev.id);
+      const idx = findPendingToolCallIndex(
+        content,
+        approvalTool,
+        ev.id ?? ev.toolCallId,
+      );
       if (idx >= 0) {
         const part = content[idx];
         if (part.type === "tool-call") {
