@@ -245,6 +245,32 @@ export async function loadDoc(
   return promise;
 }
 
+/**
+ * Loads a doc and applies draft visibility, checking the canonical
+ * (default-locale) entry's draft status even when serving a localized
+ * translation. A translation's frontmatter can drift from the canonical
+ * page it was translated from, so gating on the localized doc alone lets a
+ * draft leak through any locale whose translator forgot `draft: true`.
+ */
+export async function loadDocRespectingDraftVisibility(
+  slug: string,
+  locale: unknown = DEFAULT_DOCS_LOCALE,
+): Promise<DocEntry | undefined> {
+  const doc = await loadDoc(slug, locale);
+  if (!doc) return undefined;
+
+  const docsLocale = normalizeDocsLocale(locale);
+  const canonical =
+    docsLocale === DEFAULT_DOCS_LOCALE ? doc : await loadDoc(slug, DEFAULT_DOCS_LOCALE);
+  const isDraft = Boolean(doc.draft || canonical?.draft);
+
+  if (isDraft && import.meta.env.VITE_SHOW_DRAFTS !== "true") return undefined;
+  // Normalize `draft` to the resolved status so callers that render a draft
+  // banner off this flag stay correct for translations whose frontmatter
+  // omits `draft: true` even though the canonical page is a draft.
+  return isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
+}
+
 export function hasLocalizedDoc(locale: unknown, slug: string): boolean {
   const docsLocale = normalizeDocsLocale(locale);
   if (docsLocale === DEFAULT_DOCS_LOCALE) {
