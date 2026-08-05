@@ -11,7 +11,7 @@ Las aplicaciones nativas del agente utilizan [Better Auth](https://better-auth.c
 
 La autenticación se configura automáticamente a través de `autoMountAuth(app)` en el complemento del servidor de autenticación. Hay tres modos:
 
-- **Predeterminado:** Mejor autenticación con correo electrónico/contraseña + proveedores sociales. Página de incorporación mostrada en la primera visita.
+- **Predeterminado:** Magic link como flujo principal de Better Auth cuando el correo saliente está listo, con correo electrónico/contraseña como alternativa y proveedores sociales. Establezca `AUTH_MAGIC_LINK=0` para forzar la alternativa.
 - **MCP OAuth remoto:** OAuth 2.1 estándar para hosts MCP como el código Claude y los conectores ChatGPT.
 - **Personalizado:** Traiga su propia autenticación a través de la devolución de llamada `getSession`.
 
@@ -106,7 +106,7 @@ Algunas banderas sintonizan esto; Los detalles completos se encuentran en la tab
 
 De forma predeterminada, Better Auth potencia la autenticación. Proporciona:
 
-- Registro e inicio de sesión por correo electrónico/contraseña
+- Registro e inicio de sesión mediante magic link, con correo electrónico/contraseña como alternativa
 - Proveedores de redes sociales (Google, GitHub y más de 35 personas más)
 - Organizaciones con roles e invitaciones
 - Tokens JWT para acceso a API y A2A
@@ -115,6 +115,7 @@ De forma predeterminada, Better Auth potencia la autenticación. Proporciona:
 Se montan mejores rutas de autenticación en `/_agent-native/auth/ba/*`. El marco también proporciona puntos finales compatibles con versiones anteriores:
 
 - `GET /_agent-native/auth/session` — obtener la sesión actual
+- `POST /_agent-native/auth/magic-link` — solicitar un correo con magic link
 - `POST /_agent-native/auth/login` — inicio de sesión con correo electrónico/contraseña
 - `POST /_agent-native/auth/register` — crear cuenta
 - `POST /_agent-native/auth/logout`: cerrar sesión

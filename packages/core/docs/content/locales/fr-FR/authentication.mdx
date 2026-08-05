@@ -11,7 +11,7 @@ Les applications natives d'agent utilisent [Better Auth](https://better-auth.com
 
 L'authentification est configurée automatiquement via `autoMountAuth(app)` dans le plugin du serveur d'authentification. Il existe trois modes :
 
-- **Par défaut :** Meilleure authentification avec e-mail/mot de passe + fournisseurs sociaux. Page d'intégration affichée lors de la première visite.
+- **Par défaut :** Lien magique en priorité dans Better Auth lorsque l'e-mail sortant est prêt, avec e-mail/mot de passe en secours et fournisseurs sociaux. Définissez `AUTH_MAGIC_LINK=0` pour forcer le mode de secours.
 - **MCP OAuth à distance :** Standard OAuth 2.1 pour les hôtes MCP tels que le code Claude et les connecteurs ChatGPT.
 - **Personnalisé :** Apportez votre propre authentification via le rappel `getSession`.
 
@@ -106,7 +106,7 @@ Quelques drapeaux règlent cela ; tous les détails sont dans le tableau [Envir
 
 Par défaut, Better Auth gère l'authentification. Il fournit :
 
-- Inscription et connexion par e-mail/mot de passe
+- Inscription et connexion par lien magique, avec e-mail/mot de passe en secours
 - Fournisseurs de réseaux sociaux (Google, GitHub et plus de 35 autres)
 - Organisations avec rôles et invitations
 - Jetons JWT pour accès API et A2A
@@ -115,6 +115,7 @@ Par défaut, Better Auth gère l'authentification. Il fournit :
 De meilleures routes d'authentification sont montées sur `/_agent-native/auth/ba/*`. Le framework fournit également des points de terminaison rétrocompatibles :
 
 - `GET /_agent-native/auth/session` – obtenir la session en cours
+- `POST /_agent-native/auth/magic-link` — demander un e-mail avec lien magique
 - `POST /_agent-native/auth/login` — connexion par e-mail/mot de passe
 - `POST /_agent-native/auth/register` — créer un compte
 - `POST /_agent-native/auth/logout` — déconnexion

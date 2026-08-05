@@ -11,7 +11,7 @@ description: "与电子邮件/密码、社交提供商、组织和 MCP 持有者
 
 Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的。共有三种模式：
 
-- **默认：**使用电子邮件/密码+社交提供商进行更好的身份验证。首次访问时显示的入门页面。
+- **默认：**当外发电子邮件已准备就绪时，Better Auth 优先使用 magic link，并以电子邮件/密码作为备用方式，同时支持社交提供商。设置 `AUTH_MAGIC_LINK=0` 可强制使用备用方式。
 - **远程 MCP OAuth：** 适用于 MCP 主机的标准 OAuth 2.1，例如 Claude 代码和 ChatGPT 连接器。
 - **自定义：**通过 `getSession` 回调带来您自己的身份验证。
 
@@ -106,7 +106,7 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 
 默认情况下，Better Auth 支持身份验证。它提供：
 
-- 电子邮件/密码注册和登录
+- 使用 magic link 注册和登录，并以电子邮件/密码作为备用方式
 - 社交提供商（Google、GitHub 和 35 多个其他提供商）
 - 具有角色和邀请的组织
 - 用于 API 和 A2A 访问的 JWT 令牌
@@ -115,6 +115,7 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 Better Auth 路由安装在 `/_agent-native/auth/ba/*`。该框架还提供向后兼容的端点：
 
 - `GET /_agent-native/auth/session` — 获取当前会话
+- `POST /_agent-native/auth/magic-link` — 请求 magic link 电子邮件
 - `POST /_agent-native/auth/login` — 电子邮件/密码登录
 - `POST /_agent-native/auth/register` — 创建帐户
 - `POST /_agent-native/auth/logout` — 退出

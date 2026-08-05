@@ -11,7 +11,7 @@ Agent-Native 應用程式使用 [Better Auth](https://better-auth.com) 進行帳
 
 Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的。共有三種模式：
 
-- **預設：**使用電子郵件/密碼+社交提供者進行更好的驗證。首次存取時顯示的入門頁面。
+- **預設：**當外寄電子郵件已準備就緒時，Better Auth 優先使用 magic link，並以電子郵件/密碼作為備用方式，同時支援社交提供者。設定 `AUTH_MAGIC_LINK=0` 可強制使用備用方式。
 - **遠端 MCP OAuth：** 適用於 MCP 主機的標準 OAuth 2.1，例如 Claude 程式碼和 ChatGPT 連線器。
 - **自訂：**透過 `getSession` 回調帶來您自己的驗證。
 
@@ -106,7 +106,7 @@ Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的�
 
 預設情況下，Better Auth 支援驗證。它提供：
 
-- 電子郵件/密碼註冊和登入
+- 使用 magic link 註冊和登入，並以電子郵件/密碼作為備用方式
 - 社交提供者（Google、GitHub 和 35 多個其他提供者）
 - 具有角色和邀請的組織
 - 用於 API 和 A2A 存取的 JWT 權杖
@@ -115,6 +115,7 @@ Auth 是透過 auth 伺服器外掛中的 `autoMountAuth(app)` 自動設定的�
 Better Auth 路由安裝在 `/_agent-native/auth/ba/*`。此框架還提供向後相容的端點：
 
 - `GET /_agent-native/auth/session` — 取得目前工作階段
+- `POST /_agent-native/auth/magic-link` — 要求 magic link 電子郵件
 - `POST /_agent-native/auth/login` — 電子郵件/密碼登入
 - `POST /_agent-native/auth/register` — 建立帳戶
 - `POST /_agent-native/auth/logout` — 退出

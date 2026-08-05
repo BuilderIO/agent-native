@@ -505,24 +505,14 @@ export async function recordAnalyticsEvents(
   });
 
   if (rows.length) {
-    await db.insert(schema.analyticsEvents).values(rows);
-    await db
-      .update(schema.analyticsPublicKeys)
-      .set({ lastUsedAt: receivedAt })
-      .where(eq(schema.analyticsPublicKeys.id, key.id));
-
-    try {
-      await upsertFirstPartyAnalyticsRollups(rows);
-    } catch (error) {
-      // Raw events are the durable ingest record. Keep /track available when
-      // a rollup write is temporarily unavailable; the warning preserves the
-      // failure signal for operators without turning a successful raw ingest
-      // into a client retry and duplicate event batch.
-      console.warn(
-        "[first-party-analytics] Rollup update failed after raw ingest:",
-        error,
-      );
-    }
+    await db.transaction(async (tx: any) => {
+      await tx.insert(schema.analyticsEvents).values(rows);
+      await tx
+        .update(schema.analyticsPublicKeys)
+        .set({ lastUsedAt: receivedAt })
+        .where(eq(schema.analyticsPublicKeys.id, key.id));
+      await upsertFirstPartyAnalyticsRollups(rows, tx);
+    });
   }
 
   // Fork captured exceptions into the dedicated error-capture tables. This is

@@ -36,6 +36,7 @@ describe("server/auth", () => {
     process.env = originalEnv;
     vi.doUnmock("./better-auth-instance.js");
     vi.doUnmock("../db/client.js");
+    vi.doUnmock("../org/context.js");
     vi.doUnmock("./embed-session.js");
     vi.resetModules();
   });
@@ -179,6 +180,105 @@ describe("server/auth", () => {
         },
         headers: event.headers,
       });
+    });
+
+    it("sets first-run onboarding only for an authenticated callback", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "new@example.com" },
+              session: { token: "session_1" },
+            })),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => ({
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "new@example.com" },
+              session: { token: "session_1" },
+            })),
+          },
+        })),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => "org_123"),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link/new-user",
+      )?.[1];
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/magic-link/new-user",
+        query: { return: "/welcome" },
+      });
+      const response = await handler(event);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/welcome");
+      expect(response.headers.get("set-cookie")).toContain(
+        "agent-native-first-run=1",
+      );
+    });
+
+    it("does not set first-run onboarding for an unauthenticated callback", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => ({
+          api: { getSession: vi.fn(async () => null) },
+        })),
+      }));
+      vi.doMock("../db/client.js", async (importOriginal) => ({
+        ...(await importOriginal<typeof import("../db/client.js")>()),
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [] })),
+        }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link/new-user",
+      )?.[1];
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/magic-link/new-user",
+        query: { return: "/welcome" },
+      });
+      const response = await handler(event);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/welcome");
+      expect(response.headers.get("set-cookie") ?? "").not.toContain(
+        "agent-native-first-run=1",
+      );
     });
   });
 
