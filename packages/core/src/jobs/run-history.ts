@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isPostgres,
+  type DbExec,
+  type DbExecStatement,
+} from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -305,15 +311,23 @@ export async function ensureAutomationRunHistoryReady(): Promise<void> {
   await ensureTable();
 }
 
+export function prepareAutomationRunsDelete(
+  owner: string,
+  automation: string,
+  guard?: { sql: string; args: readonly unknown[] },
+): DbExecStatement {
+  return {
+    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?${guard ? ` AND EXISTS (${guard.sql})` : ""}`,
+    args: [owner, automation, ...(guard?.args ?? [])],
+  };
+}
+
 export async function deleteAutomationRunsWithDb(
   client: DbExec,
   owner: string,
   automation: string,
 ): Promise<void> {
-  await client.execute({
-    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?`,
-    args: [owner, automation],
-  });
+  await client.execute(prepareAutomationRunsDelete(owner, automation));
 }
 
 export async function deleteAutomationRuns(

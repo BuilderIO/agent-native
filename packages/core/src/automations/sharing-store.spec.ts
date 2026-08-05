@@ -53,6 +53,8 @@ const {
   ensureAutomationSharingTables,
   getAutomationSharingState,
   loadAutomationSharingOverlays,
+  prepareAutomationSharingDelete,
+  prepareAutomationSharingReplacement,
   replaceAutomationSharingState,
 } = await import("./sharing-store.js");
 
@@ -143,6 +145,41 @@ describe("automation sharing store", () => {
         )
         .get("job-1"),
     ).toEqual({ count: 0 });
+  });
+
+  it("prepares guarded replacement and cleanup statements for a larger atomic batch", () => {
+    const guard = {
+      sql: "SELECT 1 FROM resources WHERE id = ? AND updated_at = ?",
+      args: ["job-1", 10],
+    };
+    const replacement = prepareAutomationSharingReplacement(
+      "job-1",
+      {
+        kind: "specific",
+        grants: [{ email: "viewer@example.com", role: "view" }],
+      },
+      { now: 20, guard },
+    );
+    expect(replacement.statements).toHaveLength(4);
+    expect(replacement.statements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sql: expect.stringContaining("EXISTS") }),
+      ]),
+    );
+    expect(
+      replacement.statements.every(
+        (statement) =>
+          typeof statement !== "string" && statement.args?.includes("job-1"),
+      ),
+    ).toBe(true);
+
+    const cleanup = prepareAutomationSharingDelete("job-1", guard);
+    expect(cleanup.statements).toHaveLength(2);
+    expect(cleanup.statements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sql: expect.stringContaining("EXISTS") }),
+      ]),
+    );
   });
 
   it("cleans an automation's complete sharing state through the caller transaction", async () => {

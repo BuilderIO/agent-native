@@ -15,7 +15,14 @@ vi.mock("../db/client.js", () => ({
   retryOnDdlRace: (run: () => unknown) => run(),
 }));
 
-const { resourceDeleteWithDb, resourcePutWithDb } = await import("./store.js");
+const {
+  prepareResourceBatchAssertion,
+  prepareResourceCreate,
+  prepareResourceDelete,
+  prepareResourceUpdate,
+  resourceDeleteWithDb,
+  resourcePutWithDb,
+} = await import("./store.js");
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -56,6 +63,63 @@ describe("transaction-scoped resource writes", () => {
       "owner@example.com",
       undefined,
     );
+  });
+
+  it("prepares guarded create, update, and delete statements without notifying", () => {
+    const create = prepareResourceCreate({
+      id: "resource-1",
+      owner: "owner@example.com",
+      path: "jobs/example.md",
+      content: "created",
+      now: 10,
+    });
+    expect(create.statements[0]).toMatchObject({
+      sql: expect.stringContaining("WHERE NOT EXISTS"),
+      args: expect.arrayContaining([
+        "resource-1",
+        "owner@example.com",
+        "jobs/example.md",
+      ]),
+    });
+
+    const assertion = prepareResourceBatchAssertion({
+      sql: "EXISTS (SELECT 1 FROM resources WHERE id = ?)",
+      args: ["resource-1"],
+    });
+    expect(assertion.statements).toHaveLength(2);
+    expect(assertion.statements[1]).toMatchObject({
+      sql: expect.stringContaining("WHERE NOT (EXISTS"),
+      args: expect.arrayContaining(["resource-1"]),
+    });
+    expect(assertion.cleanupStatement).toMatchObject({
+      sql: "DELETE FROM resources WHERE id = ?",
+    });
+
+    const update = prepareResourceUpdate({
+      current: create.value,
+      content: "updated",
+      now: 20,
+    });
+    expect(update.statements[0]).toMatchObject({
+      sql: expect.stringContaining(
+        "AND id = ? AND updated_at = ? AND content = ?",
+      ),
+      args: expect.arrayContaining(["resource-1", 10, "created"]),
+    });
+
+    const remove = prepareResourceDelete(update.value);
+    expect(remove.statements[0]).toMatchObject({
+      sql: expect.stringContaining(
+        "AND owner = ? AND path = ? AND updated_at = ? AND content = ?",
+      ),
+    });
+    expect(emitResourceChange).not.toHaveBeenCalled();
+    expect(emitResourceDelete).not.toHaveBeenCalled();
+
+    update.notifyAfterCommit();
+    remove.notifyAfterCommit();
+    expect(emitResourceChange).toHaveBeenCalledTimes(1);
+    expect(emitResourceDelete).toHaveBeenCalledTimes(1);
   });
 
   it("defers delete notification and leaves rollback paths silent", async () => {

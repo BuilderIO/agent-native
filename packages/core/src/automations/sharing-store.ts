@@ -46,6 +46,16 @@ export interface AutomationSharingGrantRow {
   updatedAt: number;
 }
 
+export interface AutomationMutationGuard {
+  sql: string;
+  args: readonly unknown[];
+}
+
+export interface PreparedAutomationSharingMutation {
+  statements: DbExecStatement[];
+  summary?: AutomationSharingSummary;
+}
+
 export type AutomationSharingSummary =
   | {
       resourceId: string;
@@ -317,24 +327,43 @@ export async function getAutomationSharingState(
   return states.get(resourceId) ?? null;
 }
 
-function replacementStatements(
+export function prepareAutomationSharingReplacement(
   resourceId: string,
   input: CompleteAutomationSharingState,
-  now = Date.now(),
+  options?: { now?: number; guard?: AutomationMutationGuard },
 ): { statements: DbExecStatement[]; summary: AutomationSharingSummary } {
   const id = normalizedRequired(resourceId, "Automation resource id");
   const normalized = normalizeCompleteState(input);
+  const now = options?.now ?? Date.now();
+  const guardSql = options?.guard ? ` AND EXISTS (${options.guard.sql})` : "";
+  const insertGuardSql = options?.guard
+    ? ` WHERE EXISTS (${options.guard.sql})`
+    : "";
+  const guardArgs = options?.guard ? [...options.guard.args] : [];
   const statements: DbExecStatement[] = [
-    { sql: `DELETE FROM ${GRANTS_TABLE} WHERE resource_id = ?`, args: [id] },
-    { sql: `DELETE FROM ${OVERLAYS_TABLE} WHERE resource_id = ?`, args: [id] },
     {
-      sql: `INSERT INTO ${OVERLAYS_TABLE} (resource_id, visibility, organization_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      args: [id, normalized.visibility, normalized.organizationId, now, now],
+      sql: `DELETE FROM ${GRANTS_TABLE} WHERE resource_id = ?${guardSql}`,
+      args: [id, ...guardArgs],
+    },
+    {
+      sql: `DELETE FROM ${OVERLAYS_TABLE} WHERE resource_id = ?${guardSql}`,
+      args: [id, ...guardArgs],
+    },
+    {
+      sql: `INSERT INTO ${OVERLAYS_TABLE} (resource_id, visibility, organization_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?${insertGuardSql}`,
+      args: [
+        id,
+        normalized.visibility,
+        normalized.organizationId,
+        now,
+        now,
+        ...guardArgs,
+      ],
     },
     ...normalized.grants.map(
       (grant): DbExecStatement => ({
-        sql: `INSERT INTO ${GRANTS_TABLE} (resource_id, user_email, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-        args: [id, grant.email, grant.role, now, now],
+        sql: `INSERT INTO ${GRANTS_TABLE} (resource_id, user_email, role, created_at, updated_at) SELECT ?, ?, ?, ?, ?${insertGuardSql}`,
+        args: [id, grant.email, grant.role, now, now, ...guardArgs],
       }),
     ),
   ];
@@ -380,24 +409,41 @@ export async function replaceAutomationSharingStateWithDb(
   resourceId: string,
   input: CompleteAutomationSharingState,
 ): Promise<AutomationSharingSummary> {
-  const { statements, summary } = replacementStatements(resourceId, input);
+  const { statements, summary } = prepareAutomationSharingReplacement(
+    resourceId,
+    input,
+  );
   for (const statement of statements) await client.execute(statement);
   return summary;
+}
+
+export function prepareAutomationSharingDelete(
+  resourceId: string,
+  guard?: AutomationMutationGuard,
+): PreparedAutomationSharingMutation {
+  const id = normalizedRequired(resourceId, "Automation resource id");
+  const guardSql = guard ? ` AND EXISTS (${guard.sql})` : "";
+  const guardArgs = guard ? [...guard.args] : [];
+  return {
+    statements: [
+      {
+        sql: `DELETE FROM ${GRANTS_TABLE} WHERE resource_id = ?${guardSql}`,
+        args: [id, ...guardArgs],
+      },
+      {
+        sql: `DELETE FROM ${OVERLAYS_TABLE} WHERE resource_id = ?${guardSql}`,
+        args: [id, ...guardArgs],
+      },
+    ],
+  };
 }
 
 export async function deleteAutomationSharingStateWithDb(
   client: DbExec,
   resourceId: string,
 ): Promise<void> {
-  const id = normalizedRequired(resourceId, "Automation resource id");
-  await client.execute({
-    sql: `DELETE FROM ${GRANTS_TABLE} WHERE resource_id = ?`,
-    args: [id],
-  });
-  await client.execute({
-    sql: `DELETE FROM ${OVERLAYS_TABLE} WHERE resource_id = ?`,
-    args: [id],
-  });
+  const prepared = prepareAutomationSharingDelete(resourceId);
+  for (const statement of prepared.statements) await client.execute(statement);
 }
 
 export async function replaceAutomationSharingState(
@@ -406,7 +452,7 @@ export async function replaceAutomationSharingState(
 ): Promise<AutomationSharingSummary> {
   await ensureAutomationSharingTables();
   const client = getDbExec();
-  const replacement = replacementStatements(resourceId, input);
+  const replacement = prepareAutomationSharingReplacement(resourceId, input);
 
   if (getDialect() === "d1") {
     if (!client.atomicBatch) {

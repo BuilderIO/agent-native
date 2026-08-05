@@ -6,6 +6,7 @@ import {
   intType,
   retryOnDdlRace,
   type DbExec,
+  type DbExecStatement,
 } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -119,6 +120,22 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
 export interface TransactionScopedResourceWrite<T> {
   value: T;
   notifyAfterCommit: () => void;
+}
+
+export interface PreparedResourceMutation<
+  T,
+> extends TransactionScopedResourceWrite<T> {
+  statements: DbExecStatement[];
+}
+
+export interface PrepareResourceCreateInput {
+  id: string;
+  owner: string;
+  path: string;
+  content: string;
+  mimeType?: string;
+  options?: ResourceWriteOptions;
+  now?: number;
 }
 
 export interface ResourceConditionalWrite {
@@ -1237,6 +1254,182 @@ export async function ensureResourceStoreReady(): Promise<void> {
  * resource store before opening the transaction and invoke notifyAfterCommit
  * only after that transaction commits.
  */
+export function prepareResourceCreate(
+  input: PrepareResourceCreateInput,
+): PreparedResourceMutation<Resource> {
+  const now = input.now ?? Date.now();
+  const mimeType = input.mimeType || "text/markdown";
+  const size = Buffer.byteLength(input.content, "utf8");
+  const createdBy = normalizeCreatedBy(input.options?.createdBy);
+  const visibility = normalizeVisibility(input.options?.visibility);
+  const threadId = input.options?.threadId ?? null;
+  const runId = input.options?.runId ?? null;
+  let expiresAt = input.options?.expiresAt ?? null;
+  if (visibility === "agent_scratch" && expiresAt === null) {
+    expiresAt = now + AGENT_SCRATCH_TTL_MS;
+  }
+  const metadata = serializeMetadata(input.options?.metadata) ?? null;
+  const resource: Resource = {
+    id: input.id,
+    path: input.path,
+    owner: input.owner,
+    content: input.content,
+    mimeType,
+    size,
+    createdAt: now,
+    updatedAt: now,
+    createdBy,
+    visibility,
+    threadId,
+    runId,
+    expiresAt,
+    metadata,
+  };
+  return {
+    value: resource,
+    statements: [
+      {
+        sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM resources WHERE owner = ? AND path = ?)`,
+        args: [
+          input.id,
+          input.path,
+          input.owner,
+          input.content,
+          mimeType,
+          size,
+          now,
+          now,
+          createdBy,
+          visibility,
+          threadId,
+          runId,
+          expiresAt,
+          metadata,
+          input.owner,
+          input.path,
+        ],
+      },
+    ],
+    notifyAfterCommit: () =>
+      emitResourceChange(
+        input.id,
+        input.path,
+        input.owner,
+        input.options?.requestSource,
+      ),
+  };
+}
+
+export function prepareResourceBatchAssertion(condition: {
+  sql: string;
+  args: readonly unknown[];
+}): {
+  statements: DbExecStatement[];
+  cleanupStatement: DbExecStatement;
+} {
+  const guard = prepareResourceCreate({
+    id: crypto.randomUUID(),
+    owner: "__automation_atomic_guard__",
+    path: `guards/${crypto.randomUUID()}`,
+    content: "",
+  });
+  const resource = guard.value;
+  return {
+    statements: [
+      ...guard.statements,
+      {
+        sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT (${condition.sql})`,
+        args: [
+          resource.id,
+          resource.path,
+          resource.owner,
+          resource.content,
+          resource.mimeType,
+          resource.size,
+          resource.createdAt,
+          resource.updatedAt,
+          resource.createdBy,
+          resource.visibility,
+          resource.threadId,
+          resource.runId,
+          resource.expiresAt,
+          resource.metadata,
+          ...condition.args,
+        ],
+      },
+    ],
+    cleanupStatement: {
+      sql: "DELETE FROM resources WHERE id = ?",
+      args: [resource.id],
+    },
+  };
+}
+
+export function prepareResourceUpdate(input: {
+  current: Resource;
+  content: string;
+  mimeType?: string;
+  now?: number;
+}): PreparedResourceMutation<Resource> {
+  const now = Math.max(input.now ?? Date.now(), input.current.updatedAt + 1);
+  const mimeType = input.mimeType || input.current.mimeType;
+  const size = Buffer.byteLength(input.content, "utf8");
+  const resource: Resource = {
+    ...input.current,
+    content: input.content,
+    mimeType,
+    size,
+    updatedAt: now,
+  };
+  return {
+    value: resource,
+    statements: [
+      {
+        sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
+        args: [
+          input.content,
+          mimeType,
+          size,
+          now,
+          input.current.owner,
+          input.current.path,
+          input.current.id,
+          input.current.updatedAt,
+          input.current.content,
+        ],
+      },
+    ],
+    notifyAfterCommit: () =>
+      emitResourceChange(
+        input.current.id,
+        input.current.path,
+        input.current.owner,
+      ),
+  };
+}
+
+export function prepareResourceDelete(
+  resource: Resource,
+): PreparedResourceMutation<boolean> {
+  return {
+    value: true,
+    statements: [
+      {
+        sql: `DELETE FROM resources WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ?`,
+        args: [
+          resource.id,
+          resource.owner,
+          resource.path,
+          resource.updatedAt,
+          resource.content,
+        ],
+      },
+    ],
+    notifyAfterCommit: () =>
+      emitResourceDelete(resource.id, resource.path, resource.owner),
+  };
+}
+
 export async function resourcePutWithDb(
   client: DbExec,
   owner: string,

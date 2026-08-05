@@ -1,4 +1,9 @@
-import { getDbExec, type DbExec } from "../db/client.js";
+import {
+  getDbExec,
+  getDialect,
+  type DbExec,
+  type DbExecStatement,
+} from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   buildJobResourceContent,
@@ -9,12 +14,17 @@ import {
 import {
   deleteAutomationRunsWithDb,
   ensureAutomationRunHistoryReady,
+  prepareAutomationRunsDelete,
 } from "../jobs/run-history.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
   ensureResourceStoreReady,
+  prepareResourceBatchAssertion,
+  prepareResourceCreate,
+  prepareResourceDelete,
+  prepareResourceUpdate,
   resourceDeleteWithDb,
   resourceGetByPath,
   resourceList,
@@ -30,6 +40,8 @@ import {
 import {
   deleteAutomationSharingStateWithDb,
   ensureAutomationSharingTables,
+  prepareAutomationSharingDelete,
+  prepareAutomationSharingReplacement,
   normalizeAutomationSharingEmail,
   replaceAutomationSharingStateWithDb,
   type CompleteAutomationSharingState,
@@ -299,18 +311,68 @@ async function validateSharingState(
   };
 }
 
+interface D1AutomationMutation<T> {
+  statements: readonly DbExecStatement[];
+  value: T;
+  successStatementIndex: number;
+  condition: { sql: string; args: readonly unknown[] };
+  conflictError: () => Error;
+}
+
 async function runAtomicAutomationMutation<T>(
   work: (tx: DbExec) => Promise<T>,
+  d1: D1AutomationMutation<T>,
 ): Promise<T> {
   await Promise.all([
     ensureResourceStoreReady(),
     ensureAutomationSharingTables(),
   ]);
   const client = getDbExec();
+  if (getDialect() === "d1") {
+    if (!client.atomicBatch) {
+      throw new Error("D1 automation writes require atomic batch support.");
+    }
+    const assertion = prepareResourceBatchAssertion(d1.condition);
+    const statements: DbExecStatement[] = [
+      ...assertion.statements,
+      ...d1.statements,
+      assertion.cleanupStatement,
+    ];
+    let results;
+    try {
+      results = await client.atomicBatch(statements);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/unique constraint failed:\s*resources\./i.test(message)) {
+        throw d1.conflictError();
+      }
+      throw error;
+    }
+    if (results[d1.successStatementIndex + 2]?.rowsAffected !== 1) {
+      throw d1.conflictError();
+    }
+    return d1.value;
+  }
   if (!client.transaction) {
     throw new Error("Atomic automation writes require transaction support.");
   }
   return client.transaction(work);
+}
+
+function resourceGuard(resource: Resource): {
+  sql: string;
+  args: readonly unknown[];
+} {
+  return {
+    sql: "SELECT 1 FROM resources WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ?",
+    args: [
+      resource.id,
+      resource.owner,
+      resource.path,
+      resource.updatedAt,
+      resource.content,
+    ],
+  };
 }
 
 function definitionFromAccess(
@@ -544,22 +606,54 @@ export async function defineAutomation(
     input.acknowledgeExternalCollaborators,
   );
   const content = buildJobResourceContent(meta, body);
-  let write: TransactionScopedResourceWrite<Resource> | undefined;
-  await runAtomicAutomationMutation(async (tx) => {
-    const existing = await tx.execute({
-      sql: "SELECT id FROM resources WHERE owner = ? AND path = ? LIMIT 1",
-      args: [owner, path],
-    });
-    if (existing.rows.length) {
-      throw httpError(
-        `An automation named "${automationName(path)}" already exists.`,
-        409,
-      );
-    }
-    write = await resourcePutWithDb(tx, owner, path, content);
-    await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
+  const preparedWrite = prepareResourceCreate({
+    id: crypto.randomUUID(),
+    owner,
+    path,
+    content,
   });
-  write!.notifyAfterCommit();
+  const preparedSharing = prepareAutomationSharingReplacement(
+    preparedWrite.value.id,
+    sharing,
+    {
+      guard: {
+        sql: "SELECT 1 FROM resources WHERE id = ? AND owner = ? AND path = ?",
+        args: [preparedWrite.value.id, owner, path],
+      },
+    },
+  );
+  let write: TransactionScopedResourceWrite<Resource> = preparedWrite;
+  await runAtomicAutomationMutation(
+    async (tx) => {
+      const existing = await tx.execute({
+        sql: "SELECT id FROM resources WHERE owner = ? AND path = ? LIMIT 1",
+        args: [owner, path],
+      });
+      if (existing.rows.length) {
+        throw httpError(
+          `An automation named "${automationName(path)}" already exists.`,
+          409,
+        );
+      }
+      write = await resourcePutWithDb(tx, owner, path, content);
+      await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
+    },
+    {
+      statements: [...preparedWrite.statements, ...preparedSharing.statements],
+      value: undefined,
+      successStatementIndex: 0,
+      condition: {
+        sql: "NOT EXISTS (SELECT 1 FROM resources WHERE owner = ? AND path = ?)",
+        args: [owner, path],
+      },
+      conflictError: () =>
+        httpError(
+          `An automation named "${automationName(path)}" already exists.`,
+          409,
+        ),
+    },
+  );
+  write.notifyAfterCommit();
   return {
     name: automationName(path),
     scope: input.scope,
@@ -690,30 +784,62 @@ export async function updateAutomation(
         input.acknowledgeExternalCollaborators,
       )
     : undefined;
-  let write: TransactionScopedResourceWrite<Resource> | undefined;
-  await runAtomicAutomationMutation(async (tx) => {
-    const current = await tx.execute({
-      sql: "SELECT id FROM resources WHERE owner = ? AND path = ? LIMIT 1",
-      args: [definition.resource.owner, definition.resource.path],
-    });
-    if (String(current.rows[0]?.id ?? "") !== definition.resource.id) {
-      throw httpError("Automation not found.", 404);
-    }
-    write = await resourcePutWithDb(
-      tx,
-      definition.resource.owner,
-      definition.resource.path,
-      buildJobResourceContent(meta, body),
-    );
-    if (write.value.id !== definition.resource.id) {
-      throw new Error("Automation resource identity changed during update.");
-    }
-    if (sharing) {
-      await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
-    }
+  const content = buildJobResourceContent(meta, body);
+  const preparedWrite = prepareResourceUpdate({
+    current: definition.resource,
+    content,
   });
-  write!.notifyAfterCommit();
-  return { ...definition, resource: write!.value, meta, body };
+  const preparedSharing = sharing
+    ? prepareAutomationSharingReplacement(preparedWrite.value.id, sharing, {
+        guard: resourceGuard(preparedWrite.value),
+      })
+    : undefined;
+  let write: TransactionScopedResourceWrite<Resource> = preparedWrite;
+  await runAtomicAutomationMutation(
+    async (tx) => {
+      const current = await tx.execute({
+        sql: "SELECT id FROM resources WHERE owner = ? AND path = ? LIMIT 1",
+        args: [definition.resource.owner, definition.resource.path],
+      });
+      if (String(current.rows[0]?.id ?? "") !== definition.resource.id) {
+        throw httpError("Automation not found.", 404);
+      }
+      write = await resourcePutWithDb(
+        tx,
+        definition.resource.owner,
+        definition.resource.path,
+        content,
+      );
+      if (write.value.id !== definition.resource.id) {
+        throw new Error("Automation resource identity changed during update.");
+      }
+      if (sharing) {
+        await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
+      }
+    },
+    {
+      statements: [
+        ...preparedWrite.statements,
+        ...(preparedSharing?.statements ?? []),
+      ],
+      value: undefined,
+      successStatementIndex: 0,
+      condition: {
+        sql: "EXISTS (SELECT 1 FROM resources WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ?)",
+        args: [
+          definition.resource.id,
+          definition.resource.owner,
+          definition.resource.path,
+          definition.resource.updatedAt,
+          definition.resource.content,
+        ],
+      },
+      conflictError: () =>
+        httpError("Automation changed while it was being updated.", 409),
+    },
+  );
+  write.notifyAfterCommit();
+  return { ...definition, resource: write.value, meta, body };
 }
 
 export type DeleteAutomationInput =
@@ -744,18 +870,53 @@ export async function deleteAutomation(
   }
 
   await ensureAutomationRunHistoryReady();
-  let write: TransactionScopedResourceWrite<boolean> | undefined;
-  await runAtomicAutomationMutation(async (tx) => {
-    write = await resourceDeleteWithDb(tx, definition.resource.id);
-    if (!write.value) throw httpError("Automation not found.", 404);
-    await deleteAutomationSharingStateWithDb(tx, definition.resource.id);
-    await deleteAutomationRunsWithDb(
-      tx,
-      definition.resource.owner,
-      definition.name,
-    );
-  });
-  write!.notifyAfterCommit();
+  const preparedWrite = prepareResourceDelete(definition.resource);
+  const guard = resourceGuard(definition.resource);
+  const preparedSharing = prepareAutomationSharingDelete(
+    definition.resource.id,
+    guard,
+  );
+  const preparedHistory = prepareAutomationRunsDelete(
+    definition.resource.owner,
+    definition.name,
+    guard,
+  );
+  const d1Statements = [
+    ...preparedSharing.statements,
+    preparedHistory,
+    ...preparedWrite.statements,
+  ];
+  let write: TransactionScopedResourceWrite<boolean> = preparedWrite;
+  await runAtomicAutomationMutation(
+    async (tx) => {
+      write = await resourceDeleteWithDb(tx, definition.resource.id);
+      if (!write.value) throw httpError("Automation not found.", 404);
+      await deleteAutomationSharingStateWithDb(tx, definition.resource.id);
+      await deleteAutomationRunsWithDb(
+        tx,
+        definition.resource.owner,
+        definition.name,
+      );
+    },
+    {
+      statements: d1Statements,
+      value: undefined,
+      successStatementIndex: d1Statements.length - 1,
+      condition: {
+        sql: "EXISTS (SELECT 1 FROM resources WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ?)",
+        args: [
+          definition.resource.id,
+          definition.resource.owner,
+          definition.resource.path,
+          definition.resource.updatedAt,
+          definition.resource.content,
+        ],
+      },
+      conflictError: () =>
+        httpError("Automation changed while it was being deleted.", 409),
+    },
+  );
+  write.notifyAfterCommit();
 }
 
 export interface AutomationExecutionIdentity {
