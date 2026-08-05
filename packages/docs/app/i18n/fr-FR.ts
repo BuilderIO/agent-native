@@ -1257,6 +1257,7 @@ const frFR = {
         findingTitle: "titre",
         findingDescription: "description",
         findingColors: "couleurs",
+        findingFonts: "polices",
         findingPrimaryColor: "couleur principale",
         findingAccentColor: "couleur d’accent",
         findingHeadingFont: "police des titres",

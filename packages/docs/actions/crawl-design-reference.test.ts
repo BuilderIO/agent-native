@@ -36,10 +36,7 @@ describe("crawl-design-reference", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            colors: [
-              { name: "Midnight Blue", requestedHex: "#123456" },
-              { name: "Safety Orange", requestedHex: "#ff6600" },
-            ],
+            colors: [{ name: "Midnight Blue", requestedHex: "#123456" }],
           }),
           { headers: { "content-type": "application/json" } },
         ),
@@ -55,8 +52,8 @@ describe("crawl-design-reference", () => {
         "Design software that helps teams build better products together every day worldwide",
       primaryColor: "#123456",
       primaryColorName: "Midnight Blue",
-      accentColor: "#ff6600",
-      accentColorName: "Safety Orange",
+      accentColor: null,
+      accentColorName: null,
       headingFont: "Space Grotesk",
       bodyFont: "Inter",
     });
@@ -127,6 +124,35 @@ describe("crawl-design-reference", () => {
       "Strategy and creative direction for ambitious brands building meaningful businesses in a changing world",
     );
     expect(output.description.split(" ")).toHaveLength(14);
+  });
+
+  it("ignores arbitrary stylesheet colors without explicit brand semantics", async () => {
+    ssrfSafeFetch.mockResolvedValueOnce(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head>
+            <title>Example Studio</title>
+            <style>
+              :root { --accent-color: rgba(180, 0, 170, 1); }
+              .unused { --primary-color: rgba(0, 54, 255, 0.13); }
+              body { color: #111111; background: #ffffff; }
+            </style>
+          </head>
+        </html>`,
+        {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const output = await crawlDesignReference.run({
+      url: "https://example.com",
+    });
+
+    expect(output.primaryColor).toBeNull();
+    expect(output.accentColor).toBeNull();
+    expect(ssrfSafeFetch).toHaveBeenCalledOnce();
   });
 
   it("rejects credential-bearing URLs before fetching", async () => {

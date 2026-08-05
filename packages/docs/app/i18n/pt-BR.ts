@@ -1251,6 +1251,7 @@ const ptBR = {
         findingTitle: "título",
         findingDescription: "descrição",
         findingColors: "cores",
+        findingFonts: "fontes",
         findingPrimaryColor: "cor principal",
         findingAccentColor: "cor de destaque",
         findingHeadingFont: "fonte dos títulos",

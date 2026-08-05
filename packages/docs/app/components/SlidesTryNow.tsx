@@ -106,15 +106,22 @@ export function SlidesTryNow() {
           )
           .join(", ")}`
       : "";
-    const findings = [
-      colorFinding,
-      reference.headingFont &&
-        `${tn("findingHeadingFont")}: ${reference.headingFont}`,
-      reference.bodyFont && `${tn("findingBodyFont")}: ${reference.bodyFont}`,
-    ].filter(Boolean);
-    const header = [sourceUrl, reference.title, reference.description]
-      .filter(Boolean)
-      .join(", ");
+    const fonts = [
+      ...new Set([reference.headingFont, reference.bodyFont]),
+    ].filter((font): font is string => Boolean(font));
+    const fontFinding = fonts.length
+      ? `${tn("findingFonts")}: ${fonts.join(", ")}`
+      : "";
+    const findings = [colorFinding, fontFinding].filter(Boolean);
+    const displayUrl = new URL(sourceUrl).hostname.replace(/^www\./i, "");
+    const hasTitle =
+      Boolean(reference.title) &&
+      reference.title.toLowerCase() !== displayUrl.toLowerCase();
+    const header = hasTitle
+      ? `${reference.title} (${displayUrl})${
+          reference.description ? `, — ${reference.description}` : ""
+        }`
+      : `${displayUrl}${reference.description ? ` — ${reference.description}` : ""}`;
     const text = `${tn("styleGuidePrefix")} ${header}${
       findings.length ? `\n${findings.join("\n")}` : ""
     }`;
@@ -136,10 +143,7 @@ export function SlidesTryNow() {
               color.name ? `${color.name} (${color.code})` : color.code,
             );
           });
-          const typographyFindings = findings.slice(1);
-          if (typographyFindings.length) {
-            target.append(`\n${typographyFindings.join("\n")}`);
-          }
+          if (fontFinding) target.append(`\n${fontFinding}`);
         }
       }
     }, 10);

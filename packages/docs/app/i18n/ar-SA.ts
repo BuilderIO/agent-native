@@ -1247,6 +1247,7 @@ const arSA = {
         findingTitle: "العنوان",
         findingDescription: "الوصف",
         findingColors: "الألوان",
+        findingFonts: "الخطوط",
         findingPrimaryColor: "اللون الأساسي",
         findingAccentColor: "اللون المميز",
         findingHeadingFont: "خط العناوين",

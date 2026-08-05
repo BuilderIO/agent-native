@@ -1250,6 +1250,7 @@ const koKR = {
         findingTitle: "제목",
         findingDescription: "설명",
         findingColors: "색상",
+        findingFonts: "글꼴",
         findingPrimaryColor: "기본 색상",
         findingAccentColor: "강조 색상",
         findingHeadingFont: "제목 글꼴",

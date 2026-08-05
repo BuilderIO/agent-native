@@ -1248,6 +1248,7 @@ const enUS = {
         findingTitle: "title",
         findingDescription: "description",
         findingColors: "colors",
+        findingFonts: "fonts",
         findingPrimaryColor: "primary color",
         findingAccentColor: "accent color",
         findingHeadingFont: "heading font",

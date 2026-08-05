@@ -1257,6 +1257,7 @@ const esES = {
         findingTitle: "título",
         findingDescription: "descripción",
         findingColors: "colores",
+        findingFonts: "fuentes",
         findingPrimaryColor: "color principal",
         findingAccentColor: "color de acento",
         findingHeadingFont: "fuente de los encabezados",

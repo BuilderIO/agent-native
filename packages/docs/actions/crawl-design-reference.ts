@@ -146,17 +146,6 @@ function normalizeColor(value: string | undefined) {
     : null;
 }
 
-function findCustomProperty(css: string, names: RegExp[]) {
-  for (const name of names) {
-    const match = css.match(
-      new RegExp(`--[\\w-]*${name.source}[\\w-]*\\s*:\\s*([^;}{]+)`, "i"),
-    );
-    const color = normalizeColor(match?.[1]);
-    if (color) return color;
-  }
-  return null;
-}
-
 function colorToHex(value: string | null) {
   if (!value) return null;
   const hex = value.match(/^#([\da-f]{3,8})$/i)?.[1];
@@ -203,25 +192,12 @@ async function getColorNames(colors: Array<string | null>) {
   );
 }
 
-function findColors(css: string, themeColor: string) {
-  const candidates = [
-    ...css.matchAll(
-      /#[\da-f]{6}\b|#[\da-f]{3}\b|(?:rgb|hsl)a?\([^)]{3,80}\)/gi,
-    ),
-  ]
-    .map((match) => normalizeColor(match[0]))
-    .filter((value): value is string => Boolean(value));
-  const unique = [...new Set(candidates)];
-  const primary =
-    findCustomProperty(css, [/primary/, /brand/, /main/]) ||
-    normalizeColor(themeColor) ||
-    unique[0] ||
-    null;
-  const accent =
-    findCustomProperty(css, [/accent/, /highlight/, /secondary/]) ||
-    unique.find((color) => color !== primary) ||
-    null;
-  return { primary, accent };
+function findColors(themeColor: string) {
+  const primaryHex = colorToHex(normalizeColor(themeColor));
+  return {
+    primary: primaryHex ? `#${primaryHex}` : null,
+    accent: null,
+  };
 }
 
 function cleanFontFamily(value: string | undefined) {
@@ -366,7 +342,7 @@ export default defineAction({
       }),
     );
     const css = `${inlineCss}\n${externalCss.join("\n")}`;
-    const colors = findColors(css, themeColor);
+    const colors = findColors(themeColor);
     let colorNames = new Map<string, string>();
     try {
       colorNames = await getColorNames([colors.primary, colors.accent]);

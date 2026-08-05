@@ -1253,6 +1253,7 @@ const jaJP = {
         findingTitle: "タイトル",
         findingDescription: "説明",
         findingColors: "カラー",
+        findingFonts: "フォント",
         findingPrimaryColor: "メインカラー",
         findingAccentColor: "アクセントカラー",
         findingHeadingFont: "見出しフォント",

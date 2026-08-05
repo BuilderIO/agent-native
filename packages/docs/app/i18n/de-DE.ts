@@ -1259,6 +1259,7 @@ const deDE = {
         findingTitle: "Titel",
         findingDescription: "Beschreibung",
         findingColors: "Farben",
+        findingFonts: "Schriftarten",
         findingPrimaryColor: "Primärfarbe",
         findingAccentColor: "Akzentfarbe",
         findingHeadingFont: "Überschriftenschrift",

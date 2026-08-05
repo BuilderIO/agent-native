@@ -1247,6 +1247,7 @@ const hiIN = {
         findingTitle: "शीर्षक",
         findingDescription: "विवरण",
         findingColors: "रंग",
+        findingFonts: "फ़ॉन्ट",
         findingPrimaryColor: "मुख्य रंग",
         findingAccentColor: "एक्सेंट रंग",
         findingHeadingFont: "शीर्षक का फ़ॉन्ट",

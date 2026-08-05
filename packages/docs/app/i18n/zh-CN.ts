@@ -1237,6 +1237,7 @@ const zhCN = {
         findingTitle: "标题",
         findingDescription: "描述",
         findingColors: "颜色",
+        findingFonts: "字体",
         findingPrimaryColor: "主色",
         findingAccentColor: "强调色",
         findingHeadingFont: "标题字体",
