@@ -182,34 +182,20 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("backfills historical events into both compact rollup tables", () => {
+  it("records the historical rollup migration without scanning history at boot", () => {
     expect(dbTsSource).toMatch(/name: "analytics-rollups-historical-backfill"/);
-    expect(dbTsSource).toMatch(/run: runHistoricalAnalyticsRollupBackfill/);
-    expect(dbTsSource).toMatch(/pg_try_advisory_xact_lock\(hashtextextended\(/);
+    expect(dbTsSource).toMatch(
+      /version: 132,[\s\S]*?name: "analytics-rollups-historical-backfill",[\s\S]*?sql: \{\},[\s\S]*?\n\s*\},/,
+    );
+    expect(dbTsSource).not.toMatch(/run:\s*runHistoricalAnalyticsRollupBackfill/);
+    expect(dbTsSource).not.toContain("FROM analytics_events");
     expect(dbTsSource).not.toContain(
       "LOCK TABLE analytics_event_daily_rollups",
     );
     expect(dbTsSource).not.toContain("LOCK TABLE analytics_events");
-    expect(dbTsSource).toMatch(
-      /MIN\(owner_email\)[\s\S]*GROUP BY tenant_key, event_date/,
-    );
-    expect(dbTsSource).toMatch(/DO UPDATE SET event_count = GREATEST\(/);
-    expect(dbTsSource).toMatch(
-      /INSERT INTO analytics_event_daily_rollups[\s\S]*FROM analytics_events[\s\S]*COUNT\(\*\)/,
-    );
-    expect(dbTsSource).toMatch(
-      /INSERT INTO analytics_user_days[\s\S]*FROM analytics_events[\s\S]*SELECT DISTINCT/,
-    );
-    expect(dbTsSource).toMatch(
-      /ON CONFLICT \(tenant_key, event_date, event_name, app, template\)/,
-    );
-    expect(dbTsSource).toMatch(
-      /ON CONFLICT \(tenant_key, event_date, user_key\) DO NOTHING/,
-    );
   });
 
-  it("coordinates the historical backfill with live Postgres ingest", () => {
-    expect(dbTsSource).toContain("FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY");
+  it("keeps incremental rollup ingest independent of boot migrations", () => {
     expect(analyticsIngestTsSource).toContain(
       "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
     );
