@@ -635,7 +635,7 @@ const enUS = {
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
-        "Local import using Figma's .fig format — no API quota. Embedded images are included. Format may change between Figma versions. Maximum 4 MB.",
+        "Local import using Figma's .fig format — no API quota. Embedded images are included. Format may change between Figma versions. Maximum {{max}} MB.",
       chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
@@ -684,7 +684,7 @@ const enUS = {
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
         figFileTooLarge:
-          "That .fig is too large. Uploads are limited to 4 MB — export fewer frames, or use Paste from Figma.",
+          "That .fig is too large — uploads are limited to {{max}} MB. In Figma, copy just the frame you want into a new file and export that as .fig, or use Paste from Figma instead.",
       },
     },
     generationMayHaveStopped:
@@ -12254,7 +12254,7 @@ const designImportOverrides = {
           "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
-          "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 4 MB。",
+          "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 {{max}} MB。",
         chooseFigFile: "選擇 .fig 檔案",
         figUploadUploading: "上傳中 {{progress}}%",
         figUploadProcessing: "轉換中…",
@@ -12287,7 +12287,7 @@ const designImportOverrides = {
           uploadFailed: "檔案上傳失敗",
           invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
           figFileTooLarge:
-            "此 .fig 檔案太大。上傳上限為 4 MB — 請匯出較少的畫框，或改用「從 Figma 貼上」。",
+            "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
         },
       },
     },
@@ -12318,7 +12318,7 @@ const designImportOverrides = {
           "已从 Figma 填入 {{count}} 张图片{{plural}}。",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
-          "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 4 MB。",
+          "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 {{max}} MB。",
         chooseFigFile: "选择 .fig 文件",
         figUploadUploading: "正在上传 {{progress}}%",
         figUploadProcessing: "正在转换…",
@@ -12351,7 +12351,7 @@ const designImportOverrides = {
           uploadFailed: "文件上传失败",
           invalidFigFile: "请选择以 .fig 结尾的文件。",
           figFileTooLarge:
-            "该 .fig 文件太大。上传上限为 4 MB — 请导出更少的画板，或改用“从 Figma 粘贴”。",
+            "该 .fig 文件太大 — 上传上限为 {{max}} MB。请在 Figma 中将需要导入的画板复制到新文件，然后导出该文件为 .fig，或改用“从 Figma 粘贴”。",
         },
       },
     },
@@ -12385,7 +12385,7 @@ const designImportOverrides = {
           "{{count}} imagen{{plural}} rellenada{{plural}} desde Figma.",
         figUploadTitle: "Subir .fig",
         figUploadDescription:
-          "Experimental: el formato .fig de Figma es propietario y puede cambiar. Las capas compatibles se convierten en pantallas editables; algunas funciones pueden variar. Máximo 4 MB.",
+          "Experimental: el formato .fig de Figma es propietario y puede cambiar. Las capas compatibles se convierten en pantallas editables; algunas funciones pueden variar. Máximo {{max}} MB.",
         chooseFigFile: "Elegir archivo .fig",
         figUploadUploading: "Subiendo {{progress}}%",
         figUploadProcessing: "Convirtiendo…",
@@ -12420,7 +12420,7 @@ const designImportOverrides = {
           uploadFailed: "Error al subir el archivo",
           invalidFigFile: "Elige un archivo que termine en .fig.",
           figFileTooLarge:
-            "Ese .fig es demasiado grande. Las subidas están limitadas a 4 MB: exporta menos frames o usa Pegar desde Figma.",
+            "Ese .fig es demasiado grande: las subidas están limitadas a {{max}} MB. En Figma, copia solo el frame que quieras a un archivo nuevo y exporta ese archivo como .fig, o usa Pegar desde Figma.",
         },
       },
     },
@@ -12454,7 +12454,7 @@ const designImportOverrides = {
           "{{count}} image{{plural}} remplie{{plural}} depuis Figma.",
         figUploadTitle: "Téléverser .fig",
         figUploadDescription:
-          "Expérimental : le format .fig de Figma est propriétaire et peut évoluer. Les calques pris en charge deviennent des écrans modifiables ; certaines fonctions peuvent différer. Maximum 4 Mo.",
+          "Expérimental : le format .fig de Figma est propriétaire et peut évoluer. Les calques pris en charge deviennent des écrans modifiables ; certaines fonctions peuvent différer. Maximum {{max}} Mo.",
         chooseFigFile: "Choisir un fichier .fig",
         figUploadUploading: "Téléversement {{progress}} %",
         figUploadProcessing: "Conversion…",
@@ -12489,7 +12489,7 @@ const designImportOverrides = {
           uploadFailed: "Échec du téléversement",
           invalidFigFile: "Choisissez un fichier se terminant par .fig.",
           figFileTooLarge:
-            "Ce .fig est trop volumineux. Les téléversements sont limités à 4 Mo : exportez moins de frames ou utilisez Coller depuis Figma.",
+            "Ce .fig est trop volumineux : les téléversements sont limités à {{max}} Mo. Dans Figma, copiez uniquement le frame souhaité dans un nouveau fichier et exportez ce fichier en .fig, ou utilisez Coller depuis Figma.",
         },
       },
     },
@@ -12523,7 +12523,7 @@ const designImportOverrides = {
           "{{count}} Bild{{plural}} aus Figma ausgefüllt.",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
-          "Experimentell: Das .fig-Format von Figma ist proprietär und kann sich ändern. Unterstützte Ebenen werden zu bearbeitbaren Screens; einige Funktionen können abweichen. Maximal 4 MB.",
+          "Experimentell: Das .fig-Format von Figma ist proprietär und kann sich ändern. Unterstützte Ebenen werden zu bearbeitbaren Screens; einige Funktionen können abweichen. Maximal {{max}} MB.",
         chooseFigFile: ".fig-Datei wählen",
         figUploadUploading: "Wird hochgeladen: {{progress}} %",
         figUploadProcessing: "Wird konvertiert…",
@@ -12557,7 +12557,7 @@ const designImportOverrides = {
           uploadFailed: "Dateiupload fehlgeschlagen",
           invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
           figFileTooLarge:
-            "Diese .fig-Datei ist zu groß. Uploads sind auf 4 MB begrenzt – exportiere weniger Frames oder nutze „Aus Figma einfügen“.",
+            "Diese .fig-Datei ist zu groß – Uploads sind auf {{max}} MB begrenzt. Kopiere in Figma nur den gewünschten Frame in eine neue Datei und exportiere diese als .fig, oder nutze „Aus Figma einfügen“.",
         },
       },
     },
@@ -12591,7 +12591,7 @@ const designImportOverrides = {
           "Figma から {{count}} 枚の画像{{plural}}が入力されました。",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
-          "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 4 MB。",
+          "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 {{max}} MB。",
         chooseFigFile: ".fig ファイルを選択",
         figUploadUploading: "アップロード中 {{progress}}%",
         figUploadProcessing: "変換中…",
@@ -12626,7 +12626,7 @@ const designImportOverrides = {
           uploadFailed: "ファイルのアップロードに失敗しました",
           invalidFigFile: ".fig で終わるファイルを選択してください。",
           figFileTooLarge:
-            "この .fig ファイルは大きすぎます。アップロードは 4 MB までです。フレーム数を減らして書き出すか、「Figma から貼り付け」をご利用ください。",
+            "この .fig ファイルは大きすぎます。アップロードは {{max}} MB までです。Figma で目的のフレームだけを新しいファイルにコピーし、そのファイルを .fig として書き出すか、「Figma から貼り付け」をご利用ください。",
         },
       },
     },
@@ -12659,7 +12659,7 @@ const designImportOverrides = {
           "Figma에서 {{count}}개의 이미지{{plural}}가 채워졌습니다.",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
-          "실험적 기능: Figma의 .fig 형식은 독점 형식이며 변경될 수 있습니다. 지원되는 레이어는 편집 가능한 화면으로 변환되지만 일부 기능은 다를 수 있습니다. 최대 4MB.",
+          "실험적 기능: Figma의 .fig 형식은 독점 형식이며 변경될 수 있습니다. 지원되는 레이어는 편집 가능한 화면으로 변환되지만 일부 기능은 다를 수 있습니다. 최대 {{max}}MB.",
         chooseFigFile: ".fig 파일 선택",
         figUploadUploading: "업로드 중 {{progress}}%",
         figUploadProcessing: "변환 중…",
@@ -12694,7 +12694,7 @@ const designImportOverrides = {
           uploadFailed: "파일 업로드 실패",
           invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
           figFileTooLarge:
-            "이 .fig 파일은 너무 큽니다. 업로드는 4MB까지 지원됩니다. 프레임 수를 줄여 내보내거나 'Figma에서 붙여넣기'를 사용하세요.",
+            "이 .fig 파일은 너무 큽니다. 업로드는 {{max}}MB까지 지원됩니다. Figma에서 원하는 프레임만 새 파일로 복사한 뒤 그 파일을 .fig로 내보내거나, 'Figma에서 붙여넣기'를 사용하세요.",
         },
       },
     },
@@ -12729,7 +12729,7 @@ const designImportOverrides = {
           "{{count}} imagem{{plural}} preenchida{{plural}} do Figma.",
         figUploadTitle: "Enviar .fig",
         figUploadDescription:
-          "Experimental: o formato .fig do Figma é proprietário e pode mudar. As camadas compatíveis viram telas editáveis; alguns recursos podem ser diferentes. Máximo de 4 MB.",
+          "Experimental: o formato .fig do Figma é proprietário e pode mudar. As camadas compatíveis viram telas editáveis; alguns recursos podem ser diferentes. Máximo de {{max}} MB.",
         chooseFigFile: "Escolher arquivo .fig",
         figUploadUploading: "Enviando {{progress}}%",
         figUploadProcessing: "Convertendo…",
@@ -12764,7 +12764,7 @@ const designImportOverrides = {
           uploadFailed: "Falha no upload do arquivo",
           invalidFigFile: "Escolha um arquivo que termine em .fig.",
           figFileTooLarge:
-            "Esse .fig é grande demais. Os envios são limitados a 4 MB — exporte menos frames ou use Colar do Figma.",
+            "Esse .fig é grande demais — os envios são limitados a {{max}} MB. No Figma, copie apenas o frame desejado para um novo arquivo e exporte esse arquivo como .fig, ou use Colar do Figma.",
         },
       },
     },
@@ -12798,7 +12798,7 @@ const designImportOverrides = {
           "Figma से {{count}} छवि{{plural}} भरी गई{{plural}}।",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
-          "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम 4 MB।",
+          "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम {{max}} MB।",
         chooseFigFile: ".fig file चुनें",
         figUploadUploading: "अपलोड हो रहा है {{progress}}%",
         figUploadProcessing: "बदला जा रहा है…",
@@ -12833,7 +12833,7 @@ const designImportOverrides = {
           uploadFailed: "File upload विफल रहा",
           invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
           figFileTooLarge:
-            "यह .fig बहुत बड़ी है। Uploads की सीमा 4 MB है — कम frames export करें, या Paste from Figma का उपयोग करें।",
+            "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
         },
       },
     },
@@ -12866,7 +12866,7 @@ const designImportOverrides = {
           "تم ملء {{count}} صورة{{plural}} من Figma.",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
-          "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى 4 ميغابايت.",
+          "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى {{max}} ميغابايت.",
         chooseFigFile: "اختر ملف .fig",
         figUploadUploading: "جار الرفع {{progress}}%",
         figUploadProcessing: "جار التحويل…",
@@ -12900,7 +12900,7 @@ const designImportOverrides = {
           uploadFailed: "فشل رفع الملف",
           invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
           figFileTooLarge:
-            "ملف ‎.fig‎ كبير جدًا. الحد الأقصى للرفع 4 ميغابايت — صدّر عددًا أقل من الإطارات، أو استخدم اللصق من Figma.",
+            "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
         },
       },
     },

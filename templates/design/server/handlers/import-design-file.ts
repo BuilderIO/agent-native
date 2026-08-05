@@ -134,7 +134,7 @@ export const importDesignFile = defineEventHandler(async (event) => {
         if (ext === ".fig") {
           if (data.length > MAX_UPLOAD_BYTES) {
             throw new Error(
-              `.fig file is too large (max ${MAX_UPLOAD_MB} MB).`,
+              `.fig file is too large (max ${MAX_UPLOAD_MB} MB). In Figma, copy just the frame you want into a new file and export that as .fig.`,
             );
           }
 

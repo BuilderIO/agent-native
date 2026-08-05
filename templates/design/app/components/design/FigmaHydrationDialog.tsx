@@ -29,6 +29,7 @@ import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
+import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 
 interface FigmaHydrationDialogProps {
   open: boolean;
@@ -77,6 +78,7 @@ export function FigmaHydrationDialog({
           validationError === "too-large"
             ? "designEditor.import.errors.figFileTooLarge"
             : "designEditor.import.figmaHydrationInvalidFig",
+          { max: MAX_UPLOAD_MB },
         ),
       );
       return;
