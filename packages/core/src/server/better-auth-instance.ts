@@ -44,6 +44,10 @@ import {
   onSharedDbPoolReplaced,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import {
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+} from "../email-catalog/system-emails.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
@@ -1263,7 +1267,14 @@ async function createBetterAuthInstance(
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+        });
       },
     },
     emailVerification: {
@@ -1289,7 +1300,14 @@ async function createBetterAuthInstance(
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
+        });
       },
     },
     socialProviders,
