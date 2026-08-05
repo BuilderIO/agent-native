@@ -1126,6 +1126,19 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     spaceCreated: "Espaço criado",
     createFailed: "Não foi possível criar o espaço",
   },
+  spaceDialog: {
+    deleteSpace: "Excluir espaço",
+    renameSpace: "Renomear espaço",
+    deleteTitle: 'Excluir "{{name}}"?',
+    deleteDescription:
+      "Isso excluirá o espaço e o removerá de todas as gravações. Esta ação não pode ser desfeita.",
+    renamed: "Espaço renomeado",
+    deleted: '"{{name}}" excluído',
+    renameFailed: "Falha ao renomear o espaço",
+    deleteFailed: "Falha ao excluir o espaço",
+    renaming: "Renomeando...",
+    deleting: "Excluindo...",
+  },
   signInPrompt: {
     title: "Entre para {{intent}}",
     description:

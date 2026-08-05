@@ -1114,6 +1114,19 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     spaceCreated: "スペースを作成しました",
     createFailed: "スペースを作成できませんでした",
   },
+  spaceDialog: {
+    deleteSpace: "スペースを削除",
+    renameSpace: "スペース名を変更",
+    deleteTitle: "「{{name}}」を削除しますか？",
+    deleteDescription:
+      "スペースを削除し、すべての録画から削除します。この操作は元に戻せません。",
+    renamed: "スペース名を変更しました",
+    deleted: "「{{name}}」を削除しました",
+    renameFailed: "スペース名の変更に失敗しました",
+    deleteFailed: "スペースの削除に失敗しました",
+    renaming: "名前を変更中...",
+    deleting: "削除中...",
+  },
   signInPrompt: {
     title: "{{intent}}するにはログイン",
     description:

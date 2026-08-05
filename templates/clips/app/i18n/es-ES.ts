@@ -1129,6 +1129,19 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     spaceCreated: "Espacio creado",
     createFailed: "No se pudo crear el espacio",
   },
+  spaceDialog: {
+    deleteSpace: "Eliminar espacio",
+    renameSpace: "Renombrar espacio",
+    deleteTitle: "¿Eliminar «{{name}}»?",
+    deleteDescription:
+      "Esto eliminará el espacio y lo quitará de todas las grabaciones. Esta acción no se puede deshacer.",
+    renamed: "Espacio renombrado",
+    deleted: "Se eliminó «{{name}}»",
+    renameFailed: "No se pudo renombrar el espacio",
+    deleteFailed: "No se pudo eliminar el espacio",
+    renaming: "Renombrando...",
+    deleting: "Eliminando...",
+  },
   signInPrompt: {
     title: "Inicia sesión para {{intent}}",
     description:
