@@ -180,6 +180,10 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
 
   it("backfills historical events into both compact rollup tables", () => {
     expect(dbTsSource).toMatch(/name: "analytics-rollups-historical-backfill"/);
+    expect(dbTsSource).toMatch(/run: runHistoricalAnalyticsRollupBackfill/);
+    expect(dbTsSource).toMatch(
+      /LOCK TABLE analytics_events IN SHARE ROW EXCLUSIVE MODE/,
+    );
     expect(dbTsSource).toMatch(
       /INSERT INTO analytics_event_daily_rollups[\s\S]*FROM analytics_events[\s\S]*COUNT\(\*\)/,
     );
