@@ -25,6 +25,10 @@ export type ContentPart =
        */
       type: "reasoning";
       text: string;
+      /** Epoch ms when the first delta of this cell arrived. */
+      startedAt?: number;
+      /** Epoch ms of the most recent delta. */
+      completedAt?: number;
     }
   | {
       type: "tool-call";
@@ -59,6 +63,15 @@ export type ContentPart =
        * emit it.  The `toolKind` discriminant identifies the shape.
        */
       structuredMeta?: Record<string, unknown>;
+      /**
+       * Epoch ms when this call started / finished. Per-part stamps are the
+       * only way a turn containing several work groups can attribute a
+       * duration to each group: the whole-turn duration cannot be divided
+       * after the fact, and printing it on every group claims each group took
+       * the entire turn.
+       */
+      startedAt?: number;
+      completedAt?: number;
     };
 
 export interface SSEEvent {
@@ -128,9 +141,10 @@ export interface AgentAutoContinueErrorInfo {
   upgradeUrl?: string;
 }
 
-const INTERRUPTED_TOOL_RESULT =
+export const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
-const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
+export const INTERRUPTED_ACTIVITY_RESULT =
+  "Stopped before this action started.";
 
 /**
  * Maximum number of assistant-ui repository updates we deliver in one browser
@@ -166,6 +180,7 @@ export function settleInterruptedToolCalls(
       // set `isError` here — that is reserved for a result the server told us
       // failed.
       part.outcome = "unknown";
+      part.completedAt ??= Date.now();
       changed = true;
     }
   }
@@ -414,6 +429,84 @@ function findPendingToolCallIndexById(
     }
   }
   return -1;
+}
+
+/**
+ * Apply a `tool_done` that matched no pending card. Dropping it — the previous
+ * behaviour — leaves whatever card it belonged to unresolved, and an unresolved
+ * card renders as a spinner for as long as the run is considered active, which
+ * is how a finished `send-email` kept saying "Still working" for the rest of a
+ * 17-minute turn. Settle the oldest unresolved call of the same name; if there
+ * is none, record the completion as its own card rather than losing it.
+ */
+function settleOrphanToolDone(
+  content: ContentPart[],
+  toolName: string,
+  ev: SSEEvent,
+): void {
+  const now = Date.now();
+  let index = -1;
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined
+    ) {
+      index = i;
+      break;
+    }
+  }
+  if (index < 0) {
+    // Replay of a completion we already recorded (an id-less `tool_done` from
+    // an older server, or a reconnect after the card was force-settled). It is
+    // already visible, so pushing another card would duplicate the transcript.
+    const alreadyRecorded = content.some(
+      (part) =>
+        part.type === "tool-call" &&
+        part.toolName === toolName &&
+        part.result === (ev.result ?? ""),
+    );
+    if (alreadyRecorded) return;
+  }
+  if (typeof console !== "undefined") {
+    console.warn(
+      `[agent-chat] tool_done for "${toolName}" (id ${ev.id ?? "none"}) matched no pending tool call; ${
+        index >= 0
+          ? "settling the oldest unresolved call"
+          : "recording it as a new card"
+      }.`,
+    );
+  }
+  if (index >= 0) {
+    const part = content[index];
+    if (part.type === "tool-call") {
+      part.result = ev.result ?? "";
+      part.completedAt = now;
+      if (ev.isError !== undefined) part.isError = ev.isError;
+      if (ev.completedSideEffect !== undefined) {
+        part.completedSideEffect = ev.completedSideEffect;
+      }
+      if (ev.mcpApp) part.mcpApp = ev.mcpApp;
+      if (ev.chatUI) part.chatUI = ev.chatUI;
+      return;
+    }
+  }
+  content.push({
+    type: "tool-call",
+    toolCallId: ev.id ?? `tc_orphan_${now}`,
+    toolName,
+    argsText: ev.input ? JSON.stringify(ev.input) : "",
+    args: (ev.input ?? {}) as Record<string, string>,
+    result: ev.result ?? "",
+    ...(ev.isError !== undefined ? { isError: ev.isError } : {}),
+    ...(ev.completedSideEffect !== undefined
+      ? { completedSideEffect: ev.completedSideEffect }
+      : {}),
+    ...(ev.mcpApp ? { mcpApp: ev.mcpApp } : {}),
+    ...(ev.chatUI ? { chatUI: ev.chatUI } : {}),
+    completedAt: now,
+  });
 }
 
 function findOldestPendingActivityToolCallIndex(
@@ -1234,8 +1327,15 @@ export function processEvent(
     const lastPart = content[content.length - 1];
     if (lastPart && lastPart.type === "reasoning") {
       lastPart.text += delta;
+      lastPart.completedAt = Date.now();
     } else {
-      content.push({ type: "reasoning", text: delta });
+      const now = Date.now();
+      content.push({
+        type: "reasoning",
+        text: delta,
+        startedAt: now,
+        completedAt: now,
+      });
     }
     return {
       action: "yield",
@@ -1295,6 +1395,7 @@ export function processEvent(
           argsText: "",
           args: {},
           activity: true,
+          startedAt: Date.now(),
         });
       }
     }
@@ -1422,6 +1523,9 @@ export function processEvent(
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
+        // Keep the earlier stamp: an activity heartbeat may have opened this
+        // card before `tool_start`, and that is when the work really began.
+        startedAt: pendingToolCall.startedAt ?? Date.now(),
       };
     } else {
       content.push({
@@ -1430,6 +1534,7 @@ export function processEvent(
         toolName: tool,
         argsText: JSON.stringify(args),
         args,
+        startedAt: Date.now(),
       });
     }
     return {
@@ -1482,10 +1587,18 @@ export function processEvent(
     // Use id-based lookup when available so parallel same-name tool calls
     // get their results correctly assigned; fall back to name-matching.
     const doneIdx = findPendingToolCallIndex(content, doneTool, ev.id);
-    if (doneIdx >= 0) {
+    if (doneIdx < 0) {
+      settleOrphanToolDone(content, doneTool, ev);
+      return {
+        action: "yield",
+        result: { content: contentSnapshot(content) } as ChatModelRunResult,
+      };
+    }
+    {
       const part = content[doneIdx];
       if (part.type === "tool-call") {
         part.result = ev.result ?? "";
+        part.completedAt = Date.now();
         if (ev.isError !== undefined) part.isError = ev.isError;
         if (ev.completedSideEffect !== undefined) {
           part.completedSideEffect = ev.completedSideEffect;

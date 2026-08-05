@@ -621,6 +621,8 @@ export interface TiptapComposerProps {
     label: string;
     models: string[];
     configured: boolean;
+    /** Set when this family's models really are ordered cheapest first. */
+    costRanked?: boolean;
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
@@ -1043,6 +1045,8 @@ function ModelSelector({
     label: string;
     models: string[];
     configured: boolean;
+    /** Set when this family's models really are ordered cheapest first. */
+    costRanked?: boolean;
   }>;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
@@ -1370,6 +1374,11 @@ function ModelSelector({
                     </button>
                   )}
                 </div>
+                {isExpanded && group.costRanked && models.length > 1 && (
+                  <p className="ps-7 pe-3 pb-1 text-[10px] text-muted-foreground/70">
+                    Listed cheapest first
+                  </p>
+                )}
                 {isExpanded &&
                   models.map((m) => (
                     <button

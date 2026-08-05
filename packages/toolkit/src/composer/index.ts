@@ -6,6 +6,7 @@ export {
   type AgentComposerFrameProps,
 } from "./AgentComposerFrame.js";
 export {
+  compactComposerModelName,
   TiptapComposer,
   canSubmitComposerContent,
   displayableComposerModeMessage,

@@ -24,7 +24,6 @@ import type {
 } from "@assistant-ui/react";
 import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
-  IconArrowUp,
   IconClock,
   IconMessage,
   IconX,
@@ -109,6 +108,10 @@ import {
   ServerRunActiveContext,
 } from "./chat/message-components.js";
 import {
+  QueuedMessageList,
+  reorderQueuedMessages,
+} from "./chat/QueuedMessageList.js";
+import {
   repoHasAssistantMessage,
   getRepoMessages,
   getRepoMessage,
@@ -163,6 +166,7 @@ import {
 } from "./components/ui/tooltip.js";
 import {
   AgentComposerFrame,
+  compactComposerModelName,
   TiptapComposer,
   type AgentComposerLayoutVariant,
   type ComposerSubmitIntent,
@@ -1491,6 +1495,10 @@ export function resolveAssistantChatSubmitIntent({
   isRunning: boolean;
   requestedIntent?: ComposerSubmitIntent;
 }): ComposerSubmitIntent {
+  // Always queue while a run is active. Plain Enter reports "immediate" (that
+  // is the composer default, not a request to interrupt), so honouring it here
+  // would make every follow-up abort the turn in progress. Interrupting is an
+  // explicit, per-message action on the queued row instead.
   if (isRunning) return "queued";
   return requestedIntent ?? "immediate";
 }
@@ -4543,19 +4551,6 @@ const AssistantChatInner = forwardRef<
   // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
   // front and abort the active run, letting auto-dequeue re-send it once the
   // run clears. Plain Enter still queues — this is the only send-now gesture.
-  const sendQueuedMessageNow = useCallback(
-    (id: string) => {
-      applyLocalQueuedMessages((prev) => hoistQueuedMessageToFront(prev, id));
-      stopActiveRunRef.current({ preserveQueuedMessages: true });
-    },
-    [applyLocalQueuedMessages],
-  );
-
-  const visibleQueuedMessages = useMemo(
-    () => queuedMessages.filter((message) => !message.hideUserMessage),
-    [queuedMessages],
-  );
-
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4830,6 +4825,71 @@ const AssistantChatInner = forwardRef<
       selectedModel,
       updateComposerContextItems,
     ],
+  );
+
+  // Records a mid-thread model switch inline so the transcript shows which
+  // turns came after it. In-session only: messages carry no model metadata, so
+  // this cannot be reconstructed after a reload.
+  const [modelSwitchNotice, setModelSwitchNotice] = useState<string | null>(
+    null,
+  );
+  const notedModelRef = useRef<string | undefined>(selectedModel);
+  useEffect(() => {
+    const previous = notedModelRef.current;
+    notedModelRef.current = selectedModel;
+    if (!selectedModel || !previous || previous === selectedModel) return;
+    if (messages.length === 0) return;
+    setModelSwitchNotice(selectedModel);
+  }, [selectedModel, messages.length]);
+
+  const visibleQueuedMessages = useMemo(
+    () =>
+      queuedMessages
+        .filter((msg) => !msg.hideUserMessage)
+        .map((msg) => ({
+          id: msg.id,
+          text: displayableUserMessageText(msg.text),
+          imageSources: queuedMessageImageSources(msg),
+        })),
+    [queuedMessages],
+  );
+
+  const handleQueuedMessageEdit = useCallback(
+    (id: string, text: string) => {
+      applyLocalQueuedMessages((prev) =>
+        prev.map((msg) => (msg.id === id ? { ...msg, text } : msg)),
+      );
+    },
+    [applyLocalQueuedMessages],
+  );
+
+  const handleQueuedMessageMove = useCallback(
+    (id: string, direction: -1 | 1) => {
+      applyLocalQueuedMessages((prev) =>
+        reorderQueuedMessages(prev, id, direction),
+      );
+    },
+    [applyLocalQueuedMessages],
+  );
+
+  const handleQueuedMessageRemove = useCallback(
+    (id: string) => {
+      applyLocalQueuedMessages((prev) => prev.filter((msg) => msg.id !== id));
+    },
+    [applyLocalQueuedMessages],
+  );
+
+  /**
+   * Promote a queued message to the front and interrupt the active run. The
+   * abort preserves the rest of the queue, and the existing auto-dequeue path
+   * sends this message as soon as the run is clear.
+   */
+  const handleQueuedMessageSendNow = useCallback(
+    (id: string) => {
+      applyLocalQueuedMessages((prev) => hoistQueuedMessageToFront(prev, id));
+      stopActiveRunRef.current({ preserveQueuedMessages: true });
+    },
+    [applyLocalQueuedMessages],
   );
 
   const mcpResumeTimerRef = useRef<number | null>(null);
@@ -5633,69 +5693,32 @@ const AssistantChatInner = forwardRef<
                                   </div>
                                 </MessageScrollerItem>
                               )}
-                              {visibleQueuedMessages.map((msg) => {
-                                const displayText = displayableUserMessageText(
-                                  msg.text,
-                                );
-                                const imageSources =
-                                  queuedMessageImageSources(msg);
-                                return (
-                                  <MessageScrollerItem
-                                    key={msg.id}
-                                    messageId={msg.id}
-                                  >
-                                    <div className="group flex items-start justify-end gap-1.5">
-                                      {isRunning && (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                sendQueuedMessageNow(msg.id)
-                                              }
-                                              aria-label="Send now"
-                                              className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                            >
-                                              <IconArrowUp className="h-3 w-3" />
-                                            </button>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            Send now (stops the current
-                                            response)
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          applyLocalQueuedMessages((prev) =>
-                                            prev.filter((m) => m.id !== msg.id),
-                                          )
-                                        }
-                                        aria-label="Remove from queue"
-                                        className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                      >
-                                        <IconX className="h-3 w-3" />
-                                      </button>
-                                      <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
-                                        {displayText}
-                                        {imageSources.length > 0 && (
-                                          <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                            {imageSources.map((img, j) => (
-                                              <img
-                                                key={j}
-                                                src={img}
-                                                alt=""
-                                                className="h-12 w-12 rounded object-cover border border-border/50"
-                                              />
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
+                              {modelSwitchNotice && (
+                                <MessageScrollerItem>
+                                  <p className="my-1 text-center text-[11px] text-muted-foreground">
+                                    Switched to{" "}
+                                    {compactComposerModelName(
+                                      modelSwitchNotice,
+                                    )}
+                                  </p>
+                                </MessageScrollerItem>
+                              )}
+                              <QueuedMessageList
+                                messages={visibleQueuedMessages}
+                                onEdit={handleQueuedMessageEdit}
+                                onMove={handleQueuedMessageMove}
+                                onRemove={handleQueuedMessageRemove}
+                                onSendNow={
+                                  isRunning
+                                    ? handleQueuedMessageSendNow
+                                    : undefined
+                                }
+                                wrap={(id, node) => (
+                                  <MessageScrollerItem messageId={id}>
+                                    {node}
                                   </MessageScrollerItem>
-                                );
-                              })}
+                                )}
+                              />
                               {resolvedThreadFooterSlot ? (
                                 <MessageScrollerItem>
                                   <div className="agent-thread-footer-slot">

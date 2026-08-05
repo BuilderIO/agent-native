@@ -42,6 +42,10 @@ export interface AgentChatRuntimeTextPart extends AgentChatRuntimeContentPartBas
 export interface AgentChatRuntimeReasoningPart extends AgentChatRuntimeContentPartBase<"reasoning"> {
   readonly text: string;
   readonly signature?: string;
+  /** Epoch ms when the first delta of this cell arrived. */
+  readonly startedAt?: number;
+  /** Epoch ms of the most recent delta. */
+  readonly completedAt?: number;
 }
 
 export interface AgentChatRuntimeImagePart extends AgentChatRuntimeContentPartBase<"image"> {
@@ -63,6 +67,14 @@ export interface AgentChatRuntimeToolCallPart extends AgentChatRuntimeContentPar
   readonly toolName: string;
   readonly input?: unknown;
   readonly inputText?: string;
+  /**
+   * Epoch ms bounds for this call. Kept in sync with the streaming
+   * `ContentPart` union in `sse-event-processor.ts`; the chat transcript uses
+   * them to attribute a duration to each work group instead of repeating the
+   * whole-turn duration on every group.
+   */
+  readonly startedAt?: number;
+  readonly completedAt?: number;
 }
 
 export interface AgentChatRuntimeToolResultPart extends AgentChatRuntimeContentPartBase<"tool-result"> {

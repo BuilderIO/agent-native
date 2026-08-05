@@ -239,18 +239,101 @@ export async function buildManifest(
   };
 }
 
+export type ContextManifestWriteOutcome =
+  | { status: "written"; turnId?: string; updatedAt: number }
+  | { status: "failed"; turnId?: string; failedAt: number; error: string };
+
+/**
+ * Last persist outcome per thread. A failed write leaves the previous turn's
+ * manifest in application state, which reads back as a perfectly plausible
+ * manifest — this map is the only thing that can tell a reader the newest
+ * turn never made it to storage.
+ */
+const writeOutcomes = new Map<string, ContextManifestWriteOutcome>();
+const MAX_TRACKED_WRITE_OUTCOMES = 500;
+
+function rememberWriteOutcome(
+  threadId: string,
+  outcome: ContextManifestWriteOutcome,
+): void {
+  writeOutcomes.delete(threadId);
+  writeOutcomes.set(threadId, outcome);
+  while (writeOutcomes.size > MAX_TRACKED_WRITE_OUTCOMES) {
+    const oldest = writeOutcomes.keys().next();
+    if (oldest.done) break;
+    writeOutcomes.delete(oldest.value);
+  }
+}
+
+export function getContextManifestWriteOutcome(
+  threadId: string,
+): ContextManifestWriteOutcome | undefined {
+  return writeOutcomes.get(threadId);
+}
+
+/**
+ * Record that no manifest could be produced for a turn (the transform threw
+ * before it ever reached `writeContextManifest`).
+ */
+export function recordContextManifestWriteFailure(
+  threadId: string,
+  error: unknown,
+  turnId?: string,
+): void {
+  rememberWriteOutcome(threadId, {
+    status: "failed",
+    ...(turnId ? { turnId } : {}),
+    failedAt: Date.now(),
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
+/** @internal test helper */
+export function _resetContextManifestWriteOutcomes(): void {
+  writeOutcomes.clear();
+}
+
+/**
+ * Persist a manifest and report the outcome. Returns a typed failure instead
+ * of throwing so the fire-and-forget caller cannot drop it silently, and so
+ * `context-manifest-get` can tell readers the meter is showing an older turn.
+ */
 export async function writeContextManifest(
   threadId: string,
   manifest: ContextManifest,
-): Promise<void> {
-  await appStatePut(
-    threadId,
-    CONTEXT_XRAY_MANIFEST_KEY,
-    manifest as unknown as Record<string, unknown>,
-    {
-      requestSource: "context-xray",
-    },
-  );
+): Promise<ContextManifestWriteOutcome> {
+  const updatedAt = Date.now();
+  const persisted: ContextManifest = {
+    ...manifest,
+    updatedAt,
+    writeStatus: "written",
+  };
+  try {
+    await appStatePut(
+      threadId,
+      CONTEXT_XRAY_MANIFEST_KEY,
+      persisted as unknown as Record<string, unknown>,
+      {
+        requestSource: "context-xray",
+      },
+    );
+  } catch (err) {
+    const outcome: ContextManifestWriteOutcome = {
+      status: "failed",
+      ...(manifest.turnId ? { turnId: manifest.turnId } : {}),
+      failedAt: Date.now(),
+      error: err instanceof Error ? err.message : String(err),
+    };
+    rememberWriteOutcome(threadId, outcome);
+    return outcome;
+  }
+  const outcome: ContextManifestWriteOutcome = {
+    status: "written",
+    ...(manifest.turnId ? { turnId: manifest.turnId } : {}),
+    updatedAt,
+  };
+  rememberWriteOutcome(threadId, outcome);
+  return outcome;
 }
 
 export function updateManifestSegmentStatus(

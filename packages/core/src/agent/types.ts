@@ -416,6 +416,13 @@ export function isContinuationTerminalReason(reason: unknown): boolean {
 export interface RunEvent {
   seq: number;
   event: AgentChatEvent;
+  /**
+   * Epoch ms the run emitted this event. Persisted transcripts are rebuilt
+   * from these events, so without a per-event time the rebuilt tool cards
+   * carry no duration and a reloaded thread falls back to printing the
+   * whole-turn duration.
+   */
+  at?: number;
 }
 
 /**

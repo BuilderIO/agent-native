@@ -3734,6 +3734,9 @@ export function createAgentChatAdapter(
               }
               const reason = authErrorReasonFromMessage(errMsg);
               dispatchAuthError(reason);
+              settleInterruptedToolCalls(content, undefined, {
+                includeActivity: true,
+              });
               content.push({
                 type: "text",
                 text: authErrorText(reason, errMsg),
@@ -3759,6 +3762,9 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
+              settleInterruptedToolCalls(content, undefined, {
+                includeActivity: true,
+              });
               content.push({ type: "text", text: failure.text });
               yield {
                 content: [...content],
@@ -3949,6 +3955,11 @@ export function createAgentChatAdapter(
                 }),
               );
             }
+            // Every path that ends the run must settle: a tool card left
+            // unresolved here has no later chance to record its outcome.
+            settleInterruptedToolCalls(content, undefined, {
+              includeActivity: true,
+            });
             content.push({
               type: "text",
               text: errMsg.startsWith("Server error:")

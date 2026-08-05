@@ -18,6 +18,7 @@ import {
   sharedRule8,
   SHARED_RULE_9,
   SHARED_RULE_14,
+  SHARED_RULE_ARTIFACT_HANDOFF,
   SHARED_RULE_15,
   SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
@@ -79,6 +80,7 @@ ${SHARED_RULE_9}
 **Native widgets** — For table/chart/graph/report requests, prefer actions labeled \`Native chat widget\`; use \`render-data-widget\` for already-summarized data (≤50 rows) instead of markdown tables. Above that, give the total plus the top rows — never retype a full result set as widget arguments. Deliver files in chat, never just a path.
 10. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
 11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts.
+${SHARED_RULE_ARTIFACT_HANDOFF}
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}
 ${SHARED_RULE_AGENT_WARNINGS}

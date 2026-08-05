@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChatModelGroups } from "./chat-model-groups.js";
+import {
+  buildChatModelGroups,
+  modelsAreCostRanked,
+} from "./chat-model-groups.js";
 
 describe("buildChatModelGroups", () => {
   it("groups every Builder gateway model family shown in the composer", () => {
@@ -31,20 +34,29 @@ describe("buildChatModelGroups", () => {
         label: "OpenAI",
         models: ["gpt-5-6-luna", "gpt-5-6-terra", "gpt-5-6-sol"],
         configured: true,
+        costRanked: true,
       },
       {
         engine: "builder",
         label: "Claude",
         models: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8"],
         configured: true,
+        costRanked: true,
       },
       {
         engine: "builder",
         label: "Gemini",
         models: ["gemini-3-1-pro"],
         configured: true,
+        costRanked: false,
       },
-      { engine: "builder", label: "More", models: ["auto"], configured: true },
+      {
+        engine: "builder",
+        label: "More",
+        models: ["auto"],
+        configured: true,
+        costRanked: false,
+      },
     ]);
   });
 
@@ -170,6 +182,7 @@ describe("buildChatModelGroups", () => {
         label: "Groq",
         models: ["llama-3.3-70b-versatile"],
         configured: false,
+        costRanked: false,
       },
     ]);
   });
@@ -218,6 +231,7 @@ describe("buildChatModelGroups", () => {
         label: "Claude",
         models: ["claude-sonnet-5"],
         configured: false,
+        costRanked: false,
       },
     ]);
   });
@@ -242,7 +256,26 @@ describe("buildChatModelGroups", () => {
         label: "Custom",
         models: ["custom/provider-model"],
         configured: false,
+        costRanked: false,
       },
     ]);
+  });
+});
+
+describe("modelsAreCostRanked", () => {
+  it("is true when every model matches a known cost tier", () => {
+    expect(modelsAreCostRanked(["claude-haiku-4-5", "claude-sonnet-5"])).toBe(
+      true,
+    );
+  });
+
+  it("is false when any model is unrecognised, because it sorts last regardless of price", () => {
+    expect(modelsAreCostRanked(["claude-haiku-4-5", "some-new-model"])).toBe(
+      false,
+    );
+  });
+
+  it("is false for a single model, where there is no order to claim", () => {
+    expect(modelsAreCostRanked(["claude-sonnet-5"])).toBe(false);
   });
 });

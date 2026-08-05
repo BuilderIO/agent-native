@@ -3,6 +3,7 @@ import { applyContextDirectives } from "../context-xray/apply-directives.js";
 import { loadContextDirectives } from "../context-xray/directives-store.js";
 import {
   buildManifest,
+  recordContextManifestWriteFailure,
   writeContextManifest,
 } from "../context-xray/manifest.js";
 import { computeProtectedSegmentIds } from "../context-xray/segments.js";
@@ -19,6 +20,11 @@ import type { EngineMessage } from "./types.js";
  * hardening/observability layer, never a gate, so a failure here must not
  * break the turn. The manifest write is fire-and-forget (not awaited) so it
  * never adds latency to the model-call path.
+ *
+ * Both failure paths record the miss through `recordContextManifestWriteFailure`
+ * / `writeContextManifest`'s typed outcome. Without that record the thread
+ * keeps its previous turn's manifest, and the context meter renders that
+ * older percentage as if it described the turn now running.
  *
  * Moved verbatim out of `runAgentLoop`'s per-iteration setup — behavior
  * unchanged. Caller is still responsible for gating this on `threadId` being
@@ -56,14 +62,14 @@ export async function applyContextXrayTransformForIteration(opts: {
       source: "structured",
       enforceable: true,
     });
-    void writeContextManifest(threadId, manifest).catch((err) => {
-      console.warn(
-        "[context-xray] failed to write manifest:",
-        err instanceof Error ? err.message : String(err),
-      );
+    void writeContextManifest(threadId, manifest).then((outcome) => {
+      if (outcome.status === "failed") {
+        console.warn("[context-xray] failed to write manifest:", outcome.error);
+      }
     });
     return transformedMessages;
   } catch (err) {
+    recordContextManifestWriteFailure(threadId, err, turnId);
     console.warn(
       "[context-xray] context transform skipped:",
       err instanceof Error ? err.message : String(err),

@@ -9,6 +9,8 @@ import {
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
   computeActiveTailToolCallId,
+  lastAssistantWorkPartIndex,
+  workGroupDurationMs,
   getAssistantToolSummaryInfo,
   InlineRunErrorNotice,
   isCollapsibleAssistantWorkPart,
@@ -779,5 +781,55 @@ describe("assistantMessageHasUnresolvedTool", () => {
         },
       ]),
     ).toBe(false);
+  });
+});
+
+describe("workGroupDurationMs", () => {
+  const parts = [
+    { type: "tool-call", startedAt: 1_000, completedAt: 3_000 },
+    { type: "text" },
+    { type: "tool-call", startedAt: 10_000, completedAt: 15_000 },
+    { type: "text" },
+    { type: "tool-call", startedAt: 20_000, completedAt: 21_000 },
+  ];
+
+  it("gives each work group its own duration", () => {
+    expect(workGroupDurationMs(parts, [0], 60_000, false)).toBe(2_000);
+    expect(workGroupDurationMs(parts, [2], 60_000, false)).toBe(5_000);
+    expect(workGroupDurationMs(parts, [4], 60_000, true)).toBe(1_000);
+  });
+
+  it("prints an unstamped turn duration once, on the last group only", () => {
+    const legacy = [
+      { type: "tool-call" },
+      { type: "text" },
+      { type: "tool-call" },
+      { type: "text" },
+      { type: "tool-call" },
+    ];
+    expect(workGroupDurationMs(legacy, [0], 60_000, false)).toBeNull();
+    expect(workGroupDurationMs(legacy, [2], 60_000, false)).toBeNull();
+    expect(workGroupDurationMs(legacy, [4], 60_000, true)).toBe(60_000);
+  });
+
+  it("reports no duration for a group that never completed", () => {
+    expect(
+      workGroupDurationMs(
+        [{ type: "tool-call", startedAt: 5 }],
+        [0],
+        null,
+        false,
+      ),
+    ).toBeNull();
+  });
+
+  it("finds the last work part of a message", () => {
+    expect(
+      lastAssistantWorkPartIndex([
+        { type: "tool-call", toolName: "read-file" },
+        { type: "text" },
+      ]),
+    ).toBe(0);
+    expect(lastAssistantWorkPartIndex([{ type: "text" }])).toBe(-1);
   });
 });

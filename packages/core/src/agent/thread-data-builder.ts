@@ -30,6 +30,8 @@ interface ContentPart {
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  startedAt?: number;
+  completedAt?: number;
 }
 
 interface BuildAssistantMessageOptions {
@@ -135,12 +137,17 @@ export function buildAssistantMessage(
     }
   };
 
-  const appendReasoning = (text: string) => {
+  const appendReasoning = (text: string, at?: number) => {
     const last = content[content.length - 1];
     if (last && last.type === "reasoning") {
       last.text = (last.text ?? "") + text;
+      if (typeof at === "number") last.completedAt = at;
     } else {
-      content.push({ type: "reasoning", text });
+      content.push({
+        type: "reasoning",
+        text,
+        ...(typeof at === "number" ? { startedAt: at, completedAt: at } : {}),
+      });
     }
   };
 
@@ -154,7 +161,7 @@ export function buildAssistantMessage(
     lastNonClearIndex -= 1;
   }
 
-  for (const [index, { event }] of events.entries()) {
+  for (const [index, { event, at: eventAt }] of events.entries()) {
     if (event.type === "clear") {
       // A live stream always follows `clear` with the chunk that re-emits the
       // wiped content. A rebuild has no successor, so applying a TRAILING
@@ -177,7 +184,7 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "thinking") {
-      appendReasoning(event.text ?? "");
+      appendReasoning(event.text ?? "", eventAt);
       continue;
     }
 
@@ -193,6 +200,7 @@ export function buildAssistantMessage(
         toolName: event.tool ?? "unknown",
         argsText: JSON.stringify(args),
         args,
+        ...(typeof eventAt === "number" ? { startedAt: eventAt } : {}),
       });
       continue;
     }
@@ -232,6 +240,7 @@ export function buildAssistantMessage(
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
         part.result = event.result ?? "";
+        if (typeof eventAt === "number") part.completedAt = eventAt;
         if (event.isError !== undefined) part.isError = event.isError;
         if (event.completedSideEffect !== undefined) {
           part.completedSideEffect = event.completedSideEffect;
@@ -448,11 +457,21 @@ function normalizeAttachmentIdentity(attachments: unknown): unknown {
 // turn rendered twice. The id never participates in message identity (history
 // replay regenerates its own ids), so hashing content without it is the correct
 // notion of "same message".
+// Work timestamps are stripped for the same reason: the client stamps browser
+// clock time as events arrive and the server stamps its own clock as they are
+// emitted, so the same turn would otherwise hash two ways and render twice.
 function normalizeContentForFingerprint(content: unknown): unknown {
   if (!Array.isArray(content)) return content;
   return content.map((part: any) =>
-    part && typeof part === "object" && part.type === "tool-call"
-      ? { ...part, toolCallId: undefined }
+    part &&
+    typeof part === "object" &&
+    (part.type === "tool-call" || part.type === "reasoning")
+      ? {
+          ...part,
+          ...(part.type === "tool-call" ? { toolCallId: undefined } : {}),
+          startedAt: undefined,
+          completedAt: undefined,
+        }
       : part,
   );
 }

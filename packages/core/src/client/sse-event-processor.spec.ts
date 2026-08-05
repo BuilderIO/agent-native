@@ -674,6 +674,8 @@ describe("SSE replay render pacing", () => {
         argsText: JSON.stringify({ query: "select 1" }),
         args: { query: "select 1" },
         result: "one row",
+        startedAt: expect.any(Number),
+        completedAt: expect.any(Number),
       },
       {
         type: "text",
@@ -3972,7 +3974,12 @@ describe("SSE thinking / reasoning events", () => {
     ).catch(() => {});
 
     expect(content).toEqual([
-      { type: "reasoning", text: "First, check the schema." },
+      {
+        type: "reasoning",
+        text: "First, check the schema.",
+        startedAt: expect.any(Number),
+        completedAt: expect.any(Number),
+      },
       { type: "text", text: "Here is the answer." },
     ]);
   });
@@ -4140,5 +4147,118 @@ describe("settleInterruptedToolCalls", () => {
     expect(
       (content[0] as Extract<ContentPart, { type: "tool-call" }>).outcome,
     ).toBe("unknown");
+  });
+});
+
+describe("work timestamps and unmatched completions", () => {
+  it("stamps each tool call with its own start and end", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", id: "a", tool: "read-file", input: {} },
+          { type: "tool_done", id: "a", tool: "read-file", result: "ok" },
+          { type: "text", text: "done" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+    const card = results
+      .at(-1)
+      ?.content?.find((part: any) => part.type === "tool-call");
+    expect(typeof card.startedAt).toBe("number");
+    expect(typeof card.completedAt).toBe("number");
+    expect(card.completedAt).toBeGreaterThanOrEqual(card.startedAt);
+  });
+
+  it("settles a tool_done whose id matches no pending call", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", id: "sent-1", tool: "send-email", input: {} },
+          {
+            type: "tool_done",
+            id: "different-id",
+            tool: "send-email",
+            result: "sent",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+    const cards = results
+      .at(-1)
+      ?.content?.filter((part: any) => part.type === "tool-call");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].result).toBe("sent");
+  });
+
+  it("records a tool_done that matches no card at all instead of dropping it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", id: "read-1", tool: "read-file", input: {} },
+          { type: "tool_done", id: "read-1", tool: "read-file", result: "ok" },
+          {
+            type: "tool_done",
+            id: "sent-1",
+            tool: "send-email",
+            result: "sent",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+    const email = results
+      .at(-1)
+      ?.content?.find((part: any) => part.toolName === "send-email");
+    expect(email?.result).toBe("sent");
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("leaves no tool spinning when the run ends in run_budget_exhausted", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", id: "b", tool: "send-email", input: {} },
+          {
+            type: "activity",
+            id: "c",
+            tool: "generate-image",
+            label: "Working",
+          },
+          {
+            type: "error",
+            error: "The run stopped before finishing.",
+            errorCode: "run_budget_exhausted",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+    const cards = results
+      .at(-1)
+      ?.content?.filter((part: any) => part.type === "tool-call");
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) {
+      expect(card.result).toBeDefined();
+      // Force-settled, not failed: the side effect may well have landed.
+      expect(card.outcome).toBe("unknown");
+      expect(card.isError).toBeUndefined();
+      expect(typeof card.completedAt).toBe("number");
+    }
   });
 });

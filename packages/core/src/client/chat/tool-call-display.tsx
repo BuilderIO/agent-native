@@ -828,7 +828,9 @@ function ToolCallDisplayGeneric({
       : isAgentError
         ? `Error asking ${agentName}`
         : `Asked ${agentName}`
-    : humanizeToolName(toolName);
+    : isUnknownOutcome
+      ? `${humanizeToolName(toolName)} — outcome unknown`
+      : humanizeToolName(toolName);
 
   const canExpand = isAgentCall
     ? hasStreamText

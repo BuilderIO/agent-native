@@ -15,6 +15,7 @@ import {
   sharedRule8,
   SHARED_RULE_9,
   SHARED_RULE_14,
+  SHARED_RULE_ARTIFACT_HANDOFF,
   SHARED_RULE_15,
   SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
@@ -101,6 +102,7 @@ ${SHARED_RULE_9}
 **Downloadable files** — When the user asks you to create or export a file, deliver it in the same chat turn. For compact tabular results, prefer \`render-data-widget\` so the user gets the native Download CSV action without a second stored copy. For a complete or durable file written through \`workspaceWrite\`, use a normal non-\`scratch/\` path and then call \`show-workspace-file\` with that path so chat renders a direct download card. Never finish by giving filesystem paths or telling the user to navigate elsewhere to find the file.
 10. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
 11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
+${SHARED_RULE_ARTIFACT_HANDOFF}
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}
 ${SHARED_RULE_AGENT_WARNINGS}

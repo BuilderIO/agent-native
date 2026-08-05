@@ -98,6 +98,16 @@ export const SHARED_RULE_9 = `9. **Never fabricate — verify results, report fa
    - **Recover instead of giving up** — treat a failure or ambiguous result as a signal to retry the obvious fix, try an alternate tool or approach, or clearly hand the blocker back with what you tried; never silently give up, and never paper over a failure by claiming success.`;
 
 /**
+ * Artifact handoff. Written because agents reliably fail this the same way:
+ * having produced a real, retrievable file, they describe where to click for
+ * it instead of handing it over — inventing app navigation that does not
+ * exist, contradicting themselves across retries, and finally offering to
+ * paste the file back as chat text. The file was always downloadable; only
+ * the handoff was missing.
+ */
+export const SHARED_RULE_ARTIFACT_HANDOFF = `**Hand over artifacts — never give directions to them** — When you produce a file the user asked for (CSV, JSON, Markdown, report, export), write it with \`workspace-files\` and then call \`show-workspace-file\` with that same path so the user gets a one-click download card. Never tell the user to go find a file somewhere in the app's UI, never describe sidebar/menu navigation as a substitute for doing the thing, and never paste a large file back into chat as text. If you cannot produce or locate the file, say that plainly instead of guessing at a location.`;
+
+/**
  * Rule 12 (const name retained as SHARED_RULE_14 for import stability) —
  * Planning and progress. Deliberately states only when to open a progress run;
  * the start/update/complete discipline lives in `manage-progress`'s own tool

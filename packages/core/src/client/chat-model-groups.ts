@@ -3,6 +3,13 @@ export interface EngineModelGroup {
   label: string;
   models: string[];
   configured: boolean;
+  /**
+   * True when every model in `models` matched a known cost tier, so the list
+   * really does run cheapest to most expensive. False when at least one model
+   * is unrecognised: unrecognised models sort to the end regardless of what
+   * they actually cost, and the picker must not claim an order it cannot back.
+   */
+  costRanked: boolean;
 }
 
 export interface ChatModelEngineEntry {
@@ -65,6 +72,13 @@ function sortModelsByCost(models: readonly string[]): string[] {
   return [...models].sort((a, b) => modelCostRank(a) - modelCostRank(b));
 }
 
+export function modelsAreCostRanked(models: readonly string[]): boolean {
+  return (
+    models.length > 1 &&
+    models.every((model) => modelCostRank(model) < MODEL_COST_ORDER.length)
+  );
+}
+
 function groupBuilderModels(models: readonly string[]): EngineModelGroup[] {
   const claude = sortModelsByCost(
     models.filter((model) => model.startsWith("claude-")),
@@ -92,6 +106,7 @@ function groupBuilderModels(models: readonly string[]): EngineModelGroup[] {
             label: "OpenAI",
             models: openai,
             configured: true,
+            costRanked: modelsAreCostRanked(openai),
           },
         ]
       : []),
@@ -102,6 +117,7 @@ function groupBuilderModels(models: readonly string[]): EngineModelGroup[] {
             label: "Claude",
             models: claude,
             configured: true,
+            costRanked: modelsAreCostRanked(claude),
           },
         ]
       : []),
@@ -112,6 +128,7 @@ function groupBuilderModels(models: readonly string[]): EngineModelGroup[] {
             label: "Gemini",
             models: gemini,
             configured: true,
+            costRanked: modelsAreCostRanked(gemini),
           },
         ]
       : []),
@@ -122,6 +139,7 @@ function groupBuilderModels(models: readonly string[]): EngineModelGroup[] {
             label: "More",
             models: other,
             configured: true,
+            costRanked: modelsAreCostRanked(other),
           },
         ]
       : []),
@@ -194,17 +212,19 @@ export function buildChatModelGroups({
     .sort(sortModelPickerEngines)
     .map((engine) => {
       const requiredEnvVars = engine.requiredEnvVars ?? [];
+      const models = sortModelsByCost(
+        addCurrentModel(
+          engine.supportedModels ?? [],
+          engine.name,
+          currentEngineName,
+          currentModel,
+        ),
+      );
       return {
         engine: engine.name,
         label: engine.label,
-        models: sortModelsByCost(
-          addCurrentModel(
-            engine.supportedModels ?? [],
-            engine.name,
-            currentEngineName,
-            currentModel,
-          ),
-        ),
+        models,
+        costRanked: modelsAreCostRanked(models),
         configured:
           requiredEnvVars.length === 0 ||
           requiredEnvVars.some((key) => configured.has(key)),

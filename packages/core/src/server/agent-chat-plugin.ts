@@ -1062,7 +1062,9 @@ export function createAgentChatPlugin(
       try {
         const { createWorkspaceFilesTool } =
           await import("../workspace-files/tool.js");
-        workspaceFilesTool = createWorkspaceFilesTool();
+        workspaceFilesTool = {
+          ...createWorkspaceFilesTool(),
+        };
       } catch {}
       let workspaceFileActions: Record<string, ActionEntry> = {};
       try {
