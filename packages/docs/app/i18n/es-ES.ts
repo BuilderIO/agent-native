@@ -721,7 +721,7 @@ const esES = {
       s049: "Propiedad de los datos",
       s050: "almacenamiento del vendedor",
       s051: "La nube del vendedor",
-      s052: "Eres dueño del código",
+      s052: "Eres dueño de tus datos e incluso del propio código de la app.",
       s053: "Precios",
       s054: "$15-30 al mes por usuario",
       s055: "Niveles gratuitos + pagos",

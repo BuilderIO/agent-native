@@ -722,7 +722,7 @@ const deDE = {
       s049: "Dateneigentum",
       s050: "Lager des Anbieters",
       s051: "Cloud des Anbieters",
-      s052: "Der Code gehört Ihnen",
+      s052: "Ihre Daten und sogar der App-Code selbst gehören Ihnen.",
       s053: "Preise",
       s054: "$15-30 / Monat pro Nutzer",
       s055: "Kostenlose + kostenpflichtige Stufen",

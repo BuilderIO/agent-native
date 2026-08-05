@@ -721,7 +721,7 @@ const frFR = {
       s049: "Propriété des données",
       s050: "Stockage du vendeur",
       s051: "Le cloud du fournisseur",
-      s052: "Vous possédez le code",
+      s052: "Vos données vous appartiennent, tout comme le code de l’application elle-même.",
       s053: "Tarifs",
       s054: "$15-30 / mois par utilisateur",
       s055: "Niveaux gratuits + payants",

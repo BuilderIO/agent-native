@@ -718,7 +718,7 @@ const ptBR = {
       s049: "Propriedade de dados",
       s050: "Armazenamento do fornecedor",
       s051: "Nuvem do fornecedor",
-      s052: "Você possui o código",
+      s052: "Você é dono dos seus dados e até do próprio código do aplicativo.",
       s053: "Preços",
       s054: "$15-30 / mês por usuário",
       s055: "Camadas gratuitas + pagas",

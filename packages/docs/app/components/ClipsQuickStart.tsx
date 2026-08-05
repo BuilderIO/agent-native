@@ -5,9 +5,11 @@ import {
   IconDeviceDesktop,
   IconDeviceScreen,
   IconLink,
+  IconMicrophone,
   IconPlayerRecord,
   IconUpload,
   IconVideo,
+  IconVolume,
 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -20,6 +22,8 @@ export function ClipsQuickStart() {
   const t = useT();
   const [mode, setMode] = useState<RecordingMode>("screen+camera");
   const [surface, setSurface] = useState<CaptureSource>("browser");
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
+  const [computerAudioEnabled, setComputerAudioEnabled] = useState(false);
   const tq = (key: string) => t(`templateLanding.clips.quickStart.${key}`);
   const recordUrl = new URL("https://clips.agent-native.com/record");
   recordUrl.searchParams.set("mode", mode);
@@ -116,6 +120,60 @@ export function ClipsQuickStart() {
           </div>
         </div>
       )}
+
+      <div className="border-t border-[var(--docs-border)] p-5 sm:p-6">
+        <div className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]">
+          {tq("audioSource")}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {[
+            {
+              label: tq("defaultMicrophone"),
+              Icon: IconMicrophone,
+              enabled: microphoneEnabled,
+              setEnabled: setMicrophoneEnabled,
+            },
+            {
+              label: tq("computerAudio"),
+              Icon: IconVolume,
+              enabled: computerAudioEnabled,
+              setEnabled: setComputerAudioEnabled,
+            },
+          ].map(({ label, Icon, enabled, setEnabled }) => (
+            <button
+              key={label}
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              onClick={() => setEnabled(!enabled)}
+              className="flex items-center gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-start transition hover:border-[var(--fg-secondary)]"
+            >
+              <Icon
+                size={18}
+                stroke={1.8}
+                className="shrink-0 text-[var(--fg-secondary)]"
+              />
+              <span className="min-w-0 flex-1 text-sm font-medium text-[var(--fg)]">
+                {label}
+              </span>
+              <span
+                aria-hidden="true"
+                className={`relative h-6 w-10 shrink-0 rounded-full transition ${
+                  enabled
+                    ? "bg-[var(--docs-accent)]"
+                    : "bg-[var(--docs-border)]"
+                }`}
+              >
+                <span
+                  className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                    enabled ? "translate-x-5" : "translate-x-1"
+                  }`}
+                />
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="border-t border-[var(--docs-border)] p-5 sm:p-6">
         <a
