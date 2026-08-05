@@ -53,6 +53,9 @@ const ptBR = {
     copyMarkdownError: "Não foi possível copiar Markdown",
     previous: "Anterior",
     next: "Próximo",
+    draftLabel: "Rascunho",
+    draftDescription:
+      "Esta página está em andamento. O conteúdo pode estar incompleto ou sujeito a alterações antes da publicação.",
   },
   search: {
     dialogLabel: "Pesquisar documentação",

@@ -53,6 +53,9 @@ const arSA = {
     copyMarkdownError: "تعذر نسخ Markdown",
     previous: "السابق",
     next: "التالي",
+    draftLabel: "مسودة",
+    draftDescription:
+      "هذه الصفحة قيد الإنشاء. قد يكون المحتوى غير مكتمل أو عرضة للتغيير قبل النشر.",
   },
   search: {
     dialogLabel: "البحث في الوثائق",

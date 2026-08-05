@@ -53,6 +53,9 @@ const frFR = {
     copyMarkdownError: "Impossible de copier le Markdown",
     previous: "Précédent",
     next: "Suivant",
+    draftLabel: "Brouillon",
+    draftDescription:
+      "Cette page est en cours de rédaction. Le contenu peut être incomplet ou sujet à modification avant publication.",
   },
   search: {
     dialogLabel: "Rechercher la documentation",

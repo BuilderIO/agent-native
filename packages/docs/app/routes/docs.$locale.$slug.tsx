@@ -6,7 +6,11 @@ import {
 } from "react-router";
 
 import DocContent from "../components/DocContent";
-import { loadDoc, type DocEntry } from "../components/docs-content";
+import DocDraftBanner from "../components/DocDraftBanner";
+import {
+  loadDocRespectingDraftVisibility,
+  type DocEntry,
+} from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -57,7 +61,7 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
     throw redirect(docsPathForSlug(slug, locale), 301);
   }
 
-  const doc = await loadDoc(slug, locale);
+  const doc = await loadDocRespectingDraftVisibility(slug, locale);
   if (!doc) {
     throw new Response("Not Found", { status: 404 });
   }
@@ -106,6 +110,7 @@ export default function LocalizedDocPage() {
       toc={toc}
       markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
     >
+      {doc.draft && <DocDraftBanner />}
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

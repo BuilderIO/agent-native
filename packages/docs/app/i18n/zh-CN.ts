@@ -53,6 +53,8 @@ const zhCN = {
     copyMarkdownError: "无法复制 Markdown",
     previous: "上一页",
     next: "下一页",
+    draftLabel: "草稿",
+    draftDescription: "此页面仍在编写中。内容在发布前可能不完整或有所变动。",
   },
   search: {
     dialogLabel: "搜索文档",

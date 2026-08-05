@@ -53,6 +53,9 @@ const koKR = {
     copyMarkdownError: "Markdown을 복사할 수 없음",
     previous: "이전",
     next: "다음",
+    draftLabel: "초안",
+    draftDescription:
+      "이 페이지는 작업 중입니다. 게시 전까지 콘텐츠가 불완전하거나 변경될 수 있습니다.",
   },
   search: {
     dialogLabel: "문서 검색",

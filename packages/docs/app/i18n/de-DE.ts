@@ -53,6 +53,9 @@ const deDE = {
     copyMarkdownError: "Markdown konnte nicht kopiert werden",
     previous: "Zurück",
     next: "Weiter",
+    draftLabel: "Entwurf",
+    draftDescription:
+      "Diese Seite befindet sich in Bearbeitung. Der Inhalt kann unvollständig sein oder sich vor der Veröffentlichung ändern.",
   },
   search: {
     dialogLabel: "Dokumentation durchsuchen",

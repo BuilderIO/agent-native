@@ -53,6 +53,9 @@ const esES = {
     copyMarkdownError: "No se pudo copiar Markdown",
     previous: "Anterior",
     next: "Siguiente",
+    draftLabel: "Borrador",
+    draftDescription:
+      "Esta página está en construcción. El contenido puede estar incompleto o sujeto a cambios antes de su publicación.",
   },
   search: {
     dialogLabel: "Buscar documentación",
