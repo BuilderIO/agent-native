@@ -1572,10 +1572,16 @@ const runAnalyticsMigrations = runMigrations(
  * swallowed so it can never fail boot.
  */
 export default async (nitroApp: any): Promise<void> => {
-  await runAnalyticsMigrations(nitroApp);
   if (isInBackgroundFunctionRuntime()) {
+    // Durable workers execute signed internal routes against a schema owned by
+    // the regular server. A second migration runner only adds a Neon pool
+    // probe to every worker cold start.
+    console.info(
+      "[db] Skipping Analytics migrations in durable background runtime",
+    );
     return;
   }
+  await runAnalyticsMigrations(nitroApp);
   try {
     if (await repairPersistedFirstPartyDashboardQueries()) {
       console.info(

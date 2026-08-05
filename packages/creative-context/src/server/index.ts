@@ -1,5 +1,6 @@
 import { runMigrations } from "@agent-native/core/db";
 import {
+  isInBackgroundFunctionRuntime,
   registerPackageActions,
   type NitroPluginDef,
 } from "@agent-native/core/server";
@@ -125,7 +126,9 @@ export function setupCreativeContext(
   });
   const mediaPlugin = createCreativeContextMediaPlugin();
   return async (nitroApp) => {
-    await creativeContextDbPlugin(nitroApp);
+    if (!isInBackgroundFunctionRuntime()) {
+      await creativeContextDbPlugin(nitroApp);
+    }
     await workerPlugin(nitroApp);
     await mediaPlugin(nitroApp);
   };

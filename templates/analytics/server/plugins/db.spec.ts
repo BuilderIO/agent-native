@@ -223,4 +223,13 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "repairUnboundedFirstPartyPanelsAcrossDashboards",
     );
   });
+
+  it("does not run Analytics migrations in durable background functions", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).toMatch(
+      /if \(isInBackgroundFunctionRuntime\(\)\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
+    );
+  });
 });
