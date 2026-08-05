@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.5.11
+
+### Patch Changes
+
+- c71d383: Include the shared creative-context and toolkit updates in the next package release.
+
 ## 0.5.10
 
 ### Patch Changes
