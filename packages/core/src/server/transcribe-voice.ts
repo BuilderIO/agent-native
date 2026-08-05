@@ -328,7 +328,7 @@ export function createTranscribeVoiceHandler() {
       if (!(await hasBuilderPrivateKey())) {
         setResponseStatus(event, 400);
         return {
-          error: `${label} is selected but Builder.io is not connected. Connect Builder.io in Settings, or change the provider preference.`,
+          error: `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`,
         };
       }
       try {
@@ -480,7 +480,7 @@ export function createTranscribeVoiceHandler() {
       return {
         error: builderError
           ? `Builder transcription failed: ${builderError}. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-          : "No voice transcription provider configured. Connect Builder.io or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+          : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
       };
     }
 
@@ -625,7 +625,7 @@ async function cleanupTranscriptText({
       setResponseStatus(event, 400);
       return {
         error:
-          "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io in Settings, or change the provider preference.",
+          "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.",
       };
     }
     try {

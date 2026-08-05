@@ -517,6 +517,11 @@ Three things to keep in mind:
 
 ## Environment Variables {#environment-variables}
 
+For the repository-wide reference, including template, provider, local, and CI
+variables, see [Environment Variables](/docs/environment-variables). The tables
+below remain the authoritative deployment guide for production values and
+hosting behavior.
+
 ### Build / Runtime {#env-runtime}
 
 | Variable                                    | Description                                                                                                                                                                                                                                                                                                                                                             |
@@ -640,11 +645,11 @@ In a standard production deployment with [production code execution](#production
 
 ### Builder.io: Visual Editing in Production {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) is a separate managed code-capable workflow where an agent can modify your app's UI in production. Connect your repo to Builder.io and prompt for UI changes directly — no redeploy needed.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) is a separate managed code-capable workflow where an agent can modify your app's UI in production. Connect your repo to Builder.io (free tier available) and prompt for UI changes directly — no redeploy needed.
 
 **How it works:**
 
-1. Connect your agent-native repo to Builder.io
+1. Connect your agent-native repo to Builder.io (free tier available)
 2. Builder.io provides a cloud frame with the agent, visual editing, and real-time collaboration
 3. Prompt the agent to make UI changes — it edits your components, routes, and styles live
 4. Changes are committed back to your repo

@@ -223,7 +223,11 @@ export async function loadDoc(
   if (cached) return cached;
 
   const key = localizedDocKey(docsLocale, slug);
-  if (!key) return docs.get(slug);
+  if (!key) {
+    // A missing translation should keep the localized route usable by showing
+    // the canonical source page instead of turning it into a 404.
+    return loadDoc(slug, DEFAULT_DOCS_LOCALE);
+  }
   const loader = localizedDocLoaders[key];
 
   const existingPromise = localizedDocPromises.get(key);

@@ -7,7 +7,7 @@ description: "代理聊天编辑器中的语音听写 - Builder Gemini、BYOK �
 
 每个代理本机应用程序的聊天编辑器中都有一个麦克风。单击它，说话，您的话就会被转录到提示中。在移动设备上很有用，对于长提示很有用，当您的手放在其他东西上时很有用。
 
-框架会自动处理所有这些。 Builder连接的用户默认获得Builder托管的Gemini Flash-Lite；否则，用户可以携带自己的提供商密钥或退回到浏览器语音识别。
+框架会自动处理所有这些。 Builder连接的用户（提供免费套餐）默认获得Builder托管的Gemini Flash-Lite；否则，用户可以携带自己的提供商密钥或退回到浏览器语音识别。
 
 ## 实时语音模式 {#realtime-speech-mode}
 
@@ -19,7 +19,7 @@ description: "代理聊天编辑器中的语音听写 - Builder Gemini、BYOK �
 
 作曲家的语音按钮在浏览器中录制音频，然后选择提供商：
 
-1. **Builder Gemini Flash-Lite（连接 Builder 时默认）。**浏览器将音频 POST 到 `/_agent-native/transcribe-voice`，`/_agent-native/transcribe-voice` 使用 Gemini Flash-Lite 通过 Builder.io 进行代理。无需 Google API 密钥。
+1. **Builder Gemini Flash-Lite（连接 Builder 时默认）。**浏览器将音频 POST 到 `/_agent-native/transcribe-voice`，`/_agent-native/transcribe-voice` 使用 Gemini Flash-Lite 通过 Builder.io（提供免费套餐）进行代理。无需 Google API 密钥。
 2. **BYOK 云提供商。** 用户可以从“设置”中选择 Google Gemini、Groq Whisper 或 OpenAI Whisper。该路由在共享部署凭据之前解析用户范围的加密机密。
 3. **浏览器网络语音 API（后备）。** 如果没有可用的服务器提供商，作曲家可以使用浏览器的内置语音识别。适用于基于 Chromium 的浏览器（Chrome、Edge、Arc）和 Safari。不太准确；直播。
 
@@ -75,7 +75,7 @@ description: "代理聊天编辑器中的语音听写 - Builder Gemini、BYOK �
 
 ## 启用提供商 {#enabling-providers}
 
-Builder 是最简单的路径：从“设置”连接 Builder.io，默认提供商变为 Builder Gemini Flash-Lite。对于 BYOK 提供商，请在“设置”→“API 密钥”中添加匹配的密钥。
+Builder 是最简单的路径：从“设置”连接 Builder.io（提供免费套餐），默认提供商变为 Builder Gemini Flash-Lite。对于 BYOK 提供商，请在“设置”→“API 密钥”中添加匹配的密钥。
 
 ### 每用户（推荐用于 SaaS）
 

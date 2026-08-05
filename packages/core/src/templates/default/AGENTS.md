@@ -34,6 +34,10 @@ cross-cutting work and `self-modifying-code` when changing app source.
 - Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
   type for content previews. Give the AgentSidebar a subtle surface/divider
   boundary, and stack original/generated review vertically by default.
+- Before visual work, read `frontend-design` and fill in `DESIGN.md` with the
+  product mode, visual direction, palette family, type, composition, and
+  anti-references. Preserve existing brand tokens and do not default every app
+  to warm beige plus terracotta or copy a sibling app's accent.
 - Every AI-labeled button must call `sendToAgentChat()` with
   `openSidebar: true`; label deterministic local actions as local or preview.
 - Keep application state in SQL so the agent can read navigation, selection,

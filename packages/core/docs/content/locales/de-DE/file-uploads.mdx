@@ -14,7 +14,7 @@ Upload-Anfragen gehen an `POST /_agent-native/file-upload`, das an den aktiven A
 Die Reihenfolge der Anbieterauflösung lautet:
 
 1. **Vom Benutzer registrierte Anbieter** – benutzerdefinierte Anbieter, die über `registerFileUploadProvider()` registriert wurden
-2. **Builder.io-Anbieter** – integriert, wird automatisch aktiviert, wenn Builder.io verbunden ist
+2. **Builder.io-Anbieter** (kostenloser Tarif verfügbar) – integriert, wird automatisch aktiviert, wenn Builder.io verbunden ist
 3. **SQL Fallback** – speichert Dateien als Base64 in der Datenbank (gut für Entwickler, nicht für Produktion)
 
 <Diagram id="doc-block-1f4e9e3" title={"Anordnung zur Lösung des Anbieters"} summary={"uploadFile() wählt den ersten konfigurierten Anbieter der Reihe nach aus. Der SQL-Fallback ist immer vorhanden, sodass Uploads ohne Setup funktionieren."}>
@@ -102,7 +102,7 @@ Eine einmalige Warnung wird protokolliert, wenn der Fallback verwendet wird.
 
 ## Builder.io Hosting {#builder-hosting}
 
-Wenn Ihre App mit Builder.io verbunden ist, werden Datei-Uploads automatisch an das Asset-Hosting von Builder weitergeleitet. Dateien werden von einem CDN bereitgestellt, ohne dass eine Konfiguration erforderlich ist. Dies ist die empfohlene Produktionskonfiguration.
+Wenn Ihre App mit Builder.io verbunden ist (kostenloser Tarif verfügbar), werden Datei-Uploads automatisch an das Asset-Hosting von Builder weitergeleitet. Dateien werden von einem CDN bereitgestellt, ohne dass eine Konfiguration erforderlich ist. Dies ist die empfohlene Produktionskonfiguration.
 
 ## Benutzerdefinierte Anbieter {#custom-providers}
 

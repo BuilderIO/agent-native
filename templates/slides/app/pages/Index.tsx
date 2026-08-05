@@ -44,6 +44,7 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
+import { sortDecksByRecency } from "@/lib/deck-sorting";
 import {
   resolveNewDeckReferenceSelection,
   type NewDeckReferenceSelection,
@@ -287,7 +288,11 @@ export default function Index() {
   const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
   const visibleDecks = useMemo(
     () =>
-      deckFilter === "mine" ? decks.filter((deck) => deck.createdByMe) : decks,
+      sortDecksByRecency(
+        deckFilter === "mine"
+          ? decks.filter((deck) => deck.createdByMe)
+          : decks,
+      ),
     [deckFilter, decks],
   );
   const rememberReference = useCallback(
@@ -1046,7 +1051,7 @@ export default function Index() {
                 </div>
               </button>
 
-              {[...visibleDecks].reverse().map((deck) => (
+              {visibleDecks.map((deck) => (
                 <DeckCard
                   key={deck.id}
                   deck={deck}

@@ -137,7 +137,7 @@ export function normalizeChatError(
   if (code === "builder_auth_error") {
     return {
       message:
-        "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
       details: text,
     };
   }

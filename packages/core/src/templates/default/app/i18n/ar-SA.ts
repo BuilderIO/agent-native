@@ -347,7 +347,7 @@ const messages = {
     codeChangeBadge: "تغيير الكود",
     connectBuilderTitle: "اتصال Builder.io",
     connectBuilderDescription:
-      "قم بتوصيل Builder لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
+      "قم بتوصيل Builder (free tier available) لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
     setupRequired: "الإعداد مطلوب",
     branchCreated: "تم إنشاء الفرع",
     close: "إغلاق",
@@ -519,7 +519,7 @@ const messages = {
     back: "رجوع",
     agentEngineRequired: "مطلوب محرك الوكيل",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "افتح LLM",
     setup: "Setup",
     shareDocumentsWith: "مشاركة المستندات مع",

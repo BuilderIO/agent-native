@@ -7,6 +7,10 @@ const messages = {
   workspaceFile: {
     download: "Download",
   },
+  composer: {
+    sendMessage: "Send message",
+    queueMessage: "Queue message",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",
@@ -56,6 +60,22 @@ const messages = {
     profileSaving: "Saving...",
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
+    passwordTitle: "Password",
+    passwordDescription:
+      "Add a password for an alternative way to sign in to your account.",
+    passwordStatusLoading: "Checking password settings...",
+    passwordAdd: "Add password",
+    passwordChange: "Change password",
+    passwordCurrentLabel: "Current password",
+    passwordNewLabel: "New password",
+    passwordConfirmLabel: "Confirm new password",
+    passwordPlaceholder: "Enter password",
+    passwordMinLength: "Password must be at least 8 characters",
+    passwordMismatch: "Passwords do not match",
+    passwordSave: "Save password",
+    passwordSaving: "Saving...",
+    passwordSaved: "Password updated",
+    passwordSaveError: "Could not update password",
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",
@@ -739,7 +759,7 @@ const messages = {
     codeChangeBadge: "Code change",
     connectBuilderTitle: "Connect Builder.io",
     connectBuilderDescription:
-      "Connect Builder to enable cloud-based code changes from this app.",
+      "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
     setupRequired: "Setup required",
     branchCreated: "Branch created",
     close: "Close",
@@ -911,7 +931,7 @@ const messages = {
     back: "Back",
     agentEngineRequired: "Agent engine required",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "Open LLM",
     setup: "Setup",
     shareDocumentsWith: "Share documents with",
@@ -987,6 +1007,13 @@ const messages = {
       sentry: {
         description: "Inspect issues, events, and debugging data.",
         useCase: "Error monitoring, debugging, performance, crash reports",
+      },
+      fullstory: {
+        description: "Read behavioral analytics and inspect session replays.",
+        useCase:
+          "Product analytics, session replay, qualitative behavior, user research",
+        setupNote:
+          "FullStory MCP is currently beta and requires StoryAI features plus the Model Context Protocol toggle to be enabled by a FullStory organization admin.",
       },
       notion: {
         description: "Search pages and team knowledge.",

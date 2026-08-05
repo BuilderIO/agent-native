@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "onboarding": {
+    "firstRun": {
+      "development": "connect",
+      "production": "connect-and-integrations"
+    }
+  },
+  "doctor": {
+    "failOnBuild": false
+  }
+}

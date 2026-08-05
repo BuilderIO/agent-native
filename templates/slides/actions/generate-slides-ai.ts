@@ -89,7 +89,7 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
         throw (
           builderError ??
           new Error(
-            "Slides outline generation needs Builder.io Connect or GEMINI_API_KEY.",
+            "Slides outline generation needs Builder.io Connect (free tier available) or GEMINI_API_KEY.",
           )
         );
       }

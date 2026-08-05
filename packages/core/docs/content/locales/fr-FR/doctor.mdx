@@ -5,8 +5,10 @@ description: Vérifications de sécurité et de migration.
 
 # Doctor
 
-Les apps générées contiennent du code source modifiable dans le workflow de développement du dépôt, y compris par un frame d’agent auquel les outils de workspace et d’écriture ont été accordés intentionnellement. `agent-native doctor` analyse le code source pour vérifier les invariants de sécurité critiques. Il est en lecture seule : il ne modifie jamais le code, il signale seulement les résultats.
+Les apps et workspaces générés contiennent du code source modifiable dans le workflow de développement du dépôt, y compris par un frame d’agent auquel les outils de workspace et d’écriture ont été accordés intentionnellement. `agent-native doctor` analyse le code source pour vérifier les invariants de sécurité critiques. Il est en lecture seule : il ne modifie jamais le code, il signale seulement les résultats.
 
-`agent-native doctor` exécute huit contrôles: les sept contrôles de sécurité et `migration-manifest`. Celui-ci détecte les imports présents dans le `migration-manifest.json` installé et n'a pas d'opt-out. Lancez `agent-native doctor --only migration-manifest`, prévisualisez avec `npx @agent-native/core@latest upgrade --codemods`, puis appliquez avec `--yes`. La sortie JSON liste les huit noms dans `guardsRun`.
+`agent-native doctor` exécute neuf contrôles: les huit contrôles de sécurité et `migration-manifest`. Celui-ci détecte les imports présents dans le `migration-manifest.json` installé et n'a pas d'opt-out. Lancez `agent-native doctor --only migration-manifest`, prévisualisez avec `npx @agent-native/core@latest upgrade --codemods`, puis appliquez avec `--yes`. La sortie JSON liste les neuf noms dans `guardsRun`.
+
+Le CLI ajoute à chaque nouvelle app et à chaque workspace les commandes `pnpm doctor` et `pnpm agent-native:doctor`. Depuis la racine d'un workspace, chaque app sous `apps/<name>` est vérifiée. Les builds échouent par défaut en présence de constats; utilisez `failOnBuild: false` uniquement comme exception revue.
 
 Les entrées marquées `planned` sont uniquement signalées comme avertissements et ne sont pas réécrites. Les entrées actives sont des constats; le codemod ne les réécrit que si l'export de destination est installé.

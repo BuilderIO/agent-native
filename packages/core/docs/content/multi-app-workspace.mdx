@@ -260,7 +260,7 @@ my-company-platform/
 
 A few onboarding flows are workspace-aware out of the box:
 
-- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and friends to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Builder `/cli-auth`**: clicking "Connect Builder" (free tier available) from any app writes `BUILDER_PRIVATE_KEY` and friends to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 This works because every app in the same workspace points at the same `DATABASE_URL` by default, so framework credential storage (`@agent-native/core/credentials`) makes a credential available to every app without per-app config. Add a thin helper in `packages/shared` if your workspace wants a stricter naming convention.
