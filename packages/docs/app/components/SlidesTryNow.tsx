@@ -174,7 +174,7 @@ export function SlidesTryNow() {
           <div className="relative">
             <input
               id="slides-design-reference-url"
-              type="url"
+              type="text"
               inputMode="url"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
