@@ -5851,12 +5851,12 @@ export async function runAgentLoop(opts: {
       // `refresh-screen` itself.
       if (!isError) {
         try {
-          const { actionCallIsReadOnly, notifyActionChange } =
+          const { actionCallIsReadOnly, notifyActionChangeInBackground } =
             await import("../server/action-change.js");
           if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
             const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
             const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-            await notifyActionChange({
+            notifyActionChangeInBackground({
               actionName: toolCall.name,
               ...(owner ? { owner } : {}),
               ...(orgId ? { orgId } : {}),

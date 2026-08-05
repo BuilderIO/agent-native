@@ -15,15 +15,34 @@ metadata:
 
 ## When this applies
 
-Before telling the user a fix, feature, or bug is done, find the row below for
-the area you touched and do it. "I changed the code and it looks right" is not
-proof — it's the exact gap this skill exists to close. A failing check is a
-reason to keep working, not a reason to stop, ask, or report done anyway.
+Before telling the user a fix, feature, or bug is done, choose the smallest
+proof that exercises the behavior you changed and use the row below as a guide.
+"I changed the code and it looks right" is not proof — it's the exact gap this
+skill exists to close. A failing check is a reason to keep working, not a reason
+to stop, ask, or report done anyway.
+
+## Scale the verification
+
+Verification proves the changed behavior; it is not a reason to run a broad
+workspace audit after every edit.
+
+- For a localized one-line or small-file change, inspect the diff and run the
+  narrowest relevant test, typecheck, formatter, or direct invocation. Do not
+  run `pnpm run prep`, browser automation, or restart a dev server unless the
+  changed area requires it.
+- For an action or capability-card change, use the focused action/card check.
+  Restart only when the runtime process must reload registration or the change
+  explicitly affects startup.
+- Escalate to package-wide tests or `pnpm run prep` for shared contracts,
+  cross-cutting changes, migrations, or when a focused check exposes a wider
+  failure. Keep repository-required guards and doctor checks when they apply.
+- If a focused check is unavailable, state the exact gap rather than replacing
+  it with unrelated expensive work.
 
 ## Do NOT report done in these situations
 
 - The change is "obviously correct" or one line — obvious fixes are the ones
-  that ship broken most often; run the row below anyway.
+  that ship broken most often; run the smallest relevant proof anyway.
 - You verified a similar path earlier in the session — re-run against the
   actual latest edit, not a memory of an earlier pass.
 - The user didn't explicitly ask you to test it — test it anyway; verify-

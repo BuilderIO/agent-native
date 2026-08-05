@@ -259,6 +259,35 @@ export const analyticsEvents = table("analytics_events", {
 });
 
 /**
+ * Compact daily event counts. The tenant key is non-null so the natural key
+ * remains unique for both organization-scoped and personal analytics keys.
+ */
+export const analyticsEventDailyRollups = table(
+  "analytics_event_daily_rollups",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    eventName: text("event_name").notNull(),
+    app: text("app").notNull().default(""),
+    template: text("template").notNull().default(""),
+    eventCount: integer("event_count").notNull().default(0),
+  },
+);
+
+/** One row per identifiable visitor and normalized event day. */
+export const analyticsUserDays = table("analytics_user_days", {
+  id: text("id").primaryKey(),
+  tenantKey: text("tenant_key").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  eventDate: text("event_date").notNull(),
+  userKey: text("user_key").notNull(),
+});
+
+/**
  * Generic alert rules over first-party analytics events. Rules are owned by a
  * user/org but can target any app, template, event name, or event property.
  */

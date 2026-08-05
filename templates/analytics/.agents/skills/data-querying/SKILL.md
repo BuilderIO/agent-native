@@ -20,6 +20,11 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
+For first-party counts, active-user, and retention questions, prefer the compact
+tenant-scoped daily event and user-day rollups. Use `analytics_events` only for a
+bounded recent drill-down with an explicit date/time range; the built-in source
+does not require a customer warehouse connection.
+
 Example pageviews query for a local calendar day:
 
 ```sql
