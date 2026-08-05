@@ -71,6 +71,7 @@ vi.mock("./panel-primitives", async (importOriginal) => {
     ...actual,
     ColorInput: (props: {
       value: string;
+      resolvedColor?: string;
       backgroundImage?: string;
       backgroundSize?: string;
       backgroundRepeat?: string;
@@ -79,6 +80,7 @@ vi.mock("./panel-primitives", async (importOriginal) => {
       createElement("div", {
         "data-testid": "base-fill-color-input",
         "data-value": props.value,
+        "data-resolved-color": props.resolvedColor ?? "",
         "data-background-image": props.backgroundImage ?? "",
         "data-background-size": props.backgroundSize ?? "",
         "data-background-repeat": props.backgroundRepeat ?? "",
@@ -190,5 +192,153 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-size=""');
     expect(markup).toContain('data-background-repeat=""');
     expect(markup).toContain('data-background-position=""');
+  });
+});
+
+describe("design system token fills", () => {
+  it("shows the authored var() reference, not the colour it resolves to", () => {
+    // getComputedStyle resolves var(), so a token-backed fill arrives already
+    // flattened. Only the authored inline declaration still names the token —
+    // and the bridge has to report the property for this to be reachable at
+    // all (see INLINE_STYLE_PROPERTIES in editor-chrome.bridge.ts).
+    const el = element({
+      computedStyles: { backgroundColor: "rgb(15, 98, 254)" },
+      inlineStyles: { backgroundColor: "var(--color-accent, #0f62fe)" },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="var(--color-accent, #0f62fe)"');
+  });
+
+  it("still shows a plain colour fill from computed styles", () => {
+    const el = element({
+      computedStyles: { backgroundColor: "rgb(15, 98, 254)" },
+      inlineStyles: { backgroundColor: "#0f62fe" },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="rgb(15, 98, 254)"');
+  });
+
+  it("names a text fill from its authored reference too", () => {
+    const el = element({
+      tagName: "span",
+      computedStyles: { color: "rgb(15, 98, 254)" },
+      inlineStyles: { color: "var(--color-accent, #0f62fe)" },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="var(--color-accent, #0f62fe)"');
+  });
+});
+
+describe("class-styled fills", () => {
+  it("names a fill whose colour comes from a class rule, not inline style", () => {
+    // A generated design styles through classes, so inlineStyles is empty and
+    // computedStyles has already flattened var(). Only the bridge's
+    // cascade-resolved declaration still carries the token.
+    const el = element({
+      tagName: "button",
+      computedStyles: { backgroundColor: "rgb(15, 98, 254)" },
+      inlineStyles: {},
+      authoredColorStyles: {
+        backgroundColor: "var(--cds-background-brand)",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="var(--cds-background-brand)"');
+  });
+
+  it("lets an inline declaration win over the class rule", () => {
+    const el = element({
+      tagName: "button",
+      computedStyles: { backgroundColor: "rgb(0, 0, 0)" },
+      inlineStyles: { backgroundColor: "var(--color-accent, #0f62fe)" },
+      authoredColorStyles: {
+        backgroundColor: "var(--color-accent, #0f62fe)",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="var(--color-accent, #0f62fe)"');
+  });
+
+  it("passes the canvas-resolved colour so a bare var() still paints a swatch", () => {
+    // Generated CSS writes `var(--cds-background-brand)` with no fallback; the
+    // editor document cannot resolve it, so the picker needs the painted colour.
+    const el = element({
+      tagName: "button",
+      computedStyles: { backgroundColor: "rgb(15, 98, 254)" },
+      inlineStyles: {},
+      authoredColorStyles: {
+        backgroundColor: "var(--cds-background-brand)",
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="var(--cds-background-brand)"');
+    expect(markup).toContain('data-resolved-color="rgb(15, 98, 254)"');
+  });
+
+  it("still uses the computed colour when nothing authored one", () => {
+    const el = element({
+      tagName: "button",
+      computedStyles: { backgroundColor: "rgb(15, 98, 254)" },
+      inlineStyles: {},
+      authoredColorStyles: {},
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(FillProperties, {
+        element: el,
+        onStyleChange: vi.fn(),
+        onStylesChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('data-value="rgb(15, 98, 254)"');
   });
 });

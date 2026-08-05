@@ -206,7 +206,6 @@ production deployment:
 | `HEADLESS_ONRAMP_*` / `STANDALONE_CHAT_DEV_*`                                                                                  | CLI and standalone-chat QA harnesses.                                                       |
 | `DEV_*` / `DEBUG_*` / `*_DEBUG` / `CHOKIDAR_*`                                                                                 | Local development and diagnostics.                                                          |
 | `AUTH_SKIP_EMAIL_VERIFICATION`                                                                                                 | Local/test auth convenience; never use to weaken production auth.                           |
-| `S2573_PGLITE_INSTALL_PREFIX`                                                                                                  | Temporary install directory used by the PGlite content-database lock test.                  |
 | `VITEST_*` / `VITEST`                                                                                                          | Test-runner behavior and worker configuration.                                              |
 | `UPDATE_I18N_*`                                                                                                                | Maintainer-only i18n baseline updates.                                                      |
 | `CODESPACES` / `GITPOD_*` / `CODEX_HOME` / `XDG_CONFIG_HOME` / `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                           | Tool-host or development-environment detection.                                             |
@@ -216,10 +215,11 @@ production deployment:
 
 ## CI-only variables
 
-| Variable                    | Scope                                                                      |
-| --------------------------- | -------------------------------------------------------------------------- |
-| `POSTGRES_DB`               | Database name for the CI Postgres service used by content migration tests. |
-| `POSTGRES_HOST_AUTH_METHOD` | CI-only Postgres service authentication mode.                              |
+| Variable                      | Purpose                                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane. |
+| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.         |
+| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.    |
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
