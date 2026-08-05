@@ -110,7 +110,6 @@ import type {
 import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
-import { AgentNativeRouteWarmup } from "./route-warmup.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useDevMode } from "./use-dev-mode.js";
@@ -3457,7 +3456,6 @@ export function AgentSidebar({
           data-agent-sidebar-position={position}
           data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >
-          <AgentNativeRouteWarmup />
           {/* Mobile backdrop — tapping it closes the sidebar */}
           {isMobile &&
             !presentationMode &&

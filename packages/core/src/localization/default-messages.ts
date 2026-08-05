@@ -1008,6 +1008,13 @@ const messages = {
         description: "Inspect issues, events, and debugging data.",
         useCase: "Error monitoring, debugging, performance, crash reports",
       },
+      fullstory: {
+        description: "Read behavioral analytics and inspect session replays.",
+        useCase:
+          "Product analytics, session replay, qualitative behavior, user research",
+        setupNote:
+          "FullStory MCP is currently beta and requires StoryAI features plus the Model Context Protocol toggle to be enabled by a FullStory organization admin.",
+      },
       notion: {
         description: "Search pages and team knowledge.",
         useCase: "Documentation, knowledge management, notes, content creation",

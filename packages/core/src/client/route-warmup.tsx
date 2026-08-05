@@ -380,7 +380,7 @@ export function AgentNativeRouteWarmup({
     if (resolved.strategy === "off") {
       return;
     }
-    // Legacy SPA builds still mount the AgentPanel but do not expose React
+    // Legacy SPA builds still mount AppProviders but do not expose React
     // Router framework `.data` endpoints or a route asset manifest. Only warm
     // route data/modules when that manifest is present; otherwise this would
     // generate noisy `/<path>.data` 404s for apps that cannot serve them.

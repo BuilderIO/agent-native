@@ -4382,7 +4382,9 @@ const AssistantChatInner = forwardRef<
     }
     try {
       const frozenContent = cloneContentParts(reconnectContent);
-      settleInterruptedToolCalls(frozenContent);
+      settleInterruptedToolCalls(frozenContent, undefined, {
+        includeActivity: true,
+      });
       const repo = normalizeThreadRepository(threadRuntime.export());
       const messages = getRepoMessages(repo);
       const lastEntry = messages[messages.length - 1];
@@ -5625,6 +5627,7 @@ const AssistantChatInner = forwardRef<
                                   <MessageScrollerItem>
                                     <ReconnectStreamMessage
                                       content={visibleReconnectContent}
+                                      allowActivitySpinner={!reconnectFrozen}
                                     />
                                   </MessageScrollerItem>
                                 )}
@@ -5637,6 +5640,7 @@ const AssistantChatInner = forwardRef<
                                   <MessageScrollerItem>
                                     <ReconnectStreamMessage
                                       content={reconnectActivityContent}
+                                      allowActivitySpinner={!reconnectFrozen}
                                     />
                                   </MessageScrollerItem>
                                 )}

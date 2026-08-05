@@ -2138,6 +2138,7 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
     expect(renderSource).toContain("adapterHandoffPending");
+    expect(renderSource).toContain("allowActivitySpinner={!reconnectFrozen}");
     expect(renderSource).not.toContain("reconnectAfterSeq");
   });
 
@@ -2176,6 +2177,7 @@ describe("waitForThreadRunToClear", () => {
     );
     expect(completionSource).not.toContain("setReconnectFrozen(true)");
     expect(materializeSource).toContain("!reconnectCanMaterializeRef.current");
+    expect(materializeSource).toContain("includeActivity: true");
     expect(materializeSource).toContain("setReconnectContent([])");
     expect(materializeSource).toContain("return;");
   });

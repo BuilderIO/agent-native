@@ -1654,7 +1654,7 @@ export interface ClientConfigOptions {
    */
   clientCompatibilityVersion?: string;
   /**
-   * Framework route warmup behavior mounted by AgentSidebar.
+   * Framework route warmup behavior mounted by AppProviders.
    *
    * React Router's native prefetch warms both `.data` and JS, but its `.data`
    * request uses browser link prefetch. Chrome sends `Sec-Purpose: prefetch`
