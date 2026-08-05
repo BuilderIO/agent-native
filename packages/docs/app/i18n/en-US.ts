@@ -1183,6 +1183,8 @@ const enUS = {
       s056: "Answer three quick questions and watch your prompt write itself — or just start typing.",
       s057: "Read the docs",
       s058: "View all apps",
+      howItWorksDescribe:
+        "Describe your topic, audience, and tone. Attach a reference deck. Start in the UI or via your own AI workflow.",
       tryNow: {
         step: "Step {{current}} of {{total}}",
         q1: "What kind of slide deck do you need?",

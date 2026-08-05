@@ -176,7 +176,7 @@ export default function SlidesTemplate() {
             {
               step: "1",
               title: t("templateLanding.slides.s002"),
-              desc: "Tell the agent your topic, audience, and tone. Attach reference PDFs or images.",
+              desc: t("templateLanding.slides.howItWorksDescribe"),
             },
             {
               step: "2",
