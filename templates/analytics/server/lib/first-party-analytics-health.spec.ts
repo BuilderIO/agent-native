@@ -74,11 +74,12 @@ describe("first-party analytics pressure", () => {
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantKey: "org:org_123",
-        eventDate: expect.stringMatching(/T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+        eventDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
         queryClass: "raw-events",
         slowQueryCount: 1,
         totalDurationMs: 5_000,
         maxDurationMs: 5_000,
+        lastSeenAt: expect.stringMatching(/T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       }),
     );
     expect(insertConflictUpdate).toHaveBeenCalledWith(

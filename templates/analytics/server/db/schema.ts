@@ -299,7 +299,7 @@ export const analyticsQueryPressureDaily = table(
     tenantKey: text("tenant_key").notNull(),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
-    /** Exact ISO timestamp for new rows; legacy rows may contain a date only. */
+    /** UTC day bucket; lastSeenAt carries the timestamp for trailing-window reads. */
     eventDate: text("event_date").notNull(),
     queryClass: text("query_class").notNull(),
     slowQueryCount: integer("slow_query_count").notNull().default(0),

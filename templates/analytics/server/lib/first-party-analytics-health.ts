@@ -148,11 +148,8 @@ export async function recordFirstPartyAnalyticsQueryPressure(
   if (!shouldRecordPressure(event)) return;
 
   const durationMs = normalizedDurationMs(event.durationMs);
-  // New rows use the exact event timestamp in the legacy event_date column.
-  // This keeps the existing unique key additive while letting health reads use
-  // a real 24-hour cutoff. Older date-only rows are not reconstructed; a
-  // current-day legacy row is bounded by the start of the current day.
-  const eventDate = nowIso();
+  const eventTimestamp = nowIso();
+  const eventDate = eventTimestamp.slice(0, 10);
   const key = tenantKey(scope);
   const table = schema.analyticsQueryPressureDaily;
   const db = getDb() as any;
@@ -174,7 +171,7 @@ export async function recordFirstPartyAnalyticsQueryPressure(
       errorCount: event.outcome === "error" ? 1 : 0,
       totalDurationMs: durationMs,
       maxDurationMs: durationMs,
-      lastSeenAt: eventDate,
+      lastSeenAt: eventTimestamp,
     })
     .onConflictDoUpdate({
       target: [table.tenantKey, table.eventDate, table.queryClass],
@@ -184,7 +181,7 @@ export async function recordFirstPartyAnalyticsQueryPressure(
         errorCount: sql`${table.errorCount} + ${event.outcome === "error" ? 1 : 0}`,
         totalDurationMs: sql`${table.totalDurationMs} + ${durationMs}`,
         maxDurationMs: sql`CASE WHEN ${table.maxDurationMs} > ${durationMs} THEN ${table.maxDurationMs} ELSE ${durationMs} END`,
-        lastSeenAt: eventDate,
+        lastSeenAt: eventTimestamp,
       },
     });
 }
@@ -283,8 +280,8 @@ export async function getFirstPartyAnalyticsHealth(
       .where(
         and(
           inArray(pressure.tenantKey, keys),
-          gte(pressure.eventDate, since24h),
-          lte(pressure.eventDate, nowTimestamp),
+          gte(pressure.lastSeenAt, since24h),
+          lte(pressure.lastSeenAt, nowTimestamp),
         ),
       ),
     bigQueryStatus(scope),
