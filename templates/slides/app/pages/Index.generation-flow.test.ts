@@ -60,7 +60,8 @@ describe("new deck generation flow", () => {
     expect(flow).toContain('callAction("import-pptx"');
     expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
     expect(flow).toContain("const generationFiles = uploaded.filter");
-    expect(flow).toContain("setPendingDeck((current) =>");
+    expect(flow).toContain("referenceSelection = {");
+    expect(flow).toContain("referenceDeckId: imported.id");
   });
 
   it("imports an uploaded PDF into a reusable reference deck", () => {

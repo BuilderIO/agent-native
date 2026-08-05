@@ -661,6 +661,11 @@ const messages = {
     newDeckPromptTitle: "新しいデッキ",
     newDeckPlaceholder: "デッキ、ビジュアル、図について説明してください...",
     skipPrompt: "プロンプトをスキップ",
+    firstDeckPromptTitle: "何を作りたいですか？",
+    firstDeckSkip: "スキップ",
+    chooseReferences: "参照を選択",
+    addDesignSystem: "+ デザインシステム",
+    importFrom: "インポート元",
     designSystem: "デザインシステム",
     referenceDeck: "参考デッキ",
     referenceDeckPlaceholder: "既存デッキのスタイルに合わせる",
@@ -705,7 +710,8 @@ const messages = {
     signInDescriptionWithFiles:
       "デッキを生成する前にサインインが必要です。プロンプトは保存済みです。戻ったらファイルを再添付してください。",
     signIn: "サインイン",
-    emptyTitle: "最初のデッキまたはビジュアルを作成",
+    emptyTitle: "まだデッキがありません",
+    createFirstDeck: "最初のデッキを作成",
     emptyDescription:
       "AI 生成で美しいプレゼンテーション、単独ビジュアル、図表、画像豊かなストーリーを作成できます。",
   },

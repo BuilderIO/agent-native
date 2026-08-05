@@ -683,6 +683,11 @@ const messages = {
     newDeckPromptTitle: "Nuevo deck",
     newDeckPlaceholder: "Describe tu deck, visual o diagrama...",
     skipPrompt: "Omitir prompt",
+    firstDeckPromptTitle: "¿Qué quieres crear?",
+    firstDeckSkip: "Omitir",
+    chooseReferences: "Elegir referencias",
+    addDesignSystem: "+ Sistema de diseño",
+    importFrom: "Importar desde",
     designSystem: "Sistema de diseño",
     referenceDeck: "Deck de referencia",
     referenceDeckPlaceholder: "Imitar el estilo de un deck existente",
@@ -732,7 +737,8 @@ const messages = {
     signInDescriptionWithFiles:
       "Debes iniciar sesión antes de generar un deck. Guardamos tu prompt; vuelve a adjuntar los archivos cuando regreses.",
     signIn: "Iniciar sesión",
-    emptyTitle: "Crea tu primer deck o visual",
+    emptyTitle: "Aún no hay decks",
+    createFirstDeck: "Crea tu primer deck",
     emptyDescription:
       "Crea presentaciones bonitas, visuales independientes, diagramas e historias ricas en imágenes con generación impulsada por IA.",
   },

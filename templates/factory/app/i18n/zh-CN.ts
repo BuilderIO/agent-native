@@ -167,6 +167,33 @@ const messages = {
     pastRunsEmpty: "尚未记录运行。",
     saveAutomation: "保存",
     runNow: "立即运行",
+    automationHealthTitle: "调度器状态",
+    automationHealthDescription:
+      "心跳显示已部署的周期任务工作程序是否仍在检查计划。",
+    automationHealthHealthy: "正常",
+    automationHealthStale: "已过期",
+    automationHealthError: "错误",
+    automationHealthNoData: "没有心跳",
+    automationLastCheck: "上次检查",
+    automationLastDispatch: "上次调度",
+    automationRuntime: "运行时",
+    automationHealthNoDataHint:
+      "尚未记录调度器心跳。请部署最新的 Factory 构建，然后再次检查。",
+    automationHealthStaleHint:
+      "调度器最近没有进行检查。这通常表示已部署的计划函数或后台工作程序未运行。",
+    automationHealthErrorDetail: "调度器上次错误",
+    automationOpenThread: "打开线程",
+    automationFailureAlertsTitle: "自动化失败提醒",
+    automationFailureAlertsDescription:
+      "Factory 自动化失败时发送应用内提醒和电子邮件。相同的失败会在 15 分钟内合并。",
+    automationFailureAlertsEnabled: "自动化失败时通过电子邮件通知我",
+    automationFailureAlertEmail: "提醒邮箱",
+    automationFailureAlertEmailPlaceholder: "默认为工作区所有者",
+    automationFailureEmailReadiness: "电子邮件服务商",
+    automationDiagnosticsLoadError:
+      "无法加载 Factory 诊断信息。请检查访问权限、部署和数据库迁移，然后重试。",
+    automationEmailReadinessHint:
+      "电子邮件使用组织的 Dispatch 密钥库。如果尚未就绪，请在那里配置服务商。",
   },
   factoryCanvas: {
     dragHint: "拖动节点来调整工厂形状",

@@ -683,6 +683,11 @@ const messages = {
     newDeckPromptTitle: "عرض جديد",
     newDeckPlaceholder: "صف عرضك أو المرئي أو المخطط...",
     skipPrompt: "تخطي المطالبة",
+    firstDeckPromptTitle: "ماذا تريد أن تنشئ؟",
+    firstDeckSkip: "تخطي",
+    chooseReferences: "اختر المراجع",
+    addDesignSystem: "+ نظام تصميم",
+    importFrom: "استيراد من",
     designSystem: "نظام التصميم",
     referenceDeck: "عرض مرجعي",
     referenceDeckPlaceholder: "اتّبع أسلوب عرض موجود",
@@ -726,7 +731,8 @@ const messages = {
     signInDescriptionWithFiles:
       "تحتاج إلى تسجيل الدخول قبل إنشاء عرض. حفظنا مطالبتك؛ أعد إرفاق أي ملفات عند عودتك.",
     signIn: "تسجيل الدخول",
-    emptyTitle: "أنشئ أول عرض أو مرئي لك",
+    emptyTitle: "لا توجد عروض بعد",
+    createFirstDeck: "أنشئ أول عرض لك",
     emptyDescription:
       "أنشئ عروضًا جميلة ومرئيات مستقلة ومخططات وقصصًا غنية بالصور باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
   },

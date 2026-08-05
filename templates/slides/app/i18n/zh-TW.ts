@@ -638,6 +638,11 @@ const messages = {
     newDeckPromptTitle: "新建幻燈片",
     newDeckPlaceholder: "描述你的幻燈片、視覺頁面或圖表...",
     skipPrompt: "跳過提示",
+    firstDeckPromptTitle: "你想建立什麼？",
+    firstDeckSkip: "跳過",
+    chooseReferences: "選擇參考資料",
+    addDesignSystem: "+ 設計系統",
+    importFrom: "匯入來源",
     designSystem: "設計系統",
     referenceDeck: "參考幻燈片",
     referenceDeckPlaceholder: "參照現有幻燈片的風格",
@@ -681,7 +686,8 @@ const messages = {
     signInDescriptionWithFiles:
       "生成幻燈片前需要登入。我們已儲存你的提示；回來後請重新附加檔案。",
     signIn: "登入",
-    emptyTitle: "建立你的第一份幻燈片或視覺頁面",
+    emptyTitle: "還沒有簡報",
+    createFirstDeck: "建立你的第一份簡報",
     emptyDescription:
       "使用 AI 產生精美簡報、獨立視覺頁面、圖表和圖片豐富的故事。",
   },

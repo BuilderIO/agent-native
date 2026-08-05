@@ -148,6 +148,92 @@ describe("Gong call search matching", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("rejects a 500-record exhaustive list before returning it to the agent", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        return new Response(
+          JSON.stringify({
+            records: { totalRecords: 500, cursor: "next-page" },
+            calls: [],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      getAllCalls({ fromDateTime: "2026-04-20T00:00:00.000Z" }),
+    ).rejects.toThrow("500 records");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("rejects when the provider omits totalRecords but the page reaches the cap", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requests.push(url);
+        return new Response(
+          JSON.stringify({
+            records: {},
+            calls: Array.from({ length: 500 }, (_, index) => ({
+              id: `call-${index}`,
+              started: "2026-05-03T10:00:00Z",
+            })),
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      getAllCalls({ fromDateTime: "2026-04-21T00:00:00.000Z" }),
+    ).rejects.toThrow("reached 500 records");
+    expect(requests).toHaveLength(1);
+  });
+
+  it("stops before fetching when an exhaustive deadline has already expired", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getAllCalls(
+        { fromDateTime: "2026-04-22T00:00:00.000Z" },
+        { deadlineAt: Date.now() - 1 },
+      ),
+    ).rejects.toThrow("60-second runtime budget");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("propagates caller cancellation into an in-flight Gong request", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(
+      async (_url: string, init?: RequestInit): Promise<Response> =>
+        new Promise((_, reject) => {
+          if (init?.signal?.aborted) {
+            reject(new Error("request aborted"));
+            return;
+          }
+          init?.signal?.addEventListener("abort", () =>
+            reject(new Error("request aborted")),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = getAllCalls(
+      { fromDateTime: "2026-04-23T00:00:00.000Z" },
+      { signal: controller.signal },
+    );
+    controller.abort();
+
+    await expect(pending).rejects.toThrow("request aborted");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("generates Fusion-style account variants from deal names and domains", () => {
     expect(gongSearchVariants("The Knot Worldwide - New Deal")).toEqual(
       expect.arrayContaining(["the knot worldwide", "the knot", "@the."]),
@@ -275,7 +361,7 @@ describe("Gong call search matching", () => {
     await expect(
       searchCallsForQueries(["Edmunds"], 90, 8, { exhaustive: true }),
     ).rejects.toThrow(
-      "Use provider-corpus-job with staged call IDs for searches larger than 500 records",
+      "Use provider-corpus-job with staged call IDs for searches with 500 or more records",
     );
     expect(requests).toHaveLength(1);
   });

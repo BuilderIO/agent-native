@@ -12,6 +12,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY } from "../lib/first-party-analytics-rollups.js";
 import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
@@ -169,10 +170,11 @@ async function runHistoricalAnalyticsRollupBackfill() {
       // connections while waiting for the winner. A lock loser defers without
       // recording the migration so a failed winner can be retried safely.
       // The monotonic rollup upsert below keeps a live increment from being
-      // overwritten if ingest commits during the historical snapshot.
+      // overwritten if ingest commits during the historical snapshot. Live
+      // ingest takes this same lock before inserting its raw event.
       const lockResult = await tx.execute({
         sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
-        args: ["agent-native:analytics-rollup-backfill"],
+        args: [FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY],
       });
       const acquired = lockResult.rows[0]?.acquired;
       if (acquired !== true && acquired !== "t") {
@@ -1570,10 +1572,16 @@ const runAnalyticsMigrations = runMigrations(
  * swallowed so it can never fail boot.
  */
 export default async (nitroApp: any): Promise<void> => {
-  await runAnalyticsMigrations(nitroApp);
   if (isInBackgroundFunctionRuntime()) {
+    // Durable workers execute signed internal routes against a schema owned by
+    // the regular server. A second migration runner only adds a Neon pool
+    // probe to every worker cold start.
+    console.info(
+      "[db] Skipping Analytics migrations in durable background runtime",
+    );
     return;
   }
+  await runAnalyticsMigrations(nitroApp);
   try {
     if (await repairPersistedFirstPartyDashboardQueries()) {
       console.info(

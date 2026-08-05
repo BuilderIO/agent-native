@@ -643,6 +643,11 @@ const messages = {
     newDeckPromptTitle: "新建幻灯片",
     newDeckPlaceholder: "描述你的幻灯片、视觉页或图表...",
     skipPrompt: "跳过提示",
+    firstDeckPromptTitle: "你想创建什么？",
+    firstDeckSkip: "跳过",
+    chooseReferences: "选择参考资料",
+    addDesignSystem: "+ 设计系统",
+    importFrom: "导入自",
     designSystem: "设计系统",
     referenceDeck: "参考幻灯片",
     referenceDeckPlaceholder: "参照现有幻灯片的风格",
@@ -686,7 +691,8 @@ const messages = {
     signInDescriptionWithFiles:
       "生成幻灯片前需要登录。我们已保存你的提示；回来后请重新附加文件。",
     signIn: "登录",
-    emptyTitle: "创建你的第一份幻灯片或视觉页",
+    emptyTitle: "还没有幻灯片",
+    createFirstDeck: "创建你的第一份幻灯片",
     emptyDescription:
       "使用 AI 生成精美演示文稿、独立视觉页、图表和图像丰富的故事。",
   },

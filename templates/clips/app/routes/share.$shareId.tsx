@@ -985,6 +985,7 @@ export default function ShareRoute() {
                 initialVisibility={recording.visibility}
                 initialRole={viewerIsOwner ? "owner" : undefined}
                 videoUrl={recording.videoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
@@ -1128,6 +1129,7 @@ export default function ShareRoute() {
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
+                missingApiKeySetupLayout="sidebar"
                 suggestions={[
                   t("recordingPage.summarizeClip"),
                   t("recordingPage.findKeyMoments"),

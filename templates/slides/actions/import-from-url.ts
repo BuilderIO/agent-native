@@ -6,6 +6,7 @@ export default defineAction({
   description:
     "Analyze a website URL to extract design tokens (colors, fonts, metadata) " +
     "for use in creating or updating a design project. " +
+    "Follows bounded, SSRF-safe linked stylesheets and reports any stylesheet failures. " +
     "Returns extracted CSS variables, font faces, colors, and meta information.",
   schema: z.object({
     url: z.string().describe("Website URL to analyze"),

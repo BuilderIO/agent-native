@@ -235,7 +235,7 @@ export default function RecordingPage() {
   const { session, isLoading: sessionLoading } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
-  const [panel, setPanel] = useState<SidePanel>("agent");
+  const [panel, setPanel] = useState<SidePanel>("comments");
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
@@ -310,15 +310,6 @@ export default function RecordingPage() {
       setPanel(panelParam);
     }
   }, [panelParam]);
-
-  const appliedCompactDefaultRef = useRef(false);
-  useEffect(() => {
-    if (appliedCompactDefaultRef.current) return;
-    if (!panelParam && isCompactLayout) {
-      appliedCompactDefaultRef.current = true;
-      setPanel("comments");
-    }
-  }, [isCompactLayout, panelParam]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -1154,21 +1145,13 @@ export default function RecordingPage() {
         {label}
       </TabsTrigger>
     );
-    const triggers = compact
-      ? [
-          trigger("comments", t("recordingPage.activity")),
-          trigger("transcript", t("recordingPage.transcript")),
-          trigger("agent", t("recordingPage.agent")),
-          trigger("insights", t("recordingPage.insights")),
-          canEdit ? trigger("settings", t("recordingPage.settings")) : null,
-        ]
-      : [
-          trigger("agent", t("recordingPage.agent")),
-          trigger("comments", t("recordingPage.activity")),
-          trigger("transcript", t("recordingPage.transcript")),
-          trigger("insights", t("recordingPage.insights")),
-          canEdit ? trigger("settings", t("recordingPage.settings")) : null,
-        ];
+    const triggers = [
+      trigger("comments", t("recordingPage.activity")),
+      trigger("transcript", t("recordingPage.transcript")),
+      trigger("agent", t("recordingPage.agent")),
+      trigger("insights", t("recordingPage.insights")),
+      canEdit ? trigger("settings", t("recordingPage.settings")) : null,
+    ];
 
     return (
       <Tabs
@@ -1197,6 +1180,7 @@ export default function RecordingPage() {
             scope={recordingScope}
             showHeader={false}
             showTabBar={false}
+            missingApiKeySetupLayout="sidebar"
             emptyStateText={t("recordingPage.askAboutClip")}
             dynamicSuggestions={false}
             suggestions={
@@ -1553,6 +1537,7 @@ export default function RecordingPage() {
               initialVisibility={recording.visibility}
               initialRole={role}
               videoUrl={recording.videoUrl}
+              thumbnailUrl={recording.thumbnailUrl}
               animatedThumbnailUrl={recording.animatedThumbnailUrl}
               isLoomRecording={isLoomEmbedBacked}
               hasPassword={Boolean(recording.hasPassword)}

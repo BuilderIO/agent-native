@@ -269,6 +269,7 @@ export default defineEventHandler(async (event: H3Event) => {
       const query = getQuery(event) as {
         password?: unknown;
         t?: unknown;
+        animated?: unknown;
       };
       if (recording.password && loaded.role !== "owner") {
         const queryToken = typeof query.t === "string" ? query.t : "";
@@ -287,7 +288,9 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const sourceUrl =
-        recording.thumbnailUrl || recording.animatedThumbnailUrl;
+        query.animated === "1"
+          ? recording.animatedThumbnailUrl || recording.thumbnailUrl
+          : recording.thumbnailUrl || recording.animatedThumbnailUrl;
       if (!sourceUrl) {
         setResponseStatus(event, 404);
         return { error: "Thumbnail not found" };

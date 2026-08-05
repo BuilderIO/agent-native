@@ -22,6 +22,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const analyticsIngestTsSource = readFileSync(
+  new URL("../lib/first-party-analytics.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -204,9 +208,28 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("coordinates the historical backfill with live Postgres ingest", () => {
+    expect(dbTsSource).toContain("FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY");
+    expect(analyticsIngestTsSource).toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+    );
+    expect(analyticsIngestTsSource).toMatch(
+      /if \(isPostgres\(\)\)[\s\S]*?FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL/,
+    );
+  });
+
   it("does not scan every dashboard during serverless startup", () => {
     expect(dbTsSource).not.toContain(
       "repairUnboundedFirstPartyPanelsAcrossDashboards",
+    );
+  });
+
+  it("does not run Analytics migrations in durable background functions", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).toMatch(
+      /if \(isInBackgroundFunctionRuntime\(\)\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
     );
   });
 });

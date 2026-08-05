@@ -654,6 +654,11 @@ const messages = {
     newDeckPromptTitle: "새 덱",
     newDeckPlaceholder: "덱, 시각 자료 또는 다이어그램을 설명하세요...",
     skipPrompt: "프롬프트 건너뛰기",
+    firstDeckPromptTitle: "무엇을 만들고 싶으신가요?",
+    firstDeckSkip: "건너뛰기",
+    chooseReferences: "참조 선택",
+    addDesignSystem: "+ 디자인 시스템",
+    importFrom: "가져오기",
     designSystem: "디자인 시스템",
     referenceDeck: "참고 덱",
     referenceDeckPlaceholder: "기존 덱의 스타일을 따르기",
@@ -698,7 +703,8 @@ const messages = {
     signInDescriptionWithFiles:
       "덱을 생성하기 전에 로그인해야 합니다. 프롬프트를 저장했으니 돌아오면 파일을 다시 첨부하세요.",
     signIn: "로그인",
-    emptyTitle: "첫 덱 또는 시각 자료 만들기",
+    emptyTitle: "아직 덱이 없습니다",
+    createFirstDeck: "첫 덱 만들기",
     emptyDescription:
       "AI 생성으로 아름다운 프레젠테이션, 독립형 시각 자료, 다이어그램, 이미지 중심 스토리를 만드세요.",
   },

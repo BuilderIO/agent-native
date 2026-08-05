@@ -73,10 +73,6 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function todayIsoDate(): string {
-  return nowIso().slice(0, 10);
-}
-
 function tenantKey(scope: AnalyticsScope): string {
   return scope.orgId ? `org:${scope.orgId}` : `user:${scope.userEmail}`;
 }
@@ -152,7 +148,8 @@ export async function recordFirstPartyAnalyticsQueryPressure(
   if (!shouldRecordPressure(event)) return;
 
   const durationMs = normalizedDurationMs(event.durationMs);
-  const eventDate = todayIsoDate();
+  const eventTimestamp = nowIso();
+  const eventDate = eventTimestamp.slice(0, 10);
   const key = tenantKey(scope);
   const table = schema.analyticsQueryPressureDaily;
   const db = getDb() as any;
@@ -174,7 +171,7 @@ export async function recordFirstPartyAnalyticsQueryPressure(
       errorCount: event.outcome === "error" ? 1 : 0,
       totalDurationMs: durationMs,
       maxDurationMs: durationMs,
-      lastSeenAt: nowIso(),
+      lastSeenAt: eventTimestamp,
     })
     .onConflictDoUpdate({
       target: [table.tenantKey, table.eventDate, table.queryClass],
@@ -184,7 +181,7 @@ export async function recordFirstPartyAnalyticsQueryPressure(
         errorCount: sql`${table.errorCount} + ${event.outcome === "error" ? 1 : 0}`,
         totalDurationMs: sql`${table.totalDurationMs} + ${durationMs}`,
         maxDurationMs: sql`CASE WHEN ${table.maxDurationMs} > ${durationMs} THEN ${table.maxDurationMs} ELSE ${durationMs} END`,
-        lastSeenAt: nowIso(),
+        lastSeenAt: eventTimestamp,
       },
     });
 }
@@ -250,9 +247,8 @@ export async function getFirstPartyAnalyticsHealth(
 ): Promise<FirstPartyAnalyticsHealth> {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  const since24h = new Date(now.getTime() - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  const nowTimestamp = now.toISOString();
+  const since24h = new Date(now.getTime() - 86_400_000).toISOString();
   const keys = scope.orgId
     ? [`org:${scope.orgId}`, `user:${scope.userEmail}`]
     : [`user:${scope.userEmail}`];
@@ -284,8 +280,8 @@ export async function getFirstPartyAnalyticsHealth(
       .where(
         and(
           inArray(pressure.tenantKey, keys),
-          gte(pressure.eventDate, since24h),
-          lte(pressure.eventDate, today),
+          gte(pressure.lastSeenAt, since24h),
+          lte(pressure.lastSeenAt, nowTimestamp),
         ),
       ),
     bigQueryStatus(scope),
