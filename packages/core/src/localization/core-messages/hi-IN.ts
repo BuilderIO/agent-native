@@ -519,6 +519,7 @@ const messages: AgentChatTranslation = {
   "tabs.subAgent": "सब-एजेंट...",
   "tool.askedAgent": "{{agent}} से पूछा",
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
+  "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",

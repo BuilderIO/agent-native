@@ -527,6 +527,7 @@ const messages: AgentChatTranslation = {
   "tabs.subAgent": "サブエージェント...",
   "tool.askedAgent": "{{agent}} に問い合わせました",
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
+  "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",

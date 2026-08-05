@@ -23,7 +23,11 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
 }));
 
 import { AgentNativeI18nProvider } from "../i18n.js";
-import { BuilderSetupContent, RunErrorRecoveryCard } from "./run-recovery.js";
+import {
+  BuilderSetupContent,
+  LoopLimitContinueCard,
+  RunErrorRecoveryCard,
+} from "./run-recovery.js";
 
 describe("run recovery surfaces", () => {
   let container: HTMLDivElement;
@@ -120,5 +124,28 @@ describe("run recovery surfaces", () => {
 
     expect(container.textContent).toContain("Add your own keys");
     expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("formats the step limit with the selected locale", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <LoopLimitContinueCard
+            info={{ maxIterations: 12_345 }}
+            onContinue={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("12.345 Schritte");
+    });
   });
 });

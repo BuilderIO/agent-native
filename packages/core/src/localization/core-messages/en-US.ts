@@ -524,6 +524,7 @@ const messages = {
   "tabs.subAgent": "Sub-agent...",
   "tool.askedAgent": "Asked {{agent}}",
   "tool.askingAgent": "Asking {{agent}}...",
+  "tool.elapsed": "{{duration}} elapsed",
   "tool.askingAgentFailed": "Error asking {{agent}}",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",

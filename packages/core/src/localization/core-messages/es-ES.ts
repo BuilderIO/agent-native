@@ -184,6 +184,7 @@ const messages: AgentChatTranslation = {
   "tabs.subAgent": "Subagente...",
   "tool.askedAgent": "Se consultó a {{agent}}",
   "tool.askingAgent": "Consultando a {{agent}}...",
+  "tool.elapsed": "{{duration}} transcurridos",
   "tool.askingAgentFailed": "Error al consultar a {{agent}}",
   "tool.input": "Entrada",
   "tool.inputWithLabel": "Entrada - {{label}}",

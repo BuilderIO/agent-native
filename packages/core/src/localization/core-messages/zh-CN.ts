@@ -499,6 +499,7 @@ const messages: AgentChatTranslation = {
   "tabs.subAgent": "子智能体...",
   "tool.askedAgent": "已询问 {{agent}}",
   "tool.askingAgent": "正在询问 {{agent}}...",
+  "tool.elapsed": "已用 {{duration}}",
   "tool.askingAgentFailed": "询问 {{agent}} 时出错",
   "tool.input": "输入",
   "tool.inputWithLabel": "输入 - {{label}}",

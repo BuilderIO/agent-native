@@ -90,9 +90,9 @@ import {
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
   ChatRunDurationContext,
-  formatWorkedDuration,
   RanToolsSummary,
   ReasoningCell,
+  useLocalizedWorkedDuration,
   WorkedForSummary,
   toolCallHasPendingApproval,
 } from "./tool-call-display.js";
@@ -1357,6 +1357,7 @@ export function InlineRunErrorNotice({
   onRetry?: (() => void) | undefined;
 }) {
   const t = useT();
+  const formatDuration = useLocalizedWorkedDuration();
   const [open, setOpen] = useState(false);
   const headline = runErrorHeadline(info, {
     recoverable: t("agentChat.error.stopped"),
@@ -1366,7 +1367,7 @@ export function InlineRunErrorNotice({
     durationMs != null && durationMs >= 1000
       ? t("agentChat.error.afterDuration", {
           headline,
-          duration: formatWorkedDuration(durationMs),
+          duration: formatDuration(durationMs),
         })
       : headline;
 

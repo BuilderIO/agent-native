@@ -106,6 +106,7 @@ export interface VoiceContextPack {
 export interface ComposerRuntimeAdapters {
   resolvePath?: (path: string) => string;
   translate?: ComposerTranslate;
+  formatNumber?: (value: number, options?: Intl.NumberFormatOptions) => string;
   models?: {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
@@ -213,6 +214,8 @@ const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
   ComposerRuntimeAdapters = {
   resolvePath: identityPath,
   translate: fallbackTranslate,
+  formatNumber: (value, options) =>
+    new Intl.NumberFormat("en-US", options).format(value),
   models: fallbackModels,
   agentChat: {
     sendToAgentChat: () => {},

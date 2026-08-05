@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeI18nProvider } from "../i18n.js";
 import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasCustomUi,
@@ -583,6 +584,42 @@ describe("InlineRunErrorNotice", () => {
 
     expect(container.querySelector("button")?.textContent).toBe(
       "The agent hit an error",
+    );
+  });
+
+  it("formats the inline error duration with the selected locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                duration: {
+                  minuteShort: "min",
+                  secondShort: "sec",
+                },
+              },
+            },
+          }}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <InlineRunErrorNotice
+            info={{
+              message: "Provider timed out.",
+              errorCode: "connection_error",
+              recoverable: true,
+            }}
+            durationMs={125_000}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe(
+      "The agent stopped before finishing after 2min 5sec",
     );
   });
 });

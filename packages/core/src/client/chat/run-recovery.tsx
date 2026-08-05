@@ -28,7 +28,7 @@ import {
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import { localizeKnownChatErrorText } from "../error-format.js";
-import { useT } from "../i18n.js";
+import { useFormatters, useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 
@@ -805,6 +805,7 @@ export function LoopLimitContinueCard({
   onContinue: () => void;
 }) {
   const t = useT();
+  const { formatNumber } = useFormatters();
   const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
     null,
   );
@@ -916,7 +917,7 @@ export function LoopLimitContinueCard({
             {currentLimit
               ? t("agentChat.limit.descriptionWithCount", {
                   count: currentLimit,
-                  formattedCount: currentLimit.toLocaleString(),
+                  formattedCount: formatNumber(currentLimit),
                   scope: scopeLabel,
                 })
               : t("agentChat.limit.descriptionAll", { scope: scopeLabel })}

@@ -59,7 +59,9 @@ export function PastedTextChip({
 }: PastedTextChipProps) {
   const [open, setOpen] = useState(false);
   const { text, lines, chars } = usePastedAttachmentText(attachment);
-  const t = useComposerRuntimeAdapters().translate!;
+  const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
+  const formatNumber = adapters.formatNumber!;
 
   const handleRemove = useCallback(
     (event: React.MouseEvent) => {
@@ -71,12 +73,12 @@ export function PastedTextChip({
 
   const lineSummary = t("agentChat.pastedText.lines", {
     count: lines,
-    formattedCount: lines.toLocaleString(),
+    formattedCount: formatNumber(lines),
     defaultValue: `${lines} lines`,
   });
   const charSummary = t("agentChat.pastedText.characters", {
     count: chars,
-    formattedCount: chars.toLocaleString(),
+    formattedCount: formatNumber(chars),
     defaultValue: `${chars} chars`,
   });
   const summary = lines > 0 ? lineSummary : charSummary;

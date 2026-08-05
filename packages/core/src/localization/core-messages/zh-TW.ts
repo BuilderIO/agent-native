@@ -501,6 +501,7 @@ const messages: AgentChatTranslation = {
   "tabs.subAgent": "子代理...",
   "tool.askedAgent": "已詢問 {{agent}}",
   "tool.askingAgent": "正在詢問 {{agent}}...",
+  "tool.elapsed": "已耗時 {{duration}}",
   "tool.askingAgentFailed": "詢問 {{agent}} 時發生錯誤",
   "tool.input": "輸入",
   "tool.inputWithLabel": "輸入 - {{label}}",

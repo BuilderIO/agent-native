@@ -63,6 +63,59 @@ function setNestedMessage(
   cursor[parts.at(-1)!] = value;
 }
 
+function cloneMessages(messages: Record<string, unknown>): CoreLocaleMessages {
+  const cloned: CoreLocaleMessages = {};
+  for (const [key, value] of Object.entries(messages)) {
+    cloned[key] =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? cloneMessages(value as Record<string, unknown>)
+        : value;
+  }
+  return cloned;
+}
+
+function mergeLegacyMessageValue(legacyValue: unknown, modernValue: unknown) {
+  if (modernValue === undefined) return legacyValue;
+  if (
+    legacyValue &&
+    modernValue &&
+    typeof legacyValue === "object" &&
+    typeof modernValue === "object" &&
+    !Array.isArray(legacyValue) &&
+    !Array.isArray(modernValue)
+  ) {
+    const merged = { ...(legacyValue as Record<string, unknown>) };
+    for (const [key, value] of Object.entries(
+      modernValue as Record<string, unknown>,
+    )) {
+      merged[key] = mergeLegacyMessageValue(merged[key], value);
+    }
+    return merged;
+  }
+  return modernValue;
+}
+
+export function normalizeCoreMessageOverrides(
+  messages: CoreLocaleMessages,
+): CoreLocaleMessages {
+  const normalized = cloneMessages(messages);
+  for (const [legacyPath, agentChatPath] of legacyAgentChatAliases) {
+    const legacyValue = getNestedMessage(normalized, legacyPath);
+    const modernPath = `agentChat.${agentChatPath}`;
+    if (legacyValue !== undefined) {
+      setNestedMessage(
+        normalized,
+        modernPath,
+        mergeLegacyMessageValue(
+          legacyValue,
+          getNestedMessage(normalized, modernPath),
+        ),
+      );
+    }
+  }
+  return normalized;
+}
+
 function nestAgentChatMessages(
   flatMessages: AgentChatTranslation,
 ): CoreLocaleMessages {

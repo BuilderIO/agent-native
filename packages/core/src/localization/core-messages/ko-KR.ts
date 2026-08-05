@@ -518,6 +518,7 @@ const messages: AgentChatTranslation = {
   "tabs.subAgent": "하위 에이전트...",
   "tool.askedAgent": "{{agent}}에게 요청함",
   "tool.askingAgent": "{{agent}}에게 요청 중...",
+  "tool.elapsed": "{{duration}} 경과",
   "tool.askingAgentFailed": "{{agent}}에게 요청하는 중 오류 발생",
   "tool.input": "입력",
   "tool.inputWithLabel": "입력 - {{label}}",

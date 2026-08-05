@@ -4,12 +4,14 @@ import { ToolkitProvider } from "@agent-native/toolkit";
 import type { PickerProps } from "@agent-native/toolkit/design-system";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { useTranslation } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AgentNativeI18nProvider,
   LanguagePicker,
   LOCALE_STORAGE_KEY,
+  useLocale,
   useT,
 } from "./i18n.js";
 
@@ -33,6 +35,24 @@ function CoreChatPluralProbe({ count }: { count: number }) {
 function CoreChatInterpolationProbe({ name }: { name: string }) {
   const t = useT();
   return <span>{t("agentChat.composer.removeAttachment", { name })}</span>;
+}
+
+function CoreVoiceModeProbe() {
+  const t = useT();
+  return <span>{t("agentChat.voiceMode.entryButtonLabel")}</span>;
+}
+
+function LocaleBundleFallbackProbe() {
+  const { i18n } = useTranslation();
+  const { locale, loading } = useLocale();
+  const bundle = i18n.getResourceBundle(locale, "translation") as
+    | { agentPanel?: { settings?: string } }
+    | undefined;
+  return (
+    <span>
+      {loading ? "loading" : (bundle?.agentPanel?.settings ?? "missing")}
+    </span>
+  );
 }
 
 function importI18nCopy(tag: string) {
@@ -292,6 +312,66 @@ describe("LanguagePicker", () => {
     });
 
     expect(container.textContent).toBe("App denkt nach");
+  });
+
+  it("keeps the default English framework fallback inside a non-source locale bundle", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <LocaleBundleFallbackProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("Settings");
+  });
+
+  it("maps legacy app chat overrides to new keys without overriding explicit new keys", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+          initialMessages={{
+            agentPanel: {
+              voiceMode: { entryButtonLabel: "Legacy microphone" },
+            },
+          }}
+        >
+          <CoreVoiceModeProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("Legacy microphone");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+          initialMessages={{
+            agentPanel: {
+              voiceMode: { entryButtonLabel: "Legacy microphone" },
+            },
+            agentChat: {
+              voiceMode: { entryButtonLabel: "New microphone" },
+            },
+          }}
+          key="explicit-modern-override"
+        >
+          <CoreVoiceModeProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("New microphone");
   });
 
   it("loads the app catalog for an initial non-source locale before rendering overrides", async () => {

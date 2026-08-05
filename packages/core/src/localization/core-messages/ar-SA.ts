@@ -538,6 +538,7 @@ const messages: AgentChatTranslation = {
   "tabs.subAgent": "وكيل فرعي...",
   "tool.askedAgent": "تم سؤال {{agent}}",
   "tool.askingAgent": "جارٍ سؤال {{agent}}...",
+  "tool.elapsed": "انقضت {{duration}}",
   "tool.askingAgentFailed": "حدث خطأ أثناء سؤال {{agent}}",
   "tool.input": "الإدخال",
   "tool.inputWithLabel": "الإدخال - {{label}}",

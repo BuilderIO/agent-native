@@ -1018,10 +1018,10 @@ function AgentCallCell({
     inlineSegments.length,
   );
   const label = isRunning
-    ? t("agentPanel.delegatedAgent.asking", { name: agentName })
+    ? t("agentChat.tool.askingAgent", { agent: agentName })
     : isError
-      ? t("agentPanel.delegatedAgent.error", { name: agentName })
-      : t("agentPanel.delegatedAgent.asked", { name: agentName });
+      ? t("agentChat.tool.askingAgentFailed", { agent: agentName })
+      : t("agentChat.tool.askedAgent", { agent: agentName });
   const workContent = work ? (
     <div className="space-y-1 ps-5">
       {Array.from({ length: workItemCount }, (_, index) => {
@@ -1074,7 +1074,7 @@ function AgentCallCell({
     isRunning && !activity && progress && progressState
       ? [
           progressState.charAt(0).toUpperCase() + progressState.slice(1),
-          t("agentPanel.delegatedAgent.elapsed", {
+          t("agentChat.tool.elapsed", {
             duration: formatDuration(progress.elapsedSeconds * 1000),
           }),
           progress.detail,
@@ -1570,7 +1570,7 @@ export function formatWorkedDuration(
   return `${part(hours, hour)} ${part(remMinutes, minute)}`;
 }
 
-function useLocalizedWorkedDuration() {
+export function useLocalizedWorkedDuration() {
   const t = useT();
   const locale = useOptionalLocale()?.locale ?? "en-US";
   return useCallback(

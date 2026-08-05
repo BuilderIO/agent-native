@@ -24,6 +24,7 @@ import {
   coreMessagesForLocale,
   englishAgentChatMessages,
   loadCoreMessagesForLocale,
+  normalizeCoreMessageOverrides,
 } from "../localization/core-messages.js";
 import defaultEnglishMessages from "../localization/default-messages.js";
 import {
@@ -263,6 +264,16 @@ function mergeLocaleMessages(
   return merged;
 }
 
+function composeLocaleMessages(
+  coreMessages: LocaleMessages,
+  appMessages?: LocaleMessages | null,
+): LocaleMessages {
+  return mergeLocaleMessages(
+    mergeLocaleMessages(defaultEnglishMessages, coreMessages),
+    appMessages ? normalizeCoreMessageOverrides(appMessages) : null,
+  );
+}
+
 function createI18nInstance(args: {
   namespace: string;
   sourceLocale: LocaleCode;
@@ -273,18 +284,15 @@ function createI18nInstance(args: {
   const instance = i18next.createInstance();
   const resources: Record<string, Record<string, LocaleMessages>> = {
     [args.sourceLocale]: {
-      [args.namespace]: mergeLocaleMessages(
-        mergeLocaleMessages(
-          defaultEnglishMessages,
-          coreMessagesForLocale(args.sourceLocale),
-        ),
+      [args.namespace]: composeLocaleMessages(
+        coreMessagesForLocale(args.sourceLocale),
         args.messages,
       ),
     },
   };
-  if (args.initialLocale !== args.sourceLocale && args.initialMessages) {
+  if (args.initialLocale !== args.sourceLocale) {
     resources[args.initialLocale] = {
-      [args.namespace]: mergeLocaleMessages(
+      [args.namespace]: composeLocaleMessages(
         coreMessagesForLocale(args.initialLocale),
         args.initialMessages,
       ),
@@ -328,6 +336,7 @@ export function AgentNativeI18nProvider({
   const [loading, setLoading] = useState(false);
   const i18nRef = useRef<I18nInstance | null>(null);
   const appMessagesLoadedRef = useRef<Set<LocaleCode> | null>(null);
+  const appMessagesRef = useRef<Map<LocaleCode, LocaleMessages> | null>(null);
   const coreMessagesLoadedRef = useRef<Set<LocaleCode> | null>(null);
 
   if (!i18nRef.current) {
@@ -336,18 +345,25 @@ export function AgentNativeI18nProvider({
         ? hydration.messages
         : initialMessages,
     );
+    const resolvedSourceMessages = normalizeCoreMessageOverrides(
+      hydration.locale === sourceLocale && hydration.messages
+        ? hydration.messages
+        : sourceMessages,
+    );
     i18nRef.current = createI18nInstance({
       namespace,
       sourceLocale,
-      messages:
-        hydration.locale === sourceLocale && hydration.messages
-          ? hydration.messages
-          : sourceMessages,
+      messages: resolvedSourceMessages,
       initialLocale: initialState.locale,
       initialMessages: preloadedMessages,
     });
+    appMessagesRef.current = new Map([[sourceLocale, resolvedSourceMessages]]);
     appMessagesLoadedRef.current = new Set([sourceLocale]);
     if (initialState.locale !== sourceLocale && preloadedMessages) {
+      appMessagesRef.current.set(
+        initialState.locale,
+        normalizeCoreMessageOverrides(preloadedMessages),
+      );
       appMessagesLoadedRef.current.add(initialState.locale);
     }
     coreMessagesLoadedRef.current = new Set(
@@ -361,10 +377,13 @@ export function AgentNativeI18nProvider({
 
   useEffect(() => {
     if (i18n.hasResourceBundle(sourceLocale, namespace)) {
+      const normalizedSourceMessages =
+        normalizeCoreMessageOverrides(sourceMessages);
+      appMessagesRef.current?.set(sourceLocale, normalizedSourceMessages);
       i18n.addResourceBundle(
         sourceLocale,
         namespace,
-        sourceMessages,
+        normalizedSourceMessages,
         true,
         true,
       );
@@ -408,17 +427,18 @@ export function AgentNativeI18nProvider({
           const existingMessages = normalizeLoadedMessages(
             i18n.getResourceBundle(locale, namespace),
           );
-          const appMessages = normalizeLoadedMessages(loadedAppMessages);
-          i18n.addResourceBundle(
-            locale,
-            namespace,
-            mergeLocaleMessages(
-              coreMessages,
-              mergeLocaleMessages(existingMessages ?? {}, appMessages),
-            ),
-            true,
-            true,
-          );
+          const loadedMessages = normalizeLoadedMessages(loadedAppMessages);
+          if (loadedMessages) {
+            appMessagesRef.current?.set(
+              locale,
+              normalizeCoreMessageOverrides(loadedMessages),
+            );
+          }
+          const appMessages = appMessagesRef.current?.get(locale) ?? null;
+          const nextMessages = shouldLoadCoreMessages
+            ? composeLocaleMessages(coreMessages, appMessages)
+            : mergeLocaleMessages(existingMessages ?? {}, appMessages);
+          i18n.addResourceBundle(locale, namespace, nextMessages, true, true);
           if (shouldLoadCoreMessages) {
             coreMessagesLoadedRef.current?.add(locale);
           }
