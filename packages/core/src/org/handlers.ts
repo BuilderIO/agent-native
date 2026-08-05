@@ -345,6 +345,7 @@ async function inviteOne(
         html,
         text,
         templateId: CORE_INVITE_EMAIL_ID,
+        orgId: ctx.orgId,
       });
       emailSent = true;
     } catch (err) {

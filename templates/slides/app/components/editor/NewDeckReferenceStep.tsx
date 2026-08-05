@@ -5,6 +5,7 @@ import {
   IconBrandGoogle,
   IconCheck,
   IconChevronDown,
+  IconFileText,
   IconFileTypePdf,
   IconPalette,
   IconPresentation,
@@ -185,7 +186,7 @@ export function NewDeckReferenceStep({
   };
   const selectedSourceLabel =
     selectedSource?.kind === "google-docs"
-      ? "Google Slides"
+      ? "Google Docs"
       : selectedSource?.kind === "website"
         ? "Website"
         : "Figma";
@@ -441,9 +442,17 @@ export function NewDeckReferenceStep({
                   importingLabel={importingLabel}
                   onChange={handleImport}
                 />
+                <FileImportOption
+                  accept=".docx"
+                  icon={<IconFileText className="size-4" />}
+                  label="DOCX"
+                  importing={importing}
+                  importingLabel={importingLabel}
+                  onChange={handleImport}
+                />
                 <ImportOption
                   icon={<IconBrandGoogle className="size-4" />}
-                  label="GSlides"
+                  label="GDocs"
                   selected={selectedSource?.kind === "google-docs"}
                   onClick={() => chooseSource("google-docs")}
                 />

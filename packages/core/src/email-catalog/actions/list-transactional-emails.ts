@@ -3,6 +3,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getAppSlug } from "../../server/app-name.js";
 import { getRequestOrgId } from "../../server/request-context.js";
+import { authorizeTransactionalEmailRead } from "../authorize.js";
 import { getEmailSendStats } from "../log.js";
 import { listTransactionalEmails } from "../registry.js";
 import { registerCoreSystemEmails } from "../system-emails.js";
@@ -22,6 +23,7 @@ export default defineAction({
       .describe("How many days of send history to summarize."),
   }),
   http: { method: "GET" },
+  authorize: () => authorizeTransactionalEmailRead([]),
   run: async ({ windowDays }) => {
     registerCoreSystemEmails();
     const since = Date.now() - windowDays * 24 * 60 * 60 * 1000;

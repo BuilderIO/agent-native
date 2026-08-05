@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { authorizeTransactionalEmailRead } from "../authorize.js";
 import { renderTransactionalEmailPreview } from "../registry.js";
 import { registerCoreSystemEmails } from "../system-emails.js";
 
@@ -13,6 +14,7 @@ export default defineAction({
       .describe("Registered email id, e.g. calendar.booking-confirmed."),
   }),
   http: { method: "GET" },
+  authorize: ({ id }) => authorizeTransactionalEmailRead([id]),
   run: async ({ id }) => {
     registerCoreSystemEmails();
     const rendered = renderTransactionalEmailPreview(id);

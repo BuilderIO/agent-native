@@ -844,6 +844,11 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
   if (/\$\d+\b/.test(stripped)) {
     throw new Error("Bind placeholders are not supported in dashboard SQL");
   }
+  if (/\bonly\b/i.test(stripped)) {
+    throw new Error(
+      "ONLY-qualified table sources are not supported in first-party analytics queries",
+    );
+  }
   if (/\bsession_replay_chunks\b/i.test(stripped)) {
     throw new Error(
       "First-party analytics queries cannot read session replay chunks",

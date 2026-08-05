@@ -298,6 +298,14 @@ describe("validateFirstPartyAnalyticsSql", () => {
       validateFirstPartyAnalyticsSql('SELECT name FROM "analytics_events"'),
     ).toThrow("Quoted table identifiers");
   });
+
+  it("rejects ONLY-qualified sources before they can bypass tenant scoping", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT COUNT(*) FROM ONLY analytics_events",
+      ),
+    ).toThrow("ONLY-qualified table sources");
+  });
 });
 
 describe("normalizeAnalyticsTimestamp", () => {
