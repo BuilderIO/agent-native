@@ -16,7 +16,7 @@ const deDE = {
     skills: "Fähigkeiten",
     searchAria: "Dokumentation durchsuchen",
     searchPlaceholder: "Docs suchen...",
-    askAssistant: "KI-Assistenten fragen",
+    askAssistant: "KI fragen",
     toggleNavigation: "Navigationsmenü umschalten",
     copyLogoSvg: "Logo-SVG kopieren",
     copyWordmark: "Wortmarke kopieren",
@@ -53,6 +53,9 @@ const deDE = {
     copyMarkdownError: "Markdown konnte nicht kopiert werden",
     previous: "Zurück",
     next: "Weiter",
+    draftLabel: "Entwurf",
+    draftDescription:
+      "Diese Seite befindet sich in Bearbeitung. Der Inhalt kann unvollständig sein oder sich vor der Veröffentlichung ändern.",
   },
   search: {
     dialogLabel: "Dokumentation durchsuchen",
@@ -1533,6 +1536,7 @@ const deDE = {
     localFileMode: "Lokaler Dateimodus",
     fileUploads: "Datei-Uploads",
     deployment: "Deployment",
+    environmentVariables: "Umgebungsvariablen",
     progress: "Fortschritt",
     authentication: "Authentifizierung",
     multiTenancy: "Mandantenfähigkeit",

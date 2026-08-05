@@ -173,7 +173,7 @@ describe("Dispatch MCP gateway app discovery", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "analytics"]);
     expect(apps[0]).toMatchObject({
       id: "dispatch",
-      name: "Agent-Native Dispatch",
+      name: "Dispatch",
       url: "http://localhost:8092",
       granted: true,
     });

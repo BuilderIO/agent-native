@@ -16,7 +16,7 @@ const jaJP = {
     skills: "スキル",
     searchAria: "ドキュメントを検索",
     searchPlaceholder: "ドキュメントを検索...",
-    askAssistant: "AI アシスタントに質問",
+    askAssistant: "AIに質問",
     toggleNavigation: "ナビゲーションメニューを切り替え",
     copyLogoSvg: "ロゴ SVG をコピー",
     copyWordmark: "ワードマークをコピー",
@@ -53,6 +53,9 @@ const jaJP = {
     copyMarkdownError: "Markdownをコピーできませんでした",
     previous: "前へ",
     next: "次へ",
+    draftLabel: "ドラフト",
+    draftDescription:
+      "このページは作成中です。内容は公開前に不完全であったり変更される場合があります。",
   },
   search: {
     dialogLabel: "ドキュメントを検索",
@@ -1530,6 +1533,7 @@ const jaJP = {
     localFileMode: "ローカルファイルモード",
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
+    environmentVariables: "環境変数",
     progress: "進行状況",
     authentication: "認証",
     multiTenancy: "マルチテナンシー",

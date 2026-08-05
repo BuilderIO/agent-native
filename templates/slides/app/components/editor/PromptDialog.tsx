@@ -16,6 +16,37 @@ export interface UploadedFile {
   size: number;
 }
 
+export async function uploadPromptFiles(
+  files: File[],
+): Promise<UploadedFile[]> {
+  if (files.length === 0) return [];
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+  const response = await fetch(`${appBasePath()}/api/uploads`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    let message = "Upload failed";
+    try {
+      const data: unknown = await response.json();
+      if (
+        data &&
+        typeof data === "object" &&
+        "error" in data &&
+        typeof data.error === "string" &&
+        data.error.trim()
+      ) {
+        message = data.error;
+      }
+    } catch (error) {
+      throw new Error(`Upload failed (${response.status})`, { cause: error });
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as UploadedFile[];
+}
+
 /**
  * Radix popovers portal to `document.body`, so a mousedown inside the model
  * picker or attachment menu reads as "outside" any panel that hosts a composer.
@@ -137,17 +168,7 @@ export default function PromptPopover({
       if (files.length === 0) return [];
       setUploading(true);
       try {
-        const formData = new FormData();
-        files.forEach((f) => formData.append("files", f));
-        const res = await fetch(`${appBasePath()}/api/uploads`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error || "Upload failed");
-        }
-        return (await res.json()) as UploadedFile[];
+        return await uploadPromptFiles(files);
       } finally {
         setUploading(false);
       }
@@ -197,13 +218,14 @@ export default function PromptPopover({
       )}
       <div
         ref={panelRef}
-        className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
+        className="fixed z-[200] w-[min(500px,calc(100vw-24px))] rounded-xl border border-border/80 bg-popover shadow-xl shadow-black/15"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         style={{ top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="flex items-center justify-between gap-3 px-3.5 pt-3 pb-2">
-          <span className="text-sm font-medium text-foreground/90">
-            {title}
-          </span>
+        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
+          <span className="text-sm font-medium text-foreground">{title}</span>
           {onSkip && (
             <button
               type="button"
@@ -211,14 +233,14 @@ export default function PromptPopover({
                 onSkip();
                 onOpenChange(false);
               }}
-              className="shrink-0 cursor-pointer text-xs text-primary hover:text-primary/80"
+              className="shrink-0 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {skipLabel}
             </button>
           )}
         </div>
 
-        <div className="px-2 pb-2">
+        <div className="px-2.5 pb-2.5">
           <PromptComposer
             autoFocus
             attachmentsEnabled

@@ -38,6 +38,10 @@ import {
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
 } from "../integrations/integration-durable-dispatch-config.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -53,6 +57,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import { cloneServerBundleForFunction, copyDir } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1754,7 +1759,8 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><p class="an-stall-hint">Still loading. If this does not finish, reload the page — the browser console may show what failed.</p><style>@keyframes an-spin { to { transform: rotate(360deg) } } @keyframes an-stall-in { to { opacity: 0.6 } } .an-stall-hint { opacity: 0; margin: 0; max-width: 32rem; padding: 0 1.5rem; text-align: center; font-size: 0.875rem; line-height: 1.5; font-family: ui-sans-serif, system-ui, sans-serif; animation: an-stall-in 0.4s ease-out 10s forwards } @media (prefers-reduced-motion: reduce) { .an-stall-hint { animation-duration: 0s } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  // guard:allow-raw-color - static shell loads before app theme tokens exist
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -2354,46 +2360,7 @@ function getDirSize(dir: string): number {
   return size;
 }
 
-export function copyDir(
-  src: string,
-  dest: string,
-  ancestorRealPaths = new Set<string>(),
-) {
-  const realSrc = fs.realpathSync(src);
-  if (ancestorRealPaths.has(realSrc)) return;
-  const nextAncestorRealPaths = new Set(ancestorRealPaths);
-  nextAncestorRealPaths.add(realSrc);
-
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isSymbolicLink()) {
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(srcPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          console.warn(
-            `[deploy] Skipping broken symlink while copying ${srcPath}`,
-          );
-          continue;
-        }
-        throw error;
-      }
-      if (stat.isDirectory()) {
-        copyDir(srcPath, destPath, nextAncestorRealPaths);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-      }
-    } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, nextAncestorRealPaths);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
+export { copyDir };
 
 const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "darwin-arm64",
@@ -2630,7 +2597,8 @@ export function isDurableBackgroundDeployEnabled(): boolean {
 function isDurableBackgroundEmitRequired(): boolean {
   return (
     isDurableBackgroundDeployEnabled() ||
-    isIntegrationDurableDispatchDeployEnabled()
+    isIntegrationDurableDispatchDeployEnabled() ||
+    isRecurringJobsDeployEnabled()
   );
 }
 
@@ -2642,6 +2610,13 @@ export function isIntegrationDurableDispatchDeployEnabled(): boolean {
 }
 
 const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
+export const NETLIFY_RECURRING_JOBS_FUNCTION_NAME =
+  "agent-native-recurring-jobs";
+
+export function isRecurringJobsDeployEnabled(): boolean {
+  const value = process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS?.trim();
+  return !value || !["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
 
 /**
  * Emit a site-local Netlify Scheduled Function that wakes the public server
@@ -2727,7 +2702,7 @@ export default async function handler(request) {
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    const body = await response.text();
     throw new Error(
       "[agent-native-keep-warm] Health request failed with " +
         response.status +
@@ -2755,6 +2730,95 @@ export const config = {
   );
   console.log(
     `[build] Emitted Netlify scheduled keep-warm function "${NETLIFY_KEEP_WARM_FUNCTION_NAME}".`,
+  );
+}
+
+/**
+ * Emit the durable recurring-job trigger. Netlify's scheduled function only
+ * hands off work; the existing `-background` function owns the long sweep so
+ * a model run is not constrained by the synchronous scheduled-function wall.
+ */
+export function emitSingleTemplateNetlifyRecurringJobsFunction(
+  projectCwd: string,
+): void {
+  if (!isRecurringJobsDeployEnabled()) return;
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const backgroundEntry = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  if (!fs.existsSync(backgroundEntry)) {
+    throw new Error(
+      "[build] Recurring-job trigger cannot be emitted without the durable background function.",
+    );
+  }
+
+  const functionName = NETLIFY_RECURRING_JOBS_FUNCTION_NAME;
+  const dest = path.join(internalDir, functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+  const entry = `import { createHmac } from "node:crypto";
+
+const BACKGROUND_PATH = ${JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)};
+const SWEEP_PATH = ${JSON.stringify(RECURRING_JOBS_SWEEP_PATH)};
+const TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+const PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+
+function siteOrigin(request) {
+  const configured = process.env.URL || process.env.DEPLOY_URL;
+  if (configured) return configured;
+  return new URL(request.url).origin;
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`\${TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+export default async function handler(request) {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const url = new URL(BACKGROUND_PATH, siteOrigin(request));
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+      "user-agent": "agent-native-recurring-jobs",
+    },
+    body: JSON.stringify({
+      [PROCESSOR_FIELD]: PROCESSOR_ROUTE,
+      [PROCESSOR_ROUTE_FIELD]: SWEEP_PATH,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      \`[recurring-jobs] Durable sweep handoff failed (\${response.status}): \${body.slice(0, 500)}\`,
+    );
+  }
+  console.log("[recurring-jobs] Durable sweep handed off", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: "agent-native recurring jobs",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+  console.log(
+    `[build] Emitted Netlify scheduled recurring-job function "${functionName}".`,
   );
 }
 
@@ -2844,7 +2908,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   // NOT scanned — emitting there is why the standalone attempt 404'd.
   const dest = path.join(internalDir, backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(serverDir, dest);
+  cloneServerBundleForFunction(serverDir, dest);
   // Drop the original Nitro `/*` entry so our entry is the entrypoint and the
   // copied bundle does NOT re-register the catch-all `config.path`.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
@@ -2867,6 +2931,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   const backgroundProcessorRouteField = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   );
+  const recurringJobsSweepPath = JSON.stringify(RECURRING_JOBS_SWEEP_PATH);
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
@@ -2885,6 +2950,7 @@ const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${backgroundProcessorIntegration};
 const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
+const RECURRING_JOBS_SWEEP_PATH = ${recurringJobsSweepPath};
 
 function processorPathFromBody(body) {
   if (!body) return null;
@@ -2904,7 +2970,8 @@ function processorPathFromBody(body) {
       parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
       typeof route === "string" &&
       route.startsWith("/") &&
-      route.includes("/api/_agent-native-background/") &&
+      (route === RECURRING_JOBS_SWEEP_PATH ||
+        route.includes("/api/_agent-native-background/")) &&
       !route.includes("?") &&
       !route.includes("#")
     ) {
@@ -3025,7 +3092,7 @@ export function emitSingleTemplateNetlifyIntegrationRecoveryFunction(
   const functionName = NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME;
   const dest = path.join(internalDir, functionName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(serverDir, dest);
+  cloneServerBundleForFunction(serverDir, dest);
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const entry = `import { createHmac } from "node:crypto";
@@ -3848,7 +3915,10 @@ export async function runNitroBuildPipeline(
 
   if (hasClientBuild && publicOutputDir) {
     copyDir(clientDir, publicOutputDir);
-    if (appBasePath) {
+    if (
+      appBasePath &&
+      !publicDirIsMountedAtBasePath(publicOutputDir, appBasePath)
+    ) {
       copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
     }
     console.log(
@@ -3857,6 +3927,22 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+}
+
+/**
+ * Nitro's serverless presets end `output.publicDir` in `{{ baseURL }}`
+ * (netlify: `dist{{ baseURL }}`, vercel: `static{{ baseURL }}`, cloudflare:
+ * `{{ output.dir }}{{ baseURL }}`), so for those the public dir already IS the
+ * mount path. Mirroring again produced a whole second client build one level
+ * deeper that nothing ever served — the workspace deploy only deleted it again.
+ * Presets whose public dir is flat (`node-server`) still need the mirror.
+ */
+export function publicDirIsMountedAtBasePath(
+  publicOutputDir: string,
+  appBasePath: string,
+): boolean {
+  const mountSuffix = path.sep + appBasePath.slice(1).split("/").join(path.sep);
+  return path.resolve(publicOutputDir).endsWith(mountSuffix);
 }
 
 /**
@@ -4188,6 +4274,8 @@ export default bundle;
     if (isDurableBackgroundEmitRequired()) {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
+
+    emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
 
     // Emit keep-warm after the background artifact so it only pings a function
     // that this build actually produced.

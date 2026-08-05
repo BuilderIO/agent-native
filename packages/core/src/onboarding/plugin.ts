@@ -6,10 +6,14 @@
  *   POST /_agent-native/onboarding/steps/:id/complete — manual override (marks complete)
  *   POST /_agent-native/onboarding/dismiss            — dismiss the banner
  *   GET  /_agent-native/onboarding/dismissed          — dismissed flag + allComplete
+ *   GET  /_agent-native/onboarding/first-run/status   — post-signup flow status
+ *   POST /_agent-native/onboarding/first-run/complete — permanently complete it
  */
 
 import {
+  deleteCookie,
   defineEventHandler,
+  getCookie,
   getMethod,
   getQuery,
   setResponseStatus,
@@ -24,6 +28,11 @@ import {
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import {
+  FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+  FIRST_RUN_ONBOARDING_COOKIE,
+} from "../shared/first-run-onboarding.js";
+import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
 import type {
@@ -40,6 +49,8 @@ const DISMISSED_KEY = "onboarding:dismissed";
 export interface OnboardingPluginOptions {
   /** Skip registering the built-in default steps (llm, database, auth). */
   skipDefaultSteps?: boolean;
+  /** App id used to select the app-specific first-run capability profile. */
+  appId?: string;
 }
 
 /** Resolve the caller context used for onboarding and application-state scoping. */
@@ -134,6 +145,8 @@ export function createOnboardingPlugin(
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "onboarding");
     await awaitBootstrap(nitroApp);
+
+    const appProfile = getOnboardingAppProfile(options.appId);
 
     if (!options.skipDefaultSteps) {
       registerDefaultOnboardingSteps();
@@ -259,6 +272,68 @@ export function createOnboardingPlugin(
         } catch {
           return { dismissed: false, allComplete: false };
         }
+      }),
+    );
+
+    // GET /_agent-native/onboarding/profile
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/profile`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return appProfile;
+      }),
+    );
+
+    // GET /_agent-native/onboarding/first-run/status
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/first-run/status`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (getCookie(event, FIRST_RUN_ONBOARDING_COOKIE) !== "1") {
+          return { firstRun: false };
+        }
+        const context = await resolveOnboardingContext(event);
+        if (!context.userEmail) return { firstRun: false };
+
+        return withOnboardingRequestContext(context, async () => {
+          const completed = await appStateGet(
+            context.sessionId,
+            FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+          );
+          return {
+            firstRun: completed?.completed !== true,
+          };
+        });
+      }),
+    );
+
+    // POST /_agent-native/onboarding/first-run/complete
+    getH3App(nitroApp).use(
+      `${ONBOARDING_PREFIX}/first-run/complete`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const context = await resolveOnboardingContext(event);
+        if (!context.userEmail) {
+          setResponseStatus(event, 401);
+          return { error: "Authentication required" };
+        }
+        await appStatePut(
+          context.sessionId,
+          FIRST_RUN_ONBOARDING_COMPLETED_KEY,
+          { completed: true, at: new Date().toISOString() },
+          { requestSource: "agent" },
+        );
+        deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+        return { ok: true };
       }),
     );
   };

@@ -18,6 +18,7 @@ vi.mock("../tools.js", () => ({
   authorizeJobMutation: authorizeJobMutationMock,
 }));
 
+import { serverTimezone } from "../cron.js";
 import listRecurringJobs from "./list-recurring-jobs.js";
 import manageRecurringJob from "./manage-recurring-job.js";
 
@@ -88,7 +89,7 @@ describe("recurring jobs actions", () => {
     expect(jobs[0]).toMatchObject({
       id: "job-1",
       name: "daily",
-      scheduleDescription: "Every day at 9 AM (UTC)",
+      scheduleDescription: `Every day at 9 AM (${serverTimezone()})`,
       instructions: "Summarize my inbox.",
       scope: "personal",
     });

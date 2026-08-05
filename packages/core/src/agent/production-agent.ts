@@ -1027,10 +1027,11 @@ export interface ProductionAgentOptions {
    * `AGENT_CHAT_DURABLE_BACKGROUND` flag so the background function is emitted.
    */
   durableBackgroundRuns?: boolean;
-  /** Called when a run starts, with the send function for emitting events and the threadId */
+  /** Called when a run starts, with the send function, threadId, and runId. */
   onRunStart?: (
     send: (event: AgentChatEvent) => void,
     threadId: string,
+    runId: string,
   ) => void | Promise<void>;
   /**
    * Called after the engine + model are resolved for this request. Used by
@@ -3091,6 +3092,7 @@ const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   // supplied by the plugin's effective starter list, while provider, MCP,
   // extension, and other uncommon schemas stay reachable through tool-search.
   "resources",
+  "framework-search",
   "docs-search",
   "get-framework-context",
   "read-attachment",
@@ -4577,6 +4579,11 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, 0);
                 trackActiveToolInput(key, event.name, 0);
               }
+              send({
+                type: "tool_input_start",
+                ...(event.name ? { tool: event.name } : {}),
+                ...(event.id ? { id: event.id } : {}),
+              });
               sendToolInputActivity(event.name, key, undefined, true);
               if (noteZeroByteToolInputStart(event.name)) {
                 send({
@@ -4610,6 +4617,14 @@ export async function runAgentLoop(opts: {
                     startedZeroByteInput = true;
                   }
                 }
+              }
+              if (event.text) {
+                send({
+                  type: "tool_input_delta",
+                  ...(toolName ? { tool: toolName } : {}),
+                  ...(event.id ? { id: event.id } : {}),
+                  text: event.text,
+                });
               }
               sendToolInputActivity(toolName, key, progressBytes);
               if (
@@ -5836,12 +5851,12 @@ export async function runAgentLoop(opts: {
       // `refresh-screen` itself.
       if (!isError) {
         try {
-          const { actionCallIsReadOnly, notifyActionChange } =
+          const { actionCallIsReadOnly, notifyActionChangeInBackground } =
             await import("../server/action-change.js");
           if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
             const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
             const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-            await notifyActionChange({
+            notifyActionChangeInBackground({
               actionName: toolCall.name,
               ...(owner ? { owner } : {}),
               ...(orgId ? { orgId } : {}),
@@ -8996,7 +9011,7 @@ export function createProductionAgentHandler(
 
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {
-          await options.onRunStart(send, threadId ?? runId);
+          await options.onRunStart(send, threadId ?? runId, runId);
         }
 
         // Resolve custom workspace agent mentions first.

@@ -156,9 +156,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     expect(mockUploadFile).toHaveBeenCalledWith(
       expect.objectContaining({
         data: repairedBytes,
-        filename: expect.stringMatching(
-          /^recording-example-timeline-normalized-\d+\.mp4$/,
-        ),
+        filename: "recording-example.mp4",
         mimeType: "video/mp4",
         ownerEmail: "owner@example.com",
         stableUrl: true,

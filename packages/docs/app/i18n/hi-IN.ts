@@ -16,7 +16,7 @@ const hiIN = {
     skills: "स्किल्स",
     searchAria: "दस्तावेज़ खोजें",
     searchPlaceholder: "दस्तावेज़ खोजें...",
-    askAssistant: "AI सहायक से पूछें",
+    askAssistant: "AI से पूछें",
     toggleNavigation: "नेविगेशन मेनू बदलें",
     copyLogoSvg: "लोगो SVG कॉपी करें",
     copyWordmark: "वर्डमार्क कॉपी करें",
@@ -53,6 +53,9 @@ const hiIN = {
     copyMarkdownError: "Markdown कॉपी नहीं हो सका",
     previous: "पिछला",
     next: "अगला",
+    draftLabel: "ड्राफ़्ट",
+    draftDescription:
+      "यह पेज अभी तैयार किया जा रहा है। प्रकाशन से पहले सामग्री अधूरी हो सकती है या इसमें बदलाव हो सकता है।",
   },
   search: {
     dialogLabel: "दस्तावेज़ खोजें",
@@ -1523,6 +1526,7 @@ const hiIN = {
     localFileMode: "Local File Mode",
     fileUploads: "File uploads",
     deployment: "Deployment",
+    environmentVariables: "पर्यावरण चर",
     progress: "Progress",
     authentication: "Authentication",
     multiTenancy: "बहु-किरायेदारी",

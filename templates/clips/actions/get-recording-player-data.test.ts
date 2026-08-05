@@ -239,6 +239,7 @@ describe("get-recording-player-data view count", () => {
         status: "ready",
         chaptersJson: "[]",
         videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
       },
     });
   });
@@ -279,5 +280,6 @@ describe("get-recording-player-data view count", () => {
       },
     );
     expect(result.recording.videoUrl).toBe("/api/video/rec-1");
+    expect(result.recording.videoSizeBytes).toBe(1234);
   });
 });

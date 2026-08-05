@@ -617,7 +617,7 @@ function createSessionHandler(
           setResponseStatus(event, 409);
           return {
             error:
-              "Connect Builder or configure an OpenAI API key to use realtime voice.",
+              "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
             code: "realtime_voice_setup_required",
           };
         }

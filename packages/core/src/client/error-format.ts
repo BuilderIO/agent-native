@@ -137,7 +137,7 @@ export function normalizeChatError(
   if (code === "builder_auth_error") {
     return {
       message:
-        "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
       details: text,
     };
   }
@@ -164,7 +164,7 @@ export function normalizeChatError(
   if (isProviderAuthenticationError(text, errorCode)) {
     return {
       message:
-        "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+        "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
       details: text,
     };
   }

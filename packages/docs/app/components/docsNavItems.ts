@@ -62,12 +62,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "whatIsAgentNative",
         slug: "what-is-agent-native",
       },
+      { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "agent-surfaces",
         labelKey: "agentSurfaces",
         slug: "agent-surfaces",
       },
-      { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "cloneable-saas",
         labelKey: "templatesOverview",
@@ -142,6 +142,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
       { id: "deployment", labelKey: "deployment", slug: "deployment" },
+      {
+        id: "environment-variables",
+        labelKey: "environmentVariables",
+        slug: "environment-variables",
+      },
       { id: "progress", labelKey: "progress", slug: "progress" },
       {
         id: "agents-group",

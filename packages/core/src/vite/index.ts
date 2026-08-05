@@ -5,6 +5,15 @@ export {
   type ClientConfigOptions,
   type NitroOptions,
 } from "./client.js";
+export {
+  defineAgentNativeConfig,
+  type AgentNativeConfig,
+  type AgentNativeConfigContext,
+  type AgentNativeConfigFactory,
+  type AgentNativeConfigInput,
+  type AgentNativeFirstRunOnboardingMode,
+  type AgentNativeFirstRunOnboardingSetting,
+} from "../config.js";
 export type {
   AgentNativeRouteWarmupConfigInput,
   AgentNativeRouteWarmupResolvedConfig,

@@ -143,11 +143,11 @@ describe("MCP integration catalog", () => {
     });
     expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
     expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(26);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(27);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(26);
+    ).toBe(27);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
         /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
@@ -194,6 +194,17 @@ describe("MCP integration catalog", () => {
       connectionMode: "oauth",
       availability: "ready",
       docsUrl: "https://docs.granola.ai/help-center/sharing/integrations/mcp",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "fullstory"),
+    ).toMatchObject({
+      url: "https://api.fullstory.com/mcp/fullstory",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+      verification: "preflight-only",
+      docsUrl: "https://developer.fullstory.com/mcp/introduction/",
+      setupNoteKey: "mcpIntegrations.catalog.fullstory.setupNote",
     });
   });
 

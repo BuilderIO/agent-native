@@ -16,7 +16,7 @@ const arSA = {
     skills: "المهارات",
     searchAria: "ابحث في الوثائق",
     searchPlaceholder: "ابحث في الوثائق...",
-    askAssistant: "اسأل مساعد الذكاء الاصطناعي",
+    askAssistant: "اسأل الذكاء الاصطناعي",
     toggleNavigation: "تبديل قائمة التنقل",
     copyLogoSvg: "نسخ شعار SVG",
     copyWordmark: "نسخ الاسم التجاري",
@@ -53,6 +53,9 @@ const arSA = {
     copyMarkdownError: "تعذر نسخ Markdown",
     previous: "السابق",
     next: "التالي",
+    draftLabel: "مسودة",
+    draftDescription:
+      "هذه الصفحة قيد الإنشاء. قد يكون المحتوى غير مكتمل أو عرضة للتغيير قبل النشر.",
   },
   search: {
     dialogLabel: "البحث في الوثائق",
@@ -1521,6 +1524,7 @@ const arSA = {
     localFileMode: "Local File Mode",
     fileUploads: "تحميلات الملفات",
     deployment: "Deployment",
+    environmentVariables: "متغيرات البيئة",
     progress: "Progress",
     authentication: "Authentication",
     multiTenancy: "متعدد الإيجار",

@@ -64,6 +64,17 @@ export type ManageJobInput = {
 
 export type ManageAutomationInput = ManageJobInput;
 
+export interface RunAutomationNowInput {
+  name: string;
+  scope: "personal" | "organization";
+}
+
+export interface RunAutomationNowResult {
+  queued: true;
+  runId: string;
+  automationRunId: string;
+}
+
 export interface AutomationRun {
   id: string;
   automation: string;
@@ -168,6 +179,32 @@ export function useManageAutomation(scope: JobsScope) {
       }
     },
   });
+}
+
+export function useRunAutomationNow() {
+  const queryClient = useQueryClient();
+  return useActionMutation<RunAutomationNowResult, RunAutomationNowInput>(
+    "run-automation-now",
+    {
+      onSuccess: (_result, variables) => {
+        const scope =
+          variables.scope === "organization" ? "organization" : "personal";
+        queryClient.invalidateQueries({
+          queryKey: [
+            "action",
+            "list-automation-runs",
+            { scope, name: variables.name },
+          ],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-automations", { scope }],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-recurring-jobs", { scope }],
+        });
+      },
+    },
+  );
 }
 
 function optimisticPatch(variables: ManageJobInput) {

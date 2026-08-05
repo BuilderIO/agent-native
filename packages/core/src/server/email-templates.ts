@@ -165,6 +165,45 @@ export function renderVerifySignupEmail(
 }
 
 // ---------------------------------------------------------------------------
+// Magic-link sign-in
+// ---------------------------------------------------------------------------
+
+export interface RenderMagicLinkEmailArgs {
+  /** The account email receiving the one-time sign-in link. */
+  email: string;
+  /** The full Better Auth URL containing the one-time token. */
+  magicLinkUrl: string;
+}
+
+export function renderMagicLinkEmail(
+  args: RenderMagicLinkEmailArgs,
+): RenderedEmailMessage {
+  const email = stripCrlf(args.email);
+  const slug = getAppSlug();
+  const brand = resolveBrand(slug);
+  const { html, text } = renderEmail({
+    brandName: brand,
+    preheader: `Sign in to ${brand} with your secure one-time link.`,
+    heading: `Sign in to ${brand}`,
+    paragraphs: [
+      `Use the button below to sign in as ${emailStrong(email)}. This link expires in 5 minutes and can only be used once.`,
+      `If you didn't request this email, you can safely ignore it.`,
+    ],
+    cta: { label: "Sign in securely", url: args.magicLinkUrl },
+    footer: `For your security, never forward this email or share the link.`,
+  });
+
+  return {
+    subject: `Your sign-in link for ${brand}`,
+    html,
+    text,
+    appSender: slug
+      ? { name: brand, slug, replyTo: AGENT_NATIVE_REPLY_TO }
+      : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Password reset
 // ---------------------------------------------------------------------------
 

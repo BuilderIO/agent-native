@@ -30,6 +30,7 @@ import {
   emitSingleTemplateNetlifyBackgroundFunction,
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
+  emitSingleTemplateNetlifyRecurringJobsFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
   isServerlessNativePlatformPackage,
@@ -41,6 +42,7 @@ import {
   isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
+  NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
   patchCloudflareModuleNitroEntry,
@@ -854,6 +856,8 @@ export default (event) =>
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("streamController.enqueue");
+    expect(html).not.toContain("dev server");
+    expect(html).not.toContain("browser console");
     expect(html).toContain("loaderData");
     expect(html).not.toContain("en-US");
   });
@@ -1595,6 +1599,35 @@ describe("runNitroBuildPipeline", () => {
     ).toBe(true);
   });
 
+  it("does not mirror again when the preset already mounted publicDir at the base path", async () => {
+    const { cwd, clientDir } = setupFixture();
+    // Nitro's netlify preset resolves publicDir to `dist{{ baseURL }}`, so the
+    // public dir IS the mount path. Mirroring again wrote a whole second client
+    // build at dist/docs/docs that only the workspace deploy ever deleted.
+    const publicOutputDir = path.join(cwd, "dist", "docs");
+    fs.mkdirSync(publicOutputDir, { recursive: true });
+
+    await runNitroBuildPipeline({
+      nitro: { options: { output: { publicDir: publicOutputDir } } },
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "/docs",
+      cwd,
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(publicOutputDir, "assets", "entry.client-abc.js"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(publicOutputDir, "docs"))).toBe(false);
+  });
+
   it("adds exact immutable route rules for copied hashed client assets", async () => {
     const { cwd, clientDir, publicOutputDir } = setupFixture();
     const nitro: any = {
@@ -1685,6 +1718,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   let previousFlag: string | undefined;
   let previousWorkspaceFlag: string | undefined;
   let previousViteWorkspaceFlag: string | undefined;
+  let previousDisableRecurringJobs: string | undefined;
   let previousAppBasePath: string | undefined;
   let previousViteAppBasePath: string | undefined;
 
@@ -1692,11 +1726,14 @@ describe("durable-background Netlify function emit (single-template, default-on)
     previousFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     previousWorkspaceFlag = process.env.AGENT_NATIVE_WORKSPACE;
     previousViteWorkspaceFlag = process.env.VITE_AGENT_NATIVE_WORKSPACE;
+    previousDisableRecurringJobs =
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
     previousAppBasePath = process.env.APP_BASE_PATH;
     previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+    delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
   });
@@ -1709,6 +1746,10 @@ describe("durable-background Netlify function emit (single-template, default-on)
     restoreEnv("AGENT_CHAT_DURABLE_BACKGROUND", previousFlag);
     restoreEnv("AGENT_NATIVE_WORKSPACE", previousWorkspaceFlag);
     restoreEnv("VITE_AGENT_NATIVE_WORKSPACE", previousViteWorkspaceFlag);
+    restoreEnv(
+      "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
+      previousDisableRecurringJobs,
+    );
     restoreEnv("APP_BASE_PATH", previousAppBasePath);
     restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
     for (const d of dirs.splice(0)) {
@@ -1862,6 +1903,32 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).not.toMatch(/^\s*path:/m);
   });
 
+  it("emits a durable recurring-job handoff beside the background worker", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
+
+    const entryPath = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
+      `${NETLIFY_RECURRING_JOBS_FUNCTION_NAME}.mjs`,
+    );
+    const entry = fs.readFileSync(entryPath, "utf8");
+    expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain(
+      'const SWEEP_PATH = "/_agent-native/jobs/_process-sweep"',
+    );
+    expect(entry).toContain(
+      'const BACKGROUND_PATH = "/.netlify/functions/server-agent-background"',
+    );
+    expect(entry).toContain('createHmac("sha256", secret)');
+    expect(entry).toContain("__agentNativeProcessorRoute");
+    expect(entry).toContain("A2A_SECRET is required");
+  });
+
   it("does not emit a keep-warm function without Nitro's server bundle", () => {
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
@@ -1974,6 +2041,26 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain("wrapper failed before reaching the route");
   });
 
+  it("hard-links the handler bundle instead of writing a second copy of it", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    const source = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_libs",
+      "yjs.mjs",
+    );
+    const clone = path.join(backgroundDir(cwd), "_libs", "yjs.mjs");
+    // Same inode: the extra function costs its entry file, not another whole
+    // server bundle. Netlify still zips each function separately, so this is
+    // invisible to the deploy — a hard link IS a regular file to every reader.
+    expect(fs.statSync(clone).ino).toBe(fs.statSync(source).ino);
+  });
+
   it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {
     const cwd = setupNetlifyOutput();
 
@@ -2009,6 +2096,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     dirs.push(cwd);
     // No .netlify/functions-internal/server/main.mjs present.
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
+    process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
 
     expect(() =>
       emitSingleTemplateNetlifyBackgroundFunction(cwd),

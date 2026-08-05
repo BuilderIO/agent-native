@@ -17,11 +17,15 @@ vi.mock("../application-state/script-helpers.js", () => ({
 }));
 
 // ── spawn-path collaborators (kept inert; we only assert the depth guard) ──
-vi.mock("../chat-threads/store.js", () => ({
-  createThread: vi.fn(async (_owner: string, opts: { title?: string }) => ({
+const createThreadMock = vi.hoisted(() =>
+  vi.fn(async (_owner: string, opts: { title?: string; source?: unknown }) => ({
     id: `thread-${Math.random().toString(36).slice(2, 8)}`,
     title: opts?.title ?? "",
+    source: opts?.source ?? null,
   })),
+);
+vi.mock("../chat-threads/store.js", () => ({
+  createThread: createThreadMock,
   updateThreadData: vi.fn(async () => {}),
   getThread: vi.fn(async () => null),
 }));
@@ -75,6 +79,7 @@ describe("agent-teams delegation-depth guardrail", () => {
     appState.clear();
     enqueueAgentTeamRunMock.mockClear();
     fireInternalDispatchMock.mockClear();
+    createThreadMock.mockClear();
     delete process.env.AGENT_NATIVE_MAX_SUBAGENT_DEPTH;
   });
 
@@ -97,6 +102,22 @@ describe("agent-teams delegation-depth guardrail", () => {
     },
     FIRST_AGENT_TEAMS_IMPORT_TIMEOUT_MS,
   );
+
+  it("scopes a spawned thread to the parent app", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+
+    await spawnTask({
+      ...baseSpawnOptions(),
+      parentSourceAppId: "calendar",
+    });
+
+    expect(createThreadMock).toHaveBeenCalledWith(
+      OWNER,
+      expect.objectContaining({
+        source: { appId: "calendar" },
+      }),
+    );
+  });
 
   it("allows a depth-1 sub-agent to spawn a depth-2 sub-agent (still within MAX=2)", async () => {
     const { spawnTask } = await import("./agent-teams.js");

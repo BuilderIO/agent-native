@@ -17,7 +17,7 @@ import {
 } from "../request-context.js";
 
 // ---------------------------------------------------------------------------
-// CLI-script-backed action entries: db-*, docs-search/source-search,
+// CLI-script-backed action entries: db-*, framework-search/docs-search/source-search,
 // resources/save-memory/delete-memory, chat-history, manage-agent-engine,
 // manage-agent-loop-settings, and call-agent. Each wraps a core CLI script
 // (that writes to console.log) as an ActionEntry via `wrapCliScript`.
@@ -235,6 +235,60 @@ export async function createDocsScriptEntries(): Promise<
   const entries: Record<string, ActionEntry> = {};
 
   try {
+    const mod = await import("../../scripts/docs/framework-search.js");
+    entries["framework-search"] = wrapCliScript(
+      {
+        description:
+          "Search the version-matched Agent Native docs and readable Core, Toolkit, and first-party template source in one bounded read-only call. Use this first when a docs answer may require implementation evidence.",
+        parameters: {
+          type: "object",
+          properties: {
+            pattern: {
+              type: "string",
+              description:
+                "Text pattern to search across docs and source. Use normal text by default, or use glob (* and ?) / SQL-like (% and _) / regex mode for broader or more precise matching.",
+            },
+            scope: {
+              type: "string",
+              description:
+                "Search corpus: all, docs, or source (default: all).",
+              enum: ["all", "docs", "source"],
+            },
+            mode: {
+              type: "string",
+              description:
+                "Match mode: substring, glob, sql-like, or safe regex (default: substring).",
+              enum: ["substring", "glob", "sql-like", "regex"],
+            },
+            path: {
+              type: "string",
+              description:
+                "Optional glob path filter such as templates/*/actions/*.ts or core/src/server/*.",
+            },
+            limit: {
+              type: "string",
+              description: "Maximum matching files to return, from 1 to 50.",
+            },
+            list: {
+              type: "string",
+              description:
+                'Set to "true" to list searchable docs and source roots.',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      mod.default,
+      { readOnly: true },
+    );
+  } catch (error) {
+    console.warn(
+      "[agent-chat] framework-search unavailable; keeping the older lookup tools:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  try {
     const mod = await import("../../scripts/docs/search.js");
     entries["docs-search"] = wrapCliScript(
       {
@@ -276,19 +330,19 @@ export async function createDocsScriptEntries(): Promise<
     entries["source-search"] = wrapCliScript(
       {
         description:
-          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
+          "Search and read readable version-matched Core, Toolkit, and first-party template source. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
         parameters: {
           type: "object",
           properties: {
             query: {
               type: "string",
               description:
-                "Search term to find relevant core or template source (e.g. 'defineAction', 'useActionQuery', 'view-screen').",
+                "Search term to find relevant template source (e.g. 'defineAction', 'useActionQuery', 'view-screen').",
             },
             path: {
               type: "string",
               description:
-                "Read a specific corpus file or list a directory (e.g. 'templates/plan/AGENTS.md' or 'core/src/action.ts').",
+                "Read a specific corpus file or list a directory (e.g. 'templates/plan/AGENTS.md' or 'templates/chat/actions/hello.ts').",
             },
             list: {
               type: "string",

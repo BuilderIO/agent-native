@@ -380,7 +380,7 @@ export function AgentNativeRouteWarmup({
     if (resolved.strategy === "off") {
       return;
     }
-    // Legacy SPA builds still mount the AgentPanel but do not expose React
+    // Legacy SPA builds still mount AppProviders but do not expose React
     // Router framework `.data` endpoints or a route asset manifest. Only warm
     // route data/modules when that manifest is present; otherwise this would
     // generate noisy `/<path>.data` 404s for apps that cannot serve them.
@@ -402,22 +402,64 @@ export function AgentNativeRouteWarmup({
 
     if (warmModules) seedExistingModulepreloads();
 
-    const queue: string[] = [];
+    const queue: Array<{ dataUrl: string; href: string }> = [];
     const queuedDataRoutes = new Set<string>();
+    const dataRetryAttempts = new Map<string, number>();
+    const retryTimers = new Set<number>();
     const observedLinks = new WeakSet<HTMLAnchorElement>();
     let active = 0;
     let stopped = false;
     let scheduleTimer: number | undefined;
 
+    const scheduleDataRetry = (dataUrl: string, href: string) => {
+      if (stopped) return;
+      const attempt = (dataRetryAttempts.get(dataUrl) ?? 0) + 1;
+      if (attempt > 3) {
+        queuedDataRoutes.delete(dataUrl);
+        return;
+      }
+      dataRetryAttempts.set(dataUrl, attempt);
+      const timer = window.setTimeout(
+        () => {
+          retryTimers.delete(timer);
+          if (stopped) return;
+          queuedDataRoutes.delete(dataUrl);
+          warmedDataRoutes.delete(dataUrl);
+          warmHref(href);
+        },
+        500 * 2 ** (attempt - 1),
+      );
+      retryTimers.add(timer);
+    };
+
     const pump = () => {
       if (stopped || !warmData) return;
       while (active < resolved.maxConcurrent && queue.length > 0) {
-        const href = queue.shift();
-        if (!href) continue;
+        const item = queue.shift();
+        if (!item) continue;
         active += 1;
         window
-          .fetch(href, { credentials: "same-origin", cache: "force-cache" })
-          .catch(() => {})
+          .fetch(item.dataUrl, {
+            credentials: "same-origin",
+            cache: "force-cache",
+          })
+          .then((response) => {
+            if (response.ok) {
+              dataRetryAttempts.delete(item.dataUrl);
+              return;
+            }
+            warmedDataRoutes.delete(item.dataUrl);
+            if (response.status >= 500 || response.status === 429) {
+              scheduleDataRetry(item.dataUrl, item.href);
+            } else {
+              queuedDataRoutes.delete(item.dataUrl);
+              dataRetryAttempts.delete(item.dataUrl);
+            }
+          })
+          .catch(() => {
+            warmedDataRoutes.delete(item.dataUrl);
+            scheduleDataRetry(item.dataUrl, item.href);
+          })
           .finally(() => {
             active -= 1;
             window.setTimeout(pump, 50);
@@ -425,7 +467,7 @@ export function AgentNativeRouteWarmup({
       }
     };
 
-    const warmHref = (href: string) => {
+    function warmHref(href: string) {
       if (warmModules) warmRouteAssetsForHref(href);
       if (!warmData) return;
       const dataUrl = dataRouteUrlForHref(href);
@@ -433,9 +475,9 @@ export function AgentNativeRouteWarmup({
       warmedDataRoutes.add(dataUrl);
       if (queuedDataRoutes.has(dataUrl)) return;
       queuedDataRoutes.add(dataUrl);
-      queue.push(dataUrl);
+      queue.push({ dataUrl, href });
       pump();
-    };
+    }
 
     const viewportObserver =
       typeof IntersectionObserver === "undefined"
@@ -500,12 +542,14 @@ export function AgentNativeRouteWarmup({
 
     schedule();
     const observer = new MutationObserver(schedule);
-    // The render-warmup selector is configurable, so it may depend on class or
-    // custom data attributes. Watch all attribute changes and debounce rescans.
+    // Route links are added by hydration/navigation and can opt into a mode
+    // after render. Avoid watching every attribute: scroll-driven style/class
+    // changes otherwise rescan the entire document while a page is settling.
     observer.observe(document.documentElement, {
       subtree: true,
       childList: true,
       attributes: true,
+      attributeFilter: [PREFETCH_ATTR, "href"],
     });
 
     document.addEventListener("pointerover", warmFromIntent, {
@@ -521,6 +565,8 @@ export function AgentNativeRouteWarmup({
     return () => {
       stopped = true;
       if (scheduleTimer !== undefined) window.clearTimeout(scheduleTimer);
+      for (const timer of retryTimers) window.clearTimeout(timer);
+      retryTimers.clear();
       observer.disconnect();
       viewportObserver?.disconnect();
       document.removeEventListener("pointerover", warmFromIntent, true);

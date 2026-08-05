@@ -286,7 +286,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             feedback={feedbackButton}
             search={searchButton}
             collapse={collapseButton}
-            className="px-0 py-0"
           />
         </div>
       </div>

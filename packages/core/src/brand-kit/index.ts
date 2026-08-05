@@ -17,6 +17,7 @@
 
 export * from "./types.js";
 export * from "./brand-signals.js";
+export * from "./tokens.js";
 
 // Import-source parsing + token extraction (Tailwind/CSS/GitHub/URL/document/
 // code analysis). These already power the import-* actions across templates.

@@ -1,6 +1,7 @@
+import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/use-db-sync";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -200,13 +201,17 @@ function deletedDeck(
 
 describe("DeckContext deck creation persistence", () => {
   beforeEach(() => {
+    _resetSyncTransportRegistryForTests();
     orgQueryState.data = undefined;
     orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
+    vi.stubGlobal("BroadcastChannel", undefined);
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
+    cleanup();
+    _resetSyncTransportRegistryForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

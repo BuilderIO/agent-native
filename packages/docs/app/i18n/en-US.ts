@@ -14,7 +14,7 @@ const enUS = {
     skills: "Skills",
     searchAria: "Search docs",
     searchPlaceholder: "Search docs...",
-    askAssistant: "Ask the AI assistant",
+    askAssistant: "Ask AI",
     toggleNavigation: "Toggle navigation menu",
     copyLogoSvg: "Copy Logo SVG",
     copyWordmark: "Copy Wordmark",
@@ -51,6 +51,9 @@ const enUS = {
     copyMarkdownError: "Couldn't copy Markdown",
     previous: "Previous",
     next: "Next",
+    draftLabel: "Draft",
+    draftDescription:
+      "This page is a work in progress. Content may be incomplete or subject to change before publication.",
   },
   common: {
     copied: "Copied",
@@ -1523,6 +1526,7 @@ const enUS = {
     localFileMode: "Local File Mode",
     fileUploads: "File Uploads",
     deployment: "Deployment",
+    environmentVariables: "Environment Variables",
     progress: "Progress",
     authentication: "Authentication",
     multiTenancy: "Multi-Tenancy",

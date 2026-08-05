@@ -115,6 +115,7 @@ describe("import-design-tokens", () => {
 :root {
   --color-accent: #2563eb;
   --radius-lg: 16px;
+  --text-body-size-medium: 1rem;
 }
 Heading font: Inter
 Primary color: #f97316
@@ -136,6 +137,11 @@ Primary color: #f97316
         expect.objectContaining({
           cssVar: "--font-heading-font",
           value: "Inter",
+          type: "typography",
+        }),
+        expect.objectContaining({
+          cssVar: "--text-body-size-medium",
+          value: "1rem",
           type: "typography",
         }),
       ]),

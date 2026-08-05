@@ -519,6 +519,9 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.finishedHours": "Finished {{count}}h ago",
   "runsTray.updatedDate": "Updated {{date}}",
   "runsTray.finishedDate": "Finished {{date}}",
+  "agentTask.backgroundTask": "Background task",
+  "agentTask.stop": "Stop background task",
+  "agentTask.openThread": "Open task thread",
   "codeRequired.fallbackDetail":
     "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
   "codeRequired.defaultFeature": "Make the requested code changes to this app",
@@ -538,7 +541,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "codeRequired.codeChangeBadge": "Code change",
   "codeRequired.connectBuilderTitle": "Connect Builder.io",
   "codeRequired.connectBuilderDescription":
-    "Connect Builder to enable cloud-based code changes from this app.",
+    "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
   "codeRequired.setupRequired": "Setup required",
   "codeRequired.branchCreated": "Branch created",
   "codeRequired.close": "Close",

@@ -9,8 +9,8 @@ coding agents can discover the same workspace-wide guidance from the root.
 ## Framework Docs Lookup
 
 Version-matched Agent Native docs ship with `@agent-native/core` in
-`node_modules/@agent-native/core/docs`. A source-only corpus of core and
-first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
+`node_modules/@agent-native/core/docs`. A source-only corpus of first-party
+template patterns ships in `node_modules/@agent-native/core/corpus`.
 
 - From an app directory, use `pnpm action docs-search --query "<topic>"`,
   `pnpm action docs-search --slug <slug>`, or `pnpm action docs-search --list`.
@@ -18,14 +18,14 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `pnpm action source-search --path <path>` when source examples matter.
 - From the workspace root, read `node_modules/@agent-native/core/docs/AGENTS.md`
   and search `node_modules/@agent-native/core/docs/content/` directly with `rg`.
-  Search `node_modules/@agent-native/core/corpus/` for core and template source
-  examples.
+  Search `node_modules/@agent-native/core/corpus/` for template source examples
+  and `node_modules/@agent-native/core/dist/` for framework internals.
 - For advanced workspace features, start with `workspace`, `multi-app-workspace`,
   `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
   `external-agents`, `mcp-protocol`, `feature-flags`, `sharing`, and `security`.
 
 Use package docs for framework APIs, the package corpus for reusable
-framework/template patterns, and `packages/shared/AGENTS.md` plus
+template patterns, and `packages/shared/AGENTS.md` plus
 `packages/shared/.agents/skills/` for workspace-specific conventions.
 Before building common workspace or agent UI, read `agent-native-toolkit` to
 inventory existing public kits and installed package seams. Read
@@ -55,6 +55,23 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
   `clearAgentChatContext` when UI needs two-way sync with staged context chips.
   Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md` before
   building agent-driven UI or "AI" features.
+
+## Agent Surface
+
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right `AgentSidebar` for contextual AI and open it when a
+  domain button hands work to the agent.
+- Keep the first viewport focused: one primary action, progressive disclosure,
+  concise copy, and domain-specific navigation. Never use sparkle, wand,
+  magic, or robot icons as AI affordances.
+- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
+  type for content previews. Give the AgentSidebar a subtle surface/divider
+  boundary, and stack original/generated review vertically by default.
+- Every AI-labeled button must call `sendToAgentChat()` with
+  `openSidebar: true`; label deterministic local actions as local or preview.
+- Before visual work, read `frontend-design` and `DESIGN.md`. Shared workspace
+  chrome stays semantic and neutral; each app chooses a named visual direction
+  and palette family rather than inheriting the last app's accent.
 
 ## Workspace Resources
 

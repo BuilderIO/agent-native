@@ -16,7 +16,7 @@ const ptBR = {
     skills: "Habilidades",
     searchAria: "Pesquisar na documentação",
     searchPlaceholder: "Pesquisar docs...",
-    askAssistant: "Perguntar ao assistente de IA",
+    askAssistant: "Perguntar à IA",
     toggleNavigation: "Alternar menu de navegação",
     copyLogoSvg: "Copiar SVG do logotipo",
     copyWordmark: "Copiar logotipo textual",
@@ -53,6 +53,9 @@ const ptBR = {
     copyMarkdownError: "Não foi possível copiar Markdown",
     previous: "Anterior",
     next: "Próximo",
+    draftLabel: "Rascunho",
+    draftDescription:
+      "Esta página está em andamento. O conteúdo pode estar incompleto ou sujeito a alterações antes da publicação.",
   },
   search: {
     dialogLabel: "Pesquisar documentação",
@@ -1529,6 +1532,7 @@ const ptBR = {
     localFileMode: "Modo de arquivos locais",
     fileUploads: "Uploads de arquivos",
     deployment: "Deploy",
+    environmentVariables: "Variáveis de ambiente",
     progress: "Progresso",
     authentication: "Autenticação",
     multiTenancy: "Multilocação",

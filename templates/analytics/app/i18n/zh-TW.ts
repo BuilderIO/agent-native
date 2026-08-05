@@ -137,6 +137,13 @@ const messages = {
     openDashboardTemplates: "開啟目錄",
     languageTitle: "語言",
     languageLabel: "介面語言",
+    errorEmailNotifications: "透過電子郵件接收新的錯誤提醒",
+    errorEmailNotificationsDescription:
+      "捕獲新的 JavaScript 錯誤時傳送電子郵件。預設為關閉。",
+    errorEmailNotificationsSaveFailed: "無法儲存電子郵件偏好設定。",
+    bellSound: "提示音",
+    bellSoundDescription: "代理完成工作時播放提示音。預設為關閉。",
+    bellSoundSaveFailed: "無法儲存提示音偏好設定。",
     about: "關於",
     aboutDescription:
       "Analytics 用於連線資料來源並建置自訂儀表板。連線 Google Analytics、BigQuery、Stripe 等，然後讓代理建立儀表板。",
@@ -468,6 +475,22 @@ const messages = {
     firstPartyAnalytics: "第一方 Analytics",
     firstPartyDescription:
       "透過同一個第一方端點接收產品、工作階段與 $ai_generation 事件，用於儀表板和 LLM 可觀測性。",
+    bigQueryRecommendationTitle: "建議為此資料使用 BigQuery",
+    bigQueryRecommendationDescription:
+      "Neon 仍是預設選擇。當觀察到超過 100 萬個事件或反覆出現慢查詢/逾時時，請連線 BigQuery，並用它進行高資料量或歷史分析。",
+    bigQueryConnectedTitle: "BigQuery 已準備好處理較重的查詢",
+    bigQueryConnectedDescription:
+      "使用 BigQuery 處理高資料量或歷史追蹤查詢。Neon 仍可用於近期營運分析。",
+    bigQuerySetup: "設定 BigQuery",
+    bigQueryMonitorDescription:
+      "Neon 目前仍然適合。請留意事件量和查詢延遲；如果壓力增加，此卡片會建議 BigQuery。",
+    bigQueryHealthyDescription:
+      "目前 Neon 適合這項第一方資料。如果事件量或查詢延遲增加，我們會再次提醒您。",
+    bigQueryHealthUnavailable:
+      "現在無法檢查第一方 Analytics 壓力。請重新載入後再嘗試更換後端。",
+    analyticsEventCount: "觀察到的事件",
+    slowQueries24h: "慢查詢（24 小時）",
+    maxQueryDuration: "最長查詢時間",
     defaultKeyName: "託管範本",
     endpoint: "端點",
     serverEnv: "伺服器環境",

@@ -16,7 +16,7 @@ const esES = {
     skills: "Habilidades",
     searchAria: "Buscar en la documentación",
     searchPlaceholder: "Buscar docs...",
-    askAssistant: "Preguntar al asistente de IA",
+    askAssistant: "Preguntar a la IA",
     toggleNavigation: "Abrir o cerrar navegación",
     copyLogoSvg: "Copiar SVG del logotipo",
     copyWordmark: "Copiar logotipo textual",
@@ -53,6 +53,9 @@ const esES = {
     copyMarkdownError: "No se pudo copiar Markdown",
     previous: "Anterior",
     next: "Siguiente",
+    draftLabel: "Borrador",
+    draftDescription:
+      "Esta página está en construcción. El contenido puede estar incompleto o sujeto a cambios antes de su publicación.",
   },
   search: {
     dialogLabel: "Buscar documentación",
@@ -1533,6 +1536,7 @@ const esES = {
     localFileMode: "Modo de archivos locales",
     fileUploads: "Subidas de archivos",
     deployment: "Despliegue",
+    environmentVariables: "Variables de entorno",
     progress: "Progreso",
     authentication: "Autenticación",
     multiTenancy: "multiinquilino",

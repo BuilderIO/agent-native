@@ -102,7 +102,7 @@ describe("DocsSidebar", () => {
     const activeLink = getLinkMarkup(html, "/docs/tracking");
     const closedLink = getLinkMarkup(html, "/docs/creating-templates");
 
-    expect(activeLink).toContain('data-an-prefetch="render"');
+    expect(activeLink).toContain('data-an-prefetch="viewport"');
     expect(activeLink).not.toContain("tabindex");
     expect(closedLink).not.toContain("data-an-prefetch");
     expect(closedLink).toContain('tabindex="-1"');
@@ -151,6 +151,6 @@ describe("DocsSidebar", () => {
     // The active child link is highlighted and the group is open.
     const activeLink = getLinkMarkup(html, "/docs/template-plan");
     expect(activeLink).toContain("is-active");
-    expect(activeLink).toContain('data-an-prefetch="render"');
+    expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
 });

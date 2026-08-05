@@ -31,9 +31,10 @@ import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
+import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
-import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
+import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
@@ -48,6 +49,7 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
+import { useGeneratingSlidePreview } from "@/hooks/use-generating-slide-preview";
 import {
   useSlideComments,
   type CommentThread,
@@ -76,7 +78,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
 import { shortcutLabel } from "@/lib/utils";
 
-type EditorSidePanel = "style" | "comments" | null;
+type EditorSidePanel = "comments" | null;
 
 function MissingDeckAccessPane({
   hasTeamJoinOption,
@@ -166,6 +168,8 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [addSlideGenerating, setAddSlideGenerating] = useState(false);
+  const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { generating } = useAgentGenerating();
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
@@ -180,6 +184,8 @@ export default function DeckEditor() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  const [contextToolbarSlot, setContextToolbarSlot] =
+    useState<HTMLDivElement | null>(null);
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
@@ -261,6 +267,11 @@ export default function DeckEditor() {
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const streamedGeneratingSlideContent = useGeneratingSlidePreview({
+    deckId: id ?? "",
+    slideCount,
+    generating,
+  });
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor.
@@ -274,9 +285,10 @@ export default function DeckEditor() {
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
   });
-  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
+    deck?.designSystemId,
+  );
   const commentsOpen = sidePanel === "comments";
-  const styleOpen = sidePanel === "style";
 
   const {
     questions: questionFlowQuestions,
@@ -287,6 +299,9 @@ export default function DeckEditor() {
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
   } = useGuidedQuestionFlow({
+    stateKey: "guided-questions",
+    browserTabId: TAB_ID,
+    queryKey: ["guided-questions"],
     submitMessage: "Here are my answers — go ahead and create the slides.",
     skipMessage:
       "Skip the questions — just go ahead and create the slides with your best judgment.",
@@ -307,6 +322,29 @@ export default function DeckEditor() {
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const generatingSlideVisible =
+    canEdit && !showQuestionFlow && (isNewDeckGenerating || addSlideGenerating);
+  const showCurrentSlideEditor =
+    !generatingSlideSelected &&
+    !showNewDeckGeneratingOverlay &&
+    !showQuestionFlow;
+
+  useEffect(() => {
+    if (!generatingSlideVisible) setGeneratingSlideSelected(false);
+  }, [generatingSlideVisible]);
+
+  // The add-slide request is finished once the agent stops generating, so the
+  // rail's placeholder must not outlive it.
+  useEffect(() => {
+    if (!generating) setAddSlideGenerating(false);
+  }, [generating]);
+
+  const previousSlideCountRef = useRef(slideCount);
+  useEffect(() => {
+    if (previousSlideCountRef.current === slideCount) return;
+    previousSlideCountRef.current = slideCount;
+    setGeneratingSlideSelected(false);
+  }, [slideCount]);
 
   useEffect(() => {
     if (
@@ -912,6 +950,13 @@ export default function DeckEditor() {
     ? `Current slide: ${currentSlide.id} (index ${currentIndex >= 0 ? currentIndex : 0}). Deck: ${id}.`
     : `Deck: ${id}.`;
 
+  const handleAddEmptySlide = () => {
+    const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
+    setActiveSlideId(
+      addSlide(id, "blank", activeIdx >= 0 ? activeIdx : undefined),
+    );
+  };
+
   return (
     <div
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
@@ -948,10 +993,6 @@ export default function DeckEditor() {
         commentsOpen={commentsOpen}
         onToggleComments={() =>
           setSidePanel((panel) => (panel === "comments" ? null : "comments"))
-        }
-        styleOpen={styleOpen}
-        onToggleStyle={() =>
-          setSidePanel((panel) => (panel === "style" ? null : "style"))
         }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
@@ -1023,7 +1064,18 @@ export default function DeckEditor() {
             updateDeck(id, { aspectRatio: previous });
           });
         }}
+        currentSlideId={currentSlide?.id}
+        addSlideGenerating={addSlideGenerating}
+        onAddSlideGeneratingChange={setAddSlideGenerating}
+        onAddEmptySlide={handleAddEmptySlide}
+        onDuplicateCurrentSlide={
+          currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
+        }
       />
+
+      {/* Full-width host for the slide's contextual style toolbar: it spans the
+       * slide rail as well as the canvas, matching the deck toolbar above it. */}
+      <div ref={setContextToolbarSlot} className="shrink-0" />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && (
@@ -1042,23 +1094,12 @@ export default function DeckEditor() {
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
                   deckId={id}
-                  deckTitle={deck.title}
                   onSelectSlide={(slideId) => {
+                    setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
                   onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
-                  onAddEmptySlide={() => {
-                    const activeIdx = deck.slides.findIndex(
-                      (s) => s.id === activeSlideId,
-                    );
-                    const newId = addSlide(
-                      id,
-                      "blank",
-                      activeIdx >= 0 ? activeIdx : undefined,
-                    );
-                    setActiveSlideId(newId);
-                  }}
                   onDeleteSlide={(slideId) => {
                     const idx = deck.slides.findIndex((s) => s.id === slideId);
                     const nextSlide =
@@ -1070,6 +1111,19 @@ export default function DeckEditor() {
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
+                  generatingSlide={
+                    generatingSlideVisible
+                      ? {
+                          index: deck.slides.length,
+                          content: streamedGeneratingSlideContent,
+                        }
+                      : undefined
+                  }
+                  generatingSlideSelected={generatingSlideSelected}
+                  onSelectGeneratingSlide={() => {
+                    setGeneratingSlideSelected(true);
+                    if (window.innerWidth < 768) setSidebarOpen(false);
+                  }}
                 />
               </DndContext>
             </div>
@@ -1089,24 +1143,58 @@ export default function DeckEditor() {
           />
         )}
 
-        {showNewDeckGeneratingOverlay &&
-          deck.slides.length === 0 &&
-          !showQuestionFlow && <GeneratingOverlay />}
-
-        {isNewDeckGenerating && deck.slides.length > 0 && !showQuestionFlow && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
-            <span className="font-medium">{t("deckEditor.buildingDeck")}</span>
-            <span className="ml-2 text-muted-foreground">
-              {t("deckEditor.slidesAdded", { count: deck.slides.length })}
-            </span>
+        {generatingSlideSelected && generatingSlideVisible && (
+          <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+            <div className="m-auto w-full max-w-6xl">
+              <GeneratingSlidePreview
+                content={streamedGeneratingSlideContent}
+                aspectRatio={deck.aspectRatio}
+                thumbnail={false}
+              />
+            </div>
           </div>
         )}
 
-        {!showNewDeckGeneratingOverlay && !showQuestionFlow && currentSlide && (
+        {!generatingSlideSelected &&
+          generatingSlideVisible &&
+          deck.slides.length === 0 &&
+          !showQuestionFlow && (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  content={streamedGeneratingSlideContent}
+                  aspectRatio={deck.aspectRatio}
+                  thumbnail={false}
+                />
+              </div>
+            </div>
+          )}
+
+        {showCurrentSlideEditor && currentSlide && (
           <SlideEditor
             slide={currentSlide}
             deckId={id}
             readOnly={!canEdit}
+            contextToolbarSlot={contextToolbarSlot}
+            contextToolbarLeading={
+              canEdit ? (
+                <EditorActionCluster
+                  deckId={id}
+                  deckTitle={deck.title}
+                  currentSlideId={currentSlide.id}
+                  slideCount={deck.slides.length}
+                  currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
+                  addSlideGenerating={addSlideGenerating}
+                  onAddSlideGeneratingChange={setAddSlideGenerating}
+                  onAddEmptySlide={handleAddEmptySlide}
+                  onDuplicateCurrentSlide={() =>
+                    duplicateSlide(id, currentSlide.id)
+                  }
+                  textBoxMode={textBoxMode}
+                  onToggleTextBoxMode={toggleTextBoxMode}
+                />
+              ) : undefined
+            }
             onUpdateSlide={(updates, slideIdOverride, options) =>
               updateSlide(
                 id,
@@ -1139,8 +1227,6 @@ export default function DeckEditor() {
             slideIndex={currentIndex >= 0 ? currentIndex : 0}
             slideCount={deck.slides.length}
             designSystem={designSystem}
-            stylePanelOpen={styleOpen}
-            onCloseStylePanel={() => setSidePanel(null)}
             aspectRatio={deck.aspectRatio}
             collabUser={
               currentUser
@@ -1229,6 +1315,7 @@ export default function DeckEditor() {
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
         anchorRef={imageGenButtonRef}
+        referenceImageUrls={imageStyleReferenceUrls}
         slideContext={
           currentSlide
             ? {

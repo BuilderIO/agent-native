@@ -114,7 +114,7 @@ function emitLlmGenerationTrackingEvent(args: {
   toolsTruncated: boolean;
   terminalOutcome?: AgentLoopOutcome;
   delegation?: {
-    protocol: "a2a" | "mcp";
+    protocol: "a2a" | "mcp" | "agent-team";
     callerApp?: string;
     taskId?: string;
     parentRunId?: string;
@@ -188,7 +188,9 @@ function emitLlmGenerationTrackingEvent(args: {
     delegated: args.delegation ? true : undefined,
     delegation_protocol: args.delegation?.protocol,
     caller_app: args.delegation?.callerApp,
-    a2a_task_id: args.delegation?.taskId,
+    delegation_task_id: args.delegation?.taskId,
+    a2a_task_id:
+      args.delegation?.protocol === "a2a" ? args.delegation.taskId : undefined,
     parent_run_id: args.delegation?.parentRunId,
     parent_turn_id: args.delegation?.parentTurnId,
     model_selection_source: args.modelSelectionSource,
@@ -445,7 +447,7 @@ export async function instrumentAgentLoop(opts: {
   }>;
   modelSelectionSource?: string;
   delegation?: {
-    protocol: "a2a" | "mcp";
+    protocol: "a2a" | "mcp" | "agent-team";
     callerApp?: string;
     taskId?: string;
     parentRunId?: string;

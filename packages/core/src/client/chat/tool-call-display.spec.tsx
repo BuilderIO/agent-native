@@ -958,6 +958,33 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
+  it("does not spin frozen reconnect activity cards", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "activity-frozen-1",
+        toolName: "update-extension",
+        argsText: "",
+        args: {},
+        activity: true,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage
+            content={content}
+            allowActivitySpinner={false}
+          />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("update extension");
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
   it("renders explicit native widgets ahead of MCP Apps metadata", async () => {
     await act(async () => {
       root.render(

@@ -95,14 +95,20 @@ describe("delegateImageGenerationToAssets", () => {
 
   // Style references used to reach only the local fallback, so a delegated
   // run silently ignored them.
-  it("passes requested style references to assets", async () => {
+  it("normalizes requested style references before sending to assets", async () => {
     sendAndWaitMock.mockResolvedValue(task("completed", "done"));
     await delegateImageGenerationToAssets({
       prompt: "a hero",
-      referenceImageUrls: ["https://cdn.example.com/ref-1.png"],
+      referenceImageUrls: [
+        " https://cdn.example.com/ref-1.png ",
+        "",
+        "https://cdn.example.com/ref-1.png",
+        "https://cdn.example.com/ref-2.png",
+      ],
     });
     const sentText = sendAndWaitMock.mock.calls[0][0].parts[0].text;
     expect(sentText).toContain("https://cdn.example.com/ref-1.png");
+    expect(sentText).toContain("https://cdn.example.com/ref-2.png");
   });
 
   // Falling back locally on an auth/permission refusal would bypass the Assets

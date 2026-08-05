@@ -4,7 +4,7 @@ import {
   Surface,
   TextField,
 } from "@agent-native/toolkit/design-system";
-import { IconCamera, IconCheck } from "@tabler/icons-react";
+import { IconCamera, IconCheck, IconLock } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
 import type { UserProfile } from "../../user-profile/shared.js";
@@ -23,6 +23,193 @@ function profileInitials(name: string): string {
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase())
       .join("") || "?"
+  );
+}
+
+interface AuthMethods {
+  hasPassword: boolean;
+}
+
+interface PasswordMutationResult {
+  status: boolean;
+}
+
+function PasswordSettings() {
+  const t = useT();
+  const { session } = useSession();
+  const authMethods = useActionQuery<AuthMethods>(
+    "get-auth-methods",
+    undefined,
+    { enabled: !!session?.email },
+  );
+  const setPassword = useActionMutation<
+    PasswordMutationResult,
+    { newPassword: string }
+  >("set-password");
+  const changePassword = useActionMutation<
+    PasswordMutationResult,
+    { currentPassword: string; newPassword: string }
+  >("change-password");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [validationError, setValidationError] = useState<
+    "length" | "mismatch" | null
+  >(null);
+  const [saved, setSaved] = useState(false);
+
+  const mutation = authMethods.data?.hasPassword ? changePassword : setPassword;
+  const error = validationError
+    ? validationError === "length"
+      ? t("settings.passwordMinLength")
+      : t("settings.passwordMismatch")
+    : mutation.error
+      ? t("settings.passwordSaveError")
+      : undefined;
+
+  const clearStatus = () => {
+    setSaved(false);
+    setValidationError(null);
+    setPassword.reset();
+    changePassword.reset();
+  };
+
+  const submit = () => {
+    setSaved(false);
+    setValidationError(null);
+    if (newPassword.length < 8) {
+      setValidationError("length");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setValidationError("mismatch");
+      return;
+    }
+
+    const onSuccess = () => {
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setSaved(true);
+      void authMethods.refetch();
+    };
+
+    if (authMethods.data?.hasPassword) {
+      changePassword.mutate({ currentPassword, newPassword }, { onSuccess });
+    } else {
+      setPassword.mutate({ newPassword }, { onSuccess });
+    }
+  };
+
+  const isPending = setPassword.isPending || changePassword.isPending;
+  const isLoading = authMethods.isLoading;
+  const hasPassword = authMethods.data?.hasPassword ?? false;
+
+  if (!session?.email) return null;
+
+  return (
+    <div className="space-y-3 border-t border-border/60 pt-3">
+      <div className="flex items-start gap-2">
+        <IconLock className="mt-0.5 size-4 text-muted-foreground" />
+        <div>
+          <h3 className="text-sm font-medium">
+            {hasPassword
+              ? t("settings.passwordChange")
+              : t("settings.passwordTitle")}
+          </h3>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {t("settings.passwordDescription")}
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground">
+          {t("settings.passwordStatusLoading")}
+        </p>
+      ) : authMethods.error ? (
+        <p className="text-xs text-destructive">
+          {t("settings.passwordSaveError")}
+        </p>
+      ) : (
+        <>
+          {hasPassword && (
+            <TextField
+              id="agent-native-current-password"
+              type="password"
+              label={t("settings.passwordCurrentLabel")}
+              value={currentPassword}
+              onChange={(value) => {
+                clearStatus();
+                setCurrentPassword(value);
+              }}
+              placeholder={t("settings.passwordPlaceholder")}
+              autoComplete="current-password"
+              disabled={isPending}
+            />
+          )}
+          <TextField
+            id="agent-native-new-password"
+            type="password"
+            label={t("settings.passwordNewLabel")}
+            value={newPassword}
+            onChange={(value) => {
+              clearStatus();
+              setNewPassword(value);
+            }}
+            placeholder={t("settings.passwordPlaceholder")}
+            autoComplete={hasPassword ? "new-password" : "new-password"}
+            disabled={isPending}
+            invalid={!!error}
+          />
+          <TextField
+            id="agent-native-confirm-password"
+            type="password"
+            label={t("settings.passwordConfirmLabel")}
+            value={confirmPassword}
+            onChange={(value) => {
+              clearStatus();
+              setConfirmPassword(value);
+            }}
+            placeholder={t("settings.passwordPlaceholder")}
+            autoComplete="new-password"
+            disabled={isPending}
+            invalid={!!error}
+            errorMessage={error}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-h-4 text-xs">
+              {saved && (
+                <p className="flex items-center gap-1 text-primary">
+                  <IconCheck className="size-3" />
+                  {t("settings.passwordSaved")}
+                </p>
+              )}
+            </div>
+            <ActionButton
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              size="compact"
+              pending={isPending}
+              disabled={
+                isPending ||
+                !newPassword ||
+                !confirmPassword ||
+                (hasPassword && !currentPassword)
+              }
+              onPress={submit}
+            >
+              {isPending
+                ? t("settings.passwordSaving")
+                : hasPassword
+                  ? t("settings.passwordChange")
+                  : t("settings.passwordAdd")}
+            </ActionButton>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -167,9 +354,7 @@ export function AccountSettingsForm({
       <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
         <div className="min-h-4 text-xs">
           {updateProfile.isSuccess && (
-            <p className="text-green-600 dark:text-green-400">
-              {t("settings.profileSaved")}
-            </p>
+            <p className="text-primary">{t("settings.profileSaved")}</p>
           )}
           {updateProfile.error && (
             <p className="text-destructive">{t("settings.profileSaveError")}</p>
@@ -226,6 +411,7 @@ export function AccountSettingsCard({ className }: AccountSettingsCardProps) {
       </div>
       <div className="mt-5">
         <AccountSettingsForm />
+        <PasswordSettings />
       </div>
     </Surface>
   );

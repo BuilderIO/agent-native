@@ -5,6 +5,7 @@ import { Link } from "react-router";
 
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
+import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { TemplateDocsLink } from "./template-docs";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -213,7 +214,7 @@ function CliPopoverContent({ template }: { template: Template }) {
       <div className="border-t border-[var(--code-border)] px-3 py-1.5 text-[10px] text-[var(--fg-secondary)]">
         {t("templateCard.pasteIntoTerminal")}{" "}
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={sitePathForLocale("/docs/getting-started", locale)}
           className="text-[var(--docs-accent)] no-underline hover:underline"
         >
@@ -267,12 +268,13 @@ function TemplateLaunchButton({ template }: { template: Template }) {
           href={template.demoUrl}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={() =>
+          onClick={(event) => {
+            applyFirstTouchAttributionToLink(event.currentTarget);
             trackEvent("click try demo", {
               template: template.slug,
               location: "card",
-            })
-          }
+            });
+          }}
           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >
           <svg
@@ -363,7 +365,7 @@ export function TemplateCard({ template }: { template: Template }) {
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
       <Link
-        data-an-prefetch="render"
+        data-an-prefetch="viewport"
         to={templatePath}
         className="-mx-[24px] -mt-[24px] mb-1 flex aspect-[924/729] items-center justify-center overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] transition hover:opacity-90"
         onClick={() =>
@@ -396,7 +398,7 @@ export function TemplateCard({ template }: { template: Template }) {
       </Link>
       <h3 className="text-base font-semibold">
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={templatePath}
           className="text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
         >

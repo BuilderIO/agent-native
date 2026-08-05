@@ -32,13 +32,17 @@ export type DrizzleDb = Awaited<ReturnType<typeof createDb>>;
 
 export { createGetDb } from "./create-get-db.js";
 export {
+  deferMigration,
+  MIGRATION_DEFERRED,
   runMigrations,
   type MigrationEntry,
+  type MigrationRunResult,
   type MigrationSql,
 } from "./migrations.js";
 export {
   getDbExec,
   createDbExec,
+  getDatabaseUrl,
   getDialect,
   isLocalDatabase,
   isPostgres,

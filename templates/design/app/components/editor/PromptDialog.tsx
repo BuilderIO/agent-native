@@ -52,6 +52,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 export interface UploadedFile {
@@ -513,6 +514,12 @@ export default function PromptPopover({
   const uploadFiles = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
       if (files.length === 0) return [];
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      if (totalBytes > MAX_UPLOAD_BYTES) {
+        throw new Error(
+          t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
+        );
+      }
       setUploading(true);
       try {
         const formData = new FormData();
@@ -552,7 +559,7 @@ export default function PromptPopover({
         setUploading(false);
       }
     },
-    [],
+    [t],
   );
 
   const handleSubmit = useCallback(

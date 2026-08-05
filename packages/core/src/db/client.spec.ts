@@ -115,10 +115,9 @@ describe("db/client dialect detection", () => {
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
     // The marker records which URL the foreground TARGETED, not where the
-    // request landed. A misrouted worker on the ~60s sync function must NOT
-    // take the 8-connection background pool (it runs as one of many warm
-    // instances and would exhaust the Neon pooler → connection terminated →
-    // failed heartbeat → stale_run). Only proof-of-landing unlocks the big pool.
+    // request landed. A misrouted worker on the ~60s sync function must not
+    // change its pool policy before the runtime proves that it landed on the
+    // dedicated worker.
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -131,7 +130,7 @@ describe("db/client dialect detection", () => {
     expect(neonPoolMax()).toBe(4);
   });
 
-  it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
+  it("keeps the background Neon pool bounded when the worker proves its runtime", async () => {
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -141,7 +140,7 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(true);
-    expect(neonPoolMax()).toBe(8);
+    expect(neonPoolMax()).toBe(4);
   });
 });
 

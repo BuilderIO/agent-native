@@ -68,6 +68,13 @@ describe("VideoPlayer playback", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ playbackPosition: null }),
+      }),
+    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -191,6 +198,40 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
+  it("reloads stable media URLs when the stored media version changes", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="raw"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=raw");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="repaired"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=repaired");
+  });
+
   it("starts after an intro cut instead of rewinding into the excluded range", () => {
     act(() => {
       root.render(
@@ -271,6 +312,30 @@ describe("VideoPlayer playback", () => {
 
     expect(playSpy).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Starting playback");
+  });
+
+  it("shows buffering instead of starting playback after playback has begun", async () => {
+    const video = getVideo();
+    const centerPlay = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+
+    await act(async () => {
+      centerPlay?.click();
+      await Promise.resolve();
+    });
+
+    const playSpy = vi
+      .spyOn(video, "play")
+      .mockReturnValue(new Promise<void>(() => {}));
+
+    act(() => {
+      handleRef.current?.play();
+    });
+
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Buffering");
+    expect(container.textContent).not.toContain("Starting playback");
   });
 
   it.each(["AbortError", "NotAllowedError"])(

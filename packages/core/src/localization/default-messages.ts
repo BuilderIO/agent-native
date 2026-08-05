@@ -7,6 +7,10 @@ const messages = {
   workspaceFile: {
     download: "Download",
   },
+  composer: {
+    sendMessage: "Send message",
+    queueMessage: "Queue message",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",
@@ -36,10 +40,10 @@ const messages = {
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
-    mcpConnectionsTitle: "MCP connections",
+    mcpConnectionsTitle: "Agent integrations",
     mcpConnectionsDescription:
-      "Connect remote MCP servers so the agent can use their tools.",
-    openMcpConnections: "Manage MCP connections",
+      "Connect tools and services so the agent can use them.",
+    openMcpConnections: "Open integrations",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -56,6 +60,22 @@ const messages = {
     profileSaving: "Saving...",
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
+    passwordTitle: "Password",
+    passwordDescription:
+      "Add a password for an alternative way to sign in to your account.",
+    passwordStatusLoading: "Checking password settings...",
+    passwordAdd: "Add password",
+    passwordChange: "Change password",
+    passwordCurrentLabel: "Current password",
+    passwordNewLabel: "New password",
+    passwordConfirmLabel: "Confirm new password",
+    passwordPlaceholder: "Enter password",
+    passwordMinLength: "Password must be at least 8 characters",
+    passwordMismatch: "Passwords do not match",
+    passwordSave: "Save password",
+    passwordSaving: "Saving...",
+    passwordSaved: "Password updated",
+    passwordSaveError: "Could not update password",
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",
@@ -66,6 +86,11 @@ const messages = {
     scopeLabel: "Scope",
     scopePersonal: "Personal",
     scopeWorkspace: "Workspace",
+    testStoredValue: "Test",
+    candidateValueWorking: "New value works",
+    storedValueWorking: "Working",
+    invalid: "Invalid",
+    testFailed: "Test failed",
     scopePersonalDescription:
       "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
     scopeWorkspaceDescription:
@@ -171,6 +196,7 @@ const messages = {
       resources: "Resources",
       messaging: "Messaging",
       destinations: "Destinations",
+      transactionalEmail: "Transactional email",
       identities: "Identities",
       approvals: "Approvals",
       automations: "Automations",
@@ -201,6 +227,57 @@ const messages = {
       suggestionBuildApp: "Build a workspace app for X",
       suggestionRouteSlack: "Route Slack mentions to my analytics app",
       suggestionGrantKey: "Grant my OpenAI key to this app",
+    },
+    transactionalEmail: {
+      title: "Transactional email",
+      description:
+        "Every transactional email each app in this workspace can send, with its trigger, recipients, and delivery metrics.",
+      retentionTitle: "Activity feed retention is short",
+      retentionNote:
+        "The email provider's activity feed only retains recent messages, so an empty activity list does not mean nothing was sent.",
+      openRatesUnavailable: "Open rates unavailable",
+      sharedProviderMetricsUnavailable:
+        "Provider metrics vary by sending app. Expand an app to see its provider data.",
+      catalogFanoutFailed: "Could not load app email catalogs",
+      retry: "Retry",
+      noApps: "No ready apps reported a transactional email catalog.",
+      catalogUnreadable: "This app's email catalog could not be read",
+      countsUnreadable: "Send counts could not be read",
+      appSendsNoEmail: "This app sends no transactional email of its own.",
+      emailNotFound: "Email not found",
+      emailNotFoundDescription: "This email is not in the app's catalog.",
+      sharedTitle: "Shared system email",
+      sharedSubtitle: "sent by every app",
+      email: "Email",
+      trigger: "Trigger",
+      sends: "Sends",
+      openRate: "Open rate",
+      lastSent: "Last sent",
+      sendLogUnread:
+        "The send log could not be read, so the number of sends is unknown.",
+      failedCount: "{{count}} failed",
+      failuresUnknown: "failures unknown",
+      noProviderRecord:
+        "The provider reported no record for this email in the window.",
+      noDeliveredMail: "No delivered mail yet",
+      neverSent: "Never sent",
+      lastSentUnknown:
+        "The send log could not be read, so the last send time is unknown.",
+      preview: "Preview",
+      previewDescription:
+        "Rendered with dummy data. Scripts are disabled in this preview.",
+      previewFailed: "Preview could not be rendered",
+      previewFrameTitle: "Preview of {{name}}",
+      subject: "Subject",
+      activityLink: "Activity log",
+      activityTitle: "Activity for {{name}}",
+      activityUnavailable: "Activity feed unavailable",
+      activityEmpty: "No recent activity in the provider's retention window.",
+      recipient: "Recipient",
+      sender: "Sender",
+      status: "Status",
+      opens: "Opens",
+      lastEvent: "Last event",
     },
     pages: {
       appsDescription:
@@ -281,18 +358,18 @@ const messages = {
         " a Dispatch tab or a workspace app in this workspace.",
       agentsDescription:
         "Dispatch can delegate to the built-in app suite over A2A by default. Add extra agents here only if you want to route work to apps outside that built-in set.",
-      mcpAccessUpdated: "MCP app access updated",
+      mcpAccessUpdated: "Agent integration access updated",
       selectAppForMcp: "Select at least one app, or expose all apps.",
-      mcpUrlCopied: "MCP URL copied",
-      mcpUrlCopyFailed: "Could not copy MCP URL",
-      unifiedMcpGateway: "Unified MCP gateway",
+      mcpUrlCopied: "Agent integration URL copied",
+      mcpUrlCopyFailed: "Could not copy agent integration URL",
+      unifiedMcpGateway: "Unified agent integration gateway",
       unifiedMcpGatewayDescription:
         "Connect external agents to Dispatch once, then route to granted workspace apps through",
       allApps: "All apps",
       selectedApps: "Selected apps",
       loading: "Loading",
       grantedCount: "{{count}} granted",
-      exposeAllAppsMcp: "Expose all apps through Dispatch MCP",
+      exposeAllAppsMcp: "Expose all apps through Dispatch",
       copyUrl: "Copy URL",
       metricsUnavailable: "Metrics unavailable",
       unableToLoadUsage: "Unable to load usage.",
@@ -426,7 +503,7 @@ const messages = {
     askAgentPlaceholder: "Tell the agent what you want to do…",
     connectAi: "Connect AI",
     builderOrOwnKeys:
-      "Use Builder.io (free credits), or add your own provider keys.",
+      "Use Builder.io free credits, or add your own provider keys.",
     connectBuilderIo: "Connect Builder.io",
     connectingBuilder: "Connecting Builder.io…",
     builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
@@ -621,13 +698,17 @@ const messages = {
     automationPrompt: "Create an automation that does this: ",
     cancel: "Cancel",
     instructions: "Instructions",
-    mcpTools: "Connected MCP tools",
+    mcpTools: "Connected agent tools",
     automationEventTrigger: "On {{event}}",
     scheduledTrigger: "Scheduled",
     eventTrigger: "Event-triggered",
     deleteAutomationTitle: "Delete automation?",
     deleteAutomationDescription:
       "This permanently removes the automation and cannot be undone.",
+    runNow: "Run now",
+    runNowTitle: "Run automation now?",
+    runNowDescription:
+      "This runs the automation's real actions immediately. It may send messages or change data, and it will not change the next scheduled run.",
     automationDetails: "Automation details",
     automationEventDetails: "Runs when {{event}}.",
     condition: "Condition",
@@ -705,6 +786,11 @@ const messages = {
     updatedDate: "Updated {{date}}",
     finishedDate: "Finished {{date}}",
   },
+  agentTask: {
+    backgroundTask: "Background task",
+    stop: "Stop background task",
+    openThread: "Open task thread",
+  },
   codeRequired: {
     fallbackDetail:
       "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
@@ -725,7 +811,7 @@ const messages = {
     codeChangeBadge: "Code change",
     connectBuilderTitle: "Connect Builder.io",
     connectBuilderDescription:
-      "Connect Builder to enable cloud-based code changes from this app.",
+      "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
     setupRequired: "Setup required",
     branchCreated: "Branch created",
     close: "Close",
@@ -897,7 +983,7 @@ const messages = {
     back: "Back",
     agentEngineRequired: "Agent engine required",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "Open LLM",
     setup: "Setup",
     shareDocumentsWith: "Share documents with",
@@ -919,9 +1005,9 @@ const messages = {
   },
   mcpIntegrations: {
     menuLabel: "Integrations",
-    menuDescription: "Connect MCP tools to the agent",
+    menuDescription: "Connect tools and services to the agent",
     title: "Connect integrations",
-    description: "Browse {{count}} MCP integrations or add a custom server.",
+    description: "Browse {{count}} agent integrations or add a custom one.",
     searchPlaceholder: "Search integrations",
     addYourOwn: "Add your own",
     noMatches: "No integrations match that search.",
@@ -935,25 +1021,26 @@ const messages = {
       "Connect {{name}} with an API token to use it in chat",
     dismissSuggestion: "Dismiss integration suggestion",
     backToIntegrations: "Back to integrations",
-    customTitle: "Add custom MCP server",
+    customTitle: "Add custom agent integration",
     configureTitle: "Configure {{name}}",
     presetNoAuthDescription:
       "Preset values are filled in. Test the endpoint or connect it now.",
     presetAuthDescription:
       "Preset values are filled in. Add any required authorization details before connecting.",
     customDescription:
-      "Paste a Streamable HTTP or SSE MCP endpoint and optional headers.",
+      "Paste a Streamable HTTP or SSE endpoint and optional headers.",
     oauthNotice:
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
     personal: "Personal",
     organization: "Organization",
-    serverNameRequired: "Enter a server name before connecting with OAuth.",
-    serverName: "Server name",
+    serverNameRequired:
+      "Enter an integration name before connecting with OAuth.",
+    serverName: "Integration name",
     url: "URL",
     fieldDescription: "Description",
     headers: "Headers",
-    serverNamePlaceholder: "Server name",
-    urlPlaceholder: "https://mcp.example.com/mcp",
+    serverNamePlaceholder: "Integration name",
+    urlPlaceholder: "https://example.com/agent-integration",
     descriptionPlaceholder: "Description (optional)",
     headersPlaceholder: "Authorization: Bearer <token>",
     openSetupDocs: "Open setup docs",
@@ -973,18 +1060,25 @@ const messages = {
         description: "Inspect issues, events, and debugging data.",
         useCase: "Error monitoring, debugging, performance, crash reports",
       },
+      fullstory: {
+        description: "Read behavioral analytics and inspect session replays.",
+        useCase:
+          "Product analytics, session replay, qualitative behavior, user research",
+        setupNote:
+          "FullStory MCP is currently beta and requires StoryAI features plus the Model Context Protocol toggle to be enabled by a FullStory organization admin.",
+      },
       notion: {
         description: "Search pages and team knowledge.",
         useCase: "Documentation, knowledge management, notes, content creation",
         setupNote:
-          "Notion MCP uses user OAuth. Enterprise workspaces can audit MCP usage and allow or block clients; reconnect after admin policy changes.",
+          "The Notion integration uses user OAuth. Enterprise workspaces can audit integration usage and allow or block clients; reconnect after admin policy changes.",
       },
       granola: {
         description: "Search meeting notes, transcripts, and action items.",
         useCase:
           "Meeting notes, recordings, transcripts, action items, follow-ups",
         setupNote:
-          "Granola MCP uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
+          "The Granola integration uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
       },
       semgrep: {
         description: "Scan code for security findings.",
@@ -1011,42 +1105,43 @@ const messages = {
         useCase:
           "Project management, issue tracking, documentation, team collaboration",
         setupNote:
-          "Atlassian admins manage the allowed AI domains and Rovo MCP permissions. Use the current Streamable HTTP endpoint, /v1/mcp, and reconnect after policy changes.",
+          "Atlassian admins manage the allowed AI domains and Rovo integration permissions. Use the current Streamable HTTP endpoint, /v1/mcp, and reconnect after policy changes.",
       },
       cloudflare: {
-        description: "Search and operate Cloudflare services through MCP.",
+        description:
+          "Search and operate Cloudflare services through its integration.",
         useCase:
           "DNS, Workers, domains, security, observability, platform APIs",
         setupNote:
-          "Cloudflare's managed MCP directory contains product-specific servers as well as the broad API server. Review the scopes and choose the narrowest endpoint that fits your workflow.",
+          "Cloudflare's managed integration directory contains product-specific integrations as well as the broad API integration. Review the scopes and choose the narrowest endpoint that fits your workflow.",
       },
       gitlab: {
         description:
           "Read and manage GitLab projects, issues, and merge requests.",
         useCase: "Repositories, issues, merge requests, CI/CD, code analytics",
         setupNote:
-          "GitLab MCP is currently beta. On GitLab.com, a top-level group admin must allow MCP access before OAuth can complete; self-managed instances have an equivalent instance setting.",
+          "The GitLab integration is currently beta. On GitLab.com, a top-level group admin must allow integration access before OAuth can complete; self-managed instances have an equivalent instance setting.",
       },
       figma: {
         description:
           "Bring Figma design context and canvas actions into an agent.",
         useCase: "Design files, components, variables, design systems, canvas",
         setupNote:
-          "Figma MCP only allows clients listed in Figma's MCP Catalog, so this remote endpoint cannot connect from Agent Native yet. Use the Figma REST API fallback with a personal access token for reading file and node context; MCP canvas actions remain unavailable until Figma approves Agent Native.",
+          "The Figma integration only allows clients listed in Figma's integration catalog, so this remote endpoint cannot connect from Agent Native yet. Use the Figma REST API fallback with a personal access token for reading file and node context; canvas actions remain unavailable until Figma approves Agent Native.",
       },
       canva: {
         description: "Search, create, and update Canva designs and assets.",
         useCase:
           "Designs, templates, assets, brand kits, exports, collaboration",
         setupNote:
-          "Canva MCP uses per-user OAuth and requires clients to allow Canva's canva.com and canva.ai domains. Confirm the current redirect and client setup in Canva's MCP documentation before connecting.",
+          "The Canva integration uses per-user OAuth and requires clients to allow Canva's canva.com and canva.ai domains. Confirm the current redirect and client setup in Canva's integration documentation before connecting.",
       },
       vercel: {
         description:
           "Search Vercel docs and inspect projects, deployments, and logs.",
         useCase: "Deployments, projects, logs, domains, hosting, documentation",
         setupNote:
-          "Vercel MCP only accepts reviewed and approved AI clients. Agent Native must be added to Vercel's supported-client list before a generic framework connection will work.",
+          "The Vercel integration only accepts reviewed and approved AI clients. Agent Native must be added to Vercel's supported-client list before a generic framework connection will work.",
       },
       github: {
         description:
@@ -1058,66 +1153,67 @@ const messages = {
       },
       slack: {
         description:
-          "Search Slack conversations and take workspace actions through MCP.",
+          "Search Slack conversations and take workspace actions through its integration.",
         useCase: "Messages, channels, people, company memory, workflows",
         setupNote:
-          "Slack MCP requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent Native workflows.",
+          "The Slack integration requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent Native workflows.",
       },
       asana: {
         description:
           "Search and manage Asana tasks, projects, and work graph data.",
         useCase: "Tasks, projects, portfolios, planning, workload",
         setupNote:
-          "Asana's V2 MCP server requires a pre-registered MCP OAuth app and does not support dynamic client registration. Configure an Asana app client before connecting.",
+          "Asana's agent integration requires a pre-registered OAuth app and does not support dynamic client registration. Configure an Asana app client before connecting.",
       },
       hubspot: {
-        description: "Search and update HubSpot CRM records through MCP.",
+        description:
+          "Search and update HubSpot CRM records through its integration.",
         useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
         setupNote:
-          "HubSpot MCP requires a HubSpot MCP Auth App and PKCE. Create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+          "The HubSpot integration requires a HubSpot Auth App and PKCE. Create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
       },
       intercom: {
         description: "Search conversations and customer support knowledge.",
         useCase:
           "Customer support, conversations, contacts, help center content",
         setupNote:
-          "Intercom MCP uses OAuth and is available for US-hosted workspaces. Confirm the workspace region and requested scopes during authorization.",
+          "The Intercom integration uses OAuth and is available for US-hosted workspaces. Confirm the workspace region and requested scopes during authorization.",
       },
       monday: {
         description: "Work with boards, items, and team workflows.",
         useCase: "Work management, boards, projects, tasks, team operations",
         setupNote:
-          "monday.com MCP uses OAuth over Streamable HTTP. Choose the workspace and permissions to share during authorization.",
+          "The monday.com integration uses OAuth over Streamable HTTP. Choose the workspace and permissions to share during authorization.",
       },
       webflow: {
         description: "Read and update Webflow sites and content.",
         useCase: "Websites, CMS, site content, publishing, design workflows",
         setupNote:
-          "Webflow MCP uses OAuth. Designer capabilities may install Webflow's Bridge App during authorization; Data API access is available separately.",
+          "The Webflow integration uses OAuth. Designer capabilities may install Webflow's Bridge App during authorization; Data API access is available separately.",
       },
       paypal: {
         description: "Work with PayPal payments, invoices, and commerce data.",
         useCase: "Payments, invoices, transactions, merchant operations",
         setupNote:
-          "PayPal exposes OAuth discovery and login for its remote MCP server. Agent Native uses the currently live /sse endpoint; review the merchant permissions before authorizing.",
+          "PayPal exposes OAuth discovery and login for its remote agent integration. Agent Native uses the currently live /sse endpoint; review the merchant permissions before authorizing.",
       },
       box: {
         description: "Search and manage files and folders in Box.",
         useCase: "Files, folders, enterprise content, search, collaboration",
         setupNote:
-          "Box MCP is beta and requires an administrator to enable it. Custom clients also need Box Integration Credentials, a redirect URI, and approved scopes.",
+          "The Box integration is beta and requires an administrator to enable it. Custom clients also need Box Integration Credentials, a redirect URI, and approved scopes.",
       },
       netlify: {
         description: "Inspect and operate Netlify sites and deployments.",
         useCase: "Sites, deployments, builds, domains, hosting operations",
         setupNote:
-          "Netlify documents a remote MCP setup for supported clients. Review the site and team permissions before completing OAuth.",
+          "Netlify documents a remote integration setup for supported clients. Review the site and team permissions before completing OAuth.",
       },
       zapier: {
-        description: "Connect MCP tools to thousands of app actions.",
+        description: "Connect tools to thousands of app actions.",
         useCase: "Automation, workflows, app actions, cross-service operations",
         setupNote:
-          "Zapier MCP uses a user-created MCP server and connection token for unlisted clients. Create the server in Zapier, then paste its generated bearer token into the header field.",
+          "Zapier's agent integration uses a user-created connection and token for unlisted clients. Create the connection in Zapier, then paste its generated bearer token into the header field.",
       },
     },
     auth: {

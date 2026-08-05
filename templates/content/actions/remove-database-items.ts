@@ -4,6 +4,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -80,6 +84,15 @@ export default defineAction({
 
     await withPositionLock(databaseItemsPositionScope(database.id), () =>
       db.transaction(async (tx) => {
+        await lockContentDatabaseMutation(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        );
+        await touchContentDatabase(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+          now,
+        );
         if (removedItemIds.length > 0) {
           await lockDatabaseMemberships(tx, removedItemIds);
           const [sourceRow, hydrationRow] = await Promise.all([
@@ -141,6 +154,19 @@ export default defineAction({
                 inArray(
                   schema.documentBlockFieldContents.propertyId,
                   propertyIds,
+                ),
+              ),
+            );
+        }
+        if (removedItemIds.length > 0) {
+          await tx
+            .delete(schema.contentDatabaseItemKeyClaims)
+            .where(
+              and(
+                eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+                inArray(
+                  schema.contentDatabaseItemKeyClaims.itemId,
+                  removedItemIds,
                 ),
               ),
             );

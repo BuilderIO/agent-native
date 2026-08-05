@@ -158,7 +158,6 @@ import {
   IconChevronUp,
   IconCheck,
   IconPointer,
-  IconTypography,
   IconHandStop,
   IconSquare,
   IconLine,
@@ -271,6 +270,7 @@ import {
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
+import { IconText } from "@/components/design/inspector/design-icons";
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
@@ -410,6 +410,7 @@ import {
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
   designEditorCommandKey,
   designSelectionStateKeysForTab,
@@ -730,6 +731,10 @@ import {
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
 import {
+  resolveElementNudgeIntent,
+  resolveNudgeIntent,
+} from "./design-editor/nudge-intent";
+import {
   collectOverviewAnnotationViewportMap,
   formatOverviewAnnotationMessage,
 } from "./design-editor/overview-annotation-context";
@@ -755,6 +760,7 @@ import {
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
 } from "./design-editor/overview-camera";
+import { resolvePastePlacementForSelection } from "./design-editor/paste-placement";
 import {
   applyInteractionStateStyleCommit,
   applyScopedVisualStyleEdit,
@@ -802,6 +808,7 @@ import {
   renderExportDocumentCanvas,
   resolveExportCropRect,
   sanitizeSerializedXmlForSvg,
+  type PngCaptureScope,
 } from "./design-editor/png-export-render";
 import {
   applyPortableStyles,
@@ -851,7 +858,7 @@ import {
   getSidebarCodeLayerSelectionState,
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
-  overviewDeleteTargetsElement,
+  overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
   resolveAvailableActiveFileId,
   resolveEscapePopSelectionAction,
@@ -1925,13 +1932,13 @@ function DesignBottomToolbar({
       key: "text",
       active: activeTool === "text",
       label: t("designEditor.tools.text"),
-      icon: <IconTypography className="size-[18px]" />,
+      icon: <IconText className="size-[18px]" />,
       onClick: onText,
       options: [
         {
           key: "text",
           label: t("designEditor.tools.text"),
-          icon: <IconTypography className="size-4" />,
+          icon: <IconText className="size-4" />,
           shortcut: "T",
           active: activeTool === "text",
           onSelect: onText,
@@ -4869,6 +4876,10 @@ function DesignEditor() {
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems(isSignedIn);
+  const {
+    preferences: editorPreferences,
+    setPreferences: setEditorPreferences,
+  } = useEditorPreferences();
 
   useEffect(() => {
     if (!id || !design || !isSignedIn || !postAuthIntent) return;
@@ -16336,21 +16347,22 @@ function DesignEditor() {
         return true;
       };
 
-      // B7 fix: when an element is selected and no explicit canvas position was
-      // given, insert the clone as an in-flow sibling right AFTER the selected
-      // element.  Strip any position/left/top from the clone so it participates
-      // in normal document flow instead of being an absolutely-positioned body
-      // child.  Fall back to the old position-based clone when nothing is
-      // selected or a "Paste here" position is provided.
+      // Inside a frame, after an object — but always into normal flow: a
+      // container is not a free canvas, so carrying the source's left/top
+      // across drops the clone on top of the target's content.
       if (
         !position &&
         targetFileId !== boardFileId &&
         selectedElement?.selector
       ) {
         const selector = selectedCanvasSelector ?? selectedElement.selector;
+        const decision = resolvePastePlacementForSelection({
+          content: baseContent,
+          selectedElement,
+        });
         const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
           targetSelectors: [selector],
-          placement: "after",
+          placement: decision?.placement ?? "after",
           stripRootPosition: true,
           styleSnapshots,
           managedStyleSnapshots,
@@ -20322,6 +20334,21 @@ function DesignEditor() {
     ],
   );
 
+  // MultiScreenCanvas consumes arrow keys in the capture phase while a frame
+  // is selected, and an in-screen element selection keeps its screen there.
+  const handleOverviewNudgeSelection = useCallback(() => {
+    if (
+      overviewSelectionTargetsElement({
+        selectedElement,
+        selectedLayerIds: selectedLayerIdsState,
+        fileIds: files.map((file) => file.id),
+      })
+    ) {
+      return false;
+    }
+    return true;
+  }, [files, selectedElement, selectedLayerIdsState]);
+
   // Gate screen deletion behind confirmation, then record the deleted rows as
   // one grouped history entry so Cmd+Z can recreate every selected screen.
   // Always returns false to MultiScreenCanvas so it never performs its own
@@ -20336,7 +20363,7 @@ function DesignEditor() {
       // onDelete hotkey never ran. Route to the element delete instead; the
       // screen-delete confirmation is only for a real frame selection.
       if (
-        overviewDeleteTargetsElement({
+        overviewSelectionTargetsElement({
           selectedElement,
           selectedLayerIds: selectedLayerIdsState,
           fileIds: files.map((file) => file.id),
@@ -20758,20 +20785,26 @@ function DesignEditor() {
   const handleNudgeSelection = useCallback(
     (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
       if (!canEditDesign) return;
-      const step = largeStep ? 10 : 1;
-      const dx =
-        direction === "left" ? -step : direction === "right" ? step : 0;
-      const dy = direction === "up" ? -step : direction === "down" ? step : 0;
+      const nudgeAmounts = editorPreferences.nudge;
+      const freeTranslation = resolveNudgeIntent({
+        direction,
+        largeStep,
+        amounts: nudgeAmounts,
+      });
+      const dx = freeTranslation.kind === "translate" ? freeTranslation.dx : 0;
+      const dy = freeTranslation.kind === "translate" ? freeTranslation.dy : 0;
 
-      // Overview mode, one or more screen frames selected: arrow keys nudge
-      // the selected screens' canvas frame geometry (Figma nudges whatever is
-      // selected, including top-level frames) through the same
-      // geometry-commit path mouse-drag uses, so undo/redo and the
-      // rapid-repeat coalescing in handleGeometryCommit (~800ms window) apply
-      // identically to a held arrow key as they do to a drag gesture.
+      // Screen frames nudge through the same geometry-commit path mouse-drag
+      // uses, so a held arrow key gets handleGeometryCommit's ~800ms undo
+      // coalescing instead of one history entry per keypress.
       if (
         viewModeRef.current === "overview" &&
-        overviewSelectedScreenIds.length > 0
+        overviewSelectedScreenIds.length > 0 &&
+        !overviewSelectionTargetsElement({
+          selectedElement,
+          selectedLayerIds: selectedLayerIdsState,
+          fileIds: files.map((file) => file.id),
+        })
       ) {
         const before = getCanvasFrameGeometry(designDataJsonRef.current);
         const after = cloneCanvasFrameGeometry(before);
@@ -20807,6 +20840,45 @@ function DesignEditor() {
       }
 
       if (!selectedElement?.selector) return;
+
+      const intent = resolveElementNudgeIntent({
+        content: activeFile ? getFreshActiveContent() : "",
+        selectedElement,
+        direction,
+        largeStep,
+        amounts: nudgeAmounts,
+      });
+      if (intent.kind === "none") return;
+      if (intent.kind === "reorder") {
+        const patch = applyVisualEdit(intent.content, {
+          kind: "moveNode",
+          target: { nodeId: intent.targetNodeId },
+          anchor: { nodeId: intent.anchorNodeId },
+          placement: intent.placement,
+        } satisfies MoveNodeEditIntent);
+        if (patch.result.status !== "applied") return;
+        applyLocalContentUpdate(patch.content, { skipPreview: true });
+        // A node with no stable `data-agent-native-node-id` has its id derived
+        // from path/offset, and the move changes both — so the pre-move id
+        // finds nothing and the selection has to be re-resolved by identity.
+        const movedNode =
+          patch.projection.nodes.find(
+            (node) =>
+              node.id === intent.targetNodeId ||
+              node.dataAttributes["data-agent-native-node-id"] ===
+                intent.targetNodeId,
+          ) ??
+          resolveCodeLayerNodeFromElementInfo(
+            patch.projection,
+            selectedElement,
+          );
+        if (movedNode) {
+          setSelectedElement(elementInfoFromCodeLayerNode(movedNode));
+          setSelectedLayerIdsState([movedNode.id]);
+        }
+        return;
+      }
+
       hideSelectionChromeForNudge();
       const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
       const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
@@ -20815,20 +20887,26 @@ function DesignEditor() {
           selectedElement.computedStyles.position === "static"
             ? "relative"
             : selectedElement.computedStyles.position || "relative",
-        left: `${Math.round(left + dx)}px`,
-        top: `${Math.round(top + dy)}px`,
+        left: `${Math.round(left + intent.dx)}px`,
+        top: `${Math.round(top + intent.dy)}px`,
       });
     },
     [
+      activeFile,
+      applyLocalContentUpdate,
       boardFileId,
       boardFrameGeometry,
       canEditDesign,
       commitVisualStyles,
+      editorPreferences.nudge,
+      files,
+      getFreshActiveContent,
       handleGeometryCommit,
       hideSelectionChromeForNudge,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedElement,
+      selectedLayerIdsState,
     ],
   );
 
@@ -24414,10 +24492,10 @@ function DesignEditor() {
   }, [activeCodeLayerProjection.nodes, selectedElement, selectedLayerIdsState]);
 
   const resolvePngCaptureTarget = useCallback(
-    (selectionOnly: boolean) => {
+    (scope: PngCaptureScope) => {
       let iframe = canvasIframeRef.current;
       let cropSelection: ElementInfo | readonly ElementInfo[] | null =
-        viewMode === "single"
+        viewMode === "single" || scope === "element"
           ? pngSelectedElements.length > 0
             ? pngSelectedElements
             : selectedElement
@@ -24426,7 +24504,7 @@ function DesignEditor() {
       // In overview, Copy as PNG targets the one selected screen instead of
       // whichever iframe happens to be first in DOM order. The download action
       // still targets the active screen through canvasIframeRef.
-      if (selectionOnly && viewMode === "overview") {
+      if (scope !== "document" && viewMode === "overview") {
         const screenId =
           selectedScreenIds.length === 1 ? selectedScreenIds[0] : null;
         iframe = screenId
@@ -24434,7 +24512,7 @@ function DesignEditor() {
               `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
             )
           : null;
-        cropSelection = null;
+        if (scope === "screens") cropSelection = null;
       }
 
       if (!iframe) throw new PngCaptureError("no-preview");
@@ -24477,11 +24555,11 @@ function DesignEditor() {
    * Copy as PNG from drifting visually from the existing PNG export. */
   const renderPngBlob = useCallback(
     async ({
-      selectionOnly,
+      scope,
       settings,
       format = "png",
     }: {
-      selectionOnly: boolean;
+      scope: PngCaptureScope;
       settings?: Partial<ExportSettingsValue>;
       format?: "png" | "jpg" | "webp";
     }): Promise<Blob> => {
@@ -24491,7 +24569,7 @@ function DesignEditor() {
       let outputCanvas: HTMLCanvasElement;
 
       if (
-        selectionOnly &&
+        scope === "screens" &&
         viewMode === "overview" &&
         selectedScreenIds.length > 0
       ) {
@@ -24598,8 +24676,7 @@ function DesignEditor() {
           context.restore();
         }
       } else {
-        const { cropSelection, doc, iframe } =
-          resolvePngCaptureTarget(selectionOnly);
+        const { cropSelection, doc, iframe } = resolvePngCaptureTarget(scope);
         const rendered = await renderExportDocumentCanvas({
           doc,
           iframe,
@@ -24607,12 +24684,18 @@ function DesignEditor() {
           render: html2canvas,
         });
         const cropRect = resolveExportCropRect(doc, cropSelection);
+        const cropped = cropRect
+          ? cropCanvasToRect(rendered.canvas, cropRect, rendered.scale)
+          : null;
+        // An element capture that silently widens to the whole document is a
+        // preview of something the user did not ask to export, and nothing
+        // downstream can tell it apart from a real one.
+        if (scope === "element" && !cropped) {
+          throw new PngCaptureError("no-preview");
+        }
         // Render the whole page first, then crop, so ancestor backgrounds show
         // through every selected frame exactly as they do on screen.
-        outputCanvas = cropRect
-          ? (cropCanvasToRect(rendered.canvas, cropRect, rendered.scale) ??
-            rendered.canvas)
-          : rendered.canvas;
+        outputCanvas = cropped ?? rendered.canvas;
       }
       const mimeType =
         format === "jpg"
@@ -24676,7 +24759,7 @@ function DesignEditor() {
       setPngExporting(true);
       try {
         const blob = await renderPngBlob({
-          selectionOnly: false,
+          scope: "document",
           settings,
           format,
         });
@@ -24704,7 +24787,8 @@ function DesignEditor() {
       pngExportingRef.current = true;
       setPngExporting(true);
       try {
-        const { cropSelection, doc, iframe } = resolvePngCaptureTarget(false);
+        const { cropSelection, doc, iframe } =
+          resolvePngCaptureTarget("document");
         const crop = resolveExportCropRect(doc, cropSelection);
         const pageWidth = Math.max(
           1,
@@ -24734,7 +24818,7 @@ function DesignEditor() {
           settings?.scale ?? PDF_MIN_PRINT_RASTER_SCALE,
         );
         const png = await renderPngBlob({
-          selectionOnly: false,
+          scope: "document",
           settings: { ...settings, scale: pdfScale },
           format: "png",
         });
@@ -24871,7 +24955,7 @@ function DesignEditor() {
     try {
       // Do not await this before clipboard.write: ClipboardItem accepts the
       // pending Blob representation, preserving the initiating user gesture.
-      const pngBlob = renderPngBlob({ selectionOnly: true });
+      const pngBlob = renderPngBlob({ scope: "screens" });
       await copyPngPromiseToClipboard(pngBlob);
       toast.success(t("designEditor.toasts.pngCopied"));
     } catch (error) {
@@ -25221,7 +25305,7 @@ function DesignEditor() {
    *  renderer the export itself uses, at scale 1 since it paints into a ~7rem
    *  box. Rejections propagate so the preview can show a failure. */
   const handleRenderExportPreview = useCallback(
-    () => renderPngBlob({ selectionOnly: true, settings: { scale: 1 } }),
+    () => renderPngBlob({ scope: "element", settings: { scale: 1 } }),
     [renderPngBlob],
   );
 
@@ -31105,12 +31189,21 @@ function DesignEditor() {
           )}
 
         {!embedded && keyboardShortcutsOpen ? (
-          <KeyboardShortcutsPanel onClose={handleCloseKeyboardShortcuts} />
+          <KeyboardShortcutsPanel
+            onClose={handleCloseKeyboardShortcuts}
+            nudgeAmounts={editorPreferences.nudge}
+            onNudgeAmountsChange={(nudge) =>
+              setEditorPreferences({ ...editorPreferences, nudge })
+            }
+          />
         ) : null}
 
         {/* Canvas */}
         {questionFlowActive ? (
-          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-canvas-bg)]">
+          /* Panel background, not canvas: these are the agent's own follow-up
+             questions, and on the canvas grey they read as an unrelated object
+             parked beside the chat rather than a continuation of it. */
+          <div className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]">
             <QuestionFlow
               questions={pendingQuestions ?? []}
               onSubmit={handleQuestionsSubmit}
@@ -31655,6 +31748,7 @@ function DesignEditor() {
                         }
                         onCreateScreenFrame={handleCreateScreenFrame}
                         onDeleteSelection={handleDeleteOverviewSelection}
+                        onNudgeSelection={handleOverviewNudgeSelection}
                         onSelectionChange={handleOverviewScreenSelectionChange}
                         onLayerMarqueeSelectionChange={
                           handleLayerMarqueeSelectionChange
@@ -32593,7 +32687,7 @@ function DesignEditor() {
                 </DialogTitle>
                 <DialogDescription>
                   {
-                    "Connect Builder.io to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
+                    "Connect Builder.io (free tier available) to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
                   }
                 </DialogDescription>
               </DialogHeader>
@@ -32623,7 +32717,7 @@ function DesignEditor() {
                 </ul>
                 <p className="pt-1 text-xs">
                   {
-                    "Requires Builder.io to be connected with a branch project configured." /* i18n-ignore */
+                    "Requires Builder.io to be connected (free tier available) with a branch project configured." /* i18n-ignore */
                   }
                 </p>
               </div>

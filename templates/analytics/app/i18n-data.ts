@@ -194,6 +194,14 @@ const enUS = {
     openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
+    errorEmailNotifications: "Email new error alerts",
+    errorEmailNotificationsDescription:
+      "Send an email when a new JavaScript error is captured. Off by default.",
+    errorEmailNotificationsSaveFailed: "Couldn't save the email preference.",
+    bellSound: "Bell sound",
+    bellSoundDescription:
+      "Play a sound when the agent finishes a run. Off by default.",
+    bellSoundSaveFailed: "Couldn't save the sound preference.",
     about: "About",
     aboutDescription:
       "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
@@ -919,6 +927,22 @@ const enUS = {
     firstPartyAnalytics: "First-party Analytics",
     firstPartyDescription:
       "Receive product, session, and $ai_generation events through the same first-party endpoint for dashboarding and LLM observability.",
+    bigQueryRecommendationTitle: "BigQuery is recommended for this data",
+    bigQueryRecommendationDescription:
+      "Neon is still the default. Connect BigQuery when you have 1M+ observed events or repeated slow queries/timeouts, then use it for high-volume or historical analysis.",
+    bigQueryConnectedTitle: "BigQuery is ready for heavier queries",
+    bigQueryConnectedDescription:
+      "Use BigQuery for high-volume or historical tracking queries. Neon remains available for recent operational analytics.",
+    bigQuerySetup: "Set up BigQuery",
+    bigQueryMonitorDescription:
+      "Neon is still a good fit. Keep an eye on event volume and query latency; this card will recommend BigQuery if pressure grows.",
+    bigQueryHealthyDescription:
+      "Neon is a good fit for this first-party data right now. We will flag this again if volume or query latency grows.",
+    bigQueryHealthUnavailable:
+      "We could not check first-party analytics pressure right now. Reload and try again before changing backends.",
+    analyticsEventCount: "Observed events",
+    slowQueries24h: "Slow queries (24h)",
+    maxQueryDuration: "Max query time",
     defaultKeyName: "Hosted templates",
     endpoint: "Endpoint",
     serverEnv: "Server env",
@@ -1393,6 +1417,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "第一方 Analytics",
       firstPartyDescription:
         "通过同一个第一方端点接收产品、会话和 $ai_generation 事件，用于仪表板和 LLM 可观测性。",
+      bigQueryRecommendationTitle: "建议为此数据使用 BigQuery",
+      bigQueryRecommendationDescription:
+        "Neon 仍是默认选择。当观察到 100 万以上事件或反复出现慢查询/超时时，请连接 BigQuery，并用它进行高数据量或历史分析。",
+      bigQueryConnectedTitle: "BigQuery 已准备好处理更重的查询",
+      bigQueryConnectedDescription:
+        "使用 BigQuery 处理高数据量或历史跟踪查询。Neon 仍可用于近期运营分析。",
+      bigQuerySetup: "设置 BigQuery",
+      bigQueryMonitorDescription:
+        "Neon 目前仍然适合。请关注事件量和查询延迟；如果压力增加，此卡片会建议 BigQuery。",
+      bigQueryHealthyDescription:
+        "目前 Neon 适合这项第一方数据。如果事件量或查询延迟增加，我们会再次提醒你。",
+      bigQueryHealthUnavailable:
+        "现在无法检查第一方 Analytics 压力。请重新加载后再尝试更换后端。",
+      analyticsEventCount: "观察到的事件",
+      slowQueries24h: "慢查询（24 小时）",
+      maxQueryDuration: "最长查询时间",
       defaultKeyName: "托管模板",
       endpoint: "端点",
       serverEnv: "服务器环境",
@@ -1696,6 +1736,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "zx3qz",
       firstPartyDescription:
         "Reciba eventos de producto, sesión y $ai_generation en el mismo endpoint propio para dashboards y observabilidad de LLM.",
+      bigQueryRecommendationTitle: "Se recomienda BigQuery para estos datos",
+      bigQueryRecommendationDescription:
+        "Neon sigue siendo la opción predeterminada. Conecta BigQuery cuando tengas más de 1 millón de eventos observados o consultas lentas/tiempos de espera repetidos, y úsalo para análisis históricos o de gran volumen.",
+      bigQueryConnectedTitle: "BigQuery está listo para consultas más pesadas",
+      bigQueryConnectedDescription:
+        "Usa BigQuery para consultas históricas o de seguimiento de gran volumen. Neon sigue disponible para análisis operativos recientes.",
+      bigQuerySetup: "Configurar BigQuery",
+      bigQueryMonitorDescription:
+        "Neon sigue siendo una buena opción. Vigila el volumen de eventos y la latencia; esta tarjeta recomendará BigQuery si aumenta la presión.",
+      bigQueryHealthyDescription:
+        "Neon es una buena opción para estos datos propios por ahora. Te avisaremos si aumentan el volumen o la latencia.",
+      bigQueryHealthUnavailable:
+        "No se pudo comprobar la presión de Analytics propio. Recarga e inténtalo de nuevo antes de cambiar de backend.",
+      analyticsEventCount: "Eventos observados",
+      slowQueries24h: "Consultas lentas (24 h)",
+      maxQueryDuration: "Tiempo máximo de consulta",
       defaultKeyName: "Plantillas alojadas",
       endpoint: "Punto final",
       serverEnv: "entorno del servidor",
@@ -2017,6 +2073,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "Analytics propriétaire",
       firstPartyDescription:
         "Recevez les événements produit, session et $ai_generation sur le même point de terminaison propriétaire pour les tableaux de bord et l'observabilité LLM.",
+      bigQueryRecommendationTitle: "BigQuery est recommandé pour ces données",
+      bigQueryRecommendationDescription:
+        "Neon reste la valeur par défaut. Connectez BigQuery avec plus d’un million d’événements observés ou des requêtes lentes/expirées répétées, puis utilisez-le pour les analyses historiques ou volumineuses.",
+      bigQueryConnectedTitle: "BigQuery est prêt pour les requêtes lourdes",
+      bigQueryConnectedDescription:
+        "Utilisez BigQuery pour les requêtes de suivi historiques ou volumineuses. Neon reste disponible pour les analyses opérationnelles récentes.",
+      bigQuerySetup: "Configurer BigQuery",
+      bigQueryMonitorDescription:
+        "Neon reste adapté pour le moment. Surveillez le volume et la latence ; cette carte recommandera BigQuery si la pression augmente.",
+      bigQueryHealthyDescription:
+        "Neon convient actuellement à ces données propriétaires. Nous vous préviendrons si le volume ou la latence augmente.",
+      bigQueryHealthUnavailable:
+        "Impossible de vérifier la pression Analytics propriétaire. Rechargez la page avant de changer de backend.",
+      analyticsEventCount: "Événements observés",
+      slowQueries24h: "Requêtes lentes (24 h)",
+      maxQueryDuration: "Durée maximale de requête",
       defaultKeyName: "Modèles hébergés",
       endpoint: "Point de terminaison",
       serverEnv: "Environnement du serveur",
@@ -2336,6 +2408,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "First-Party-Analytics",
       firstPartyDescription:
         "Empfangen Sie Produkt-, Sitzungs- und $ai_generation-Ereignisse über denselben Erstanbieter-Endpunkt für Dashboards und LLM-Observability.",
+      bigQueryRecommendationTitle: "BigQuery wird für diese Daten empfohlen",
+      bigQueryRecommendationDescription:
+        "Neon bleibt die Standardeinstellung. Verbinde BigQuery ab 1 Million beobachteter Ereignisse oder wiederholt langsamen/abgebrochenen Abfragen und nutze es für umfangreiche oder historische Analysen.",
+      bigQueryConnectedTitle: "BigQuery ist für umfangreiche Abfragen bereit",
+      bigQueryConnectedDescription:
+        "Nutze BigQuery für umfangreiche oder historische Tracking-Abfragen. Neon bleibt für aktuelle operative Analysen verfügbar.",
+      bigQuerySetup: "BigQuery einrichten",
+      bigQueryMonitorDescription:
+        "Neon ist derzeit weiterhin geeignet. Beobachte Ereignismenge und Abfragelatenz; bei wachsendem Druck wird diese Karte BigQuery empfehlen.",
+      bigQueryHealthyDescription:
+        "Neon ist für diese First-Party-Daten derzeit gut geeignet. Wir melden uns erneut, wenn Menge oder Latenz steigen.",
+      bigQueryHealthUnavailable:
+        "Der Druck der First-Party-Analytics konnte nicht geprüft werden. Lade die Seite neu, bevor du das Backend wechselst.",
+      analyticsEventCount: "Beobachtete Ereignisse",
+      slowQueries24h: "Langsame Abfragen (24 h)",
+      maxQueryDuration: "Maximale Abfragezeit",
       defaultKeyName: "Gehostete Vorlagen",
       endpoint: "Endpunkt",
       serverEnv: "Serverumgebung",
@@ -2650,6 +2738,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "ファーストパーティ Analytics",
       firstPartyDescription:
         "同じファーストパーティエンドポイントで製品、セッション、$ai_generation イベントを受信し、ダッシュボードと LLM 可観測性に使用します。",
+      bigQueryRecommendationTitle: "このデータには BigQuery をおすすめします",
+      bigQueryRecommendationDescription:
+        "Neon は引き続き標準です。観測イベントが 100 万件を超える、または遅いクエリやタイムアウトが繰り返される場合は BigQuery に接続し、大量・履歴分析に使用してください。",
+      bigQueryConnectedTitle: "BigQuery は重いクエリに対応できます",
+      bigQueryConnectedDescription:
+        "大量または履歴のトラッキングクエリには BigQuery を使用してください。Neon は最近の運用分析に引き続き利用できます。",
+      bigQuerySetup: "BigQuery を設定",
+      bigQueryMonitorDescription:
+        "今のところ Neon が適しています。イベント量とクエリ遅延を確認してください。負荷が増えるとこのカードが BigQuery をおすすめします。",
+      bigQueryHealthyDescription:
+        "現在、このファーストパーティデータには Neon が適しています。量やクエリ遅延が増えたら再度お知らせします。",
+      bigQueryHealthUnavailable:
+        "ファーストパーティ Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
+      analyticsEventCount: "観測イベント",
+      slowQueries24h: "遅いクエリ（24 時間）",
+      maxQueryDuration: "最大クエリ時間",
       defaultKeyName: "ホストされたテンプレート",
       endpoint: "終点",
       serverEnv: "サーバー環境",
@@ -2959,6 +3063,23 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "퍼스트파티 Analytics",
       firstPartyDescription:
         "동일한 퍼스트파티 엔드포인트에서 제품, 세션, $ai_generation 이벤트를 받아 대시보드와 LLM 관측성에 사용합니다.",
+      bigQueryRecommendationTitle: "이 데이터에는 BigQuery를 권장합니다",
+      bigQueryRecommendationDescription:
+        "Neon은 여전히 기본값입니다. 관측 이벤트가 100만 개 이상이거나 느린 쿼리/시간 초과가 반복되면 BigQuery를 연결하고 대용량 또는 과거 분석에 사용하세요.",
+      bigQueryConnectedTitle:
+        "BigQuery가 무거운 쿼리를 처리할 준비가 되었습니다",
+      bigQueryConnectedDescription:
+        "대용량 또는 과거 추적 쿼리에는 BigQuery를 사용하세요. Neon은 최근 운영 분석에 계속 사용할 수 있습니다.",
+      bigQuerySetup: "BigQuery 설정",
+      bigQueryMonitorDescription:
+        "현재는 Neon이 적합합니다. 이벤트 양과 쿼리 지연을 확인하세요. 부담이 커지면 이 카드에서 BigQuery를 권장합니다.",
+      bigQueryHealthyDescription:
+        "현재 이 퍼스트파티 데이터에는 Neon이 적합합니다. 양이나 쿼리 지연이 증가하면 다시 알려드립니다.",
+      bigQueryHealthUnavailable:
+        "퍼스트파티 Analytics 부담을 확인하지 못했습니다. 백엔드를 바꾸기 전에 다시 로드하세요.",
+      analyticsEventCount: "관측된 이벤트",
+      slowQueries24h: "느린 쿼리 (24시간)",
+      maxQueryDuration: "최대 쿼리 시간",
       defaultKeyName: "호스팅된 템플릿",
       endpoint: "엔드포인트",
       serverEnv: "서버 환경",
@@ -3266,6 +3387,23 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "Analytics primário",
       firstPartyDescription:
         "Receba eventos de produto, sessão e $ai_generation pelo mesmo endpoint primário para dashboards e observabilidade de LLM.",
+      bigQueryRecommendationTitle: "BigQuery é recomendado para estes dados",
+      bigQueryRecommendationDescription:
+        "Neon continua sendo o padrão. Conecte o BigQuery ao observar mais de 1 milhão de eventos ou consultas lentas/expiradas repetidas e use-o para análises históricas ou de alto volume.",
+      bigQueryConnectedTitle:
+        "BigQuery está pronto para consultas mais pesadas",
+      bigQueryConnectedDescription:
+        "Use BigQuery para consultas históricas ou de rastreamento de alto volume. Neon continua disponível para análises operacionais recentes.",
+      bigQuerySetup: "Configurar BigQuery",
+      bigQueryMonitorDescription:
+        "Neon ainda é uma boa opção. Acompanhe o volume de eventos e a latência; este cartão recomendará BigQuery se a pressão aumentar.",
+      bigQueryHealthyDescription:
+        "Neon é uma boa opção para estes dados primários agora. Avisaremos novamente se o volume ou a latência crescer.",
+      bigQueryHealthUnavailable:
+        "Não foi possível verificar a pressão do Analytics primário. Recarregue antes de trocar o backend.",
+      analyticsEventCount: "Eventos observados",
+      slowQueries24h: "Consultas lentas (24 h)",
+      maxQueryDuration: "Tempo máximo da consulta",
       defaultKeyName: "Modelos hospedados",
       endpoint: "Ponto final",
       serverEnv: "Ambiente do servidor",
@@ -3577,6 +3715,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "प्रथम-पक्ष Analytics",
       firstPartyDescription:
         "डैशबोर्ड और LLM observability के लिए उसी प्रथम-पक्ष endpoint से product, session, और $ai_generation events प्राप्त करें।",
+      bigQueryRecommendationTitle: "इस डेटा के लिए BigQuery की सलाह है",
+      bigQueryRecommendationDescription:
+        "Neon अभी भी डिफ़ॉल्ट है। 10 लाख से अधिक देखे गए events या बार-बार धीमे queries/timeouts होने पर BigQuery जोड़ें और बड़े या पुराने डेटा के विश्लेषण के लिए इसका उपयोग करें।",
+      bigQueryConnectedTitle: "BigQuery भारी queries के लिए तैयार है",
+      bigQueryConnectedDescription:
+        "बड़े या पुराने tracking queries के लिए BigQuery का उपयोग करें। हाल के operational analytics के लिए Neon उपलब्ध रहेगा।",
+      bigQuerySetup: "BigQuery सेट अप करें",
+      bigQueryMonitorDescription:
+        "अभी Neon उपयुक्त है। event volume और query latency पर नज़र रखें; दबाव बढ़ने पर यह card BigQuery की सलाह देगा।",
+      bigQueryHealthyDescription:
+        "अभी इस first-party data के लिए Neon उपयुक्त है। volume या query latency बढ़ने पर हम फिर बताएँगे।",
+      bigQueryHealthUnavailable:
+        "First-party Analytics pressure की जाँच नहीं हो सकी। backend बदलने से पहले reload करके फिर प्रयास करें।",
+      analyticsEventCount: "देखे गए events",
+      slowQueries24h: "धीमे queries (24 घंटे)",
+      maxQueryDuration: "अधिकतम query समय",
       defaultKeyName: "होस्ट किए गए टेम्पलेट",
       endpoint: "endpoint",
       serverEnv: "सर्वर एन.वी",
@@ -3879,6 +4033,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "تحليلات الطرف الأول",
       firstPartyDescription:
         "استقبل أحداث المنتج والجلسة و $ai_generation عبر نقطة نهاية الطرف الأول نفسها للوحات المعلومات ومراقبة LLM.",
+      bigQueryRecommendationTitle: "يُنصح باستخدام BigQuery لهذه البيانات",
+      bigQueryRecommendationDescription:
+        "يبقى Neon هو الخيار الافتراضي. وصّل BigQuery عند وجود أكثر من مليون حدث ملحوظ أو تكرار الاستعلامات البطيئة/المهلة، واستخدمه للتحليل التاريخي أو عالي الحجم.",
+      bigQueryConnectedTitle: "BigQuery جاهز للاستعلامات الأثقل",
+      bigQueryConnectedDescription:
+        "استخدم BigQuery لاستعلامات التتبع عالية الحجم أو التاريخية. يظل Neon متاحاً للتحليلات التشغيلية الحديثة.",
+      bigQuerySetup: "إعداد BigQuery",
+      bigQueryMonitorDescription:
+        "لا يزال Neon مناسباً حالياً. راقب حجم الأحداث وزمن الاستعلام؛ ستوصي هذه البطاقة بـ BigQuery إذا زاد الضغط.",
+      bigQueryHealthyDescription:
+        "Neon مناسب حالياً لبيانات الطرف الأول هذه. سننبهك مجدداً إذا زاد الحجم أو زمن الاستعلام.",
+      bigQueryHealthUnavailable:
+        "تعذّر التحقق من ضغط Analytics للطرف الأول. أعد التحميل وحاول مجدداً قبل تغيير الخلفية.",
+      analyticsEventCount: "الأحداث الملحوظة",
+      slowQueries24h: "الاستعلامات البطيئة (24 ساعة)",
+      maxQueryDuration: "أقصى زمن للاستعلام",
       defaultKeyName: "القوالب المستضافة",
       endpoint: "نقطة النهاية",
       serverEnv: "بيئة الخادم",
@@ -4253,6 +4423,13 @@ export const messagesByLocale = {
       openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
+      errorEmailNotifications: "通过电子邮件接收新的错误提醒",
+      errorEmailNotificationsDescription:
+        "捕获新的 JavaScript 错误时发送电子邮件。默认关闭。",
+      errorEmailNotificationsSaveFailed: "无法保存电子邮件偏好设置。",
+      bellSound: "提示音",
+      bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
+      bellSoundSaveFailed: "无法保存提示音偏好设置。",
       about: "关于",
       aboutDescription:
         "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
@@ -4471,6 +4648,15 @@ export const messagesByLocale = {
       openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
+      errorEmailNotifications: "Recibir nuevas alertas de errores por email",
+      errorEmailNotificationsDescription:
+        "Envía un email cuando se capture un nuevo error de JavaScript. Desactivado de forma predeterminada.",
+      errorEmailNotificationsSaveFailed:
+        "No se pudo guardar la preferencia de email.",
+      bellSound: "Sonido de campana",
+      bellSoundDescription:
+        "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
+      bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
       about: "Acerca de",
       aboutDescription:
         "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
@@ -4693,6 +4879,16 @@ export const messagesByLocale = {
       openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
+      errorEmailNotifications:
+        "Recevoir les nouvelles alertes d’erreur par e-mail",
+      errorEmailNotificationsDescription:
+        "Envoyer un e-mail lorsqu’une nouvelle erreur JavaScript est capturée. Désactivé par défaut.",
+      errorEmailNotificationsSaveFailed:
+        "Impossible d’enregistrer la préférence e-mail.",
+      bellSound: "Son de notification",
+      bellSoundDescription:
+        "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
+      bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
       about: "À propos",
       aboutDescription:
         "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
@@ -4922,6 +5118,16 @@ export const messagesByLocale = {
       openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
+      errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
+      errorEmailNotificationsDescription:
+        "Eine E-Mail senden, wenn ein neuer JavaScript-Fehler erfasst wird. Standardmäßig deaktiviert.",
+      errorEmailNotificationsSaveFailed:
+        "Die E-Mail-Einstellung konnte nicht gespeichert werden.",
+      bellSound: "Signalton",
+      bellSoundDescription:
+        "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
+      bellSoundSaveFailed:
+        "Die Toneinstellung konnte nicht gespeichert werden.",
       about: "Info",
       aboutDescription:
         "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
@@ -5142,6 +5348,14 @@ export const messagesByLocale = {
       openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
+      errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
+      errorEmailNotificationsDescription:
+        "新しい JavaScript エラーが記録されたときにメールを送信します。デフォルトではオフです。",
+      errorEmailNotificationsSaveFailed: "メール設定を保存できませんでした。",
+      bellSound: "完了サウンド",
+      bellSoundDescription:
+        "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
+      bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
       about: "概要",
       aboutDescription:
         "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
@@ -5361,6 +5575,14 @@ export const messagesByLocale = {
       openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
+      errorEmailNotifications: "새 오류 알림을 이메일로 받기",
+      errorEmailNotificationsDescription:
+        "새 JavaScript 오류가 캡처되면 이메일을 보냅니다. 기본값은 꺼져 있습니다.",
+      errorEmailNotificationsSaveFailed: "이메일 설정을 저장하지 못했습니다.",
+      bellSound: "완료 소리",
+      bellSoundDescription:
+        "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
+      bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
       about: "정보",
       aboutDescription:
         "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
@@ -5584,6 +5806,15 @@ export const messagesByLocale = {
       openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
+      errorEmailNotifications: "Receber novos alertas de erro por e-mail",
+      errorEmailNotificationsDescription:
+        "Envie um e-mail quando um novo erro de JavaScript for capturado. Desativado por padrão.",
+      errorEmailNotificationsSaveFailed:
+        "Não foi possível salvar a preferência de e-mail.",
+      bellSound: "Som de conclusão",
+      bellSoundDescription:
+        "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
+      bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
       about: "Sobre",
       aboutDescription:
         "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
@@ -5802,6 +6033,13 @@ export const messagesByLocale = {
       openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
+      errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
+      errorEmailNotificationsDescription:
+        "नया JavaScript त्रुटि कैप्चर होने पर ईमेल भेजें। डिफ़ॉल्ट रूप से बंद।",
+      errorEmailNotificationsSaveFailed: "ईमेल प्राथमिकता सहेजी नहीं जा सकी।",
+      bellSound: "पूर्णता ध्वनि",
+      bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
+      bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
       about: "परिचय",
       aboutDescription:
         "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
@@ -6019,6 +6257,14 @@ export const messagesByLocale = {
       openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
+      errorEmailNotifications:
+        "تلقي تنبيهات الأخطاء الجديدة عبر البريد الإلكتروني",
+      errorEmailNotificationsDescription:
+        "إرسال بريد إلكتروني عند التقاط خطأ JavaScript جديد. معطّل افتراضيًا.",
+      errorEmailNotificationsSaveFailed: "تعذّر حفظ تفضيل البريد الإلكتروني.",
+      bellSound: "صوت الجرس",
+      bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
+      bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
       about: "حول",
       aboutDescription:
         "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",

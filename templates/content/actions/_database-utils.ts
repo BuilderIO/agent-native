@@ -1399,6 +1399,9 @@ export async function deleteDatabaseDataForDocument(
     db,
   );
   if (database) {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id));
     const definitions = await db
       .select({ id: schema.documentPropertyDefinitions.id })
       .from(schema.documentPropertyDefinitions)
@@ -1446,6 +1449,11 @@ export async function deleteDatabaseDataForDocument(
       .delete(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id));
     await db
+      .delete(schema.contentDatabaseMigrationReceipts)
+      .where(
+        eq(schema.contentDatabaseMigrationReceipts.databaseId, database.id),
+      );
+    await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
     await db
@@ -1464,6 +1472,9 @@ export async function deleteDatabaseDataForDocument(
     db,
   );
   if (item) {
+    await db
+      .delete(schema.contentDatabaseItemKeyClaims)
+      .where(eq(schema.contentDatabaseItemKeyClaims.documentId, documentId));
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(

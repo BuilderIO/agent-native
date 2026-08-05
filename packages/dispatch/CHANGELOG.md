@@ -1,5 +1,35 @@
 # @agent-native/dispatch
 
+## 0.17.3
+
+### Patch Changes
+
+- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+  - @agent-native/toolkit@0.13.2
+
+## 0.17.2
+
+### Patch Changes
+
+- c71d383: Keep connected messaging chats out of app history by default, with an opt-in all-sources view and stable Dispatch branding.
+- Updated dependencies [c71d383]
+  - @agent-native/toolkit@0.13.1
+
+## 0.17.1
+
+### Patch Changes
+
+- Updated dependencies [106af0e]
+  - @agent-native/toolkit@0.13.0
+
+## 0.17.0
+
+### Minor Changes
+
+- 2b6fea3: Show connected apps alongside mounted workspace apps in the Dispatch control plane.
+
 ## 0.16.7
 
 ### Patch Changes

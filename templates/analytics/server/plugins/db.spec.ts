@@ -22,6 +22,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const analyticsIngestTsSource = readFileSync(
+  new URL("../lib/first-party-analytics.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -178,9 +182,54 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("backfills historical events into both compact rollup tables", () => {
+    expect(dbTsSource).toMatch(/name: "analytics-rollups-historical-backfill"/);
+    expect(dbTsSource).toMatch(/run: runHistoricalAnalyticsRollupBackfill/);
+    expect(dbTsSource).toMatch(/pg_try_advisory_xact_lock\(hashtextextended\(/);
+    expect(dbTsSource).not.toContain(
+      "LOCK TABLE analytics_event_daily_rollups",
+    );
+    expect(dbTsSource).not.toContain("LOCK TABLE analytics_events");
+    expect(dbTsSource).toMatch(
+      /MIN\(owner_email\)[\s\S]*GROUP BY tenant_key, event_date/,
+    );
+    expect(dbTsSource).toMatch(/DO UPDATE SET event_count = GREATEST\(/);
+    expect(dbTsSource).toMatch(
+      /INSERT INTO analytics_event_daily_rollups[\s\S]*FROM analytics_events[\s\S]*COUNT\(\*\)/,
+    );
+    expect(dbTsSource).toMatch(
+      /INSERT INTO analytics_user_days[\s\S]*FROM analytics_events[\s\S]*SELECT DISTINCT/,
+    );
+    expect(dbTsSource).toMatch(
+      /ON CONFLICT \(tenant_key, event_date, event_name, app, template\)/,
+    );
+    expect(dbTsSource).toMatch(
+      /ON CONFLICT \(tenant_key, event_date, user_key\) DO NOTHING/,
+    );
+  });
+
+  it("coordinates the historical backfill with live Postgres ingest", () => {
+    expect(dbTsSource).toContain("FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY");
+    expect(analyticsIngestTsSource).toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+    );
+    expect(analyticsIngestTsSource).toMatch(
+      /if \(isPostgres\(\)\)[\s\S]*?FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL/,
+    );
+  });
+
   it("does not scan every dashboard during serverless startup", () => {
     expect(dbTsSource).not.toContain(
       "repairUnboundedFirstPartyPanelsAcrossDashboards",
+    );
+  });
+
+  it("does not run Analytics migrations in durable background functions", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).toMatch(
+      /if \(isInBackgroundFunctionRuntime\(\)\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
     );
   });
 });

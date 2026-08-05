@@ -1038,6 +1038,7 @@ describe("buildUserContentWithAttachments", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
         resources: actionEntry({ readOnly: true }),
+        "framework-search": actionEntry({ readOnly: true }),
         "docs-search": actionEntry({ readOnly: true }),
         "get-framework-context": actionEntry({ readOnly: true }),
         "read-attachment": actionEntry({ readOnly: true }),
@@ -1052,6 +1053,7 @@ describe("buildUserContentWithAttachments", () => {
       ),
     ).toEqual([
       "resources",
+      "framework-search",
       "docs-search",
       "get-framework-context",
       "read-attachment",
@@ -2114,6 +2116,17 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "tool_input_start",
+      tool: "edit-design",
+      id: "tool-edit",
+    });
+    expect(events).toContainEqual({
+      type: "tool_input_delta",
+      tool: "edit-design",
+      id: "tool-edit",
+      text: '{"designId":"design-1"',
+    });
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "stream_ended",

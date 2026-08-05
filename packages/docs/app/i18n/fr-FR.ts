@@ -16,7 +16,7 @@ const frFR = {
     skills: "Compétences",
     searchAria: "Rechercher dans la documentation",
     searchPlaceholder: "Rechercher...",
-    askAssistant: "Demander à l'assistant IA",
+    askAssistant: "Demander à l'IA",
     toggleNavigation: "Afficher ou masquer la navigation",
     copyLogoSvg: "Copier le logo SVG",
     copyWordmark: "Copier le logotype",
@@ -53,6 +53,9 @@ const frFR = {
     copyMarkdownError: "Impossible de copier le Markdown",
     previous: "Précédent",
     next: "Suivant",
+    draftLabel: "Brouillon",
+    draftDescription:
+      "Cette page est en cours de rédaction. Le contenu peut être incomplet ou sujet à modification avant publication.",
   },
   search: {
     dialogLabel: "Rechercher la documentation",
@@ -1534,6 +1537,7 @@ const frFR = {
     localFileMode: "Mode fichiers locaux",
     fileUploads: "Téléversements",
     deployment: "Déploiement",
+    environmentVariables: "Variables d'environnement",
     progress: "Progression",
     authentication: "Authentification",
     multiTenancy: "Multilocation",

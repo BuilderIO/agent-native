@@ -309,7 +309,7 @@ export function createBuilderBrowserTool(deps: {
     "activate-browser": {
       tool: {
         description:
-          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires Builder.io connection.",
+          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires a Builder.io connection (free tier available).",
         parameters: {
           type: "object",
           properties: {
@@ -415,6 +415,8 @@ export function createTeamTools(deps: {
   getEngine: () => AgentEngine;
   getModel: () => string;
   getParentThreadId: () => string;
+  getAppId?: () => string | null | undefined;
+  getParentRunId?: () => string;
   getSend: () =>
     | ((event: import("../../agent/types.js").AgentChatEvent) => void)
     | null;
@@ -423,7 +425,7 @@ export function createTeamTools(deps: {
     "agent-teams": {
       tool: {
         description:
-          "Manage background sub-agent tasks. Use action 'spawn' to start a new sub-agent, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running sub-agent, or 'list' to see all tasks. A successful spawn only means the task started and is running; do not report it as finished until status/read-result shows a terminal status.",
+          "Manage background tasks that run in their own task thread. Use action 'spawn' to start one, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running task, or 'list' to see all tasks. A successful spawn only means the task started and is running; do not report it as finished until status/read-result shows a terminal status. This is a background task, not a source-control branch.",
         parameters: {
           type: "object",
           properties: {
@@ -445,7 +447,7 @@ export function createTeamTools(deps: {
             name: {
               type: "string",
               description:
-                "(spawn) Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
+                "(spawn) Short name for the background task (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
             },
             agent: {
               type: "string",
@@ -525,6 +527,8 @@ export function createTeamTools(deps: {
             model: selectedModel,
             name: selectedName || undefined,
             parentThreadId: deps.getParentThreadId(),
+            parentSourceAppId: deps.getAppId?.() ?? null,
+            parentRunId: deps.getParentRunId?.(),
             parentSend: (event) => {
               if (capturedSend) capturedSend(event);
             },
@@ -537,7 +541,7 @@ export function createTeamTools(deps: {
             parentThreadId: task.parentThreadId,
             state: "launched_pending_completion",
             message:
-              "Sub-agent launched and is still running. Use status or read-result later; do not describe this task as completed from the spawn response alone.",
+              "Background task launched in its own task thread and is still running. Use status or read-result later; do not describe this task as completed from the spawn response alone.",
             description: task.description,
             name: task.name ?? selectedName,
           });
@@ -606,7 +610,7 @@ export function createTeamTools(deps: {
           const { listTasks } = await import("../agent-teams.js");
           const tasks = await listTasks();
           if (tasks.length === 0) {
-            return "No sub-agent tasks.";
+            return "No background tasks.";
           }
           return JSON.stringify(
             tasks.map((t) => ({

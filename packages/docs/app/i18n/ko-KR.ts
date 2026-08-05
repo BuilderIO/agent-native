@@ -16,7 +16,7 @@ const koKR = {
     skills: "스킬",
     searchAria: "문서 검색",
     searchPlaceholder: "문서 검색...",
-    askAssistant: "AI 어시스턴트에게 묻기",
+    askAssistant: "AI에게 질문",
     toggleNavigation: "내비게이션 메뉴 전환",
     copyLogoSvg: "로고 SVG 복사",
     copyWordmark: "워드마크 복사",
@@ -53,6 +53,9 @@ const koKR = {
     copyMarkdownError: "Markdown을 복사할 수 없음",
     previous: "이전",
     next: "다음",
+    draftLabel: "초안",
+    draftDescription:
+      "이 페이지는 작업 중입니다. 게시 전까지 콘텐츠가 불완전하거나 변경될 수 있습니다.",
   },
   search: {
     dialogLabel: "문서 검색",
@@ -1526,6 +1529,7 @@ const koKR = {
     localFileMode: "로컬 파일 모드",
     fileUploads: "파일 업로드",
     deployment: "배포",
+    environmentVariables: "환경 변수",
     progress: "진행 상황",
     authentication: "인증",
     multiTenancy: "멀티테넌시",

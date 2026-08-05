@@ -24,6 +24,7 @@ export interface RecordingSummary {
   spaceIds: string[];
   tags: string[];
   viewCount: number;
+  agentViewCount: number;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
@@ -239,11 +240,11 @@ export function useSpaces(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
-  const { data, isLoading } = useOrganizationState(organizationId, {
+  const { data, isLoading, refetch } = useOrganizationState(organizationId, {
     enabled: options.enabled ?? Boolean(organizationId),
   });
   const spaces = Array.isArray(data?.spaces) ? (data.spaces as any[]) : [];
-  return { data: { spaces }, isLoading };
+  return { data: { spaces }, isLoading, refetch };
 }
 
 export function useOrganizations(options: { enabled?: boolean } = {}) {

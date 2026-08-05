@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.135.3",
+  "version": "0.141.3",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -21,11 +21,13 @@
     "agent-native.eject.json",
     "corpus",
     "dist",
+    "!dist/**/*.map",
     "docs",
     "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
-    "src",
+    "src/eject",
+    "src/integrations/eject",
     "!src/**/*.spec.ts",
     "!src/**/*.spec.tsx",
     "!src/**/*.test.ts",
@@ -83,6 +85,7 @@
     "./automation": "./dist/automation/index.js",
     "./brand-kit": "./dist/brand-kit/index.js",
     "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
+    "./brand-kit/tokens": "./dist/brand-kit/tokens.js",
     "./data-widgets": "./dist/data-widgets/index.js",
     "./action": {
       "types": "./dist/action.d.ts",
@@ -95,6 +98,10 @@
     "./agent-native": {
       "types": "./dist/agent-native/index.d.ts",
       "default": "./dist/agent-native/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
     },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
@@ -122,6 +129,7 @@
     "./client/resources/runtime": "./dist/client/resources/runtime.js",
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/settings": "./dist/client/settings/index.js",
+    "./client/use-db-sync": "./dist/client/use-db-sync.js",
     "./client/ui": "./dist/client/ui/index.js",
     "./client/uploads": "./dist/client/uploads/index.js",
     "./client/widgets": "./dist/client/widgets/index.js",
@@ -160,6 +168,7 @@
     "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
+    "./deploy/function-bundle": "./dist/deploy/function-bundle.js",
     "./guards": {
       "types": "./dist/guards/index.d.ts",
       "default": "./dist/guards/index.js"
@@ -232,6 +241,7 @@
     "./comments-review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./comments-review/actions/set-review-status": "./dist/review/actions/set-review-status.js",
     "./comments-review/actions/send-review-thread-to-agent": "./dist/review/actions/send-review-thread-to-agent.js",
+    "./email-catalog": "./dist/email-catalog/registry.js",
     "./sharing": "./dist/sharing/index.js",
     "./sharing/actions/share-resource": "./dist/sharing/actions/share-resource.js",
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",
@@ -304,6 +314,7 @@
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",
     "./notifications": "./dist/notifications/index.js",
+    "./jobs": "./dist/jobs/index.js",
     "./client/notifications": "./dist/client/notifications/index.js",
     "./progress": "./dist/progress/index.js",
     "./client/progress": "./dist/client/progress/index.js",
@@ -446,7 +457,7 @@
     "express": "^5.2.1",
     "mermaid": "11.15.0",
     "node-pty": "^1.1.0",
-    "playwright": "^1.61.1",
+    "playwright": "catalog:",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router": "^8.1.0",
@@ -486,7 +497,6 @@
     "react-dom": ">=19.2.7",
     "react-router": ">=8",
     "tailwindcss": ">=4",
-    "typescript": ">=5",
     "vite": ">=7",
     "ws": ">=8"
   },
@@ -585,7 +595,6 @@
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "officeparser": "^7.3.0",
-    "playwright": "^1.61.1",
     "sharp": "^0.35.3"
   },
   "engines": {
