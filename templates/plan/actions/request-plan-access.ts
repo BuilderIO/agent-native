@@ -15,13 +15,14 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { PLAN_ACCESS_REQUEST_EMAIL_ID } from "../server/lib/emails.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   resolvePlanAccessContext,
 } from "../server/lib/local-identity.js";
 import { newId, nowIso, planPath, writeEvent } from "../server/plans.js";
+
+export const PLAN_ACCESS_REQUEST_EMAIL_ID = "plan.access-request";
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });

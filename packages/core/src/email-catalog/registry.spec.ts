@@ -18,7 +18,11 @@ function define(id: string, overrides: Record<string, unknown> = {}) {
     recipientLabel: "Recipient",
     sender: "sender",
     senderLabel: "Sender",
-    preview: () => ({ subject: `subject:${id}`, html: "<p>hi</p>", text: "hi" }),
+    preview: () => ({
+      subject: `subject:${id}`,
+      html: "<p>hi</p>",
+      text: "hi",
+    }),
     ...overrides,
   });
 }

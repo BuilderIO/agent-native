@@ -13,7 +13,8 @@ import {
 } from "../../shared/comment-context.js";
 import type { PlanBundle, PlanComment } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import { PLAN_COMMENT_EMAIL_ID } from "./emails.js";
+
+export const PLAN_COMMENT_EMAIL_ID = "plan.plan-comment";
 
 type CommentNotificationInput = {
   bundle: PlanBundle;

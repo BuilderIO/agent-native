@@ -371,7 +371,7 @@ async function sendEmailWithSignal(
   } catch (error) {
     await recordEmailSend({
       templateId: args.templateId,
-      app: args.app ?? getAppSlug() ?? undefined,
+      app: args.app ?? getAppSlug() ?? "unknown",
       recipient: args.to,
       sender: outcome?.from ?? args.from ?? "unknown",
       subject: args.subject,
@@ -383,7 +383,7 @@ async function sendEmailWithSignal(
   }
   await recordEmailSend({
     templateId: args.templateId,
-    app: args.app ?? getAppSlug() ?? undefined,
+    app: args.app ?? getAppSlug() ?? "unknown",
     recipient: args.to,
     sender: outcome.from,
     subject: args.subject,

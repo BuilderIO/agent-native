@@ -336,6 +336,7 @@ async function reachSignIn(page: Page, url: string): Promise<URL> {
 }
 
 async function signInThroughTheRealForm(page: Page): Promise<void> {
+  await page.click("#use-password");
   await page.click('.tab[data-tab="signup"]');
   await page.fill("#s-email", qaEmail);
   await page.fill("#s-pass", qaPassword);

@@ -11,16 +11,13 @@ import { randomUUID } from "node:crypto";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
-import {
-  EMAIL_LOG_CREATE_SQL,
-  EMAIL_LOG_TEMPLATE_INDEX_SQL,
-} from "./schema.js";
-
 let _initPromise: Promise<void> | undefined;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
+      const { EMAIL_LOG_CREATE_SQL, EMAIL_LOG_TEMPLATE_INDEX_SQL } =
+        await import("./schema.js");
       // Generic INTEGER maps to BIGINT on Postgres, which millisecond
       // timestamps need.
       const createSql = isPostgres()
@@ -101,6 +98,7 @@ export interface EmailSendStats {
  */
 export async function getEmailSendStats(
   since: number,
+  app: string,
 ): Promise<EmailSendStats[]> {
   await ensureTable();
   const { rows } = await getDbExec().execute({
@@ -109,9 +107,9 @@ export async function getEmailSendStats(
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
         MAX(CASE WHEN status = 'sent' THEN created_at END) AS last_sent_at
       FROM email_log
-      WHERE template_id IS NOT NULL AND created_at >= ?
+      WHERE app = ? AND template_id IS NOT NULL AND created_at >= ?
       GROUP BY template_id`,
-    args: [since],
+    args: [app, since],
   });
   return rows.map((row: any) => ({
     templateId: String(row.template_id),
@@ -134,15 +132,20 @@ export interface EmailLogEntry {
   createdAt: number;
 }
 
-/** Most recent sends, newest first, optionally filtered to one template. */
-export async function listEmailLog(options?: {
+/** Most recent sends for one app, newest first, optionally filtered to one template. */
+export async function listEmailLog(options: {
+  app: string;
   templateId?: string;
   limit?: number;
 }): Promise<EmailLogEntry[]> {
   await ensureTable();
-  const limit = Math.min(Math.max(options?.limit ?? 100, 1), 500);
-  const where = options?.templateId ? `WHERE template_id = ?` : "";
-  const args = options?.templateId ? [options.templateId, limit] : [limit];
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+  const where = options.templateId
+    ? `WHERE app = ? AND template_id = ?`
+    : `WHERE app = ?`;
+  const args = options.templateId
+    ? [options.app, options.templateId, limit]
+    : [options.app, limit];
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, template_id, app, recipient, sender, subject, status, error, provider, created_at
       FROM email_log ${where} ORDER BY created_at DESC LIMIT ?`,

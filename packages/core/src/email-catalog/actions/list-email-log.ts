@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getAppSlug } from "../../server/app-name.js";
 import { listEmailLog } from "../log.js";
 
 export default defineAction({
@@ -12,6 +13,10 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async ({ templateId, limit }) => ({
-    entries: await listEmailLog({ templateId, limit }),
+    entries: await listEmailLog({
+      app: getAppSlug() ?? "unknown",
+      templateId,
+      limit,
+    }),
   }),
 });

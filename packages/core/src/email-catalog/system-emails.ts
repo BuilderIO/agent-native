@@ -14,7 +14,6 @@ import {
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "../server/email-templates.js";
-
 import { defineTransactionalEmail } from "./registry.js";
 
 /** Obviously-fake sample data — these render in a preview pane, never send. */

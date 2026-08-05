@@ -37,14 +37,14 @@ import listAvailableWorkspaceTemplates from "./list-available-workspace-template
 import listConnectedAgents from "./list-connected-agents.js";
 import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
-import listEmailActivity from "./list-email-activity.js";
-import listEmailEngagement from "./list-email-engagement.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
 import listDispatchAudit from "./list-dispatch-audit.js";
 import listDispatchOverview from "./list-dispatch-overview.js";
 import listDispatchUsageMetrics from "./list-dispatch-usage-metrics.js";
 import listDreamCandidates from "./list-dream-candidates.js";
 import listDreams from "./list-dreams.js";
+import listEmailActivity from "./list-email-activity.js";
+import listEmailEngagement from "./list-email-engagement.js";
 import listIntegrationsCatalog from "./list-integrations-catalog.js";
 import listLinkedIdentities from "./list-linked-identities.js";
 import listMcpAppAccess from "./list-mcp-app-access.js";

@@ -44,6 +44,11 @@ import {
   onSharedDbPoolReplaced,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import {
+  CORE_MAGIC_LINK_EMAIL_ID,
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+} from "../email-catalog/system-emails.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
@@ -59,11 +64,6 @@ import {
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import {
-  CORE_MAGIC_LINK_EMAIL_ID,
-  CORE_RESET_PASSWORD_EMAIL_ID,
-  CORE_VERIFY_SIGNUP_EMAIL_ID,
-} from "../email-catalog/system-emails.js";
 import {
   renderMagicLinkEmail,
   renderResetPasswordEmail,
@@ -413,6 +413,8 @@ export interface BetterAuthConfig {
   socialProviders?: BetterAuthOptions["socialProviders"];
   /** Additional Better Auth plugins */
   plugins?: BetterAuthOptions["plugins"];
+  /** Do not mount email-based auth plugins when Google is the only allowed provider. */
+  googleOnly?: boolean;
   /**
    * Additional Google OAuth scopes (Gmail, Calendar, etc.) to request
    * up front during the primary "Sign in with Google" flow, beyond the
@@ -1144,6 +1146,42 @@ function resetAuthOnPoolClose(driver?: string, url?: string): void {
 // Instance creation
 // ---------------------------------------------------------------------------
 
+export function createCoreAuthPlugins(
+  config: BetterAuthConfig | undefined,
+  appUrl: string,
+): NonNullable<BetterAuthOptions["plugins"]> {
+  return [
+    ...(config?.googleOnly
+      ? []
+      : [
+          magicLink({
+            storeToken: "hashed",
+            sendMagicLink: async ({ email, url }) => {
+              const { subject, html, text } = renderMagicLinkEmail({
+                email,
+                magicLinkUrl: url,
+              });
+              await sendEmail({
+                to: email,
+                subject,
+                html,
+                text,
+                templateId: CORE_MAGIC_LINK_EMAIL_ID,
+              });
+            },
+          }),
+        ]),
+    jwt({
+      jwt: {
+        issuer: appUrl,
+        expirationTime: "15m",
+      },
+    }),
+    bearer(),
+    ...(config?.plugins ?? []),
+  ];
+}
+
 async function createBetterAuthInstance(
   config?: BetterAuthConfig,
 ): Promise<BetterAuthInstance> {
@@ -1472,33 +1510,7 @@ async function createBetterAuthInstance(
           }
         : {}),
     },
-    plugins: [
-      magicLink({
-        sendMagicLink: async ({ email, url }) => {
-          const { subject, html, text } = renderMagicLinkEmail({
-            email,
-            magicLinkUrl: url,
-          });
-          await sendEmail({
-            to: email,
-            subject,
-            html,
-            text,
-            templateId: CORE_MAGIC_LINK_EMAIL_ID,
-          });
-        },
-      }),
-      // JWT: issue tokens for A2A calls, JWKS endpoint for verification
-      jwt({
-        jwt: {
-          issuer: appUrl,
-          expirationTime: "15m",
-        },
-      }),
-      // Bearer: accept Bearer tokens on API requests
-      bearer(),
-      ...(config?.plugins ?? []),
-    ],
+    plugins: createCoreAuthPlugins(config, appUrl),
   });
 
   return auth as unknown as BetterAuthInstance;

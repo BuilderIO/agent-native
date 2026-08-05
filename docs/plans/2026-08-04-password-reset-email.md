@@ -11,6 +11,7 @@
 ### Task 1: Remove the reset sender override
 
 **Files:**
+
 - Modify: `packages/core/src/server/email-templates.ts`
 - Modify: `packages/core/src/email-catalog/system-emails.ts`
 
@@ -25,6 +26,7 @@ Expected: exit code 0.
 ### Task 2: Add regression coverage
 
 **Files:**
+
 - Modify: `packages/core/src/server/email-templates.spec.ts`
 - Modify or create the narrowest existing Better Auth password-route spec after inspecting current test helpers.
 

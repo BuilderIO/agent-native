@@ -1024,8 +1024,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     checkEmailTitle: "अपना ईमेल देखें",
     resetPasswordTitle: "पासवर्ड रीसेट करें",
     createAccountSubtitle: "शुरू करने के लिए खाता बनाएं",
-    googleOnlySubtitle:
-      "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
+    googleOnlySubtitle: "जारी रखने के लिए अपना workspace Google खाता उपयोग करें",
     signInSubtitle: "अपने खाते में साइन इन करें",
     finishAccountSubtitle: "अपना खाता बनाना पूरा करें",
     resetPasswordSubtitle: "अपना पासवर्ड रीसेट करें",
@@ -1040,12 +1039,10 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     usePasswordInstead: "पासवर्ड उपयोग करें",
     useEmailLinkInstead: "ईमेल लिंक उपयोग करें",
     emailLinkSent: "अपना ईमेल देखें",
-    emailLinkSentDescription:
-      "हमने आपके ईमेल पर सुरक्षित साइन-इन लिंक भेजा है।",
+    emailLinkSentDescription: "हमने आपके ईमेल पर सुरक्षित साइन-इन लिंक भेजा है।",
     resendMagicLink: "लिंक फिर भेजें",
     magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
-    magicLinkExpired:
-      "यह साइन-इन लिंक अमान्य है या समाप्त हो गया है। नया लिंक मांगें।",
+    magicLinkExpired: "यह साइन-इन लिंक अमान्य है या समाप्त हो गया है। नया लिंक मांगें।",
     email: "ईमेल",
     password: "पासवर्ड",
     confirmPassword: "पासवर्ड की पुष्टि करें",
@@ -1086,8 +1083,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     invalidEmail: "एक मान्य ईमेल पता दर्ज करें, जैसे you@example.com.",
     signInToContinue: "जारी रखने के लिए साइन इन करें।",
     finishSignInFailed: "साइन इन अपने आप पूरा नहीं हो सका।",
-    enterPasswordAfterVerification:
-      "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
+    enterPasswordAfterVerification: "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
     finishSignInManually:
       "साइन इन अपने आप पूरा नहीं हो सका। जारी रखने के लिए साइन इन करें।",
     stillWaitingVerification:
@@ -1113,8 +1109,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     invalidLogin: "ईमेल या पासवर्ड अमान्य है",
     googleNotConfigured: "Google OAuth configured नहीं है।",
     failedToConnect: "कनेक्ट नहीं हो सका। कृपया फिर कोशिश करें।",
-    migrateLocalFallback:
-      "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
+    migrateLocalFallback: "स्थानीय डेटा माइग्रेट करने के लिए साइन इन जारी रखें।",
     googlePopupHelp: "इस साइट के लिए pop-ups allow करें और फिर कोशिश करें",
     googleNeverFinished:
       "Google साइन इन पूरा नहीं हुआ। Google OAuth redirect URI और [agent-native][google-oauth] के server logs देखें।",
@@ -1331,8 +1326,7 @@ const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "ar-SA": {
     forms: {
-      tagline:
-        "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
+      tagline: "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
       features: [
         "أنشئ نماذج كاملة من جملة واحدة",
         "نشر فوري مع روابط قابلة للمشاركة وcaptcha",

@@ -13,6 +13,14 @@ import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
 import { renderClipsInviteEmail } from "../../actions/invite-member.js";
 import {
+  CLIPS_ACTIVITY_COMMENT_EMAIL_ID,
+  CLIPS_ACTIVITY_REACTION_EMAIL_ID,
+  CLIPS_FIRST_AGENT_VIEW_EMAIL_ID,
+  CLIPS_FIRST_IMPORT_EMAIL_ID,
+  CLIPS_FIRST_VIEW_EMAIL_ID,
+  CLIPS_MONTHLY_RECAP_EMAIL_ID,
+  CLIPS_TWO_CLIPS_EMAIL_ID,
+  CLIPS_UNVIEWED_REMINDER_EMAIL_ID,
   renderClipsTransactionalEmail,
   type ClipsTransactionalEmailInput,
   type ClipsTransactionalEmailRenderOptions,
@@ -30,33 +38,7 @@ function preview(input: ClipsTransactionalEmailInput) {
   return renderClipsTransactionalEmail(input, PREVIEW_OPTIONS);
 }
 
-export const CLIPS_FIRST_VIEW_EMAIL_ID = "clips.first-view";
-export const CLIPS_UNVIEWED_REMINDER_EMAIL_ID = "clips.unviewed-reminder";
-export const CLIPS_FIRST_AGENT_VIEW_EMAIL_ID = "clips.first-agent-view";
-export const CLIPS_FIRST_IMPORT_EMAIL_ID = "clips.first-import";
-export const CLIPS_MONTHLY_RECAP_EMAIL_ID = "clips.monthly-recap";
-export const CLIPS_TWO_CLIPS_EMAIL_ID = "clips.two-clips";
-export const CLIPS_ACTIVITY_COMMENT_EMAIL_ID = "clips.activity-comment";
-export const CLIPS_ACTIVITY_REACTION_EMAIL_ID = "clips.activity-reaction";
 export const CLIPS_ORGANIZATION_INVITE_EMAIL_ID = "clips.organization-invite";
-
-/**
- * Every kind the shared Clips sender can render, so `sendEmail` tags the
- * message without each caller repeating the mapping.
- */
-export const CLIPS_EMAIL_ID_BY_KIND: Record<
-  ClipsTransactionalEmailInput["kind"],
-  string
-> = {
-  "first-view": CLIPS_FIRST_VIEW_EMAIL_ID,
-  "unviewed-reminder": CLIPS_UNVIEWED_REMINDER_EMAIL_ID,
-  "first-agent-view": CLIPS_FIRST_AGENT_VIEW_EMAIL_ID,
-  "first-import": CLIPS_FIRST_IMPORT_EMAIL_ID,
-  "monthly-recap": CLIPS_MONTHLY_RECAP_EMAIL_ID,
-  "two-clips": CLIPS_TWO_CLIPS_EMAIL_ID,
-  "activity-comment": CLIPS_ACTIVITY_COMMENT_EMAIL_ID,
-  "activity-reaction": CLIPS_ACTIVITY_REACTION_EMAIL_ID,
-};
 
 /**
  * How the shared Clips sender resolves From and Reply-To for every kind it

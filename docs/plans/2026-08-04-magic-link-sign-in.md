@@ -11,6 +11,7 @@
 ### Task 1: Add the magic-link transactional email
 
 **Files:**
+
 - Modify: `packages/core/src/server/email-templates.ts`
 - Modify: `packages/core/src/server/email-templates.spec.ts`
 - Modify: `packages/core/src/email-catalog/system-emails.ts`
@@ -88,6 +89,7 @@ Expected: all selected tests pass.
 ### Task 2: Configure Better Auth magic links
 
 **Files:**
+
 - Modify: `packages/core/src/server/better-auth-instance.ts`
 - Modify: `packages/core/src/server/better-auth-instance.spec.ts`
 
@@ -134,6 +136,7 @@ Expected: all selected tests pass.
 ### Task 3: Make magic link the default sign-in UI
 
 **Files:**
+
 - Modify: `packages/core/src/server/onboarding-html.ts`
 - Modify: `packages/core/src/server/onboarding-html.spec.ts`
 
@@ -172,10 +175,23 @@ Insert `#magic-link-form` before the password tabs with:
 ```html
 <form id="magic-link-form" class="form active">
   <label for="m-email">Email</label>
-  <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
+  <input
+    id="m-email"
+    type="email"
+    autocomplete="email"
+    autofocus
+    placeholder="you@example.com"
+    required
+  />
   <button type="submit">Continue with email</button>
   <p class="msg" id="m-msg" aria-live="polite"></p>
-  <button type="button" class="link-button auth-method-toggle" id="use-password">Use password instead</button>
+  <button
+    type="button"
+    class="link-button auth-method-toggle"
+    id="use-password"
+  >
+    Use password instead
+  </button>
 </form>
 ```
 
@@ -192,13 +208,13 @@ Default to magic-link on every page load except when the URL explicitly requests
 POST to the app-scoped endpoint:
 
 ```js
-fetch(__anPath('/_agent-native/auth/ba/sign-in/magic-link'), {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+fetch(__anPath("/_agent-native/auth/ba/sign-in/magic-link"), {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     email: email,
     callbackURL: __anResumeHref(),
-    errorCallbackURL: __anPath('/_agent-native/sign-in?magicLinkError=1'),
+    errorCallbackURL: __anPath("/_agent-native/sign-in?magicLinkError=1"),
   }),
 });
 ```

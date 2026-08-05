@@ -14,7 +14,7 @@
  * email in the catalog and are deliberately not counted toward one.
  */
 
-import { resolveSecret } from "@agent-native/core/server";
+import { getEmailProvider, resolveSecret } from "@agent-native/core/server";
 
 const SENDGRID_API = "https://api.sendgrid.com/v3";
 
@@ -36,8 +36,35 @@ export interface EmailEngagement {
   openRate: number | null;
 }
 
-async function sendgridKey(): Promise<string | null> {
-  return resolveSecret("SENDGRID_API_KEY");
+type SendGridAccess =
+  | { available: true; key: string }
+  | { available: false; reason: string };
+
+async function activeSendGrid(): Promise<SendGridAccess> {
+  const provider = await getEmailProvider();
+  if (provider === "resend") {
+    return {
+      available: false,
+      reason:
+        "Email delivery uses Resend, so SendGrid metrics do not describe the active transport.",
+    };
+  }
+  if (provider !== "sendgrid") {
+    return {
+      available: false,
+      reason:
+        "No email provider is configured, so provider metrics cannot be read.",
+    };
+  }
+  const key = await resolveSecret("SENDGRID_API_KEY");
+  if (!key) {
+    return {
+      available: false,
+      reason:
+        "SendGrid is the active email transport, but SENDGRID_API_KEY could not be resolved.",
+    };
+  }
+  return { available: true, key };
 }
 
 function isoDate(ms: number): string {
@@ -97,14 +124,9 @@ export async function fetchEmailEngagement(
 ): Promise<ProviderMetricsResult<EmailEngagement[]>> {
   if (!templateIds.length) return { available: true, data: [] };
 
-  const key = await sendgridKey();
-  if (!key) {
-    return {
-      available: false,
-      reason:
-        "SENDGRID_API_KEY is not configured, so open and click rates cannot be read.",
-    };
-  }
+  const sendgrid = await activeSendGrid();
+  if (!sendgrid.available) return sendgrid;
+  const { key } = sendgrid;
 
   const end = Date.now();
   const start = end - windowDays * 24 * 60 * 60 * 1000;
@@ -185,27 +207,21 @@ export interface EmailActivityEntry {
  * result here does not mean nothing was ever sent — `email_log` covers that.
  */
 export async function fetchEmailActivity(options: {
-  templateId?: string;
+  templateId: string;
   limit?: number;
 }): Promise<ProviderMetricsResult<EmailActivityEntry[]>> {
-  const key = await sendgridKey();
-  if (!key) {
-    return {
-      available: false,
-      reason:
-        "SENDGRID_API_KEY is not configured, so the provider activity feed cannot be read.",
-    };
-  }
+  const sendgrid = await activeSendGrid();
+  if (!sendgrid.available) return sendgrid;
+  const { key } = sendgrid;
 
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 1000);
-  const params: Array<[string, string]> = [["limit", String(limit)]];
-  if (options.templateId) {
-    // Category equality is the only way to scope the feed to one email; the
-    // id is ours and contains no quotes, but escape anyway so a future id
-    // cannot break out of the query literal.
-    const safe = options.templateId.replace(/["\\]/g, "");
-    params.push(["query", `category="${safe}"`]);
-  }
+  // Category equality is the only safe scope for a feed containing recipient
+  // addresses and subjects. Never expose SendGrid's account-wide feed.
+  const safe = options.templateId.replace(/["\\]/g, "");
+  const params: Array<[string, string]> = [
+    ["limit", String(limit)],
+    ["query", `category="${safe}"`],
+  ];
 
   try {
     const payload = (await sendgridGet(key, "/messages", params)) as {

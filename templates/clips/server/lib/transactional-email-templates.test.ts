@@ -548,6 +548,7 @@ describe("sendClipsTransactionalEmail", () => {
       },
       replyTo: "hello@agent-native.com",
       timeoutMs: 60_000,
+      templateId: "clips.first-import",
     });
   });
 
@@ -579,6 +580,7 @@ describe("sendClipsTransactionalEmail", () => {
       },
       replyTo: "alex@example.com",
       timeoutMs: 60_000,
+      templateId: "clips.unviewed-reminder",
     });
   });
 

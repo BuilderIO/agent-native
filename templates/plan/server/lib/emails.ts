@@ -7,11 +7,14 @@
 
 import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
-import { renderPlanAccessRequestEmail } from "../../actions/request-plan-access.js";
-import { renderPlanCommentEmail } from "./comment-notifications.js";
-
-export const PLAN_COMMENT_EMAIL_ID = "plan.plan-comment";
-export const PLAN_ACCESS_REQUEST_EMAIL_ID = "plan.access-request";
+import {
+  PLAN_ACCESS_REQUEST_EMAIL_ID,
+  renderPlanAccessRequestEmail,
+} from "../../actions/request-plan-access.js";
+import {
+  PLAN_COMMENT_EMAIL_ID,
+  renderPlanCommentEmail,
+} from "./comment-notifications.js";
 
 let registered = false;
 

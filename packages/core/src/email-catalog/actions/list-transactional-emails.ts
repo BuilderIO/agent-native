@@ -24,23 +24,26 @@ export default defineAction({
   run: async ({ windowDays }) => {
     registerCoreSystemEmails();
     const since = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const app = getAppSlug() ?? "unknown";
     const definitions = listTransactionalEmails();
 
     // A failed stats read must not masquerade as "no email ever sent" — the
     // catalog is still worth returning, but the caller has to be able to tell
     // that the numbers are missing rather than zero.
-    let statsById: Map<string, { sent: number; failed: number; lastSentAt: number | null }> | null =
-      null;
+    let statsById: Map<
+      string,
+      { sent: number; failed: number; lastSentAt: number | null }
+    > | null = null;
     let statsError: string | null = null;
     try {
-      const stats = await getEmailSendStats(since);
+      const stats = await getEmailSendStats(since, app);
       statsById = new Map(stats.map((row) => [row.templateId, row]));
     } catch (error) {
       statsError = error instanceof Error ? error.message : String(error);
     }
 
     return {
-      app: getAppSlug() ?? null,
+      app,
       windowDays,
       statsAvailable: statsError === null,
       statsError,
