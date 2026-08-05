@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.137.7
+
+### Patch Changes
+
+- 34e3dc3: Keep needsApproval Approve/Deny visible
+
 ## 0.137.6
 
 ### Patch Changes
