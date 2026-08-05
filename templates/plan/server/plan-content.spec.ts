@@ -22,6 +22,33 @@ import {
 } from "./plan-content.js";
 
 describe("structured plan content", () => {
+  it("rejects fully escaped rich-text while accepting real Markdown line breaks", () => {
+    const valid = planContentSchema.safeParse({
+      version: 2,
+      blocks: [
+        {
+          id: "valid",
+          type: "rich-text",
+          data: { markdown: "### Summary\n\nBody" },
+        },
+      ],
+    });
+    const invalid = planContentSchema.safeParse({
+      version: 2,
+      blocks: [
+        {
+          id: "invalid",
+          type: "rich-text",
+          data: { markdown: "### Summary\\n\\nBody" },
+        },
+      ],
+    });
+
+    expect(valid.success).toBe(true);
+    expect(invalid.success).toBe(false);
+    expect(invalid.error?.issues[0]?.message).toMatch(/actual line breaks/i);
+  });
+
   it("backfills missing column/child ids so attribute-form columns validate", () => {
     // Mirrors the recap failure mode: a `columns` block authored as an
     // attribute array (no `<Column>` markup) leaves column `id`s and child

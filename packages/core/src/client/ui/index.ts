@@ -36,6 +36,10 @@ export { ErrorBoundary } from "../ErrorBoundary.js";
 export { ClientOnly } from "../ClientOnly.js";
 export { DefaultSpinner } from "../DefaultSpinner.js";
 export {
+  RouteTransitionIndicator,
+  ROUTE_TRANSITION_INDICATOR_DELAY_MS,
+} from "../RouteTransitionIndicator.js";
+export {
   getThemeInitScript,
   themeInitScript,
   type ThemePreference,

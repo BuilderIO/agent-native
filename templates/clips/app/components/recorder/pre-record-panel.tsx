@@ -7,16 +7,23 @@ import {
   IconChevronDown,
   IconDeviceDesktop,
   IconDeviceScreen,
-  IconLink,
   IconMicrophone,
-  IconPlayerRecord,
-  IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { ImportMenu } from "@/components/import-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -66,15 +73,14 @@ export interface PreRecordPanelProps {
   initialDisplaySurface?: DisplaySurface | null;
   /** Called when the user picks a local video file to upload. */
   onUpload?: (file: File) => void;
-  /** When set, shows an "Import Loom" link pointing at the dedicated
-   * Loom-import page instead of an inline import form. */
+  /** When set, includes an "Import Loom" option in the shared import menu. */
   importLoomHref?: string;
   onCancel?: () => void;
   busy?: boolean;
   cameraSize?: CameraBubbleSize;
   onCameraSizeChange?: (size: CameraBubbleSize) => void;
   /** Opens the file picker once on mount, e.g. when arriving from a
-   * dedicated "Upload video" entry point elsewhere in the app. */
+   * dedicated upload entry point elsewhere in the app. */
   autoOpenUpload?: boolean;
 }
 
@@ -429,6 +435,35 @@ export function PreRecordPanel({
       t("preRecord.shortMicLabel", { id: micId.slice(0, 4) })
     );
   }, [micId, micLabel, mics, t]);
+
+  const [micWarningOpen, setMicWarningOpen] = useState(false);
+
+  const buildStartOpts = useCallback(
+    () => ({
+      // If the user toggled off the camera inside screen+camera mode,
+      // downgrade to screen-only so the recorder engine doesn't try
+      // to acquire a webcam stream.
+      mode: (mode === "screen+camera" && !needsCamera
+        ? "screen"
+        : mode) as RecordingMode,
+      displaySurface: normalizeDisplaySurfaceForRuntime(displaySurface),
+      micDeviceId: micId === "default" ? null : micId,
+      micDeviceLabel:
+        micId === "default" || micId === NO_MIC_DEVICE_ID
+          ? null
+          : selectedMicLabel,
+      cameraDeviceId: needsCamera && cameraId !== "default" ? cameraId : null,
+    }),
+    [mode, needsCamera, displaySurface, micId, selectedMicLabel, cameraId],
+  );
+
+  const handleStartClick = useCallback(() => {
+    if (micId === NO_MIC_DEVICE_ID) {
+      setMicWarningOpen(true);
+      return;
+    }
+    onStart(buildStartOpts());
+  }, [micId, buildStartOpts, onStart]);
 
   const selectedCameraLabel = useMemo(() => {
     if (!needsCamera) return null;
@@ -897,61 +932,22 @@ export function PreRecordPanel({
           )}
           <Button
             disabled={startDisabled}
-            onClick={() =>
-              onStart({
-                // If the user toggled off the camera inside screen+camera mode,
-                // downgrade to screen-only so the recorder engine doesn't try
-                // to acquire a webcam stream.
-                mode:
-                  mode === "screen+camera" && !needsCamera ? "screen" : mode,
-                displaySurface:
-                  normalizeDisplaySurfaceForRuntime(displaySurface),
-                micDeviceId: micId === "default" ? null : micId,
-                micDeviceLabel:
-                  micId === "default" || micId === NO_MIC_DEVICE_ID
-                    ? null
-                    : selectedMicLabel,
-                cameraDeviceId:
-                  needsCamera && cameraId !== "default" ? cameraId : null,
-              })
-            }
-            className={cn("h-12 gap-2", onCancel ? "flex-1" : "w-full")}
+            onClick={handleStartClick}
+            className={cn("h-12", onCancel ? "flex-1" : "w-full")}
           >
-            <IconPlayerRecord className="h-4 w-4" />
             {t("preRecord.startRecording")}
           </Button>
         </div>
 
         {(onUpload || importLoomHref) && (
           <>
-            <div
-              className={cn(
-                "grid gap-2",
-                onUpload && importLoomHref && "sm:grid-cols-2",
-              )}
-            >
-              {onUpload ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <IconUpload className="h-4 w-4" />
-                  {t("preRecord.uploadVideo")}
-                </button>
-              ) : null}
-
-              {importLoomHref ? (
-                <Link
-                  to={importLoomHref}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <IconLink className="h-4 w-4" />
-                  {t("preRecord.importLoom")}
-                </Link>
-              ) : null}
-            </div>
+            <ImportMenu
+              onUpload={
+                onUpload ? () => fileInputRef.current?.click() : undefined
+              }
+              importLoomHref={importLoomHref}
+              disabled={busy}
+            />
 
             {onUpload ? (
               <input
@@ -969,6 +965,31 @@ export function PreRecordPanel({
           </>
         )}
       </div>
+
+      <AlertDialog open={micWarningOpen} onOpenChange={setMicWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("preRecord.micOffConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("preRecord.micOffConfirmDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                setMicWarningOpen(false);
+                onStart(buildStartOpts());
+              }}
+            >
+              {t("preRecord.startWithoutMic")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

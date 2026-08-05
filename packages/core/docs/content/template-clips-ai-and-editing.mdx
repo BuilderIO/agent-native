@@ -12,11 +12,11 @@ This page covers what happens to a recording after it's captured: transcription 
 
 Transcription tries the fastest, free option first and only falls back to a paid one when it has to:
 
-| Order | Provider                        | Notes                                                                                     |
-| ----- | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| 1     | Native (on-device)              | Browser Web Speech API or desktop local Whisper/macOS speech — instant, no API key        |
-| 2     | Builder.io managed (Gemini)     | Cloud fallback when native text is missing; no extra key needed once Builder is connected |
-| 3     | Groq (`whisper-large-v3-turbo`) | Optional backup if you'd rather bring your own key                                        |
+| Order | Provider                        | Notes                                                                                                                                         |
+| ----- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Native (on-device)              | Browser Web Speech API or desktop local Whisper/macOS speech — instant, no API key                                                            |
+| 2     | Builder.io managed (Gemini)     | Cloud fallback when native text is missing; no extra key needed once Builder is connected; Builder.io's free tier includes managed AI credits |
+| 3     | Groq (`whisper-large-v3-turbo`) | Optional backup if you'd rather bring your own key                                                                                            |
 
 Once a transcript is ready, the agent fills in a title, summary, and chapter markers automatically, and keeps them current as you edit. You can also ask directly:
 
@@ -104,7 +104,7 @@ Human views and agent views are tracked in separate counters on purpose, so an a
 
 ## Builder credit status
 
-Backup transcription, transcript cleanup, and AI titles/summaries run on Builder.io-managed AI credits by default. If one of those stops working, ask the agent — it checks the current credit status and explains whether credits are paused rather than treating it as a bug. The fix is either adding Builder.io credits/upgrading, or connecting a personal Groq key as a fallback for transcription.
+Backup transcription, transcript cleanup, and AI titles/summaries run on Builder.io-managed AI credits by default, including the free tier's credits. If one of those stops working, ask the agent — it checks the current credit status and explains whether credits are paused rather than treating it as a bug. The fix is either adding Builder.io credits/upgrading, or connecting a personal Groq key as a fallback for transcription.
 
 ## What's next
 

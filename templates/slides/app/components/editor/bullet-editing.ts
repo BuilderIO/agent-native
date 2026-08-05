@@ -200,9 +200,9 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
 }
 
 /**
- * Walk up from a text leaf to the nearest enclosing styled bullet-row
- * container, so Enter can add a new item to the whole list instead of being
- * trapped inside one item.
+ * Walk up from a text leaf to the nearest enclosing list — a native UL/OL or
+ * a styled bullet-row container — so Enter can add a new item to the whole
+ * list instead of being trapped inside one item.
  */
 export function findEnclosingList(
   el: HTMLElement,
@@ -212,6 +212,14 @@ export function findEnclosingList(
   while (node && root.contains(node)) {
     const parentEl: HTMLElement | null = node.parentElement;
     if (!parentEl) break;
+    // A native item can only gain a sibling when the list is the editing
+    // host; with the LI itself as host the browser splits inside the item.
+    if (
+      node.tagName === "LI" &&
+      (parentEl.tagName === "UL" || parentEl.tagName === "OL")
+    ) {
+      return parentEl;
+    }
     if (isBulletRow(node) && isBulletList(parentEl)) return parentEl;
     // Even from a bullet row whose siblings aren't all bullets, treat the
     // parent as a list once it holds two or more bullet rows.

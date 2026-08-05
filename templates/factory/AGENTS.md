@@ -27,27 +27,30 @@ ladder.
   `packages/*` changes always require human review.
 - All work is deduped by Factory item and rule/run identity. Provider comment IDs
   are not the idempotency boundary.
-- Slack interaction uses the generic Agent-Native Slack adapter. Polling is for
-  observation; mentions are for explanation, rule tuning, and explicit approval.
+- Slack interaction uses the generic Agent-Native Slack adapter. Clear-bug Slack
+  automations add 👀 and tag `@builderio` in the source thread; GitHub and Sentry
+  clear bugs use the Builder run API. Clips, Design, and Content are always
+  owner-managed and never enter autonomous dispatch or PR governance.
+- PR governance requires verified internal BuilderIO membership, a clear bug,
+  passing CI, and handled review feedback. Product or UX implications stay
+  manual. Auto-merge additionally requires a verified Factory Builder run.
 - Reuse the existing ai-services GitHub read and Builder execution APIs. Do not
   duplicate GitHub installation/webhook infrastructure in this template.
 - Do not add CRUD routes under `server/routes/api/`; actions are the domain
   surface. Provider callbacks are the only exception and must verify signatures.
 - Factory graph edits create immutable blueprint versions. AI proposes a
   complete graph with `source=ai`; a person reviews and publishes it through
-  the same action surface as manual edits. The current evaluator runs enabled
-  rules in parallel, so graph edges describe intended handoffs until a runtime
-  binding exists.
-- A selected graph node or edge is part of `navigation` context. Read
-  `view-screen` before answering why a route exists or changing the selected
-  Factory.
+  the same action surface as manual edits.
 
 ## Application state
 
 - `navigation.view`: `factory` when the visual workspace is open.
 - `navigation.factoryId`: selected Factory id when present.
-- `navigation.factoryTab`: `map` | `inbox` | `rules` | `settings`.
+- `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `settings`.
 - `navigation.factoryNodeId` / `navigation.factoryEdgeId`: selected graph target.
+- A selected graph node or edge is part of `navigation` context. Read
+  `view-screen` before answering why a route exists or changing the selected
+  Factory.
 
 ## Action contract
 
@@ -55,20 +58,26 @@ ladder.
 | --- | --- |
 | `list-triage-items` / `get-triage-item` | Inspect the queue and evidence. |
 | `poll-slack-channel` | Observe Slack history; never writes to Slack. |
+| `get-slack-feedback-context` | Read the bounded full Slack thread before classification. |
+| `poll-github-sources` / `poll-sentry-errors` | Observe bounded GitHub and Sentry source queues. |
 | `ingest-github-observation` | Store read-only PR evidence. |
 | `list-triage-rules` / `save-triage-rule` | Tune prompt rules and guards. |
 | `evaluate-triage-item` | Append a structured decision. |
 | `record-triage-feedback` | Capture human correction for learning. |
 | `approve-factory-item` | Explicitly authorize one bounded run. |
+| `start-builder-for-item` | Govern clear-bug dispatch; Slack tags Builder in-thread, other sources use Builder API. |
+| `govern-agent-native-pull-request` | Apply CI, review, internal-author, product, and owner gates to PR approval/merge. |
+| `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect and edit organization-owned Factory prompts, models, schedules, and runs. |
 | `suggest-factory-rules` | Mine feedback and fast approvals into proposals. |
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |
 | `list-factories` / `get-factory-graph` | Inspect Factory definitions, graph versions, and live evidence metrics. |
 | `save-factory-graph` | Create or version a complete visual graph; never starts provider work. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |
 
-Rules start in shadow mode. Enabling a rule never bypasses hard guards or
-creates an implicit approval. Slack "do it now" and the UI approval control
-both call `approve-factory-item`, which records the approver before dispatch.
+Rules start in shadow mode; hard guards always apply. Editable organization
+automations execute stored prompts; every external mutation needs a durable run,
+idempotency key, and provider confirmation. The legacy observer is disabled
+when organization automations are seeded.
 
 Use the visual editor for direct blueprint changes. Use the agent chat for
 natural language design, explanations, and proposals; it must preserve a
@@ -78,13 +87,14 @@ actions, never through graph JSON.
 
 ## Scheduler identity
 
-`WORKSPACE_OWNER_EMAIL` is read only at startup to stamp the deployment-owned
-job's `createdBy`; it is never caller identity and must not enter request
-authorization or credential resolution.
+`WORKSPACE_OWNER_EMAIL` is read only at startup to find the deployment
+organization and stamp seeded automation `createdBy`; it is never caller
+identity and must not enter request authorization or credential resolution.
 
 ## Hosting
 
 Production needs `DATABASE_URL`, `WORKSPACE_OWNER_EMAIL`, and
 `FACTORY_PUBLIC_URL`. Builder execution additionally needs the service URL and
-project ID plus workspace-resolved Builder credentials. Keep rules in shadow
-mode and require an explicit approval for every provider run.
+project ID plus workspace-resolved Builder credentials. GitHub and Sentry
+polling use workspace-resolved provider credentials. Provider callbacks and
+external writes must remain auditable and fail closed when evidence is partial.

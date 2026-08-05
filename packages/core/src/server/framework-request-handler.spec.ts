@@ -378,6 +378,22 @@ describe("framework request handler", () => {
     release();
   });
 
+  it("does not hold the static speculation-rules route on plugin bootstrap", async () => {
+    const nitroApp = createNitroApp();
+    process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
+    getH3App(nitroApp).use("/_agent-native/speculation-rules.json", () => ({
+      prefetch: [],
+      prerender: [],
+    }));
+    trackPluginInit(nitroApp, new Promise<void>(() => {}), {
+      paths: ["/_agent-native"],
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/speculation-rules.json"),
+    ).resolves.toEqual({ prefetch: [], prerender: [] });
+  });
+
   it("waits for matching route-scoped plugin init", async () => {
     const nitroApp = createNitroApp();
     let release!: () => void;

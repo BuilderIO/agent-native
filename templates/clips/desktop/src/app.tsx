@@ -35,6 +35,16 @@ import {
   useState,
 } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/AlertDialog";
 import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
@@ -873,6 +883,9 @@ export function App() {
     loadBool(CAM_ON_KEY, false),
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
+  const [micOffConfirmOpen, setMicOffConfirmOpen] = useState(false);
+  const pendingStartOptionsRef =
+    useRef<Parameters<typeof handleStartRecording>[0]>(undefined);
   const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
     loadBool(SYSTEM_AUDIO_KEY, true),
   );
@@ -1206,7 +1219,7 @@ export function App() {
     try {
       const res = await fetch(
         `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
-        { credentials: "include" },
+        { credentials: "include", cache: "no-store" },
       );
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
@@ -3051,6 +3064,26 @@ export function App() {
   // include a function that is recreated every render.
   handleStartRecordingRef.current = handleStartRecording;
 
+  // Gates every start-recording gesture (button, global shortcut, permission
+  // retry) on the mic toggle. When the mic is off we hold the actual
+  // getDisplayMedia/getUserMedia call until the user confirms in
+  // micOffConfirmOpen — the confirm button's own click supplies the user
+  // activation handleStartRecording needs, same as the direct gesture would.
+  function beginRecording(
+    options?: Parameters<typeof handleStartRecording>[0],
+    beginOptions?: { revealPopoverIfMicOff?: boolean },
+  ) {
+    if (!micOn) {
+      pendingStartOptionsRef.current = options;
+      if (beginOptions?.revealPopoverIfMicOff) {
+        invoke("show_popover").catch(() => {});
+      }
+      setMicOffConfirmOpen(true);
+      return;
+    }
+    void handleStartRecording(options);
+  }
+
   recordShortcutHandlerRef.current = () => {
     if (recorder) {
       emit("clips:recorder-stop").catch(() => {});
@@ -3078,7 +3111,10 @@ export function App() {
       return;
     }
 
-    void handleStartRecording({ ignoreActiveRecorder: true });
+    beginRecording(
+      { ignoreActiveRecorder: true },
+      { revealPopoverIfMicOff: true },
+    );
   };
 
   useEffect(() => {
@@ -3903,9 +3939,7 @@ export function App() {
             disabled={
               localRecordingMode === "off" && videoStorageStatus === "checking"
             }
-            onClick={() => {
-              void handleStartRecording();
-            }}
+            onClick={() => beginRecording()}
           >
             {localRecordingMode === "off" && videoStorageStatus === "checking"
               ? "Checking storage..."
@@ -3914,6 +3948,36 @@ export function App() {
                 : "Start local recording"}
           </button>
         ) : null}
+
+        <AlertDialog
+          open={micOffConfirmOpen}
+          onOpenChange={(open) => {
+            setMicOffConfirmOpen(open);
+            if (!open) pendingStartOptionsRef.current = undefined;
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Record without a microphone?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Your mic is off, so this recording won&apos;t capture any audio.
+                Turn it on before starting if you want narration.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction
+                onClick={() => {
+                  const options = pendingStartOptionsRef.current;
+                  pendingStartOptionsRef.current = undefined;
+                  void handleStartRecording(options);
+                }}
+              >
+                Start anyway
+              </AlertDialogAction>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -3928,14 +3992,14 @@ export function App() {
                   ? ["screen"]
                   : permissionPanesForRecording(mode, cameraOn, micOn)
               }
-              onRetry={handleStartRecording}
+              onRetry={() => beginRecording()}
             />
           ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (
             <PermissionRecoveryBanner
               kind="speech"
               message={recError}
               panes={["speech", "microphone"]}
-              onRetry={handleStartRecording}
+              onRetry={() => beginRecording()}
             />
           ) : isStorageSetupFailureMessage(recError) ? (
             <StorageConnectionBanner

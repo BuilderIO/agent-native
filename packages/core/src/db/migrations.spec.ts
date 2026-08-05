@@ -123,6 +123,18 @@ describe("runMigrations – SQLite steady-state (no pending migrations)", () => 
   });
 });
 
+describe("runMigrations – empty migration list", () => {
+  it("does not touch the database when a plugin has no migrations", async () => {
+    const plugin = runMigrations([], { table: "empty_migrations" });
+
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(getCloudflareD1Binding).not.toHaveBeenCalled();
+  });
+});
+
 describe("runMigrations – run-only entries", () => {
   afterEach(() => {
     vi.clearAllMocks();

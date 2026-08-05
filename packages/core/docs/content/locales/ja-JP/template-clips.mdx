@@ -246,7 +246,7 @@ pnpm dev
 
 Clips は、ネイティブ レコーダーを備えたより大きなテンプレートです (ローカル キャプチャ用のデスクトップ コンパニオンが同梱されています)。録画をアップロードするには、次の 3 つのセットアップ手順が必要です。
 
-1. **ビデオ ストレージ (必須)。** オンボーディング ウィザードを通じてストレージ バックエンドに接続します。最も簡単なパスは Builder.io (ベータ期間中は無料、ワンクリック) です。セルフホスト型ストレージの場合は、`S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY`、およびオプションで `S3_REGION` および `S3_PUBLIC_BASE_URL` を設定します。 Cloudflare R2 と DigitalOcean Spaces は、`R2_*` プレフィックスが付いた同じ環境変数を使用します。
+1. **ビデオ ストレージ (必須)。** オンボーディング ウィザードを通じてストレージ バックエンドに接続します。最も簡単なパスは Builder.io (free tier includes video storage and AI credits、ワンクリック) です。セルフホスト型ストレージの場合は、`S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY`、およびオプションで `S3_REGION` および `S3_PUBLIC_BASE_URL` を設定します。 Cloudflare R2 と DigitalOcean Spaces は、`R2_*` プレフィックスが付いた同じ環境変数を使用します。
 2. **Google Calendar (オプション)。** 今後の会議を同期するには、[設定] から Google Calendar アカウントを接続します。開発環境の OAuth コールバック URL は `http://localhost:8094/_agent-native/google/callback` です。 Gmail および Google Calendar API を有効にして、[Google Cloud Console](https://console.cloud.google.com/) で Google OAuth クライアントをセットアップします。
 3. **画面キャプチャ権限。** macOS では、システム設定 → プライバシーとセキュリティ → 画面録画でブラウザ (またはデスクトップ コンパニオン アプリ) に画面録画権限を付与します。ブラウザー録画では、編集されたコンソールを保存し、レコーダー ページから XHR 診断を取得できます。 Chrome 拡張機能のリストが利用可能になったら、`VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` を有効にして、ユーザーがアクティブ タブ ブラウザのログ用の拡張機能または最もスムーズなネイティブ キャプチャ パス用のデスクトップ アプリを選択できるようにします。
 4. **Slack プレビュー (オプション)。** `links:read`、`links:write`、および `links.embed:write` を使用して Slack アプリを作成します。 `link_shared` を購読します。 **App Unfurl Domains** の下に Clips 共有ドメインを追加します。リクエスト URL を `https://your-clips.example.com/api/slack/unfurl` に設定します。そして、OAuth リダイレクト URL `https://your-clips.example.com/api/slack/oauth/callback` を追加します。 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`、`SLACK_SIGNING_SECRET` を設定し、クリップ設定からワークスペースを接続します。
@@ -268,7 +268,7 @@ Clips は、ネイティブ レコーダーを備えたより大きなテンプ�
 
 2. **運用状態を構成します。** 永続的な `DATABASE_URL` (通常) を設定します。
    [Deployment](/docs/deployment) からの本番認証/秘密変数、および
-   ビデオストレージプロバイダー。 Builder.io Connect は最も簡単なストレージ パスです。
+   ビデオストレージプロバイダー。 Builder.io Connect (free tier includes video storage and AI credits) は最も簡単なストレージ パスです。
    セルフホスト ストレージ、S3 互換には `S3_*` 変数または `R2_*` 変数を使用します
    バケツ。
 
@@ -299,7 +299,7 @@ Clips は、ネイティブ レコーダーを備えたより大きなテンプ�
    異なる拡張子のリスト。
 
 6. **オプションの統合を接続します。** Google Calendar は [会議] タブを強化します。
-   `GEMINI_API_KEY` または Builder.io Connect はトランスクリプトのクリーンアップとタイトルを強化します。
+   `GEMINI_API_KEY` または Builder.io Connect (free tier includes AI credits) はトランスクリプトのクリーンアップとタイトルを強化します。
    `GROQ_API_KEY` は音声からテキストへのフォールバックを提供でき、Slack OAuth
    設定で接続すると、Slack を展開してプレイできるようになります。
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSearchSnippet,
+  createTextMatcher,
   escapeLikeTerm,
   matchesSearchMode,
   normalizeSearchTerms,
@@ -31,6 +32,31 @@ describe("search utils", () => {
       false,
     );
     expect(matchesSearchMode(value, "a".repeat(241), "regex")).toBe(false);
+  });
+
+  it("supports bounded literal, glob, SQL-like, and regex patterns", () => {
+    expect(createTextMatcher("AgentPanel").matches("AgentPanel.tsx")).toBe(
+      true,
+    );
+    expect(
+      createTextMatcher("templates/*/actions/*.ts", "glob").matches(
+        "templates/chat/actions/hello.ts",
+      ),
+    ).toBe(true);
+    expect(
+      createTextMatcher("templates/%/actions/%.ts", "sql-like").matches(
+        "templates/chat/actions/hello.ts",
+      ),
+    ).toBe(true);
+    expect(
+      createTextMatcher("Agent(?:Panel|Sidebar)", "regex").matches(
+        "AgentSidebar.tsx",
+      ),
+    ).toBe(true);
+    expect(createTextMatcher("[", "regex").error).toContain("Invalid");
+    expect(createTextMatcher("a".repeat(241), "glob").error).toContain(
+      "limited",
+    );
   });
 
   it("weights title above summary and body", () => {

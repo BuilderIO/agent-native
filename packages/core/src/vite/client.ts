@@ -3,7 +3,7 @@ import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import {
   renderDesignSystemThemeCss,
@@ -22,6 +22,14 @@ import {
   parsePendingEntry,
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import {
+  mergeAgentNativeConfigs,
+  normalizeAgentNativeConfig,
+  resolveAgentNativeConfig,
+  type AgentNativeConfig,
+  type AgentNativeConfigContext,
+  type AgentNativeConfigInput,
+} from "../config.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
@@ -615,6 +623,7 @@ function findLocalWorkspacePackageDeps(
 
     return packages;
   } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -783,6 +792,13 @@ function getClientDedupe(cwd: string): string[] {
     "react",
     "react-dom",
     "react-dom/client",
+    // AgentSidebar and the shared composers exchange context through these
+    // packages. Keep the source graph and published toolkit graph on one
+    // assistant-ui store when core is linked into a consumer app.
+    "@assistant-ui/react",
+    "@assistant-ui/core",
+    "@assistant-ui/store",
+    "@assistant-ui/tap",
     // Framework routers must share one react-router instance so
     // FrameworkContext (Meta/Links/Scripts) matches ServerRouter/HydratedRouter.
     ...(hasDep("react-router", cwd)
@@ -951,6 +967,55 @@ function getReactRouterAliases(
       { find: /^react-router$/, replacement: req.resolve("react-router") },
     ];
   } catch {
+    return [];
+  }
+}
+
+/**
+ * Core's source graph can resolve assistant-stream from the framework
+ * checkout while the consuming app's assistant-ui package resolves a newer
+ * copy. Pin both public entry points to the consumer's installed peer graph.
+ */
+function getAssistantUiAliases(
+  cwd: string,
+): Array<{ find: RegExp; replacement: string }> {
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const assistantUiEntry = appRequire.resolve("@assistant-ui/react");
+    const assistantUiRequire = createRequire(assistantUiEntry);
+    return [
+      // A linked framework checkout can otherwise resolve the assistant-ui
+      // imports in core's source graph from the checkout's React 19.2.7 peer
+      // tree while Vite prebundles the app's React 19.2.8 tree. Dedupe does
+      // not rewrite those /@fs source imports, so pin the singleton packages
+      // to the consuming app's installed peer graph explicitly.
+      {
+        find: /^@assistant-ui\/react$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/react"),
+      },
+      {
+        find: /^@assistant-ui\/core$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/core"),
+      },
+      {
+        find: /^@assistant-ui\/store$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/store"),
+      },
+      {
+        find: /^@assistant-ui\/tap$/,
+        replacement: assistantUiRequire.resolve("@assistant-ui/tap"),
+      },
+      {
+        find: /^assistant-stream$/,
+        replacement: assistantUiRequire.resolve("assistant-stream"),
+      },
+      {
+        find: /^assistant-stream\/utils$/,
+        replacement: assistantUiRequire.resolve("assistant-stream/utils"),
+      },
+    ];
+  } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -1577,13 +1642,19 @@ export interface ClientConfigOptions {
   /** Additional Vite define constants. */
   define?: UserConfig["define"];
   /**
+   * Public app behavior from `agent-native.json` or an optional typed
+   * `agent-native.config.ts` file. Explicit Vite options win over the JSON
+   * file, while the file remains the default project-level source of truth.
+   */
+  agentNativeConfig?: AgentNativeConfigInput;
+  /**
    * Browser/server compatibility epoch for app changes that cannot safely run
    * across a cached client and a newer action backend. Bump only for an
    * incompatible protocol or data-model transition, not for every deploy.
    */
   clientCompatibilityVersion?: string;
   /**
-   * Framework route warmup behavior mounted by AgentSidebar.
+   * Framework route warmup behavior mounted by AppProviders.
    *
    * React Router's native prefetch warms both `.data` and JS, but its `.data`
    * request uses browser link prefetch. Chrome sends `Sec-Purpose: prefetch`
@@ -3211,12 +3282,80 @@ function resolveAgentNativeTemplate(cwd: string): string {
   );
 }
 
+function createAgentNativeConfigContext(
+  command: AgentNativeViteCommand | undefined,
+  mode: string,
+): AgentNativeConfigContext {
+  const resolvedCommand = command === "build" ? "build" : "serve";
+  return {
+    command: resolvedCommand,
+    mode,
+    isDev: resolvedCommand === "serve",
+    isBuild: resolvedCommand === "build",
+  };
+}
+
+function readAgentNativeJsonConfig(cwd: string): AgentNativeConfig {
+  const configPath = path.join(cwd, "agent-native.json");
+  if (!fs.existsSync(configPath)) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Could not read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  return normalizeAgentNativeConfig(parsed, configPath);
+}
+
+async function loadAgentNativeConfigFile(
+  cwd: string,
+): Promise<AgentNativeConfigInput | undefined> {
+  const candidates = ["agent-native.config.ts", "agent-native.config.mts"];
+  const configPath = candidates
+    .map((filename) => path.join(cwd, filename))
+    .find((candidate) => fs.existsSync(candidate));
+  if (!configPath) return undefined;
+
+  try {
+    const module = (await import(pathToFileURL(configPath).href)) as {
+      default?: unknown;
+      agentNativeConfig?: unknown;
+    };
+    const config = module.default ?? module.agentNativeConfig;
+    if (typeof config !== "object" && typeof config !== "function") {
+      throw new Error("the default export must be an object or function");
+    }
+    return config as AgentNativeConfigInput;
+  } catch (error) {
+    throw new Error(
+      `Could not load ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 function createAgentNativeConfig(
   options: ClientConfigOptions | AgentNativeVitePluginOptions = {},
   command?: AgentNativeViteCommand,
   userConfig: UserConfig = {},
+  mode = process.env.NODE_ENV === "production" ? "production" : "development",
+  projectConfig?: AgentNativeConfigInput,
 ): UserConfig {
   const cwd = process.cwd();
+  const configContext = createAgentNativeConfigContext(command, mode);
+  const projectConfigInput = projectConfig ?? options.agentNativeConfig;
+  const appConfig = resolveAgentNativeConfig(
+    mergeAgentNativeConfigs(
+      readAgentNativeJsonConfig(cwd),
+      projectConfigInput
+        ? resolveAgentNativeConfig(projectConfigInput, configContext)
+        : {},
+    ),
+    configContext,
+  );
   const buildId =
     process.env.DEPLOY_ID?.trim() ||
     process.env.COMMIT_REF?.trim() ||
@@ -3312,6 +3451,7 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
+      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
@@ -3520,6 +3660,7 @@ function createAgentNativeConfig(
       alias: [
         // Published npm installs: one react-router instance for app + core.
         ...getReactRouterAliases(cwd),
+        ...getAssistantUiAliases(cwd),
         // In monorepo dev: resolve @agent-native/core to source for HMR.
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
@@ -3561,8 +3702,18 @@ export function agentNative(
     {
       name: "agent-native-config",
       enforce: "pre",
-      config(config: UserConfig, env: ConfigEnv) {
-        return createAgentNativeConfig(options, env.command, config);
+      async config(config: UserConfig, env: ConfigEnv) {
+        const projectConfig =
+          options.agentNativeConfig === undefined
+            ? await loadAgentNativeConfigFile(process.cwd())
+            : undefined;
+        return createAgentNativeConfig(
+          options,
+          env.command,
+          config,
+          env.mode,
+          projectConfig,
+        );
       },
     },
     ...createAgentNativePlugins(options, {

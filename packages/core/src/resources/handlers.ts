@@ -740,7 +740,7 @@ export async function handleUploadResource(event: any) {
     setResponseStatus(event, 503);
     return {
       error:
-        "File storage is not configured. Connect Builder.io or register an S3/R2/GCS file upload provider before uploading binary resources.",
+        "File storage is not configured. Connect Builder.io (free tier available) or register an S3/R2/GCS file upload provider before uploading binary resources.",
       storageSetupRequired: true,
     };
   }

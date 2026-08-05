@@ -854,6 +854,8 @@ export default (event) =>
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("streamController.enqueue");
+    expect(html).not.toContain("dev server");
+    expect(html).not.toContain("browser console");
     expect(html).toContain("loaderData");
     expect(html).not.toContain("en-US");
   });

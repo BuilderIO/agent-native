@@ -631,12 +631,16 @@ async function retryAfterNavigation<T>(
   throw lastError;
 }
 
-async function gotoCommitted(page: Page, url: string): Promise<void> {
+async function gotoCommitted(
+  page: Page,
+  url: string,
+  waitUntil: "commit" | "domcontentloaded" = "commit",
+): Promise<void> {
   const attempts = isCi ? 12 : 6;
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      await page.goto(url, { waitUntil: "commit", timeout: 90_000 });
+      await page.goto(url, { waitUntil, timeout: 90_000 });
       return;
     } catch (err) {
       lastError = err;
@@ -812,12 +816,16 @@ async function gotoAndWaitForAgentPage(
     httpErrors.length = 0;
 
     try {
-      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await gotoCommitted(
+        page,
+        `${running.baseUrl}${path}`,
+        "domcontentloaded",
+      );
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("tablist", { name: "Agent sections" })
+        .getByRole("tablist", { name: /(?:Agent|Settings) sections/ })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
@@ -840,7 +848,7 @@ async function gotoAndWaitForAgentPage(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show Agent sections tabs before timeout: ${message}\n` +
+    `${path} did not show Agent or Settings sections tabs before timeout: ${message}\n` +
       `Body preview: ${lastBody.slice(0, 400)}`,
   );
 }
@@ -861,7 +869,11 @@ async function gotoAndWaitForChatPage(
     httpErrors.length = 0;
 
     try {
-      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await gotoCommitted(
+        page,
+        `${running.baseUrl}${path}`,
+        "domcontentloaded",
+      );
       await waitForViteDepsQuiet(running.viteReload, running.logs, {
         timeoutMs: 30_000,
       });

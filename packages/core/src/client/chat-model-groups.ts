@@ -21,6 +21,23 @@ export interface BuildChatModelGroupsOptions {
   currentModel?: string;
 }
 
+/**
+ * A loaded provider-backed catalog can confirm that setup is missing before
+ * the slower canonical readiness request resolves. An empty catalog is a
+ * failed lookup, not evidence that no provider is configured.
+ */
+export function modelCatalogConfirmsMissing(
+  groups: readonly Pick<EngineModelGroup, "configured">[] | undefined,
+  loading: boolean | undefined,
+): boolean {
+  return (
+    loading === false &&
+    groups !== undefined &&
+    groups.length > 0 &&
+    groups.every((group) => !group.configured)
+  );
+}
+
 const HIDDEN_CHAT_MODEL_ENGINES = new Set([
   "ai-sdk:groq",
   "ai-sdk:mistral",

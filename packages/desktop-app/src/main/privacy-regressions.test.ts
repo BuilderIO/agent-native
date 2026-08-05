@@ -128,7 +128,7 @@ describe("desktop passive-access regressions", () => {
     const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
 
     expect(agent).toContain("isCredentialGapCodeAgentEvent,");
-    expect(agent).toContain('} from "@agent-native/core/client";');
+    expect(agent).toContain('} from "@agent-native/core/client/agent-chat";');
     const detector = between(
       agent,
       "function isCredentialTranscriptEvent(",
@@ -143,7 +143,7 @@ describe("desktop passive-access regressions", () => {
     const main = source("./index.ts");
     const runtimeCheck = between(
       main,
-      "function hasRuntimeNonCodexCodeAgentLlmProvider()",
+      "function hasRuntimeNonCodexCodeAgentLlmProvider(",
       "function normalizeCodeAgentRequestedEngine(",
     );
 
@@ -152,6 +152,22 @@ describe("desktop passive-access regressions", () => {
     );
     expect(main).toContain("applyCodeAgentProviderCredentialsToEnv()");
     expect(main).toContain("applyResult.failedKeys.length > 0");
+  });
+
+  it("checks saved provider credentials before rejecting a coding chat", () => {
+    const main = source("./index.ts");
+    const providerCheck = between(
+      main,
+      "function ensureCodeAgentLlmProvider()",
+      "function getLocalCodexCliStatus()",
+    );
+
+    expect(providerCheck).toContain(
+      "AppStore.getCodeAgentProviderProcessEnv(process.env)",
+    );
+    expect(providerCheck).toContain(
+      "hasRuntimeNonCodexCodeAgentLlmProvider(providerEnv)",
+    );
   });
 
   it("only marks the local Codex provider configured after authentication", () => {

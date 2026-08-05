@@ -117,6 +117,71 @@ describe("server/auth", () => {
     }, 15_000);
   });
 
+  describe("resolveAuthLoginMode", () => {
+    it("defaults to magic link only when email is ready", async () => {
+      const { resolveAuthLoginMode } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveAuthLoginMode(true)).toBe("magic-link");
+      expect(resolveAuthLoginMode(false)).toBe("password");
+    }, 15_000);
+
+    it("allows AUTH_MAGIC_LINK=0 to restore password login", async () => {
+      vi.stubEnv("AUTH_MAGIC_LINK", "0");
+      const { resolveAuthLoginMode, getAuthLoginMode } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveAuthLoginMode(true)).toBe("password");
+      await expect(getAuthLoginMode()).resolves.toBe("password");
+    }, 15_000);
+  });
+
+  describe("magic-link login", () => {
+    it("normalizes the email and keeps the callback same-origin", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const signInMagicLink = vi.fn(async () => ({ status: true }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+      expect(handler).toBeTypeOf("function");
+
+      const event = createJsonPostEvent("/_agent-native/auth/magic-link", {
+        email: " Owner@Example.com ",
+        callbackURL: "https://evil.example/steal",
+      });
+      await expect(handler(event)).resolves.toEqual({ ok: true });
+
+      expect(signInMagicLink).toHaveBeenCalledWith({
+        body: {
+          email: "owner@example.com",
+          callbackURL: "/",
+          newUserCallbackURL:
+            "/_agent-native/auth/magic-link/new-user?return=%2F",
+        },
+        headers: event.headers,
+      });
+    });
+  });
+
   describe("resolveSignupTrackingIdentity", () => {
     it("uses explicit app and template environment values", async () => {
       vi.stubEnv("AGENT_NATIVE_APP", "agent-native-mail");
@@ -224,7 +289,7 @@ describe("server/auth", () => {
       errorSpy.mockRestore();
     });
 
-    it("lets logout opt the current browser out of AUTH_DISABLED inside an HTTPS iframe", async () => {
+    it("opts the current browser out and forwards Better Auth logout cookies", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
       delete process.env.ACCESS_TOKEN;
@@ -237,7 +302,14 @@ describe("server/auth", () => {
             getSession: vi.fn(async () => null),
             signInEmail: vi.fn(),
             signUpEmail: vi.fn(),
-            signOut: vi.fn(),
+            signOut: vi.fn(async () => {
+              const headers = new Headers();
+              headers.append(
+                "set-cookie",
+                "better-auth.session_data=; Max-Age=0; Path=/",
+              );
+              return { headers };
+            }),
           },
         })),
         getBetterAuthSync: vi.fn(() => undefined),
@@ -259,11 +331,15 @@ describe("server/auth", () => {
       await logoutHandler(event);
 
       const setCookie = event.res.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain("agent-native-first-run=; Max-Age=0");
       expect(setCookie).toContain("_auth_disabled_opt_out=1");
       expect(setCookie).toContain("HttpOnly");
       expect(setCookie).toContain("SameSite=None");
       expect(setCookie).toContain("Secure");
       expect(setCookie).toContain("Partitioned");
+      expect(setCookie).toContain(
+        "better-auth.session_data=; Max-Age=0; Path=/",
+      );
     });
 
     it("mounts generic Google OAuth routes by default when credentials are configured", async () => {

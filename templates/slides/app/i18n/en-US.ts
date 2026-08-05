@@ -103,7 +103,7 @@ const messages = {
       "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -404,6 +404,14 @@ const messages = {
     cornerRadius: "Corner radius",
     strokeWeight: "Weight",
     typography: "Typography",
+    weight: "Weight",
+    italic: "Italic",
+    underline: "Underline",
+    bulletList: "Bullet list",
+    numberedList: "Numbered list",
+    align: "Align",
+    decreaseSize: "Decrease font size",
+    increaseSize: "Increase font size",
     mixed: "Mixed",
     textColor: "Text color",
     primary: "Primary",
@@ -501,7 +509,6 @@ const messages = {
     noAi: "no AI",
     duplicateCurrentSlide: "Duplicate current slide",
     promptPlaceholder: "Describe the slides you want...",
-    slides: "Slides",
   },
   presentation: {
     loadFailed: "Could not load this presentation.",
@@ -536,7 +543,7 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
@@ -663,6 +670,21 @@ const messages = {
     referenceDeckNone: "Don't use one",
     referenceDeckStarredGroup: "Starred",
     referenceDeckOtherGroup: "Other decks",
+    referenceReviewTitle: "Review references",
+    referenceReviewDescription:
+      "Keep the default design system and reference deck unless you remove them. Search for another deck, import a file, or continue when you're ready.",
+    chooseAnotherDeck: "Choose another deck",
+    noMatchingDecks: "No matching decks found.",
+    googleSlidesReferenceTitle: "Google Slides",
+    googleSlidesReferenceConnect:
+      "Connect Google Drive to import a Slides deck.",
+    googleSlidesReferenceChoose: "Choose Google Slides deck",
+    googleSlidesReferencePicking: "Working...",
+    googleSlidesReferenceConnected:
+      "Connected. Choose a Google Slides deck to import as a reusable reference.",
+    googleSlidesReferenceUnavailable:
+      "Connect Google Drive and configure Picker to import a Google Slides deck.",
+    skipReferences: "Skip references",
     workspaceDefaultBadge: "Workspace default",
     setWorkspaceDefault: "Set as workspace default",
     clearWorkspaceDefault: "Clear workspace default",

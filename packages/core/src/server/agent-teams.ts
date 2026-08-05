@@ -1254,6 +1254,8 @@ export interface SpawnTaskOptions {
   parentSend: (event: AgentChatEvent) => void;
   /** Parent thread ID — used to auto-respond when the sub-agent finishes */
   parentThreadId?: string;
+  /** App id that owns the parent chat, used to scope the child thread. */
+  parentSourceAppId?: string | null;
   /** Parent run ID used to correlate child telemetry after durable handoff. */
   parentRunId?: string;
   /** Display name for the sub-agent tab (carried into the dispatch payload). */
@@ -1308,8 +1310,10 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   const taskId = generateTaskId();
 
   // Create a dedicated thread for the sub-agent with the task as the first message
+  const parentSourceAppId = opts.parentSourceAppId?.trim();
   const thread = await createThread(opts.ownerEmail, {
     title: opts.description.slice(0, 100),
+    ...(parentSourceAppId ? { source: { appId: parentSourceAppId } } : {}),
   });
 
   // Save the initial user message to thread data so the tab shows content

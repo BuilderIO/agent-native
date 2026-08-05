@@ -1,6 +1,34 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChatModelGroups } from "./chat-model-groups.js";
+import {
+  buildChatModelGroups,
+  modelCatalogConfirmsMissing,
+} from "./chat-model-groups.js";
+
+describe("modelCatalogConfirmsMissing", () => {
+  it("confirms missing setup only after a non-empty catalog has loaded", () => {
+    expect(
+      modelCatalogConfirmsMissing(
+        [{ configured: false }, { configured: false }],
+        false,
+      ),
+    ).toBe(true);
+    expect(modelCatalogConfirmsMissing([{ configured: false }], true)).toBe(
+      false,
+    );
+    expect(modelCatalogConfirmsMissing([], false)).toBe(false);
+    expect(modelCatalogConfirmsMissing(undefined, false)).toBe(false);
+  });
+
+  it("does not claim setup is missing when any provider is configured", () => {
+    expect(
+      modelCatalogConfirmsMissing(
+        [{ configured: false }, { configured: true }],
+        false,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("buildChatModelGroups", () => {
   it("groups every Builder gateway model family shown in the composer", () => {

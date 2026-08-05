@@ -9,7 +9,6 @@ import {
   IconCopy,
   IconX,
   IconChevronDown,
-  IconExternalLink,
   IconGitFork,
   IconGauge,
   IconSettings,
@@ -287,10 +286,7 @@ export function BuilderConnectCta({
             Waiting…
           </>
         ) : (
-          <>
-            Connect
-            <IconExternalLink size={10} />
-          </>
+          "Connect"
         )}
       </button>
     </div>
@@ -632,7 +628,8 @@ export function RunErrorRecoveryCard({
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
-              Reconnect Builder.io, then retry this message.
+              Reconnect Builder.io (free tier available), then retry this
+              message.
             </p>
           )}
           {isConnectionRecoveryError && (
@@ -688,9 +685,7 @@ export function RunErrorRecoveryCard({
           >
             {builderReconnect.connecting ? (
               <IconLoader2 size={13} className="animate-spin" />
-            ) : (
-              <IconExternalLink size={13} />
-            )}
+            ) : null}
             {builderReconnect.connecting
               ? "Connecting Builder.io"
               : "Reconnect Builder.io"}

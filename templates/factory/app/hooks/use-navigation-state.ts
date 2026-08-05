@@ -9,6 +9,7 @@ export interface NavigationState {
   threadId?: string;
   factoryId?: string;
   factoryTab?: string;
+  factoryAutomationId?: string;
   factoryNodeId?: string;
   factoryEdgeId?: string;
 }
@@ -28,6 +29,12 @@ export function useNavigationState() {
           : {}),
         ...(pathname.startsWith("/factory") && searchParams.get("tab")
           ? { factoryTab: searchParams.get("tab") ?? undefined }
+          : {}),
+        ...(pathname.startsWith("/factory") && searchParams.get("automationId")
+          ? {
+              factoryAutomationId:
+                searchParams.get("automationId") ?? undefined,
+            }
           : {}),
         ...(pathname.startsWith("/factory") && searchParams.get("node")
           ? { factoryNodeId: searchParams.get("node") ?? undefined }

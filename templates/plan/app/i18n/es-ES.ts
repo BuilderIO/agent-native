@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Lienzo de mesa de trabajo de Plan",
       zoomIn: "Acercar",
       zoomOut: "Alejar",
+      zoomHint: "Mantén ⌘/Ctrl y desplázate para hacer zoom",
       markupSaveFailed: "No se pudo guardar el marcado. Intentalo de nuevo.",
     },
     document: {

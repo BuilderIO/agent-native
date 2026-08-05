@@ -406,6 +406,7 @@ export default defineAction({
 
       const secondaryId = await insertSecondarySource({
         database,
+        expectedPrimarySourceId: existingSource.id,
         sourceType,
         sourceName,
         sourceTable,
@@ -499,6 +500,7 @@ export default defineAction({
         additionalRead.state === "live" ? additionalRead.entries : [];
       const additionalSourceId = await insertSecondarySource({
         database,
+        expectedPrimarySourceId: existingSource.id,
         sourceType,
         sourceName,
         sourceTable,

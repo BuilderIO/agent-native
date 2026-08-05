@@ -60,4 +60,22 @@ describe("SidebarFooterActions", () => {
         ?.className.includes("flex-col"),
     ).toBe(true);
   });
+
+  it("uses the same inset as expanded sidebar navigation rows", () => {
+    act(() => {
+      root.render(
+        <SidebarFooterActions
+          feedback={<span>feedback</span>}
+          search={<span>search</span>}
+          collapse={<span>collapse</span>}
+        />,
+      );
+    });
+
+    const className = container.querySelector(
+      "[data-sidebar-footer-actions]",
+    )?.className;
+    expect(className).toContain("px-2");
+    expect(className).toContain("py-1");
+  });
 });

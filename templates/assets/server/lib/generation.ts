@@ -135,7 +135,7 @@ export async function getGeminiApiKey(): Promise<string> {
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "Asset generation is not configured. Open Settings and either click Connect Builder.io for images, or expand the Asset generation setup step and paste a Gemini API key for videos and image fallback.",
+        "Asset generation is not configured. Open Settings and either click Connect Builder.io (free tier available) for images, or expand the Asset generation setup step and paste a Gemini API key for videos and image fallback.",
     });
   }
   return key;
@@ -153,7 +153,7 @@ async function getOpenAIImageApiKey(): Promise<string> {
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://platform.openai.com/api-keys",
       message:
-        "Image generation is not configured. Open Settings and connect Builder.io, or add an OpenAI or Gemini API key manually.",
+        "Image generation is not configured. Open Settings and connect Builder.io (free tier available), or add an OpenAI or Gemini API key manually.",
     });
   }
   return key;
@@ -274,7 +274,7 @@ export async function generateWithBuilderImageApi(
           ? "Builder private key is missing"
           : "Builder public key is missing";
     throw new BuilderImageGenerationError(
-      "Builder.io is not fully connected for managed image generation. Reconnect Builder.io so both Builder private and public keys are available.",
+      "Builder.io is not fully connected for managed image generation. Reconnect Builder.io (free tier available) so both Builder private and public keys are available.",
       401,
       detail,
     );
@@ -698,7 +698,7 @@ function builderImageGenerationFallbackMessage(
   if (input?.mode === "edit") {
     switch (err.status) {
       case 401:
-        return `Masked skeleton inpainting needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io; manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
+        return `Masked skeleton inpainting needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io (free tier available); manual OpenAI or Gemini fallback cannot pass image-edit masks.`;
       case 402:
         return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Masked skeleton inpainting cannot use manual OpenAI or Gemini fallback because it must pass an image-edit mask.`;
       case 403:
@@ -714,7 +714,7 @@ function builderImageGenerationFallbackMessage(
   }
   switch (err.status) {
     case 401:
-      return `Image generation needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io, or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.`;
+      return `Image generation needs Builder.io connected or reconnected${err.detail ? ` (${err.detail})` : ""}. Open Settings and click Connect Builder.io (free tier available), or expand the Asset generation setup step and add an OpenAI or Gemini API key as the manual fallback.`;
     case 402:
       return `Builder.io is connected, but this Builder space cannot use managed image generation credits${detail} Open Builder space settings or reconnect to a space with image-generation credits, or add an OpenAI or Gemini API key as the manual fallback.`;
     case 403:
@@ -957,7 +957,7 @@ async function generateWithManualImageProvider(
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
     });
   }
   if (await isGeminiImageGenerationConfigured()) {
@@ -969,7 +969,7 @@ async function generateWithManualImageProvider(
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
     });
   }
   if (input.intent === "restyle" || input.intent === "edit") {
@@ -993,7 +993,7 @@ export async function generateWithOpenAI(
       builderConnectUrl: "/_agent-native/builder/connect",
       byokDocsUrl: "https://aistudio.google.com/apikey",
       message:
-        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation, or switch the preset to a Gemini model with a GEMINI_API_KEY.",
+        "This preset attaches reference board images, which the manual OpenAI fallback cannot pass. Connect Builder.io managed generation (free tier available), or switch the preset to a Gemini model with a GEMINI_API_KEY.",
     });
   }
   const startedAt = Date.now();

@@ -13,6 +13,7 @@ import path from "node:path";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
+import { magicLink } from "better-auth/plugins/magic-link";
 import {
   pgTable,
   text as pgText,
@@ -59,11 +60,19 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { sendEmail, isEmailConfigured } from "./email.js";
+import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+
+export {
+  getAuthLoginMode,
+  resolveAuthLoginMode,
+  resolveAuthLoginModeFromReadiness,
+  type AuthLoginMode,
+} from "./auth-login-mode.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -386,6 +395,28 @@ export interface BetterAuthInstance {
     signInEmail: (opts: {
       body: { email: string; password: string };
     }) => Promise<{ token?: string; user?: any } | null>;
+    signInMagicLink: (opts: {
+      body: {
+        email: string;
+        name?: string;
+        callbackURL?: string;
+        newUserCallbackURL?: string;
+        errorCallbackURL?: string;
+        metadata?: Record<string, unknown>;
+      };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    listUserAccounts: (opts: {
+      headers: Headers;
+    }) => Promise<Array<{ providerId: string }>>;
+    setPassword: (opts: {
+      body: { newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    changePassword: (opts: {
+      body: { currentPassword: string; newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
     signUpEmail: (opts: {
       body: {
         email: string;
@@ -395,7 +426,10 @@ export interface BetterAuthInstance {
       };
       headers?: Headers;
     }) => Promise<any>;
-    signOut: (opts: { headers: Headers }) => Promise<any>;
+    signOut: (opts: {
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
   };
 }
 
@@ -976,21 +1010,22 @@ export interface GoogleAuthIdentity {
  * Ensure a verified Google identity has a canonical Better Auth user/account
  * before the legacy email-keyed session is issued. This prevents a later
  * password signup from becoming the first canonical identity for that email.
+ * Returns whether this call created the canonical user.
  */
 export async function ensureGoogleAuthIdentity(
   identity: GoogleAuthIdentity,
-): Promise<void> {
+): Promise<boolean> {
   const adapter = await getBetterAuthInternalAdapter();
   if (!adapter) {
     throw new Error("Better Auth internal adapter is unavailable");
   }
-  await ensureGoogleAuthIdentityWithAdapter(adapter, identity);
+  return ensureGoogleAuthIdentityWithAdapter(adapter, identity);
 }
 
 export async function ensureGoogleAuthIdentityWithAdapter(
   adapter: BetterAuthInternalAdapter,
   identity: GoogleAuthIdentity,
-): Promise<void> {
+): Promise<boolean> {
   const email = identity.email.trim().toLowerCase();
   const accountId = identity.accountId.trim();
   if (!email || !accountId) {
@@ -1010,7 +1045,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     if (!existing || linkedAccount.userId !== existing.user.id) {
       throw new Error("Google account is already linked to another user");
     }
-    return;
+    return false;
   }
 
   if (!existing) {
@@ -1020,7 +1055,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           { email, name, emailVerified: true },
           { providerId: "google", accountId },
         );
-        return;
+        return true;
       } catch (error) {
         // A concurrent first sign-in may have won the unique-email race. Only
         // continue if the canonical row now exists; otherwise preserve the
@@ -1039,7 +1074,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
           if (linkedAccount.userId !== existing.user.id) {
             throw new Error("Google account is already linked to another user");
           }
-          return;
+          return false;
         }
       }
     } else {
@@ -1053,7 +1088,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
         providerId: "google",
         accountId,
       });
-      return;
+      return true;
     }
   }
 
@@ -1064,7 +1099,7 @@ export async function ensureGoogleAuthIdentityWithAdapter(
     (account) =>
       account.providerId === "google" && account.accountId === accountId,
   );
-  if (alreadyLinked) return;
+  if (alreadyLinked) return false;
 
   // A password signup reserves the email before verification. If that row is
   // credential-only, remove the unverified credential and promote the same
@@ -1088,13 +1123,14 @@ export async function ensureGoogleAuthIdentityWithAdapter(
       email,
       accountId,
     });
-    return;
+    return false;
   }
   await adapter.linkAccount({
     userId: existing.user.id,
     providerId: "google",
     accountId,
   });
+  return false;
 }
 
 /** Reset for testing */
@@ -1194,8 +1230,9 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
+  const emailReadiness = await getEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
-    resolveEmailPasswordAuthPolicy(await isEmailConfigured());
+    resolveEmailPasswordAuthPolicy(emailReadiness.status === "ready");
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -1451,6 +1488,27 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
+      magicLink({
+        expiresIn: 60 * 5,
+        storeToken: "hashed",
+        rateLimit: { window: 60, max: 5 },
+        disableSignUp,
+        sendMagicLink: async ({ email, url }) => {
+          const appBasePath = (
+            process.env.VITE_APP_BASE_PATH ||
+            process.env.APP_BASE_PATH ||
+            ""
+          ).replace(/\/$/, "");
+          const magicLinkUrl = appBasePath
+            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
+            : url;
+          const { subject, html, text, appSender } = renderMagicLinkEmail({
+            email,
+            magicLinkUrl,
+          });
+          await sendEmail({ to: email, subject, html, text, appSender });
+        },
+      }),
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {

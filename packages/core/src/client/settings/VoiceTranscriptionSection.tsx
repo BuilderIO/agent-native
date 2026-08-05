@@ -10,7 +10,7 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import { Switch } from "@agent-native/toolkit/design-system";
+import { Picker, Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
@@ -23,6 +23,7 @@ import {
 import React, { useCallback, useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { SettingsRow } from "./SettingsRow.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -118,7 +119,9 @@ function batchProvider(provider: Provider | null): Provider {
   return provider;
 }
 
-export function VoiceTranscriptionSection() {
+export function VoiceTranscriptionSection({
+  compact = false,
+}: { compact?: boolean } = {}) {
   const [transcriptionMode, setTranscriptionMode] =
     useState<TranscriptionMode | null>(null);
   const [provider, setProvider] = useState<Provider>(DEFAULT_BATCH_PROVIDER);
@@ -370,6 +373,32 @@ export function VoiceTranscriptionSection() {
     );
   }
 
+  if (compact) {
+    return (
+      <SettingsRow
+        label="Voice transcription"
+        description="Choose how voice input is transcribed."
+        control={
+          <Picker
+            mode="select"
+            options={[
+              { value: "mac-native", label: "Mac Native" },
+              { value: "google-realtime", label: "Google Realtime" },
+              { value: "batch", label: "Batch" },
+            ]}
+            value={transcriptionMode}
+            onChange={(next) => {
+              const value = String(next ?? "");
+              if (isTranscriptionMode(value)) chooseSource(value);
+            }}
+            aria-label="Voice transcription"
+            className="w-44 text-start"
+          />
+        }
+      />
+    );
+  }
+
   return (
     <div className="space-y-2">
       <div className="rounded-md border border-border bg-background p-2">
@@ -407,7 +436,7 @@ export function VoiceTranscriptionSection() {
               googleRealtimeReady
                 ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
                 : googleRealtimeConfigured
-                  ? "Google credentials are set. Connect Builder completely to mint the managed realtime session."
+                  ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session."
                   : "BYOK only for v1. Configure Google service account before selecting this source."
             }
             rightSlot={
@@ -426,7 +455,6 @@ export function VoiceTranscriptionSection() {
                   className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
                 >
                   Connect Builder.io
-                  <IconExternalLink size={10} />
                 </button>
               ) : (
                 <button
@@ -514,7 +542,7 @@ export function VoiceTranscriptionSection() {
               title="Google Speech-to-Text service account"
               subtitle={
                 googleRealtimeConfigured
-                  ? "Service-account JSON is set. Connect Builder to mint the managed realtime WebSocket session."
+                  ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session."
                   : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize."
               }
               rightSlot={
@@ -534,7 +562,6 @@ export function VoiceTranscriptionSection() {
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 ) : (
                   <button
@@ -589,7 +616,6 @@ export function VoiceTranscriptionSection() {
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 )
               }

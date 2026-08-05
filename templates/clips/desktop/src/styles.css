@@ -156,6 +156,7 @@ body[data-clips-route="recording-pill"] #root {
    content exceeds the restored popover height. Only the content region may
    scroll; the window shell and bottom destinations stay put. */
 .app-recorder {
+  position: relative;
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -605,6 +606,10 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* Popover menu rendered below a device row. */
+.media-device-row {
+  position: relative;
+}
+
 .row-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -645,7 +650,21 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-hover);
 }
 
-/* System-audio toggle sits below the device list, separated by a divider. */
+.row-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.row-menu-trigger:focus-visible {
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  border-radius: 4px;
+}
+
 .row-menu-toggle {
   display: flex;
   align-items: center;
@@ -2591,6 +2610,134 @@ body[data-clips-route="recording-pill"] #root {
   to {
     opacity: 0;
     transform: scale(0.96);
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Alert dialog                                                              */
+/* ------------------------------------------------------------------------- */
+
+/* `position: absolute`, not `fixed` — see AlertDialog.tsx: this must stay
+   inside `.app-recorder`'s clipped, rounded bounds rather than the raw
+   (square-cornered) Tauri window. */
+.alert-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  /* guard:allow-raw-color — modal scrim is theme-invariant black, same as shadcn's own bg-black/80 overlay */
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.alert-dialog-overlay[data-state="open"] {
+  animation: alert-dialog-overlay-in 120ms ease-out;
+}
+
+.alert-dialog-overlay[data-state="closed"] {
+  animation: alert-dialog-overlay-out 100ms ease-in;
+}
+
+.alert-dialog-content {
+  position: absolute;
+  z-index: 71;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100% - 32px);
+  max-width: 320px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.alert-dialog-content[data-state="open"] {
+  animation: alert-dialog-content-in 120ms ease-out;
+}
+
+.alert-dialog-content[data-state="closed"] {
+  animation: alert-dialog-content-out 100ms ease-in;
+}
+
+.alert-dialog-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.alert-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.alert-dialog-description {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.alert-dialog-footer {
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 8px;
+}
+
+.alert-dialog-footer .primary,
+.alert-dialog-footer .secondary {
+  width: auto;
+  flex: 1;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@keyframes alert-dialog-overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes alert-dialog-overlay-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes alert-dialog-content-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes alert-dialog-content-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
   }
 }
 

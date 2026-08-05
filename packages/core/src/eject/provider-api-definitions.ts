@@ -36,6 +36,7 @@ export const providerApiOverrides: ProviderApiConfig[] = [
   provider("gcloud"),
   provider("github"),
   provider("figma"),
+  provider("fullstory"),
   provider("gmail"),
   provider("gong"),
   provider("google_calendar"),

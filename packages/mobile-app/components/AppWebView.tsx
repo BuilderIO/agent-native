@@ -90,6 +90,7 @@ const SESSION_BRIDGE_SCRIPT = `
     window.__agentNativeSessionBridgeRunning = true;
     var postToken = function () {
       fetch('/_agent-native/auth/session', {
+        cache: 'no-store',
         credentials: 'include',
         headers: { Accept: 'application/json' }
       })

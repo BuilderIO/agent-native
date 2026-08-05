@@ -677,10 +677,9 @@ switch (command) {
     // continuation only runs on success.
     (async () => {
       // Doctor pre-step: scans app source for the security-critical guard
-      // invariants (see `agent-native doctor --help`). Warn-only by
-      // default — prints findings to stderr and always continues. Only
-      // fails the build when `agent-native build --strict` was passed or
-      // `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+      // invariants (see `agent-native doctor --help`). Findings fail by
+      // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
+      // a build moving, while `agent-native build --strict` always fails.
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
         const hook = await runDoctorBuildHook({
@@ -694,9 +693,10 @@ switch (command) {
           process.exit(1);
         }
       } catch (err) {
-        console.warn(
-          `[doctor] pre-build scan failed to run (continuing): ${err instanceof Error ? err.message : String(err)}`,
+        console.error(
+          `[doctor] pre-build scan failed, so the build is blocked: ${err instanceof Error ? err.message : String(err)}`,
         );
+        process.exit(1);
       }
 
       if (isReactRouterFramework()) {
@@ -1238,6 +1238,7 @@ Usage:
                                 Call another agent-native app over A2A
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
+  agent-native doctor           Scan app/workspace source for guard violations
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
                                 for a single-app scaffold, or choose Community

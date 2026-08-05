@@ -1,26 +1,19 @@
-# Neon preview branches — per-PR database isolation
+# Neon preview branches - disabled
 
 Preview deploys share the prod `DATABASE_URL` by default, so any server
-cold-start that touches the database writes to prod. To isolate preview
-deploys, we use Neon's schema-only branching via GitHub Actions.
+Preview deploys use the shared Netlify database configuration. The workflow
+below only cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
-1. **PR opened/updated** — `.github/workflows/neon-preview-branches.yml`
-   creates a Neon schema-only branch (`preview-schema-only/pr-<number>`) for
-   each Git-connected hosted template's Neon project, then sets `DATABASE_URL` on
-   the corresponding Netlify site's deploy-preview context. Schema-only is
-   deliberate: preview URLs are public, so they must never receive a
-   copy-on-write clone containing production or another user's rows.
+1. **PR opened/updated** - no Neon branch or Netlify database override is
+   created. Netlify's normal deploy-preview flow runs unchanged.
 
-2. **Netlify auto-deploys** — the preview branch override is written directly
-   to `DATABASE_URL`, so the build and runtime use the branch DB without a
-   Netlify-managed database variable.
+2. **Netlify auto-deploys** - the normal deploy-preview configuration is used.
 
-3. **PR closed** — the workflow deletes the Neon branches and removes the
-   branch-scoped `DATABASE_URL` env overrides. Existing legacy
-   `preview/pr-*` branches must be deleted separately before their old preview
-   URLs are considered safe.
+3. **PR closed** - the workflow deletes any matching
+   `preview-schema-only/pr-*` or legacy `preview/pr-*` Neon branches and
+   removes old branch-scoped `DATABASE_URL` env overrides.
 
 `@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
 The Neon/Netlify specifics live in the workflow and each template's
@@ -30,11 +23,10 @@ so it does not support branch deploy previews.
 
 ## Preview access requirements
 
-Database isolation is not a substitute for perimeter protection. Before
-reopening an affected public preview, enable Netlify team login, SSO, or an
-equivalent visitor gate for the preview URL. The application also disables
-hosted password signup when no email provider is configured and never honors
-the email-verification skip flag in hosted production.
+Because previews use the shared database, they must not be treated as isolated
+or safe-to-write environments. Keep public preview access gated with Netlify
+team login, SSO, or an equivalent visitor gate, and do not use previews for
+workflows that can create real external side effects.
 
 ## Required GitHub secrets
 
