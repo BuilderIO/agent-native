@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.137.3
+
+### Patch Changes
+
+- e0dcb10: Add what-is-agent-native localized translations for all 10 locales
+
 ## 0.137.2
 
 ### Patch Changes
