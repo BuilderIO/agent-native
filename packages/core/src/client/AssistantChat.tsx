@@ -488,6 +488,7 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
           args: { ...part.args },
           ...(part.mcpApp ? { mcpApp: { ...part.mcpApp } } : {}),
           ...(part.chatUI ? { chatUI: { ...part.chatUI } } : {}),
+          ...(part.approval ? { approval: { ...part.approval } } : {}),
         },
   );
 }

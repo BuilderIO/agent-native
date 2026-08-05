@@ -439,7 +439,7 @@ const generateDesignAgentParameters = {
       type: "string",
       description:
         "Optional JSON array of overview-canvas placements keyed by filename or fileId. " +
-        "Pass explicit x/y/width/height for every generated screen; desktop is 1440x900.",
+        "Pass explicit x/y/width/height for every generated screen as numbers; desktop is 1440x900.",
     },
     contextPackId: {
       type: "string",
@@ -504,7 +504,8 @@ const generateDesignAction = defineAction({
     "for a mobile- or tablet-primary design when not passing `devices`. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
-    "and x/y/width/height so the new screens appear placed on the overview canvas.",
+    "and numeric x/y/width/height so the new screens appear placed on the " +
+    "overview canvas.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),
     prompt: z.string().describe("The generation prompt (stored for reference)"),
