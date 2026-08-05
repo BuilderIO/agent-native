@@ -31,14 +31,10 @@ function payloadJsonSchema(
     return null;
   }
 
-  try {
-    return z.toJSONSchema(schema as z.ZodType, {
-      io: "input",
-      target: "draft-7",
-    }) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  return z.toJSONSchema(schema as z.ZodType, {
+    io: "input",
+    target: "draft-7",
+  }) as Record<string, unknown>;
 }
 
 export default defineAction({

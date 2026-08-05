@@ -2,4 +2,4 @@
 "@agent-native/core": minor
 ---
 
-Expose registered automation events and direct create/update editor mutations with optimistic client state.
+Add a friendly trigger-first automation editor with on-demand automations, registered event and email selection, and reusable friendly schedule fields while retaining advanced cron support.
