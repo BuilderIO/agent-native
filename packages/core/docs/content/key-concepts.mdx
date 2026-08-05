@@ -373,11 +373,11 @@ One `defineAction()` call gives you:
 
 ```mermaid
 graph LR
-  A["defineAction()"] --> B[Agent tool]
+  A[defineAction] --> B[Agent tool]
   A --> C[Frontend hook]
   A --> D[Framework transport]
   A --> E[CLI command]
-  A --> F[MCP / A2A tool]
+  A --> F[MCP or A2A tool]
 ```
 
 - **Agent tool** — the agent sees it with the zod-derived JSON Schema and can call it.
