@@ -18,6 +18,7 @@ import { TemplateCard, templates } from "./TemplateCard";
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -67,6 +68,24 @@ describe("docs popover controls", () => {
 
     fireEvent.click(editOnline);
     expect(screen.getByText("Join the waitlist")).toBeTruthy();
+  });
+
+  it("passes stored first-touch attribution to demo links", () => {
+    window.localStorage.setItem(
+      "an_attribution",
+      JSON.stringify({
+        utm_source: "newsletter",
+        utm_campaign: "launch",
+      }),
+    );
+    renderWithProviders(<TemplateCard template={templates[0]} />);
+
+    const demoLink = screen.getByRole("link", { name: "Try It" });
+    fireEvent.click(demoLink);
+
+    const url = new URL(demoLink.getAttribute("href") ?? "");
+    expect(url.searchParams.get("utm_source")).toBe("newsletter");
+    expect(url.searchParams.get("utm_campaign")).toBe("launch");
   });
 
   it("submits the selected template with customization waitlist requests", async () => {
