@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconUsersGroup,
@@ -39,6 +40,7 @@ export function SpaceCard({
   className,
   onMutationSuccess,
 }: SpaceCardProps) {
+  const t = useT();
   const { canManageOrg } = useOrgRole();
   const color = space.color || "hsl(var(--primary))";
   const members = space.memberEmails ?? [];
@@ -131,7 +133,7 @@ export function SpaceCard({
               }}
             >
               <IconEdit className="h-4 w-4 mr-2" />
-              Rename
+              {t("spaceDialog.renameSpace")}
             </ContextMenuItem>
             <ContextMenuItem
               onClick={(e) => {
@@ -141,7 +143,7 @@ export function SpaceCard({
               className="text-destructive focus:text-destructive"
             >
               <IconTrash className="h-4 w-4 mr-2" />
-              Delete space
+              {t("spaceDialog.deleteSpace")}
             </ContextMenuItem>
           </ContextMenuContent>
         )}

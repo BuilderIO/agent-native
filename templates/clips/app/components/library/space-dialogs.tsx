@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +35,7 @@ export function SpaceDialogs({
   setDeleteSpaceId,
   onMutationSuccess,
 }: SpaceDialogsProps) {
+  const t = useT();
   const renameSpace = useActionMutation("rename-space");
   const deleteSpace = useActionMutation("delete-space");
 
@@ -44,13 +46,13 @@ export function SpaceDialogs({
         id: renameSpaceId,
         name: renameValue.trim(),
       });
-      toast.success("Space renamed");
+      toast.success(t("spaceDialog.renamed"));
       setRenameSpaceId(null);
       setRenameValue("");
       onMutationSuccess?.();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to rename space",
+        err instanceof Error ? err.message : t("spaceDialog.renameFailed"),
       );
     }
   };
@@ -59,12 +61,12 @@ export function SpaceDialogs({
     if (!deleteSpaceId) return;
     try {
       await deleteSpace.mutateAsync({ id: deleteSpaceId });
-      toast.success(`Deleted "${deleteSpaceName}"`);
+      toast.success(t("spaceDialog.deleted", { name: deleteSpaceName }));
       setDeleteSpaceId(null);
       onMutationSuccess?.(deleteSpaceId);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to delete space",
+        err instanceof Error ? err.message : t("spaceDialog.deleteFailed"),
       );
     }
   };
@@ -82,7 +84,7 @@ export function SpaceDialogs({
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Rename space</AlertDialogTitle>
+          <AlertDialogTitle>{t("spaceDialog.renameSpace")}</AlertDialogTitle>
           <input
             autoFocus
             value={renameValue}
@@ -90,12 +92,14 @@ export function SpaceDialogs({
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <div className="flex justify-end gap-2">
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleRename}
               disabled={renameSpace.isPending || !renameValue.trim()}
             >
-              {renameSpace.isPending ? "Renaming..." : "Rename"}
+              {renameSpace.isPending
+                ? t("spaceDialog.renaming")
+                : t("spaceDialog.renameSpace")}
             </AlertDialogAction>
           </div>
         </AlertDialogContent>
@@ -109,19 +113,22 @@ export function SpaceDialogs({
         }}
       >
         <AlertDialogContent>
-          <AlertDialogTitle>Delete "{deleteSpaceName}"?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("spaceDialog.deleteTitle", { name: deleteSpaceName })}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            This will delete the space and remove it from all recordings. This
-            action cannot be undone.
+            {t("spaceDialog.deleteDescription")}
           </AlertDialogDescription>
           <div className="flex justify-end gap-2">
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleteSpace.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteSpace.isPending ? "Deleting..." : "Delete"}
+              {deleteSpace.isPending
+                ? t("spaceDialog.deleting")
+                : t("spaceDialog.deleteSpace")}
             </AlertDialogAction>
           </div>
         </AlertDialogContent>
