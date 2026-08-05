@@ -670,7 +670,7 @@ const enUS = {
       s004: "Dictate",
       s005: "Can See + Hear",
       s006: "All Apps",
-      s007: "Open-Source Loom",
+      s007: "Screen clips for humans and agents",
       s008: "Paste a Clips link into an agent and it can hear the transcript, read summaries, and see timestamped frames even if its model cannot ingest raw video or audio.",
       s009: "Try It",
       s010: "What you can do",
