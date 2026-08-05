@@ -140,6 +140,15 @@ for (const relativePath of files) {
   }
 }
 
+if (process.argv.includes("--list")) {
+  for (const [key, locations] of [...references.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    console.log(`${key}\t${[...locations].sort().join(",")}`);
+  }
+  process.exit(0);
+}
+
 const missingInventory = [...references.keys()]
   .filter((key) => !isDocumented(key, inventoryPatterns))
   .map((key) => ({ docPath: INVENTORY_DOCUMENTATION_PATH, key }));

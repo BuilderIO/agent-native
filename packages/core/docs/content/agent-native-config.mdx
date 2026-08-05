@@ -11,14 +11,19 @@ with the app. Use environment variables for deployment values, credentials,
 and local machine controls. The framework reads `agent-native.json` from the
 app root when the `agentNative()` Vite preset runs.
 
+The file is an additive app manifest. Existing feature-owned sections such as
+`doctor`, `apps`, and local-file declarations can stay in the same file; the
+onboarding reader only consumes the `version` and `onboarding` fields described
+here.
+
 ## The onboarding contract
 
 The shared first-run surface has three supported modes:
 
-| Mode | Local or hosted result |
-| --- | --- |
-| `off` | No shared first-run surface. This is the default for ordinary apps. |
-| `connect` | Show Connect Builder or Add your own keys, then go straight to the app. The generic integrations catalog is omitted. |
+| Mode                       | Local or hosted result                                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `off`                      | No shared first-run surface. This is the default for ordinary apps.                                                                                          |
+| `connect`                  | Show Connect Builder or Add your own keys, then go straight to the app. The generic integrations catalog is omitted.                                         |
 | `connect-and-integrations` | Show Connect Builder or Add your own keys, followed by the generic integrations catalog. Use this for a hosted app that should expose its integration setup. |
 
 A turn-into-app result normally commits a mode map so `pnpm dev` is useful
@@ -46,6 +51,12 @@ An ordinary app can omit `onboarding` or make the default explicit:
   }
 }
 ```
+
+First-party templates use `off` while running locally and
+`connect-and-integrations` for a production build. The
+`/turn-into-app` skill deliberately changes only the local value to `connect`
+so a newly generated workflow is immediately testable without putting the
+hosted integration catalog in front of the user.
 
 The environment map uses the exact Vite `mode` first, then falls back to
 `development` for `vite dev`, `production` for `vite build`, and finally
@@ -125,6 +136,25 @@ Keep these in environment variables or the secret store:
 The complete inventory is [Environment Variables](/docs/environment-variables).
 That reference is intentionally broader than the config surface and is the
 source to consult before adding a new environment variable.
+
+## Environment audit and next candidates
+
+The current config surface intentionally starts with onboarding, where a
+committed app default is more useful than a deployment flag. The next good
+public candidates are:
+
+| Candidate                                 | Why it belongs in app config                                               | Status                                                                 |
+| ----------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| MCP catalog visibility and preset filters | Describes which setup choices the app offers, not a secret or host policy. | A good next addition; currently keep using the `agentNative()` option. |
+| Route warmup strategy                     | A product-level loading preference that can be reviewed with the app.      | A good next addition; currently keep using the `agentNative()` option. |
+| Default navigation or app identity        | Makes generated apps open on the right domain route and name.              | Add only after a shared runtime consumer exists.                       |
+| Design-system theme                       | Can vary intentionally per app, but is a larger structured object.         | Keep in `vite.config.ts` or app code until the schema is stable.       |
+
+Do not move `DATABASE_URL`, `APP_URL`, `PORT`, `NITRO_PRESET`, auth switches,
+provider keys, OAuth secrets, signing keys, telemetry endpoints, or security
+flags into this file. They vary by deploy target, affect trust boundaries, or
+must remain outside the browser bundle. This split keeps config useful for
+scaffolders without turning it into a second environment-variable system.
 
 ## Why there are two formats
 
