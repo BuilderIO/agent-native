@@ -298,6 +298,9 @@ export function SlidesTryNow() {
             contentEditable={false}
           >
             <option value="capital-raise">{tn("deckCapitalRaise")}</option>
+            <option value="offering-memorandum">
+              {tn("deckOfferingMemorandum")}
+            </option>
             <option value="b2b-sales">{tn("deckB2bSales")}</option>
             <option value="live-talk">{tn("deckLiveTalk")}</option>
           </select>{" "}

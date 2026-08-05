@@ -1242,6 +1242,7 @@ const jaJP = {
         promptCreatePrefix: "次の種類の",
         deckTypeLabel: "デッキの種類",
         deckCapitalRaise: "資金調達",
+        deckOfferingMemorandum: "オファリング・メモランダム",
         deckB2bSales: "B2B 営業提案",
         deckLiveTalk: "ライブ講演用補助",
         promptDeckFor: "デッキを作成してください。テーマ：",

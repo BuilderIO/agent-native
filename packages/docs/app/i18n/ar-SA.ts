@@ -1236,6 +1236,7 @@ const arSA = {
         promptCreatePrefix: "أنشئ",
         deckTypeLabel: "نوع العرض",
         deckCapitalRaise: "عرضًا لجمع رأس المال",
+        deckOfferingMemorandum: "مذكرة طرح",
         deckB2bSales: "عرض مبيعات B2B",
         deckLiveTalk: "عرضًا مرافقًا لحديث مباشر",
         promptDeckFor: "حول",

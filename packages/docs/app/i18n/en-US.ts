@@ -1237,6 +1237,7 @@ const enUS = {
         promptCreatePrefix: "Create a",
         deckTypeLabel: "Type of deck",
         deckCapitalRaise: "capital raise",
+        deckOfferingMemorandum: "offering memorandum",
         deckB2bSales: "B2B sales pitch",
         deckLiveTalk: "live talk companion",
         promptDeckFor: "deck for",

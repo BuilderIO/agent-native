@@ -1236,6 +1236,7 @@ const hiIN = {
         promptCreatePrefix: "एक",
         deckTypeLabel: "डेक का प्रकार",
         deckCapitalRaise: "पूंजी जुटाने वाला",
+        deckOfferingMemorandum: "प्रस्ताव ज्ञापन",
         deckB2bSales: "B2B बिक्री पिच",
         deckLiveTalk: "लाइव टॉक सहयोगी",
         promptDeckFor: "डेक बनाएँ:",

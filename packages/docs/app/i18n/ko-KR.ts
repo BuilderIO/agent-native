@@ -1239,6 +1239,7 @@ const koKR = {
         promptCreatePrefix: "다음 유형의",
         deckTypeLabel: "덱 유형",
         deckCapitalRaise: "자금 조달",
+        deckOfferingMemorandum: "오퍼링 메모랜덤",
         deckB2bSales: "B2B 영업 피치",
         deckLiveTalk: "라이브 강연 보조",
         promptDeckFor: "덱을 만들어 주세요. 주제:",

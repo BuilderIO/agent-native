@@ -1240,6 +1240,7 @@ const ptBR = {
         promptCreatePrefix: "Crie uma apresentação de",
         deckTypeLabel: "Tipo de apresentação",
         deckCapitalRaise: "captação de investimentos",
+        deckOfferingMemorandum: "memorando de oferta",
         deckB2bSales: "vendas B2B",
         deckLiveTalk: "apoio para palestra ao vivo",
         promptDeckFor: "para",

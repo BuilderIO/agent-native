@@ -1248,6 +1248,7 @@ const deDE = {
         promptCreatePrefix: "Erstelle ein",
         deckTypeLabel: "Art der Präsentation",
         deckCapitalRaise: "Fundraising-Deck",
+        deckOfferingMemorandum: "Angebotsmemorandum",
         deckB2bSales: "B2B-Vertriebsdeck",
         deckLiveTalk: "Live-Vortragsdeck",
         promptDeckFor: "für",

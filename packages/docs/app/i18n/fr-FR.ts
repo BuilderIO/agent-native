@@ -1246,6 +1246,7 @@ const frFR = {
         promptCreatePrefix: "Créez une présentation de",
         deckTypeLabel: "Type de présentation",
         deckCapitalRaise: "levée de fonds",
+        deckOfferingMemorandum: "mémorandum d’offre",
         deckB2bSales: "vente B2B",
         deckLiveTalk: "support de conférence en direct",
         promptDeckFor: "pour",

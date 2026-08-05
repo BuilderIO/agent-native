@@ -1246,6 +1246,7 @@ const esES = {
         promptCreatePrefix: "Crea una presentación de",
         deckTypeLabel: "Tipo de presentación",
         deckCapitalRaise: "captación de capital",
+        deckOfferingMemorandum: "memorando de oferta",
         deckB2bSales: "ventas B2B",
         deckLiveTalk: "apoyo para una charla en directo",
         promptDeckFor: "para",

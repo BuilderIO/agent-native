@@ -1224,6 +1224,7 @@ const messages = {
         promptCreatePrefix: "建立一份",
         deckTypeLabel: "簡報類型",
         deckCapitalRaise: "募資",
+        deckOfferingMemorandum: "發行備忘錄",
         deckB2bSales: "B2B 銷售提案",
         deckLiveTalk: "現場演講搭配",
         promptDeckFor: "簡報，主題為",

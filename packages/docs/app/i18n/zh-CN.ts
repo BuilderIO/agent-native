@@ -1226,6 +1226,7 @@ const zhCN = {
         promptCreatePrefix: "创建一份",
         deckTypeLabel: "演示文稿类型",
         deckCapitalRaise: "融资",
+        deckOfferingMemorandum: "发行备忘录",
         deckB2bSales: "B2B 销售提案",
         deckLiveTalk: "现场演讲配套",
         promptDeckFor: "演示文稿，主题为",
