@@ -3163,9 +3163,9 @@ export function AddProperty({
   const allSources =
     sources && sources.length > 0 ? sources : source ? [source] : [];
   const query = typeQuery.trim().toLowerCase();
+  const connectSourceLabel = t("editor.properties.connectASource");
   const connectSourceMatches =
-    !!onConnectSource &&
-    (!query || "connect a source".includes(query) || "source".includes(query));
+    !!onConnectSource && matchesConnectSourceQuery(connectSourceLabel, query);
   const sourceFieldGroups = allSources
     .map((src) => ({
       source: src,
@@ -3372,9 +3372,7 @@ export function AddProperty({
                 onClick={connectSource}
               >
                 <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
-                <span className="flex-1">
-                  {t("editor.properties.connectASource")}
-                </span>
+                <span className="flex-1">{connectSourceLabel}</span>
               </button>
             ) : null}
             {sourceFieldGroups.map((group) => (
@@ -3534,4 +3532,12 @@ export function filterDocumentPropertyTypes(
       aliases.some((alias) => alias.includes(normalizedQuery))
     );
   });
+}
+
+export function matchesConnectSourceQuery(label: string, query: string) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return (
+    normalizedQuery.length === 0 ||
+    label.toLocaleLowerCase().includes(normalizedQuery)
+  );
 }

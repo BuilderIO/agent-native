@@ -889,6 +889,7 @@ function DatabaseTable({
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const sourceHandoffActiveRef = useRef(false);
+  const addPropertyOpenRequestSequenceRef = useRef(0);
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
@@ -932,7 +933,8 @@ function DatabaseTable({
     if (!sourceHandoffActiveRef.current) return;
     sourceHandoffActiveRef.current = false;
     setSettingsOpen(false);
-    setAddPropertyOpenRequestId((requestId) => requestId + 1);
+    addPropertyOpenRequestSequenceRef.current += 1;
+    setAddPropertyOpenRequestId(addPropertyOpenRequestSequenceRef.current);
   };
   const closeDatabaseSettings = () => {
     sourceHandoffActiveRef.current = false;
