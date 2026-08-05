@@ -375,33 +375,6 @@ export function FirstRunOnboarding({
                 Connect Builder.io free credits
                 <IconArrowRight size={15} />
               </button>
-              {import.meta.env.DEV ? (
-                <p className="mt-3 border-t border-primary/15 pt-3 text-[11px] leading-5 text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    Local development:
-                  </span>{" "}
-                  provide one provider key for everyone using this app by adding{" "}
-                  <code className="rounded bg-primary/10 px-1">
-                    ANTHROPIC_API_KEY
-                  </code>{" "}
-                  or{" "}
-                  <code className="rounded bg-primary/10 px-1">
-                    OPENAI_API_KEY
-                  </code>{" "}
-                  to <code className="rounded bg-primary/10 px-1">.env</code>,
-                  then restart{" "}
-                  <code className="rounded bg-primary/10 px-1">pnpm dev</code>.{" "}
-                  <a
-                    href="https://agent-native.com/docs/environment-variables"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    Read the full guide
-                    <IconExternalLink size={12} />
-                  </a>
-                </p>
-              ) : null}
             </section>
 
             <div
@@ -433,6 +406,27 @@ export function FirstRunOnboarding({
               />
             </div>
           </div>
+          {import.meta.env.DEV ? (
+            <p
+              data-testid="first-run-local-provider-note"
+              className="mx-auto max-w-2xl text-center text-[11px] leading-5 text-muted-foreground"
+            >
+              Or set{" "}
+              <code className="rounded bg-muted px-1">ANTHROPIC_API_KEY</code>{" "}
+              or <code className="rounded bg-muted px-1">OPENAI_API_KEY</code>{" "}
+              in <code className="rounded bg-muted px-1">.env</code> to make
+              that provider available to everyone using this app.{" "}
+              <a
+                href="https://agent-native.com/docs/environment-variables"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Read the setup guide
+                <IconExternalLink size={12} />
+              </a>
+            </p>
+          ) : null}
         </div>
       </OnboardingShell>
     );

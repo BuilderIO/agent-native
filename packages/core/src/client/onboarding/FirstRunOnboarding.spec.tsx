@@ -134,7 +134,14 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain("Builder.io free credits");
-    expect(document.body.textContent).toContain("Local development:");
+    const localProviderNote = document.body.querySelector(
+      '[data-testid="first-run-local-provider-note"]',
+    );
+    expect(localProviderNote).toBeTruthy();
+    expect(localProviderNote?.className).toContain("text-center");
+    expect(localProviderNote?.textContent).toContain(
+      "make that provider available to everyone using this app",
+    );
     expect(
       document.body.querySelector(
         'a[href="https://agent-native.com/docs/environment-variables"]',
