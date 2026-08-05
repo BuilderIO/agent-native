@@ -881,8 +881,8 @@ export function AgentsSection() {
                           <span
                             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                               dotState === "ok"
-                                ? "bg-green-500"
-                                : "bg-amber-500"
+                                ? "bg-primary"
+                                : "bg-destructive"
                             }`}
                           />
                         </TooltipTrigger>

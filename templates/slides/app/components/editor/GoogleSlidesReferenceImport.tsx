@@ -50,11 +50,18 @@ function endpoint(path: string): string {
   return new URL(agentNativePath(path), window.location.origin).toString();
 }
 
-async function readJson<T>(response: Response): Promise<T | null> {
+type JsonReadResult<T> = { ok: true; data: T } | { ok: false; error: Error };
+
+async function readJson<T>(response: Response): Promise<JsonReadResult<T>> {
   try {
-    return (await response.json()) as T;
-  } catch {
-    return null;
+    return { ok: true, data: (await response.json()) as T };
+  } catch (caught) {
+    return {
+      ok: false,
+      error: new Error("The server returned an unreadable response.", {
+        cause: caught,
+      }),
+    };
   }
 }
 
@@ -120,10 +127,14 @@ export function GoogleSlidesReferenceImport({
           credentials: "same-origin",
         },
       );
-      const data = await readJson<GoogleDocsStatus>(response);
-      if (response.ok && data) {
-        setStatus(data);
-        return data;
+      const result = await readJson<GoogleDocsStatus>(response);
+      if (!result.ok) {
+        setStatus(null);
+        return null;
+      }
+      if (response.ok && result.data) {
+        setStatus(result.data);
+        return result.data;
       }
       setStatus(null);
       return null;
@@ -162,11 +173,13 @@ export function GoogleSlidesReferenceImport({
       const response = await fetch(authUrl.toString(), {
         credentials: "same-origin",
       });
-      const data = await readJson<{
+      const result = await readJson<{
         url?: string;
         error?: string;
         message?: string;
       }>(response);
+      if (!result.ok) throw result.error;
+      const data = result.data;
       if (!response.ok || !data?.url) {
         throw new Error(
           errorFromResponse(
@@ -212,7 +225,9 @@ export function GoogleSlidesReferenceImport({
           credentials: "same-origin",
         },
       );
-      const token = await readJson<PickerToken>(response);
+      const result = await readJson<PickerToken>(response);
+      if (!result.ok) throw result.error;
+      const token = result.data;
       if (!response.ok || !token) {
         throw new Error(
           errorFromResponse(
@@ -303,7 +318,7 @@ export function GoogleSlidesReferenceImport({
           {connecting || choosing ? (
             <IconLoader2 className="size-3.5 animate-spin text-muted-foreground" />
           ) : (
-            <IconBrandGoogleDrive className="size-3.5 text-[#4285F4]" />
+            <IconBrandGoogleDrive className="size-3.5 text-primary" />
           )}
         </div>
         <div className="min-w-0 flex-1">
