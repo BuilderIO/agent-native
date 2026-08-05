@@ -129,13 +129,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Aide      | Objectif                                                               |
-| --------- | ----------------------------------------------------------------------- |
-| `table`   | Définit une table ; délègue à `pgTable` ou `sqliteTable`               |
-| `text`    | Colonne de texte, prend en charge `{ enum: [...] }`                    |
-| `integer` | Colonne entière, `{ mode: "boolean" }` correspond au booléen Postgres  |
+| Aide      | Objectif                                                                           |
+| --------- | ---------------------------------------------------------------------------------- |
+| `table`   | Définit une table ; délègue à `pgTable` ou `sqliteTable`                           |
+| `text`    | Colonne de texte, prend en charge `{ enum: [...] }`                                |
+| `integer` | Colonne entière, `{ mode: "boolean" }` correspond au booléen Postgres              |
 | `real`    | Colonne flottante. Correspond à `real` sur SQLite, `double precision` sur Postgres |
-| `now`     | Horodatage actuel indépendant du dialecte pour `.default(now())`       |
+| `now`     | Horodatage actuel indépendant du dialecte pour `.default(now())`                   |
 
 <DataModel
   id="doc-block-3hbven"
@@ -247,10 +247,10 @@ Les modifications de schéma sont appliquées au démarrage via un plugin Nitro 
 <Callout tone="risk">
   N'exécutez jamais `drizzle-kit push` sur une base de données de production.
   Les schémas de modèle définissent uniquement les tables spécifiques à
-  l'application ; ils n'incluent pas les tables centrales du framework
-  (`user`, `session`, `application_state`, et d'autres). Exécuter `drizzle-kit
-  push` en production détectera ces tables comme inconnues et tentera de les
-  supprimer, provoquant une perte de données immédiate.
+  l'application ; ils n'incluent pas les tables centrales du framework (`user`,
+  `session`, `application_state`, et d'autres). Exécuter `drizzle-kit push` en
+  production détectera ces tables comme inconnues et tentera de les supprimer,
+  provoquant une perte de données immédiate.
 </Callout>
 
 `drizzle.config.ts` à la racine de chaque application configure drizzle-kit pour l'inspection du schéma en développement local :
@@ -341,12 +341,16 @@ Cela fonctionne aussi bien dans les déploiements sans serveur que multi-instanc
 ```html
 <div class="diagram-db-sync">
   <div class="diagram-box" data-rough>
-    Action / assistant<br /><small class="diagram-muted">modifie les données</small>
+    Action / assistant<br /><small class="diagram-muted"
+      >modifie les données</small
+    >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
     <strong>Base de données SQL</strong
-    ><small class="diagram-muted">la version de synchronisation s'incrémente</small>
+    ><small class="diagram-muted"
+      >la version de synchronisation s'incrémente</small
+    >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
   <div class="diagram-col">
@@ -355,7 +359,9 @@ Cela fonctionne aussi bien dans les déploiements sans serveur que multi-instanc
         >interroge /_agent-native/poll</small
       >
     </div>
-    <div class="diagram-pill ok">invalide les caches &rarr; l'UI se rafraîchit</div>
+    <div class="diagram-pill ok">
+      invalide les caches &rarr; l'UI se rafraîchit
+    </div>
   </div>
 </div>
 ```
@@ -409,10 +415,10 @@ const { rows } = await getDbExec().execute({
 
 ## Variables d'environnement {#environment-variables}
 
-| Variable              | Objectif                                                                                                 |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Variable              | Objectif                                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Chaîne de connexion SQL persistante (non défini = SQLite local ; `pglite:./data/pglite` = Postgres local optionnel) |
-| `DATABASE_AUTH_TOKEN` | Jeton d'authentification pour les fournisseurs qui exigent un jeton distinct, tel que Turso/libSQL          |
+| `DATABASE_AUTH_TOKEN` | Jeton d'authentification pour les fournisseurs qui exigent un jeton distinct, tel que Turso/libSQL                  |
 
 ## Quelle est la prochaine étape {#whats-next}
 

@@ -15,20 +15,20 @@ El enrutamiento de servidor en una aplicación nativa del agente se divide en do
 
 El marco reserva el espacio de nombres `/_agent-native/` para sus propios endpoints. Nunca ponga rutas personalizadas aquí. Esta tabla es representativa, no exhaustiva.
 
-| Prefijo de ruta                  | Propósito                                                                        |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | Endpoints HTTP de actions                                                          |
-| `/_agent-native/agent-chat`      | Bucle de chat del agente                                                            |
-| `/_agent-native/poll`            | Sincronización de UI respaldada por SQL                                            |
-| `/_agent-native/runs`            | Primitiva de progreso. `RunsTray` sondea este endpoint; consulte [Progreso](/docs/progress) |
-| `/_agent-native/resources/*`     | Recursos del espacio de trabajo                                                     |
+| Prefijo de ruta                  | Propósito                                                                                            |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Endpoints HTTP de actions                                                                            |
+| `/_agent-native/agent-chat`      | Bucle de chat del agente                                                                             |
+| `/_agent-native/poll`            | Sincronización de UI respaldada por SQL                                                              |
+| `/_agent-native/runs`            | Primitiva de progreso. `RunsTray` sondea este endpoint; consulte [Progreso](/docs/progress)          |
+| `/_agent-native/resources/*`     | Recursos del espacio de trabajo                                                                      |
 | `/_agent-native/extensions/*`    | Extensiones en tiempo de ejecución y proxy de extensiones (alias heredado: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | Integraciones de mensajería/webhooks                                               |
-| `/_agent-native/a2a`             | JSON-RPC de agente a agente                                                         |
-| `/mcp`                           | Endpoint MCP                                                                        |
-| `/_agent-native/onboarding/*`    | Lista de verificación de configuración                                             |
-| `/_agent-native/observability/*` | Trazas, feedback, evals, experimentos                                              |
-| `/_agent-native/file-upload`     | Endpoint del proveedor de carga de archivos                                        |
+| `/_agent-native/integrations/*`  | Integraciones de mensajería/webhooks                                                                 |
+| `/_agent-native/a2a`             | JSON-RPC de agente a agente                                                                          |
+| `/mcp`                           | Endpoint MCP                                                                                         |
+| `/_agent-native/onboarding/*`    | Lista de verificación de configuración                                                               |
+| `/_agent-native/observability/*` | Trazas, feedback, evals, experimentos                                                                |
+| `/_agent-native/file-upload`     | Endpoint del proveedor de carga de archivos                                                          |
 
 Las rutas de aplicación personalizadas van en `/api/*` o en otra ruta que no colisione con `/_agent-native/`.
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### Convenciones de nomenclatura {#naming-conventions}
 
-| Ruta de archivo (relativa a `server/routes/`) | Método HTTP | Ruta URL          |
-| ------------------------------------------------ | ----------- | ----------------- |
-| `api/items/index.get.ts`                          | GET         | `/api/items`      |
-| `api/items/index.post.ts`                         | POST        | `/api/items`      |
-| `api/items/[id].get.ts`                           | GET         | `/api/items/:id`  |
-| `api/items/[id].patch.ts`                         | PATCH       | `/api/items/:id`  |
-| `api/items/[id].delete.ts`                        | DELETE      | `/api/items/:id`  |
-| `api/items/[...slug].get.ts`                      | GET         | `/api/items/*`    |
+| Ruta de archivo (relativa a `server/routes/`) | Método HTTP | Ruta URL         |
+| --------------------------------------------- | ----------- | ---------------- |
+| `api/items/index.get.ts`                      | GET         | `/api/items`     |
+| `api/items/index.post.ts`                     | POST        | `/api/items`     |
+| `api/items/[id].get.ts`                       | GET         | `/api/items/:id` |
+| `api/items/[id].patch.ts`                     | PATCH       | `/api/items/:id` |
+| `api/items/[id].delete.ts`                    | DELETE      | `/api/items/:id` |
+| `api/items/[...slug].get.ts`                  | GET         | `/api/items/*`   |
 
 ## Contexto de Solicitud y Acceso {#request-context}
 

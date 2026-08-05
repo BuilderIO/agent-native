@@ -35,11 +35,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "My App",
     tagline: "A short description shown on the sign-in page.",
-    features: [
-      "Feature one",
-      "Feature two",
-      "Feature three",
-    ],
+    features: ["Feature one", "Feature two", "Feature three"],
   },
 });
 ```
@@ -110,7 +106,8 @@ export default runMigrations(
 
 <Callout tone="warning">
   マイグレーションは追加的でなければなりません。破壊的な SQL (`DROP TABLE`、
-  `ALTER TABLE ... DROP COLUMN`、`DELETE FROM`) を起動プラグインに書かないでください。
+  `ALTER TABLE ... DROP COLUMN`、`DELETE FROM`)
+  を起動プラグインに書かないでください。
 </Callout>
 
 ## カスタム プラグインを書く {#custom-plugins}

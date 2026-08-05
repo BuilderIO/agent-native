@@ -15,9 +15,7 @@ description: "에이전트 기반 앱의 Nitro 서버 계층: 무엇을 위한 �
     <div class="diagram-node">브라우저 / UI</div>
     <div class="diagram-node">에이전트 루프</div>
     <div class="diagram-node">
-      외부 클라이언트<br /><small class="diagram-muted"
-        >HTTP · MCP · A2A</small
-      >
+      외부 클라이언트<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
     </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -195,10 +193,10 @@ description: "에이전트 기반 앱의 Nitro 서버 계층: 무엇을 위한 �
 다음은 모든 에이전트 기반 앱이 갖추는 `server/` 내부의 디렉터리와 파일들입니다. 각 항목은 서버 계층의 특정 부분에 대응합니다. 무엇을 하는지, 언제 사용해야 하는지, 프레임워크의 나머지 부분과 어떻게 연결되는지를 다룹니다.
 
 | 페이지                                    | 다루는 내용                                                                            |
-| ----------------------------------------- | --------------------------------------------------------------------------------------- |
-| **[데이터베이스](/docs/server-database)** | `table()` 도우미를 사용한 스키마 정의, `getDb`, 그리고 소유 가능한 테이블 패턴          |
-| **[미들웨어](/docs/server-middleware)**   | `server/middleware/`의 인증 가드와 그것이 플러그인이 아니라 이곳에서 실행되는 이유      |
-| **[플러그인](/docs/server-plugins)**      | 모든 앱이 갖추는 세 가지 시작 플러그인: DB 마이그레이션, 인증, 에이전트 채팅            |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| **[데이터베이스](/docs/server-database)** | `table()` 도우미를 사용한 스키마 정의, `getDb`, 그리고 소유 가능한 테이블 패턴         |
+| **[미들웨어](/docs/server-middleware)**   | `server/middleware/`의 인증 가드와 그것이 플러그인이 아니라 이곳에서 실행되는 이유     |
+| **[플러그인](/docs/server-plugins)**      | 모든 앱이 갖추는 세 가지 시작 플러그인: DB 마이그레이션, 인증, 에이전트 채팅           |
 | **[라우트](/docs/server-routes)**         | 파일 기반 라우트, SSR catch-all, 그리고 커스텀 라우트를 요청 사용자로 범위 지정하는 법 |
 
 ## Nitro {#nitro}

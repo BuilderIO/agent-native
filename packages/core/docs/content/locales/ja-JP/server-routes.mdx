@@ -15,20 +15,20 @@ description: "ファイルベースの Nitro サーバー ルート、SSR キャ
 
 フレームワークは `/_agent-native/` 名前空間を自身のエンドポイント用に確保しています。ここにカスタム ルートを置いてはいけません。この表は網羅的なものではなく、代表例です。
 
-| ルート プレフィックス            | 目的                                                                             |
-| -------------------------------- | ---------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | Action の HTTP エンドポイント                                                     |
-| `/_agent-native/agent-chat`      | エージェント チャット ループ                                                      |
-| `/_agent-native/poll`            | SQL によるバックエンド UI 同期                                                    |
+| ルート プレフィックス            | 目的                                                                                         |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Action の HTTP エンドポイント                                                                |
+| `/_agent-native/agent-chat`      | エージェント チャット ループ                                                                 |
+| `/_agent-native/poll`            | SQL によるバックエンド UI 同期                                                               |
 | `/_agent-native/runs`            | 進行状況プリミティブ。`RunsTray` がこれをポーリングします。[進行状況](/docs/progress) を参照 |
-| `/_agent-native/resources/*`     | ワークスペース リソース                                                           |
-| `/_agent-native/extensions/*`    | ランタイム拡張機能と拡張機能プロキシ (レガシー エイリアス: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | メッセージング/Webhook インテグレーション                                          |
-| `/_agent-native/a2a`             | エージェント間 JSON-RPC                                                           |
-| `/mcp`                           | MCP エンドポイント                                                                |
-| `/_agent-native/onboarding/*`    | セットアップ チェックリスト                                                       |
-| `/_agent-native/observability/*` | トレース、フィードバック、evals、実験                                             |
-| `/_agent-native/file-upload`     | ファイル アップロード プロバイダーのエンドポイント                                |
+| `/_agent-native/resources/*`     | ワークスペース リソース                                                                      |
+| `/_agent-native/extensions/*`    | ランタイム拡張機能と拡張機能プロキシ (レガシー エイリアス: `/_agent-native/tools/*`)         |
+| `/_agent-native/integrations/*`  | メッセージング/Webhook インテグレーション                                                    |
+| `/_agent-native/a2a`             | エージェント間 JSON-RPC                                                                      |
+| `/mcp`                           | MCP エンドポイント                                                                           |
+| `/_agent-native/onboarding/*`    | セットアップ チェックリスト                                                                  |
+| `/_agent-native/observability/*` | トレース、フィードバック、evals、実験                                                        |
+| `/_agent-native/file-upload`     | ファイル アップロード プロバイダーのエンドポイント                                           |
 
 カスタム アプリ ルートは、`/api/*` または `/_agent-native/` と衝突しない別のパスに置いてください。
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### 命名規則 {#naming-conventions}
 
-| ファイル パス (`server/routes/` からの相対パス) | HTTP メソッド | URL パス          |
-| ------------------------------------------------ | ------------- | ------------------ |
-| `api/items/index.get.ts`                          | GET           | `/api/items`       |
-| `api/items/index.post.ts`                         | POST          | `/api/items`       |
-| `api/items/[id].get.ts`                           | GET           | `/api/items/:id`   |
-| `api/items/[id].patch.ts`                         | PATCH         | `/api/items/:id`   |
-| `api/items/[id].delete.ts`                        | DELETE        | `/api/items/:id`   |
-| `api/items/[...slug].get.ts`                      | GET           | `/api/items/*`     |
+| ファイル パス (`server/routes/` からの相対パス) | HTTP メソッド | URL パス         |
+| ----------------------------------------------- | ------------- | ---------------- |
+| `api/items/index.get.ts`                        | GET           | `/api/items`     |
+| `api/items/index.post.ts`                       | POST          | `/api/items`     |
+| `api/items/[id].get.ts`                         | GET           | `/api/items/:id` |
+| `api/items/[id].patch.ts`                       | PATCH         | `/api/items/:id` |
+| `api/items/[id].delete.ts`                      | DELETE        | `/api/items/:id` |
+| `api/items/[...slug].get.ts`                    | GET           | `/api/items/*`   |
 
 ## リクエスト コンテキストとアクセス {#request-context}
 

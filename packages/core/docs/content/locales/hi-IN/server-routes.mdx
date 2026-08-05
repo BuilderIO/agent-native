@@ -15,20 +15,20 @@ description: "फ़ाइल-आधारित Nitro सर्वर रूट
 
 फ्रेमवर्क अपने खुद के एंडपॉइंट्स के लिए `/_agent-native/` नेमस्पेस आरक्षित रखता है। यहाँ कभी भी कस्टम रूट्स न रखें। यह तालिका प्रतिनिधि है, संपूर्ण नहीं।
 
-| रूट प्रीफ़िक्स                   | उद्देश्य                                                                         |
+| रूट प्रीफ़िक्स                   | उद्देश्य                                                                        |
 | -------------------------------- | ------------------------------------------------------------------------------- |
 | `/_agent-native/actions/:name`   | Action HTTP एंडपॉइंट्स                                                          |
-| `/_agent-native/agent-chat`      | एजेंट चैट लूप                                                                    |
-| `/_agent-native/poll`            | SQL-समर्थित UI सिंक                                                              |
-| `/_agent-native/runs`            | प्रगति प्रिमिटिव। `RunsTray` इसे पोल करता है; देखें [प्रगति](/docs/progress)   |
-| `/_agent-native/resources/*`     | वर्कस्पेस संसाधन                                                                 |
+| `/_agent-native/agent-chat`      | एजेंट चैट लूप                                                                   |
+| `/_agent-native/poll`            | SQL-समर्थित UI सिंक                                                             |
+| `/_agent-native/runs`            | प्रगति प्रिमिटिव। `RunsTray` इसे पोल करता है; देखें [प्रगति](/docs/progress)    |
+| `/_agent-native/resources/*`     | वर्कस्पेस संसाधन                                                                |
 | `/_agent-native/extensions/*`    | रनटाइम एक्सटेंशन और एक्सटेंशन प्रॉक्सी (लेगेसी उपनाम: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | मैसेजिंग/वेबहुक इंटीग्रेशन                                                       |
-| `/_agent-native/a2a`             | एजेंट-टू-एजेंट JSON-RPC                                                          |
-| `/mcp`                           | MCP एंडपॉइंट                                                                     |
-| `/_agent-native/onboarding/*`    | सेटअप चेकलिस्ट                                                                   |
-| `/_agent-native/observability/*` | ट्रेस, फ़ीडबैक, evals, प्रयोग                                                    |
-| `/_agent-native/file-upload`     | फ़ाइल अपलोड प्रदाता एंडपॉइंट                                                     |
+| `/_agent-native/integrations/*`  | मैसेजिंग/वेबहुक इंटीग्रेशन                                                      |
+| `/_agent-native/a2a`             | एजेंट-टू-एजेंट JSON-RPC                                                         |
+| `/mcp`                           | MCP एंडपॉइंट                                                                    |
+| `/_agent-native/onboarding/*`    | सेटअप चेकलिस्ट                                                                  |
+| `/_agent-native/observability/*` | ट्रेस, फ़ीडबैक, evals, प्रयोग                                                   |
+| `/_agent-native/file-upload`     | फ़ाइल अपलोड प्रदाता एंडपॉइंट                                                    |
 
 कस्टम ऐप रूट्स `/api/*` में या किसी अन्य पथ में जाते हैं जो `/_agent-native/` से न टकराए।
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### नामकरण परंपराएँ {#naming-conventions}
 
-| फ़ाइल पथ (`server/routes/` के सापेक्ष)   | HTTP मेथड   | URL पथ            |
-| ---------------------------------------- | ----------- | ---------------- |
-| `api/items/index.get.ts`                 | GET         | `/api/items`     |
-| `api/items/index.post.ts`                | POST        | `/api/items`     |
-| `api/items/[id].get.ts`                  | GET         | `/api/items/:id` |
-| `api/items/[id].patch.ts`                | PATCH       | `/api/items/:id` |
-| `api/items/[id].delete.ts`               | DELETE      | `/api/items/:id` |
-| `api/items/[...slug].get.ts`             | GET         | `/api/items/*`   |
+| फ़ाइल पथ (`server/routes/` के सापेक्ष) | HTTP मेथड | URL पथ           |
+| -------------------------------------- | --------- | ---------------- |
+| `api/items/index.get.ts`               | GET       | `/api/items`     |
+| `api/items/index.post.ts`              | POST      | `/api/items`     |
+| `api/items/[id].get.ts`                | GET       | `/api/items/:id` |
+| `api/items/[id].patch.ts`              | PATCH     | `/api/items/:id` |
+| `api/items/[id].delete.ts`             | DELETE    | `/api/items/:id` |
+| `api/items/[...slug].get.ts`           | GET       | `/api/items/*`   |
 
 ## अनुरोध संदर्भ और एक्सेस {#request-context}
 
@@ -168,8 +168,8 @@ export default defineEventHandler((event) => {
 
 <Callout tone="warning">
   कस्टम रूट्स में अस्कोप्ड `db.select().from(ownableTable)` न चलाएं। ownable
-  डेटा को क्वेरी करने से पहले हमेशा `runWithRequestContext` के साथ अनुरोध
-  संदर्भ स्थापित करें।
+  डेटा को क्वेरी करने से पहले हमेशा `runWithRequestContext` के साथ अनुरोध संदर्भ
+  स्थापित करें।
 </Callout>
 
 ## SSR कैच-ऑल {#ssr-catch-all}

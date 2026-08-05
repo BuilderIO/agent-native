@@ -129,13 +129,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Helfer    | Zweck                                                                            |
-| --------- | ---------------------------------------------------------------------------------- |
-| `table`   | Definiert eine Tabelle; delegiert an `pgTable` oder `sqliteTable`                  |
-| `text`    | Textspalte, unterstützt `{ enum: [...] }`                                          |
+| Helfer    | Zweck                                                                                 |
+| --------- | ------------------------------------------------------------------------------------- |
+| `table`   | Definiert eine Tabelle; delegiert an `pgTable` oder `sqliteTable`                     |
+| `text`    | Textspalte, unterstützt `{ enum: [...] }`                                             |
 | `integer` | Integer-Spalte, `{ mode: "boolean" }` wird dem booleschen Wert in Postgres zugeordnet |
-| `real`    | Float-Spalte. Wird auf SQLite zu `real`, auf Postgres zu `double precision`        |
-| `now`     | Dialektunabhängiger aktueller Zeitstempel für `.default(now())`                    |
+| `real`    | Float-Spalte. Wird auf SQLite zu `real`, auf Postgres zu `double precision`           |
+| `now`     | Dialektunabhängiger aktueller Zeitstempel für `.default(now())`                       |
 
 <DataModel
   id="doc-block-3hbven"
@@ -355,7 +355,9 @@ Das funktioniert über serverlose und Multi-Instanz-Deployments hinweg, weil die
         >pollt /_agent-native/poll</small
       >
     </div>
-    <div class="diagram-pill ok">Caches invalidieren &rarr; UI aktualisiert sich</div>
+    <div class="diagram-pill ok">
+      Caches invalidieren &rarr; UI aktualisiert sich
+    </div>
   </div>
 </div>
 ```
@@ -409,10 +411,10 @@ const { rows } = await getDbExec().execute({
 
 ## Umgebungsvariablen {#environment-variables}
 
-| Variable              | Zweck                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------- |
+| Variable              | Zweck                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Dauerhafte SQL-Verbindungszeichenfolge (nicht gesetzt = lokales SQLite; `pglite:./data/pglite` = lokales Postgres-Opt-in) |
-| `DATABASE_AUTH_TOKEN` | Auth-Token für Anbieter, die ein separates Token benötigen, wie Turso/libSQL                            |
+| `DATABASE_AUTH_TOKEN` | Auth-Token für Anbieter, die ein separates Token benötigen, wie Turso/libSQL                                              |
 
 ## Was kommt als nächstes? {#whats-next}
 

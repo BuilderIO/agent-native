@@ -35,11 +35,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "My App",
     tagline: "A short description shown on the sign-in page.",
-    features: [
-      "Feature one",
-      "Feature two",
-      "Feature three",
-    ],
+    features: ["Feature one", "Feature two", "Feature three"],
   },
 });
 ```
@@ -109,8 +105,8 @@ export default runMigrations(
 每条记录都需要一个 `version` 编号和一个 `sql` 字符串。`table` 选项指定迁移跟踪表的名称，请使用你的应用专属的名称，以免与框架迁移冲突。完整的 schema 编写指南参见[数据库](/docs/server-database)。
 
 <Callout tone="warning">
-  迁移必须是增量式的。切勿在启动插件中放入破坏性 SQL（`DROP TABLE`、
-  `ALTER TABLE ... DROP COLUMN`、`DELETE FROM`）。
+  迁移必须是增量式的。切勿在启动插件中放入破坏性 SQL（`DROP TABLE`、 `ALTER
+  TABLE ... DROP COLUMN`、`DELETE FROM`）。
 </Callout>
 
 ## 编写自定义插件 {#custom-plugins}

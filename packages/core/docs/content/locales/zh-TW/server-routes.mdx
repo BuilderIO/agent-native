@@ -15,20 +15,20 @@ description: "基於檔案的 Nitro 伺服器路由、SSR 全捕獲路由、命�
 
 框架為自身的端點保留了 `/_agent-native/` 命名空間。切勿在此放置自訂路由。下表僅具代表性，並非詳盡清單。
 
-| 路由前綴                          | 用途                                                                          |
-| --------------------------------- | ------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`    | Action HTTP 端點                                                                |
-| `/_agent-native/agent-chat`       | Agent 聊天迴圈                                                                  |
-| `/_agent-native/poll`             | 由 SQL 支援的 UI 同步                                                           |
-| `/_agent-native/runs`             | 進度基本元件。`RunsTray` 會輪詢此端點；請參閱 [Progress](/docs/progress)        |
-| `/_agent-native/resources/*`      | 工作區資源                                                                      |
-| `/_agent-native/extensions/*`     | 執行時擴充功能與擴充功能代理（舊版別名：`/_agent-native/tools/*`）              |
-| `/_agent-native/integrations/*`   | 訊息／webhook 整合                                                              |
-| `/_agent-native/a2a`              | Agent 對 Agent 的 JSON-RPC                                                      |
-| `/mcp`                            | MCP 端點                                                                        |
-| `/_agent-native/onboarding/*`     | 設定檢查清單                                                                    |
-| `/_agent-native/observability/*`  | 追蹤、意見回饋、評估、實驗                                                      |
-| `/_agent-native/file-upload`      | 檔案上傳提供者端點                                                              |
+| 路由前綴                         | 用途                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `/_agent-native/actions/:name`   | Action HTTP 端點                                                         |
+| `/_agent-native/agent-chat`      | Agent 聊天迴圈                                                           |
+| `/_agent-native/poll`            | 由 SQL 支援的 UI 同步                                                    |
+| `/_agent-native/runs`            | 進度基本元件。`RunsTray` 會輪詢此端點；請參閱 [Progress](/docs/progress) |
+| `/_agent-native/resources/*`     | 工作區資源                                                               |
+| `/_agent-native/extensions/*`    | 執行時擴充功能與擴充功能代理（舊版別名：`/_agent-native/tools/*`）       |
+| `/_agent-native/integrations/*`  | 訊息／webhook 整合                                                       |
+| `/_agent-native/a2a`             | Agent 對 Agent 的 JSON-RPC                                               |
+| `/mcp`                           | MCP 端點                                                                 |
+| `/_agent-native/onboarding/*`    | 設定檢查清單                                                             |
+| `/_agent-native/observability/*` | 追蹤、意見回饋、評估、實驗                                               |
+| `/_agent-native/file-upload`     | 檔案上傳提供者端點                                                       |
 
 自訂的應用路由請放在 `/api/*` 或其他不與 `/_agent-native/` 衝突的路徑下。
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### 命名慣例 {#naming-conventions}
 
-| 檔案路徑（相對於 `server/routes/`）      | HTTP 方法 | URL 路徑          |
-| ----------------------------------------- | --------- | ------------------ |
-| `api/items/index.get.ts`                  | GET       | `/api/items`       |
-| `api/items/index.post.ts`                 | POST      | `/api/items`       |
-| `api/items/[id].get.ts`                   | GET       | `/api/items/:id`   |
-| `api/items/[id].patch.ts`                 | PATCH     | `/api/items/:id`   |
-| `api/items/[id].delete.ts`                | DELETE    | `/api/items/:id`   |
-| `api/items/[...slug].get.ts`              | GET       | `/api/items/*`     |
+| 檔案路徑（相對於 `server/routes/`） | HTTP 方法 | URL 路徑         |
+| ----------------------------------- | --------- | ---------------- |
+| `api/items/index.get.ts`            | GET       | `/api/items`     |
+| `api/items/index.post.ts`           | POST      | `/api/items`     |
+| `api/items/[id].get.ts`             | GET       | `/api/items/:id` |
+| `api/items/[id].patch.ts`           | PATCH     | `/api/items/:id` |
+| `api/items/[id].delete.ts`          | DELETE    | `/api/items/:id` |
+| `api/items/[...slug].get.ts`        | GET       | `/api/items/*`   |
 
 ## 請求脈絡與存取 {#request-context}
 
@@ -167,7 +167,9 @@ export default defineEventHandler((event) => {
 `getDb` 是由每個應用透過 `server/db/index.ts` 中的 `createGetDb(schema)` 建立的，因此自訂路由是從範本路徑（`../../db/index.js`）匯入它，而不是從 `@agent-native/core/db` 匯入。請參閱 [資料庫](/docs/server-database#db-client)。
 
 <Callout tone="warning">
-  請勿在自訂路由中執行未限定範圍的 `db.select().from(ownableTable)`。查詢可共用資料之前，務必先用 `runWithRequestContext` 建立請求脈絡。
+  請勿在自訂路由中執行未限定範圍的
+  `db.select().from(ownableTable)`。查詢可共用資料之前，務必先用
+  `runWithRequestContext` 建立請求脈絡。
 </Callout>
 
 ## SSR 全捕獲路由 {#ssr-catch-all}

@@ -15,20 +15,20 @@ O roteamento de servidor em um aplicativo nativo do agente é dividido em duas s
 
 A estrutura reserva o namespace `/_agent-native/` para seus próprios endpoints. Nunca coloque rotas personalizadas aqui. Esta tabela é representativa, não exaustiva.
 
-| Prefixo de rota                  | Finalidade                                                                       |
-| --------------------------------- | ---------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | Endpoints HTTP de actions                                                          |
-| `/_agent-native/agent-chat`      | Loop de chat do agente                                                            |
-| `/_agent-native/poll`            | Sincronização de UI apoiada em SQL                                                 |
+| Prefixo de rota                  | Finalidade                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Endpoints HTTP de actions                                                                     |
+| `/_agent-native/agent-chat`      | Loop de chat do agente                                                                        |
+| `/_agent-native/poll`            | Sincronização de UI apoiada em SQL                                                            |
 | `/_agent-native/runs`            | Primitiva de progresso. O `RunsTray` consulta este endpoint; veja [Progresso](/docs/progress) |
-| `/_agent-native/resources/*`     | Recursos do workspace                                                             |
-| `/_agent-native/extensions/*`    | Extensões em tempo de execução e proxy de extensão (alias legado: `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | Integrações de mensageria/webhook                                                  |
-| `/_agent-native/a2a`             | JSON-RPC agente-para-agente                                                       |
-| `/mcp`                           | Endpoint MCP                                                                       |
-| `/_agent-native/onboarding/*`    | Checklist de configuração                                                          |
-| `/_agent-native/observability/*` | Traces, feedback, avaliações, experimentos                                        |
-| `/_agent-native/file-upload`     | Endpoint do provedor de upload de arquivos                                        |
+| `/_agent-native/resources/*`     | Recursos do workspace                                                                         |
+| `/_agent-native/extensions/*`    | Extensões em tempo de execução e proxy de extensão (alias legado: `/_agent-native/tools/*`)   |
+| `/_agent-native/integrations/*`  | Integrações de mensageria/webhook                                                             |
+| `/_agent-native/a2a`             | JSON-RPC agente-para-agente                                                                   |
+| `/mcp`                           | Endpoint MCP                                                                                  |
+| `/_agent-native/onboarding/*`    | Checklist de configuração                                                                     |
+| `/_agent-native/observability/*` | Traces, feedback, avaliações, experimentos                                                    |
+| `/_agent-native/file-upload`     | Endpoint do provedor de upload de arquivos                                                    |
 
 Rotas de aplicativo personalizadas ficam em `/api/*` ou em outro caminho que não colida com `/_agent-native/`.
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### Convenções de nomenclatura {#naming-conventions}
 
-| Caminho do arquivo (relativo a `server/routes/`) | Método HTTP | Caminho da URL    |
-| -------------------------------------------------- | ----------- | ----------------- |
-| `api/items/index.get.ts`                          | GET         | `/api/items`      |
-| `api/items/index.post.ts`                         | POST        | `/api/items`      |
-| `api/items/[id].get.ts`                           | GET         | `/api/items/:id`  |
-| `api/items/[id].patch.ts`                         | PATCH       | `/api/items/:id`  |
-| `api/items/[id].delete.ts`                        | DELETE      | `/api/items/:id`  |
-| `api/items/[...slug].get.ts`                      | GET         | `/api/items/*`    |
+| Caminho do arquivo (relativo a `server/routes/`) | Método HTTP | Caminho da URL   |
+| ------------------------------------------------ | ----------- | ---------------- |
+| `api/items/index.get.ts`                         | GET         | `/api/items`     |
+| `api/items/index.post.ts`                        | POST        | `/api/items`     |
+| `api/items/[id].get.ts`                          | GET         | `/api/items/:id` |
+| `api/items/[id].patch.ts`                        | PATCH       | `/api/items/:id` |
+| `api/items/[id].delete.ts`                       | DELETE      | `/api/items/:id` |
+| `api/items/[...slug].get.ts`                     | GET         | `/api/items/*`   |
 
 ## Contexto de Requisição e Acesso {#request-context}
 

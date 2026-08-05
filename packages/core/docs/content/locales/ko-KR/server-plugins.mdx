@@ -35,11 +35,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "My App",
     tagline: "A short description shown on the sign-in page.",
-    features: [
-      "Feature one",
-      "Feature two",
-      "Feature three",
-    ],
+    features: ["Feature one", "Feature two", "Feature three"],
   },
 });
 ```
@@ -110,7 +106,8 @@ export default runMigrations(
 
 <Callout tone="warning">
   마이그레이션은 반드시 추가 방식이어야 합니다. 파괴적인 SQL(`DROP TABLE`,
-  `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`)을 시작 플러그인에 절대 넣지 마세요.
+  `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`)을 시작 플러그인에 절대 넣지
+  마세요.
 </Callout>
 
 ## 커스텀 플러그인 작성하기 {#custom-plugins}

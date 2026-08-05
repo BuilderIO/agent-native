@@ -15,20 +15,20 @@ Le routage serveur dans une application native d'agent est réparti sur deux sur
 
 Le framework réserve l'espace de noms `/_agent-native/` à ses propres points de terminaison. Ne placez jamais de routes personnalisées ici. Ce tableau est représentatif, pas exhaustif.
 
-| Préfixe de route                 | Objectif                                                                        |
-| --------------------------------- | -------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | Points de terminaison HTTP des actions                                          |
-| `/_agent-native/agent-chat`      | Boucle de chat de l'agent                                                       |
-| `/_agent-native/poll`            | Synchronisation de l'UI appuyée sur SQL                                         |
+| Préfixe de route                 | Objectif                                                                                     |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Points de terminaison HTTP des actions                                                       |
+| `/_agent-native/agent-chat`      | Boucle de chat de l'agent                                                                    |
+| `/_agent-native/poll`            | Synchronisation de l'UI appuyée sur SQL                                                      |
 | `/_agent-native/runs`            | Primitive de progression. Le `RunsTray` interroge ce point ; voir [Progress](/docs/progress) |
-| `/_agent-native/resources/*`     | Ressources de l'espace de travail                                               |
-| `/_agent-native/extensions/*`    | Extensions à l'exécution et proxy d'extension (alias hérité : `/_agent-native/tools/*`) |
-| `/_agent-native/integrations/*`  | Intégrations de messagerie/webhooks                                             |
-| `/_agent-native/a2a`             | JSON-RPC agent-à-agent                                                          |
-| `/mcp`                           | Point de terminaison MCP                                                        |
-| `/_agent-native/onboarding/*`    | Liste de configuration initiale                                                 |
-| `/_agent-native/observability/*` | Traces, retours, évaluations, expériences                                       |
-| `/_agent-native/file-upload`     | Point de terminaison du fournisseur de téléversement de fichiers                |
+| `/_agent-native/resources/*`     | Ressources de l'espace de travail                                                            |
+| `/_agent-native/extensions/*`    | Extensions à l'exécution et proxy d'extension (alias hérité : `/_agent-native/tools/*`)      |
+| `/_agent-native/integrations/*`  | Intégrations de messagerie/webhooks                                                          |
+| `/_agent-native/a2a`             | JSON-RPC agent-à-agent                                                                       |
+| `/mcp`                           | Point de terminaison MCP                                                                     |
+| `/_agent-native/onboarding/*`    | Liste de configuration initiale                                                              |
+| `/_agent-native/observability/*` | Traces, retours, évaluations, expériences                                                    |
+| `/_agent-native/file-upload`     | Point de terminaison du fournisseur de téléversement de fichiers                             |
 
 Les routes d'application personnalisées vont dans `/api/*` ou un autre chemin qui n'entre pas en collision avec `/_agent-native/`.
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### Conventions de nommage {#naming-conventions}
 
-| Chemin de fichier (relatif à `server/routes/`) | Méthode HTTP | Chemin d'URL      |
-| ------------------------------------------------- | ------------- | ------------------- |
-| `api/items/index.get.ts`                          | GET           | `/api/items`        |
-| `api/items/index.post.ts`                         | POST          | `/api/items`        |
-| `api/items/[id].get.ts`                           | GET           | `/api/items/:id`    |
-| `api/items/[id].patch.ts`                         | PATCH         | `/api/items/:id`    |
-| `api/items/[id].delete.ts`                        | DELETE        | `/api/items/:id`    |
-| `api/items/[...slug].get.ts`                      | GET           | `/api/items/*`      |
+| Chemin de fichier (relatif à `server/routes/`) | Méthode HTTP | Chemin d'URL     |
+| ---------------------------------------------- | ------------ | ---------------- |
+| `api/items/index.get.ts`                       | GET          | `/api/items`     |
+| `api/items/index.post.ts`                      | POST         | `/api/items`     |
+| `api/items/[id].get.ts`                        | GET          | `/api/items/:id` |
+| `api/items/[id].patch.ts`                      | PATCH        | `/api/items/:id` |
+| `api/items/[id].delete.ts`                     | DELETE       | `/api/items/:id` |
+| `api/items/[...slug].get.ts`                   | GET          | `/api/items/*`   |
 
 ## Contexte de requête et accès {#request-context}
 
@@ -167,8 +167,8 @@ Les actions montées par le framework s'exécutent automatiquement avec le conte
 `getDb` est créé par application via `createGetDb(schema)` dans `server/db/index.ts`, donc les routes personnalisées l'importent depuis le chemin du modèle (`../../db/index.js`), pas depuis `@agent-native/core/db`. Voir [Database](/docs/server-database#db-client).
 
 <Callout tone="warning">
-  N'exécutez pas de `db.select().from(ownableTable)` non cadré dans des
-  routes personnalisées. Établissez toujours le contexte de requête avec
+  N'exécutez pas de `db.select().from(ownableTable)` non cadré dans des routes
+  personnalisées. Établissez toujours le contexte de requête avec
   `runWithRequestContext` avant d'interroger des données ownable.
 </Callout>
 

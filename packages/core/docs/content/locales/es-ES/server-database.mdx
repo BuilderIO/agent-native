@@ -129,13 +129,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Ayudante  | Propósito                                                                |
-| --------- | ------------------------------------------------------------------------ |
-| `table`   | Define una tabla; delega en `pgTable` o `sqliteTable`                    |
-| `text`    | Columna de texto, admite `{ enum: [...] }`                               |
-| `integer` | Columna entera; `{ mode: "boolean" }` se asigna al booleano de Postgres  |
+| Ayudante  | Propósito                                                                         |
+| --------- | --------------------------------------------------------------------------------- |
+| `table`   | Define una tabla; delega en `pgTable` o `sqliteTable`                             |
+| `text`    | Columna de texto, admite `{ enum: [...] }`                                        |
+| `integer` | Columna entera; `{ mode: "boolean" }` se asigna al booleano de Postgres           |
 | `real`    | Columna flotante. Se asigna a `real` en SQLite y a `double precision` en Postgres |
-| `now`     | Marca de tiempo actual independiente del dialecto para `.default(now())` |
+| `now`     | Marca de tiempo actual independiente del dialecto para `.default(now())`          |
 
 <DataModel
   id="doc-block-3hbven"
@@ -346,7 +346,9 @@ Esto funciona en despliegues sin servidor y de múltiples instancias porque la b
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel" data-rough>
     <strong>Base de datos SQL</strong
-    ><small class="diagram-muted">la versión de sincronización se incrementa</small>
+    ><small class="diagram-muted"
+      >la versión de sincronización se incrementa</small
+    >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
   <div class="diagram-col">
@@ -409,10 +411,10 @@ const { rows } = await getDbExec().execute({
 
 ## Variables de Entorno {#environment-variables}
 
-| Variable              | Propósito                                                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Variable              | Propósito                                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Cadena de conexión SQL persistente (no configurada = SQLite local; `pglite:./data/pglite` = Postgres local opcional) |
-| `DATABASE_AUTH_TOKEN` | Token de autenticación para proveedores que requieren un token separado, como Turso/libSQL                        |
+| `DATABASE_AUTH_TOKEN` | Token de autenticación para proveedores que requieren un token separado, como Turso/libSQL                           |
 
 ## ¿Qué sigue? {#whats-next}
 

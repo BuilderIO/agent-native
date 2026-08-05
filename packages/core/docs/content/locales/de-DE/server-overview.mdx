@@ -15,9 +15,7 @@ Das Verzeichnis `server/` ist die Infrastrukturschicht einer agentennativen App.
     <div class="diagram-node">Browser / Oberfläche</div>
     <div class="diagram-node">Agentenschleife</div>
     <div class="diagram-node">
-      Externe Clients<br /><small class="diagram-muted"
-        >HTTP · MCP · A2A</small
-      >
+      Externe Clients<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
     </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -194,12 +192,12 @@ Browseranfragen, die Agentenschleife und externe API-Clients laufen alle über d
 
 Dies sind die Verzeichnisse und Dateien innerhalb von `server/`, die jede agentennative App mitbringt. Jedes entspricht einem bestimmten Teil der Serverschicht: was es tut, wann man dazu greift und wie es mit dem Rest des Frameworks zusammenhängt.
 
-| Seite                                      | Was sie behandelt                                                                                            |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| **[Datenbank](/docs/server-database)**     | Schemadefinition mit `table()`-Helfern, `getDb` und ownable-Tabellenmustern                                    |
-| **[Middleware](/docs/server-middleware)**  | Auth-Guards in `server/middleware/` und warum sie dort laufen statt in einem Plugin                            |
-| **[Plugins](/docs/server-plugins)**         | Die drei Startup-Plugins jeder App: DB-Migrationen, Auth und Agent-Chat                                        |
-| **[Routen](/docs/server-routes)**          | Dateibasierte Routen, der SSR-Catch-all und die Eingrenzung benutzerdefinierter Routen auf den Anfragenutzer  |
+| Seite                                     | Was sie behandelt                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **[Datenbank](/docs/server-database)**    | Schemadefinition mit `table()`-Helfern, `getDb` und ownable-Tabellenmustern                                  |
+| **[Middleware](/docs/server-middleware)** | Auth-Guards in `server/middleware/` und warum sie dort laufen statt in einem Plugin                          |
+| **[Plugins](/docs/server-plugins)**       | Die drei Startup-Plugins jeder App: DB-Migrationen, Auth und Agent-Chat                                      |
+| **[Routen](/docs/server-routes)**         | Dateibasierte Routen, der SSR-Catch-all und die Eingrenzung benutzerdefinierter Routen auf den Anfragenutzer |
 
 ## Nitro {#nitro}
 

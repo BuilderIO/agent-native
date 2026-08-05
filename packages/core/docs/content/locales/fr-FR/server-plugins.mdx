@@ -35,11 +35,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "My App",
     tagline: "A short description shown on the sign-in page.",
-    features: [
-      "Feature one",
-      "Feature two",
-      "Feature three",
-    ],
+    features: ["Feature one", "Feature two", "Feature three"],
   },
 });
 ```
@@ -110,8 +106,8 @@ Chaque entrée nécessite un numéro `version` et une chaîne `sql`. L'option `t
 
 <Callout tone="warning">
   Les migrations doivent être additives. Ne mettez jamais de SQL destructeur
-  (`DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) dans les
-  plugins de démarrage.
+  (`DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) dans les plugins
+  de démarrage.
 </Callout>
 
 ## Écrire des plugins personnalisés {#custom-plugins}

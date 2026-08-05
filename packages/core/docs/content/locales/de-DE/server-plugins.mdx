@@ -35,11 +35,7 @@ export default createAuthPlugin({
   marketing: {
     appName: "My App",
     tagline: "A short description shown on the sign-in page.",
-    features: [
-      "Feature one",
-      "Feature two",
-      "Feature three",
-    ],
+    features: ["Feature one", "Feature two", "Feature three"],
   },
 });
 ```
@@ -109,9 +105,8 @@ export default runMigrations(
 Jeder Eintrag benötigt eine `version`-Nummer und einen `sql`-String. Die Option `table` benennt die Tabelle zur Migrations-Nachverfolgung. Verwenden Sie einen für Ihre App eindeutigen Namen, damit es nicht zu Kollisionen mit Framework-Migrationen kommt. Die vollständige Anleitung zur Schemaerstellung finden Sie unter [Datenbank](/docs/server-database).
 
 <Callout tone="warning">
-  Migrationen müssen additiv sein. Setzen Sie niemals destruktives SQL
-  (`DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) in
-  Startup-Plugins ein.
+  Migrationen müssen additiv sein. Setzen Sie niemals destruktives SQL (`DROP
+  TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) in Startup-Plugins ein.
 </Callout>
 
 ## Eigene Plugins schreiben {#custom-plugins}

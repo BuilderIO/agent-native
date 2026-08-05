@@ -129,13 +129,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| Auxiliar  | Finalidade                                                                  |
-| --------- | ---------------------------------------------------------------------------- |
-| `table`   | Define uma tabela; delega para `pgTable` ou `sqliteTable`                    |
-| `text`    | Coluna de texto, compatível com `{ enum: [...] }`                            |
-| `integer` | Coluna inteira, `{ mode: "boolean" }` mapeia para booleano no Postgres      |
+| Auxiliar  | Finalidade                                                                     |
+| --------- | ------------------------------------------------------------------------------ |
+| `table`   | Define uma tabela; delega para `pgTable` ou `sqliteTable`                      |
+| `text`    | Coluna de texto, compatível com `{ enum: [...] }`                              |
+| `integer` | Coluna inteira, `{ mode: "boolean" }` mapeia para booleano no Postgres         |
 | `real`    | Coluna flutuante. Mapeia para `real` no SQLite, `double precision` no Postgres |
-| `now`     | Carimbo de data/hora atual independente de dialeto, para `.default(now())`   |
+| `now`     | Carimbo de data/hora atual independente de dialeto, para `.default(now())`     |
 
 <DataModel
   id="doc-block-3hbven"
@@ -409,10 +409,10 @@ const { rows } = await getDbExec().execute({
 
 ## Variáveis de ambiente {#environment-variables}
 
-| Variável              | Finalidade                                                                                                |
-| --------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Variável              | Finalidade                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | String de conexão SQL persistente (não definida = SQLite local; `pglite:./data/pglite` = opção de Postgres local) |
-| `DATABASE_AUTH_TOKEN` | Token de autenticação para provedores que exigem um token separado, como Turso/libSQL                        |
+| `DATABASE_AUTH_TOKEN` | Token de autenticação para provedores que exigem um token separado, como Turso/libSQL                             |
 
 ## O que vem a seguir {#whats-next}
 

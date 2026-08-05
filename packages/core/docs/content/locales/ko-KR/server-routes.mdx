@@ -15,20 +15,20 @@ description: "파일 기반 Nitro 서버 라우트, SSR catch-all, 명명 규칙
 
 프레임워크는 `/_agent-native/` 네임스페이스를 자체 엔드포인트를 위해 예약해 둡니다. 이곳에는 절대 커스텀 라우트를 두지 마세요. 아래 표는 대표적인 예시일 뿐 전체 목록이 아닙니다.
 
-| 라우트 접두사                     | 목적                                                                              |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`   | 액션 HTTP 엔드포인트                                                              |
-| `/_agent-native/agent-chat`      | 에이전트 채팅 루프                                                                |
-| `/_agent-native/poll`            | SQL 기반 UI 동기화                                                                |
+| 라우트 접두사                    | 목적                                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | 액션 HTTP 엔드포인트                                                                |
+| `/_agent-native/agent-chat`      | 에이전트 채팅 루프                                                                  |
+| `/_agent-native/poll`            | SQL 기반 UI 동기화                                                                  |
 | `/_agent-native/runs`            | 진행 상황 프리미티브. `RunsTray`가 이를 폴링합니다. [Progress](/docs/progress) 참조 |
-| `/_agent-native/resources/*`     | 워크스페이스 리소스                                                               |
-| `/_agent-native/extensions/*`    | 런타임 확장 및 확장 프록시(레거시 별칭: `/_agent-native/tools/*`)                 |
-| `/_agent-native/integrations/*`  | 메시징/웹훅 통합                                                                  |
-| `/_agent-native/a2a`             | 에이전트 간(agent-to-agent) JSON-RPC                                              |
-| `/mcp`                           | MCP 엔드포인트                                                                    |
-| `/_agent-native/onboarding/*`    | 설정 체크리스트                                                                   |
-| `/_agent-native/observability/*` | 트레이스, 피드백, 평가, 실험                                                      |
-| `/_agent-native/file-upload`     | 파일 업로드 제공자 엔드포인트                                                     |
+| `/_agent-native/resources/*`     | 워크스페이스 리소스                                                                 |
+| `/_agent-native/extensions/*`    | 런타임 확장 및 확장 프록시(레거시 별칭: `/_agent-native/tools/*`)                   |
+| `/_agent-native/integrations/*`  | 메시징/웹훅 통합                                                                    |
+| `/_agent-native/a2a`             | 에이전트 간(agent-to-agent) JSON-RPC                                                |
+| `/mcp`                           | MCP 엔드포인트                                                                      |
+| `/_agent-native/onboarding/*`    | 설정 체크리스트                                                                     |
+| `/_agent-native/observability/*` | 트레이스, 피드백, 평가, 실험                                                        |
+| `/_agent-native/file-upload`     | 파일 업로드 제공자 엔드포인트                                                       |
 
 커스텀 앱 라우트는 `/api/*`나 `/_agent-native/`와 충돌하지 않는 다른 경로에 두세요.
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### 명명 규칙 {#naming-conventions}
 
-| 파일 경로(`server/routes/` 기준 상대 경로) | HTTP 메서드 | URL 경로          |
-| ------------------------------------------- | ----------- | ----------------- |
-| `api/items/index.get.ts`                    | GET         | `/api/items`      |
-| `api/items/index.post.ts`                   | POST        | `/api/items`      |
-| `api/items/[id].get.ts`                     | GET         | `/api/items/:id`  |
-| `api/items/[id].patch.ts`                   | PATCH       | `/api/items/:id`  |
-| `api/items/[id].delete.ts`                  | DELETE      | `/api/items/:id`  |
-| `api/items/[...slug].get.ts`                | GET         | `/api/items/*`    |
+| 파일 경로(`server/routes/` 기준 상대 경로) | HTTP 메서드 | URL 경로         |
+| ------------------------------------------ | ----------- | ---------------- |
+| `api/items/index.get.ts`                   | GET         | `/api/items`     |
+| `api/items/index.post.ts`                  | POST        | `/api/items`     |
+| `api/items/[id].get.ts`                    | GET         | `/api/items/:id` |
+| `api/items/[id].patch.ts`                  | PATCH       | `/api/items/:id` |
+| `api/items/[id].delete.ts`                 | DELETE      | `/api/items/:id` |
+| `api/items/[...slug].get.ts`               | GET         | `/api/items/*`   |
 
 ## 요청 컨텍스트와 접근 권한 {#request-context}
 

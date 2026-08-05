@@ -15,9 +15,7 @@ description: "代理本机应用中的 Nitro 服务器层：它的用途、何�
     <div class="diagram-node">浏览器 / UI</div>
     <div class="diagram-node">Agent 循环</div>
     <div class="diagram-node">
-      外部客户端<br /><small class="diagram-muted"
-        >HTTP · MCP · A2A</small
-      >
+      外部客户端<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
     </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -194,12 +192,12 @@ description: "代理本机应用中的 Nitro 服务器层：它的用途、何�
 
 以下是每个代理本机应用都会自带的 `server/` 目录及其中的文件。每一项对应服务器层的一个具体部分：它做什么、什么时候该用它，以及它与框架其余部分如何连接。
 
-| 页面                                      | 涵盖内容                                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------------------ |
-| **[数据库](/docs/server-database)**       | 使用 `table()` 助手定义 schema、`getDb`，以及可拥有表（ownable table）模式         |
-| **[中间件](/docs/server-middleware)**     | `server/middleware/` 中的身份验证守卫，以及为何它运行在此处而非插件中             |
-| **[插件](/docs/server-plugins)**          | 每个应用都自带的三个启动插件：数据库迁移、身份验证和 agent-chat                    |
-| **[路由](/docs/server-routes)**           | 基于文件的路由、SSR 兜底路由，以及如何将自定义路由限定到请求用户                   |
+| 页面                                  | 涵盖内容                                                                   |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| **[数据库](/docs/server-database)**   | 使用 `table()` 助手定义 schema、`getDb`，以及可拥有表（ownable table）模式 |
+| **[中间件](/docs/server-middleware)** | `server/middleware/` 中的身份验证守卫，以及为何它运行在此处而非插件中      |
+| **[插件](/docs/server-plugins)**      | 每个应用都自带的三个启动插件：数据库迁移、身份验证和 agent-chat            |
+| **[路由](/docs/server-routes)**       | 基于文件的路由、SSR 兜底路由，以及如何将自定义路由限定到请求用户           |
 
 ## Nitro {#nitro}
 

@@ -15,20 +15,20 @@ description: "مسارات خادم Nitro المستندة إلى الملفات
 
 يحجز إطار العمل مساحة الاسم `/_agent-native/` لنقاط نهايته الخاصة. لا تضع أبدًا مسارات مخصصة هنا. هذا الجدول تمثيلي، وليس شاملاً.
 
-| بادئة المسار                     | الغرض                                                                              |
-| -------------------------------- | ------------------------------------------------------------------------------------ |
-| `/_agent-native/actions/:name`   | نقاط نهاية HTTP لـ actions                                                          |
-| `/_agent-native/agent-chat`      | حلقة دردشة الوكيل                                                                   |
-| `/_agent-native/poll`            | مزامنة واجهة المستخدم المدعومة بـ SQL                                              |
+| بادئة المسار                     | الغرض                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | نقاط نهاية HTTP لـ actions                                                            |
+| `/_agent-native/agent-chat`      | حلقة دردشة الوكيل                                                                     |
+| `/_agent-native/poll`            | مزامنة واجهة المستخدم المدعومة بـ SQL                                                 |
 | `/_agent-native/runs`            | بدائية التقدم (progress). يستطلع `RunsTray` هذا المسار؛ راجع [التقدم](/docs/progress) |
-| `/_agent-native/resources/*`     | موارد مساحة العمل                                                                   |
-| `/_agent-native/extensions/*`    | ملحقات وقت التشغيل ووكيل الملحقات (اسم مستعار قديم: `/_agent-native/tools/*`)        |
-| `/_agent-native/integrations/*`  | تكاملات المراسلة/الويب هوك                                                          |
-| `/_agent-native/a2a`             | JSON-RPC بين الوكلاء (agent-to-agent)                                              |
-| `/mcp`                           | نقطة نهاية MCP                                                                      |
-| `/_agent-native/onboarding/*`    | قائمة تحقق الإعداد                                                                  |
-| `/_agent-native/observability/*` | التتبعات (traces)، والتعليقات، والتقييمات (evals)، والتجارب                        |
-| `/_agent-native/file-upload`     | نقطة نهاية موفر رفع الملفات                                                         |
+| `/_agent-native/resources/*`     | موارد مساحة العمل                                                                     |
+| `/_agent-native/extensions/*`    | ملحقات وقت التشغيل ووكيل الملحقات (اسم مستعار قديم: `/_agent-native/tools/*`)         |
+| `/_agent-native/integrations/*`  | تكاملات المراسلة/الويب هوك                                                            |
+| `/_agent-native/a2a`             | JSON-RPC بين الوكلاء (agent-to-agent)                                                 |
+| `/mcp`                           | نقطة نهاية MCP                                                                        |
+| `/_agent-native/onboarding/*`    | قائمة تحقق الإعداد                                                                    |
+| `/_agent-native/observability/*` | التتبعات (traces)، والتعليقات، والتقييمات (evals)، والتجارب                           |
+| `/_agent-native/file-upload`     | نقطة نهاية موفر رفع الملفات                                                           |
 
 تذهب مسارات التطبيق المخصصة إلى `/api/*` أو مسار آخر لا يتعارض مع `/_agent-native/`.
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### اصطلاحات التسمية {#naming-conventions}
 
-| مسار الملف (نسبةً إلى `server/routes/`)  | طريقة HTTP  | مسار URL         |
-| ---------------------------------------- | ----------- | ---------------- |
-| `api/items/index.get.ts`                 | GET         | `/api/items`     |
-| `api/items/index.post.ts`                | POST        | `/api/items`     |
-| `api/items/[id].get.ts`                  | GET         | `/api/items/:id` |
-| `api/items/[id].patch.ts`                | PATCH       | `/api/items/:id` |
-| `api/items/[id].delete.ts`               | DELETE      | `/api/items/:id` |
-| `api/items/[...slug].get.ts`             | GET         | `/api/items/*`   |
+| مسار الملف (نسبةً إلى `server/routes/`) | طريقة HTTP | مسار URL         |
+| --------------------------------------- | ---------- | ---------------- |
+| `api/items/index.get.ts`                | GET        | `/api/items`     |
+| `api/items/index.post.ts`               | POST       | `/api/items`     |
+| `api/items/[id].get.ts`                 | GET        | `/api/items/:id` |
+| `api/items/[id].patch.ts`               | PATCH      | `/api/items/:id` |
+| `api/items/[id].delete.ts`              | DELETE     | `/api/items/:id` |
+| `api/items/[...slug].get.ts`            | GET        | `/api/items/*`   |
 
 ## سياق الطلب والوصول {#request-context}
 
@@ -168,8 +168,8 @@ export default defineEventHandler((event) => {
 
 <Callout tone="warning">
   لا تُشغّل `db.select().from(ownableTable)` غير محدد النطاق في المسارات
-  المخصصة. أنشئ دائمًا سياق الطلب باستخدام `runWithRequestContext` قبل
-  الاستعلام عن بيانات قابلة للامتلاك.
+  المخصصة. أنشئ دائمًا سياق الطلب باستخدام `runWithRequestContext` قبل الاستعلام
+  عن بيانات قابلة للامتلاك.
 </Callout>
 
 ## مسار SSR الشامل {#ssr-catch-all}

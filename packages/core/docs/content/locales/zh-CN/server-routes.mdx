@@ -15,20 +15,20 @@ description: "基于文件的 Nitro 服务器路由、SSR 兜底路由、命名�
 
 框架为自己的端点保留了 `/_agent-native/` 命名空间。切勿在这里放置自定义路由。下表具有代表性，但并不详尽。
 
-| 路由前缀                          | 用途                                                                              |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `/_agent-native/actions/:name`    | Action 的 HTTP 端点                                                              |
-| `/_agent-native/agent-chat`       | Agent 聊天循环                                                                    |
-| `/_agent-native/poll`             | 基于 SQL 的 UI 同步                                                               |
-| `/_agent-native/runs`             | 进度基础原语。`RunsTray` 会轮询它；参见[进度](/docs/progress)                     |
-| `/_agent-native/resources/*`      | 工作区资源                                                                        |
-| `/_agent-native/extensions/*`     | 运行时扩展与扩展代理（旧别名：`/_agent-native/tools/*`）                          |
-| `/_agent-native/integrations/*`   | 消息/Webhook 集成                                                                |
-| `/_agent-native/a2a`              | 代理间（Agent-to-agent）JSON-RPC                                                  |
-| `/mcp`                            | MCP 端点                                                                          |
-| `/_agent-native/onboarding/*`     | 设置清单                                                                          |
-| `/_agent-native/observability/*`  | 追踪、反馈、评估、实验                                                            |
-| `/_agent-native/file-upload`      | 文件上传提供商端点                                                                |
+| 路由前缀                         | 用途                                                          |
+| -------------------------------- | ------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Action 的 HTTP 端点                                           |
+| `/_agent-native/agent-chat`      | Agent 聊天循环                                                |
+| `/_agent-native/poll`            | 基于 SQL 的 UI 同步                                           |
+| `/_agent-native/runs`            | 进度基础原语。`RunsTray` 会轮询它；参见[进度](/docs/progress) |
+| `/_agent-native/resources/*`     | 工作区资源                                                    |
+| `/_agent-native/extensions/*`    | 运行时扩展与扩展代理（旧别名：`/_agent-native/tools/*`）      |
+| `/_agent-native/integrations/*`  | 消息/Webhook 集成                                             |
+| `/_agent-native/a2a`             | 代理间（Agent-to-agent）JSON-RPC                              |
+| `/mcp`                           | MCP 端点                                                      |
+| `/_agent-native/onboarding/*`    | 设置清单                                                      |
+| `/_agent-native/observability/*` | 追踪、反馈、评估、实验                                        |
+| `/_agent-native/file-upload`     | 文件上传提供商端点                                            |
 
 自定义的应用路由应放在 `/api/*` 或其他不与 `/_agent-native/` 冲突的路径下。
 
@@ -124,14 +124,14 @@ export default defineEventHandler((event) => {
 
 ### 命名约定 {#naming-conventions}
 
-| 文件路径（相对于 `server/routes/`）      | HTTP 方法 | URL 路径          |
-| ----------------------------------------- | --------- | ------------------ |
-| `api/items/index.get.ts`                  | GET       | `/api/items`       |
-| `api/items/index.post.ts`                 | POST      | `/api/items`       |
-| `api/items/[id].get.ts`                   | GET       | `/api/items/:id`   |
-| `api/items/[id].patch.ts`                 | PATCH     | `/api/items/:id`   |
-| `api/items/[id].delete.ts`                | DELETE    | `/api/items/:id`   |
-| `api/items/[...slug].get.ts`              | GET       | `/api/items/*`     |
+| 文件路径（相对于 `server/routes/`） | HTTP 方法 | URL 路径         |
+| ----------------------------------- | --------- | ---------------- |
+| `api/items/index.get.ts`            | GET       | `/api/items`     |
+| `api/items/index.post.ts`           | POST      | `/api/items`     |
+| `api/items/[id].get.ts`             | GET       | `/api/items/:id` |
+| `api/items/[id].patch.ts`           | PATCH     | `/api/items/:id` |
+| `api/items/[id].delete.ts`          | DELETE    | `/api/items/:id` |
+| `api/items/[...slug].get.ts`        | GET       | `/api/items/*`   |
 
 ## 请求上下文与访问权限 {#request-context}
 

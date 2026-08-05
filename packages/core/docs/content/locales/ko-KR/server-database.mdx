@@ -129,13 +129,13 @@ export const tasks = table("tasks", {
 });
 ```
 
-| 도우미    | 목적                                                                |
-| --------- | -------------------------------------------------------------------- |
-| `table`   | 테이블 정의 — `pgTable` 또는 `sqliteTable`에 위임                    |
-| `text`    | 텍스트 열, `{ enum: [...] }` 지원                                    |
-| `integer` | 정수 열, `{ mode: "boolean" }`는 Postgres의 불리언에 매핑됩니다.     |
+| 도우미    | 목적                                                                                |
+| --------- | ----------------------------------------------------------------------------------- |
+| `table`   | 테이블 정의 — `pgTable` 또는 `sqliteTable`에 위임                                   |
+| `text`    | 텍스트 열, `{ enum: [...] }` 지원                                                   |
+| `integer` | 정수 열, `{ mode: "boolean" }`는 Postgres의 불리언에 매핑됩니다.                    |
 | `real`    | 부동소수점 열. SQLite에서는 `real`, Postgres에서는 `double precision`에 매핑됩니다. |
-| `now`     | `.default(now())`를 위한, 방언에 구애받지 않는 현재 타임스탬프       |
+| `now`     | `.default(now())`를 위한, 방언에 구애받지 않는 현재 타임스탬프                      |
 
 <DataModel
   id="doc-block-3hbven"
@@ -245,8 +245,8 @@ export const getDb = createGetDb(schema);
 `runMigrations`는 각 항목을 순서대로 한 번씩 실행한 다음 버전을 기록해, 이후 재시작 시에는 건너뜁니다. 각 항목은 멱등적입니다. 이 플러그인은 매 부팅 시 호출해도 안전합니다.
 
 <Callout tone="risk">
-  프로덕션 데이터베이스에 대해 `drizzle-kit push`를 절대 실행하지 마세요. 템플릿 스키마는
-  앱별 테이블만 정의하며, 중앙 프레임워크 테이블(`user`, `session`,
+  프로덕션 데이터베이스에 대해 `drizzle-kit push`를 절대 실행하지 마세요. 템플릿
+  스키마는 앱별 테이블만 정의하며, 중앙 프레임워크 테이블(`user`, `session`,
   `application_state` 등)은 포함하지 않습니다. 프로덕션에 대해 `drizzle-kit
   push`를 실행하면 이러한 테이블을 알 수 없는 것으로 감지해 삭제를 시도하며,
   즉각적인 데이터 손실로 이어집니다.
@@ -408,8 +408,8 @@ const { rows } = await getDbExec().execute({
 
 ## 환경변수 {#environment-variables}
 
-| 변수                  | 목적                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
+| 변수                  | 목적                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | 영구 SQL 연결 문자열(설정 안 됨 = 로컬 SQLite, `pglite:./data/pglite` = 로컬 Postgres 선택) |
 | `DATABASE_AUTH_TOKEN` | Turso/libSQL처럼 별도 토큰이 필요한 공급자를 위한 인증 토큰                                 |
 

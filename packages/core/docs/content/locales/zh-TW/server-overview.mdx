@@ -15,9 +15,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
     <div class="diagram-node">瀏覽器 / UI</div>
     <div class="diagram-node">Agent 迴圈</div>
     <div class="diagram-node">
-      外部客戶端<br /><small class="diagram-muted"
-        >HTTP · MCP · A2A</small
-      >
+      外部客戶端<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
     </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -194,12 +192,12 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 
 以下是每個 Agent-Native 應用都會附帶的 `server/` 內部目錄與檔案。每一項都對應伺服器層中的特定部分：它做什麼、何時該使用它，以及它如何與框架其餘部分串連。
 
-| 頁面                                       | 涵蓋內容                                                       |
-| ------------------------------------------ | ---------------------------------------------------------------- |
-| **[資料庫](/docs/server-database)**       | 使用 `table()` 幫手定義架構、`getDb`，以及可共用表的模式          |
-| **[中間件](/docs/server-middleware)**     | `server/middleware/` 中的驗證守衛，以及為何在此執行而非放在外掛中 |
-| **[外掛](/docs/server-plugins)**          | 每個應用都會附帶的三個啟動外掛：資料庫遷移、驗證，以及 agent-chat |
-| **[路由](/docs/server-routes)**           | 基於檔案的路由、SSR 全捕獲路由，以及將自訂路由範圍限定給請求使用者 |
+| 頁面                                  | 涵蓋內容                                                           |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| **[資料庫](/docs/server-database)**   | 使用 `table()` 幫手定義架構、`getDb`，以及可共用表的模式           |
+| **[中間件](/docs/server-middleware)** | `server/middleware/` 中的驗證守衛，以及為何在此執行而非放在外掛中  |
+| **[外掛](/docs/server-plugins)**      | 每個應用都會附帶的三個啟動外掛：資料庫遷移、驗證，以及 agent-chat  |
+| **[路由](/docs/server-routes)**       | 基於檔案的路由、SSR 全捕獲路由，以及將自訂路由範圍限定給請求使用者 |
 
 ## Nitro {#nitro}
 

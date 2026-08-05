@@ -23,9 +23,7 @@ description: "將便攜式 SQL 資料庫連線到您的 Agent-Native 應用：�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL 資料庫<br /><small class="diagram-muted"
-      >方言取自 DATABASE_URL</small
-    >
+    SQL 資料庫<br /><small class="diagram-muted">方言取自 DATABASE_URL</small>
   </div>
 </div>
 ```
@@ -102,7 +100,7 @@ DATABASE_URL=libsql://my-db-org.turso.io
 
 ### Builder.io 託管資料庫 {#builder-managed}
 
-_計畫中（尚不可用）：_連線到 Builder.io 後，您的應用將能使用自動佈建的託管資料庫，無需任何連線字串。
+*計畫中（尚不可用）：*連線到 Builder.io 後，您的應用將能使用自動佈建的託管資料庫，無需任何連線字串。
 
 ## 設定資料庫 {#setup}
 
@@ -129,20 +127,18 @@ export const tasks = table("tasks", {
 });
 ```
 
-| 幫手      | 目的                                                          |
-| --------- | ------------------------------------------------------------- |
-| `table`   | 定義一個資料表；委派給 `pgTable` 或 `sqliteTable`              |
-| `text`    | 文字欄，支援 `{ enum: [...] }`                                 |
-| `integer` | 整數欄，`{ mode: "boolean" }` 對應到 Postgres 的布林值          |
+| 幫手      | 目的                                                                   |
+| --------- | ---------------------------------------------------------------------- |
+| `table`   | 定義一個資料表；委派給 `pgTable` 或 `sqliteTable`                      |
+| `text`    | 文字欄，支援 `{ enum: [...] }`                                         |
+| `integer` | 整數欄，`{ mode: "boolean" }` 對應到 Postgres 的布林值                 |
 | `real`    | 浮點欄。在 SQLite 上對應 `real`，在 Postgres 上對應 `double precision` |
-| `now`     | 與方言無關、供 `.default(now())` 使用的目前時間戳              |
+| `now`     | 與方言無關、供 `.default(now())` 使用的目前時間戳                      |
 
 <DataModel
   id="doc-block-3hbven"
   title="tasks 資料表"
-  summary={
-    "只需以框架幫手定義一次；方言會在執行時從 DATABASE_URL 選定。"
-  }
+  summary={"只需以框架幫手定義一次；方言會在執行時從 DATABASE_URL 選定。"}
   entities={[
     {
       id: "tasks",
@@ -245,8 +241,10 @@ export const getDb = createGetDb(schema);
 `runMigrations` 會依序執行每個項目一次，然後記錄該版本，以便在往後的重啟中跳過。每個項目都是冪等的。此外掛可以在每次啟動時安全呼叫。
 
 <Callout tone="risk">
-  切勿針對正式環境資料庫執行 `drizzle-kit push`。範本架構僅定義特定於應用程式的資料表；它們不包含中央框架資料表（`user`、`session`、`application_state` 等）。若針對正式環境執行
-  `drizzle-kit push`，會將這些資料表偵測為「不在架構中」並嘗試刪除它們，造成立即的資料遺失。
+  切勿針對正式環境資料庫執行 `drizzle-kit
+  push`。範本架構僅定義特定於應用程式的資料表；它們不包含中央框架資料表（`user`、`session`、`application_state`
+  等）。若針對正式環境執行 `drizzle-kit
+  push`，會將這些資料表偵測為「不在架構中」並嘗試刪除它們，造成立即的資料遺失。
 </Callout>
 
 每個應用根目錄下的 `drizzle.config.ts` 會為本機開發時的架構檢視設定 drizzle-kit：
@@ -405,10 +403,10 @@ const { rows } = await getDbExec().execute({
 
 ## 環境變數 {#environment-variables}
 
-| 變數                  | 目的                                                                         |
-| --------------------- | ------------------------------------------------------------------------------ |
+| 變數                  | 目的                                                                                      |
+| --------------------- | ----------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | 持久化 SQL 連線字串（未設定 = 本機 SQLite；`pglite:./data/pglite` = 選用的本機 Postgres） |
-| `DATABASE_AUTH_TOKEN` | 需要獨立權杖的提供者所使用的驗證權杖，例如 Turso/libSQL                          |
+| `DATABASE_AUTH_TOKEN` | 需要獨立權杖的提供者所使用的驗證權杖，例如 Turso/libSQL                                   |
 
 ## 下一步是什麼 {#whats-next}
 

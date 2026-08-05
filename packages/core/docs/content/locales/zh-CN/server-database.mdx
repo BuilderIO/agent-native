@@ -23,9 +23,7 @@ description: "为你的代理本机应用连接一个便携式 SQL 数据库：s
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    SQL 数据库<br /><small class="diagram-muted"
-      >方言取决于 DATABASE_URL</small
-    >
+    SQL 数据库<br /><small class="diagram-muted">方言取决于 DATABASE_URL</small>
   </div>
 </div>
 ```
@@ -129,20 +127,18 @@ export const tasks = table("tasks", {
 });
 ```
 
-| 助手      | 用途                                                                    |
-| --------- | ------------------------------------------------------------------------ |
-| `table`   | 定义一个表；会转发给 `pgTable` 或 `sqliteTable`                         |
-| `text`    | 文本列，支持 `{ enum: [...] }`                                          |
-| `integer` | 整数列，`{ mode: "boolean" }` 会映射到 Postgres 的布尔类型              |
+| 助手      | 用途                                                                         |
+| --------- | ---------------------------------------------------------------------------- |
+| `table`   | 定义一个表；会转发给 `pgTable` 或 `sqliteTable`                              |
+| `text`    | 文本列，支持 `{ enum: [...] }`                                               |
+| `integer` | 整数列，`{ mode: "boolean" }` 会映射到 Postgres 的布尔类型                   |
 | `real`    | 浮点数列。在 SQLite 上映射为 `real`，在 Postgres 上映射为 `double precision` |
-| `now`     | 与方言无关的当前时间戳，用于 `.default(now())`                         |
+| `now`     | 与方言无关的当前时间戳，用于 `.default(now())`                               |
 
 <DataModel
   id="doc-block-3hbven"
   title="tasks 表"
-  summary={
-    "使用框架助手定义一次；具体方言在运行时根据 DATABASE_URL 选定。"
-  }
+  summary={"使用框架助手定义一次；具体方言在运行时根据 DATABASE_URL 选定。"}
   entities={[
     {
       id: "tasks",
@@ -407,10 +403,10 @@ const { rows } = await getDbExec().execute({
 
 ## 环境变量 {#environment-variables}
 
-| 变量                  | 用途                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------- |
+| 变量                  | 用途                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`        | 持久化的 SQL 连接字符串（未设置 = 本地 SQLite；`pglite:./data/pglite` = 可选的本地 Postgres） |
-| `DATABASE_AUTH_TOKEN` | 供需要单独令牌的提供商使用的身份验证令牌，例如 Turso/libSQL                         |
+| `DATABASE_AUTH_TOKEN` | 供需要单独令牌的提供商使用的身份验证令牌，例如 Turso/libSQL                                   |
 
 ## 下一步 {#whats-next}
 
