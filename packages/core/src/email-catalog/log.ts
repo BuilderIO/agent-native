@@ -53,8 +53,14 @@ async function ensureTable(): Promise<void> {
       await client.execute(createSql);
       try {
         await client.execute("ALTER TABLE email_log ADD COLUMN org_id TEXT");
-      } catch {
-        // Column already exists - expected for an existing local database.
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/already exists|duplicate column name/i.test(message)) {
+          throw error;
+        }
+        console.info(
+          "[agent-native:email] email_log.org_id already exists during local bootstrap",
+        );
       }
       await client.execute(EMAIL_LOG_TEMPLATE_INDEX_SQL);
       await client.execute(EMAIL_LOG_ORG_APP_INDEX_SQL);

@@ -293,18 +293,17 @@ export function FirstDeckOnboardingFlow({
           <h1 className="text-center text-2xl font-semibold tracking-[-0.04em] sm:text-3xl">
             {t("home.firstDeckPromptTitle")}
           </h1>
-          <div className="mt-8 rounded-xl border border-border/80 bg-card p-2 shadow-sm">
-            <PromptComposer
-              autoFocus
-              attachmentsEnabled
-              disabled={uploading}
-              placeholder={t("home.newDeckPlaceholder")}
-              onSubmit={handlePromptSubmit}
-              draftScope="slides-first-deck"
-              initialText={promptInitialText}
-              initialTextKey={promptInitialTextKey}
-            />
-          </div>
+          <PromptComposer
+            className="mt-8"
+            autoFocus
+            attachmentsEnabled
+            disabled={uploading}
+            placeholder={t("home.newDeckPlaceholder")}
+            onSubmit={handlePromptSubmit}
+            draftScope="slides-first-deck"
+            initialText={promptInitialText}
+            initialTextKey={promptInitialTextKey}
+          />
         </div>
       </main>
     </div>
