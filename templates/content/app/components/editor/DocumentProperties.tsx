@@ -71,6 +71,7 @@ import {
   IconPaperclip,
   IconPhone,
   IconPlus,
+  IconPlugConnected,
   IconSearch,
   IconSquareCheck,
   IconTrash,
@@ -3135,6 +3136,9 @@ export function AddProperty({
   popoversPortalled = true,
   source,
   sources,
+  onConnectSource,
+  openRequestId = 0,
+  onOpenRequestHandled,
 }: {
   documentId: string;
   databaseId: string;
@@ -3143,18 +3147,25 @@ export function AddProperty({
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
+  onConnectSource?: () => void;
+  openRequestId?: number;
+  onOpenRequestHandled?: (requestId: number) => void;
 }) {
   const t = useT();
   const configure = useConfigureDocumentProperty(documentId, databaseId);
   const addSourceFieldProperty =
     useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);
+  const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
   const allSources =
     sources && sources.length > 0 ? sources : source ? [source] : [];
   const query = typeQuery.trim().toLowerCase();
+  const connectSourceMatches =
+    !!onConnectSource &&
+    (!query || "connect a source".includes(query) || "source".includes(query));
   const sourceFieldGroups = allSources
     .map((src) => ({
       source: src,
@@ -3199,11 +3210,29 @@ export function AddProperty({
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
+  useEffect(() => {
+    if (openRequestId === 0 || openRequestId === handledOpenRequestId.current)
+      return;
+    handledOpenRequestId.current = openRequestId;
+    setTypeQuery("");
+    setAddPropertyError(null);
+    setOpen(true);
+    onOpenRequestHandled?.(openRequestId);
+  }, [onOpenRequestHandled, openRequestId]);
+
   function closeAddPropertyPicker() {
     if (isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
     setOpen(false);
+  }
+
+  function connectSource() {
+    if (!onConnectSource || isAddingProperty) return;
+    setTypeQuery("");
+    setAddPropertyError(null);
+    setOpen(false);
+    onConnectSource();
   }
 
   async function add(type: DocumentPropertyType) {
@@ -3336,6 +3365,18 @@ export function AddProperty({
             />
           </div>
           <div className="max-h-80 overflow-auto rounded border p-1">
+            {connectSourceMatches ? (
+              <button
+                type="button"
+                className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={connectSource}
+              >
+                <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
+                <span className="flex-1">
+                  {t("editor.properties.connectASource")}
+                </span>
+              </button>
+            ) : null}
             {sourceFieldGroups.map((group) => (
               <div
                 key={group.source.id}
@@ -3407,7 +3448,7 @@ export function AddProperty({
                 })}
               </div>
             ))}
-            {filteredPropertyTypes.length === 0 ? (
+            {filteredPropertyTypes.length === 0 && !connectSourceMatches ? (
               <div className="px-2 py-3 text-sm text-muted-foreground">
                 {t("editor.properties.noMatchingPropertyTypes")}
               </div>

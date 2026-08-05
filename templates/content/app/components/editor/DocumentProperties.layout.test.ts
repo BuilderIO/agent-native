@@ -118,6 +118,18 @@ describe("document property layout", () => {
     );
   });
 
+  it("hands source connection to the owning database surface", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain("onConnectSource?: () => void");
+    expect(source).toContain("openRequestId?: number");
+    expect(source).toContain('t("editor.properties.connectASource")');
+    expect(source).toContain("onConnectSource();");
+    expect(source).toContain("sourceFieldGroups.map");
+    expect(source).not.toContain("JoinSuggestionProbe");
+    expect(source).not.toContain("ConnectionReview");
+  });
+
   it("makes editable property value triggers fill the database cell", () => {
     const source = readPropertiesSource();
 
