@@ -219,6 +219,19 @@ export interface RunMigrationsOptions {
  */
 export type MigrationSql = string | { postgres?: string; sqlite?: string };
 
+/**
+ * A run-only migration can defer its work without recording itself as applied.
+ * This is for serialized backfills where another instance owns the advisory
+ * lock; throwing would turn an expected loser into a startup retry storm.
+ */
+export const MIGRATION_DEFERRED = Symbol("migration-deferred");
+
+export function deferMigration(): typeof MIGRATION_DEFERRED {
+  return MIGRATION_DEFERRED;
+}
+
+export type MigrationRunResult = void | typeof MIGRATION_DEFERRED;
+
 export interface MigrationEntry {
   version: number;
   sql: MigrationSql;
@@ -234,11 +247,13 @@ export interface MigrationEntry {
    * JS step for a backfill SQL cannot express — e.g. a repair whose value comes
    * from application-level parsing of a stored blob. Runs BEFORE this entry's
    * SQL and before the bookkeeping row is written, so a throw leaves the
-   * migration unrecorded and it retries on the next boot. Pass `sql: {}` for a
-   * run-only entry. Give run-only entries a `name`: the legacy version gate
+   * migration unrecorded and it retries on the next boot. Return
+   * `deferMigration()` when another instance owns a serialized backfill; the
+   * entry stays pending without logging a startup failure. Pass `sql: {}` for
+   * a run-only entry. Give run-only entries a `name`: the legacy version gate
    * would otherwise mark them applied via any later migration's MAX advance.
    */
-  run?: () => Promise<void>;
+  run?: () => Promise<MigrationRunResult>;
 }
 
 function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
@@ -382,7 +397,13 @@ export function runMigrations(
           try {
             // D1 is SQLite-compatible
             const raw = resolveMigrationSql(m.sql, false);
-            if (m.run) await m.run();
+            const runResult = m.run ? await m.run() : undefined;
+            if (runResult === MIGRATION_DEFERRED) {
+              console.info(
+                `[db] Deferred migration ${m.name ? `"${m.name}" ` : ""}v${m.version}; it remains pending for a later boot`,
+              );
+              continue;
+            }
             const recordStatements = [
               m.name
                 ? d1
@@ -642,7 +663,13 @@ export function runMigrations(
           // A throw here escapes to the outer handler with nothing recorded,
           // so the entry is retried on the next boot rather than being marked
           // applied against work that never happened.
-          if (m.run) await m.run();
+          const runResult = m.run ? await m.run() : undefined;
+          if (runResult === MIGRATION_DEFERRED) {
+            console.info(
+              `[db] Deferred migration ${label}; it remains pending for a later boot`,
+            );
+            continue;
+          }
 
           if (raw == null) {
             // Dialect-gated migration with no SQL for this dialect; still mark

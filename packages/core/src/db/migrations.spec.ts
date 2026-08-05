@@ -28,7 +28,7 @@ import {
   getCloudflareD1Binding,
   getMigrationDatabaseUrl,
 } from "./client.js";
-import { runMigrations } from "./migrations.js";
+import { deferMigration, runMigrations } from "./migrations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -210,6 +210,23 @@ describe("runMigrations – run-only entries", () => {
     expect(directExec.insertedNames).toEqual(["repair-counts"]);
     expect(directExec.insertedVersions).toEqual([1]);
     expect(directExec.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a deferred run-only migration unrecorded", async () => {
+    vi.mocked(isPostgres).mockReturnValue(false);
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    const run = vi.fn(async () => deferMigration());
+
+    const plugin = runMigrations(
+      [{ version: 1, name: "serialized-backfill", sql: {}, run }],
+      { table: "deferred_run_only_migrations" },
+    );
+    await plugin(null);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(exec.insertedNames).toEqual([]);
+    expect(exec.insertedVersions).toEqual([]);
   });
 
   it("records D1 run-only bookkeeping in one atomic batch", async () => {

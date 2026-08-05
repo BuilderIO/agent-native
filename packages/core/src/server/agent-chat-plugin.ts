@@ -5832,7 +5832,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      const disableRecurringJobsRuntime = shouldDisableRecurringJobsRuntime();
+      const isBackgroundRuntime = isInBackgroundFunctionRuntime();
+      const disableRecurringJobsRuntime =
+        isBackgroundRuntime || shouldDisableRecurringJobsRuntime();
 
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
@@ -5905,27 +5907,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // A non-Netlify self-dispatch only waits for the request to leave the
       // current invocation. Keep the durable history row as a retryable queue
       // so a frozen serverless handoff is recovered on the next sweep.
-      (() => {
-        let inFlight = false;
-        const sweep = async () => {
-          if (inFlight) return;
-          inFlight = true;
-          try {
-            const { redispatchUnclaimedAutomationRuns } =
-              await import("../jobs/run-now.js");
-            await redispatchUnclaimedAutomationRuns();
-          } catch (error) {
-            console.warn(
-              "[automations] queued-run sweep failed; retrying next tick:",
-              error,
-            );
-          } finally {
-            inFlight = false;
-          }
-        };
-        setTimeout(() => void sweep(), 15_000);
-        setInterval(() => void sweep(), 30_000);
-      })();
+      if (!isBackgroundRuntime) {
+        (() => {
+          let inFlight = false;
+          const sweep = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            try {
+              const { redispatchUnclaimedAutomationRuns } =
+                await import("../jobs/run-now.js");
+              await redispatchUnclaimedAutomationRuns();
+            } catch (error) {
+              console.warn(
+                "[automations] queued-run sweep failed; retrying next tick:",
+                error,
+              );
+            } finally {
+              inFlight = false;
+            }
+          };
+          setTimeout(() => void sweep(), 15_000);
+          setInterval(() => void sweep(), 30_000);
+        })();
+      }
 
       mcpInitializationPromise = initializeMcpManager().catch((err) => {
         console.warn(
@@ -5940,6 +5944,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // per instance; cheap (one indexed query when no active tasks are found).
       // Throttled by the same per-owner interval guard inside reconcileAgentTeamRunsForOwner.
       (() => {
+        if (isBackgroundRuntime) return;
         // Track when this instance last ran the sweep so only one sweep fires
         // per 2-min window even if multiple timers fire in overlapping invocations.
         let lastSweep = 0;
@@ -6100,6 +6105,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
+        if (isBackgroundRuntime) return;
         setTimeout(() => {
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
@@ -6151,6 +6157,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // still fails loud, and it survives the fast sweep having missed a row
       // entirely (e.g. a restart landed between fast-sweep ticks).
       (() => {
+        if (isBackgroundRuntime) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
