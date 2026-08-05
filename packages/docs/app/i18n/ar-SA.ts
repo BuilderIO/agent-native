@@ -1250,7 +1250,7 @@ const arSA = {
         findingAccentColor: "اللون المميز",
         findingHeadingFont: "خط العناوين",
         findingBodyFont: "خط النص",
-        styleGuidePrefix: "دليل النمط:",
+        styleGuidePrefix: "دليل الأسلوب لـ",
       },
     },
   },

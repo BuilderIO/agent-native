@@ -1262,7 +1262,7 @@ const deDE = {
         findingAccentColor: "Akzentfarbe",
         findingHeadingFont: "Überschriftenschrift",
         findingBodyFont: "Fließtextschrift",
-        styleGuidePrefix: "Styleguide:",
+        styleGuidePrefix: "Styleguide für",
       },
     },
   },

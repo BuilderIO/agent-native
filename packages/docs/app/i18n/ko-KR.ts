@@ -1253,7 +1253,7 @@ const koKR = {
         findingAccentColor: "강조 색상",
         findingHeadingFont: "제목 글꼴",
         findingBodyFont: "본문 글꼴",
-        styleGuidePrefix: "스타일 가이드:",
+        styleGuidePrefix: "다음 사이트를 위한 스타일 가이드:",
       },
     },
   },

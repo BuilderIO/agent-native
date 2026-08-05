@@ -1240,7 +1240,7 @@ const zhCN = {
         findingAccentColor: "强调色",
         findingHeadingFont: "标题字体",
         findingBodyFont: "正文字体",
-        styleGuidePrefix: "风格指南：",
+        styleGuidePrefix: "适用于以下网站的风格指南：",
       },
     },
   },

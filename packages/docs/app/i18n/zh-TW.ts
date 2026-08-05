@@ -1238,7 +1238,7 @@ const messages = {
         findingAccentColor: "強調色",
         findingHeadingFont: "標題字型",
         findingBodyFont: "內文字型",
-        styleGuidePrefix: "風格指南：",
+        styleGuidePrefix: "適用於以下網站的風格指南：",
       },
     },
   },

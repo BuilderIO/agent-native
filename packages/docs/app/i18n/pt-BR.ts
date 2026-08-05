@@ -1254,7 +1254,7 @@ const ptBR = {
         findingAccentColor: "cor de destaque",
         findingHeadingFont: "fonte dos títulos",
         findingBodyFont: "fonte do corpo",
-        styleGuidePrefix: "Guia de estilo:",
+        styleGuidePrefix: "Guia de estilo para",
       },
     },
   },

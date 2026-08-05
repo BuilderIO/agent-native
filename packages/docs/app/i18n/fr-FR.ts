@@ -1260,7 +1260,7 @@ const frFR = {
         findingAccentColor: "couleur d’accent",
         findingHeadingFont: "police des titres",
         findingBodyFont: "police du corps de texte",
-        styleGuidePrefix: "Guide de style :",
+        styleGuidePrefix: "Guide de style pour",
       },
     },
   },

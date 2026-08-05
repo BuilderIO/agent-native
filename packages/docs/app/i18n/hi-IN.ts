@@ -1250,7 +1250,7 @@ const hiIN = {
         findingAccentColor: "एक्सेंट रंग",
         findingHeadingFont: "शीर्षक का फ़ॉन्ट",
         findingBodyFont: "मुख्य टेक्स्ट का फ़ॉन्ट",
-        styleGuidePrefix: "स्टाइल गाइड:",
+        styleGuidePrefix: "इसके लिए स्टाइल गाइड:",
       },
     },
   },

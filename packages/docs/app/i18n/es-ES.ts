@@ -1260,7 +1260,7 @@ const esES = {
         findingAccentColor: "color de acento",
         findingHeadingFont: "fuente de los encabezados",
         findingBodyFont: "fuente del cuerpo",
-        styleGuidePrefix: "Guía de estilo:",
+        styleGuidePrefix: "Guía de estilo para",
       },
     },
   },

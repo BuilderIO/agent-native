@@ -1256,7 +1256,7 @@ const jaJP = {
         findingAccentColor: "アクセントカラー",
         findingHeadingFont: "見出しフォント",
         findingBodyFont: "本文フォント",
-        styleGuidePrefix: "スタイルガイド：",
+        styleGuidePrefix: "次のサイト向けのスタイルガイド：",
       },
     },
   },
