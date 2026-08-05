@@ -209,7 +209,7 @@ export default defineAction({
     "For map entries such as canvasFrames, use dataOperations " +
     "with explicit set/delete paths instead of a full data snapshot. " +
     "Dimensions and positions (x, y, width, height, rotation, z) are " +
-    'numbers. String values are rejected.',
+    "numbers. String values are rejected.",
   schema: z
     .object({
       id: z.string().describe("Design ID"),
