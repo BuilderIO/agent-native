@@ -605,6 +605,10 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* Popover menu rendered below a device row. */
+.media-device-row {
+  position: relative;
+}
+
 .row-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -645,7 +649,21 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-hover);
 }
 
-/* System-audio toggle sits below the device list, separated by a divider. */
+.row-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.row-menu-trigger:focus-visible {
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  border-radius: 4px;
+}
+
 .row-menu-toggle {
   display: flex;
   align-items: center;
