@@ -1,8 +1,5 @@
-import {
-  AgentToggleButton,
-  sendToAgentChat,
-  useActionMutation,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import {
   buildDraft,
   RECIPE_LABELS,
