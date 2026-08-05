@@ -542,11 +542,19 @@ export async function listDashboardSummaries(
     ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
     : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
   const catalogTemplateId = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`
-    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.catalog.templateId')`;
+    ? sql<
+        string | null
+      >`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.catalog.templateId')`;
   const demoId = isPostgres()
-    ? sql<string | null>`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`
-    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.demo.id')`;
+    ? sql<
+        string | null
+      >`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.demo.id')`;
   const rows = await db
     .select({
       id: schema.dashboards.id,
@@ -571,9 +579,7 @@ export async function listDashboardSummaries(
     ...row,
     configName: typeof row.configName === "string" ? row.configName : null,
     catalogTemplateId:
-      typeof row.catalogTemplateId === "string"
-        ? row.catalogTemplateId
-        : null,
+      typeof row.catalogTemplateId === "string" ? row.catalogTemplateId : null,
     demoId: typeof row.demoId === "string" ? row.demoId : null,
     parentId: typeof row.parentId === "string" ? row.parentId : null,
     orgId: row.orgId ?? null,

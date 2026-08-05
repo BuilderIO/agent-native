@@ -187,7 +187,9 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).toMatch(
       /version: 132,[\s\S]*?name: "analytics-rollups-historical-backfill",[\s\S]*?sql: \{\},[\s\S]*?\n\s*\},/,
     );
-    expect(dbTsSource).not.toMatch(/run:\s*runHistoricalAnalyticsRollupBackfill/);
+    expect(dbTsSource).not.toMatch(
+      /run:\s*runHistoricalAnalyticsRollupBackfill/,
+    );
     expect(dbTsSource).not.toContain("FROM analytics_events");
     expect(dbTsSource).not.toContain(
       "LOCK TABLE analytics_event_daily_rollups",
