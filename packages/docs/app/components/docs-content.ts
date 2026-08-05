@@ -261,7 +261,9 @@ export async function loadDocRespectingDraftVisibility(
 
   const docsLocale = normalizeDocsLocale(locale);
   const canonical =
-    docsLocale === DEFAULT_DOCS_LOCALE ? doc : await loadDoc(slug, DEFAULT_DOCS_LOCALE);
+    docsLocale === DEFAULT_DOCS_LOCALE
+      ? doc
+      : await loadDoc(slug, DEFAULT_DOCS_LOCALE);
   const isDraft = Boolean(doc.draft || canonical?.draft);
 
   if (isDraft && import.meta.env.VITE_SHOW_DRAFTS !== "true") return undefined;

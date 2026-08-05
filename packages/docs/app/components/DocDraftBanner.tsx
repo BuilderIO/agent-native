@@ -1,4 +1,7 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 export default function DocDraftBanner() {
+  const t = useT();
   return (
     <div
       className="mb-6 rounded-md border p-4 text-sm"
@@ -7,8 +10,7 @@ export default function DocDraftBanner() {
         color: "var(--approaches-warn)",
       }}
     >
-      <strong>Draft</strong> — This page is a work in progress. Content may be
-      incomplete or subject to change before publication.
+      <strong>{t("docs.draftLabel")}</strong> — {t("docs.draftDescription")}
     </div>
   );
 }

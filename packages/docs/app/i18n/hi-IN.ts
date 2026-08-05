@@ -53,6 +53,9 @@ const hiIN = {
     copyMarkdownError: "Markdown कॉपी नहीं हो सका",
     previous: "पिछला",
     next: "अगला",
+    draftLabel: "ड्राफ़्ट",
+    draftDescription:
+      "यह पेज अभी तैयार किया जा रहा है। प्रकाशन से पहले सामग्री अधूरी हो सकती है या इसमें बदलाव हो सकता है।",
   },
   search: {
     dialogLabel: "दस्तावेज़ खोजें",

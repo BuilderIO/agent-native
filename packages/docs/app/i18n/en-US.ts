@@ -51,6 +51,9 @@ const enUS = {
     copyMarkdownError: "Couldn't copy Markdown",
     previous: "Previous",
     next: "Next",
+    draftLabel: "Draft",
+    draftDescription:
+      "This page is a work in progress. Content may be incomplete or subject to change before publication.",
   },
   common: {
     copied: "Copied",

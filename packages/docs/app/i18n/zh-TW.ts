@@ -51,6 +51,8 @@ const messages = {
     copyMarkdownError: "無法複製 Markdown",
     previous: "上一頁面",
     next: "下一頁面",
+    draftLabel: "草稿",
+    draftDescription: "此頁面仍在製作中。內容在發布前可能不完整或有所變動。",
   },
   search: {
     dialogLabel: "搜尋檔案",

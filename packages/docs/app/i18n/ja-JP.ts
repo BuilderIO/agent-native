@@ -53,6 +53,9 @@ const jaJP = {
     copyMarkdownError: "Markdownをコピーできませんでした",
     previous: "前へ",
     next: "次へ",
+    draftLabel: "ドラフト",
+    draftDescription:
+      "このページは作成中です。内容は公開前に不完全であったり変更される場合があります。",
   },
   search: {
     dialogLabel: "ドキュメントを検索",
