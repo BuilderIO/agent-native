@@ -3108,9 +3108,6 @@ async function mountBetterAuthRoutes(
   const betterAuthConfig: BetterAuthConfig = {
     ...(options.betterAuth ?? {}),
     ...(options.googleScopes ? { googleScopes: options.googleScopes } : {}),
-    ...(options.googleOnly !== undefined
-      ? { googleOnly: options.googleOnly }
-      : {}),
   };
   const auth = await getBetterAuth(betterAuthConfig);
 

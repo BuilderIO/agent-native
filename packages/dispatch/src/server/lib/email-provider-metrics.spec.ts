@@ -27,7 +27,7 @@ describe("email provider metrics", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await fetchEmailEngagement(["core.magic-link-sign-in"], 30);
+    const result = await fetchEmailEngagement(["core.reset-password"], 30);
 
     expect(result).toEqual({
       available: false,
@@ -46,7 +46,7 @@ describe("email provider metrics", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await fetchEmailActivity({
-      templateId: "core.magic-link-sign-in",
+      templateId: "core.reset-password",
       limit: 25,
     });
 
@@ -54,7 +54,7 @@ describe("email provider metrics", () => {
     expect(url.pathname).toBe("/v3/messages");
     expect(url.searchParams.get("limit")).toBe("25");
     expect(url.searchParams.get("query")).toBe(
-      'category="core.magic-link-sign-in"',
+      'category="core.reset-password"',
     );
   });
 });

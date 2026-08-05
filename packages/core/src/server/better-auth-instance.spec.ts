@@ -2,30 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
   configureLocalSqlite,
-  createCoreAuthPlugins,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
-
-describe("createCoreAuthPlugins", () => {
-  it("hashes magic-link tokens at rest", () => {
-    const plugins = createCoreAuthPlugins(undefined, "https://app.example.com");
-    const magicLink = plugins.find((plugin) => plugin.id === "magic-link");
-
-    expect(magicLink?.options).toMatchObject({ storeToken: "hashed" });
-  });
-
-  it("does not mount magic links for Google-only apps", () => {
-    const plugins = createCoreAuthPlugins(
-      { googleOnly: true },
-      "https://app.example.com",
-    );
-
-    expect(plugins.some((plugin) => plugin.id === "magic-link")).toBe(false);
-  });
-});
 
 describe("configureLocalSqlite", () => {
   it("waits for competing app writes before giving up", () => {
@@ -133,12 +114,13 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
   it("creates a verified canonical user and Google account", async () => {
     const { adapter, createOAuthUser } = adapterFor();
 
-    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
       email: "  Owner@Example.com ",
       accountId: "google-sub-1",
       name: "Owner",
     });
 
+    expect(created).toBe(true);
     expect(createOAuthUser).toHaveBeenCalledWith(
       { email: "owner@example.com", name: "Owner", emailVerified: true },
       { providerId: "google", accountId: "google-sub-1" },
@@ -168,11 +150,12 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
       });
     createOAuthUser.mockRejectedValueOnce(new Error("email already exists"));
 
-    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
       email: "owner@example.com",
       accountId: "google-sub-race",
     });
 
+    expect(created).toBe(false);
     expect(linkAccount).not.toHaveBeenCalled();
   });
 
@@ -187,11 +170,12 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     };
     const { adapter, linkAccount, createOAuthUser } = adapterFor(existing);
 
-    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
       email: "owner@example.com",
       accountId: "google-sub-1",
     });
 
+    expect(created).toBe(false);
     expect(linkAccount).toHaveBeenCalledWith({
       userId: "existing-user",
       providerId: "google",

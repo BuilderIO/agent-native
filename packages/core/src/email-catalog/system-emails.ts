@@ -10,7 +10,6 @@
 
 import {
   renderInviteEmail,
-  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "../server/email-templates.js";
@@ -22,7 +21,6 @@ const SAMPLE_EMAIL = "sam.rivera@example.com";
 
 export const CORE_INVITE_EMAIL_ID = "core.organization-invite";
 export const CORE_VERIFY_SIGNUP_EMAIL_ID = "core.verify-signup";
-export const CORE_MAGIC_LINK_EMAIL_ID = "core.magic-link-sign-in";
 export const CORE_RESET_PASSWORD_EMAIL_ID = "core.reset-password";
 
 let registered = false;
@@ -71,25 +69,6 @@ export function registerCoreSystemEmails(): void {
   });
 
   defineTransactionalEmail({
-    id: CORE_MAGIC_LINK_EMAIL_ID,
-    app: "core",
-    name: "Magic link sign-in",
-    trigger:
-      "A user chooses Continue with email on the sign-in screen. The single-use link signs in an existing user or creates a verified account after a new recipient opens it.",
-    recipientLabel: "Entered email address",
-    recipient:
-      "The normalized address entered in the magic-link form. Delivery occurs before the UI reports success.",
-    senderLabel: "Configured no-reply",
-    sender:
-      "The configured EMAIL_FROM with no Reply-To override. First-party deployments use noreply@agent-native.com.",
-    preview: () =>
-      renderMagicLinkEmail({
-        email: SAMPLE_EMAIL,
-        magicLinkUrl: SAMPLE_URL,
-      }),
-  });
-
-  defineTransactionalEmail({
     id: CORE_RESET_PASSWORD_EMAIL_ID,
     app: "core",
     name: "Reset password",
@@ -98,9 +77,9 @@ export function registerCoreSystemEmails(): void {
     recipientLabel: "Account address",
     recipient:
       "The account address the reset was requested for, never an address supplied in the request body.",
-    senderLabel: "Configured no-reply",
+    senderLabel: "Default, app-branded",
     sender:
-      "The configured EMAIL_FROM with no Reply-To override. First-party deployments use noreply@agent-native.com.",
+      "The configured EMAIL_FROM, branded with the app name the reset was requested from.",
     preview: () =>
       renderResetPasswordEmail({
         email: SAMPLE_EMAIL,

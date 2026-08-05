@@ -89,17 +89,6 @@ const EN_AUTH_COPY = {
   dividerOr: "or",
   createAccount: "Create account",
   signIn: "Sign in",
-  continueWithEmail: "Continue with email",
-  emailLinkSubtitle: "Sign in or create an account with a secure email link",
-  usePasswordInstead: "Use password instead",
-  useEmailLinkInstead: "Use an email link instead",
-  emailLinkSent: "Check your email",
-  emailLinkSentDescription:
-    "We sent a secure sign-in link to your email address.",
-  resendMagicLink: "Resend link",
-  magicLinkFailed: "Could not send sign-in link.",
-  magicLinkExpired:
-    "This sign-in link is invalid or has expired. Request a new one.",
   email: "Email",
   password: "Password",
   confirmPassword: "Confirm password",
@@ -195,15 +184,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "或",
     createAccount: "创建账户",
     signIn: "登录",
-    continueWithEmail: "使用电子邮箱继续",
-    emailLinkSubtitle: "通过安全邮件链接登录或创建账户",
-    usePasswordInstead: "改用密码",
-    useEmailLinkInstead: "改用邮件链接",
-    emailLinkSent: "检查你的邮箱",
-    emailLinkSentDescription: "我们已向你的邮箱发送安全登录链接。",
-    resendMagicLink: "重新发送链接",
-    magicLinkFailed: "无法发送登录链接。",
-    magicLinkExpired: "此登录链接无效或已过期。请申请新链接。",
     email: "电子邮箱",
     password: "密码",
     confirmPassword: "确认密码",
@@ -293,15 +273,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "或",
     createAccount: "建立帳號",
     signIn: "登入",
-    continueWithEmail: "使用電子郵件繼續",
-    emailLinkSubtitle: "透過安全郵件連結登入或建立帳號",
-    usePasswordInstead: "改用密碼",
-    useEmailLinkInstead: "改用郵件連結",
-    emailLinkSent: "檢查你的電子郵件",
-    emailLinkSentDescription: "我們已將安全登入連結寄到你的電子郵件。",
-    resendMagicLink: "重新寄送連結",
-    magicLinkFailed: "無法寄送登入連結。",
-    magicLinkExpired: "此登入連結無效或已過期。請申請新連結。",
     email: "電子郵件",
     password: "密碼",
     confirmPassword: "確認密碼",
@@ -392,17 +363,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "o",
     createAccount: "Crear cuenta",
     signIn: "Iniciar sesión",
-    continueWithEmail: "Continuar con email",
-    emailLinkSubtitle: "Inicia sesión o crea una cuenta con un enlace seguro",
-    usePasswordInstead: "Usar contraseña",
-    useEmailLinkInstead: "Usar un enlace por email",
-    emailLinkSent: "Revisa tu email",
-    emailLinkSentDescription:
-      "Enviamos un enlace seguro de inicio de sesión a tu email.",
-    resendMagicLink: "Reenviar enlace",
-    magicLinkFailed: "No se pudo enviar el enlace de inicio de sesión.",
-    magicLinkExpired:
-      "Este enlace no es válido o ha caducado. Solicita uno nuevo.",
     email: "Email",
     password: "Contraseña",
     confirmPassword: "Confirmar contraseña",
@@ -500,17 +460,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "ou",
     createAccount: "Créer un compte",
     signIn: "Connexion",
-    continueWithEmail: "Continuer avec l’e-mail",
-    emailLinkSubtitle:
-      "Connectez-vous ou créez un compte avec un lien sécurisé",
-    usePasswordInstead: "Utiliser un mot de passe",
-    useEmailLinkInstead: "Utiliser un lien par e-mail",
-    emailLinkSent: "Vérifiez votre e-mail",
-    emailLinkSentDescription:
-      "Nous avons envoyé un lien de connexion sécurisé à votre adresse.",
-    resendMagicLink: "Renvoyer le lien",
-    magicLinkFailed: "Impossible d’envoyer le lien de connexion.",
-    magicLinkExpired: "Ce lien est invalide ou expiré. Demandez-en un nouveau.",
     email: "E-mail",
     password: "Mot de passe",
     confirmPassword: "Confirmer le mot de passe",
@@ -609,18 +558,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "oder",
     createAccount: "Konto erstellen",
     signIn: "Anmelden",
-    continueWithEmail: "Mit E-Mail fortfahren",
-    emailLinkSubtitle:
-      "Mit einem sicheren E-Mail-Link anmelden oder Konto erstellen",
-    usePasswordInstead: "Stattdessen Passwort verwenden",
-    useEmailLinkInstead: "E-Mail-Link verwenden",
-    emailLinkSent: "E-Mail prüfen",
-    emailLinkSentDescription:
-      "Wir haben einen sicheren Anmeldelink an deine E-Mail gesendet.",
-    resendMagicLink: "Link erneut senden",
-    magicLinkFailed: "Anmeldelink konnte nicht gesendet werden.",
-    magicLinkExpired:
-      "Dieser Anmeldelink ist ungültig oder abgelaufen. Fordere einen neuen an.",
     email: "E-Mail",
     password: "Passwort",
     confirmPassword: "Passwort bestätigen",
@@ -719,16 +656,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "または",
     createAccount: "アカウントを作成",
     signIn: "サインイン",
-    continueWithEmail: "メールで続行",
-    emailLinkSubtitle: "安全なメールリンクでサインインまたはアカウントを作成",
-    usePasswordInstead: "パスワードを使用",
-    useEmailLinkInstead: "メールリンクを使用",
-    emailLinkSent: "メールを確認してください",
-    emailLinkSentDescription: "安全なサインインリンクをメールで送信しました。",
-    resendMagicLink: "リンクを再送信",
-    magicLinkFailed: "サインインリンクを送信できませんでした。",
-    magicLinkExpired:
-      "このサインインリンクは無効か期限切れです。新しいリンクをリクエストしてください。",
     email: "メール",
     password: "パスワード",
     confirmPassword: "パスワードを確認",
@@ -826,16 +753,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "또는",
     createAccount: "계정 만들기",
     signIn: "로그인",
-    continueWithEmail: "이메일로 계속",
-    emailLinkSubtitle: "보안 이메일 링크로 로그인하거나 계정을 만드세요",
-    usePasswordInstead: "비밀번호 사용",
-    useEmailLinkInstead: "이메일 링크 사용",
-    emailLinkSent: "이메일을 확인하세요",
-    emailLinkSentDescription: "보안 로그인 링크를 이메일로 보냈습니다.",
-    resendMagicLink: "링크 다시 보내기",
-    magicLinkFailed: "로그인 링크를 보낼 수 없습니다.",
-    magicLinkExpired:
-      "이 로그인 링크는 유효하지 않거나 만료되었습니다. 새 링크를 요청하세요.",
     email: "이메일",
     password: "비밀번호",
     confirmPassword: "비밀번호 확인",
@@ -928,16 +845,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "ou",
     createAccount: "Criar conta",
     signIn: "Entrar",
-    continueWithEmail: "Continuar com email",
-    emailLinkSubtitle: "Entre ou crie uma conta com um link seguro por email",
-    usePasswordInstead: "Usar senha",
-    useEmailLinkInstead: "Usar link por email",
-    emailLinkSent: "Confira seu email",
-    emailLinkSentDescription:
-      "Enviamos um link seguro de login para seu email.",
-    resendMagicLink: "Reenviar link",
-    magicLinkFailed: "Não foi possível enviar o link de login.",
-    magicLinkExpired: "Este link é inválido ou expirou. Solicite um novo.",
     email: "Email",
     password: "Senha",
     confirmPassword: "Confirmar senha",
@@ -1034,15 +941,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "या",
     createAccount: "खाता बनाएं",
     signIn: "साइन इन",
-    continueWithEmail: "ईमेल से जारी रखें",
-    emailLinkSubtitle: "सुरक्षित ईमेल लिंक से साइन इन करें या खाता बनाएं",
-    usePasswordInstead: "पासवर्ड उपयोग करें",
-    useEmailLinkInstead: "ईमेल लिंक उपयोग करें",
-    emailLinkSent: "अपना ईमेल देखें",
-    emailLinkSentDescription: "हमने आपके ईमेल पर सुरक्षित साइन-इन लिंक भेजा है।",
-    resendMagicLink: "लिंक फिर भेजें",
-    magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
-    magicLinkExpired: "यह साइन-इन लिंक अमान्य है या समाप्त हो गया है। नया लिंक मांगें।",
     email: "ईमेल",
     password: "पासवर्ड",
     confirmPassword: "पासवर्ड की पुष्टि करें",
@@ -1135,17 +1033,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     dividerOr: "أو",
     createAccount: "إنشاء حساب",
     signIn: "تسجيل الدخول",
-    continueWithEmail: "المتابعة بالبريد الإلكتروني",
-    emailLinkSubtitle: "سجّل الدخول أو أنشئ حسابًا باستخدام رابط آمن",
-    usePasswordInstead: "استخدام كلمة المرور",
-    useEmailLinkInstead: "استخدام رابط البريد",
-    emailLinkSent: "تحقق من بريدك الإلكتروني",
-    emailLinkSentDescription:
-      "أرسلنا رابط تسجيل دخول آمنًا إلى بريدك الإلكتروني.",
-    resendMagicLink: "إعادة إرسال الرابط",
-    magicLinkFailed: "تعذر إرسال رابط تسجيل الدخول.",
-    magicLinkExpired:
-      "رابط تسجيل الدخول غير صالح أو منتهي الصلاحية. اطلب رابطًا جديدًا.",
     email: "البريد الإلكتروني",
     password: "كلمة المرور",
     confirmPassword: "تأكيد كلمة المرور",
@@ -2385,11 +2272,6 @@ ${
   }
   .link-button:hover { color: #bbb; }
   .link-button:disabled { cursor: wait; opacity: 0.5; }
-  .auth-method-switch {
-    margin-top: 0.875rem;
-    text-align: center;
-  }
-  .tabs + .auth-method-switch { margin-top: -0.625rem; margin-bottom: 1rem; }
   .divider {
     display: flex;
     align-items: center;
@@ -2594,7 +2476,7 @@ ${localePickerHtml}
 ${marketingPanelHtml}
 <div class="card">
   <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : "welcomeTitle"))}</h1>
-  <p class="subtitle" id="subtitle"${i18nAttr(googleOnly ? "googleOnlySubtitle" : "emailLinkSubtitle")}>${esc(t(googleOnly ? "googleOnlySubtitle" : "emailLinkSubtitle"))}</p>
+  <p class="subtitle" id="subtitle"${i18nAttr(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle")}>${esc(t(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle"))}</p>
   <p
     class="upgrade-note"
     id="upgrade-note"
@@ -2621,29 +2503,14 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `  <form id="magic-link-form" class="form active">
-    <label for="m-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-    <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
-    <button type="submit"${i18nAttr("continueWithEmail")}>${esc(t("continueWithEmail"))}</button>
-${signupLegalNoteHtml}
-    <p class="msg" id="m-msg" aria-live="polite"></p>
-    <div class="auth-method-switch">
-      <button type="button" class="link-button" id="use-password"${i18nAttr("usePasswordInstead")}>${esc(t("usePasswordInstead"))}</button>
-    </div>
-  </form>
-
-  <div id="password-auth" hidden>
-    <div class="tabs">
-      <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
-      <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
-    </div>
-    <div class="auth-method-switch">
-      <button type="button" class="link-button" id="use-email-link"${i18nAttr("useEmailLinkInstead")}>${esc(t("useEmailLinkInstead"))}</button>
-    </div>
+    : `  <div class="tabs">
+    <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
+    <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
+  </div>
 
     <form id="signup-form" class="form">
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
-      <input id="s-email" type="email" autocomplete="email" placeholder="you@example.com" required />
+      <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
     <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="8" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
@@ -2693,8 +2560,7 @@ ${signupLocalModeNoteHtml}
     <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">
       <a href="#" id="back-to-login" style="color:#888;text-decoration:underline;text-underline-offset:2px"${i18nAttr("backToSignIn")}>${esc(t("backToSignIn"))}</a>
     </p>
-  </form>
-  </div>`
+  </form>`
 }
 </div>
 <p class="local-note" id="local-note">
@@ -2735,7 +2601,7 @@ ${signInJourneyInlineScript()}
     var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(AUTH_MARKETING_LOCALE_COPY)};
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
-    var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "magic-link")};
+    var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
     function __anAuthLocaleIsSupported(value) {
       return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
     }
@@ -2802,8 +2668,6 @@ ${signInJourneyInlineScript()}
       if (view === 'login') return { heading: 'welcomeBackTitle', subtitle: 'signInSubtitle' };
       if (view === 'forgot') return { heading: 'resetPasswordTitle', subtitle: 'resetPasswordSubtitle' };
       if (view === 'verification') return { heading: 'checkEmailTitle', subtitle: 'finishAccountSubtitle' };
-      if (view === 'magic-link') return { heading: 'welcomeTitle', subtitle: 'emailLinkSubtitle' };
-      if (view === 'magic-link-sent') return { heading: 'emailLinkSent', subtitle: 'emailLinkSentDescription' };
       if (view === 'googleOnly') return { heading: 'signInTitle', subtitle: 'googleOnlySubtitle' };
       return { heading: 'welcomeTitle', subtitle: 'createAccountSubtitle' };
     }
@@ -3442,39 +3306,6 @@ ${
         try { localStorage.setItem(TAB_STORAGE_KEY, name); } catch (e) {}
       }
     }
-    function authEmailValue() {
-      var ids = ['m-email', 'l-email', 's-email', 'f-email'];
-      for (var i = 0; i < ids.length; i++) {
-        var input = document.getElementById(ids[i]);
-        var email = __anNormalizeAuthEmail(input && input.value);
-        if (__anIsValidAuthEmail(email)) return email;
-      }
-      return '';
-    }
-    function setAuthMethod(method, tab) {
-      var magicForm = document.getElementById('magic-link-form');
-      var passwordAuth = document.getElementById('password-auth');
-      if (!magicForm || !passwordAuth) return;
-      var email = authEmailValue();
-      if (method === 'password') {
-        magicForm.classList.remove('active');
-        passwordAuth.removeAttribute('hidden');
-        setActiveTab(tab || 'login', { persist: false });
-        var passwordEmail = document.getElementById((tab === 'signup' ? 's' : 'l') + '-email');
-        if (passwordEmail && email) passwordEmail.value = email;
-        setTimeout(function() { if (passwordEmail) passwordEmail.focus(); }, 0);
-        return;
-      }
-      forms.forEach(function(x) { x.classList.remove('active'); });
-      passwordAuth.setAttribute('hidden', '');
-      magicForm.classList.add('active');
-      var magicEmail = document.getElementById('m-email');
-      if (magicEmail && email) magicEmail.value = email;
-      var card = document.querySelector('.card');
-      if (card) card.classList.remove('verifying');
-      __anSetAuthView('magic-link');
-      setTimeout(function() { if (magicEmail) magicEmail.focus(); }, 0);
-    }
     function showVerificationStep(email, password) {
       pendingSignupEmail = email || '';
       pendingSignupPassword = password || '';
@@ -3708,40 +3539,33 @@ ${
         }
       }
     }
-    (function initAuthMethod() {
-      var passwordTab = '';
-      var magicLinkError = false;
-      try {
-        var params = new URLSearchParams(location.search);
-        var qp = params.get('tab');
-        var path = location.pathname;
-        while (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
-        magicLinkError = params.has('magicLinkError');
-        if (qp === 'login' || qp === 'signup') {
-          passwordTab = qp;
-        } else if (__anIsVerifiedRedirectSuccess()) {
-          passwordTab = 'login';
-        } else if (path === '/login' || path.endsWith('/login')) {
-          passwordTab = 'login';
-        } else if (path === '/signup' || path.endsWith('/signup')) {
-          passwordTab = 'signup';
-        }
-      // coercion-ok: malformed auth location data safely falls back to magic-link mode.
-      } catch (e) {}
-      setAuthMethod(passwordTab ? 'password' : 'magic-link', passwordTab || undefined);
-      if (magicLinkError) {
-        var magicMsg = document.getElementById('m-msg');
-        if (magicMsg) {
-          magicMsg.textContent = __anT('magicLinkExpired');
-          magicMsg.classList.add('show', 'error');
-        }
+    (function initActiveTab() {
+    var initial = 'signup';
+    try {
+      var params = new URLSearchParams(location.search);
+      var qp = params.get('tab');
+      var path = location.pathname;
+      while (path.length > 1 && path.charAt(path.length - 1) === '/') path = path.slice(0, -1);
+      if (qp === 'login' || qp === 'signup') {
+        initial = qp;
+	      } else if (__anIsVerifiedRedirectSuccess()) {
+	        initial = 'login';
+	      } else if (path === '/login' || path.endsWith('/login')) {
+        initial = 'login';
+      } else if (path === '/signup' || path.endsWith('/signup')) {
+        initial = 'signup';
+      } else {
+        var stored = localStorage.getItem(TAB_STORAGE_KEY);
+        if (stored === 'login' || stored === 'signup') initial = stored;
       }
-      try {
-        if (__anIsVerifiedRedirectSuccess()) {
-          var rememberedEmail = readRememberedPendingSignupEmail();
-          var loginEmail = document.getElementById('l-email');
-          if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail;
-          var msg = document.getElementById('l-msg');
+    } catch (e) {}
+    setActiveTab(initial, { persist: false });
+	      try {
+	        if (__anIsVerifiedRedirectSuccess()) {
+	          var rememberedEmail = readRememberedPendingSignupEmail();
+	          var loginEmail = document.getElementById('l-email');
+	          if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail;
+	          var msg = document.getElementById('l-msg');
           if (msg) {
             msg.textContent = __anT('emailVerifiedFinishing');
             msg.classList.remove('error');
@@ -3751,64 +3575,9 @@ ${
         }
       } catch (e) {}
     })();
-    tabs.forEach(function(t) { t.addEventListener('click', function() {
-      setActiveTab(t.dataset.tab, { persist: true });
-    }); });
-    var usePassword = document.getElementById('use-password');
-    if (usePassword) usePassword.addEventListener('click', function() {
-      setAuthMethod('password', 'login');
-    });
-    var useEmailLink = document.getElementById('use-email-link');
-    if (useEmailLink) useEmailLink.addEventListener('click', function() {
-      setAuthMethod('magic-link');
-    });
-
-    var magicLinkForm = document.getElementById('magic-link-form');
-    if (magicLinkForm) magicLinkForm.addEventListener('submit', async function(e) {
-      e.preventDefault();
-      var btn = e.currentTarget.querySelector('button[type="submit"]');
-      var msg = document.getElementById('m-msg');
-      var emailInput = document.getElementById('m-email');
-      var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
-      msg.classList.remove('show', 'error', 'success');
-      if (!__anIsValidAuthEmail(email)) {
-        __anShowEmailValidationError(emailInput, msg);
-        return;
-      }
-      btn.disabled = true;
-      btn.textContent = __anT('sending');
-      try {
-        var errorCallback = new URL(location.href);
-        errorCallback.searchParams.set('magicLinkError', '1');
-        errorCallback.searchParams.delete('error');
-        var res = await fetch(__anPath('/_agent-native/auth/ba/sign-in/magic-link'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: email,
-            callbackURL: __anResumeHref(),
-            errorCallbackURL: errorCallback.pathname + errorCallback.search,
-          }),
-        });
-        if (!res.ok) {
-          msg.textContent = __anT('magicLinkFailed');
-          msg.classList.add('show', 'error');
-          btn.disabled = false;
-          __anSetAuthI18nKey(btn, 'continueWithEmail');
-          return;
-        }
-        msg.textContent = __anT('emailLinkSentDescription');
-        msg.classList.add('show', 'success');
-        __anSetAuthI18nKey(btn, 'resendMagicLink');
-        btn.disabled = false;
-        __anSetAuthView('magic-link-sent');
-      } catch (err) {
-        msg.textContent = __anT('magicLinkFailed');
-        msg.classList.add('show', 'error');
-        btn.disabled = false;
-        __anSetAuthI18nKey(btn, 'continueWithEmail');
-      }
-    });
+  tabs.forEach(function(t) { t.addEventListener('click', function() {
+    setActiveTab(t.dataset.tab, { persist: true });
+  }); });
 
   document.getElementById('signup-form').addEventListener('submit', async function(e) {
     e.preventDefault();

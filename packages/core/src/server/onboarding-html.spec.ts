@@ -124,9 +124,6 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "__anPath('/_agent-native/auth/ba/request-password-reset')",
     );
-    expect(html).toContain(
-      "__anPath('/_agent-native/auth/ba/sign-in/magic-link')",
-    );
     expect(html).toContain("__anPath('/_agent-native/google/auth-url')");
   });
 
@@ -142,44 +139,6 @@ describe("getOnboardingHtml", () => {
       "body: JSON.stringify({ email: email, password: pass })",
     );
     expect(html).toContain("password: document.getElementById('l-pass').value");
-  });
-
-  it("renders magic link as the default while preserving password auth", () => {
-    const html = getOnboardingHtml();
-
-    expect(html).toContain('id="magic-link-form" class="form active"');
-    expect(html).toContain('id="password-auth" hidden');
-    expect(html).toContain('id="use-password"');
-    expect(html).toContain('id="use-email-link"');
-    expect(html).toContain(
-      "__anPath('/_agent-native/auth/ba/sign-in/magic-link')",
-    );
-    expect(html).toContain("callbackURL: __anResumeHref()");
-    expect(html).toContain("function setAuthMethod(method, tab)");
-    expect(html).toContain('id="signup-form"');
-    expect(html).toContain('id="login-form"');
-    expect(html).toContain('id="forgot-form"');
-    expect(html).not.toContain("localStorage.setItem('an.auth.method'");
-  });
-
-  it("keeps email and password forms out of Google-only mode", () => {
-    const html = getOnboardingHtml({ googleOnly: true });
-
-    expect(html).not.toContain('id="magic-link-form"');
-    expect(html).not.toContain('id="password-auth"');
-    expect(html).not.toContain('id="signup-form"');
-    expect(html).not.toContain('id="login-form"');
-    expect(html).toContain('id="google-btn"');
-  });
-
-  it("shows a generic retry state for invalid or expired magic links", () => {
-    const html = getOnboardingHtml();
-
-    expect(html).toContain("params.has('magicLinkError')");
-    expect(html).toContain("magicMsg.textContent = __anT('magicLinkExpired')");
-    expect(html).toContain(
-      "This sign-in link is invalid or has expired. Request a new one.",
-    );
   });
 
   it("keeps the pending verification email across a redirect without storing its password", () => {
@@ -553,7 +512,6 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
   });
 
   it("embeds the local workspace gateway return origin when configured", () => {
-    vi.stubEnv("BETTER_AUTH_URL", "");
     vi.stubEnv("VITE_WORKSPACE_OAUTH_ORIGIN", "http://127.0.0.1:8080/");
     vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080/");
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");

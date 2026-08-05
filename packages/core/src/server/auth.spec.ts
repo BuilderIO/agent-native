@@ -353,17 +353,16 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
-      const getBetterAuth = vi.fn(async () => ({
-        handler: vi.fn(async () => new Response("{}")),
-        api: {
-          getSession: vi.fn(async () => null),
-          signInEmail: vi.fn(),
-          signUpEmail: vi.fn(),
-          signOut: vi.fn(),
-        },
-      }));
       vi.doMock("./better-auth-instance.js", () => ({
-        getBetterAuth,
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
         getBetterAuthSync: vi.fn(() => undefined),
       }));
 
@@ -373,10 +372,6 @@ describe("server/auth", () => {
         googleOnly: true,
         mountGoogleOAuthRoutes: false,
       });
-
-      expect(getBetterAuth).toHaveBeenCalledWith(
-        expect.objectContaining({ googleOnly: true }),
-      );
 
       const paths = app.use.mock.calls
         .map((call: any[]) => call[0])
