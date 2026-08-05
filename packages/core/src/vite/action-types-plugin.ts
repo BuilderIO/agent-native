@@ -157,6 +157,38 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "send-review-thread-to-agent",
     specifier: "@agent-native/core/review/actions/send-review-thread-to-agent",
   },
+  {
+    name: "list-recurring-jobs",
+    specifier: "@agent-native/core/jobs/actions/list-recurring-jobs",
+  },
+  {
+    name: "manage-recurring-job",
+    specifier: "@agent-native/core/jobs/actions/manage-recurring-job",
+  },
+  {
+    name: "run-automation-now",
+    specifier: "@agent-native/core/jobs/actions/run-automation-now",
+  },
+  {
+    name: "list-automation-runs",
+    specifier: "@agent-native/core/jobs/actions/list-automation-runs",
+  },
+  {
+    name: "list-automations",
+    specifier: "@agent-native/core/triggers/actions/list-automations",
+  },
+  {
+    name: "list-automation-events",
+    specifier: "@agent-native/core/triggers/actions/list-automation-events",
+  },
+  {
+    name: "manage-automation",
+    specifier: "@agent-native/core/triggers/actions/manage-automation",
+  },
+  {
+    name: "search-automation-accounts",
+    specifier: "@agent-native/core/triggers/actions/search-automation-accounts",
+  },
 ];
 
 function isRuntimeSourceFile(filename: string): boolean {

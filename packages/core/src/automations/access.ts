@@ -38,6 +38,10 @@ export interface AutomationSharingListSummary {
   visibility: AutomationEffectiveVisibility;
   organizationId: string | null;
   grantCount: number;
+  grants?: Array<{
+    email: string;
+    role: AutomationSharingGrantRole;
+  }>;
 }
 
 export interface AutomationCreatorSummary {
@@ -370,6 +374,16 @@ function evaluateCandidate(
     data.memberships,
   );
   if (!role) return null;
+  const visibleSharing =
+    role === "owner" && grants.length
+      ? {
+          ...sharing,
+          grants: grants.map(({ email, role: grantRole }) => ({
+            email,
+            role: grantRole,
+          })),
+        }
+      : sharing;
   return {
     resource: candidate.resource,
     name: candidate.name,
@@ -380,7 +394,7 @@ function evaluateCandidate(
     owningOrganizationId: candidate.owningOrganizationId,
     effectiveRole: role,
     capabilities: capabilitiesForRole(role),
-    sharing,
+    sharing: visibleSharing,
     creator: {
       email: candidate.immutableCreator,
       label: candidate.immutableCreator

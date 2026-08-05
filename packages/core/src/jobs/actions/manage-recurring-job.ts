@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { resolveAutomationAccess } from "../../automations/access.js";
 import {
   organizationResourceOwner,
   resourceDelete,
@@ -8,92 +9,113 @@ import {
   resourcePut,
 } from "../../resources/store.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../cron.js";
-import { classifyJobResource } from "../frontmatter.js";
 import { deleteAutomationRuns } from "../run-history.js";
 import { buildJobContent, parseJobFrontmatter } from "../scheduler.js";
-import { authorizeJobMutation } from "../tools.js";
 
 const scopeSchema = z.enum(["personal", "organization"]);
 
-export default defineAction({
-  description:
-    "Enable, pause, or delete one legacy recurring cron job from the Agent Automations page.",
-  agentTool: false,
-  schema: z.object({
+const schema = z
+  .object({
     operation: z.enum(["update", "delete"]),
-    name: z.string().min(1),
-    scope: scopeSchema.default("personal"),
+    resourceId: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+    scope: scopeSchema.optional(),
     enabled: z.boolean().optional(),
     schedule: z.string().min(1).optional(),
     timezone: z.string().min(1).optional(),
-  }),
-  run: async ({ operation, name, scope, enabled, schedule, timezone }, ctx) => {
+  })
+  .refine((input) => input.resourceId || (input.name && input.scope), {
+    message: "resourceId or name and scope is required.",
+  });
+
+export default defineAction({
+  description:
+    "Enable, pause, or delete one legacy recurring job by stable resourceId. Name and scope remain compatibility inputs.",
+  agentTool: false,
+  schema,
+  run: async (input, ctx) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
-    if (scope === "organization" && !ctx?.orgId) {
-      throw new Error("An organization is required for organization jobs.");
+
+    let resourceId = input.resourceId?.trim();
+    if (!resourceId) {
+      if (!input.name || !input.scope) {
+        throw Object.assign(
+          new Error("resourceId or name and scope is required."),
+          { statusCode: 400 },
+        );
+      }
+      if (input.scope === "organization" && !ctx?.orgId) {
+        throw Object.assign(
+          new Error("An organization is required for organization jobs."),
+          { statusCode: 400 },
+        );
+      }
+      const owner =
+        input.scope === "organization"
+          ? organizationResourceOwner(ctx.orgId as string)
+          : userEmail;
+      const resource = await resourceGetByPath(owner, `jobs/${input.name}.md`);
+      resourceId = resource?.id;
     }
 
-    const owner =
-      scope === "organization"
-        ? organizationResourceOwner(ctx.orgId as string)
-        : userEmail;
-    const path = `jobs/${name}.md`;
-    const resource = await resourceGetByPath(owner, path);
-    if (!resource) {
-      throw Object.assign(new Error(`Job "${name}" not found.`), {
+    const access = resourceId
+      ? await resolveAutomationAccess({ userEmail }, resourceId)
+      : null;
+    if (!access || access.classification.kind !== "job") {
+      throw Object.assign(new Error("Recurring job not found."), {
         statusCode: 404,
       });
     }
-
-    const { meta, body } = parseJobFrontmatter(resource.content);
-    if (classifyJobResource(resource.content).kind === "automation") {
-      throw Object.assign(new Error(`Job "${name}" is an automation.`), {
-        statusCode: 400,
+    if (input.operation === "delete" && !access.capabilities.canDelete) {
+      throw Object.assign(new Error("Only the job owner can delete it."), {
+        statusCode: 403,
       });
     }
-    const denied = await authorizeJobMutation(
-      resource,
-      operation === "delete" ? "delete" : "edit",
-    );
-    if (denied) throw Object.assign(new Error(denied), { statusCode: 403 });
+    if (input.operation === "update" && !access.capabilities.canEdit) {
+      throw Object.assign(
+        new Error("Collaborate access is required to update this job."),
+        { statusCode: 403 },
+      );
+    }
 
-    if (operation === "delete") {
+    const { resource, name } = access;
+    const { meta, body } = parseJobFrontmatter(resource.content);
+    if (input.operation === "delete") {
       await resourceDelete(resource.id);
-      // Names are reusable; history left behind would surface as the run
-      // history of whatever job is next created under this name.
       await deleteAutomationRuns(resource.owner, name);
-      return { deleted: true, name };
+      return { deleted: true, resourceId: resource.id, name };
     }
 
-    if (timezone !== undefined) {
-      if (!isValidTimezone(timezone)) {
-        throw Object.assign(new Error(`Unknown timezone "${timezone}".`), {
-          statusCode: 400,
-        });
-      }
-      meta.timezone = timezone;
-    }
     if (
-      enabled === undefined &&
-      schedule === undefined &&
-      timezone === undefined
+      input.enabled === undefined &&
+      input.schedule === undefined &&
+      input.timezone === undefined
     ) {
       throw Object.assign(
         new Error("enabled, schedule, or timezone is required for update."),
         { statusCode: 400 },
       );
     }
-    if (schedule !== undefined) {
-      if (!isValidCron(schedule)) {
+    if (input.timezone !== undefined) {
+      if (!isValidTimezone(input.timezone)) {
         throw Object.assign(
-          new Error(`Invalid cron expression "${schedule}".`),
+          new Error(`Unknown timezone "${input.timezone}".`),
           { statusCode: 400 },
         );
       }
-      meta.schedule = schedule;
+      meta.timezone = input.timezone;
     }
-    if (enabled !== undefined) meta.enabled = enabled;
+    if (input.schedule !== undefined) {
+      if (!isValidCron(input.schedule)) {
+        throw Object.assign(
+          new Error(`Invalid cron expression "${input.schedule}".`),
+          { statusCode: 400 },
+        );
+      }
+      meta.schedule = input.schedule;
+    }
+    if (input.enabled !== undefined) meta.enabled = input.enabled;
     if (meta.enabled && meta.schedule && isValidCron(meta.schedule)) {
       meta.nextRun = nextOccurrence(
         meta.schedule,
@@ -108,6 +130,7 @@ export default defineAction({
     );
 
     return {
+      resourceId: resource.id,
       name,
       enabled: meta.enabled,
       nextRun: meta.nextRun ?? null,

@@ -5,17 +5,23 @@ import { queueAutomationRunNow } from "../run-now.js";
 
 export default defineAction({
   description:
-    "Run one personal or organization automation immediately. This is an explicit send/run action and may perform the automation's real side effects.",
+    "Run one automation by stable resourceId. Collaborators may queue it, but execution always uses the automation's immutable creator identity. Name and scope remain compatibility inputs.",
   agentTool: false,
-  schema: z.object({
-    name: z.string().min(1),
-    scope: z.enum(["personal", "organization"]).default("personal"),
-  }),
-  run: async ({ name, scope }, ctx) => {
+  schema: z
+    .object({
+      resourceId: z.string().min(1).optional(),
+      name: z.string().min(1).optional(),
+      scope: z.enum(["personal", "organization"]).optional(),
+    })
+    .refine((input) => input.resourceId || (input.name && input.scope), {
+      message: "resourceId or name and scope is required.",
+    }),
+  run: async ({ resourceId, name, scope }, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     return queueAutomationRunNow({
       userEmail: ctx.userEmail,
       orgId: ctx.orgId,
+      resourceId,
       scope,
       name,
     });

@@ -162,6 +162,7 @@ describe("automation access", () => {
     );
     mocks.loadGrants.mockResolvedValue(
       new Map([
+        ["owned", [grant("owned", "viewer@example.com", "view")]],
         ["view", [grant("view", "alice@example.com", "view")]],
         [
           "collaborate",
@@ -195,7 +196,11 @@ describe("automation access", () => {
           canDelete: true,
           canManageSharing: true,
         },
-        sharing: { source: "explicit", visibility: "private" },
+        sharing: {
+          source: "explicit",
+          visibility: "private",
+          grants: [{ email: "viewer@example.com", role: "view" }],
+        },
         classification: { kind: "automation" },
       },
     );
@@ -211,6 +216,9 @@ describe("automation access", () => {
     expect(
       result.find((entry) => entry.resource.id === "collaborate")?.capabilities,
     ).toMatchObject({ canEdit: true, canOperate: true, canDelete: false });
+    expect(
+      result.find((entry) => entry.resource.id === "view")?.sharing,
+    ).not.toHaveProperty("grants");
   });
 
   it("allows personal resources to use organization and specific-sharing overlay context without changing their owner", async () => {

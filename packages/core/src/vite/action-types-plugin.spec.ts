@@ -42,6 +42,8 @@ describe("generateActionRegistryForProject", () => {
       expect(registry).toContain('"set-localization-preference"');
       expect(registry).toContain('"list-resource-history"');
       expect(registry).toContain('"list-review-comments"');
+      expect(registry).toContain('"list-automations"');
+      expect(registry).toContain('"search-automation-accounts"');
       expect(registry).not.toContain("real-action.spec");
       expect(registry).not.toContain("other.test");
 
@@ -53,6 +55,8 @@ describe("generateActionRegistryForProject", () => {
       expect(types).toContain('"set-localization-preference"');
       expect(types).toContain('"list-resource-history"');
       expect(types).toContain('"list-review-comments"');
+      expect(types).toContain('"list-automations"');
+      expect(types).toContain('"search-automation-accounts"');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

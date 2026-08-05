@@ -646,6 +646,10 @@ export async function mergeCoreSharingActions(
       () => import("../triggers/actions/manage-automation.js"),
     ],
     [
+      "search-automation-accounts",
+      () => import("../triggers/actions/search-automation-accounts.js"),
+    ],
+    [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
     ],

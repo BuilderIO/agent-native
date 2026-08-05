@@ -1,10 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import {
-  listAutomationDefinitions,
-  type AutomationScope,
-} from "../../automations/service.js";
+import { listAccessibleAutomationDefinitions } from "../../automations/service.js";
 import {
   describeCron,
   effectiveTimezone,
@@ -12,10 +9,10 @@ import {
   nextOccurrence,
 } from "../../jobs/cron.js";
 
-const scopeSchema = z.enum(["personal", "organization"]);
-
 function nextRun(
-  meta: Awaited<ReturnType<typeof listAutomationDefinitions>>[number]["meta"],
+  meta: Awaited<
+    ReturnType<typeof listAccessibleAutomationDefinitions>
+  >[number]["meta"],
 ): string | null {
   if (!meta.enabled) return null;
   const scheduled = Boolean(
@@ -40,9 +37,11 @@ function nextRun(
 
 export interface AutomationActionItem {
   id: string;
+  resourceId: string;
   name: string;
   path: string;
   scope: "personal" | "organization";
+  classification: "automation" | "recurring-job";
   triggerType: "event" | "schedule" | "manual";
   event: string | null;
   schedule: string | null;
@@ -65,14 +64,32 @@ export interface AutomationActionItem {
   deliveryThreadRef: string | null;
   deliveryTenantId: string | null;
   canUpdate: boolean;
+  effectiveRole: "owner" | "collaborate" | "view";
+  capabilities: {
+    canEdit: boolean;
+    canOperate: boolean;
+    canDelete: boolean;
+    canManageSharing: boolean;
+  };
+  sharing: {
+    source: "explicit" | "legacy";
+    visibility: "private" | "organization" | "shared";
+    organizationId: string | null;
+    grantCount: number;
+    grants?: Array<{
+      email: string;
+      role: "view" | "collaborate";
+    }>;
+  };
+  creator: { email: string | null; label: string | null };
 }
 
 export default defineAction({
   description:
-    "List event-triggered and schedule-triggered automations in the selected personal or organization scope.",
+    "List every accessible automation and legacy recurring job in one access-aware result.",
   agentTool: false,
   schema: z.object({
-    scope: scopeSchema.default("personal"),
+    scope: z.enum(["personal", "organization"]).optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -80,44 +97,73 @@ export default defineAction({
   run: async ({ scope }, ctx): Promise<AutomationActionItem[]> => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
-    const definitions = await listAutomationDefinitions(
-      { userEmail, orgId: ctx?.orgId },
-      scope as AutomationScope,
-    );
-    return definitions.map(({ resource, name, meta, body, canUpdate }) => ({
-      id: resource.id,
-      name,
-      path: resource.path,
-      scope: scope as AutomationScope,
-      triggerType: meta.triggerType,
-      event: meta.triggerType === "event" ? (meta.event ?? null) : null,
-      schedule: meta.triggerType === "schedule" ? meta.schedule || null : null,
-      timezone:
-        meta.triggerType === "schedule" && meta.schedule
-          ? effectiveTimezone(meta.timezone)
-          : null,
-      scheduleDescription:
-        meta.triggerType === "schedule" && meta.schedule
-          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
-          : null,
-      condition:
-        meta.triggerType === "manual" ? null : (meta.condition ?? null),
-      body,
-      enabled: meta.enabled,
-      lastRun: meta.lastRun ?? null,
-      lastCheck: meta.lastCheck ?? null,
-      lastStatus: meta.lastStatus ?? null,
-      lastError: meta.lastError ?? null,
-      nextRun: nextRun(meta),
-      createdBy: meta.createdBy ?? null,
-      model: meta.model ?? null,
-      mcpTools: meta.mcpTools ?? [],
-      originScopeId: meta.originScopeId ?? null,
-      deliveryPlatform: meta.deliveryPlatform ?? null,
-      deliveryDestination: meta.deliveryDestination ?? null,
-      deliveryThreadRef: meta.deliveryThreadRef ?? null,
-      deliveryTenantId: meta.deliveryTenantId ?? null,
-      canUpdate,
-    }));
+    const definitions = await listAccessibleAutomationDefinitions({
+      userEmail,
+      orgId: ctx?.orgId,
+    });
+    return definitions
+      .filter((definition) => !scope || definition.scope === scope)
+      .map(
+        ({
+          resource,
+          name,
+          classification,
+          meta,
+          body,
+          scope,
+          canUpdate,
+          effectiveRole,
+          capabilities,
+          sharing,
+          creator,
+        }) => ({
+          id: resource.id,
+          resourceId: resource.id,
+          name,
+          path: resource.path,
+          scope,
+          classification:
+            classification.kind === "automation"
+              ? "automation"
+              : "recurring-job",
+          triggerType:
+            classification.kind === "automation"
+              ? classification.triggerType
+              : "schedule",
+          event: meta.triggerType === "event" ? (meta.event ?? null) : null,
+          schedule:
+            meta.triggerType === "schedule" ? meta.schedule || null : null,
+          timezone:
+            meta.triggerType === "schedule" && meta.schedule
+              ? effectiveTimezone(meta.timezone)
+              : null,
+          scheduleDescription:
+            meta.triggerType === "schedule" && meta.schedule
+              ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+              : null,
+          condition:
+            meta.triggerType === "manual" ? null : (meta.condition ?? null),
+          body,
+          enabled: meta.enabled,
+          lastRun: meta.lastRun ?? null,
+          lastCheck: meta.lastCheck ?? null,
+          lastStatus: meta.lastStatus ?? null,
+          lastError: meta.lastError ?? null,
+          nextRun: nextRun(meta),
+          createdBy: meta.createdBy ?? null,
+          model: meta.model ?? null,
+          mcpTools: meta.mcpTools ?? [],
+          originScopeId: meta.originScopeId ?? null,
+          deliveryPlatform: meta.deliveryPlatform ?? null,
+          deliveryDestination: meta.deliveryDestination ?? null,
+          deliveryThreadRef: meta.deliveryThreadRef ?? null,
+          deliveryTenantId: meta.deliveryTenantId ?? null,
+          canUpdate,
+          effectiveRole,
+          capabilities,
+          sharing,
+          creator,
+        }),
+      );
   },
 });

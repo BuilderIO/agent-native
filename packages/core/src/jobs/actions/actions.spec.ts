@@ -1,185 +1,192 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const resourceListMock = vi.hoisted(() => vi.fn());
-const resourceGetByPathMock = vi.hoisted(() => vi.fn());
-const resourcePutMock = vi.hoisted(() => vi.fn());
-const resourceDeleteMock = vi.hoisted(() => vi.fn());
-const authorizeJobMutationMock = vi.hoisted(() => vi.fn());
+const mocks = vi.hoisted(() => ({
+  deleteAutomationRuns: vi.fn(),
+  listAccessibleAutomationDefinitions: vi.fn(),
+  listAutomationRuns: vi.fn(),
+  queueAutomationRunNow: vi.fn(),
+  resolveAutomationAccess: vi.fn(),
+  resourceDelete: vi.fn(),
+  resourceGetByPath: vi.fn(),
+  resourcePut: vi.fn(),
+}));
 
+vi.mock("../../automations/access.js", () => ({
+  resolveAutomationAccess: mocks.resolveAutomationAccess,
+}));
+vi.mock("../../automations/service.js", () => ({
+  listAccessibleAutomationDefinitions:
+    mocks.listAccessibleAutomationDefinitions,
+}));
 vi.mock("../../resources/store.js", () => ({
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
-  resourceList: resourceListMock,
-  resourceGetByPath: resourceGetByPathMock,
-  resourcePut: resourcePutMock,
-  resourceDelete: resourceDeleteMock,
+  resourceDelete: mocks.resourceDelete,
+  resourceGetByPath: mocks.resourceGetByPath,
+  resourcePut: mocks.resourcePut,
+}));
+vi.mock("../run-history.js", () => ({
+  deleteAutomationRuns: mocks.deleteAutomationRuns,
+  listAutomationRuns: mocks.listAutomationRuns,
+}));
+vi.mock("../run-now.js", () => ({
+  queueAutomationRunNow: mocks.queueAutomationRunNow,
 }));
 
-vi.mock("../tools.js", () => ({
-  authorizeJobMutation: authorizeJobMutationMock,
-}));
-
+import listAutomationRuns from "./list-automation-runs.js";
 import listRecurringJobs from "./list-recurring-jobs.js";
 import manageRecurringJob from "./manage-recurring-job.js";
+import runAutomationNow from "./run-automation-now.js";
 
 const ctx = { caller: "frontend" as const, userEmail: "alice@example.com" };
-const jobContent = `---
+const content = `---
 schedule: "0 9 * * *"
 enabled: true
-createdBy: alice@example.com
-nextRun: 2030-01-01T09:00:00.000Z
+createdBy: owner@example.com
 ---
 
-Summarize my inbox.
-`;
-const automationContent = `---
-schedule: ""
-enabled: true
-triggerType: event
-event: mail.received
-mode: agentic
----
+Summarize the inbox.`;
+const resource = {
+  id: "job-1",
+  owner: "owner@example.com",
+  path: "jobs/daily.md",
+  content,
+};
 
-Notify me.
-`;
+function access(role: "owner" | "collaborate" | "view") {
+  return {
+    resource,
+    name: "daily",
+    classification: { kind: "job" },
+    meta: {
+      schedule: "0 9 * * *",
+      enabled: true,
+      triggerType: "schedule",
+      createdBy: "owner@example.com",
+    },
+    body: "Summarize the inbox.",
+    scope: "personal",
+    canUpdate: role !== "view",
+    effectiveRole: role,
+    capabilities: {
+      canEdit: role !== "view",
+      canOperate: role !== "view",
+      canDelete: role === "owner",
+      canManageSharing: role === "owner",
+    },
+  };
+}
 
-describe("recurring jobs actions", () => {
+describe("recurring job actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resourceListMock.mockResolvedValue([]);
-    resourceGetByPathMock.mockResolvedValue(null);
-    resourcePutMock.mockResolvedValue(undefined);
-    resourceDeleteMock.mockResolvedValue(true);
-    authorizeJobMutationMock.mockResolvedValue(null);
-  });
-
-  it("exposes a frontend-only GET list and a frontend-only mutation", () => {
-    expect(listRecurringJobs.http).toEqual({ method: "GET" });
-    expect(listRecurringJobs.agentTool).toBe(false);
-    expect(manageRecurringJob.agentTool).toBe(false);
-  });
-
-  it("lists only recurring jobs in the requested personal scope", async () => {
-    resourceListMock.mockResolvedValue([
-      { path: "jobs/daily.md" },
-      { path: "jobs/automation.md" },
-      { path: "jobs/.keep" },
+    mocks.listAccessibleAutomationDefinitions.mockResolvedValue([
+      access("collaborate"),
     ]);
-    resourceGetByPathMock.mockImplementation(
-      async (_owner: string, path: string) =>
-        path.endsWith("daily.md")
-          ? {
-              id: "job-1",
-              owner: "alice@example.com",
-              path,
-              content: jobContent,
-            }
-          : {
-              id: "automation-1",
-              owner: "alice@example.com",
-              path,
-              content: automationContent,
-            },
-    );
-
-    const jobs = await listRecurringJobs.run({ scope: "personal" }, ctx);
-
-    expect(resourceListMock).toHaveBeenCalledWith("alice@example.com", "jobs/");
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]).toMatchObject({
-      id: "job-1",
-      name: "daily",
-      scheduleDescription: "Every day at 9 AM (UTC)",
-      instructions: "Summarize my inbox.",
-      scope: "personal",
+    mocks.resolveAutomationAccess.mockResolvedValue(access("owner"));
+    mocks.resourceGetByPath.mockResolvedValue(resource);
+    mocks.resourcePut.mockResolvedValue(undefined);
+    mocks.resourceDelete.mockResolvedValue(true);
+    mocks.listAutomationRuns.mockResolvedValue([{ id: "run-1" }]);
+    mocks.queueAutomationRunNow.mockResolvedValue({
+      queued: true,
+      runId: "run-1",
+      automationRunId: "run-1",
     });
   });
 
-  it("uses the active organization owner and returns an empty result without an org", async () => {
+  it("lists legacy jobs with stable ids and centralized capabilities", async () => {
+    const result = await listRecurringJobs.run({}, ctx);
+    expect(result).toEqual([
+      expect.objectContaining({
+        resourceId: "job-1",
+        classification: "recurring-job",
+        effectiveRole: "collaborate",
+        capabilities: expect.objectContaining({
+          canEdit: true,
+          canDelete: false,
+        }),
+      }),
+    ]);
+  });
+
+  it("enforces View, Collaborate, and Owner mutation rules", async () => {
+    mocks.resolveAutomationAccess.mockResolvedValueOnce(access("view"));
     await expect(
-      listRecurringJobs.run(
-        { scope: "organization" },
-        { ...ctx, orgId: "org-1" },
+      manageRecurringJob.run(
+        { operation: "update", resourceId: "job-1", enabled: false },
+        ctx,
       ),
-    ).resolves.toEqual([]);
-    expect(resourceListMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "jobs/",
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    mocks.resolveAutomationAccess.mockResolvedValueOnce(access("collaborate"));
+    await manageRecurringJob.run(
+      { operation: "update", resourceId: "job-1", enabled: false },
+      ctx,
+    );
+    expect(mocks.resourcePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "jobs/daily.md",
+      expect.stringContaining("enabled: false"),
     );
 
-    resourceListMock.mockClear();
+    mocks.resolveAutomationAccess.mockResolvedValueOnce(access("collaborate"));
     await expect(
-      listRecurringJobs.run({ scope: "organization" }, ctx),
-    ).resolves.toEqual([]);
-    expect(resourceListMock).not.toHaveBeenCalled();
+      manageRecurringJob.run({ operation: "delete", resourceId: "job-1" }, ctx),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    mocks.resolveAutomationAccess.mockResolvedValueOnce(access("owner"));
+    await manageRecurringJob.run(
+      { operation: "delete", resourceId: "job-1" },
+      ctx,
+    );
+    expect(mocks.resourceDelete).toHaveBeenCalledWith("job-1");
   });
 
-  it("does not expose a stale next run for a disabled recurring job", async () => {
-    resourceListMock.mockResolvedValue([{ path: "jobs/paused.md" }]);
-    resourceGetByPathMock.mockResolvedValue({
-      id: "job-paused",
-      owner: "alice@example.com",
-      path: "jobs/paused.md",
-      content: jobContent.replace("enabled: true", "enabled: false"),
-    });
-
-    const jobs = await listRecurringJobs.run({ scope: "personal" }, ctx);
-
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.enabled).toBe(false);
-    expect(jobs[0]?.nextRun).toBeNull();
-  });
-
-  it("optimistically supported management writes preserve the scoped owner", async () => {
-    resourceGetByPathMock.mockResolvedValue({
-      id: "job-1",
-      owner: "__organization__:org-1",
-      path: "jobs/daily.md",
-      content: jobContent,
-    });
-
+  it("preserves name and scope compatibility", async () => {
     await manageRecurringJob.run(
       {
         operation: "update",
         name: "daily",
-        scope: "organization",
+        scope: "personal",
         enabled: false,
       },
-      { ...ctx, orgId: "org-1" },
+      ctx,
     );
-
-    expect(resourceGetByPathMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
+    expect(mocks.resourceGetByPath).toHaveBeenCalledWith(
+      "alice@example.com",
       "jobs/daily.md",
     );
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "jobs/daily.md",
-      expect.stringContaining("enabled: false"),
+    expect(mocks.resolveAutomationAccess).toHaveBeenCalledWith(
+      { userEmail: "alice@example.com" },
+      "job-1",
     );
   });
 
-  it("rejects an unauthorized mutation before writing", async () => {
-    authorizeJobMutationMock.mockResolvedValue(
-      "Only the job's creator (or an org admin) can update or delete it.",
-    );
-    resourceGetByPathMock.mockResolvedValue({
-      id: "job-1",
-      owner: "__organization__:org-1",
-      path: "jobs/daily.md",
-      content: jobContent,
+  it("allows View to read history but not run now", async () => {
+    mocks.resolveAutomationAccess.mockResolvedValueOnce(access("view"));
+    await expect(
+      listAutomationRuns.run({ resourceId: "job-1" }, ctx),
+    ).resolves.toEqual([{ id: "run-1" }]);
+    expect(mocks.listAutomationRuns).toHaveBeenCalledWith({
+      owners: ["owner@example.com"],
+      automation: "daily",
+      limit: undefined,
     });
 
+    mocks.queueAutomationRunNow.mockRejectedValueOnce(
+      Object.assign(new Error("Collaborate access is required"), {
+        statusCode: 403,
+      }),
+    );
     await expect(
-      manageRecurringJob.run(
-        {
-          operation: "update",
-          name: "daily",
-          scope: "organization",
-          enabled: false,
-        },
-        { ...ctx, orgId: "org-1" },
-      ),
-    ).rejects.toThrow("Only the job's creator");
-    expect(resourcePutMock).not.toHaveBeenCalled();
+      runAutomationNow.run({ resourceId: "job-1" }, ctx),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("keeps all recurring-job actions frontend-only", () => {
+    expect(listRecurringJobs.agentTool).toBe(false);
+    expect(manageRecurringJob.agentTool).toBe(false);
+    expect(listAutomationRuns.agentTool).toBe(false);
+    expect(runAutomationNow.agentTool).toBe(false);
   });
 });

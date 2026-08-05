@@ -99,7 +99,9 @@ export interface DefineAutomationInput {
   acknowledgeExternalCollaborators?: boolean;
 }
 
-export type DefinedAutomation = Omit<AutomationDefinition, "resource">;
+export type DefinedAutomation = Omit<AutomationDefinition, "resource"> & {
+  resourceId: string;
+};
 
 export interface UpdateAutomationInput {
   resourceId?: string;
@@ -464,6 +466,13 @@ export async function listAccessibleAutomationDefinitions(
   const definitions = await listAccessibleAutomations(actor);
   return definitions.map((definition) => ({
     ...definition,
+    meta: {
+      ...definition.meta,
+      triggerType:
+        definition.classification.kind === "automation"
+          ? definition.classification.triggerType
+          : "schedule",
+    },
     scope: definition.owningOrganizationId ? "organization" : "personal",
     canUpdate: definition.capabilities.canEdit,
   }));
@@ -655,6 +664,7 @@ export async function defineAutomation(
   );
   write.notifyAfterCommit();
   return {
+    resourceId: write.value.id,
     name: automationName(path),
     scope: input.scope,
     meta: { ...meta, triggerType: input.triggerType, mode: "agentic" },

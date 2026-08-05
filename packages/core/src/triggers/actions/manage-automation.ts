@@ -11,6 +11,25 @@ import { refreshEventSubscriptions } from "../dispatcher.js";
 const scopeSchema = z.enum(["personal", "organization"]);
 const triggerTypeSchema = z.enum(["schedule", "event", "manual"]);
 const mcpToolsSchema = z.array(z.string().min(1));
+const sharingSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("personal") }),
+  z.object({
+    kind: z.literal("organization"),
+    organizationId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal("specific"),
+    organizationId: z.string().min(1).nullable().optional(),
+    grants: z
+      .array(
+        z.object({
+          email: z.string().email(),
+          role: z.enum(["view", "collaborate"]),
+        }),
+      )
+      .min(1),
+  }),
+]);
 
 const automationFieldsSchema = {
   enabled: z.boolean().optional(),
@@ -22,6 +41,8 @@ const automationFieldsSchema = {
   body: z.string().min(1).optional(),
   model: z.string().nullable().optional(),
   mcpTools: mcpToolsSchema.optional(),
+  sharing: sharingSchema.optional(),
+  acknowledgeExternalCollaborators: z.boolean().optional(),
 };
 
 const schema = z.discriminatedUnion("operation", [
@@ -38,23 +59,31 @@ const schema = z.discriminatedUnion("operation", [
     condition: z.string().nullable().optional(),
     model: z.string().nullable().optional(),
     mcpTools: mcpToolsSchema.optional(),
+    sharing: sharingSchema.optional(),
+    acknowledgeExternalCollaborators: z.boolean().optional(),
   }),
   z.object({
     operation: z.literal("update"),
-    name: z.string().min(1),
-    scope: scopeSchema.default("personal"),
+    resourceId: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+    scope: scopeSchema.optional(),
     ...automationFieldsSchema,
   }),
-  z.object({
-    operation: z.literal("delete"),
-    name: z.string().min(1),
-    scope: scopeSchema.default("personal"),
-  }),
+  z
+    .object({
+      operation: z.literal("delete"),
+      resourceId: z.string().min(1).optional(),
+      name: z.string().min(1).optional(),
+      scope: scopeSchema.optional(),
+    })
+    .refine((input) => input.resourceId || (input.name && input.scope), {
+      message: "resourceId or name and scope is required.",
+    }),
 ]);
 
 export default defineAction({
   description:
-    "Create, update, or delete a personal or organization automation from the Agent Automations page.",
+    "Create, update, or delete an automation from the Agent Automations page. Existing resources are addressed by stable resourceId; name and scope remain compatibility inputs.",
   agentTool: false,
   schema,
   run: async (input, ctx) => {
@@ -63,9 +92,18 @@ export default defineAction({
     const actor = { userEmail, orgId: ctx?.orgId };
 
     if (input.operation === "delete") {
-      await deleteAutomation(actor, input.scope, input.name);
+      await deleteAutomation(
+        actor,
+        input.resourceId
+          ? { resourceId: input.resourceId }
+          : { scope: input.scope!, name: input.name! },
+      );
       await refreshEventSubscriptions();
-      return { deleted: true, name: input.name };
+      return {
+        deleted: true,
+        resourceId: input.resourceId ?? null,
+        name: input.name ?? null,
+      };
     }
 
     if (input.operation === "create") {
@@ -81,10 +119,14 @@ export default defineAction({
         condition: input.condition ?? undefined,
         model: input.model ?? undefined,
         mcpTools: input.mcpTools,
+        sharing: input.sharing,
+        acknowledgeExternalCollaborators:
+          input.acknowledgeExternalCollaborators,
       });
       await refreshEventSubscriptions();
       return {
         created: true,
+        resourceId: definition.resourceId,
         name: definition.name,
         scope: definition.scope,
         triggerType: definition.meta.triggerType,
@@ -109,7 +151,14 @@ export default defineAction({
         statusCode: 400,
       });
     }
+    if (!input.resourceId && (!input.name || !input.scope)) {
+      throw Object.assign(
+        new Error("resourceId or name and scope is required."),
+        { statusCode: 400 },
+      );
+    }
     const definition = await updateAutomation(actor, {
+      resourceId: input.resourceId,
       name: input.name,
       scope: input.scope,
       triggerType: input.triggerType,
@@ -121,10 +170,13 @@ export default defineAction({
       body: input.body,
       model: input.model,
       mcpTools: input.mcpTools,
+      sharing: input.sharing,
+      acknowledgeExternalCollaborators: input.acknowledgeExternalCollaborators,
     });
     await refreshEventSubscriptions();
     return {
       updated: true,
+      resourceId: definition.resource.id,
       name: definition.name,
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
