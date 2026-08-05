@@ -116,6 +116,11 @@ export interface ResourceWriteOptions extends StoreWriteOptions {
   metadata?: string | Record<string, unknown> | null;
 }
 
+export interface TransactionScopedResourceWrite<T> {
+  value: T;
+  notifyAfterCommit: () => void;
+}
+
 export interface ResourceConditionalWrite {
   owner: string;
   path: string;
@@ -1223,40 +1228,27 @@ export async function resourceGetByPath(
   return rowToResource(rows[0]);
 }
 
-export async function resourcePut(
+export async function ensureResourceStoreReady(): Promise<void> {
+  await ensureTable();
+}
+
+/**
+ * Write through an existing SQL transaction. The caller must initialize the
+ * resource store before opening the transaction and invoke notifyAfterCommit
+ * only after that transaction commits.
+ */
+export async function resourcePutWithDb(
+  client: DbExec,
   owner: string,
   path: string,
   content: string,
   mimeType?: string,
   options?: ResourceWriteOptions,
-): Promise<Resource> {
-  await ensureTable();
-  if (
-    owner === WORKSPACE_OWNER &&
-    (await shouldHandleWorkspaceResourceAsLocal(path))
-  ) {
-    const written = await writeLocalWorkspaceResource({ path, content });
-    const resource = localWorkspaceResourceToResource({
-      ...written,
-      content,
-    });
-    emitResourceChange(
-      resource.id,
-      resource.path,
-      resource.owner,
-      options?.requestSource,
-    );
-    return resource;
-  }
-  if (owner === WORKSPACE_OWNER) {
-    await assertWritableWorkspaceResourcePath(path);
-  }
-  const client = getDbExec();
+): Promise<TransactionScopedResourceWrite<Resource>> {
   const now = Date.now();
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
 
-  // Check for existing resource to preserve ID on upsert
   const { rows: existing } = await client.execute({
     sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
@@ -1274,8 +1266,7 @@ export async function resourcePut(
       }
     | undefined;
 
-  const id =
-    existing.length > 0 ? (existingRow?.id as string) : crypto.randomUUID();
+  const id = existingRow?.id ?? crypto.randomUUID();
   const createdAt = existingRow ? Number(existingRow.created_at) : now;
   const createdBy = normalizeCreatedBy(
     hasOption(options, "createdBy")
@@ -1330,9 +1321,7 @@ export async function resourcePut(
     ],
   });
 
-  emitResourceChange(id, path, owner, options?.requestSource);
-
-  return {
+  const resource: Resource = {
     id,
     path,
     owner,
@@ -1348,6 +1337,51 @@ export async function resourcePut(
     expiresAt,
     metadata,
   };
+  return {
+    value: resource,
+    notifyAfterCommit: () =>
+      emitResourceChange(id, path, owner, options?.requestSource),
+  };
+}
+
+export async function resourcePut(
+  owner: string,
+  path: string,
+  content: string,
+  mimeType?: string,
+  options?: ResourceWriteOptions,
+): Promise<Resource> {
+  await ensureTable();
+  if (
+    owner === WORKSPACE_OWNER &&
+    (await shouldHandleWorkspaceResourceAsLocal(path))
+  ) {
+    const written = await writeLocalWorkspaceResource({ path, content });
+    const resource = localWorkspaceResourceToResource({
+      ...written,
+      content,
+    });
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      options?.requestSource,
+    );
+    return resource;
+  }
+  if (owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(path);
+  }
+  const write = await resourcePutWithDb(
+    getDbExec(),
+    owner,
+    path,
+    content,
+    mimeType,
+    options,
+  );
+  write.notifyAfterCommit();
+  return write.value;
 }
 
 /**
@@ -1403,6 +1437,42 @@ export async function resourcePutIfCurrent(
   return resource;
 }
 
+/**
+ * Delete through an existing SQL transaction. The caller must invoke
+ * notifyAfterCommit only after that transaction commits.
+ */
+export async function resourceDeleteWithDb(
+  client: DbExec,
+  id: string,
+): Promise<TransactionScopedResourceWrite<boolean>> {
+  if (isLocalWorkspaceResourceId(id)) {
+    throw new Error(
+      "Transaction-scoped deletes do not support workspace files.",
+    );
+  }
+  const { rows } = await client.execute({
+    sql: `SELECT path, owner FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  if (rows.length === 0) {
+    return { value: false, notifyAfterCommit: () => {} };
+  }
+
+  const result = await client.execute({
+    sql: `DELETE FROM resources WHERE id = ?`,
+    args: [id],
+  });
+  const deleted = result.rowsAffected > 0;
+  const path = String(rows[0].path);
+  const owner = String(rows[0].owner);
+  return {
+    value: deleted,
+    notifyAfterCommit: () => {
+      if (deleted) emitResourceDelete(id, path, owner);
+    },
+  };
+}
+
 export async function resourceDelete(id: string): Promise<boolean> {
   await ensureTable();
   if (isLocalWorkspaceResourceId(id)) {
@@ -1414,24 +1484,10 @@ export async function resourceDelete(id: string): Promise<boolean> {
     }
     return deleted;
   }
-  const client = getDbExec();
 
-  // Get resource info for emitter before deleting
-  const { rows } = await client.execute({
-    sql: `SELECT path, owner FROM resources WHERE id = ?`,
-    args: [id],
-  });
-  if (rows.length === 0) return false;
-
-  const result = await client.execute({
-    sql: `DELETE FROM resources WHERE id = ?`,
-    args: [id],
-  });
-  const deleted = result.rowsAffected > 0;
-  if (deleted) {
-    emitResourceDelete(id, rows[0].path as string, rows[0].owner as string);
-  }
-  return deleted;
+  const write = await resourceDeleteWithDb(getDbExec(), id);
+  write.notifyAfterCommit();
+  return write.value;
 }
 
 export async function resourceDeleteByPath(
