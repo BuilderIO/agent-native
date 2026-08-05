@@ -1131,7 +1131,7 @@ const enUS = {
       s004: "Refine",
       s005: "All Apps",
       s006: "Slide presentations for humans and agents",
-      s007: "Generate a full deck from a prompt, then refine conversationally or edit visually.",
+      s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
       s008: "Try It",
       s009: "How it works",
       s010: "Everything you need",

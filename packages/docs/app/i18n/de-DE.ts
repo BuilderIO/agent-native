@@ -1137,7 +1137,7 @@ const deDE = {
       s003: "Generieren",
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
-      s006: "Die Open-Source-Alternative zu PowerPoint und Canva",
+      s006: "Folienpräsentationen für Menschen und Agenten",
       s007: "Erstellen Sie anhand einer Eingabeaufforderung ein vollständiges Deck und verfeinern Sie es dann im Gespräch oder bearbeiten Sie es visuell.",
       s008: "Ausprobieren",
       s009: "Wie es funktioniert",

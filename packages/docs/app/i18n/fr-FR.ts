@@ -1136,7 +1136,7 @@ const frFR = {
       s003: "Générer",
       s004: "Affiner",
       s005: "Tous les modèles",
-      s006: "L'alternative open source AI à PowerPoint et Canva",
+      s006: "Des présentations pour les humains et les agents",
       s007: "Générez un deck complet à partir d'une invite, puis affinez-le de manière conversationnelle ou modifiez-le visuellement.",
       s008: "Essayer",
       s009: "Comment ça marche",

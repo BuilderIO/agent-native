@@ -1133,7 +1133,7 @@ const ptBR = {
       s003: "Gerar",
       s004: "Refinar",
       s005: "Todos os modelos",
-      s006: "A alternativa AI de código aberto ao PowerPoint e Canva",
+      s006: "Apresentações de slides para pessoas e agentes",
       s007: "Gere uma apresentação completa a partir de um prompt e, em seguida, refine a conversação ou edite visualmente.",
       s008: "Experimentar",
       s009: "Como funciona",

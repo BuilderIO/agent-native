@@ -1136,7 +1136,7 @@ const esES = {
       s003: "generar",
       s004: "Refinar",
       s005: "Todas las plantillas",
-      s006: "La alternativa AI de código abierto a PowerPoint y Canva",
+      s006: "Presentaciones de diapositivas para personas y agentes",
       s007: "Genere una plataforma completa a partir de un mensaje y luego refine de forma conversacional o edítela visualmente.",
       s008: "Probar",
       s009: "como funciona",
