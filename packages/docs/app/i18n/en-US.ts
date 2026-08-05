@@ -1130,7 +1130,7 @@ const enUS = {
       s003: "Generate",
       s004: "Refine",
       s005: "All Apps",
-      s006: "Open-Source Google Slides",
+      s006: "Slide presentations for humans and agents",
       s007: "Generate a full deck from a prompt, then refine conversationally or edit visually.",
       s008: "Try It",
       s009: "How it works",
