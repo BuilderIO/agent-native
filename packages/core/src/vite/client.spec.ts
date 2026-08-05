@@ -901,6 +901,14 @@ describe("agentNative Vite plugin preset", () => {
     expect(config.optimizeDeps.include).toContain("date-fns");
     expect(config.optimizeDeps.exclude).toContain("lodash");
     expect(config.resolve.dedupe).toContain("zustand");
+    expect(config.resolve.dedupe).toEqual(
+      expect.arrayContaining([
+        "@assistant-ui/react",
+        "@assistant-ui/core",
+        "@assistant-ui/store",
+        "@assistant-ui/tap",
+      ]),
+    );
     expect(config.resolve.alias).toContainEqual({
       find: "~",
       replacement: "/tmp/app",
