@@ -99,6 +99,18 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
   null,
 );
 
+/** Pending human-in-the-loop gate still waiting for Approve/Deny. */
+export function toolCallHasPendingApproval(part: {
+  approval?: { approvalKey?: string; dismissed?: boolean } | null;
+}): boolean {
+  const approval = part.approval;
+  return (
+    typeof approval?.approvalKey === "string" &&
+    approval.approvalKey.length > 0 &&
+    approval.dismissed !== true
+  );
+}
+
 export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
 
 export function ToolActivityPresentation({
@@ -1354,11 +1366,7 @@ function isReconnectSummarizablePart(part: ContentPart): boolean {
       part.toolName !== "connect-builder" &&
       part.chatUI === undefined &&
       part.mcpApp === undefined &&
-      !(
-        typeof part.approval?.approvalKey === "string" &&
-        part.approval.approvalKey.length > 0 &&
-        part.approval.dismissed !== true
-      ))
+      !toolCallHasPendingApproval(part))
   );
 }
 

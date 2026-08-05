@@ -92,7 +92,10 @@ import {
   RanToolsSummary,
   ReasoningCell,
   WorkedForSummary,
+  toolCallHasPendingApproval,
 } from "./tool-call-display.js";
+
+export { toolCallHasPendingApproval };
 
 // ─── Pending selection context key ───────────────────────────────────────────
 // Mirrored from AssistantChat to avoid a cross-import on a private constant.
@@ -936,18 +939,6 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
     const record = part as { type?: unknown; result?: unknown };
     return record.type === "tool-call" && record.result === undefined;
   });
-}
-
-/** Pending human-in-the-loop gate still waiting for Approve/Deny. */
-export function toolCallHasPendingApproval(part: {
-  approval?: { approvalKey?: string; dismissed?: boolean } | null;
-}): boolean {
-  const approval = part.approval;
-  return (
-    typeof approval?.approvalKey === "string" &&
-    approval.approvalKey.length > 0 &&
-    approval.dismissed !== true
-  );
 }
 
 export function assistantMessageHasCompletedCustomUi(
