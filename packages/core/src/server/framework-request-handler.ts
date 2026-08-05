@@ -337,6 +337,14 @@ async function awaitFrameworkRoutesReadyForRequest(
   reqPath: string,
 ): Promise<boolean> {
   if (!nitroApp) return true;
+  // This route is mounted synchronously by core-routes before bootstrap. It
+  // must not wait on optional plugins or a database just because the browser
+  // asks for the SSR shell's empty speculation rules during a cold start.
+  if (
+    resolveMountMatch(reqPath, `${FRAMEWORK_PREFIX}/speculation-rules.json`)
+  ) {
+    return true;
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([

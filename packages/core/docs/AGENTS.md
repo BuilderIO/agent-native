@@ -21,6 +21,9 @@ version installed in the app.
 From a generated app root:
 
 ```bash
+pnpm action framework-search --pattern "defineAction"
+pnpm action framework-search --pattern "templates/*/actions/*.ts" --mode glob --scope source
+pnpm action framework-search --pattern "Agent(?:Panel|Sidebar)" --mode regex --scope source
 pnpm action docs-search --list
 pnpm action docs-search --query "actions"
 pnpm action docs-search --slug actions
@@ -30,8 +33,10 @@ pnpm action source-search --path templates/plan/AGENTS.md
 pnpm action source-search --path templates/chat/actions/hello.ts
 ```
 
-The built-in app agent also has read-only `docs-search` and `source-search`
-tools with the same options.
+The built-in app agent also has a read-only `framework-search` tool for one
+bounded search across docs and readable Core, Toolkit, and first-party
+template source. Use `docs-search` and `source-search` for focused reads after
+it identifies the relevant page or file.
 
 If the action runner is unavailable, search the package files directly:
 

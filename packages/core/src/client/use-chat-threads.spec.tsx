@@ -65,6 +65,7 @@ describe("useChatThreads", () => {
     await act(async () => {
       root.render(<Harness />);
     });
+
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -709,6 +710,11 @@ describe("useChatThreads", () => {
     await act(async () => {
       root.render(<Harness />);
     });
+
+    // Route-owned create mode must seed its local target before the list
+    // request resolves, otherwise the chat shell renders a loading skeleton.
+    expect(hook!.activeThreadId).toBe("forked-thread");
+
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();

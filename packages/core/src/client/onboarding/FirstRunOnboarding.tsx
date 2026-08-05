@@ -37,6 +37,7 @@ import {
 } from "../resources/use-mcp-servers.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
+import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
@@ -59,7 +60,14 @@ const BUILDER_MORE_SERVICES = [
   "Embeddings",
 ] as const;
 
-export function FirstRunOnboarding() {
+export interface FirstRunOnboardingProps {
+  /** Test hook; generated apps use the public Vite flag instead. */
+  skipIntegrations?: boolean;
+}
+
+export function FirstRunOnboarding({
+  skipIntegrations = shouldSkipFirstRunIntegrations(),
+}: FirstRunOnboardingProps = {}) {
   const previewMode = useOnboardingPreviewMode();
   const { firstRun, loading, error, profile, completeFirstRun } = useOnboarding(
     { preview: previewMode },
@@ -99,7 +107,7 @@ export function FirstRunOnboarding() {
       mcpServersQuery.data?.role === "admin"),
   );
 
-  const showTools = () => setScreen("tools");
+  const showTools = () => setScreen(skipIntegrations ? "ready" : "tools");
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
     trackingSource: "first_run_onboarding",
@@ -141,7 +149,7 @@ export function FirstRunOnboarding() {
 
   const handleBuilder = () => {
     if (previewMode) {
-      setScreen("tools");
+      showTools();
       return;
     }
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
@@ -367,6 +375,33 @@ export function FirstRunOnboarding() {
                 Connect Builder.io free credits
                 <IconArrowRight size={15} />
               </button>
+              {import.meta.env.DEV ? (
+                <p className="mt-3 border-t border-primary/15 pt-3 text-[11px] leading-5 text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    Local development:
+                  </span>{" "}
+                  provide one provider key for everyone using this app by adding{" "}
+                  <code className="rounded bg-primary/10 px-1">
+                    ANTHROPIC_API_KEY
+                  </code>{" "}
+                  or{" "}
+                  <code className="rounded bg-primary/10 px-1">
+                    OPENAI_API_KEY
+                  </code>{" "}
+                  to <code className="rounded bg-primary/10 px-1">.env</code>,
+                  then restart{" "}
+                  <code className="rounded bg-primary/10 px-1">pnpm dev</code>.{" "}
+                  <a
+                    href="https://agent-native.com/docs/environment-variables"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Read the full guide
+                    <IconExternalLink size={12} />
+                  </a>
+                </p>
+              ) : null}
             </section>
 
             <div
@@ -440,9 +475,9 @@ export function FirstRunOnboarding() {
               <button
                 type="button"
                 className={secondaryButtonClass}
-                onClick={() => setScreen("tools")}
+                onClick={() => setScreen(skipIntegrations ? "ready" : "tools")}
               >
-                Continue to tools
+                {skipIntegrations ? "Continue" : "Continue to tools"}
               </button>
             </div>
           </div>
@@ -613,14 +648,30 @@ export function FirstRunOnboarding() {
           Start with a chat, then connect more tools whenever you need them.
         </p>
         <div className="mt-7 grid w-full gap-2 text-left sm:grid-cols-3">
-          {[
-            ["Chat + actions", "Ask your agent to work across the app."],
-            ["Agent integrations", "Connect tools from Settings anytime."],
-            [
-              "Flexible providers",
-              "Use Builder.io free credits or your own keys.",
-            ],
-          ].map(([title, description]) => (
+          {(skipIntegrations
+            ? [
+                [
+                  "Workflow actions",
+                  "Use the app's buttons and sidebar to run the workflow.",
+                ],
+                [
+                  "AI sidebar",
+                  "Ask the agent to review or refine a step in context.",
+                ],
+                [
+                  "Flexible providers",
+                  "Use Builder.io free credits or your own keys.",
+                ],
+              ]
+            : [
+                ["Chat + actions", "Ask your agent to work across the app."],
+                ["Agent integrations", "Connect tools from Settings anytime."],
+                [
+                  "Flexible providers",
+                  "Use Builder.io free credits or your own keys.",
+                ],
+              ]
+          ).map(([title, description]) => (
             <div
               key={title}
               className="rounded-xl bg-card px-4 py-4 ring-1 ring-border/70"

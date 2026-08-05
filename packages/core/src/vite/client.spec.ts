@@ -757,6 +757,90 @@ describe("route warmup config", () => {
   });
 });
 
+describe("agent-native app config", () => {
+  it("serializes the resolved onboarding mode into the client config", () => {
+    const config = defineConfig({
+      agentNativeConfig: {
+        version: 1,
+        onboarding: {
+          firstRun: {
+            development: "connect",
+            production: "connect-and-integrations",
+          },
+        },
+      },
+    });
+
+    expect(
+      JSON.parse(String(config.define?.__AGENT_NATIVE_APP_CONFIG__)),
+    ).toEqual({
+      version: 1,
+      onboarding: { firstRun: "connect" },
+    });
+  });
+
+  it("evaluates a typed config factory for the Vite command and mode", async () => {
+    const plugins = flatPlugins(
+      agentNative({
+        agentNativeConfig: ({ isBuild }) => ({
+          version: 1,
+          onboarding: {
+            firstRun: isBuild ? "connect-and-integrations" : "connect",
+          },
+        }),
+      }),
+    );
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const config = (await configPlugin.config(
+      {},
+      { command: "build", mode: "production" },
+    )) as any;
+
+    expect(
+      JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+    ).toEqual({
+      version: 1,
+      onboarding: { firstRun: "connect-and-integrations" },
+    });
+  });
+
+  it("loads an agent-native.config.ts from the app root", async () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-app-config-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.config.ts"),
+      `export default ({ command }) => ({
+  version: 1,
+  onboarding: {
+    firstRun: command === "serve" ? "connect" : "connect-and-integrations",
+  },
+});\n`,
+    );
+
+    try {
+      process.chdir(tmpDir);
+      const plugins = flatPlugins(agentNative());
+      const configPlugin = plugins.find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toEqual({
+        version: 1,
+        onboarding: { firstRun: "connect" },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("MCP integrations config", () => {
   it("exposes the active template to shared client capabilities", () => {
     const previous = process.env.AGENT_NATIVE_TEMPLATE;

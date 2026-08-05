@@ -1265,7 +1265,7 @@ describe("dedupeReconnectContentAgainstMessages", () => {
 });
 
 describe("missing agent engine setup", () => {
-  it("renders a stable in-composer trigger with a responsive popover", () => {
+  it("renders the sidebar setup card and keeps the page popover responsive", () => {
     const css = readFileSync("src/styles/agent-native.css", {
       encoding: "utf8",
     });
@@ -1291,6 +1291,10 @@ describe("missing agent engine setup", () => {
     expect(messageComponents).toContain("agent-selection-attached-pill");
     expect(source).toContain("missingKeySetupOpen");
     expect(source).toContain("requestMissingKeySetup");
+    expect(source).toContain("modelCatalogConfirmsMissing");
+    expect(source).toContain("<BuilderSetupCard");
+    expect(source).toContain("showInlineMissingKeySetup");
+    expect(source).toContain("Connect AI above to start chatting...");
     expect(source).toContain('className="agent-composer-missing-key-trigger"');
     expect(source).toContain('className="agent-composer-missing-key-cta"');
     expect(source).toContain("<BuilderSetupContent");
@@ -1306,6 +1310,30 @@ describe("missing agent engine setup", () => {
     );
     expect(css).toMatch(
       /\.agent-composer-missing-key-cta\s*\{[^}]*background:\s*hsl\(var\(--foreground\)\);[^}]*color:\s*hsl\(var\(--background\)\);/s,
+    );
+  });
+
+  it("keeps a no-provider prompt queued until setup is connected", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const dequeueStart = source.indexOf("// Auto-dequeue:");
+    const dequeueEnd = source.indexOf(
+      "// Clear frozen reconnect content",
+      dequeueStart,
+    );
+    const dequeueSource = source.slice(dequeueStart, dequeueEnd);
+    const submitStart = source.indexOf("const addToQueue = useCallback");
+    const submitEnd = source.indexOf("const mcpResumeTimerRef", submitStart);
+    const submitSource = source.slice(submitStart, submitEnd);
+
+    expect(dequeueSource).toContain("engineSetupRequired");
+    expect(submitSource).toContain("requestMissingKeySetup();");
+    expect(submitSource).toContain(
+      'engineSetupRequired || (isRunning && intent === "queued")',
+    );
+    expect(submitSource).not.toContain(
+      'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
     );
   });
 });

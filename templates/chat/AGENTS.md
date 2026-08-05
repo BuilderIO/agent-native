@@ -22,6 +22,9 @@ workflow needs durable UI around the conversation.
 - Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
   type for content previews. Give the AgentSidebar a subtle surface/divider
   boundary, and stack original/generated review vertically by default.
+- Before visual work, read `frontend-design` and fill in `DESIGN.md`. Choose a
+  product-fitting visual direction and palette family; do not make warm beige
+  plus terracotta the default or copy a sibling app's accent automatically.
 - Every AI-labeled button must call `sendToAgentChat()` with
   `openSidebar: true`; label deterministic local actions as local or preview.
 - Scale effort to the task. A small, well-specified change is a short read, the

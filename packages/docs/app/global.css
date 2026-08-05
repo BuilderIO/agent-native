@@ -561,6 +561,10 @@ h4 {
   transition: border-color 0.15s;
 }
 
+.docs-card:has(.docs-card-link) {
+  padding: 0;
+}
+
 .docs-card:has(.docs-card-link):hover {
   border-color: var(--docs-accent);
 }
@@ -575,15 +579,29 @@ h4 {
 
 .docs-card-link {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+  flex: 1;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 16px;
   color: var(--fg);
   text-decoration: none;
 }
 
+.docs-card-link:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -2px;
+}
+
 .docs-card-link:hover {
   color: var(--docs-accent);
+}
+
+.docs-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
 }
 
 .docs-card-arrow {

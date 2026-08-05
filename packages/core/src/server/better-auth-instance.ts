@@ -13,6 +13,7 @@ import path from "node:path";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
+import { magicLink } from "better-auth/plugins/magic-link";
 import {
   pgTable,
   text as pgText,
@@ -59,11 +60,19 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { sendEmail, isEmailConfigured } from "./email.js";
+import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+
+export {
+  getAuthLoginMode,
+  resolveAuthLoginMode,
+  resolveAuthLoginModeFromReadiness,
+  type AuthLoginMode,
+} from "./auth-login-mode.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -386,6 +395,28 @@ export interface BetterAuthInstance {
     signInEmail: (opts: {
       body: { email: string; password: string };
     }) => Promise<{ token?: string; user?: any } | null>;
+    signInMagicLink: (opts: {
+      body: {
+        email: string;
+        name?: string;
+        callbackURL?: string;
+        newUserCallbackURL?: string;
+        errorCallbackURL?: string;
+        metadata?: Record<string, unknown>;
+      };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    listUserAccounts: (opts: {
+      headers: Headers;
+    }) => Promise<Array<{ providerId: string }>>;
+    setPassword: (opts: {
+      body: { newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    changePassword: (opts: {
+      body: { currentPassword: string; newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
     signUpEmail: (opts: {
       body: {
         email: string;
@@ -1196,8 +1227,9 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
+  const emailReadiness = await getEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
-    resolveEmailPasswordAuthPolicy(await isEmailConfigured());
+    resolveEmailPasswordAuthPolicy(emailReadiness.status === "ready");
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -1453,6 +1485,27 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
+      magicLink({
+        expiresIn: 60 * 5,
+        storeToken: "hashed",
+        rateLimit: { window: 60, max: 5 },
+        disableSignUp,
+        sendMagicLink: async ({ email, url }) => {
+          const appBasePath = (
+            process.env.VITE_APP_BASE_PATH ||
+            process.env.APP_BASE_PATH ||
+            ""
+          ).replace(/\/$/, "");
+          const magicLinkUrl = appBasePath
+            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
+            : url;
+          const { subject, html, text, appSender } = renderMagicLinkEmail({
+            email,
+            magicLinkUrl,
+          });
+          await sendEmail({ to: email, subject, html, text, appSender });
+        },
+      }),
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {

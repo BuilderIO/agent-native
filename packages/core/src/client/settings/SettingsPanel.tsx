@@ -138,7 +138,6 @@ const ManageButton = React.forwardRef<
     {...props}
   >
     {children}
-    <IconChevronDown size={14} />
   </Button>
 ));
 ManageButton.displayName = "SettingsManageButton";

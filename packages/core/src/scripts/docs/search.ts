@@ -21,7 +21,7 @@ interface DocMeta {
   description: string;
 }
 
-interface DocFull extends DocMeta {
+export interface DocFull extends DocMeta {
   body: string;
 }
 
@@ -207,7 +207,7 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
   }
 }
 
-async function loadAllDocs(): Promise<DocFull[]> {
+export async function loadAllDocs(): Promise<DocFull[]> {
   return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs())];
 }
 

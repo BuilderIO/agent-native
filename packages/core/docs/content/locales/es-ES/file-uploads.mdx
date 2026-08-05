@@ -14,7 +14,7 @@ Las solicitudes de carga van a `POST /_agent-native/file-upload`, que las envía
 El orden de resolución del proveedor es:
 
 1. **Proveedores registrados por el usuario**: proveedores personalizados registrados a través de `registerFileUploadProvider()`
-2. **Proveedor Builder.io**: integrado, se activa automáticamente cuando se conecta Builder.io
+2. **Proveedor Builder.io** (nivel gratuito disponible): integrado, se activa automáticamente cuando se conecta Builder.io
 3. **SQL reserva**: almacena archivos como base64 en la base de datos (está bien para desarrollo, no para producción)
 
 <Diagram id="doc-block-12sluna" title={"Orden de resolución del proveedor"} summary={"uploadFile() elige el primer proveedor configurado en orden. El respaldo SQL siempre existe, por lo que las cargas funcionan sin configuración."}>
@@ -102,7 +102,7 @@ Se registra una advertencia única cuando se utiliza el respaldo.
 
 ## Alojamiento Builder.io {#builder-hosting}
 
-Cuando su aplicación está conectada a Builder.io, las cargas de archivos se enrutan automáticamente al alojamiento de activos de Builder. Los archivos se sirven desde un CDN sin necesidad de configuración. Esta es la configuración de producción recomendada.
+Cuando su aplicación está conectada a Builder.io (nivel gratuito disponible), las cargas de archivos se enrutan automáticamente al alojamiento de activos de Builder. Los archivos se sirven desde un CDN sin necesidad de configuración. Esta es la configuración de producción recomendada.
 
 ## Proveedores personalizados {#custom-providers}
 

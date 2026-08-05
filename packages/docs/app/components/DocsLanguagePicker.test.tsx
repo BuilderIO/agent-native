@@ -136,7 +136,7 @@ describe("DocsLanguagePicker", () => {
     expect(zhLink.getAttribute("href")).toBe(
       "/zh-CN/docs/internationalization?tab=api#overview",
     );
-    expect(zhLink.getAttribute("data-an-prefetch")).toBe("render");
+    expect(zhLink.getAttribute("data-an-prefetch")).toBe("viewport");
   });
 
   it("renders locale options in product order", () => {
