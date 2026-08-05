@@ -85,7 +85,37 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     id: "core-architecture",
     titleKey: "coreArchitecture",
     items: [
-      { id: "server", labelKey: "server", slug: "server" },
+      {
+        id: "server-section",
+        labelKey: "server",
+        children: [
+          {
+            id: "server-overview",
+            labelKey: "serverOverview",
+            slug: "server-overview",
+          },
+          {
+            id: "server-database",
+            labelKey: "database",
+            slug: "server-database",
+          },
+          {
+            id: "server-middleware",
+            labelKey: "serverMiddleware",
+            slug: "server-middleware",
+          },
+          {
+            id: "server-plugins",
+            labelKey: "serverPlugins",
+            slug: "server-plugins",
+          },
+          {
+            id: "server-routes",
+            labelKey: "serverRoutes",
+            slug: "server-routes",
+          },
+        ],
+      },
       { id: "client", labelKey: "client", slug: "client" },
       { id: "routing", labelKey: "routing", slug: "routing" },
       { id: "actions", labelKey: "actions", slug: "actions" },
@@ -118,6 +148,19 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "environment-variables",
       },
       { id: "progress", labelKey: "progress", slug: "progress" },
+      {
+        id: "agents-group",
+        labelKey: "agents",
+        draft: true,
+        children: [
+          {
+            id: "agents-overview",
+            labelKey: "agentsOverview",
+            slug: "agents",
+            draft: true,
+          },
+        ],
+      },
     ],
   },
   {

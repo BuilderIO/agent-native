@@ -1,0 +1,149 @@
+---
+title: "플러그인"
+description: "server/plugins/의 시작 플러그인 — 무엇인지, 모든 앱이 갖추는 두 가지 플러그인, 선택적인 데이터베이스 플러그인, 직접 작성하는 법."
+---
+
+# 플러그인
+
+플러그인은 시작 시 실행되는 훅입니다. `server/plugins/`의 각 파일은 Nitro가 서버 초기화 시, 어떤 라우트가 처리되기도 전에 한 번 호출하는 함수를 내보냅니다. 인증 구성, 에이전트 루프 마운트, 데이터베이스 마이그레이션 실행, 요청이 도착하기 전에 완료되어야 하는 그 밖의 초기화 코드 등록 등 일회성 설정을 하기에 적합한 위치입니다.
+
+Nitro는 파일 시스템에서 플러그인을 자동으로 찾아냅니다. 별도의 등록이나 가져오기가 필요하지 않습니다. 파일은 알파벳 순서로 실행되므로 실행 순서는 파일 이름 접두사로 제어합니다.
+
+모든 에이전트 기반 앱은 기본적으로 두 개의 플러그인을 갖춥니다.
+
+```text
+server/plugins/
+  auth.ts        -> 인증 제공자와 공개 경로 구성
+  agent-chat.ts  -> 액션과 시스템 프롬프트로 에이전트 루프 마운트
+```
+
+커스텀 데이터베이스 테이블이 필요한 앱은 세 번째 플러그인을 추가합니다.
+
+```text
+server/plugins/
+  db.ts          -> 시작 시 마이그레이션 실행
+```
+
+## 인증 플러그인 {#auth-plugin}
+
+`server/plugins/auth.ts`는 사용자가 로그인하는 방식을 구성합니다. `@agent-native/core/server`의 `createAuthPlugin`은 인증 제공자를 연결하고 로그인 페이지의 브랜딩을 설정합니다.
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: ["Feature one", "Feature two", "Feature three"],
+  },
+});
+```
+
+특정 라우트를 인증되지 않은 사용자에게 공개하려면 `publicPaths`를 전달하세요.
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+인증 플러그인은 가드를 구성합니다. `server/middleware/auth.ts`의 미들웨어가 모든 요청에 대해 이를 강제합니다. [미들웨어](/docs/server-middleware)를 참조하세요.
+
+## 에이전트 채팅 플러그인 {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts`는 앱의 액션, 시스템 프롬프트, 초기 도구 집합으로 에이전트 루프를 마운트합니다. 여러분의 앱을 에이전트 기반 앱으로 만들어 주는 플러그인이 바로 이것입니다.
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry`는 생성된 레지스트리를 통해 `actions/`에서 내보낸 모든 액션을 가져옵니다. `initialToolNames`는 대화가 시작될 때 에이전트가 접근할 수 있는 액션을 제어합니다. 필요하면 에이전트는 여전히 다른 액션도 호출할 수 있습니다.
+
+## 데이터베이스 플러그인 {#database-plugin}
+
+앱이 커스텀 데이터베이스 테이블을 정의한다면, 시작 시 스키마 마이그레이션을 실행하도록 `server/plugins/db.ts`를 추가하세요. 이 플러그인은 `@agent-native/core/db`의 `runMigrations`를 사용합니다.
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+각 항목에는 `version` 번호와 `sql` 문자열이 필요합니다. `table` 옵션은 마이그레이션 추적 테이블의 이름을 지정합니다. 프레임워크 마이그레이션과 충돌하지 않도록 앱 고유의 이름을 사용하세요. 전체 스키마 작성 가이드는 [데이터베이스](/docs/server-database)를 참조하세요.
+
+<Callout tone="warning">
+  마이그레이션은 반드시 추가 방식이어야 합니다. 파괴적인 SQL(`DROP TABLE`,
+  `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`)을 시작 플러그인에 절대 넣지
+  마세요.
+</Callout>
+
+## 커스텀 플러그인 작성하기 {#custom-plugins}
+
+프레임워크 도우미(`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`)는 각각 Nitro 플러그인 함수를 반환합니다. 이 도우미들의 범위를 벗어나는 작업에는 `defineNitroPlugin`을 사용해 플러그인을 작성하세요.
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // 모든 요청에 대해 실행됨
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // 서버가 종료될 때 실행됨
+  });
+});
+```
+
+플러그인은 `request`, `beforeResponse`, `close` 등 Nitro의 모든 생명주기 훅을 사용할 수 있습니다. [Nitro 플러그인 문서](https://nitro.build/guide/plugins)에서 전체 훅 API와 플러그인 계약을 자세히 다룹니다.
+
+## 시작 순서 {#startup-order}
+
+Nitro는 파일 이름의 알파벳 순서로 플러그인을 실행합니다. 하나의 플러그인 파일 안에서는 기본 내보내기가 완료될 때까지 기다린 뒤 다음 플러그인이 시작됩니다. 일반적인 순서는 다음과 같습니다.
+
+1. `db.ts` — 어떤 라우트나 플러그인이 데이터베이스를 읽기 전에 마이그레이션이 완료됩니다
+2. `auth.ts` — 요청이 도착하기 전에 인증 구성이 준비됩니다
+3. `agent-chat.ts` — 인증이 구성된 후 에이전트 라우트가 마운트됩니다
+
+커스텀 플러그인을 추가한다면, 파일 이름에 접두사를 붙여 순서 중 어디에 들어갈지 제어하세요.
+
+## 다음 단계 {#whats-next}
+
+- [**데이터베이스**](/docs/server-database): 플러그인 안에서 사용하는 스키마 도우미와 `getDb` 패턴
+- [**미들웨어**](/docs/server-middleware): 인증 플러그인이 구성한 내용을 강제하는 인증 가드
+- [**라우트**](/docs/server-routes): 플러그인이 완료된 후 제공되는 커스텀 파일 라우트
+- [**Writing Agent Instructions**](/docs/writing-agent-instructions): 에이전트 채팅 플러그인의 `systemPrompt`를 작성하는 법
+- [**Nitro 플러그인 문서**](https://nitro.build/guide/plugins): 전체 플러그인 API와 생명주기 훅

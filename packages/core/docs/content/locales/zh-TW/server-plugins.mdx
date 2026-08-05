@@ -1,0 +1,148 @@
+---
+title: "外掛"
+description: "server/plugins/ 中的啟動外掛——它們是什麼、每個應用都會附帶的兩個外掛、選用的資料庫外掛，以及如何撰寫自己的外掛。"
+---
+
+# 外掛
+
+外掛是啟動掛鉤（startup hooks）。`server/plugins/` 中的每個檔案都匯出一個函式，Nitro 會在伺服器初始化時、在任何路由被服務之前呼叫一次。它們是進行一次性設定的合適位置：設定驗證、掛載 agent 迴圈、執行資料庫遷移，或註冊任何其他需要在請求抵達前完成的初始化程式碼。
+
+Nitro 會自動從檔案系統中發現外掛。無需註冊或匯入。檔案依字母順序執行，因此執行順序由檔名前綴控制。
+
+每個 Agent-Native 應用預設都會附帶兩個外掛：
+
+```text
+server/plugins/
+  auth.ts        -> 設定驗證提供者與公開路徑
+  agent-chat.ts  -> 用您的 actions 與系統提示詞掛載 agent 迴圈
+```
+
+需要自訂資料庫資料表的應用會再加上第三個：
+
+```text
+server/plugins/
+  db.ts          -> 在啟動時執行遷移
+```
+
+## 驗證外掛 {#auth-plugin}
+
+`server/plugins/auth.ts` 設定使用者如何登入。來自 `@agent-native/core/server` 的 `createAuthPlugin` 會串接驗證提供者，並設定登入頁面的品牌樣式：
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: ["Feature one", "Feature two", "Feature three"],
+  },
+});
+```
+
+若要開放特定路由給未經驗證的使用者，請傳入 `publicPaths`：
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+驗證外掛負責設定守衛。`server/middleware/auth.ts` 中的中間件則在每個請求上強制執行它。請參閱 [中間件](/docs/server-middleware)。
+
+## Agent-Chat 外掛 {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts` 會用您應用的 actions、系統提示詞與初始工具集掛載 agent 迴圈。正是這個外掛,讓您的應用成為一個 Agent-Native 應用。
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry` 會透過產生的登記檔,選取 `actions/` 中匯出的每個 action。`initialToolNames` 控制 agent 在對話開始時可存取哪些 actions；agent 仍可視需要呼叫其他 actions。
+
+## 資料庫外掛 {#database-plugin}
+
+若您的應用定義了自訂資料庫資料表，請新增 `server/plugins/db.ts` 以在啟動時執行架構遷移。它使用 `@agent-native/core/db` 中的 `runMigrations`：
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+每個項目都需要一個 `version` 編號與一個 `sql` 字串。`table` 選項用來命名遷移追蹤資料表。請使用您應用專屬的名稱，以免與框架遷移衝突。完整的架構撰寫指南請參閱 [資料庫](/docs/server-database)。
+
+<Callout tone="warning">
+  遷移必須是附加式的。切勿在啟動外掛中放入破壞性 SQL（`DROP TABLE`、 `ALTER
+  TABLE ... DROP COLUMN`、`DELETE FROM`）。
+</Callout>
+
+## 撰寫自訂外掛 {#custom-plugins}
+
+框架幫手（`createAuthPlugin`、`createAgentChatPlugin`、`runMigrations`）各自回傳一個 Nitro 外掛函式。若需求超出這些幫手的範圍，請使用 `defineNitroPlugin` 撰寫外掛：
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // runs on every request
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // runs when the server shuts down
+  });
+});
+```
+
+外掛可以使用 Nitro 的任何生命週期掛鉤：`request`、`beforeResponse`、`close` 等等。[Nitro 外掛文件](https://nitro.build/guide/plugins) 詳細涵蓋了完整的掛鉤 API 與外掛約定。
+
+## 啟動順序 {#startup-order}
+
+Nitro 依字母順序的檔名執行外掛。在單一外掛檔案內，其預設匯出會先被等待完成，才會啟動下一個外掛。典型的順序如下：
+
+1. `db.ts` — 在任何路由或外掛讀取資料庫之前，先完成遷移
+2. `auth.ts` — 在請求抵達之前，先就位驗證設定
+3. `agent-chat.ts` — 在驗證設定完成後，才掛載 agent 路由
+
+若您新增自訂外掛，請為其檔名加上前綴，以控制它們在順序中的位置。
+
+## 下一步是什麼 {#whats-next}
+
+- [**資料庫**](/docs/server-database)：外掛內部使用的架構幫手與 `getDb` 模式
+- [**中間件**](/docs/server-middleware)：強制執行驗證外掛設定的驗證守衛
+- [**路由**](/docs/server-routes)：在外掛完成後才被服務的自訂檔案路由
+- [**Writing Agent Instructions**](/docs/writing-agent-instructions)：如何在 agent-chat 外掛中撰寫 `systemPrompt`
+- [**Nitro 外掛文件**](https://nitro.build/guide/plugins)：完整的外掛 API 與生命週期掛鉤

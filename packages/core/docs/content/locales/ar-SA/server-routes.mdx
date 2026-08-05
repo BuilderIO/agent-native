@@ -1,0 +1,194 @@
+---
+title: "المسارات"
+description: "مسارات خادم Nitro المستندة إلى الملفات، ومسار SSR الشامل، واصطلاحات التسمية، وتحديد نطاق المسارات المخصصة للمستخدم المصادق عليه."
+---
+
+# المسارات
+
+ينقسم التوجيه على مستوى الخادم في تطبيق أصلي للوكيل إلى سطحين.
+
+**مسارات إطار العمل** عند `/_agent-native/*` يديرها إطار العمل. وهي تكشف حلقة دردشة الوكيل، واستطلاع المزامنة، ونقاط نهاية actions، وقدرات أساسية أخرى. لا تُنشئ هذه المسارات أو تُعدّلها بنفسك.
+
+**مسارات الملفات المخصصة** في `server/routes/` هي حيث تُضيف نقاط النهاية الخاصة بك. يلتقطها Nitro تلقائيًا استنادًا إلى موضعها في شجرة الأدلة — دون الحاجة إلى أي تسجيل أو تكوين. يحدّد اسم الملف طريقة HTTP، ويصبح مسار الدليل مسار URL، ويُصدّر كل ملف معالجًا واحدًا.
+
+## المسارات المثبَّتة بواسطة إطار العمل {#framework-routes}
+
+يحجز إطار العمل مساحة الاسم `/_agent-native/` لنقاط نهايته الخاصة. لا تضع أبدًا مسارات مخصصة هنا. هذا الجدول تمثيلي، وليس شاملاً.
+
+| بادئة المسار                     | الغرض                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | نقاط نهاية HTTP لـ actions                                                            |
+| `/_agent-native/agent-chat`      | حلقة دردشة الوكيل                                                                     |
+| `/_agent-native/poll`            | مزامنة واجهة المستخدم المدعومة بـ SQL                                                 |
+| `/_agent-native/runs`            | بدائية التقدم (progress). يستطلع `RunsTray` هذا المسار؛ راجع [التقدم](/docs/progress) |
+| `/_agent-native/resources/*`     | موارد مساحة العمل                                                                     |
+| `/_agent-native/extensions/*`    | ملحقات وقت التشغيل ووكيل الملحقات (اسم مستعار قديم: `/_agent-native/tools/*`)         |
+| `/_agent-native/integrations/*`  | تكاملات المراسلة/الويب هوك                                                            |
+| `/_agent-native/a2a`             | JSON-RPC بين الوكلاء (agent-to-agent)                                                 |
+| `/mcp`                           | نقطة نهاية MCP                                                                        |
+| `/_agent-native/onboarding/*`    | قائمة تحقق الإعداد                                                                    |
+| `/_agent-native/observability/*` | التتبعات (traces)، والتعليقات، والتقييمات (evals)، والتجارب                           |
+| `/_agent-native/file-upload`     | نقطة نهاية موفر رفع الملفات                                                           |
+
+تذهب مسارات التطبيق المخصصة إلى `/api/*` أو مسار آخر لا يتعارض مع `/_agent-native/`.
+
+## متى تستخدم مسارًا مخصصًا {#when-custom-routes}
+
+تغطي Actions الغالبية العظمى من عمليات التطبيق. لا تلجأ إلى مسار ملف في `server/routes/` إلا عندما تحتاج إلى شيء لا يمكن لـ action التعبير عنه.
+
+<Comparison>
+
+### استخدم مسارًا مخصصًا {#use-custom-route}
+
+- رفع الملفات أو بيانات نماذج متعددة الأجزاء (multipart)
+- الاستجابات المتدفقة (streaming) أو أحداث الخادم المُرسَلة (SSE)
+- الويب هوك الواردة التي تحتاج إلى التحقق من الجسم الخام (raw body)
+- استدعاءات OAuth المرتدة (callbacks)
+- صفحات عامة غير مصادَق عليها
+- عقود REST خارجية تتطلب مسار URL أو شكل استجابة محددًا
+
+### استخدم action بدلاً من ذلك {#use-action-instead}
+
+- العمليات التي تحتاجها واجهة المستخدم والوكيل معًا
+- قراءة بيانات التطبيق أو كتابتها
+- نقاط نهاية على شكل HTTP (استخدم خيار `http` في [Actions](/docs/actions))
+- أي شيء يجب أن يكون أداة للوكيل، أو أداة MCP، أو أمر CLI
+- واجهات برمجة تطبيقات قياسية لطلبات/استجابات JSON
+
+</Comparison>
+
+### مثال: ويب هوك وارد {#example-webhook}
+
+الويب هوك حالة واضحة لاستخدام مسار مخصص. ترسل الخدمات الخارجية جسم HTTP خامًا يجب قراءته كبايتات قبل تحليله حتى تتمكن من التحقق من توقيع الطلب. تستقبل Actions JSON مُحلَّلاً مسبقًا ولا يمكنها الوصول إلى الجسم الخام، مما يجعل التحقق من التوقيع مستحيلاً داخلها.
+
+يتعامل المسار أدناه مع ويب هوك وارد عند `POST /api/webhooks/events`. فهو يقرأ الجسم الخام، ويتحقق من توقيع HMAC، ثم يعالج الحمولة (payload).
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+يُعيّن Nitro هذا الملف تلقائيًا إلى `POST /api/webhooks/events`. يجب ضبط متغير البيئة `WEBHOOK_SECRET` على سر التوقيع الذي توفره الخدمة الخارجية.
+
+## المسارات المستندة إلى الملفات {#file-based-routes}
+
+يصبح مسار الدليل مسار URL، ويحدد لاحق اسم الملف طريقة HTTP. يُعيَّن ملف عند `server/routes/api/items/[id].get.ts` إلى `GET /api/items/:id` — يأتي `items/` من الدليل، ويصبح `[id]` معلمة `:id`، ويحدد `.get` الطريقة.
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR catch-all for public pages
+```
+
+يُعد `defineEventHandler` بدائية H3 لكتابة مسار. فهو يلف دالة المعالج الخاصة بك ويمنحها وصولاً إلى كائن `event`، الذي يحمل الطلب، والاستجابة، ومعلمات الموجّه، وسلسلة الاستعلام، والترويسات، والجسم. يؤدي إرجاع قيمة من المعالج إلى إرسالها كاستجابة — يصبح الكائن العادي JSON تلقائيًا. ويؤدي رمي `createError` إلى إرسال حالة خطأ HTTP المناسبة.
+
+تُقرأ معلمات الموجّه مثل `[id]` من `event` باستخدام `getRouterParam`:
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### اصطلاحات التسمية {#naming-conventions}
+
+| مسار الملف (نسبةً إلى `server/routes/`) | طريقة HTTP | مسار URL         |
+| --------------------------------------- | ---------- | ---------------- |
+| `api/items/index.get.ts`                | GET        | `/api/items`     |
+| `api/items/index.post.ts`               | POST       | `/api/items`     |
+| `api/items/[id].get.ts`                 | GET        | `/api/items/:id` |
+| `api/items/[id].patch.ts`               | PATCH      | `/api/items/:id` |
+| `api/items/[id].delete.ts`              | DELETE     | `/api/items/:id` |
+| `api/items/[...slug].get.ts`            | GET        | `/api/items/*`   |
+
+## سياق الطلب والوصول {#request-context}
+
+تعمل Actions المثبَّتة بواسطة إطار العمل تلقائيًا مع سياق الطلب. أما المسارات المخصصة فلا. إذا كان مسار مخصص يقرأ موارد قابلة للامتلاك (ownable) أو يكتب إليها، فحمّل الجلسة والفّ العمل:
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="تحديد نطاق مسار مخصص لمستخدم الطلب"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "المسارات المخصصة لا تملك سياقًا تلقائيًا",
+      note: "على عكس actions، يجب أن يحمّل مسار الملف الجلسة بنفسه، وأن يفشل بأمان (fail closed) عند عدم وجود مستخدم مصادَق عليه.",
+    },
+    {
+      lines: "13",
+      label: "إنشاء سياق الطلب",
+      note: "يجعل `runWithRequestContext` المستخدم/المؤسسة متاحين لمساعدات تحديد النطاق طوال مدة العملية.",
+    },
+    {
+      lines: "17-20",
+      label: "تحديد نطاق القراءات القابلة للامتلاك",
+      note: "يقيّد `accessFilter` الاستعلام بالصفوف التي يجوز للمستدعي رؤيتها. لا تُشغّل أبدًا `db.select().from(ownableTable)` غير محدد النطاق هنا.",
+    },
+  ]}
+/>
+
+يُنشأ `getDb` لكل تطبيق عبر `createGetDb(schema)` في `server/db/index.ts`، لذا تستورده المسارات المخصصة من مسار القالب (`../../db/index.js`)، وليس من `@agent-native/core/db`. راجع [قاعدة البيانات](/docs/server-database#db-client).
+
+<Callout tone="warning">
+  لا تُشغّل `db.select().from(ownableTable)` غير محدد النطاق في المسارات
+  المخصصة. أنشئ دائمًا سياق الطلب باستخدام `runWithRequestContext` قبل الاستعلام
+  عن بيانات قابلة للامتلاك.
+</Callout>
+
+## مسار SSR الشامل {#ssr-catch-all}
+
+يتعامل مسار `[...page].get.ts` عند جذر `server/routes/` مع العرض من جانب الخادم (server-side rendering) للصفحات العامة. وهو يستخدم `createH3SSRHandler` لتسليم المهمة إلى إصدار البناء الخاص بـ React Router:
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+كل استجابة SSR هي قالب (shell) عام وغير شخصي يُخزَّن مؤقتًا في CDN. لا تقرأ أبدًا ملفات تعريف الارتباط، أو حالة الجلسة، أو فروع المصادقة في هذا المعالج. يحدث التخصيص من جانب العميل بعد الترطيب (hydration).
+
+## ما هي الخطوة التالية {#whats-next}
+
+- [**Actions**](/docs/actions): السطح المفضّل لعمليات التطبيق؛ لا تلجأ إلى مسار إلا عندما لا يناسب
+- [**الإضافات**](/docs/server-plugins): إضافات بدء التشغيل التي تعمل قبل خدمة المسارات
+- [**البرمجيات الوسيطة**](/docs/server-middleware): حراس المصادقة التي تحمي جميع المسارات بما في ذلك `/api/*`
+- [**الأمان**](/docs/security#access-guards): `accessFilter`/`assertAccess` والنموذج الكامل لتحديد نطاق البيانات

@@ -31,6 +31,9 @@ const SLUG_REDIRECTS: Record<string, string> = {
   "toolkit-sharing-ui": "toolkit-sharing",
   // Migration workbench folded into the code-agents-ui /migrate section.
   "migration-workbench": "code-agents-ui",
+  // server.mdx split into the Server section (server-overview, -database,
+  // -middleware, -plugins, -routes).
+  server: "server-overview",
 };
 
 export async function loader({ params }: LoaderFunctionArgs) {
