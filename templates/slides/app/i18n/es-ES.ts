@@ -689,6 +689,21 @@ const messages = {
     referenceDeckNone: "No usar ninguno",
     referenceDeckStarredGroup: "Destacados",
     referenceDeckOtherGroup: "Otros decks",
+    referenceReviewTitle: "Revisar referencias",
+    referenceReviewDescription:
+      "Mantén el sistema de diseño y el deck de referencia predeterminados salvo que los quites. Busca otro deck, importa un archivo o continúa cuando estés listo.",
+    chooseAnotherDeck: "Elegir otro deck",
+    noMatchingDecks: "No se encontraron decks coincidentes.",
+    googleSlidesReferenceTitle: "Decks de Google Slides",
+    googleSlidesReferenceConnect:
+      "Conecta Google Drive para importar un deck de Slides.",
+    googleSlidesReferenceChoose: "Elegir un deck de Google Slides",
+    googleSlidesReferencePicking: "Procesando...",
+    googleSlidesReferenceConnected:
+      "Conectado. Elige un deck de Google Slides para importarlo como referencia reutilizable.",
+    googleSlidesReferenceUnavailable:
+      "Conecta Google Drive y configura Picker para importar un deck de Google Slides.",
+    skipReferences: "Omitir referencias",
     workspaceDefaultBadge: "Predeterminado del espacio de trabajo",
     setWorkspaceDefault:
       "Establecer como predeterminado del espacio de trabajo",

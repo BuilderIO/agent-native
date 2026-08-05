@@ -129,7 +129,7 @@ export function AutomationDetailsDialog({
           {mcpTools.length > 0 ? (
             <div>
               <p className="text-xs font-medium text-foreground">
-                {t("jobs.mcpTools", { defaultValue: "Connected MCP tools" })}
+                {t("jobs.mcpTools", { defaultValue: "Connected agent tools" })}
               </p>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {mcpTools.map((toolName) => (

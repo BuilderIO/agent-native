@@ -817,7 +817,7 @@ async function gotoAndWaitForAgentPage(
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("tablist", { name: "Agent sections" })
+        .getByRole("tablist", { name: /(?:Agent|Settings) sections/ })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
@@ -840,7 +840,7 @@ async function gotoAndWaitForAgentPage(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show Agent sections tabs before timeout: ${message}\n` +
+    `${path} did not show Agent or Settings sections tabs before timeout: ${message}\n` +
       `Body preview: ${lastBody.slice(0, 400)}`,
   );
 }

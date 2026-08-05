@@ -8,7 +8,6 @@ import {
   IconDeviceDesktop,
   IconDeviceScreen,
   IconMicrophone,
-  IconPlayerRecord,
   IconVideo,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -912,9 +911,8 @@ export function PreRecordPanel({
                   needsCamera && cameraId !== "default" ? cameraId : null,
               })
             }
-            className={cn("h-12 gap-2", onCancel ? "flex-1" : "w-full")}
+            className={cn("h-12", onCancel ? "flex-1" : "w-full")}
           >
-            <IconPlayerRecord className="h-4 w-4" />
             {t("preRecord.startRecording")}
           </Button>
         </div>

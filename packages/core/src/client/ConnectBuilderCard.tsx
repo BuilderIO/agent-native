@@ -379,10 +379,7 @@ export function ConnectBuilderCard({
                     Waiting for Builder…
                   </>
                 ) : (
-                  <>
-                    Connect Builder
-                    <IconExternalLink className="h-3.5 w-3.5" />
-                  </>
+                  "Connect Builder"
                 )}
               </button>
             ) : null}

@@ -245,6 +245,9 @@ const requiredRegistryConventionSkills = [
 // Repo-maintenance workflows are useful in this repository, but generated
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
+  // Workflow packaging and hosting guidance is for coding agents working in
+  // this repo or the public skills collection, not generated app runtimes.
+  "turn-into-app",
   "babysit-pr",
   "concurrent-agents",
   "delegating-work",

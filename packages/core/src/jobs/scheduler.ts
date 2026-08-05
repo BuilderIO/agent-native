@@ -71,7 +71,8 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
   getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
 }
 
-let _isRunning = false;
+const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
+const _activeScheduledJobs = new Set<string>();
 
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
@@ -103,12 +104,12 @@ function subscribeToJobsResourceEvents(): void {
 
 /**
  * Process all due recurring jobs. Called every 60 seconds.
- * Sequential execution with 5-minute timeout per job.
+ *
+ * Scans may overlap while a long-running job is executing. Each resource is
+ * still protected by its persisted running state and a process-local key, so
+ * one job cannot run twice while leaving other due jobs waiting behind it.
  */
 export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
-  // Prevent concurrent runs
-  if (_isRunning) return;
-
   subscribeToJobsResourceEvents();
 
   // Skip if we recently confirmed there are no job resources to run.
@@ -120,7 +121,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     return;
   }
 
-  _isRunning = true;
+  const reservedJobKeys = new Set<string>();
+  const startedJobKeys = new Set<string>();
 
   try {
     const jobResources = await resourceListAllOwners("jobs/");
@@ -130,6 +132,13 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     _lastJobsCheck = nowMs;
     if (!_hasJobsCache) return;
     const now = new Date();
+
+    const dueJobs: Array<{
+      key: string;
+      resource: Resource;
+      meta: JobFrontmatter;
+      body: string;
+    }> = [];
 
     for (const resource of jobResources) {
       // Skip non-markdown or .keep files
@@ -173,8 +182,27 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       // Skip if body is empty
       if (!body.trim()) continue;
 
-      // Execute the job
-      await executeJob(resource, meta, body, deps, now);
+      const key = `${resource.owner}:${resource.path}`;
+      if (_activeScheduledJobs.has(key)) continue;
+      if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) continue;
+
+      _activeScheduledJobs.add(key);
+      reservedJobKeys.add(key);
+      dueJobs.push({ key, resource, meta, body });
+    }
+
+    const outcomes = await Promise.allSettled(
+      dueJobs.map(({ key, resource, meta, body }) => {
+        startedJobKeys.add(key);
+        return executeJob(resource, meta, body, deps, now).finally(() => {
+          _activeScheduledJobs.delete(key);
+        });
+      }),
+    );
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") {
+        console.error("[recurring-jobs] Job execution error:", outcome.reason);
+      }
     }
   } catch (err) {
     // Transient WS / connection drops (Neon serverless): silently retry next
@@ -193,7 +221,11 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
         : ((err as any)?.error ?? (err as any)?.message ?? err);
     console.error("[recurring-jobs] Error processing jobs:", detail);
   } finally {
-    _isRunning = false;
+    // A scan can fail after reserving a job but before dispatching it. Do not
+    // leave that reservation blocking the job on every subsequent tick.
+    for (const key of reservedJobKeys) {
+      if (!startedJobKeys.has(key)) _activeScheduledJobs.delete(key);
+    }
   }
 }
 

@@ -436,11 +436,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           ) : (
             <>
               <div className="px-3 py-3">
-                <Button className="w-full gap-1.5" size="sm" asChild>
-                  <NavLink to="/record">
-                    <IconPlayerRecord className="h-4 w-4" />
-                    {t("navigation.newRecording")}
-                  </NavLink>
+                <Button className="w-full" size="sm" asChild>
+                  <NavLink to="/record">{t("navigation.newRecording")}</NavLink>
                 </Button>
                 <ImportMenu
                   uploadHref="/record?autoUpload=1"
@@ -652,7 +649,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           feedback={feedbackButton}
           search={searchButton}
           collapse={collapseButton}
-          className={showCollapsedSidebar ? undefined : "px-0 py-0"}
         />
       </aside>
 

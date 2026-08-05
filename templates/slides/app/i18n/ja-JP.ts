@@ -667,6 +667,21 @@ const messages = {
     referenceDeckNone: "使用しない",
     referenceDeckStarredGroup: "スター付き",
     referenceDeckOtherGroup: "その他のデッキ",
+    referenceReviewTitle: "リファレンスを確認",
+    referenceReviewDescription:
+      "削除しない限り、デフォルトのデザインシステムとリファレンスデッキを使用します。別のデッキを検索するか、ファイルをインポートして、準備ができたら続行してください。",
+    chooseAnotherDeck: "別のデッキを選択",
+    noMatchingDecks: "一致するデッキが見つかりません。",
+    googleSlidesReferenceTitle: "Google Slides デッキ",
+    googleSlidesReferenceConnect:
+      "Slides デッキをインポートするには Google Drive に接続してください。",
+    googleSlidesReferenceChoose: "Google Slides デッキを選択",
+    googleSlidesReferencePicking: "処理中...",
+    googleSlidesReferenceConnected:
+      "接続済みです。再利用可能なリファレンスとしてインポートする Google Slides デッキを選択してください。",
+    googleSlidesReferenceUnavailable:
+      "Google Slides デッキをインポートするには、Google Drive に接続して Picker を設定してください。",
+    skipReferences: "リファレンスをスキップ",
     workspaceDefaultBadge: "ワークスペースのデフォルト",
     setWorkspaceDefault: "ワークスペースのデフォルトに設定",
     clearWorkspaceDefault: "ワークスペースのデフォルトを解除",

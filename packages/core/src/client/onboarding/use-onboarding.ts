@@ -59,8 +59,14 @@ export function useOnboarding(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [firstRun, setFirstRun] = useState(hasFirstRunCookie);
+  const [firstRun, setFirstRun] = useState(
+    () => preview || hasFirstRunCookie(),
+  );
   const mountedRef = useRef(true);
+
+  useEffect(() => {
+    setFirstRun(preview || hasFirstRunCookie());
+  }, [preview]);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -158,6 +164,15 @@ export function useOnboarding(
   }, [fetchAll]);
 
   const completeFirstRun = useCallback(async () => {
+    if (preview) {
+      setFirstRun(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:first-run-completed"),
+        );
+      }
+      return;
+    }
     const response = await fetch(
       agentNativePath("/_agent-native/onboarding/first-run/complete"),
       {
@@ -175,7 +190,7 @@ export function useOnboarding(
       window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
     }
     await fetchAll();
-  }, [fetchAll]);
+  }, [fetchAll, preview]);
 
   const totalCount = steps.length;
   const completeCount = steps.filter((s) => s.complete).length;

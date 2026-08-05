@@ -649,6 +649,20 @@ const messages = {
     referenceDeckNone: "不使用参考",
     referenceDeckStarredGroup: "已加星标",
     referenceDeckOtherGroup: "其他幻灯片",
+    referenceReviewTitle: "检查参考内容",
+    referenceReviewDescription:
+      "除非移除，否则保留默认设计系统和参考幻灯片。搜索其他幻灯片、导入文件，或准备好后继续。",
+    chooseAnotherDeck: "选择其他幻灯片",
+    noMatchingDecks: "未找到匹配的幻灯片。",
+    googleSlidesReferenceTitle: "Google Slides 幻灯片",
+    googleSlidesReferenceConnect: "连接 Google Drive 以导入 Slides 幻灯片。",
+    googleSlidesReferenceChoose: "选择 Google Slides 幻灯片",
+    googleSlidesReferencePicking: "处理中...",
+    googleSlidesReferenceConnected:
+      "已连接。选择一个 Google Slides 幻灯片并将其导入为可重复使用的参考内容。",
+    googleSlidesReferenceUnavailable:
+      "连接 Google Drive 并配置 Picker 后，才能导入 Google Slides 幻灯片。",
+    skipReferences: "跳过参考内容",
     workspaceDefaultBadge: "工作区默认",
     setWorkspaceDefault: "设为工作区默认",
     clearWorkspaceDefault: "清除工作区默认",
