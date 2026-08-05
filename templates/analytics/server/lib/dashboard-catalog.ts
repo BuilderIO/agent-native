@@ -1043,6 +1043,7 @@ export async function listDashboardCatalog(
     kind: "sql",
     archived: "all",
     hidden: "all",
+    includeCatalogMetadata: true,
   });
 
   return dashboardCatalogEntries

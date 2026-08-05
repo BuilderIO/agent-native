@@ -104,6 +104,7 @@ describe("dashboard catalog", () => {
     );
     expect(source).toContain("listDashboardSummaries");
     expect(source).not.toContain("listDashboards");
+    expect(source).toContain("includeCatalogMetadata: true");
     expect(source).toContain("row.catalogTemplateId");
     expect(source).toContain("row.demoId");
   });

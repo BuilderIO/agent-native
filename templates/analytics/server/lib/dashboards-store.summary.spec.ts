@@ -140,7 +140,10 @@ describe("listDashboardSummaries", () => {
       },
     ];
 
-    const result = await listDashboardSummaries(ctx, { kind: "sql" });
+    const result = await listDashboardSummaries(ctx, {
+      kind: "sql",
+      includeCatalogMetadata: true,
+    });
 
     expect(state.projection).not.toHaveProperty("config");
     expect(state.projection?.name).toEqual({ name: "title" });

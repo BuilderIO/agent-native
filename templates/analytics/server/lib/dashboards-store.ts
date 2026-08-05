@@ -513,11 +513,13 @@ export async function listDashboardSummaries(
     kind?: DashboardKind;
     archived?: DashboardArchiveFilter;
     hidden?: DashboardHiddenFilter;
+    includeCatalogMetadata?: boolean;
   },
 ): Promise<DashboardSummaryRecord[]> {
   const db = getDb() as any;
   const archived = filter?.archived ?? "active";
   const hidden = filter?.hidden ?? "visible";
+  const includeCatalogMetadata = filter?.includeCatalogMetadata === true;
   const conditions: any[] = [
     accessFilter(schema.dashboards, schema.dashboardShares, {
       userEmail: ctx.email,
@@ -560,9 +562,9 @@ export async function listDashboardSummaries(
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
       name: schema.dashboards.title,
-      configName,
-      catalogTemplateId,
-      demoId,
+      ...(includeCatalogMetadata
+        ? { configName, catalogTemplateId, demoId }
+        : {}),
       parentId,
       ownerEmail: schema.dashboards.ownerEmail,
       orgId: schema.dashboards.orgId,
