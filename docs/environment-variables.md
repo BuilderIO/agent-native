@@ -80,6 +80,7 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `APP_*`                                                            | Server-side app identity and public-origin configuration.                                                            |
 | `A2A_*`                                                            | A2A lifetime, auth, and processing controls.                                                                         |
 | `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                      |
+| `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                              | Tool-specific configuration and package-manager home directories.                                                    |
 
 Database-specific `<APP_NAME>_DATABASE_URL` and
 `<APP_NAME>_DATABASE_AUTH_TOKEN` overrides are supported for workspace apps.
@@ -150,6 +151,7 @@ workspace connection when available.
 | `DISPATCH_*`                               | Dispatch database, workspace smoke, owner, builder, vault, and sender-trust settings.                                                                                                    |
 | `PLAN_*`                                   | Plan local/hosted URLs, publishing, guest limits, E2E, recap, and visual-answer integration.                                                                                             |
 | `FACTORY_*`                                | Factory public URL, webhook, and Builder integration settings.                                                                                                                           |
+| `CRM_*`                                    | CRM enrichment and provider settings.                                                                                                                                                    |
 | `BUILDER_*`                                | Builder connection, project, gateway, CMS, image-generation, search, and deployment settings. Private/public keys remain deploy- or connection-scoped as described by the security docs. |
 | `EMAIL_*` / `SENDGRID_*` / `RESEND_*`      | Mail sender, inbound webhook, and provider configuration.                                                                                                                                |
 | `TURNSTILE_*` / `VITE_TURNSTILE_*`         | Server verification and public browser site key for CAPTCHA.                                                                                                                             |
@@ -198,18 +200,18 @@ authority for defaults and accepted values.
 These are useful for maintainers and automation, not required for a normal
 production deployment:
 
-| Pattern                                                                                                  | Scope                                                                                       |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `E2E_*` / `PLAYWRIGHT_*` / `*_SMOKE_*` / `SIGN_IN_MATRIX_*`                                              | Browser, end-to-end, and smoke-test configuration.                                          |
-| `HEADLESS_ONRAMP_*` / `STANDALONE_CHAT_DEV_*`                                                            | CLI and standalone-chat QA harnesses.                                                       |
-| `DEV_*` / `DEBUG_*` / `*_DEBUG` / `CHOKIDAR_*`                                                           | Local development and diagnostics.                                                          |
-| `AUTH_SKIP_EMAIL_VERIFICATION`                                                                           | Local/test auth convenience; never use to weaken production auth.                           |
-| `VITEST_*` / `VITEST`                                                                                    | Test-runner behavior and worker configuration.                                              |
-| `UPDATE_I18N_*`                                                                                          | Maintainer-only i18n baseline updates.                                                      |
-| `CODESPACES` / `GITPOD_*` / `CODEX_HOME` / `XDG_CONFIG_HOME`                                             | Tool-host or development-environment detection.                                             |
-| `DEV` / `MODE` / `SSR`                                                                                   | Vite-provided build-mode flags exposed through `import.meta.env`.                           |
-| `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*` | Explicitly opt-in local or maintainer controls. Read the owning source before setting them. |
-| `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES`                                              | Local coding-agent and test-lane tooling.                                                   |
+| Pattern                                                                                                                        | Scope                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `E2E_*` / `PLAYWRIGHT_*` / `*_SMOKE_*` / `SIGN_IN_MATRIX_*`                                                                    | Browser, end-to-end, and smoke-test configuration.                                          |
+| `HEADLESS_ONRAMP_*` / `STANDALONE_CHAT_DEV_*`                                                                                  | CLI and standalone-chat QA harnesses.                                                       |
+| `DEV_*` / `DEBUG_*` / `*_DEBUG` / `CHOKIDAR_*`                                                                                 | Local development and diagnostics.                                                          |
+| `AUTH_SKIP_EMAIL_VERIFICATION`                                                                                                 | Local/test auth convenience; never use to weaken production auth.                           |
+| `VITEST_*` / `VITEST`                                                                                                          | Test-runner behavior and worker configuration.                                              |
+| `UPDATE_I18N_*`                                                                                                                | Maintainer-only i18n baseline updates.                                                      |
+| `CODESPACES` / `GITPOD_*` / `CODEX_HOME` / `XDG_CONFIG_HOME` / `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                           | Tool-host or development-environment detection.                                             |
+| `DEV` / `MODE` / `SSR`                                                                                                         | Vite-provided build-mode flags exposed through `import.meta.env`.                           |
+| `ALLOW_DRIZZLE_PUSH_ON_NEON` / `AN_*` / `AUTO_CREATE_DEFAULT_ORG` / `DO_NOT_TRACK` / `ENABLE_*` / `PI_*`                       | Explicitly opt-in local or maintainer controls. Read the owning source before setting them. |
+| `CLAUDE_PROJECT_DIR` / `CODE_AGENTS_PROJECT_ROOT` / `LANES` / `FORCE_COLOR` / `LC_ALL` / `LC_CTYPE` / `NO_COLOR` / `PNPM_HOME` | Local coding-agent, shell, package-manager, and test-lane tooling.                          |
 
 ## CI-only variables
 

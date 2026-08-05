@@ -787,6 +787,8 @@ function AgentPanelInner({
   const showFirstRunOnboarding =
     SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
   const insideAgentSidebar = React.useContext(AgentSidebarOnboardingContext);
+  const isFirstRunOnboardingSurface =
+    showFirstRunOnboarding && !insideAgentSidebar;
   const feedbackEnabled =
     resolveFeedbackUrl(undefined, mounted ? undefined : null) !== null;
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1959,7 +1961,13 @@ function AgentPanelInner({
         "agent-panel-root flex flex-1 flex-col min-h-0 h-full text-[13px] leading-[1.2] antialiased",
         className,
       )}
-      style={{ ...AGENT_PANEL_ROOT_STYLE, ...style }}
+      style={{
+        ...AGENT_PANEL_ROOT_STYLE,
+        ...style,
+        // The chat view-transition container otherwise traps fixed onboarding
+        // chrome below the app's own header instead of the viewport edge.
+        ...(isFirstRunOnboardingSurface ? { contain: "none" } : {}),
+      }}
       data-agent-fullscreen={isFullscreen ? "true" : undefined}
     >
       {/* Tailwind group-hover/tab doesn't work in core package — inject directly.

@@ -7,6 +7,10 @@ const messages = {
   workspaceFile: {
     download: "Download",
   },
+  composer: {
+    sendMessage: "Send message",
+    queueMessage: "Queue message",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",

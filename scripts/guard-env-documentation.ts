@@ -53,16 +53,8 @@ const PUBLIC_EXACT_KEYS = new Set([
   "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
 ]);
 
-const PUBLIC_PREFIXES = [
-  "AGENT_NATIVE_",
-  "AGENT_",
-  "A2A_",
-  "MCP_",
-  "VITE_AGENT_NATIVE_",
-  "VITE_APP_",
-  "VITE_WORKSPACE_",
-  "WORKSPACE_",
-];
+const PUBLIC_RUNTIME_PATH =
+  /^(?:packages\/core\/src\/(?!templates\/)|packages\/dispatch\/src\/|packages\/frame\/src\/|packages\/mobile-app\/|packages\/desktop-app\/)/;
 
 const SOURCE_EXTENSIONS = new Set([
   ".cjs",
@@ -125,13 +117,35 @@ for (const relativePath of files) {
   if (isEnvironmentManifest(relativePath)) {
     collectMatches(
       source,
-      /\b(?:envVar|inputKey|key):\s*["']([A-Z][A-Z0-9_]*)["']/g,
+      /\b(?:envVar|inputKey|key|credentialKey|baseUrlCredentialKey|usernameKey|passwordKey|tokenKey|clientIdKey|clientSecretKey|secretKey|publicKey):\s*["']([A-Z][A-Z0-9_]*)["']/g,
       keys,
     );
-    for (const match of source.matchAll(/\benvKeys\s*:\s*\[([\s\S]*?)\]/g)) {
+    for (const match of source.matchAll(
+      /\b(?:envKeys|credentialKeys|requiredKeys|fallbackKeys|keys)\s*:\s*\[([\s\S]*?)\]/g,
+    )) {
       collectMatches(match[1], /["']([A-Z][A-Z0-9_]*)["']/g, keys);
     }
   }
+
+  collectDeclaredEnvironmentKeys(source, keys);
+
+  if (isDynamicEnvironmentManifest(relativePath)) {
+    collectMatches(source, /["']([A-Z][A-Z0-9_]*_[A-Z0-9_]+)["']/g, keys);
+  }
+
+  if (isDeployCredentialRegistry(relativePath)) {
+    for (const match of source.matchAll(
+      /APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS\s*=\s*new Set\(\[([\s\S]*?)\]\)/g,
+    )) {
+      collectMatches(match[1], /["']([A-Z][A-Z0-9_]*)["']/g, keys);
+    }
+  }
+
+  collectMatches(
+    source,
+    /\b(?:processEnv|readDeployCredentialEnv|readEnvValue|getEnvValue|envString|envValue|resolveApiKey)\(\s*["']([A-Z][A-Z0-9_]*)["']/g,
+    keys,
+  );
 
   for (const key of keys) {
     const locations = references.get(key) ?? new Set<string>();
@@ -154,15 +168,27 @@ const missingInventory = [...references.keys()]
   .map((key) => ({ docPath: INVENTORY_DOCUMENTATION_PATH, key }));
 
 const missingPublic = [...references.keys()]
-  .filter((key) => isPublicFrameworkKey(key))
+  .filter((key) => isPublicHardCodedKey(key))
   .filter((key) => !isDocumented(key, publicPatterns))
   .map((key) => ({ docPath: PUBLIC_DOCUMENTATION_PATH, key }));
+
+const publicWildcardPatterns = [...publicPatterns].filter((pattern) =>
+  pattern.includes("*"),
+);
 
 const missing = [...missingInventory, ...missingPublic].sort(
   (a, b) => a.key.localeCompare(b.key) || a.docPath.localeCompare(b.docPath),
 );
 
-if (missing.length > 0) {
+if (publicWildcardPatterns.length > 0 || missing.length > 0) {
+  if (publicWildcardPatterns.length > 0) {
+    console.error(
+      `[env-doc] Public documentation must use exact environment-variable names; wildcard pattern(s) found: ${publicWildcardPatterns.join(", ")}`,
+    );
+  }
+
+  if (missing.length === 0) process.exit(1);
+
   console.error(
     `[env-doc] ${missing.length} documentation gap(s) found in the environment-variable references:`,
   );
@@ -222,8 +248,31 @@ function isEnvironmentManifest(relativePath: string): boolean {
     /(?:^|\/)provider-env-vars\.ts$/.test(relativePath) ||
     /(?:^|\/)data-sources\.ts$/.test(relativePath) ||
     /(?:^|\/)register-framework-secrets\.ts$/.test(relativePath) ||
-    /(?:^|\/)core-routes\.ts$/.test(relativePath)
+    /(?:^|\/)core-routes\.ts$/.test(relativePath) ||
+    /(?:^|\/)onboarding\/default-steps\.ts$/.test(relativePath)
   );
+}
+
+function isDynamicEnvironmentManifest(relativePath: string): boolean {
+  return /(?:^|\/)google-oauth-credentials\.ts$/.test(relativePath);
+}
+
+function isDeployCredentialRegistry(relativePath: string): boolean {
+  return /(?:^|\/)credential-provider\.ts$/.test(relativePath);
+}
+
+function collectDeclaredEnvironmentKeys(source: string, keys: Set<string>) {
+  for (const match of source.matchAll(
+    /\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*ENV[A-Za-z0-9_$]*\s*=\s*["']([A-Z][A-Z0-9_]*_[A-Z0-9_]*)["']/g,
+  )) {
+    keys.add(match[1]);
+  }
+
+  for (const match of source.matchAll(
+    /\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*ENV[A-Za-z0-9_$]*\s*=\s*\[([\s\S]*?)\]/g,
+  )) {
+    collectMatches(match[1], /["']([A-Z][A-Z0-9_]*_[A-Z0-9_]*)["']/g, keys);
+  }
 }
 
 function collectMatches(source: string, pattern: RegExp, keys: Set<string>) {
@@ -251,10 +300,10 @@ function readDocumentedPatterns(docPath: string): Set<string> {
   return patterns;
 }
 
-function isPublicFrameworkKey(key: string): boolean {
-  return (
-    PUBLIC_EXACT_KEYS.has(key) ||
-    PUBLIC_PREFIXES.some((prefix) => key.startsWith(prefix))
+function isPublicHardCodedKey(key: string): boolean {
+  if (PUBLIC_EXACT_KEYS.has(key)) return true;
+  return [...(references.get(key) ?? [])].some((location) =>
+    PUBLIC_RUNTIME_PATH.test(location),
   );
 }
 

@@ -5922,6 +5922,7 @@ const AssistantChatInner = forwardRef<
                                         )
                                     : undefined
                                 }
+                                willQueue={engineSetupRequired || isRunning}
                                 onSlashCommand={onSlashCommand}
                                 execMode={execMode}
                                 onExecModeChange={onExecModeChange}
