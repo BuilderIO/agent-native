@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.141.2
+
+### Patch Changes
+
+- b4fc77a: Restructure agent-surfaces doc to match table order, add Native inline UI and Generated inline UI sections
+
 ## 0.141.1
 
 ### Patch Changes
