@@ -49,6 +49,7 @@ vi.mock("../db/ddl-guard.js", () => ddlMocks);
 
 const {
   __resetAutomationSharingStoreForTests,
+  deleteAutomationSharingStateWithDb,
   ensureAutomationSharingTables,
   getAutomationSharingState,
   loadAutomationSharingOverlays,
@@ -142,6 +143,19 @@ describe("automation sharing store", () => {
         )
         .get("job-1"),
     ).toEqual({ count: 0 });
+  });
+
+  it("cleans an automation's complete sharing state through the caller transaction", async () => {
+    await replaceAutomationSharingState("job-1", {
+      kind: "specific",
+      grants: [{ email: "viewer@example.com", role: "view" }],
+    });
+
+    await client.transaction((tx) =>
+      deleteAutomationSharingStateWithDb(tx, "job-1"),
+    );
+
+    expect(await getAutomationSharingState("job-1")).toBeNull();
   });
 
   it("loads resource overlays in bounded batches", async () => {

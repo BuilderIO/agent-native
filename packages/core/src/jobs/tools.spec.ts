@@ -8,12 +8,17 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
+const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
 
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 const getIntegrationRequestContextMock = vi.hoisted(() => vi.fn());
 
 const dbExecuteMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../automations/access.js", () => ({
+  resolveAutomationAccess: resolveAutomationAccessMock,
+}));
 
 vi.mock("../resources/store.js", () => ({
   resourcePut: resourcePutMock,
@@ -93,6 +98,14 @@ describe("manage-jobs tool", () => {
     getIntegrationRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
     resourceDeleteMock.mockResolvedValue(true);
+    resolveAutomationAccessMock.mockResolvedValue({
+      capabilities: {
+        canEdit: true,
+        canOperate: true,
+        canDelete: true,
+        canManageSharing: true,
+      },
+    });
   });
 
   it("allows only list in Plan mode", () => {
@@ -288,14 +301,20 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      // org_members lookup returns no membership row -> not admin.
-      dbExecuteMock.mockResolvedValue({ rows: [] });
+      resolveAutomationAccessMock.mockResolvedValue({
+        capabilities: {
+          canEdit: false,
+          canOperate: false,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", instructions: "evil" }),
       );
 
-      expect(out.error).toMatch(/Only the job's creator \(or an org admin\)/);
+      expect(out.error).toMatch(/Collaborate access is required/);
       // The mutation must never reach the store.
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
@@ -311,8 +330,14 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      // Membership row with admin role.
-      dbExecuteMock.mockResolvedValue({ rows: [{ role: "owner" }] });
+      resolveAutomationAccessMock.mockResolvedValue({
+        capabilities: {
+          canEdit: true,
+          canOperate: true,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", enabled: "false" }),
@@ -332,18 +357,17 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      dbExecuteMock.mockRejectedValue(new Error("db error"));
+      resolveAutomationAccessMock.mockResolvedValue(null);
 
       const out = JSON.parse(
         await run({ action: "update", name: "j", enabled: "false" }),
       );
-      expect(out.error).toMatch(/Only the job's creator/);
+      expect(out.error).toMatch(/Job not found/);
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
     it("allows a personal-scope job update without an admin check", async () => {
-      // resource owner is the caller, not SHARED_OWNER -> authorizeJobMutation
-      // returns null immediately and never queries org_members.
+      // Personal jobs use the same centralized role resolver.
       resourceGetByPathMock
         .mockResolvedValueOnce(null) // shared lookup misses
         .mockResolvedValueOnce({
@@ -357,7 +381,10 @@ describe("manage-jobs tool", () => {
         await run({ action: "update", name: "j", enabled: "false" }),
       );
       expect(out.updated).toBe(true);
-      expect(dbExecuteMock).not.toHaveBeenCalled();
+      expect(resolveAutomationAccessMock).toHaveBeenCalledWith(
+        { userEmail: "alice@example.com" },
+        "r2",
+      );
     });
   });
 
@@ -443,10 +470,17 @@ describe("manage-jobs tool", () => {
           orgId: "org-1",
         }),
       });
-      dbExecuteMock.mockResolvedValue({ rows: [] });
+      resolveAutomationAccessMock.mockResolvedValue({
+        capabilities: {
+          canEdit: false,
+          canOperate: false,
+          canDelete: false,
+          canManageSharing: false,
+        },
+      });
 
       const out = JSON.parse(await run({ action: "delete", name: "j" }));
-      expect(out.error).toMatch(/Only the job's creator/);
+      expect(out.error).toMatch(/Only the job owner can delete/);
       expect(resourceDeleteMock).not.toHaveBeenCalled();
     });
 

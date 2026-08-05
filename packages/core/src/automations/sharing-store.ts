@@ -385,6 +385,21 @@ export async function replaceAutomationSharingStateWithDb(
   return summary;
 }
 
+export async function deleteAutomationSharingStateWithDb(
+  client: DbExec,
+  resourceId: string,
+): Promise<void> {
+  const id = normalizedRequired(resourceId, "Automation resource id");
+  await client.execute({
+    sql: `DELETE FROM ${GRANTS_TABLE} WHERE resource_id = ?`,
+    args: [id],
+  });
+  await client.execute({
+    sql: `DELETE FROM ${OVERLAYS_TABLE} WHERE resource_id = ?`,
+    args: [id],
+  });
+}
+
 export async function replaceAutomationSharingState(
   resourceId: string,
   input: CompleteAutomationSharingState,

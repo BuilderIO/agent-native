@@ -52,7 +52,10 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const denied = await authorizeJobMutation(resource.owner, meta);
+    const denied = await authorizeJobMutation(
+      resource,
+      operation === "delete" ? "delete" : "edit",
+    );
     if (denied) throw Object.assign(new Error(denied), { statusCode: 403 });
 
     if (operation === "delete") {

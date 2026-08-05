@@ -1,19 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
-const resourceDeleteMock = vi.hoisted(() => vi.fn());
+const transactionExecuteMock = vi.hoisted(() => vi.fn());
+const transactionMock = vi.hoisted(() => vi.fn());
+const resourceDeleteWithDbMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
-const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutWithDbMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const listAccessibleAutomationsMock = vi.hoisted(() => vi.fn());
+const resolveAutomationAccessMock = vi.hoisted(() => vi.fn());
+const replaceSharingMock = vi.hoisted(() => vi.fn());
+const deleteSharingMock = vi.hoisted(() => vi.fn());
+const deleteRunsWithDbMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./access.js", () => ({
   listAccessibleAutomations: listAccessibleAutomationsMock,
+  resolveAutomationAccess: resolveAutomationAccessMock,
+}));
+
+vi.mock("./sharing-store.js", () => ({
+  deleteAutomationSharingStateWithDb: deleteSharingMock,
+  ensureAutomationSharingTables: vi.fn(),
+  normalizeAutomationSharingEmail: (email: string) =>
+    email.trim().toLowerCase(),
+  replaceAutomationSharingStateWithDb: replaceSharingMock,
 }));
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: executeMock }),
+  getDbExec: () => ({ execute: executeMock, transaction: transactionMock }),
   intType: () => "INTEGER",
   isPostgres: () => false,
 }));
@@ -33,12 +48,19 @@ vi.mock("../resources/store.js", () => ({
       ? owner.slice("__organization__:".length)
       : null,
   organizationResourceOwner: (orgId: string) => `__organization__:${orgId}`,
-  resourceDelete: resourceDeleteMock,
+  ensureResourceStoreReady: vi.fn(),
+  resourceDeleteWithDb: resourceDeleteWithDbMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
-  resourcePut: resourcePutMock,
+  resourcePutWithDb: resourcePutWithDbMock,
 }));
 
+vi.mock("../jobs/run-history.js", () => ({
+  deleteAutomationRunsWithDb: deleteRunsWithDbMock,
+  ensureAutomationRunHistoryReady: vi.fn(),
+}));
+
+import { parseJobResource } from "../jobs/frontmatter.js";
 import {
   automationMatchesEventOwner,
   defineAutomation,
@@ -71,6 +93,40 @@ function resource(content: string, owner = orgOwner) {
   };
 }
 
+function accessible(
+  automationResource: ReturnType<typeof resource>,
+  role: "owner" | "collaborate" | "view" = "owner",
+) {
+  const parsed = parseJobResource(automationResource.content);
+  const organization = automationResource.owner.startsWith("__organization__:");
+  return {
+    resource: automationResource,
+    name: automationResource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+    classification: parsed.classification,
+    meta: parsed.meta,
+    body: parsed.body,
+    immutableCreator: parsed.meta.createdBy ?? automationResource.owner,
+    owningOrganizationId: organization ? "org-1" : null,
+    effectiveRole: role,
+    capabilities: {
+      canEdit: role !== "view",
+      canOperate: role !== "view",
+      canDelete: role === "owner",
+      canManageSharing: role === "owner",
+    },
+    sharing: {
+      source: "explicit" as const,
+      visibility: "private" as const,
+      organizationId: organization ? "org-1" : null,
+      grantCount: role === "owner" ? 0 : 1,
+    },
+    creator: {
+      email: parsed.meta.createdBy ?? automationResource.owner,
+      label: parsed.meta.createdBy ?? automationResource.owner,
+    },
+  };
+}
+
 const eventAutomation = `---
 schedule: ""
 enabled: true
@@ -92,10 +148,25 @@ describe("automation domain service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
-    resourceDeleteMock.mockResolvedValue(true);
+    transactionExecuteMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    transactionMock.mockImplementation(async (work) =>
+      work({ execute: transactionExecuteMock }),
+    );
+    resourceDeleteWithDbMock.mockResolvedValue({
+      value: true,
+      notifyAfterCommit: vi.fn(),
+    });
     resourceGetByPathMock.mockResolvedValue(null);
     resourceListMock.mockResolvedValue([]);
-    resourcePutMock.mockResolvedValue(undefined);
+    resourcePutWithDbMock.mockImplementation(
+      async (_tx, owner: string, path: string, content: string) => ({
+        value: resource(content, owner),
+        notifyAfterCommit: vi.fn(),
+      }),
+    );
+    replaceSharingMock.mockResolvedValue(undefined);
+    deleteSharingMock.mockResolvedValue(undefined);
+    deleteRunsWithDbMock.mockResolvedValue(undefined);
     getUserSettingMock.mockResolvedValue(null);
     listAccessibleAutomationsMock.mockResolvedValue([]);
   });
@@ -153,7 +224,7 @@ describe("automation domain service", () => {
     resourceGetByPathMock
       .mockResolvedValueOnce(null)
       .mockImplementation(async (owner: string) =>
-        resource(resourcePutMock.mock.calls.at(-1)?.[2] as string, owner),
+        resource(resourcePutWithDbMock.mock.calls.at(-1)?.[3] as string, owner),
       );
 
     const definition = await defineAutomation(actor, {
@@ -199,7 +270,7 @@ describe("automation domain service", () => {
     expect(definition.meta).not.toHaveProperty("condition");
     expect(definition.meta).not.toHaveProperty("nextRun");
 
-    const content = resourcePutMock.mock.calls[0]?.[2] as string;
+    const content = resourcePutWithDbMock.mock.calls[0]?.[3] as string;
     expect(content).toContain("triggerType: manual");
     expect(content).not.toMatch(/^(event|condition|nextRun|timezone):/m);
   });
@@ -208,7 +279,7 @@ describe("automation domain service", () => {
     resourceGetByPathMock
       .mockResolvedValueOnce(null)
       .mockImplementation(async (owner: string, path: string) =>
-        resource(resourcePutMock.mock.calls.at(-1)?.[2] as string, owner),
+        resource(resourcePutWithDbMock.mock.calls.at(-1)?.[3] as string, owner),
       );
 
     const definition = await defineAutomation(actor, {
@@ -222,7 +293,8 @@ describe("automation domain service", () => {
       delivery: { platform: "slack", destination: "channel-1" },
     });
 
-    expect(resourcePutMock).toHaveBeenCalledWith(
+    expect(resourcePutWithDbMock).toHaveBeenCalledWith(
+      expect.objectContaining({ execute: transactionExecuteMock }),
       orgOwner,
       "jobs/notify.md",
       expect.stringMatching(
@@ -253,7 +325,158 @@ describe("automation domain service", () => {
         body: "Send the notification.",
       }),
     ).rejects.toMatchObject({ statusCode: 403 });
-    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutWithDbMock).not.toHaveBeenCalled();
+  });
+
+  it("normalizes unique existing accounts and requires acknowledgement for outside collaborators", async () => {
+    executeMock.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes('FROM "user"')) {
+        return {
+          rows: [
+            { email: "viewer@example.com" },
+            { email: "outside@example.com" },
+          ],
+        };
+      }
+      if (sql.includes("LOWER(email) IN")) {
+        return { rows: [{ email: "viewer@example.com" }] };
+      }
+      return { rows: [{ role: "member" }] };
+    });
+
+    await expect(
+      defineAutomation(actor, {
+        name: "shared-digest",
+        scope: "organization",
+        triggerType: "manual",
+        body: "Build it.",
+        sharing: {
+          kind: "specific",
+          grants: [
+            { email: " Viewer@Example.com ", role: "view" },
+            { email: "OUTSIDE@example.com", role: "collaborate" },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/Acknowledge outside-organization collaborators/);
+    expect(transactionMock).not.toHaveBeenCalled();
+
+    await defineAutomation(actor, {
+      name: "shared-digest",
+      scope: "organization",
+      triggerType: "manual",
+      body: "Build it.",
+      sharing: {
+        kind: "specific",
+        grants: [
+          { email: " Viewer@Example.com ", role: "view" },
+          { email: "OUTSIDE@example.com", role: "collaborate" },
+        ],
+      },
+      acknowledgeExternalCollaborators: true,
+    });
+    expect(replaceSharingMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "automation-1",
+      {
+        kind: "specific",
+        organizationId: "org-1",
+        grants: [
+          { email: "viewer@example.com", role: "view" },
+          { email: "outside@example.com", role: "collaborate" },
+        ],
+      },
+    );
+  });
+
+  it("rejects duplicate, nonexistent, and public sharing before writes", async () => {
+    executeMock.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes('FROM "user"')
+        ? { rows: [] }
+        : { rows: [{ role: "member" }] },
+    );
+    const base = {
+      name: "invalid-sharing",
+      scope: "organization" as const,
+      triggerType: "manual" as const,
+      body: "Build it.",
+    };
+
+    await expect(
+      defineAutomation(actor, {
+        ...base,
+        sharing: {
+          kind: "specific",
+          grants: [
+            { email: "same@example.com", role: "view" },
+            { email: " SAME@example.com ", role: "collaborate" },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/unique/);
+    await expect(
+      defineAutomation(actor, {
+        ...base,
+        sharing: {
+          kind: "specific",
+          grants: [{ email: "missing@example.com", role: "view" }],
+        },
+      }),
+    ).rejects.toThrow(/do not exist/);
+    await expect(
+      defineAutomation(actor, {
+        ...base,
+        sharing: { kind: "public" } as never,
+      }),
+    ).rejects.toThrow(/Unsupported automation sharing state/);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects Collaborate changing complete sharing state", async () => {
+    const automationResource = resource(eventAutomation);
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "collaborate"),
+    );
+
+    await expect(
+      updateAutomation(
+        { userEmail: "collaborator@example.com", orgId: "org-1" },
+        {
+          resourceId: "automation-1",
+          sharing: { kind: "personal" },
+        },
+      ),
+    ).rejects.toThrow(/Only the automation owner can change sharing/);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not notify or replace sharing when either atomic write fails", async () => {
+    resourcePutWithDbMock.mockRejectedValueOnce(new Error("definition failed"));
+    await expect(
+      defineAutomation(actor, {
+        name: "rollback-definition",
+        scope: "organization",
+        triggerType: "manual",
+        body: "Build it.",
+      }),
+    ).rejects.toThrow("definition failed");
+    expect(replaceSharingMock).not.toHaveBeenCalled();
+
+    const notifyAfterCommit = vi.fn();
+    resourcePutWithDbMock.mockResolvedValueOnce({
+      value: resource(eventAutomation),
+      notifyAfterCommit,
+    });
+    replaceSharingMock.mockRejectedValueOnce(new Error("sharing failed"));
+    await expect(
+      defineAutomation(actor, {
+        name: "rollback-sharing",
+        scope: "organization",
+        triggerType: "manual",
+        body: "Build it.",
+      }),
+    ).rejects.toThrow("sharing failed");
+    expect(notifyAfterCommit).not.toHaveBeenCalled();
   });
 
   it("lists org automations for members and computes creator/admin mutation rights", async () => {
@@ -283,15 +506,21 @@ describe("automation domain service", () => {
     expect(memberItems[0]?.canUpdate).toBe(false);
   });
 
-  it("lets an org admin update or delete without retargeting the creator", async () => {
-    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
-    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+  it("lets Collaborate edit without retargeting identity but reserves delete for Owner", async () => {
+    const automationResource = resource(eventAutomation);
+    resourceGetByPathMock.mockResolvedValue(automationResource);
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "collaborate"),
+    );
+    transactionExecuteMock.mockResolvedValue({
+      rows: [{ id: "automation-1" }],
+      rowsAffected: 1,
+    });
 
     const updated = await updateAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
+      { userEmail: "collaborator@example.com", orgId: "org-1" },
       {
-        name: "notify",
-        scope: "organization",
+        resourceId: "automation-1",
         enabled: false,
         model: "claude-opus",
         mcpTools: ["mcp__mail__read", "mcp__mail__send"],
@@ -305,35 +534,53 @@ describe("automation domain service", () => {
       model: "claude-opus",
       mcpTools: ["mcp__mail__read", "mcp__mail__send"],
     });
-    expect(resourcePutMock).toHaveBeenCalledWith(
+    expect(resourcePutWithDbMock).toHaveBeenCalledWith(
+      expect.objectContaining({ execute: transactionExecuteMock }),
       orgOwner,
       "jobs/notify.md",
       expect.stringContaining("createdBy: alice@example.com"),
     );
 
-    await deleteAutomation(
-      { userEmail: "admin@example.com", orgId: "org-1" },
-      "organization",
+    await expect(
+      deleteAutomation(
+        { userEmail: "collaborator@example.com", orgId: "org-1" },
+        { resourceId: "automation-1" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(resourceDeleteWithDbMock).not.toHaveBeenCalled();
+
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "owner"),
+    );
+    await deleteAutomation(actor, { resourceId: "automation-1" });
+    expect(resourceDeleteWithDbMock).toHaveBeenCalledWith(
+      expect.objectContaining({ execute: transactionExecuteMock }),
+      "automation-1",
+    );
+    expect(deleteSharingMock).toHaveBeenCalled();
+    expect(deleteRunsWithDbMock).toHaveBeenCalledWith(
+      expect.anything(),
+      orgOwner,
       "notify",
     );
-    expect(resourceDeleteMock).toHaveBeenCalledWith("automation-1");
   });
 
-  it("rejects an ordinary org member mutating another creator's automation", async () => {
-    executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
-    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+  it("rejects View mutating another creator's automation", async () => {
+    const automationResource = resource(eventAutomation);
+    resolveAutomationAccessMock.mockResolvedValue(
+      accessible(automationResource, "view"),
+    );
 
     await expect(
       updateAutomation(
         { userEmail: "member@example.com", orgId: "org-1" },
         {
-          name: "notify",
-          scope: "organization",
+          resourceId: "automation-1",
           enabled: false,
         },
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
-    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutWithDbMock).not.toHaveBeenCalled();
   });
 
   it("revalidates creator existence and membership for execution and scopes events to the creator", async () => {

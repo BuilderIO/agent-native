@@ -1,4 +1,4 @@
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   buildJobResourceContent,
@@ -6,21 +6,34 @@ import {
   parseJobResource,
   type JobFrontmatter,
 } from "../jobs/frontmatter.js";
-import { deleteAutomationRuns } from "../jobs/run-history.js";
+import {
+  deleteAutomationRunsWithDb,
+  ensureAutomationRunHistoryReady,
+} from "../jobs/run-history.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
-  resourceDelete,
+  ensureResourceStoreReady,
+  resourceDeleteWithDb,
   resourceGetByPath,
   resourceList,
-  resourcePut,
+  resourcePutWithDb,
   type Resource,
+  type TransactionScopedResourceWrite,
 } from "../resources/store.js";
 import {
   listAccessibleAutomations,
+  resolveAutomationAccess,
   type AccessibleAutomation,
 } from "./access.js";
+import {
+  deleteAutomationSharingStateWithDb,
+  ensureAutomationSharingTables,
+  normalizeAutomationSharingEmail,
+  replaceAutomationSharingStateWithDb,
+  type CompleteAutomationSharingState,
+} from "./sharing-store.js";
 
 export type AutomationScope = "personal" | "organization";
 
@@ -70,13 +83,16 @@ export interface DefineAutomationInput {
   model?: string;
   mcpTools?: unknown;
   delivery?: AutomationDelivery;
+  sharing?: CompleteAutomationSharingState;
+  acknowledgeExternalCollaborators?: boolean;
 }
 
 export type DefinedAutomation = Omit<AutomationDefinition, "resource">;
 
 export interface UpdateAutomationInput {
-  name: string;
-  scope: AutomationScope;
+  resourceId?: string;
+  name?: string;
+  scope?: AutomationScope;
   triggerType?: "schedule" | "event" | "manual";
   enabled?: boolean;
   body?: string;
@@ -87,6 +103,8 @@ export interface UpdateAutomationInput {
   timezone?: string;
   model?: string | null;
   mcpTools?: unknown;
+  sharing?: CompleteAutomationSharingState;
+  acknowledgeExternalCollaborators?: boolean;
 }
 
 interface OrganizationMembership {
@@ -164,28 +182,157 @@ function isOrganizationAdmin(membership: OrganizationMembership): boolean {
   return membership.role === "owner" || membership.role === "admin";
 }
 
-async function mutationAccess(
-  actorInput: AutomationActor,
-  resource: Resource,
-  meta: JobFrontmatter,
-): Promise<{ actor: AutomationActor; canUpdate: boolean }> {
-  const actor = normalizeActor(actorInput);
-  const resourceOrgId = organizationIdFromResourceOwner(resource.owner);
-  if (!resourceOrgId) {
-    return {
-      actor,
-      canUpdate: resource.owner.toLowerCase() === actor.userEmail,
-    };
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function validateSharingState(
+  actor: AutomationActor,
+  input: CompleteAutomationSharingState,
+  owningOrganizationId: string | null,
+  acknowledgeExternalCollaborators: boolean | undefined,
+): Promise<CompleteAutomationSharingState> {
+  if (input.kind === "personal") return input;
+
+  const requestedOrganizationId =
+    input.kind === "organization"
+      ? input.organizationId.trim()
+      : input.organizationId?.trim() || null;
+  if (input.kind === "organization" && !requestedOrganizationId) {
+    throw httpError(
+      "An organization is required for organization sharing.",
+      400,
+    );
   }
-  if (actor.orgId !== resourceOrgId) {
-    return { actor, canUpdate: false };
+  if (
+    owningOrganizationId &&
+    requestedOrganizationId &&
+    requestedOrganizationId !== owningOrganizationId
+  ) {
+    throw httpError(
+      "Automation sharing must use the automation's owning organization.",
+      400,
+    );
   }
-  const membership = await requireOrganizationMembership(actor);
-  const isCreator =
-    meta.createdBy?.trim().toLowerCase() === actor.userEmail.toLowerCase();
+  const organizationId = owningOrganizationId ?? requestedOrganizationId;
+  if (organizationId) {
+    if (actor.orgId !== organizationId) {
+      throw httpError(
+        "The automation's organization must be the current organization.",
+        400,
+      );
+    }
+    await requireOrganizationMembership(actor);
+  }
+
+  if (input.kind === "organization") {
+    return { kind: "organization", organizationId: organizationId! };
+  }
+  if (input.kind !== "specific") {
+    throw httpError("Unsupported automation sharing state.", 400);
+  }
+
+  if (!input.grants.length) {
+    throw httpError("Specific sharing requires at least one account.", 400);
+  }
+  const grants = input.grants.map((grant) => {
+    const email = normalizeAutomationSharingEmail(grant.email);
+    if (!EMAIL_RE.test(email)) {
+      throw httpError(`Invalid sharing account email "${email}".`, 400);
+    }
+    if (grant.role !== "view" && grant.role !== "collaborate") {
+      throw httpError("Sharing role must be view or collaborate.", 400);
+    }
+    return { email, role: grant.role };
+  });
+  if (new Set(grants.map((grant) => grant.email)).size !== grants.length) {
+    throw httpError("Sharing accounts must be unique.", 400);
+  }
+
+  const placeholders = grants.map(() => "?").join(", ");
+  const accounts = await getDbExec().execute({
+    sql: `SELECT LOWER(email) AS email FROM "user" WHERE LOWER(email) IN (${placeholders})`,
+    args: grants.map((grant) => grant.email),
+  });
+  const existing = new Set(
+    accounts.rows.map((row) =>
+      String(row.email ?? "")
+        .trim()
+        .toLowerCase(),
+    ),
+  );
+  const missing = grants
+    .map((grant) => grant.email)
+    .filter((email) => !existing.has(email));
+  if (missing.length) {
+    throw httpError(
+      `Sharing accounts do not exist: ${missing.join(", ")}.`,
+      400,
+    );
+  }
+
+  if (organizationId) {
+    const memberships = await getDbExec().execute({
+      sql: `SELECT LOWER(email) AS email FROM org_members WHERE org_id = ? AND LOWER(email) IN (${placeholders})`,
+      args: [organizationId, ...grants.map((grant) => grant.email)],
+    });
+    const memberEmails = new Set(
+      memberships.rows.map((row) =>
+        String(row.email ?? "")
+          .trim()
+          .toLowerCase(),
+      ),
+    );
+    const outsideCollaborators = grants.filter(
+      (grant) => grant.role === "collaborate" && !memberEmails.has(grant.email),
+    );
+    if (outsideCollaborators.length && !acknowledgeExternalCollaborators) {
+      throw httpError(
+        `Acknowledge outside-organization collaborators before sharing with: ${outsideCollaborators.map((grant) => grant.email).join(", ")}.`,
+        400,
+      );
+    }
+  }
+
   return {
-    actor,
-    canUpdate: isCreator || isOrganizationAdmin(membership),
+    kind: "specific",
+    organizationId,
+    grants,
+  };
+}
+
+async function runAtomicAutomationMutation<T>(
+  work: (tx: DbExec) => Promise<T>,
+): Promise<T> {
+  await Promise.all([
+    ensureResourceStoreReady(),
+    ensureAutomationSharingTables(),
+  ]);
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Atomic automation writes require transaction support.");
+  }
+  return client.transaction(work);
+}
+
+function definitionFromAccess(
+  access: AccessibleAutomation,
+): AutomationDefinition {
+  if (access.classification.kind !== "automation") {
+    throw httpError(
+      `"${access.name}" is a legacy scheduled job. Use manage-jobs for compatibility.`,
+      400,
+    );
+  }
+  return {
+    resource: access.resource,
+    name: access.name,
+    scope: access.owningOrganizationId ? "organization" : "personal",
+    meta: {
+      ...access.meta,
+      triggerType: access.classification.triggerType,
+      mode: access.meta.mode ?? "agentic",
+    },
+    body: access.body,
+    canUpdate: access.capabilities.canEdit,
   };
 }
 
@@ -199,29 +346,11 @@ export async function canUpdateAutomationResource(
   actorInput: AutomationActor,
   resource: Resource,
 ): Promise<boolean> {
-  const { meta } = parseJobResource(resource.content);
-  return (await mutationAccess(actorInput, resource, meta)).canUpdate;
-}
-
-function assertExplicitAutomation(
-  resource: Resource,
-): Omit<AutomationDefinition, "name" | "scope" | "canUpdate"> {
-  const parsed = parseJobResource(resource.content);
-  if (parsed.classification.kind !== "automation") {
-    throw httpError(
-      `"${automationName(resource.path)}" is a legacy scheduled job. Use manage-jobs for compatibility.`,
-      400,
-    );
-  }
-  return {
-    resource,
-    meta: {
-      ...parsed.meta,
-      triggerType: parsed.classification.triggerType,
-      mode: parsed.meta.mode ?? "agentic",
-    },
-    body: parsed.body,
-  };
+  const access = await resolveAutomationAccess(
+    normalizeActor(actorInput),
+    resource.id,
+  );
+  return access?.capabilities.canEdit ?? false;
 }
 
 async function readDefinition(
@@ -237,14 +366,33 @@ async function readDefinition(
   if (!resource) {
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
-  const definition = assertExplicitAutomation(resource);
-  const access = await mutationAccess(actor, resource, definition.meta);
-  return {
-    ...definition,
-    name: automationName(resource.path),
-    scope,
-    canUpdate: access.canUpdate,
-  };
+  const access = await resolveAutomationAccess(actor, resource.id);
+  if (!access) {
+    throw httpError(`Automation "${automationName(path)}" not found.`, 404);
+  }
+  return definitionFromAccess(access);
+}
+
+async function readDefinitionForUpdate(
+  actorInput: AutomationActor,
+  input: UpdateAutomationInput,
+): Promise<{ definition: AutomationDefinition; access: AccessibleAutomation }> {
+  const actor = normalizeActor(actorInput);
+  let access: AccessibleAutomation | null;
+  if (input.resourceId?.trim()) {
+    access = await resolveAutomationAccess(actor, input.resourceId.trim());
+  } else {
+    if (!input.scope || !input.name) {
+      throw httpError(
+        "Automation resource id or name and scope is required.",
+        400,
+      );
+    }
+    const definition = await readDefinition(actor, input.scope, input.name);
+    access = await resolveAutomationAccess(actor, definition.resource.id);
+  }
+  if (!access) throw httpError("Automation not found.", 404);
+  return { definition: definitionFromAccess(access), access };
 }
 
 export async function listAccessibleAutomationDefinitions(
@@ -386,8 +534,32 @@ export async function defineAutomation(
     deliveryThreadRef: input.delivery?.threadRef,
     deliveryTenantId: input.delivery?.tenantId,
   };
+  const sharing = await validateSharingState(
+    actor,
+    input.sharing ??
+      (input.scope === "organization"
+        ? { kind: "organization", organizationId: actor.orgId! }
+        : { kind: "personal" }),
+    input.scope === "organization" ? actor.orgId! : null,
+    input.acknowledgeExternalCollaborators,
+  );
   const content = buildJobResourceContent(meta, body);
-  await resourcePut(owner, path, content);
+  let write: TransactionScopedResourceWrite<Resource> | undefined;
+  await runAtomicAutomationMutation(async (tx) => {
+    const existing = await tx.execute({
+      sql: "SELECT id FROM resources WHERE owner = ? AND path = ? LIMIT 1",
+      args: [owner, path],
+    });
+    if (existing.rows.length) {
+      throw httpError(
+        `An automation named "${automationName(path)}" already exists.`,
+        409,
+      );
+    }
+    write = await resourcePutWithDb(tx, owner, path, content);
+    await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
+  });
+  write!.notifyAfterCommit();
   return {
     name: automationName(path),
     scope: input.scope,
@@ -401,14 +573,18 @@ export async function updateAutomation(
   actorInput: AutomationActor,
   input: UpdateAutomationInput,
 ): Promise<AutomationDefinition> {
-  const definition = await readDefinition(actorInput, input.scope, input.name);
-  if (!definition.canUpdate) {
+  const actor = normalizeActor(actorInput);
+  const { definition, access } = await readDefinitionForUpdate(actor, input);
+  if (!access.capabilities.canEdit) {
     throw httpError(
-      "Only the automation's creator or an organization admin can update it.",
+      "Collaborate access is required to update an automation.",
       403,
     );
   }
-  const { meta } = definition;
+  if (input.sharing && !access.capabilities.canManageSharing) {
+    throw httpError("Only the automation owner can change sharing.", 403);
+  }
+  const meta: AutomationDefinition["meta"] = { ...definition.meta };
   const triggerType = input.triggerType ?? meta.triggerType;
   const schedule = input.schedule?.trim() ?? meta.schedule;
   const event = input.event?.trim() ?? meta.event;
@@ -494,36 +670,92 @@ export async function updateAutomation(
     const mcpTools = normalizeJobMcpTools(input.mcpTools);
     meta.mcpTools = mcpTools?.length ? mcpTools : undefined;
   }
-  if (input.scope === "organization") {
-    meta.orgId = organizationIdFromResourceOwner(definition.resource.owner)!;
+  const owningOrganizationId = organizationIdFromResourceOwner(
+    definition.resource.owner,
+  );
+  meta.createdBy = definition.meta.createdBy;
+  meta.runAs = definition.meta.runAs;
+  meta.orgId = definition.meta.orgId;
+  if (owningOrganizationId) {
+    meta.orgId = owningOrganizationId;
     meta.runAs = "creator";
   }
   const body = input.body === undefined ? definition.body : input.body.trim();
   if (!body) throw httpError("Automation body is required.", 400);
-  await resourcePut(
-    definition.resource.owner,
-    definition.resource.path,
-    buildJobResourceContent(meta, body),
-  );
-  return { ...definition, meta, body };
+  const sharing = input.sharing
+    ? await validateSharingState(
+        actor,
+        input.sharing,
+        owningOrganizationId,
+        input.acknowledgeExternalCollaborators,
+      )
+    : undefined;
+  let write: TransactionScopedResourceWrite<Resource> | undefined;
+  await runAtomicAutomationMutation(async (tx) => {
+    const current = await tx.execute({
+      sql: "SELECT id FROM resources WHERE owner = ? AND path = ? LIMIT 1",
+      args: [definition.resource.owner, definition.resource.path],
+    });
+    if (String(current.rows[0]?.id ?? "") !== definition.resource.id) {
+      throw httpError("Automation not found.", 404);
+    }
+    write = await resourcePutWithDb(
+      tx,
+      definition.resource.owner,
+      definition.resource.path,
+      buildJobResourceContent(meta, body),
+    );
+    if (write.value.id !== definition.resource.id) {
+      throw new Error("Automation resource identity changed during update.");
+    }
+    if (sharing) {
+      await replaceAutomationSharingStateWithDb(tx, write.value.id, sharing);
+    }
+  });
+  write!.notifyAfterCommit();
+  return { ...definition, resource: write!.value, meta, body };
 }
+
+export type DeleteAutomationInput =
+  | { resourceId: string }
+  | { scope: AutomationScope; name: string };
 
 export async function deleteAutomation(
   actorInput: AutomationActor,
-  scope: AutomationScope,
-  name: string,
+  scopeOrInput: AutomationScope | DeleteAutomationInput,
+  compatibilityName?: string,
 ): Promise<void> {
-  const definition = await readDefinition(actorInput, scope, name);
-  if (!definition.canUpdate) {
-    throw httpError(
-      "Only the automation's creator or an organization admin can delete it.",
-      403,
-    );
+  const actor = normalizeActor(actorInput);
+  const input: DeleteAutomationInput =
+    typeof scopeOrInput === "string"
+      ? { scope: scopeOrInput, name: compatibilityName ?? "" }
+      : scopeOrInput;
+  let access: AccessibleAutomation | null;
+  if ("resourceId" in input) {
+    access = await resolveAutomationAccess(actor, input.resourceId.trim());
+  } else {
+    const definition = await readDefinition(actor, input.scope, input.name);
+    access = await resolveAutomationAccess(actor, definition.resource.id);
   }
-  await resourceDelete(definition.resource.id);
-  // Names are reusable, so leaving history behind would attach these runs to
-  // whatever automation is created under the same name next.
-  await deleteAutomationRuns(definition.resource.owner, name);
+  if (!access) throw httpError("Automation not found.", 404);
+  const definition = definitionFromAccess(access);
+  if (!access.capabilities.canDelete) {
+    throw httpError("Only the automation owner can delete it.", 403);
+  }
+
+  await ensureAutomationRunHistoryReady();
+  let write: TransactionScopedResourceWrite<boolean> | undefined;
+  await runAtomicAutomationMutation(async (tx) => {
+    write = await resourceDeleteWithDb(tx, definition.resource.id);
+    if (!write.value) throw httpError("Automation not found.", 404);
+    await deleteAutomationSharingStateWithDb(tx, definition.resource.id);
+    await deleteAutomationRunsWithDb(
+      tx,
+      definition.resource.owner,
+      definition.name,
+    );
+  });
+  write!.notifyAfterCommit();
 }
 
 export interface AutomationExecutionIdentity {

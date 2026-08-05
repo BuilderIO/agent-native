@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -301,6 +301,21 @@ export async function attachAutomationRunThread(
  * "digest" and creating a new "digest" would otherwise show the old
  * definition's runs as the new one's history.
  */
+export async function ensureAutomationRunHistoryReady(): Promise<void> {
+  await ensureTable();
+}
+
+export async function deleteAutomationRunsWithDb(
+  client: DbExec,
+  owner: string,
+  automation: string,
+): Promise<void> {
+  await client.execute({
+    sql: `DELETE FROM ${TABLE} WHERE owner = ? AND automation = ?`,
+    args: [owner, automation],
+  });
+}
+
 export async function deleteAutomationRuns(
   owner: string,
   automation: string,

@@ -96,8 +96,7 @@ export default defineAction({
       }
 
       const { meta, body } = parseJobFrontmatter(full.content);
-      const canUpdate =
-        scope === "personal" || !(await authorizeJobMutation(owner, meta));
+      const canUpdate = !(await authorizeJobMutation(full, "edit"));
       jobs.push({
         id: full.id,
         name: jobName(full.path),

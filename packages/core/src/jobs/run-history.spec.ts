@@ -13,7 +13,11 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureIndexExists: vi.fn(),
 }));
 
-import { listAutomationRuns, startAutomationRun } from "./run-history.js";
+import {
+  deleteAutomationRunsWithDb,
+  listAutomationRuns,
+  startAutomationRun,
+} from "./run-history.js";
 
 const MINUTE = 60_000;
 
@@ -84,6 +88,26 @@ describe("automation run history", () => {
     });
 
     expect(run.status).toBe("success");
+  });
+
+  it("cleans all history for a reusable owner and automation name through the caller transaction", async () => {
+    const transactionExecute = vi.fn().mockResolvedValue({
+      rows: [],
+      rowsAffected: 3,
+    });
+
+    await deleteAutomationRunsWithDb(
+      { execute: transactionExecute },
+      "alice@example.com",
+      "digest",
+    );
+
+    expect(transactionExecute).toHaveBeenCalledWith({
+      sql: expect.stringContaining(
+        "DELETE FROM automation_runs WHERE owner = ? AND automation = ?",
+      ),
+      args: ["alice@example.com", "digest"],
+    });
   });
 
   it("prunes older rows for the same automation when recording a run", async () => {

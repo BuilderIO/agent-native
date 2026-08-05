@@ -3,10 +3,8 @@ import {
   dispatchPathTargetsNetlifyBackgroundFunction,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
-import {
-  canUpdateAutomationResource,
-  type AutomationScope,
-} from "../automations/service.js";
+import { resolveAutomationAccess } from "../automations/access.js";
+import type { AutomationScope } from "../automations/service.js";
 import { isLocalDatabase } from "../db/client.js";
 import {
   organizationResourceOwner,
@@ -22,8 +20,9 @@ import {
 export interface RunAutomationNowInput {
   userEmail: string;
   orgId?: string | null;
-  scope: AutomationScope;
-  name: string;
+  resourceId?: string;
+  scope?: AutomationScope;
+  name?: string;
 }
 
 export interface QueuedAutomationRun {
@@ -53,6 +52,12 @@ async function dispatchAutomationRun(historyId: string): Promise<void> {
 
 function ownerForScope(input: RunAutomationNowInput): string {
   if (input.scope === "personal") return input.userEmail.trim().toLowerCase();
+  if (input.scope !== "organization") {
+    throw Object.assign(
+      new Error("Automation resource id or name and scope is required."),
+      { statusCode: 400 },
+    );
+  }
   if (!input.orgId) {
     throw Object.assign(
       new Error("An organization is required for organization automations."),
@@ -62,30 +67,44 @@ function ownerForScope(input: RunAutomationNowInput): string {
   return organizationResourceOwner(input.orgId);
 }
 
-export async function queueAutomationRunNow(
-  input: RunAutomationNowInput,
-): Promise<QueuedAutomationRun> {
-  const name = input.name.trim();
+async function resolveRunAutomation(input: RunAutomationNowInput) {
+  if (input.resourceId?.trim()) {
+    return resolveAutomationAccess(
+      { userEmail: input.userEmail },
+      input.resourceId.trim(),
+    );
+  }
+
+  const name = input.name?.trim() ?? "";
   if (!name || name.includes("/") || name.endsWith(".md")) {
     throw Object.assign(new Error("A valid automation name is required."), {
       statusCode: 400,
     });
   }
-  const owner = ownerForScope(input);
-  const resource = await resourceGetByPath(owner, `jobs/${name}.md`);
-  if (!resource) {
-    throw Object.assign(new Error(`Automation "${name}" not found.`), {
+  const resource = await resourceGetByPath(
+    ownerForScope(input),
+    `jobs/${name}.md`,
+  );
+  if (!resource) return null;
+  return resolveAutomationAccess({ userEmail: input.userEmail }, resource.id);
+}
+
+export async function queueAutomationRunNow(
+  input: RunAutomationNowInput,
+): Promise<QueuedAutomationRun> {
+  const access = await resolveRunAutomation(input);
+  if (!access) {
+    throw Object.assign(new Error("Automation not found."), {
       statusCode: 404,
     });
   }
-  if (!(await canUpdateAutomationResource(input, resource))) {
+  if (!access.capabilities.canOperate) {
     throw Object.assign(
-      new Error(
-        "Only the automation's creator or an organization admin can run it.",
-      ),
+      new Error("Collaborate access is required to run this automation."),
       { statusCode: 403 },
     );
   }
+  const { resource, name } = access;
   const { body } = parseJobResource(resource.content);
   if (!body.trim()) {
     throw Object.assign(
@@ -109,8 +128,8 @@ export async function queueAutomationRunNow(
     owner: resource.owner,
     automation: name,
     path: resource.path,
-    scope: input.scope,
-    orgId: input.scope === "organization" ? input.orgId : null,
+    scope: access.owningOrganizationId ? "organization" : "personal",
+    orgId: access.owningOrganizationId,
     dispatchPending: true,
   });
   try {
