@@ -433,7 +433,7 @@ export default function DesignSystemSetup() {
 
     const parts: string[] = [];
     parts.push(
-      "Set up a design system from the following sources. Use Builder Design System Intelligence (DSI) as the source of truth for reusable Figma/code/design.md indexing. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system. Keep each token under the name its source gives it: put the full named vocabulary in `data.tokens` (name, cssVar, value, type, group, source) as well as filling the seven `colors` roles, so tokens like `interactive-01` are not collapsed into `secondary`.",
+      "Set up a design system from the following sources. Use Builder Design System Intelligence (DSI) as the source of truth for reusable Figma/code/design.md indexing. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system.",
     );
 
     if (companyInfo.trim()) {

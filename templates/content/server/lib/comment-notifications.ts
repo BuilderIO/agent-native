@@ -21,10 +21,6 @@ import { and, eq } from "drizzle-orm";
 
 import { CONTENT_USER_PREFS_KEY } from "../../shared/content-user-prefs.js";
 import { getDb, schema } from "../db/index.js";
-import {
-  CONTENT_DOCUMENT_COMMENT_EMAIL_ID,
-  CONTENT_DOCUMENT_MENTION_EMAIL_ID,
-} from "./emails.js";
 
 export type DocumentCommentNotificationResult = ActivityNotificationResult;
 
@@ -74,48 +70,6 @@ export interface DocumentCommentNotificationInput {
   isReply: boolean;
 }
 
-export function renderDocumentCommentEmail({
-  actor,
-  title,
-  url,
-  content,
-  isReply,
-  wasMentioned,
-}: {
-  actor: string;
-  title: string;
-  url: string;
-  content: string;
-  isReply: boolean;
-  wasMentioned: boolean;
-}) {
-  const lead = wasMentioned
-    ? `${emailStrong(actor)} mentioned you in a comment on ${emailStrong(title)}.`
-    : isReply
-      ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(title)}.`
-      : `${emailStrong(actor)} commented on ${emailStrong(title)}.`;
-
-  return {
-    subject: wasMentioned
-      ? `${actor} mentioned you on "${title}"`
-      : isReply
-        ? `${actor} replied to a comment on "${title}"`
-        : `${actor} commented on "${title}"`,
-    ...renderEmail({
-      preheader: `${actor} commented on ${title}.`,
-      heading: wasMentioned
-        ? "You were mentioned"
-        : isReply
-          ? "New reply on your document"
-          : "New comment",
-      paragraphs: [lead, `"${excerpt(content)}"`],
-      cta: { label: "Open document", url },
-      footer:
-        "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",
-    }),
-  };
-}
-
 export async function notifyDocumentComment(
   input: DocumentCommentNotificationInput,
 ): Promise<DocumentCommentNotificationResult> {
@@ -158,19 +112,34 @@ async function deliverDocumentCommentEmails(
     logLabel: LOG_LABEL,
     send: async (to) => {
       const wasMentioned = mentioned.has(to);
+      const lead = wasMentioned
+        ? `${emailStrong(actor)} mentioned you in a comment on ${emailStrong(title)}.`
+        : input.isReply
+          ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(title)}.`
+          : `${emailStrong(actor)} commented on ${emailStrong(title)}.`;
+
+      const { html, text } = renderEmail({
+        preheader: `${actor} commented on ${title}.`,
+        heading: wasMentioned
+          ? "You were mentioned"
+          : input.isReply
+            ? "New reply on your document"
+            : "New comment",
+        paragraphs: [lead, `"${excerpt(input.content)}"`],
+        cta: { label: "Open document", url },
+        footer:
+          "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",
+      });
+
       await sendEmail({
-        ...renderDocumentCommentEmail({
-          actor,
-          title,
-          url,
-          content: input.content,
-          isReply: input.isReply,
-          wasMentioned,
-        }),
         to,
-        templateId: wasMentioned
-          ? CONTENT_DOCUMENT_MENTION_EMAIL_ID
-          : CONTENT_DOCUMENT_COMMENT_EMAIL_ID,
+        subject: wasMentioned
+          ? `${actor} mentioned you on "${title}"`
+          : input.isReply
+            ? `${actor} replied to a comment on "${title}"`
+            : `${actor} commented on "${title}"`,
+        html,
+        text,
       });
     },
   });

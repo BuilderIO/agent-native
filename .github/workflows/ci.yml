@@ -515,8 +515,6 @@ jobs:
           -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
-        env:
-          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         # Dispatch is in the combo because it exercises the
         # workspacify.ts dispatch-rewrite path (workspace:* → "latest" for
         # @agent-native/dispatch, the only published package consumed as a

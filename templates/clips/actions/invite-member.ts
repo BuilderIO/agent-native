@@ -24,7 +24,6 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import { CLIPS_ORGANIZATION_INVITE_EMAIL_ID } from "../server/lib/emails.js";
 import {
   getCurrentOwnerEmail,
   nanoid,
@@ -66,36 +65,6 @@ async function fetchOrgName(orgId: string): Promise<string> {
     .where(eq(organizations.id, orgId))
     .limit(1);
   return row?.name ?? "Organization";
-}
-
-export function renderClipsInviteEmail({
-  appName,
-  orgName,
-  inviter,
-  role,
-  inviteUrl,
-}: {
-  appName: string;
-  orgName: string;
-  inviter: string;
-  role: "admin" | "member";
-  inviteUrl: string;
-}) {
-  return {
-    subject: `You're invited to ${orgName} on ${appName}`,
-    ...renderEmail({
-      brandName: appName,
-      preheader: `${inviter} invited you to ${orgName} on ${appName}.`,
-      heading: `You're invited to join ${orgName}`,
-      paragraphs: [
-        `${emailStrong(inviter)} invited you to the ${emailStrong(orgName)} organization on ${emailStrong(appName)} as ${emailStrong(role)}.`,
-        `Click the button below to accept the invite and start collaborating.`,
-      ],
-      cta: { label: "Accept invite", url: inviteUrl },
-      // guard:allow-raw-color — email HTML cannot reference CSS theme tokens; mail clients don't support custom properties.
-      brandColor: "#18181B",
-    }),
-  };
 }
 
 export default defineAction({
@@ -154,17 +123,25 @@ export default defineAction({
     const orgName = await fetchOrgName(organizationId);
     const inviteUrl = `${baseUrl()}/invite/${token}`;
 
+    const appName = getAppName();
+    const { html, text } = renderEmail({
+      brandName: appName,
+      preheader: `${inviter} invited you to ${orgName} on ${appName}.`,
+      heading: `You're invited to join ${orgName}`,
+      paragraphs: [
+        `${emailStrong(inviter)} invited you to the ${emailStrong(orgName)} organization on ${emailStrong(appName)} as ${emailStrong(role)}.`,
+        `Click the button below to accept the invite and start collaborating.`,
+      ],
+      cta: { label: "Accept invite", url: inviteUrl },
+      // guard:allow-raw-color - email HTML cannot reference CSS theme tokens.
+      brandColor: "#18181B",
+    });
     try {
       await sendEmail({
-        ...renderClipsInviteEmail({
-          appName: getAppName(),
-          orgName,
-          inviter,
-          role,
-          inviteUrl,
-        }),
         to: args.email,
-        templateId: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
+        subject: `You're invited to ${orgName} on ${appName}`,
+        html,
+        text,
       });
     } catch (err) {
       console.warn("[invite-member] email send failed:", err);

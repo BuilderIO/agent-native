@@ -1,10 +1,4 @@
 import {
-  groupBrandKitTokens,
-  isColorTokenValue,
-  resolveBrandKitTokens,
-  type BrandKitTokenGroup,
-} from "@agent-native/core/brand-kit/tokens";
-import {
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
@@ -115,8 +109,6 @@ interface DesignSystemData {
   borders?: Record<string, unknown>;
   logos?: Array<{ url?: string; name?: string; variant?: string }>;
   defaults?: Record<string, unknown>;
-  tokens?: unknown;
-  customCSS?: unknown;
   notes?: unknown;
 }
 
@@ -947,7 +939,6 @@ function TokenPreview({
   const colors = getColorTokens(data, t);
   const typeTokens = getTypographyTokens(data, t);
   const detailTokens = getDetailTokens(data, assets, t);
-  const namedGroups = groupBrandKitTokens(resolveBrandKitTokens(data));
 
   return (
     <section className="space-y-6 border-t border-border pt-6">
@@ -960,15 +951,9 @@ function TokenPreview({
         </p>
       </div>
 
-      {namedGroups.length > 0 ? (
-        <NamedTokenGroups groups={namedGroups} />
-      ) : null}
-
       <div className="space-y-3">
         <h4 className="text-xs font-medium uppercase text-muted-foreground">
-          {namedGroups.length > 0
-            ? t("designSystems.tokenPreview.colorRoles")
-            : t("designSystems.tokenPreview.colors")}
+          {t("designSystems.tokenPreview.colors")}
         </h4>
         {colors.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1014,68 +999,6 @@ function TokenPreview({
         />
       ) : null}
     </section>
-  );
-}
-
-function NamedTokenGroups({ groups }: { groups: BrandKitTokenGroup[] }) {
-  const t = useT();
-  const total = groups.reduce((sum, group) => sum + group.tokens.length, 0);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <h4 className="text-xs font-medium uppercase text-muted-foreground">
-          {t("designSystems.tokenPreview.namedTokens")}
-        </h4>
-        <span className="!text-[11px] text-muted-foreground">
-          {t("designSystems.tokenPreview.savedCount", { count: total })}
-        </span>
-      </div>
-
-      {groups.map((group) => (
-        <div key={`${group.type}:${group.label}`} className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-foreground">
-              {group.label}
-            </span>
-            <span className="!text-[11px] text-muted-foreground">
-              {group.tokens.length}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {group.tokens.map((token) => (
-              <div
-                key={token.cssVar}
-                className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-muted/30 p-2"
-              >
-                {isColorTokenValue(token.value) ? (
-                  <div
-                    className="h-9 w-9 shrink-0 rounded-md border border-border"
-                    style={{ backgroundColor: token.value }}
-                  />
-                ) : null}
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs font-medium text-foreground">
-                    {token.name}
-                  </div>
-                  <div className="truncate font-mono !text-[11px] text-muted-foreground">
-                    {token.cssVar}
-                  </div>
-                  <div className="truncate font-mono !text-[11px] text-muted-foreground">
-                    {token.value}
-                  </div>
-                </div>
-                {token.source ? (
-                  <span className="shrink-0 rounded border border-border px-1.5 py-0.5 !text-[10px] text-muted-foreground">
-                    {token.source}
-                  </span>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 

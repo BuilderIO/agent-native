@@ -25,33 +25,6 @@ export interface BrandKitColors {
   textMuted: string;
 }
 
-/** Semantic category a {@link BrandKitToken} belongs to. */
-export type BrandKitTokenType =
-  | "color"
-  | "typography"
-  | "spacing"
-  | "radius"
-  | "shadow"
-  | "other";
-
-/**
- * One token under the name its source design system uses. The seven
- * {@link BrandKitColors} roles are a summary view, not a substitute: collapsing
- * `interactive-01` into `secondary` discards the only name the design team has.
- */
-export interface BrandKitToken {
-  name: string;
-  /** e.g. `--cds-interactive-01`. */
-  cssVar: string;
-  /** Resolved value, e.g. a hex color or `0.5rem`. */
-  value: string;
-  type: BrandKitTokenType;
-  /** Collection path as the source organises it, e.g. `Colors/Interactive`. */
-  group?: string;
-  /** e.g. `Carbon v11` or `globals.css`. */
-  source?: string;
-}
-
 /** Brand typography system. */
 export interface BrandKitTypography {
   headingFont: string;
@@ -107,12 +80,6 @@ export interface BrandKitData {
   spacing: BrandKitSpacing;
   borders: BrandKitBorders;
   logos: BrandKitLogo[];
-  /**
-   * The source system's full named vocabulary. Optional because kits predating
-   * it store only the role summary — absent means "never extracted", not "the
-   * system has none".
-   */
-  tokens?: BrandKitToken[];
   imageStyle?: BrandKitImageStyle;
   customCSS?: string;
   notes?: string;

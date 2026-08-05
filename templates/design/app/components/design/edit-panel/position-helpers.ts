@@ -213,12 +213,6 @@ export function resolveRestoredStrokeStyle(
  * (a single undo/history step, matching every other multi-property commit
  * in this file, e.g. TextStrokeProperties' equivalent show handler).
  */
-/** A literal colour at zero alpha, or null when it does not parse as one. */
-export function zeroAlphaLiteral(literal: string): string | null {
-  const parsed = parseCssColor(literal);
-  return parsed ? rgbaToCss(withColorOpacity(parsed, 0)) : null;
-}
-
 export function strokeShowPatch(
   prefix: "border" | "outline",
   color: string,

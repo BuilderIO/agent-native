@@ -1,7 +1,6 @@
 import { emailStrong, renderEmail, sendEmail } from "@agent-native/core/server";
 
 import type { FormField } from "../../shared/types.js";
-import { FORMS_NEW_RESPONSE_EMAIL_ID } from "./emails.js";
 
 export interface NewResponseEmailArgs {
   to: string;
@@ -62,6 +61,5 @@ export async function sendNewResponseEmail(
   await sendEmail({
     to: args.to,
     ...renderNewResponseEmail(args),
-    templateId: FORMS_NEW_RESPONSE_EMAIL_ID,
   });
 }

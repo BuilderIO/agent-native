@@ -1432,8 +1432,6 @@ const messages = {
       title: "代幣預覽",
       description: "目前儲存的顏色、型別、間距和資源的快照。",
       colors: "顏色",
-      namedTokens: "設計系統代幣",
-      colorRoles: "顏色角色",
       noColors: "沒有儲存顏色標記。",
       typography: "版式",
       details: "細節",

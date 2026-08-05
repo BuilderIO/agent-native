@@ -73,12 +73,12 @@ function stableId(prefix: string, parts: readonly string[]): string {
 }
 
 /**
- * Upsert compact rollups after the corresponding raw analytics rows commit.
- * The caller owns the raw insert; this function deliberately does not read or
- * write analytics_events, so ingestion can choose its own failure boundary.
+ * Upsert compact rollups for a normalized batch. When ingestion passes its
+ * transaction through, raw events and rollups share one commit boundary.
  */
 export async function upsertFirstPartyAnalyticsRollups(
   rows: readonly NormalizedFirstPartyAnalyticsEventRow[],
+  transaction?: any,
 ): Promise<FirstPartyAnalyticsRollupResult> {
   const dailyRollups = new Map<string, DailyRollupRow>();
   const userDays = new Map<string, UserDayRow>();
@@ -140,8 +140,7 @@ export async function upsertFirstPartyAnalyticsRollups(
     };
   }
 
-  const db = getDb() as any;
-  await db.transaction(async (tx: any) => {
+  const writeRollups = async (tx: any) => {
     const dailyRows = [...dailyRollups.values()];
     await tx
       .insert(schema.analyticsEventDailyRollups)
@@ -172,7 +171,13 @@ export async function upsertFirstPartyAnalyticsRollups(
           ],
         });
     }
-  });
+  };
+
+  if (transaction) {
+    await writeRollups(transaction);
+  } else {
+    await (getDb() as any).transaction(writeRollups);
+  }
 
   return {
     eventCount: rows.length,

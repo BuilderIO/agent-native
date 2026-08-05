@@ -11,12 +11,6 @@ import {
   DEFAULT_BOOKING_TIMEZONE,
   safeBookingTimeZone,
 } from "./booking-timezone.js";
-import {
-  CALENDAR_BOOKING_CANCELLED_EMAIL_ID,
-  CALENDAR_BOOKING_CANCELLED_HOST_EMAIL_ID,
-  CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
-  CALENDAR_BOOKING_RECEIVED_EMAIL_ID,
-} from "./emails.js";
 
 function stripCrlf(value: string | undefined): string {
   return (value ?? "").replace(/[\r\n]+/g, " ").trim();
@@ -63,128 +57,6 @@ async function sendBestEffort(
   }
 }
 
-export function renderBookingConfirmedEmail({
-  title,
-  when,
-  host,
-  manageUrl,
-  meetingLink,
-}: {
-  title: string;
-  when: string;
-  host: string;
-  manageUrl: string;
-  meetingLink?: string | null;
-}) {
-  const paragraphs = [
-    `You're booked for ${emailStrong(title)} with ${emailStrong(host)}.`,
-    `Time: ${emailStrong(when)}.`,
-  ];
-  if (meetingLink) {
-    paragraphs.push(`Meeting link: ${emailLink("Join meeting", meetingLink)}.`);
-  }
-
-  return {
-    subject: `Confirmed: ${title}`,
-    ...renderEmail({
-      preheader: `You're booked for ${title} on ${when}.`,
-      heading: "Your meeting is booked",
-      paragraphs,
-      cta: { label: "Manage booking", url: manageUrl },
-      footer:
-        "Use the manage link if you need to cancel or reschedule this meeting.",
-    }),
-  };
-}
-
-export function renderBookingReceivedEmail({
-  title,
-  when,
-  attendeeName,
-  attendee,
-  manageUrl,
-  meetingLink,
-}: {
-  title: string;
-  when: string;
-  attendeeName: string;
-  attendee: string;
-  manageUrl: string;
-  meetingLink?: string | null;
-}) {
-  return {
-    subject: `New booking: ${title}`,
-    ...renderEmail({
-      preheader: `${attendeeName} booked ${title} on ${when}.`,
-      heading: "New booking",
-      paragraphs: [
-        `${emailStrong(attendeeName)} booked ${emailStrong(title)}.`,
-        `Time: ${emailStrong(when)}.`,
-        `Guest: ${emailStrong(attendee)}.`,
-        ...(meetingLink
-          ? [`Meeting link: ${emailLink("Join meeting", meetingLink)}.`]
-          : []),
-      ],
-      cta: { label: "View booking", url: manageUrl },
-      footer: "This booking was created from your calendar booking link.",
-    }),
-  };
-}
-
-export function renderBookingCancelledEmail({
-  title,
-  when,
-  host,
-  bookAgainUrl,
-}: {
-  title: string;
-  when: string;
-  host: string;
-  bookAgainUrl?: string;
-}) {
-  return {
-    subject: `Cancelled: ${title}`,
-    ...renderEmail({
-      preheader: `${title} on ${when} was cancelled.`,
-      heading: "Your meeting was cancelled",
-      paragraphs: [
-        `${emailStrong(title)} with ${emailStrong(host || "the host")} has been cancelled.`,
-        `Original time: ${emailStrong(when)}.`,
-      ],
-      cta: bookAgainUrl
-        ? { label: "Book another time", url: bookAgainUrl }
-        : undefined,
-      footer: "If this was unexpected, contact the meeting host.",
-    }),
-  };
-}
-
-export function renderBookingCancelledHostEmail({
-  title,
-  when,
-  attendeeName,
-  attendee,
-}: {
-  title: string;
-  when: string;
-  attendeeName: string;
-  attendee: string;
-}) {
-  return {
-    subject: `Cancelled booking: ${title}`,
-    ...renderEmail({
-      preheader: `${attendeeName}'s booking for ${title} was cancelled.`,
-      heading: "Booking cancelled",
-      paragraphs: [
-        `${emailStrong(attendeeName)}'s booking for ${emailStrong(title)} was cancelled.`,
-        `Original time: ${emailStrong(when)}.`,
-        `Guest: ${emailStrong(attendee)}.`,
-      ],
-      footer: "No further action is needed.",
-    }),
-  };
-}
-
 export async function sendBookingConfirmationEmails({
   booking,
   hostEmail,
@@ -202,31 +74,54 @@ export async function sendBookingConfirmationEmails({
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "there";
 
+  const attendeeParagraphs = [
+    `You're booked for ${emailStrong(title)} with ${emailStrong(host)}.`,
+    `Time: ${emailStrong(when)}.`,
+  ];
+  if (booking.meetingLink) {
+    attendeeParagraphs.push(
+      `Meeting link: ${emailLink("Join meeting", booking.meetingLink)}.`,
+    );
+  }
+
+  const attendeeEmail = renderEmail({
+    preheader: `You're booked for ${title} on ${when}.`,
+    heading: "Your meeting is booked",
+    paragraphs: attendeeParagraphs,
+    cta: { label: "Manage booking", url: manageUrl },
+    footer:
+      "Use the manage link if you need to cancel or reschedule this meeting.",
+  });
+
   await sendBestEffort("attendee confirmation", {
     to: attendee,
-    ...renderBookingConfirmedEmail({
-      title,
-      when,
-      host,
-      manageUrl,
-      meetingLink: booking.meetingLink,
-    }),
+    subject: `Confirmed: ${title}`,
+    html: attendeeEmail.html,
+    text: attendeeEmail.text,
     replyTo: host,
-    templateId: CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
+  });
+
+  const hostEmailMessage = renderEmail({
+    preheader: `${attendeeName} booked ${title} on ${when}.`,
+    heading: "New booking",
+    paragraphs: [
+      `${emailStrong(attendeeName)} booked ${emailStrong(title)}.`,
+      `Time: ${emailStrong(when)}.`,
+      `Guest: ${emailStrong(attendee)}.`,
+      ...(booking.meetingLink
+        ? [`Meeting link: ${emailLink("Join meeting", booking.meetingLink)}.`]
+        : []),
+    ],
+    cta: { label: "View booking", url: manageUrl },
+    footer: "This booking was created from your calendar booking link.",
   });
 
   await sendBestEffort("host notification", {
     to: host,
-    ...renderBookingReceivedEmail({
-      title,
-      when,
-      attendeeName,
-      attendee,
-      manageUrl,
-      meetingLink: booking.meetingLink,
-    }),
+    subject: `New booking: ${title}`,
+    html: hostEmailMessage.html,
+    text: hostEmailMessage.text,
     replyTo: attendee,
-    templateId: CALENDAR_BOOKING_RECEIVED_EMAIL_ID,
   });
 }
 
@@ -247,24 +142,45 @@ export async function sendBookingCancellationEmails({
   const attendee = stripCrlf(booking.email);
   const attendeeName = stripCrlf(booking.name) || "The guest";
 
+  const attendeeEmail = renderEmail({
+    preheader: `${title} on ${when} was cancelled.`,
+    heading: "Your meeting was cancelled",
+    paragraphs: [
+      `${emailStrong(title)} with ${emailStrong(host || "the host")} has been cancelled.`,
+      `Original time: ${emailStrong(when)}.`,
+    ],
+    cta: bookAgainUrl
+      ? { label: "Book another time", url: bookAgainUrl }
+      : undefined,
+    footer: "If this was unexpected, contact the meeting host.",
+  });
+
   await sendBestEffort("attendee cancellation", {
     to: attendee,
-    ...renderBookingCancelledEmail({ title, when, host, bookAgainUrl }),
+    subject: `Cancelled: ${title}`,
+    html: attendeeEmail.html,
+    text: attendeeEmail.text,
     replyTo: host || undefined,
-    templateId: CALENDAR_BOOKING_CANCELLED_EMAIL_ID,
   });
 
   if (!host) return;
 
+  const hostEmailMessage = renderEmail({
+    preheader: `${attendeeName}'s booking for ${title} was cancelled.`,
+    heading: "Booking cancelled",
+    paragraphs: [
+      `${emailStrong(attendeeName)}'s booking for ${emailStrong(title)} was cancelled.`,
+      `Original time: ${emailStrong(when)}.`,
+      `Guest: ${emailStrong(attendee)}.`,
+    ],
+    footer: "No further action is needed.",
+  });
+
   await sendBestEffort("host cancellation notification", {
     to: host,
-    ...renderBookingCancelledHostEmail({
-      title,
-      when,
-      attendeeName,
-      attendee,
-    }),
+    subject: `Cancelled booking: ${title}`,
+    html: hostEmailMessage.html,
+    text: hostEmailMessage.text,
     replyTo: attendee,
-    templateId: CALENDAR_BOOKING_CANCELLED_HOST_EMAIL_ID,
   });
 }

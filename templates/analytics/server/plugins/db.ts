@@ -1,6 +1,8 @@
 import {
   ensureAdditiveColumns,
+  getDialect,
   getDbExec,
+  isPostgres,
   runMigrations,
 } from "@agent-native/core/db";
 
@@ -27,6 +29,169 @@ function isDrizzleTable(value: unknown): value is object {
 }
 
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+const ANALYTICS_ROLLUP_BACKFILL_STATEMENTS = {
+  postgres: [
+    `
+      INSERT INTO analytics_event_daily_rollups (
+        id, tenant_key, owner_email, org_id, event_date, event_name,
+        app, template, event_count
+      )
+      SELECT
+        md5(random()::text || clock_timestamp()::text), tenant_key,
+        MIN(owner_email), MIN(org_id), event_date, event_name, app, template,
+        COUNT(*)::INTEGER
+      FROM (
+        SELECT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          event_name,
+          COALESCE(app, '') AS app,
+          COALESCE(template, '') AS template
+        FROM analytics_events
+      ) AS historical_events
+      WHERE event_date <> ''
+      GROUP BY tenant_key, event_date, event_name, app, template
+      ON CONFLICT (tenant_key, event_date, event_name, app, template)
+      DO UPDATE SET event_count = GREATEST(
+        analytics_event_daily_rollups.event_count,
+        EXCLUDED.event_count
+      )
+    `,
+    `
+      INSERT INTO analytics_user_days (
+        id, tenant_key, owner_email, org_id, event_date, user_key
+      )
+      SELECT
+        md5(random()::text || clock_timestamp()::text), tenant_key,
+        owner_email, org_id, event_date, user_key
+      FROM (
+        SELECT DISTINCT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          user_key
+        FROM analytics_events
+        WHERE user_key IS NOT NULL AND TRIM(user_key) <> ''
+      ) AS historical_user_days
+      WHERE event_date <> ''
+      ON CONFLICT (tenant_key, event_date, user_key) DO NOTHING
+    `,
+  ],
+  sqlite: [
+    `
+      INSERT INTO analytics_event_daily_rollups (
+        id, tenant_key, owner_email, org_id, event_date, event_name,
+        app, template, event_count
+      )
+      SELECT
+        lower(hex(randomblob(16))), tenant_key, MIN(owner_email), MIN(org_id),
+        event_date, event_name, app, template, COUNT(*)
+      FROM (
+        SELECT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          event_name,
+          COALESCE(app, '') AS app,
+          COALESCE(template, '') AS template
+        FROM analytics_events
+      ) AS historical_events
+      WHERE event_date <> ''
+      GROUP BY tenant_key, event_date, event_name, app, template
+      ON CONFLICT (tenant_key, event_date, event_name, app, template)
+      DO UPDATE SET event_count = excluded.event_count
+    `,
+    `
+      INSERT INTO analytics_user_days (
+        id, tenant_key, owner_email, org_id, event_date, user_key
+      )
+      SELECT
+        lower(hex(randomblob(16))), tenant_key, owner_email, org_id,
+        event_date, user_key
+      FROM (
+        SELECT DISTINCT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          user_key
+        FROM analytics_events
+        WHERE user_key IS NOT NULL AND TRIM(user_key) <> ''
+      ) AS historical_user_days
+      WHERE event_date <> ''
+      ON CONFLICT (tenant_key, event_date, user_key) DO NOTHING
+    `,
+  ],
+} as const;
+
+async function runHistoricalAnalyticsRollupBackfill(): Promise<void> {
+  const db = getDbExec();
+
+  if (isPostgres()) {
+    if (!db.transaction) {
+      throw new Error(
+        "Analytics rollup backfill requires a Postgres transaction",
+      );
+    }
+
+    await db.transaction(async (tx) => {
+      // Only one serverless instance should perform the expensive scan. A
+      // try-lock is intentional: competing cold starts fail fast instead of
+      // holding pooled Neon connections while waiting for the winner. The
+      // monotonic rollup upsert below keeps a live increment from being
+      // overwritten if ingest commits during the historical snapshot.
+      const lockResult = await tx.execute({
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        args: ["agent-native:analytics-rollup-backfill"],
+      });
+      const acquired = lockResult.rows[0]?.acquired;
+      if (acquired !== true && acquired !== "t") {
+        throw new Error(
+          "Analytics rollup backfill is already running on another instance",
+        );
+      }
+      for (const statement of ANALYTICS_ROLLUP_BACKFILL_STATEMENTS.postgres) {
+        await tx.execute(statement);
+      }
+    });
+    return;
+  }
+
+  const statements = ANALYTICS_ROLLUP_BACKFILL_STATEMENTS.sqlite;
+  if (getDialect() === "d1") {
+    if (!db.atomicBatch) {
+      throw new Error("D1 analytics rollup backfill requires an atomic batch");
+    }
+    await db.atomicBatch(statements);
+    return;
+  }
+
+  if (!db.transaction) {
+    throw new Error(
+      "Analytics rollup backfill requires a database transaction",
+    );
+  }
+  await db.transaction(async (tx) => {
+    for (const statement of statements) await tx.execute(statement);
+  });
+}
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -1366,6 +1531,15 @@ const runAnalyticsMigrations = runMigrations(
       version: 131,
       name: "analytics-query-pressure-daily-key-idx",
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_query_pressure_daily_key_idx ON analytics_query_pressure_daily (tenant_key, event_date, query_class)`,
+    },
+    // Rebuild the compact analytics rollups from raw history once when the
+    // tables first ship. The run-only migration takes the same write lock as
+    // ingest so a live increment cannot be overwritten by its snapshot.
+    {
+      version: 132,
+      name: "analytics-rollups-historical-backfill",
+      sql: {},
+      run: runHistoricalAnalyticsRollupBackfill,
     },
   ],
   { table: "analytics_migrations" },

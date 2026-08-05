@@ -470,11 +470,12 @@ export function runMigrations(
       //
       // Now: use the pooled singleton (getDbExec) for the bookkeeping SELECT. If
       // the migrations table does not yet exist we treat it as "all migrations
-      // pending" (current = -1). Only when there are pending migrations do we open
-      // the direct-endpoint exec (DDL is the only thing Neon's PgBouncer blocks —
-      // documented at getMigrationDatabaseUrl). The direct exec is shared across
-      // concurrent runners via acquireMigrationExec() and closed after the last
-      // caller via releaseMigrationExec().
+      // pending" (current = -1). Pending SQL/DDL opens the direct-endpoint exec
+      // (DDL is the only thing Neon's PgBouncer blocks — documented at
+      // getMigrationDatabaseUrl); run-only entries stay on the pooled client once
+      // both bookkeeping tables are known to exist. The direct exec is shared
+      // across concurrent runners via acquireMigrationExec() and closed after the
+      // last caller via releaseMigrationExec().
       // ---------------------------------------------------------------------------
 
       let current = -1; // sentinel: "table missing" → treat all as pending
@@ -521,31 +522,49 @@ export function runMigrations(
         return;
       }
 
+      // A run-only migration does not need the direct endpoint: the fast path
+      // already proved both bookkeeping tables exist, and its `run` callback is
+      // responsible for its own pooled database work. Keep the direct path for
+      // any pending SQL or for the first boot, where the tables still need DDL.
+      const runOnlyPending =
+        pg &&
+        current >= 0 &&
+        !namedRowsMissing &&
+        pendingFast !== null &&
+        pendingFast.length > 0 &&
+        pendingFast.every((m) => resolveMigrationSql(m.sql, pg) === null);
+
       // Acquire the exec appropriate for the dialect.
       // For Postgres: the shared direct-endpoint exec (DDL-safe, closed on release).
       // For SQLite/libsql: the singleton pooled exec (no pooler concern).
-      const exec = pg ? await acquireMigrationExec() : getDbExec();
+      const exec = pg
+        ? runOnlyPending
+          ? getDbExec()
+          : await acquireMigrationExec()
+        : getDbExec();
 
       try {
-        // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
-        // restarts when WAL files from the previous process haven't been released yet.
-        await retrySqliteBusy(
-          () =>
-            exec.execute(
-              `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
-            ),
-          { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
-        );
-        // Companion name-keyed bookkeeping table — never alters the existing
-        // `${table}`'s PRIMARY KEY, so legacy version rows keep working exactly
-        // as before. See the `runMigrations` doc comment for why this exists.
-        await retrySqliteBusy(
-          () =>
-            exec.execute(
-              `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version INTEGER, applied_at ${pg ? "TIMESTAMP NOT NULL DEFAULT now()" : "TEXT NOT NULL DEFAULT (datetime('now'))"})`,
-            ),
-          { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
-        );
+        if (!runOnlyPending) {
+          // Retry initial table creation — SQLITE_BUSY_RECOVERY can occur on HMR
+          // restarts when WAL files from the previous process haven't been released yet.
+          await retrySqliteBusy(
+            () =>
+              exec.execute(
+                `CREATE TABLE IF NOT EXISTS ${table} (version INTEGER PRIMARY KEY)`,
+              ),
+            { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
+          );
+          // Companion name-keyed bookkeeping table — never alters the existing
+          // `${table}`'s PRIMARY KEY, so legacy version rows keep working exactly
+          // as before. See the `runMigrations` doc comment for why this exists.
+          await retrySqliteBusy(
+            () =>
+              exec.execute(
+                `CREATE TABLE IF NOT EXISTS ${namedTable} (name TEXT PRIMARY KEY, version INTEGER, applied_at ${pg ? "TIMESTAMP NOT NULL DEFAULT now()" : "TEXT NOT NULL DEFAULT (datetime('now'))"})`,
+              ),
+            { maxAttempts: 6, baseDelayMs: 1000, rethrow: true },
+          );
+        }
 
         // For Postgres, current was already set by the fast-path SELECT above.
         // For SQLite we run the SELECT now (via the same exec, which is the singleton).
@@ -560,7 +579,10 @@ export function runMigrations(
             );
             appliedNames = new Set(nameRows.map((r) => String(r.name)));
           }
-        } else if (current === -1 || (hasNamedMigrations && namedRowsMissing)) {
+        } else if (
+          !runOnlyPending &&
+          (current === -1 || (hasNamedMigrations && namedRowsMissing))
+        ) {
           // Fast-path read failed (table was absent on the pooler): re-read via the
           // direct exec now that CREATE TABLE IF NOT EXISTS has ensured it exists.
           if (current === -1) {
@@ -584,9 +606,11 @@ export function runMigrations(
           ? `INSERT INTO ${namedTable} (name, version) VALUES (?, ?) ON CONFLICT DO NOTHING`
           : `INSERT OR IGNORE INTO ${namedTable} (name, version) VALUES (?, ?)`;
 
-        const pending = migrations.filter((m) =>
-          m.name ? !appliedNames.has(m.name) : m.version > current,
-        );
+        const pending = runOnlyPending
+          ? pendingFast!
+          : migrations.filter((m) =>
+              m.name ? !appliedNames.has(m.name) : m.version > current,
+            );
         if (pending.length > 0) {
           console.log(
             `[db] Applying ${pending.length} migration(s) on ${pg ? "Postgres" : "SQLite/libsql"}…`,
@@ -690,10 +714,10 @@ export function runMigrations(
           }
         }
       } finally {
-        // Release the direct-endpoint exec (Postgres only). For SQLite getDbExec()
-        // returns the process-lifetime singleton, so releaseMigrationExec is a no-op
-        // (refCount never incremented for SQLite path, guard in releaseMigrationExec).
-        if (pg) await releaseMigrationExec();
+        // Release the direct-endpoint exec (Postgres only). Run-only migrations
+        // use the process-lifetime pooled singleton, so there is nothing to close
+        // in that branch.
+        if (pg && !runOnlyPending) await releaseMigrationExec();
       }
     } catch (err) {
       console.error("[db] Migration failed:", (err as Error).message);

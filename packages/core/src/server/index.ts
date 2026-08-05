@@ -548,14 +548,6 @@ export {
   type SendEmailArgs,
 } from "./email.js";
 export {
-  defineTransactionalEmail,
-  listTransactionalEmails,
-  getTransactionalEmail,
-  renderTransactionalEmailPreview,
-  type TransactionalEmailDefinition,
-  type RegisteredTransactionalEmail,
-} from "../email-catalog/registry.js";
-export {
   notifyActivity,
   runActivityNotification,
   resolveActivityRecipients,

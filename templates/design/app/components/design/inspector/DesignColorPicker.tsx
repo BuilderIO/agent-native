@@ -44,14 +44,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  groupColorSwatches,
-  parseTokenReference,
-  resolveTokenNameForColor,
-  swatchLabel,
-  tokenReferenceValue,
-  type DesignSystemColorSwatch,
-} from "../edit-panel/design-system-swatches";
-import {
   GlslShaderPanel,
   type GlslShaderPanelContext,
 } from "./GlslShaderPanel";
@@ -198,16 +190,6 @@ export interface DesignColorPickerProps {
    * limited in the caller; the component renders whatever is passed.
    */
   documentColors?: string[];
-  /**
-   * Colour tokens from the design's linked Brand Kit, listed by name above
-   * "Document colors". Picking one writes `var(--token, #hex)`.
-   */
-  designSystemColors?: DesignSystemColorSwatch[];
-  /**
-   * The colour the canvas resolved `value` to. Only consulted when `value` is a
-   * token reference this document cannot resolve on its own.
-   */
-  resolvedColor?: string;
   /**
    * Restricts which paint-type tabs are rendered (Solid, Linear, Radial, …).
    * Omit to show every type (default, backward compatible). Callers that
@@ -721,8 +703,6 @@ export function DesignColorPicker({
   gradientType,
   onGradientTypeChange,
   documentColors,
-  designSystemColors,
-  resolvedColor,
   supportedPaintTypes,
   shaderContext,
   glslShaderContext,
@@ -732,15 +712,7 @@ export function DesignColorPicker({
   className,
 }: DesignColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
-  // A `var(--token, #hex)` fill has no colour of its own outside the preview
-  // document; read the literal so the SV field and chip are not blank.
-  const tokenReference = parseTokenReference(value);
-  // Generated CSS writes bare `var(--token)`, unresolvable here, so the colour
-  // has to come from what the canvas painted.
-  const color =
-    parseCssColorExtended(tokenReference?.fallback ?? value) ??
-    (tokenReference ? parseCssColorExtended(resolvedColor ?? "") : null) ??
-    FALLBACK_COLOR;
+  const color = parseCssColorExtended(value) ?? FALLBACK_COLOR;
   const hsv = rgbaToHsv(color);
   const hsl = rgbaToHsl(color);
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
@@ -842,16 +814,6 @@ export function DesignColorPicker({
     ? rawEffectivePaintType
     : "solid";
 
-  const tokenName = useMemo(() => {
-    if (effectivePaintType !== "solid" || !designSystemColors?.length) {
-      return null;
-    }
-    return resolveTokenNameForColor(
-      tokenReference ? value : rgbaToCss(color),
-      designSystemColors,
-    );
-  }, [color, designSystemColors, effectivePaintType, tokenReference, value]);
-
   // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
   // the live CSS value, falling back to local edit state.
   const parsedGradient = useMemo(
@@ -932,15 +894,6 @@ export function DesignColorPicker({
     const next = rgbaToCss(withColorOpacity(nextColor, nextOpacity));
     lastEmittedValueRef.current = next;
     onChange(next);
-  };
-
-  /**
-   * Same route as `emitColor`: a solid fill must not detour through the
-   * layered-paint merge just because its value is an expression.
-   */
-  const emitTokenReference = (nextValue: string) => {
-    lastEmittedValueRef.current = nextValue;
-    onChange(nextValue);
   };
 
   const emitPaintValue = (nextValue: string) => {
@@ -1383,14 +1336,8 @@ export function DesignColorPicker({
               className="size-4 shrink-0 rounded-[3px] border border-border/60"
               style={triggerSwatchStyle(value, color)}
             />
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-left tabular-nums !text-[11px]",
-                // Hex is conventionally upper-case; a token name is not.
-                !tokenName && "uppercase",
-              )}
-            >
-              {tokenName ?? triggerLabel(effectivePaintType, color)}
+            <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase !text-[11px]">
+              {triggerLabel(effectivePaintType, color)}
             </span>
             <span className="tabular-nums text-muted-foreground !text-[11px]">
               {effectiveOpacity}%
@@ -1403,7 +1350,7 @@ export function DesignColorPicker({
           side="left"
           align="start"
           sideOffset={8}
-          className="z-[10000] max-h-[calc(100vh-5rem)] w-[252px] overflow-y-auto p-0 shadow-xl"
+          className="z-[10000] w-[252px] p-0 shadow-xl"
           // Keep the picker open when the style change triggered by a paint-type
           // switch causes the canvas to re-project the element. Without this,
           // Radix treats the resulting focus shift as an "interact outside" event
@@ -1828,91 +1775,6 @@ export function DesignColorPicker({
                           ))}
                         </SelectContent>
                       </Select>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Design system ────────────────────────────────────────── */}
-                {/* The linked Brand Kit's colour tokens, under the names the
-                    source system uses. Clicking one applies its value; it does
-                    not bind to the CSS variable, so the fill will not follow a
-                    later kit edit. */}
-                {designSystemColors && designSystemColors.length > 0 && (
-                  <div className="border-t border-border/70 px-3 py-2.5">
-                    <div className="mb-2 flex h-6 w-full items-center justify-between gap-2 px-0.5 !text-[11px] text-muted-foreground">
-                      <span className="truncate">
-                        {"Design system" /* i18n-ignore design picker source */}
-                      </span>
-                      {designSystemColors[0]?.source ? (
-                        <span className="shrink-0 truncate opacity-80">
-                          {designSystemColors[0].source}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {/* A list, not a swatch grid: the token's name is the whole
-                        point of this section, and a grid hides it behind hover. */}
-                    <div className="max-h-40 space-y-2 overflow-y-auto pe-0.5">
-                      {groupColorSwatches(designSystemColors).map((group) => (
-                        <div key={group.label ?? "ungrouped"}>
-                          {group.label ? (
-                            <div className="mb-1 truncate px-0.5 !text-[10px] text-muted-foreground/80">
-                              {group.label}
-                            </div>
-                          ) : null}
-                          <div className="space-y-0.5">
-                            {group.swatches.map((swatch) => {
-                              const isActive =
-                                !activeGradient && tokenName === swatch.name;
-                              return (
-                                <button
-                                  key={swatch.cssVar}
-                                  type="button"
-                                  disabled={disabled}
-                                  aria-label={swatchLabel(swatch)}
-                                  aria-pressed={isActive}
-                                  title={`${swatch.name} · ${swatch.cssVar}`}
-                                  className={cn(
-                                    "flex w-full items-center gap-2 rounded-sm border px-1 py-0.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    isActive
-                                      ? "border-primary bg-accent/40"
-                                      : "border-transparent hover:bg-accent/40",
-                                  )}
-                                  onClick={() => {
-                                    if (activeGradient) {
-                                      // The stop parser round-trips colours,
-                                      // not var() expressions.
-                                      emitStopColor(
-                                        parseCssColorExtended(swatch.value) ??
-                                          color,
-                                      );
-                                    } else {
-                                      emitTokenReference(
-                                        tokenReferenceValue(swatch),
-                                      );
-                                    }
-                                    notifyChangeComplete();
-                                  }}
-                                >
-                                  <span
-                                    className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                                    style={swatchStyle(swatch.value)}
-                                  />
-                                  <span className="min-w-0 flex-1 truncate !text-[11px] text-foreground">
-                                    {swatchLabel(swatch)}
-                                  </span>
-                                  <span className="shrink-0 font-mono uppercase !text-[10px] text-muted-foreground">
-                                    {rgbaToHex(
-                                      parseCssColorExtended(swatch.value) ??
-                                        color,
-                                    )}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
                     </div>
                   </div>
                 )}

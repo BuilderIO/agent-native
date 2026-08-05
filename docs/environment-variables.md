@@ -49,38 +49,38 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 
 ## Common application and deployment variables
 
-| Variable                                                           | Purpose                                                                                                              |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                     | Primary SQL connection URL. Local development falls back to SQLite when it is unset.                                 |
-| `DATABASE_AUTH_TOKEN`                                              | Separate database auth token for providers such as Turso/libSQL.                                                     |
-| `APP_URL`                                                          | Canonical public origin used for auth, OAuth, A2A, webhooks, and generated links.                                    |
-| `APP_BASE_PATH`                                                    | Server-side mount prefix for a workspace app such as `/mail`.                                                        |
-| `PORT`                                                             | Local Node/Nitro server port.                                                                                        |
-| `NITRO_PRESET`                                                     | Nitro build/deployment preset.                                                                                       |
-| `BETTER_AUTH_SECRET`                                               | Better Auth session-signing secret and legacy encryption fallback. Required in production.                           |
-| `BETTER_AUTH_URL`                                                  | Public origin used by Better Auth for cookies and callbacks.                                                         |
-| `OAUTH_STATE_SECRET`                                               | Dedicated OAuth state-signing secret; falls back to `BETTER_AUTH_SECRET`.                                            |
-| `A2A_SECRET`                                                       | Deploy-level HMAC for A2A and signed background handoffs.                                                            |
-| `SECRETS_ENCRYPTION_KEY`                                           | Legacy app-local/shared secret encryption key. Prefer the dedicated workspace key for shared vaults.                 |
-| `WORKSPACE_SECRETS_ENCRYPTION_KEY`                                 | Stable encryption key for a workspace-shared secrets vault.                                                          |
-| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`                        | Previous workspace vault key during a rotation window.                                                               |
-| `AUTH_MODE`                                                        | Local authentication mode selection.                                                                                 |
-| `AUTH_DISABLED`                                                    | Local/preview-only auth bypass; never use it for a public production app.                                            |
-| `AUTH_MAGIC_LINK`                                                  | Set to `0` to keep password-first browser sign-in; otherwise a ready email transport enables magic links by default. |
-| `ACCESS_TOKEN` / `ACCESS_TOKENS`                                   | Static bearer fallback for MCP/connect clients, not browser authentication.                                          |
-| `AGENT_PROD_CODE_EXECUTION`                                        | Production code-execution mode: `off`, `sandboxed`, or `trusted`.                                                    |
-| `AGENT_NATIVE_SSR_CACHE`                                           | Deployment-wide SSR shell cache policy.                                                                              |
-| `NODE_ENV`                                                         | Node runtime mode.                                                                                                   |
-| `CI`                                                               | Continuous-integration marker used by test/build behavior.                                                           |
-| `DEBUG`                                                            | General debug logging switch used by local tooling and selected runtime paths.                                       |
-| `COOKIE_DOMAIN` / `CORS_ALLOWED_ORIGINS`                           | Optional cookie-domain and cross-origin request policy.                                                              |
-| `PING_MESSAGE`                                                     | Minimal template smoke-test message used by example apps.                                                            |
-| `DATABASE_*`                                                       | Database URL, auth-token, and provider-specific connection variants.                                                 |
-| `NODE_*`                                                           | Node runtime and CLI options such as `NODE_ENV` and `NODE_OPTIONS`.                                                  |
-| `APP_*`                                                            | Server-side app identity and public-origin configuration.                                                            |
-| `A2A_*`                                                            | A2A lifetime, auth, and processing controls.                                                                         |
-| `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                      |
-| `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                              | Tool-specific configuration and package-manager home directories.                                                    |
+| Variable                                                           | Purpose                                                                                                            |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                                     | Primary SQL connection URL. Local development falls back to SQLite when it is unset.                               |
+| `DATABASE_AUTH_TOKEN`                                              | Separate database auth token for providers such as Turso/libSQL.                                                   |
+| `APP_URL`                                                          | Canonical public origin used for auth, OAuth, A2A, webhooks, and generated links.                                  |
+| `APP_BASE_PATH`                                                    | Server-side mount prefix for a workspace app such as `/mail`.                                                      |
+| `PORT`                                                             | Local Node/Nitro server port.                                                                                      |
+| `NITRO_PRESET`                                                     | Nitro build/deployment preset.                                                                                     |
+| `BETTER_AUTH_SECRET`                                               | Better Auth session-signing secret and legacy encryption fallback. Required in production.                         |
+| `BETTER_AUTH_URL`                                                  | Public origin used by Better Auth for cookies and callbacks.                                                       |
+| `OAUTH_STATE_SECRET`                                               | Dedicated OAuth state-signing secret; falls back to `BETTER_AUTH_SECRET`.                                          |
+| `A2A_SECRET`                                                       | Deploy-level HMAC for A2A and signed background handoffs.                                                          |
+| `SECRETS_ENCRYPTION_KEY`                                           | Legacy app-local/shared secret encryption key. Prefer the dedicated workspace key for shared vaults.               |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`                                 | Stable encryption key for a workspace-shared secrets vault.                                                        |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`                        | Previous workspace vault key during a rotation window.                                                             |
+| `AUTH_MODE`                                                        | Local authentication mode selection.                                                                               |
+| `AUTH_DISABLED`                                                    | Local/preview-only auth bypass; never use it for a public production app.                                          |
+| `AUTH_MAGIC_LINK`                                                  | Set to `0` to force the email/password fallback; otherwise a ready email transport enables magic links by default. |
+| `ACCESS_TOKEN` / `ACCESS_TOKENS`                                   | Static bearer fallback for MCP/connect clients, not browser authentication.                                        |
+| `AGENT_PROD_CODE_EXECUTION`                                        | Production code-execution mode: `off`, `sandboxed`, or `trusted`.                                                  |
+| `AGENT_NATIVE_SSR_CACHE`                                           | Deployment-wide SSR shell cache policy.                                                                            |
+| `NODE_ENV`                                                         | Node runtime mode.                                                                                                 |
+| `CI`                                                               | Continuous-integration marker used by test/build behavior.                                                         |
+| `DEBUG`                                                            | General debug logging switch used by local tooling and selected runtime paths.                                     |
+| `COOKIE_DOMAIN` / `CORS_ALLOWED_ORIGINS`                           | Optional cookie-domain and cross-origin request policy.                                                            |
+| `PING_MESSAGE`                                                     | Minimal template smoke-test message used by example apps.                                                          |
+| `DATABASE_*`                                                       | Database URL, auth-token, and provider-specific connection variants.                                               |
+| `NODE_*`                                                           | Node runtime and CLI options such as `NODE_ENV` and `NODE_OPTIONS`.                                                |
+| `APP_*`                                                            | Server-side app identity and public-origin configuration.                                                          |
+| `A2A_*`                                                            | A2A lifetime, auth, and processing controls.                                                                       |
+| `URL` / `PATH` / `HOME` / `PWD` / `SHELL` / `APPDATA` / `INIT_CWD` | Host-provided process and shell metadata used by local tooling.                                                    |
+| `CLAUDE_CONFIG_DIR` / `COREPACK_HOME`                              | Tool-specific configuration and package-manager home directories.                                                  |
 
 Database-specific `<APP_NAME>_DATABASE_URL` and
 `<APP_NAME>_DATABASE_AUTH_TOKEN` overrides are supported for workspace apps.

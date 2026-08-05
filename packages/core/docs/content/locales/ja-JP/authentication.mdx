@@ -11,7 +11,7 @@ description: "電子メール/パスワード、ソーシャル プロバイダ�
 
 認証は、認証サーバー プラグインの `autoMountAuth(app)` を介して自動的に構成されます。 3 つのモードがあります:
 
-- **デフォルト:** 電子メール/パスワード + ソーシャルプロバイダーによる認証の向上。初回訪問時にオンボーディング ページが表示されます。
+- **デフォルト:** 送信メールの準備ができている場合は Better Auth の magic link を優先し、電子メール/パスワードをフォールバックとしてソーシャルプロバイダーとともに使用します。フォールバックを強制するには `AUTH_MAGIC_LINK=0` を設定します。
 - **リモート MCP OAuth:** Claude コードや ChatGPT コネクタなどの MCP ホスト用の標準 OAuth 2.1。
 - **カスタム:** `getSession` コールバック経由で独自の認証を取得します。
 
@@ -106,7 +106,7 @@ description: "電子メール/パスワード、ソーシャル プロバイダ�
 
 デフォルトでは、Better Auth が認証を強化します。以下を提供します:
 
-- 電子メール/パスワードの登録とログイン
+- magic link による登録とログイン（電子メール/パスワードをフォールバックとして使用）
 - ソーシャル プロバイダー (Google、GitHub、その他 35 社以上)
 - 役割と招待状を持つ組織
 - API および A2A アクセス用の JWT トークン
@@ -115,6 +115,7 @@ description: "電子メール/パスワード、ソーシャル プロバイダ�
 Better Auth ルートは `/_agent-native/auth/ba/*` にマウントされます。このフレームワークは、下位互換性のあるエンドポイントも提供します。
 
 - `GET /_agent-native/auth/session` — 現在のセッションを取得
+- `POST /_agent-native/auth/magic-link` — magic link メールをリクエスト
 - `POST /_agent-native/auth/login` — 電子メール/パスワードによるログイン
 - `POST /_agent-native/auth/register` — アカウントを作成
 - `POST /_agent-native/auth/logout` — サインアウト
