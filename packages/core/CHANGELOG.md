@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.141.5
+
+### Patch Changes
+
+- f836d7e: Replace the single Server doc with a Server section (overview, database, middleware, plugins, routes), translated into all 10 locales, and add a draft-docs mechanism (`draft: true` frontmatter) so in-progress pages stay hidden from nav and 404 outside preview.
+
 ## 0.141.4
 
 ### Patch Changes
