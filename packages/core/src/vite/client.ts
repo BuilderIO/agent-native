@@ -981,8 +981,8 @@ function getAssistantUiAliases(
 ): Array<{ find: RegExp; replacement: string }> {
   try {
     const appRequire = createRequire(path.join(cwd, "package.json"));
-    const coreViteEntry = appRequire.resolve("@agent-native/core/vite");
-    const coreRequire = createRequire(coreViteEntry);
+    const assistantUiEntry = appRequire.resolve("@assistant-ui/react");
+    const assistantUiRequire = createRequire(assistantUiEntry);
     return [
       // A linked framework checkout can otherwise resolve the assistant-ui
       // imports in core's source graph from the checkout's React 19.2.7 peer
@@ -991,27 +991,27 @@ function getAssistantUiAliases(
       // to the consuming app's installed peer graph explicitly.
       {
         find: /^@assistant-ui\/react$/,
-        replacement: coreRequire.resolve("@assistant-ui/react"),
+        replacement: assistantUiRequire.resolve("@assistant-ui/react"),
       },
       {
         find: /^@assistant-ui\/core$/,
-        replacement: coreRequire.resolve("@assistant-ui/core"),
+        replacement: assistantUiRequire.resolve("@assistant-ui/core"),
       },
       {
         find: /^@assistant-ui\/store$/,
-        replacement: coreRequire.resolve("@assistant-ui/store"),
+        replacement: assistantUiRequire.resolve("@assistant-ui/store"),
       },
       {
         find: /^@assistant-ui\/tap$/,
-        replacement: coreRequire.resolve("@assistant-ui/tap"),
+        replacement: assistantUiRequire.resolve("@assistant-ui/tap"),
       },
       {
         find: /^assistant-stream$/,
-        replacement: coreRequire.resolve("assistant-stream"),
+        replacement: assistantUiRequire.resolve("assistant-stream"),
       },
       {
         find: /^assistant-stream\/utils$/,
-        replacement: coreRequire.resolve("assistant-stream/utils"),
+        replacement: assistantUiRequire.resolve("assistant-stream/utils"),
       },
     ];
   } catch {
