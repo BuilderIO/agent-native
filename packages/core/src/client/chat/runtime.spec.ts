@@ -425,6 +425,63 @@ describe("createAgentChatRuntimeAdapter", () => {
     expect(toolCalls[1].approval).toBeUndefined();
   });
 
+  it("leaves an approval unattached when its call id matches nothing", async () => {
+    const runtime: AgentChatRuntime = {
+      id: "external:test",
+      kind: "external-agent",
+      label: "Test",
+      capabilities: {
+        messages: { streaming: true },
+        sessions: { create: true },
+      },
+      async createSession() {
+        return {
+          id: "session-1",
+          runtimeId: "external:test",
+          async startTurn() {
+            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+              yield {
+                type: "tool-start",
+                toolCall: { id: "call-2", name: "start-prospect-run" },
+              };
+              // Approval for a call this reader never saw. It must not latch
+              // onto call-2 just because the tool name matches.
+              yield {
+                type: "approval-request",
+                approvalId: "start-prospect-run:call-1",
+                toolCallId: "call-1",
+                toolName: "start-prospect-run",
+                message: "Approve this tool call?",
+              };
+              yield { type: "done", reason: "complete" };
+            }
+            return {
+              id: "turn-1",
+              sessionId: "session-1",
+              runId: "run-1",
+              events: events(),
+            };
+          },
+        };
+      },
+    };
+    const adapter = createAgentChatRuntimeAdapter(runtime);
+
+    const results = await drain(
+      adapter.run({
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        abortSignal: new AbortController().signal,
+        runConfig: {},
+      } as any),
+    );
+
+    const toolCalls = (results.at(-1)?.content ?? []).filter(
+      (part: any) => part.type === "tool-call",
+    ) as any[];
+    const call2 = toolCalls.find((part) => part.toolCallId === "call-2");
+    expect(call2?.approval).toBeUndefined();
+  });
+
   it("adapts runtime events into assistant-ui content", async () => {
     const runtime: AgentChatRuntime = {
       id: "external:test",

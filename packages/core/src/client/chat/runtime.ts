@@ -1640,21 +1640,19 @@ function applyRuntimeEventToContent(
       candidate: ContentPart,
     ): candidate is Extract<ContentPart, { type: "tool-call" }> =>
       candidate.type === "tool-call";
-    // Prefer the exact call id. Matching on tool name alone attaches the gate
-    // to the most recent same-named call, which is the wrong one when several
-    // calls to the same action are in flight.
-    const part =
-      (typed.toolCallId
-        ? reversed.find(
-            (candidate) =>
-              isToolCall(candidate) &&
-              candidate.toolCallId === typed.toolCallId,
-          )
-        : undefined) ??
-      reversed.find(
-        (candidate) =>
-          isToolCall(candidate) && candidate.toolName === typed.toolName,
-      );
+    // Match on the exact call id whenever the server supplied one. Falling back
+    // to "newest call with this name" would hand this call's approvalKey to a
+    // different parallel call of the same action, so name matching is reserved
+    // for events that carry no id at all.
+    const part = typed.toolCallId
+      ? reversed.find(
+          (candidate) =>
+            isToolCall(candidate) && candidate.toolCallId === typed.toolCallId,
+        )
+      : reversed.find(
+          (candidate) =>
+            isToolCall(candidate) && candidate.toolName === typed.toolName,
+        );
     if (part && part.type === "tool-call") {
       part.approval = { approvalKey: typed.approvalId };
     } else {
