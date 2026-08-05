@@ -1,6 +1,7 @@
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
+import { analyticsUrl } from "../lib/app-url";
 import { sendDashboardReportSubscription } from "../lib/dashboard-report";
 import {
   claimDueDashboardReportSubscriptions,
@@ -86,6 +87,14 @@ async function notifyDashboardReportGaveUp(
           // The email channel is a no-op without explicit recipients.
           emailRecipients: [sub.ownerEmail],
           emailSubject: "Your scheduled dashboard report did not send",
+          emailFooter:
+            "You received this because you scheduled this report. Change or cancel it in {link}.",
+          emailFooterLinkLabel: "your dashboard reports",
+          emailFooterLinkUrl: analyticsUrl(
+            sub.dashboardId
+              ? `/dashboards/${encodeURIComponent(sub.dashboardId)}`
+              : "/dashboards",
+          ),
         },
       },
       { owner: sub.ownerEmail },

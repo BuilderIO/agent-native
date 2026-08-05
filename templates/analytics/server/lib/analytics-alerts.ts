@@ -17,6 +17,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { analyticsUrl } from "./app-url.js";
 
 export type AnalyticsAlertFilterOp =
   | "equals"
@@ -883,6 +884,10 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
         filters: rule.filters,
         sampleEvents: evaluation.sampleEvents,
         emailRecipients: rule.emailRecipients,
+        emailFooter:
+          "You received this because this alert rule emails you. Change its recipients in {link}.",
+        emailFooterLinkLabel: "Analytics settings",
+        emailFooterLinkUrl: analyticsUrl("/settings"),
         requestedChannels: rule.channels,
         ...(deliveryMetadata ? { delivery: deliveryMetadata } : {}),
       },

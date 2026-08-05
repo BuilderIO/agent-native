@@ -38,6 +38,10 @@ const messages = {
     editorDescription:
       "Öffne und prüfe Pläne in einem Seitenbereich in VS Code statt in einem separaten Browser-Tab.",
     openEditorExtension: "VS-Code-Erweiterung holen",
+    emailNotifications: "E-Mail-Benachrichtigungen",
+    emailNotificationsDescription:
+      "Erhalte eine E-Mail, wenn jemand deinen Plan kommentiert, antwortet oder dich erwähnt.",
+    saveFailed: "Speichern fehlgeschlagen",
   },
   agent: {
     emptyState:

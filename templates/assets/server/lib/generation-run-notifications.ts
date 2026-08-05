@@ -7,6 +7,7 @@
  * there would mail a user who is already looking at the image.
  */
 import { notifyWithDelivery } from "@agent-native/core/notifications";
+import { getAppProductionUrl } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 
 import {
@@ -71,7 +72,16 @@ export async function notifyGenerationRunFinished(
           libraryId: run.libraryId,
           outcome,
           // The email channel is a no-op without explicit recipients.
-          ...(emailed ? { emailRecipients: [owner], emailSubject: title } : {}),
+          ...(emailed
+            ? {
+                emailRecipients: [owner],
+                emailSubject: title,
+                emailFooter:
+                  "You received this because email notifications are on in your {link}.",
+                emailFooterLinkLabel: "Assets settings",
+                emailFooterLinkUrl: `${getAppProductionUrl().replace(/\/+$/, "")}/settings`,
+              }
+            : {}),
         },
       },
       { owner },

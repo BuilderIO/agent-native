@@ -38,6 +38,10 @@ const messages = {
     editorDescription:
       "別のブラウザータブではなく、VS Code のサイドパネルでプランを開いてレビューします。",
     openEditorExtension: "VS Code 拡張機能を入手",
+    emailNotifications: "メール通知",
+    emailNotificationsDescription:
+      "誰かがあなたのプランにコメント、返信、またはあなたにメンションしたときにメールを受け取ります。",
+    saveFailed: "保存できませんでした",
   },
   agent: {
     emptyState:

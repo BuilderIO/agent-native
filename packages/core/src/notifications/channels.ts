@@ -25,6 +25,10 @@
  *                            → comma-separated fallback recipients for email
  *                              notifications that do not pass
  *                              `metadata.emailRecipients`.
+ *
+ * Per-notification email metadata: `emailRecipients`, `emailSubject`, and an
+ * optional `emailFooter` (a `{link}` token in it is filled from
+ * `emailFooterLinkLabel` + `emailFooterLinkUrl`).
  */
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
@@ -35,6 +39,7 @@ import {
   resolveKeyReferencesWithRequestScopes,
   validateUrlAllowlist,
 } from "../secrets/substitution.js";
+import { renderEmail } from "../server/email-template.js";
 import { sendEmail } from "../server/email.js";
 import { registerNotificationChannel } from "./registry.js";
 import type { NotificationChannel, NotificationInput } from "./types.js";
@@ -191,11 +196,12 @@ function createEmailChannel(): NotificationChannel {
         input.metadata.emailSubject.trim()
           ? input.metadata.emailSubject.trim()
           : `[${input.severity}] ${input.title}`;
-      const text = `${input.title}\n\n${input.body ?? ""}`;
-      const html = [
-        `<p><strong>${escapeHtml(input.title)}</strong></p>`,
-        input.body ? `<p>${escapeHtml(input.body)}</p>` : "",
-      ].join("");
+      const { html, text } = renderEmail({
+        preheader: input.title,
+        heading: input.title,
+        paragraphs: input.body ? [escapeHtml(input.body)] : [],
+        ...notificationEmailFooter(input.metadata),
+      });
 
       await Promise.all(
         recipients.map((to) =>
@@ -336,6 +342,26 @@ function scrubDeliveryMetadata(
       key !== "delivery" && key !== "webhookUrl" && key !== "slackWebhookUrl",
   );
   return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+/**
+ * A notification only claims an opt-out exists when its sender named one.
+ * Env-configured ops recipients have no per-user toggle, so they must not be
+ * told to go turn one off.
+ */
+function notificationEmailFooter(
+  metadata: Record<string, unknown> | undefined,
+): { footer?: string; footerLink?: { label: string; url: string } } {
+  const footer = trimmedString(metadata?.emailFooter);
+  if (!footer) return {};
+  const label = trimmedString(metadata?.emailFooterLinkLabel);
+  const url = trimmedString(metadata?.emailFooterLinkUrl);
+  return label && url ? { footer, footerLink: { label, url } } : { footer };
+}
+
+function trimmedString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value.trim() || undefined;
 }
 
 function notificationEmailRecipients(

@@ -38,6 +38,10 @@ export function getDeckUrl(deckId: string): string {
   return `${getSlidesAppUrl()}/deck/${deckId}`;
 }
 
+export function getSettingsUrl(): string {
+  return `${getSlidesAppUrl()}/settings`;
+}
+
 export function getExportUrl(filename: string): string {
   return `${getSlidesAppUrl()}/api/exports/${filename}`;
 }

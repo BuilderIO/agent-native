@@ -54,8 +54,14 @@ export interface RenderEmailArgs {
   heroHtml?: string;
   /** Body paragraphs rendered after the CTA and link block. Escaped-by-caller. */
   closingParagraphs?: string[];
-  /** Small muted text under the CTA (e.g. expiry note). */
+  /**
+   * Small muted text under the CTA (e.g. expiry note). A `{link}` token is
+   * replaced by `footerLink` — an anchor in the HTML part, and `label (url)` in
+   * the plain-text part so the destination survives there too.
+   */
   footer?: string;
+  /** Destination for the `{link}` token in `footer`. */
+  footerLink?: EmailCta;
   /** Optional app name shown beside the framework logo. */
   brandName?: string;
   /**
@@ -87,6 +93,18 @@ function escapeHtml(s: string): string {
 
 function escapeAttr(s: string): string {
   return escapeHtml(s);
+}
+
+/**
+ * Leaves the token in the copy when no link was supplied. A silently dropped
+ * token would read as a finished sentence that quietly points nowhere.
+ */
+function resolveFooterLink(
+  footer: string,
+  link: EmailCta | undefined,
+  render: (target: EmailCta) => string,
+): string {
+  return link ? footer.replace(/\{link\}/g, render(link)) : footer;
 }
 
 /**
@@ -185,7 +203,14 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     : "";
 
   const footerHtml = args.footer
-    ? `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${escapeHtml(args.footer)}</p>`
+    ? // guard:allow-raw-color — inlined for email clients
+      `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${resolveFooterLink(
+        escapeHtml(args.footer),
+        args.footerLink,
+        (link) =>
+          // guard:allow-raw-color — inlined for email clients
+          `<a href="${escapeAttr(link.url)}" style="color:#a1a1aa; text-decoration:underline;">${escapeHtml(link.label)}</a>`,
+      )}</p>`
     : "";
 
   const brandHeaderHtml = `
@@ -273,7 +298,13 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     textLines.push("");
   }
   if (args.footer) {
-    textLines.push(args.footer);
+    textLines.push(
+      resolveFooterLink(
+        args.footer,
+        args.footerLink,
+        (link) => `${link.label} (${link.url})`,
+      ),
+    );
   }
 
   return { html, text: textLines.join("\n").trim() };

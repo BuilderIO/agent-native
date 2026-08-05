@@ -18,7 +18,7 @@ import {
 import { filterRecipientsByResourceAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
-import { getDeckUrl } from "../../actions/_app-url.js";
+import { getDeckUrl, getSettingsUrl } from "../../actions/_app-url.js";
 import { SLIDES_USER_PREFS_KEY } from "../../shared/slides-user-prefs.js";
 import { getDb, schema } from "../db/index.js";
 
@@ -166,7 +166,8 @@ async function deliverDeckCommentEmails(input: {
         ],
         cta: { label: "Open deck", url },
         footer:
-          "You received this because you own or participated in this thread. Turn these off in Slides settings.",
+          "You received this because you own or participated in this thread. Turn these off in {link}.",
+        footerLink: { label: "Slides settings", url: getSettingsUrl() },
       });
 
       await sendEmail({

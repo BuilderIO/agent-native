@@ -38,6 +38,10 @@ const messages = {
     editorDescription:
       "별도의 브라우저 탭 대신 VS Code 사이드 패널에서 계획을 열고 검토하세요.",
     openEditorExtension: "VS Code 확장 프로그램 받기",
+    emailNotifications: "이메일 알림",
+    emailNotificationsDescription:
+      "누군가 내 플랜에 댓글을 달거나 답글을 남기거나 나를 멘션하면 이메일을 받습니다.",
+    saveFailed: "저장하지 못했습니다",
   },
   agent: {
     emptyState:

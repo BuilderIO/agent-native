@@ -21,7 +21,7 @@ const EMAIL_SEND_TIMEOUT_MS = 60_000;
 const FRIENDLY_REPLY_TO = "hello@agent-native.com";
 const UNTITLED_CLIP = "Untitled Clip";
 const ACTIVITY_EMAIL_FOOTER =
-  "You received this because email notifications are on in your Clips settings.";
+  "You received this because email notifications are on in your {link}.";
 
 interface TransactionalEmailBase {
   to: string;
@@ -187,6 +187,10 @@ function quotedExcerpt(value: string): string {
 
 function recordUrl(options: ClipsTransactionalEmailRenderOptions): string {
   return appUrlForPath("/record", options);
+}
+
+function settingsLink(options: ClipsTransactionalEmailRenderOptions) {
+  return { label: "Clips settings", url: appUrlForPath("/settings", options) };
 }
 
 function resolveBrandLogoUrl(
@@ -378,13 +382,13 @@ export function renderClipsTransactionalEmail(
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         preheader: subject,
-        heading: "Someone watched your Clip",
+        heading: `${viewer} watched “${title}”`,
         paragraphs: [
           `${emailStrong(viewer)} registered the first view of ${emailStrong(title!)}.`,
           "Clips tracks advanced analytics on your viewers' activity, and can even tell you whether your recipient took AI actions with your link. Come back to Clips to view analytics, or configure Clips AI to take agentic actions on your behalf.",
         ],
         cta: {
-          label: "See Clip activity",
+          label: "See all Clip activity",
           url: clipUrl(input.recordingId, options),
         },
         footer:
@@ -546,6 +550,7 @@ export function renderClipsTransactionalEmail(
           ),
         },
         footer: ACTIVITY_EMAIL_FOOTER,
+        footerLink: settingsLink(options),
       });
       return { subject, ...rendered };
     }
@@ -562,12 +567,12 @@ export function renderClipsTransactionalEmail(
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         preheader: subject,
-        heading: "Someone reacted to your Clip",
+        heading: `${author} reacted to “${title}”`,
         paragraphs: [
           `${emailStrong(author)} reacted ${emailStrong(input.emoji)} on ${emailStrong(title!)}${at}.`,
         ],
         cta: {
-          label: "See Clip activity",
+          label: "See all Clip activity",
           url: clipCommentsUrl(
             input.recordingId,
             input.videoTimestampMs,
@@ -575,6 +580,7 @@ export function renderClipsTransactionalEmail(
           ),
         },
         footer: ACTIVITY_EMAIL_FOOTER,
+        footerLink: settingsLink(options),
       });
       return { subject, ...rendered };
     }
