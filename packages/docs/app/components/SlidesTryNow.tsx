@@ -78,14 +78,11 @@ export function SlidesTryNow() {
     [],
   );
 
-  function streamStyleGuide(reference: DesignReference, sourceUrl: string) {
+  function streamStyleGuide(reference: DesignReference) {
     const editor = editorRef.current;
     if (!editor) return;
 
-    const subject = [reference.title, reference.description]
-      .filter(Boolean)
-      .join(", ");
-    if (subject) replaceSubjectPlaceholder(editor, subject);
+    if (reference.title) replaceSubjectPlaceholder(editor, reference.title);
 
     const colors = [
       reference.primaryColor && {
@@ -113,16 +110,11 @@ export function SlidesTryNow() {
       ? `${tn("findingFonts")}: ${fonts.join(", ")}`
       : "";
     const findings = [colorFinding, fontFinding].filter(Boolean);
-    const displayUrl = new URL(sourceUrl).hostname.replace(/^www\./i, "");
-    const hasTitle =
-      Boolean(reference.title) &&
-      reference.title.toLowerCase() !== displayUrl.toLowerCase();
-    const header = hasTitle
-      ? `${reference.title} (${displayUrl})${
-          reference.description ? `, — ${reference.description}` : ""
-        }`
-      : `${displayUrl}${reference.description ? ` — ${reference.description}` : ""}`;
-    const text = `${tn("styleGuidePrefix")} ${header}${
+    const header = `## ${tn("styleGuidePrefix")} ${reference.title}`;
+    const descriptionLine = reference.description
+      ? `\n${reference.description}`
+      : "";
+    const text = `${header}${descriptionLine}${
       findings.length ? `\n${findings.join("\n")}` : ""
     }`;
     const target = appendStyleGuideTarget(editor);
@@ -135,7 +127,7 @@ export function SlidesTryNow() {
         clearInterval(streamTimerRef.current);
         streamTimerRef.current = null;
         if (colors.length) {
-          target.textContent = `${tn("styleGuidePrefix")} ${header}\n${tn("findingColors")}: `;
+          target.textContent = `${header}${descriptionLine}\n${tn("findingColors")}: `;
           colors.forEach((color, index) => {
             if (index) target.append(", ");
             appendColorSwatch(target, color.code);
@@ -197,7 +189,7 @@ export function SlidesTryNow() {
         { url: safeUrl },
         { method: "GET" },
       )) as DesignReference;
-      streamStyleGuide(reference, safeUrl);
+      streamStyleGuide(reference);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : tn("crawlError"));
     } finally {
