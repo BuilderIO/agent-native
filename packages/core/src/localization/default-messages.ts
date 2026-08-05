@@ -216,6 +216,8 @@ const messages = {
       retentionNote:
         "The email provider's activity feed only retains recent messages, so an empty activity list does not mean nothing was sent.",
       openRatesUnavailable: "Open rates unavailable",
+      sharedProviderMetricsUnavailable:
+        "Provider metrics vary by sending app. Expand an app to see its provider data.",
       catalogFanoutFailed: "Could not load app email catalogs",
       retry: "Retry",
       noApps: "No ready apps reported a transactional email catalog.",
@@ -238,6 +240,7 @@ const messages = {
       noProviderRecord:
         "The provider reported no record for this email in the window.",
       noDeliveredMail: "No delivered mail yet",
+      neverSent: "Never sent",
       lastSentUnknown:
         "The send log could not be read, so the last send time is unknown.",
       preview: "Preview",

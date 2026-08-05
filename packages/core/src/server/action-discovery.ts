@@ -618,6 +618,14 @@ export async function mergeCoreSharingActions(
       () => import("../email-catalog/actions/list-email-log.js"),
     ],
     [
+      "list-email-activity",
+      () => import("../email-catalog/actions/list-email-activity.js"),
+    ],
+    [
+      "list-email-engagement",
+      () => import("../email-catalog/actions/list-email-engagement.js"),
+    ],
+    [
       "get-feature-flags",
       () => import("../feature-flags/actions/get-feature-flags.js"),
     ],

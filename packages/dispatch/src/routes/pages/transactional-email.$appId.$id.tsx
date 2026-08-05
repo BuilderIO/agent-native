@@ -1,13 +1,17 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconArrowLeft } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link, useParams } from "react-router";
 
 import {
+  aggregateSharedEmails,
+  callAppAction,
   fetchAppEmailCatalog,
+  type AppEmailCatalog,
   type AppTransactionalEmail,
+  type LocalTransactionalEmailCatalog,
 } from "../../client/transactional-emails";
 import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -41,12 +45,6 @@ interface WorkspaceAppRef {
   status?: "ready" | "pending";
 }
 
-interface LocalTransactionalEmailCatalog {
-  statsAvailable: boolean;
-  statsError: string | null;
-  emails: AppTransactionalEmail[];
-}
-
 /**
  * Resolves the one email this page shows, plus the app name/path to display.
  * The "core" appId is Dispatch's own registry, not a cross-app fetch — see
@@ -62,15 +60,28 @@ function useEmailDetail(appId: string, id: string) {
     { enabled: isCore },
   );
 
-  const appsQuery = useActionQuery<WorkspaceAppRef[]>(
-    "list-workspace-apps",
-    { includeAgentCards: false },
-    { enabled: !isCore },
+  const appsQuery = useActionQuery<WorkspaceAppRef[]>("list-workspace-apps", {
+    includeAgentCards: false,
+  });
+  const readyApps = useMemo(
+    () =>
+      (appsQuery.data ?? []).filter(
+        (candidate) => candidate.status !== "pending",
+      ),
+    [appsQuery.data],
   );
   const app = useMemo(
-    () => (appsQuery.data ?? []).find((candidate) => candidate.id === appId),
-    [appsQuery.data, appId],
+    () => readyApps.find((candidate) => candidate.id === appId),
+    [readyApps, appId],
   );
+  const coreCatalogQueries = useQueries({
+    queries: readyApps.map((candidate) => ({
+      queryKey: ["transactional-email-catalog", candidate.id, WINDOW_DAYS],
+      queryFn: () => fetchAppEmailCatalog(candidate, WINDOW_DAYS),
+      enabled: isCore,
+      staleTime: Infinity,
+    })),
+  });
   const remoteQuery = useQuery({
     queryKey: ["transactional-email-catalog", appId, WINDOW_DAYS],
     queryFn: () => fetchAppEmailCatalog(app!, WINDOW_DAYS),
@@ -79,19 +90,41 @@ function useEmailDetail(appId: string, id: string) {
   });
 
   if (isCore) {
-    const email = localQuery.data?.emails.find(
-      (candidate) => candidate.id === id && candidate.app === "core",
-    );
+    const appCatalogs = coreCatalogQueries
+      .map((query) => query.data)
+      .filter((catalog): catalog is AppEmailCatalog => Boolean(catalog));
+    const aggregate = localQuery.data
+      ? aggregateSharedEmails(localQuery.data, appCatalogs)
+      : undefined;
+    const email = aggregate?.emails.find((candidate) => candidate.id === id);
+    const catalogError = coreCatalogQueries.find(
+      (query) => query.data?.error || query.data?.statsError,
+    )?.data;
+    const queryError = coreCatalogQueries.find((query) => query.isError)?.error;
+    const isLoading =
+      localQuery.isLoading ||
+      appsQuery.isLoading ||
+      coreCatalogQueries.some((query) => query.isLoading);
+    const isError =
+      localQuery.isError || appsQuery.isError || Boolean(queryError);
     return {
-      isLoading: localQuery.isLoading,
-      isError: localQuery.isError,
-      error: localQuery.error,
-      onRetry: () => void localQuery.refetch(),
+      isLoading,
+      isError,
+      error: localQuery.error ?? appsQuery.error ?? queryError,
+      onRetry: () => {
+        void localQuery.refetch();
+        void appsQuery.refetch();
+        for (const query of coreCatalogQueries) void query.refetch();
+      },
       appName: t("dispatch.transactionalEmail.sharedTitle"),
       appPath: t("dispatch.transactionalEmail.sharedSubtitle"),
       email,
-      catalogError: null as string | null,
-      notFound: !localQuery.isLoading && !localQuery.isError && !email,
+      catalogError:
+        aggregate?.statsError ??
+        catalogError?.error ??
+        catalogError?.statsError ??
+        null,
+      notFound: !isLoading && !isError && !email,
     };
   }
 
@@ -128,31 +161,50 @@ export default function TransactionalEmailDetailRoute() {
 
   const detail = useEmailDetail(appId, id);
 
+  const sharedProviderReason = t(
+    "dispatch.transactionalEmail.sharedProviderMetricsUnavailable",
+  );
   const engagementQuery = useQuery({
-    queryKey: ["list-email-engagement", id, WINDOW_DAYS],
+    queryKey: ["list-email-engagement", detail.appPath, id, WINDOW_DAYS],
     queryFn: () =>
-      callAction<ProviderMetricsResult<EmailEngagement[]>>(
+      callAppAction<ProviderMetricsResult<EmailEngagement[]>>(
+        detail.appPath,
         "list-email-engagement",
         { templateIds: [id], windowDays: WINDOW_DAYS },
+        "POST",
       ),
-    enabled: id.length > 0,
+    enabled: appId !== "core" && id.length > 0 && detail.appPath.length > 0,
   });
   const engagementResult = engagementQuery.data;
   const engagementUnavailable =
-    engagementResult && !engagementResult.available
-      ? engagementResult.reason
-      : engagementQuery.isError
-        ? engagementQuery.error instanceof Error
-          ? engagementQuery.error.message
-          : String(engagementQuery.error)
-        : null;
+    appId === "core"
+      ? sharedProviderReason
+      : engagementResult && !engagementResult.available
+        ? engagementResult.reason
+        : engagementQuery.isError
+          ? engagementQuery.error instanceof Error
+            ? engagementQuery.error.message
+            : String(engagementQuery.error)
+          : null;
   const engagement = engagementResult?.available
     ? engagementResult.data.find((entry) => entry.templateId === id)
     : undefined;
 
-  const activityQuery = useActionQuery<
-    ProviderMetricsResult<EmailActivityEntry[]>
-  >("list-email-activity", { templateId: id, limit: ACTIVITY_LIMIT });
+  const activityQuery = useQuery({
+    queryKey: ["list-email-activity", detail.appPath, id, ACTIVITY_LIMIT],
+    queryFn: () =>
+      callAppAction<ProviderMetricsResult<EmailActivityEntry[]>>(
+        detail.appPath,
+        "list-email-activity",
+        { templateId: id, limit: ACTIVITY_LIMIT },
+        "GET",
+      ),
+    enabled:
+      appId !== "core" &&
+      id.length > 0 &&
+      detail.appPath.length > 0 &&
+      !engagementUnavailable,
+  });
 
   return (
     <DispatchShell
@@ -255,7 +307,10 @@ export default function TransactionalEmailDetailRoute() {
                     {t("dispatch.transactionalEmail.lastSent")}
                   </div>
                   <div className="mt-1">
-                    <LastSentCell lastSentAt={detail.email.lastSentAt} />
+                    <LastSentCell
+                      lastSentAt={detail.email.lastSentAt}
+                      sent={detail.email.sent}
+                    />
                   </div>
                 </div>
               </div>
@@ -287,7 +342,11 @@ export default function TransactionalEmailDetailRoute() {
               </p>
               <div className="mt-4">
                 <ActivityTable
-                  result={activityQuery.data}
+                  result={
+                    engagementUnavailable
+                      ? { available: false, reason: engagementUnavailable }
+                      : activityQuery.data
+                  }
                   isLoading={activityQuery.isLoading}
                   isError={activityQuery.isError}
                   error={activityQuery.error}

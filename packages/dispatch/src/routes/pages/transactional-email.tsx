@@ -13,9 +13,12 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import {
+  aggregateSharedEmails,
+  callAppAction,
   fetchAppEmailCatalog,
   type AppEmailCatalog,
   type AppTransactionalEmail,
+  type LocalTransactionalEmailCatalog,
 } from "../../client/transactional-emails";
 import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -70,12 +73,6 @@ interface WorkspaceAppRef {
 }
 
 /** Shape of the local `list-transactional-emails` action response. */
-interface LocalTransactionalEmailCatalog {
-  statsAvailable: boolean;
-  statsError: string | null;
-  emails: AppTransactionalEmail[];
-}
-
 function PreviewDialog({
   email,
   appId,
@@ -114,21 +111,29 @@ function PreviewDialog({
 
 function ActivityDialog({
   email,
+  appPath,
+  unavailableReason,
   open,
   onOpenChange,
 }: {
   email: AppTransactionalEmail;
+  appPath: string;
+  unavailableReason: string | null;
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }) {
   const t = useT();
-  const activityQuery = useActionQuery<
-    ProviderMetricsResult<EmailActivityEntry[]>
-  >(
-    "list-email-activity",
-    { templateId: email.id, limit: ACTIVITY_LIMIT },
-    { enabled: open },
-  );
+  const activityQuery = useQuery({
+    queryKey: ["list-email-activity", appPath, email.id, ACTIVITY_LIMIT],
+    queryFn: () =>
+      callAppAction<ProviderMetricsResult<EmailActivityEntry[]>>(
+        appPath,
+        "list-email-activity",
+        { templateId: email.id, limit: ACTIVITY_LIMIT },
+        "GET",
+      ),
+    enabled: open && !unavailableReason,
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -144,7 +149,11 @@ function ActivityDialog({
           </DialogDescription>
         </DialogHeader>
         <ActivityTable
-          result={activityQuery.data}
+          result={
+            unavailableReason
+              ? { available: false, reason: unavailableReason }
+              : activityQuery.data
+          }
           isLoading={activityQuery.isLoading}
           isError={activityQuery.isError}
           error={activityQuery.error}
@@ -207,7 +216,7 @@ function EmailRow({
         />
       </TableCell>
       <TableCell className="align-top text-xs text-muted-foreground">
-        <LastSentCell lastSentAt={email.lastSentAt} />
+        <LastSentCell lastSentAt={email.lastSentAt} sent={email.sent} />
       </TableCell>
       <TableCell className="align-top">
         <div className="flex justify-end gap-2">
@@ -237,6 +246,8 @@ function EmailRow({
         />
         <ActivityDialog
           email={email}
+          appPath={appPath}
+          unavailableReason={engagementUnavailable}
           open={activityOpen}
           onOpenChange={setActivityOpen}
         />
@@ -395,80 +406,71 @@ export default function TransactionalEmailRoute() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [sharedOpen, setSharedOpen] = useState(true);
 
-  // Core system emails are the same three ids in every app, and Dispatch has
-  // them registered locally (they ship with the framework), so this section
-  // never needs the cross-app fetch the other cards use on expand.
   const sharedQuery = useActionQuery<LocalTransactionalEmailCatalog>(
     "list-transactional-emails",
     { windowDays: WINDOW_DAYS },
   );
-  const sharedCatalog: AppEmailCatalog | undefined = sharedQuery.data
-    ? {
-        appId: "core",
-        appName: t("dispatch.transactionalEmail.sharedTitle"),
-        appPath: t("dispatch.transactionalEmail.sharedSubtitle"),
-        emails: sharedQuery.data.emails.filter((email) => email.app === "core"),
-        error: null,
-        statsError: sharedQuery.data.statsAvailable
-          ? null
-          : (sharedQuery.data.statsError ?? "unknown"),
-      }
-    : undefined;
 
-  // useQueries (rather than a per-card useQuery) keeps every app's catalog in
-  // its own cache entry keyed by app id, so expanding one app fetches only
-  // that app and this component can still read every expanded catalog's ids
-  // for the engagement query below.
   const catalogQueries = useQueries({
     queries: apps.map((app) => ({
       queryKey: ["transactional-email-catalog", app.id, WINDOW_DAYS],
       queryFn: () => fetchAppEmailCatalog(app, WINDOW_DAYS),
-      enabled: expanded[app.id] === true,
+      enabled: sharedOpen || expanded[app.id] === true,
       staleTime: Infinity,
     })),
   });
 
-  const templateIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const email of sharedCatalog?.emails ?? []) ids.add(email.id);
-    apps.forEach((app, index) => {
-      if (!expanded[app.id]) return;
-      const catalog = catalogQueries[index]?.data;
-      if (!catalog || catalog.error) return;
-      for (const email of catalog.emails) ids.add(email.id);
-    });
-    return [...ids];
-  }, [sharedCatalog, apps, expanded, catalogQueries]);
+  const sharedCatalog = useMemo<AppEmailCatalog | undefined>(() => {
+    if (!sharedQuery.data) return undefined;
+    const aggregate = aggregateSharedEmails(
+      sharedQuery.data,
+      catalogQueries
+        .map((query) => query.data)
+        .filter((catalog): catalog is AppEmailCatalog => Boolean(catalog)),
+    );
+    return {
+      appId: "core",
+      appName: t("dispatch.transactionalEmail.sharedTitle"),
+      appPath: t("dispatch.transactionalEmail.sharedSubtitle"),
+      emails: aggregate.emails,
+      error: null,
+      statsError: aggregate.statsError,
+    };
+  }, [sharedQuery.data, catalogQueries, t]);
 
-  const engagementQuery = useQuery({
-    queryKey: ["list-email-engagement", templateIds.join(","), WINDOW_DAYS],
-    queryFn: () =>
-      callAction<ProviderMetricsResult<EmailEngagement[]>>(
-        "list-email-engagement",
-        { templateIds, windowDays: WINDOW_DAYS },
-      ),
-    enabled: templateIds.length > 0,
+  const engagementQueries = useQueries({
+    queries: apps.map((app, index) => {
+      const catalog = catalogQueries[index]?.data;
+      const templateIds =
+        catalog && !catalog.error
+          ? catalog.emails.map((email) => email.id)
+          : [];
+      return {
+        queryKey: [
+          "list-email-engagement",
+          app.id,
+          templateIds.join(","),
+          WINDOW_DAYS,
+        ],
+        queryFn: () =>
+          callAppAction<ProviderMetricsResult<EmailEngagement[]>>(
+            app.path,
+            "list-email-engagement",
+            { templateIds, windowDays: WINDOW_DAYS },
+            "POST",
+          ),
+        enabled: expanded[app.id] === true && templateIds.length > 0,
+      };
+    }),
   });
 
-  const engagementResult = engagementQuery.data;
-  const engagementUnavailable =
-    engagementResult && !engagementResult.available
-      ? engagementResult.reason
-      : engagementQuery.isError
-        ? engagementQuery.error instanceof Error
-          ? engagementQuery.error.message
-          : String(engagementQuery.error)
-        : null;
-
-  const engagementByTemplate = useMemo(() => {
-    const map = new Map<string, EmailEngagement>();
-    if (engagementResult?.available) {
-      for (const entry of engagementResult.data) {
-        map.set(entry.templateId, entry);
-      }
-    }
-    return map;
-  }, [engagementResult]);
+  const sharedLoading =
+    sharedQuery.isLoading ||
+    (sharedOpen && catalogQueries.some((query) => query.isLoading));
+  const sharedError = catalogQueries.find((query) => query.isError)?.error;
+  const sharedProviderReason = t(
+    "dispatch.transactionalEmail.sharedProviderMetricsUnavailable",
+  );
 
   return (
     <DispatchShell
@@ -485,16 +487,6 @@ export default function TransactionalEmailRoute() {
             {t("dispatch.transactionalEmail.retentionNote")}
           </AlertDescription>
         </Alert>
-
-        {engagementUnavailable ? (
-          <Alert>
-            <IconAlertTriangle className="size-4" />
-            <AlertTitle>
-              {t("dispatch.transactionalEmail.openRatesUnavailable")}
-            </AlertTitle>
-            <AlertDescription>{engagementUnavailable}</AlertDescription>
-          </Alert>
-        ) : null}
 
         {appsQuery.isError ? (
           <ActionQueryError
@@ -523,17 +515,36 @@ export default function TransactionalEmailRoute() {
           open={sharedOpen}
           onOpenChange={setSharedOpen}
           catalog={sharedCatalog}
-          isLoading={sharedQuery.isLoading}
-          isError={sharedQuery.isError}
-          error={sharedQuery.error}
-          onRetry={() => void sharedQuery.refetch()}
-          engagementByTemplate={engagementByTemplate}
-          engagementUnavailable={engagementUnavailable}
-          engagementLoading={engagementQuery.isLoading}
+          isLoading={sharedLoading}
+          isError={sharedQuery.isError || Boolean(sharedError)}
+          error={sharedQuery.error ?? sharedError}
+          onRetry={() => {
+            void sharedQuery.refetch();
+            for (const query of catalogQueries) void query.refetch();
+          }}
+          engagementByTemplate={new Map()}
+          engagementUnavailable={sharedProviderReason}
+          engagementLoading={false}
         />
 
         {apps.map((app, index) => {
           const query = catalogQueries[index];
+          const engagementQuery = engagementQueries[index];
+          const engagementResult = engagementQuery?.data;
+          const engagementUnavailable =
+            engagementResult && !engagementResult.available
+              ? engagementResult.reason
+              : engagementQuery?.isError
+                ? engagementQuery.error instanceof Error
+                  ? engagementQuery.error.message
+                  : String(engagementQuery.error)
+                : null;
+          const engagementByTemplate = new Map<string, EmailEngagement>();
+          if (engagementResult?.available) {
+            for (const entry of engagementResult.data) {
+              engagementByTemplate.set(entry.templateId, entry);
+            }
+          }
           return (
             <AppEmailCard
               key={app.id}
@@ -550,7 +561,7 @@ export default function TransactionalEmailRoute() {
               onRetry={() => void query?.refetch()}
               engagementByTemplate={engagementByTemplate}
               engagementUnavailable={engagementUnavailable}
-              engagementLoading={engagementQuery.isLoading}
+              engagementLoading={engagementQuery?.isLoading ?? false}
             />
           );
         })}

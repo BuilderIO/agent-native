@@ -103,14 +103,25 @@ export function OpenRateCell({
   );
 }
 
-export function LastSentCell({ lastSentAt }: { lastSentAt: number | null }) {
+export function LastSentCell({
+  lastSentAt,
+  sent,
+}: {
+  lastSentAt: number | null;
+  sent: number | null;
+}) {
   const t = useT();
-  if (lastSentAt === null) {
+  if (lastSentAt !== null) {
+    return <>{new Date(lastSentAt).toLocaleString()}</>;
+  }
+  if (sent === 0) {
     return (
-      <UnknownMetric
-        reason={t("dispatch.transactionalEmail.lastSentUnknown")}
-      />
+      <span className="text-xs text-muted-foreground">
+        {t("dispatch.transactionalEmail.neverSent")}
+      </span>
     );
   }
-  return <>{new Date(lastSentAt).toLocaleString()}</>;
+  return (
+    <UnknownMetric reason={t("dispatch.transactionalEmail.lastSentUnknown")} />
+  );
 }

@@ -34,9 +34,91 @@ export interface AppEmailCatalog {
   statsError: string | null;
 }
 
+export interface LocalTransactionalEmailCatalog {
+  app: string;
+  statsAvailable: boolean;
+  statsError: string | null;
+  emails: AppTransactionalEmail[];
+}
+
+export function aggregateSharedEmails(
+  local: LocalTransactionalEmailCatalog,
+  appCatalogs: AppEmailCatalog[],
+): { emails: AppTransactionalEmail[]; statsError: string | null } {
+  const catalogs = [
+    {
+      appId: local.app,
+      appName: local.app,
+      appPath: "",
+      emails: local.emails,
+      error: null,
+      statsError: local.statsAvailable ? null : local.statsError,
+    },
+    ...appCatalogs.filter((catalog) => catalog.appId !== local.app),
+  ];
+  const unreadable = catalogs.find(
+    (catalog) => catalog.error || catalog.statsError,
+  );
+  const statsAvailable = !unreadable;
+
+  return {
+    statsError: unreadable?.error ?? unreadable?.statsError ?? null,
+    emails: local.emails
+      .filter((email) => email.app === "core")
+      .map((definition) => {
+        if (!statsAvailable) {
+          return { ...definition, sent: null, failed: null, lastSentAt: null };
+        }
+        let sent = 0;
+        let failed = 0;
+        let lastSentAt: number | null = null;
+        for (const catalog of catalogs) {
+          const email = catalog.emails.find(
+            (candidate) => candidate.id === definition.id,
+          );
+          sent += email?.sent ?? 0;
+          failed += email?.failed ?? 0;
+          if (
+            email?.lastSentAt != null &&
+            (lastSentAt === null || email.lastSentAt > lastSentAt)
+          ) {
+            lastSentAt = email.lastSentAt;
+          }
+        }
+        return { ...definition, sent, failed, lastSentAt };
+      }),
+  };
+}
+
 function actionUrl(appPath: string, action: string, query = ""): string {
   const base = appPath.replace(/\/$/, "");
   return `${base}/_agent-native/actions/${action}${query}`;
+}
+
+export async function callAppAction<T>(
+  appPath: string,
+  action: string,
+  params: Record<string, unknown>,
+  method: "GET" | "POST",
+): Promise<T> {
+  const query =
+    method === "GET"
+      ? `?${new URLSearchParams(
+          Object.entries(params).map(([key, value]) => [key, String(value)]),
+        )}`
+      : "";
+  const res = await fetch(actionUrl(appPath, action, query), {
+    method,
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Agent-Native-Frontend": "1",
+    },
+    ...(method === "POST" ? { body: JSON.stringify(params) } : {}),
+  });
+  if (!res.ok) throw new Error(`${action} failed: HTTP ${res.status}`);
+  return (await res.json()) as T;
 }
 
 /**
@@ -68,7 +150,6 @@ export async function fetchAppEmailCatalog(
       {
         credentials: "include",
         headers: { Accept: "application/json" },
-        // One app that never answers must not hold the whole catalog open.
         signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
       },
     );

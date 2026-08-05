@@ -5,15 +5,17 @@ const mocks = vi.hoisted(() => ({
   resolveSecret: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("../server/email.js", () => ({
   getEmailProvider: mocks.getEmailProvider,
+}));
+vi.mock("../server/credential-provider.js", () => ({
   resolveSecret: mocks.resolveSecret,
 }));
 
 import {
   fetchEmailActivity,
   fetchEmailEngagement,
-} from "./email-provider-metrics.js";
+} from "./provider-metrics.js";
 
 describe("email provider metrics", () => {
   beforeEach(() => {
@@ -35,6 +37,55 @@ describe("email provider metrics", () => {
         "Email delivery uses Resend, so SendGrid metrics do not describe the active transport.",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses whole-window category sums without exposing unrelated categories", async () => {
+    mocks.getEmailProvider.mockResolvedValue("sendgrid");
+    mocks.resolveSecret.mockResolvedValue("sendgrid-key");
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        stats: [
+          {
+            name: "calendar.booking-confirmed",
+            metrics: {
+              delivered: 4,
+              unique_opens: 3,
+              unique_clicks: 2,
+            },
+          },
+          {
+            name: "unrelated.private-category",
+            metrics: {
+              delivered: 100,
+              unique_opens: 99,
+              unique_clicks: 50,
+            },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchEmailEngagement(
+      ["calendar.booking-confirmed"],
+      30,
+    );
+
+    expect(result).toEqual({
+      available: true,
+      data: [
+        {
+          templateId: "calendar.booking-confirmed",
+          delivered: 4,
+          uniqueOpens: 3,
+          uniqueClicks: 2,
+          openRate: 0.75,
+        },
+      ],
+    });
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe("/v3/categories/stats/sums");
+    expect(url.searchParams.get("aggregated_by")).toBeNull();
   });
 
   it("always scopes SendGrid activity to the requested template category", async () => {

@@ -43,8 +43,6 @@ import listDispatchOverview from "./list-dispatch-overview.js";
 import listDispatchUsageMetrics from "./list-dispatch-usage-metrics.js";
 import listDreamCandidates from "./list-dream-candidates.js";
 import listDreams from "./list-dreams.js";
-import listEmailActivity from "./list-email-activity.js";
-import listEmailEngagement from "./list-email-engagement.js";
 import listIntegrationsCatalog from "./list-integrations-catalog.js";
 import listLinkedIdentities from "./list-linked-identities.js";
 import listMcpAppAccess from "./list-mcp-app-access.js";
@@ -141,8 +139,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
-  "list-email-activity": listEmailActivity,
-  "list-email-engagement": listEmailEngagement,
   "list-dispatch-approvals": listDispatchApprovals,
   "list-dispatch-audit": listDispatchAudit,
   "list-dispatch-overview": listDispatchOverview,
