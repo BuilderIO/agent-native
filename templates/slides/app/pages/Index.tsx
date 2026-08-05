@@ -720,11 +720,13 @@ export default function Index() {
         const pptxReference = uploaded.find((file) =>
           file.originalName.toLowerCase().endsWith(".pptx"),
         );
+        const pdfReference = uploaded.find((file) =>
+          file.originalName.toLowerCase().endsWith(".pdf"),
+        );
         let referenceSelection: NewDeckReferenceSelection = {
           designSystemId: null,
           referenceDeckId: null,
         };
-        let generationFiles = uploaded;
         if (pptxReference) {
           const imported = (await callAction("import-pptx", {
             filePath: pptxReference.path,
@@ -734,12 +736,50 @@ export default function Index() {
           }
           await reloadDecks();
           rememberReference({ id: imported.id, kind: "deck" });
+          setSelectedReferenceDeckId(imported.id);
           referenceSelection = {
             designSystemId: null,
             referenceDeckId: imported.id,
           };
-          generationFiles = uploaded.filter((file) => file !== pptxReference);
         }
+        if (!pptxReference && pdfReference) {
+          const referenceDeck = createDeck(undefined, {
+            noDefaultSlides: true,
+          });
+          const persisted = await ensureDeckPersisted(referenceDeck.id);
+          if (!persisted) {
+            deleteDeck(referenceDeck.id);
+            throw new Error("The PDF reference deck could not be saved.");
+          }
+          try {
+            const imported = (await callAction("import-file", {
+              filePath: pdfReference.path,
+              format: "pdf",
+              deckId: referenceDeck.id,
+              importIntoDeck: true,
+            })) as { imported?: unknown; deckId?: unknown };
+            if (
+              imported.imported !== true ||
+              imported.deckId !== referenceDeck.id
+            ) {
+              throw new Error("The PDF reference deck could not be imported.");
+            }
+            await reloadDecks();
+            rememberReference({ id: referenceDeck.id, kind: "deck" });
+            setSelectedReferenceDeckId(referenceDeck.id);
+            referenceSelection = {
+              designSystemId: null,
+              referenceDeckId: referenceDeck.id,
+            };
+          } catch (error) {
+            deleteDeck(referenceDeck.id);
+            throw error;
+          }
+        }
+        const importedReference = pptxReference ?? pdfReference;
+        const generationFiles = uploaded.filter(
+          (file) => file !== importedReference,
+        );
         setShowNewDeckReferenceStep(false);
         setPendingDeck(null);
         await handleCreateDeckWithPrompt(
@@ -760,6 +800,9 @@ export default function Index() {
     },
     [
       callAction,
+      createDeck,
+      deleteDeck,
+      ensureDeckPersisted,
       handleCreateDeckWithPrompt,
       pendingDeck,
       reloadDecks,

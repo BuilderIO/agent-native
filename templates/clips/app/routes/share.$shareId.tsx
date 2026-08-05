@@ -1129,6 +1129,7 @@ export default function ShareRoute() {
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
+                missingApiKeySetupLayout="sidebar"
                 suggestions={[
                   t("recordingPage.summarizeClip"),
                   t("recordingPage.findKeyMoments"),

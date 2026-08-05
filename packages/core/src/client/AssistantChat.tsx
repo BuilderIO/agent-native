@@ -2427,18 +2427,18 @@ const AssistantChatInner = forwardRef<
     modelListLoading,
   );
   // The model picker has already resolved the same provider status shown in
-  // its setup choices. Use that settled signal to surface setup before a slow
-  // readiness request can accept a doomed submit; a later canonical configured
-  // response always wins over a stale catalog.
+  // its setup choices. Keep the signal available for the authoritative missing
+  // state, but do not surface setup while the readiness request is unresolved.
   const missingApiKey =
     agentEngineConfigured.state !== "configured" &&
     (agentEngineConfigured.missing || modelCatalogMissing);
-  // Unknown and unavailable are setup-required for this surface. Letting a
-  // submit through while the status route is still unreachable creates a run
-  // that can sit on "Thinking" forever when no provider is configured.
+  // Unknown and unavailable mean we do not know yet. Only an authoritative
+  // missing response may replace the composer with the setup card; otherwise
+  // connected users briefly see a false "Connect AI" state on first mount.
   const engineSetupRequired =
     providerStatusChecksEnabled &&
-    (agentEngineConfigured.state !== "configured" || missingApiKey);
+    agentEngineConfigured.state === "missing" &&
+    missingApiKey;
   const isComposerDisabled = composerDisabled;
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
