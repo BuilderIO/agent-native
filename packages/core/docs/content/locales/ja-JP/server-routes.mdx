@@ -1,0 +1,194 @@
+---
+title: "ルート"
+description: "ファイルベースの Nitro サーバー ルート、SSR キャッチオール、命名規則、そしてカスタム ルートを認証済みユーザーにスコープする方法。"
+---
+
+# ルート
+
+エージェント ネイティブ アプリにおけるサーバー ルーティングは、2 つのサーフェスに分かれています。
+
+**フレームワーク ルート** — `/_agent-native/*` にあり、フレームワークによって管理されます。エージェント チャット ループ、同期ポーリング、action エンドポイント、その他のコア機能を公開します。これらのルートを自分で作成したり変更したりすることはありません。
+
+**カスタム ファイル ルート** — `server/routes/` にあり、独自のエンドポイントを追加する場所です。Nitro は、ディレクトリ ツリー内の位置に基づいてこれらを自動的に検出します。登録や設定は不要です。ファイル名が HTTP メソッドを設定し、ディレクトリ パスが URL パスになり、各ファイルが 1 つのハンドラーをエクスポートします。
+
+## フレームワークがマウントするルート {#framework-routes}
+
+フレームワークは `/_agent-native/` 名前空間を自身のエンドポイント用に確保しています。ここにカスタム ルートを置いてはいけません。この表は網羅的なものではなく、代表例です。
+
+| ルート プレフィックス            | 目的                                                                             |
+| -------------------------------- | ---------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Action の HTTP エンドポイント                                                     |
+| `/_agent-native/agent-chat`      | エージェント チャット ループ                                                      |
+| `/_agent-native/poll`            | SQL によるバックエンド UI 同期                                                    |
+| `/_agent-native/runs`            | 進行状況プリミティブ。`RunsTray` がこれをポーリングします。[進行状況](/docs/progress) を参照 |
+| `/_agent-native/resources/*`     | ワークスペース リソース                                                           |
+| `/_agent-native/extensions/*`    | ランタイム拡張機能と拡張機能プロキシ (レガシー エイリアス: `/_agent-native/tools/*`) |
+| `/_agent-native/integrations/*`  | メッセージング/Webhook インテグレーション                                          |
+| `/_agent-native/a2a`             | エージェント間 JSON-RPC                                                           |
+| `/mcp`                           | MCP エンドポイント                                                                |
+| `/_agent-native/onboarding/*`    | セットアップ チェックリスト                                                       |
+| `/_agent-native/observability/*` | トレース、フィードバック、evals、実験                                             |
+| `/_agent-native/file-upload`     | ファイル アップロード プロバイダーのエンドポイント                                |
+
+カスタム アプリ ルートは、`/api/*` または `/_agent-native/` と衝突しない別のパスに置いてください。
+
+## カスタム ルートを使うべきとき {#when-custom-routes}
+
+Actions がアプリの操作の大部分をカバーします。`server/routes/` のファイル ルートに頼るのは、action では表現できないものが必要なときだけにしてください。
+
+<Comparison>
+
+### カスタム ルートを使う
+
+- ファイル アップロードやマルチパート フォーム データ
+- ストリーミング レスポンスやサーバー送信イベント (SSE)
+- 生のボディ検証が必要な受信 Webhook
+- OAuth コールバック
+- 公開の未認証ページ
+- 特定の URL パスやレスポンス形式を要求する外部 REST コントラクト
+
+### 代わりに action を使う
+
+- UI とエージェントの両方が必要とする操作
+- アプリ データの読み取りまたは書き込み
+- HTTP 形式のエンドポイント ([Actions](/docs/actions) の `http` オプションを使用)
+- エージェント ツール、MCP ツール、CLI コマンドになるべきもの
+- 標準的な JSON リクエスト/レスポンス API
+
+</Comparison>
+
+### 例: 受信 Webhook {#example-webhook}
+
+Webhook は、カスタム ルートが明確に適するケースです。外部サービスは、パースする前にバイトとして読み取る必要がある生の HTTP ボディを送ってくるため、リクエストの署名を検証できます。actions は事前にパースされた JSON を受け取り、生のボディにアクセスできないため、action の内部では署名検証が不可能です。
+
+以下のルートは、`POST /api/webhooks/events` への受信 Webhook を処理します。生のボディを読み取り、HMAC 署名を検証してから、ペイロードを処理します。
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+Nitro はこのファイルを自動的に `POST /api/webhooks/events` にマッピングします。`WEBHOOK_SECRET` 環境変数には、外部サービスから提供される署名シークレットを設定してください。
+
+## ファイルベースのルート {#file-based-routes}
+
+ディレクトリ パスが URL パスになり、ファイル名のサフィックスが HTTP メソッドを設定します。`server/routes/api/items/[id].get.ts` にあるファイルは `GET /api/items/:id` にマッピングされます — `items/` はディレクトリに由来し、`[id]` は `:id` パラメータになり、`.get` がメソッドを設定します。
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> SSR catch-all for public pages
+```
+
+`defineEventHandler` は、ルートを書くための H3 のプリミティブです。ハンドラー関数をラップし、リクエスト、レスポンス、ルーター パラメータ、クエリ文字列、ヘッダー、ボディを保持する `event` オブジェクトへのアクセスを与えます。ハンドラーから値を返すとそれがレスポンスとして送信され、プレーンなオブジェクトは自動的に JSON になります。`createError` を throw すると、適切な HTTP エラー ステータスが送信されます。
+
+`[id]` のようなルーター パラメータは、`getRouterParam` を使って `event` から読み取ります。
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### 命名規則 {#naming-conventions}
+
+| ファイル パス (`server/routes/` からの相対パス) | HTTP メソッド | URL パス          |
+| ------------------------------------------------ | ------------- | ------------------ |
+| `api/items/index.get.ts`                          | GET           | `/api/items`       |
+| `api/items/index.post.ts`                         | POST          | `/api/items`       |
+| `api/items/[id].get.ts`                           | GET           | `/api/items/:id`   |
+| `api/items/[id].patch.ts`                         | PATCH         | `/api/items/:id`   |
+| `api/items/[id].delete.ts`                        | DELETE        | `/api/items/:id`   |
+| `api/items/[...slug].get.ts`                      | GET           | `/api/items/*`     |
+
+## リクエスト コンテキストとアクセス {#request-context}
+
+フレームワークによってマウントされる actions は、自動的にリクエスト コンテキストの下で実行されます。カスタム ルートはそうではありません。カスタム ルートが ownable なリソースを読み書きする場合は、セッションをロードして処理をラップしてください。
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="カスタム ルートをリクエストユーザーにスコープする"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "カスタム ルートには自動コンテキストがない",
+      note: "actions とは異なり、ファイル ルートはセッションを自分でロードし、認証済みユーザーがいない場合は fail closed (閉じた側に倒す) しなければなりません。",
+    },
+    {
+      lines: "13",
+      label: "リクエスト コンテキストを確立する",
+      note: "`runWithRequestContext` は、処理が行われている間、ユーザー/組織をスコープ ヘルパーから利用可能にします。",
+    },
+    {
+      lines: "17-20",
+      label: "ownable な読み取りをスコープする",
+      note: "`accessFilter` は、呼び出し元が閲覧できる行にクエリを制限します。ここでスコープなしの `db.select().from(ownableTable)` を実行しないでください。",
+    },
+  ]}
+/>
+
+`getDb` は、各アプリで `server/db/index.ts` の `createGetDb(schema)` を通じて作成されるため、カスタム ルートは `@agent-native/core/db` からではなく、テンプレート パス (`../../db/index.js`) からインポートします。[データベース](/docs/server-database#db-client) を参照してください。
+
+<Callout tone="warning">
+  カスタム ルートでスコープなしの `db.select().from(ownableTable)`
+  を実行しないでください。ownable なデータをクエリする前には、必ず
+  `runWithRequestContext` でリクエスト コンテキストを確立してください。
+</Callout>
+
+## SSR キャッチオール {#ssr-catch-all}
+
+`server/routes/` のルートにある `[...page].get.ts` ルートは、公開向けページのサーバーサイド レンダリングを処理します。`createH3SSRHandler` を使って React Router のビルドに処理を委譲します。
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+すべての SSR レスポンスは、CDN でキャッシュされる、個人に依存しない公開シェルです。このハンドラー内では Cookie、セッション状態、認証分岐を絶対に読み取らないでください。パーソナライズは、ハイドレーション後にクライアント側で行われます。
+
+## 次は何ですか
+
+- [**Actions**](/docs/actions): アプリの操作に望ましいサーフェス。適合しない場合にのみルートに頼ってください
+- [**プラグイン**](/docs/server-plugins): ルートが提供される前に実行される起動プラグイン
+- [**ミドルウェア**](/docs/server-middleware): `/api/*` を含むすべてのルートを保護する認証ガード
+- [**セキュリティ**](/docs/security#access-guards): `accessFilter`/`assertAccess` と完全なデータ スコープ設定モデル

@@ -1,0 +1,424 @@
+---
+title: "डेटाबेस"
+description: "अपने एजेंट-नेटिव ऐप से एक पोर्टेबल SQL डेटाबेस कनेक्ट करें: स्कीमा हेल्पर्स, माइग्रेशन, और होस्ट किए गए डेटाबेस विकल्प।"
+---
+
+# डेटाबेस
+
+हर एजेंट-नेटिव ऐप अपनी स्थिति SQL में संग्रहीत करता है। UI और एजेंट दोनों एक ही [Drizzle ORM](https://orm.drizzle.team) क्लाइंट का उपयोग करते हुए, एक ही Actions के माध्यम से एक ही तालिकाओं को पढ़ते और लिखते हैं। जब कोई भी पक्ष डेटा बदलता है, तो दूसरा पक्ष पोलिंग परत के माध्यम से उसे देख लेता है।
+
+<Diagram id="doc-block-vykcz4" title="डेटा डेटाबेस तक कैसे प्रवाहित होता है" summary="UI और एजेंट दोनों एक ही Actions परत के माध्यम से डेटाबेस तक पहुँचते हैं। दोनों कॉलर एक ही getDb() क्लाइंट और एक ही SQL तालिकाओं का उपयोग करते हैं। हर एक के लिए कोई अलग बैकएंड नहीं है।">
+
+```html
+<div class="diagram-dbr">
+  <div class="diagram-col">
+    <div class="diagram-node">ब्राउज़र / UI</div>
+    <div class="diagram-node">एजेंट लूप</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Actions</strong>
+    <small class="diagram-muted">defineAction</small>
+    <small class="diagram-muted">getDb() &middot; Drizzle ORM</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL डेटाबेस<br /><small class="diagram-muted"
+      >DATABASE_URL से बोली (dialect)</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-dbr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-dbr .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-dbr .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-dbr .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## होस्टिंग विकल्प {#hosting}
+
+ऐप `DATABASE_URL` से पता लगाता है कि किस बैकएंड का उपयोग करना है। जब वेरिएबल सेट नहीं होता, तो यह एक स्थानीय SQLite फ़ाइल पर वापस आ जाता है ताकि आप बिना किसी सेटअप के शुरुआत कर सकें।
+
+### डिफ़ॉल्ट: SQLite फ़ाइल {#default-sqlite}
+
+जब `DATABASE_URL` सेट नहीं है, तो ऐप `data/app.db` पर एक SQLite डेटाबेस बनाता है। किसी कॉन्फ़िगरेशन की आवश्यकता नहीं है। डेव सर्वर शुरू करें और फ़ाइल पहले रन पर बन जाती है।
+
+यह केवल स्थानीय विकास के लिए है। कंटेनर, सर्वर रहित फ़ंक्शन, और पूर्वावलोकन वातावरण पुनरारंभ के बीच अपने फ़ाइल सिस्टम को रीसेट कर सकते हैं, इसलिए स्थानीय SQLite फ़ाइल गायब हो सकती है। तैनाती से पहले `DATABASE_URL` को स्थायी होस्ट किए गए डेटाबेस पर सेट करें।
+
+### स्थानीय Postgres: PGlite {#local-pglite}
+
+Docker या होस्ट किए गए डेटाबेस के बिना Postgres बोली के विरुद्ध स्थानीय रूप से विकास करने के लिए, वैकल्पिक PGlite पैकेज इंस्टॉल करें और `DATABASE_URL` सेट करें:
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+```bash
+DATABASE_URL=pglite:./data/pglite
+```
+
+[PGlite](https://pglite.dev/) एक इन-प्रोसेस WASM Postgres डेटाबेस चलाता है। यह आपको तैनाती से पहले Postgres-केवल स्कीमा समस्याओं को पकड़ने देता है, जबकि सेटअप को SQLite डिफ़ॉल्ट जितना ही सरल रखता है। SQLite की तरह, यह भी केवल-स्थानीय संग्रहण है। इसे उत्पादन या साझा वातावरण के लिए उपयोग न करें।
+
+### उत्पादन डेटाबेस {#production}
+
+होस्ट किए गए डेटाबेस को कनेक्ट करने के लिए अपनी `.env` फ़ाइल या डिप्लॉय-प्रदाता वातावरण में `DATABASE_URL` सेट करें:
+
+```bash
+# Neon Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# सादा Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL). इसके लिए DATABASE_AUTH_TOKEN भी आवश्यक है।
+DATABASE_URL=libsql://my-db-org.turso.io
+```
+
+फ्रेमवर्क URL प्रीफ़िक्स से बोली का स्वतः पता लगाता है और तदनुसार Drizzle को कॉन्फ़िगर करता है।
+
+### Builder.io प्रबंधित डेटाबेस {#builder-managed}
+
+_योजनाबद्ध (अभी तक उपलब्ध नहीं):_ Builder.io से कनेक्ट होने पर, आपका ऐप स्वचालित रूप से प्रावधानित एक प्रबंधित डेटाबेस का उपयोग करने में सक्षम होगा, बिना किसी कनेक्शन स्ट्रिंग की आवश्यकता के।
+
+## डेटाबेस सेट करना {#setup}
+
+डेटाबेस का उपयोग करने वाले ऐप को तीन फ़ाइलों की आवश्यकता होती है:
+
+- `server/db/schema.ts`: तालिका परिभाषाएँ
+- `server/db/index.ts`: टाइप किया गया DB क्लाइंट सिंगलटन
+- `server/plugins/db.ts`: माइग्रेशन जो स्टार्टअप पर चलते हैं
+
+### 1. अपनी स्कीमा परिभाषित करें {#schema}
+
+`@agent-native/core/db/schema` से स्कीमा हेल्पर्स इम्पोर्ट करें। कभी भी सीधे `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` से इम्पोर्ट न करें। फ्रेमवर्क हेल्पर्स बोली-अज्ञेयवादी परिभाषाएँ बनाते हैं जो सभी समर्थित बैकएंड पर काम करती हैं।
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| हेल्पर    | उद्देश्य                                                                |
+| --------- | ---------------------------------------------------------------------- |
+| `table`   | एक तालिका परिभाषित करें; `pgTable` या `sqliteTable` को डिस्पैच करता है  |
+| `text`    | टेक्स्ट कॉलम, `{ enum: [...] }` का समर्थन करता है                       |
+| `integer` | पूर्णांक कॉलम, `{ mode: "boolean" }` Postgres बूलियन से मैप होता है     |
+| `real`    | फ्लोट कॉलम। SQLite पर `real`, Postgres पर `double precision` से मैप होता है |
+| `now`     | `.default(now())` के लिए बोली-अज्ञेयवादी वर्तमान टाइमस्टैम्प           |
+
+<DataModel
+  id="doc-block-14e70da"
+  title="tasks तालिका"
+  summary={
+    "फ्रेमवर्क हेल्पर्स के साथ एक बार परिभाषित; बोली को रनटाइम पर DATABASE_URL से चुना जाता है।"
+  }
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "डोमेन तालिका। owner_email (या ...ownableColumns()) जोड़ें ताकि SQL-स्तर की स्कोपिंग पंक्तियों को प्रमाणित उपयोगकर्ता तक सीमित कर सके।",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+प्रति-उपयोगकर्ता डेटा संग्रहीत करने वाली तालिकाओं में एक `owner_email` कॉलम शामिल होना चाहिए ताकि फ्रेमवर्क पंक्तियों को प्रमाणित उपयोगकर्ता तक फ़िल्टर कर सके। वे तालिकाएँ जो अन्य उपयोगकर्ताओं या संगठनों के साथ साझा करने का भी समर्थन करती हैं, उन्हें एक साधारण `owner_email` के बजाय `...ownableColumns()` फैलाना चाहिए, जो एक ही कॉल में `owner_email`, `org_id`, और `visibility` जोड़ता है। नीचे [उपयोगकर्ताओं तक डेटा को स्कोप करना](#scoping) देखें।
+
+### 2. DB क्लाइंट बनाएँ {#db-client}
+
+प्रत्येक ऐप `createGetDb(schema)` को कॉल करके एक आलसी (lazy), सिंगलटन Drizzle क्लाइंट बनाता है। विहित स्थान `server/db/index.ts` है:
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+`createGetDb` एक `getDb()` फ़ंक्शन लौटाता है जो पहली कॉल पर डेटाबेस कनेक्शन खोलता है और बाद की कॉल में वही टाइप किया गया Drizzle इंस्टेंस लौटाता है। यह रनटाइम पर `DATABASE_URL` पढ़ता है यह तय करने के लिए कि कौन सा बैकएंड और बोली उपयोग करनी है।
+
+actions और routes में `getDb` को इस टेम्पलेट-स्थानीय पथ से इम्पोर्ट करें। सीधे `@agent-native/core` से इम्पोर्ट न करें। कोर निर्यात अनटाइप्ड है; स्थानीय निर्यात आपके स्कीमा प्रकार वहन करता है।
+
+### 3. माइग्रेशन लिखें {#migrations}
+
+स्कीमा परिवर्तन `server/plugins/db.ts` में एक Nitro प्लगइन के माध्यम से स्टार्टअप पर लागू होते हैं। `@agent-native/core/db` से `runMigrations` का उपयोग करें:
+
+<AnnotatedCode
+  id="doc-block-zaaj7e"
+  title="एक स्टार्टअप माइग्रेशन प्लगइन"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "प्रति-ऐप संस्करण तालिका",
+      note: "प्रत्येक ऐप अपने स्वयं के लागू किए गए संस्करणों को एक अलग तालिका में ट्रैक करता है। अपने ऐप के लिए एक अनूठा नाम उपयोग करें ताकि यह फ्रेमवर्क माइग्रेशन या एक ही डेटाबेस साझा करने वाले अन्य ऐप्स से न टकराए।",
+    },
+    {
+      lines: "7",
+      label: "प्रारंभिक तालिका निर्माण",
+      note: "`CREATE TABLE IF NOT EXISTS` हर पुनरारंभ पर दोबारा चलाने के लिए सुरक्षित है। पूरी तालिका परिभाषा संस्करण 1 में रखें।",
+    },
+    {
+      lines: "17",
+      label: "योगात्मक कॉलम जोड़ना",
+      note: "प्रारंभिक निर्माण के बाद कॉलम जोड़ने का सुरक्षित तरीका `ADD COLUMN IF NOT EXISTS` है। कभी भी कॉलम न गिराएं या नाम न बदलें।",
+    },
+    {
+      lines: "22-25",
+      label: "बोली गेटिंग (dialect gating)",
+      note: "प्रति बैकएंड अलग SQL चलाने के लिए बोली द्वारा कीड एक ऑब्जेक्ट पास करें। जिस बोली को परिवर्तन की आवश्यकता नहीं है, उस पर नो-ऑप के रूप में `SELECT 1` का उपयोग करें।",
+    },
+  ]}
+/>
+
+`runMigrations` प्रत्येक प्रविष्टि को क्रम में एक बार चलाता है, फिर संस्करण रिकॉर्ड करता है ताकि भविष्य के पुनरारंभ पर इसे छोड़ दिया जाए। प्रविष्टियाँ इडमपोटेंट हैं। प्लगइन को हर बूट पर कॉल करना सुरक्षित है।
+
+<Callout tone="risk">
+  उत्पादन डेटाबेस के विरुद्ध कभी भी `drizzle-kit push` न चलाएं। टेम्प्लेट
+  स्कीमा केवल ऐप-विशिष्ट तालिकाओं को परिभाषित करते हैं; इनमें केंद्रीय
+  फ्रेमवर्क तालिकाएँ (`user`, `session`, `application_state`, और अन्य) शामिल
+  नहीं हैं। उत्पादन के विरुद्ध `drizzle-kit push` चलाने से उन तालिकाओं को
+  अज्ञात के रूप में पहचाना जाएगा और उन्हें गिराने का प्रयास किया जाएगा, जिससे
+  तत्काल डेटा हानि होगी।
+</Callout>
+
+प्रत्येक ऐप की जड़ में `drizzle.config.ts` स्थानीय विकास स्कीमा निरीक्षण के लिए drizzle-kit को कॉन्फ़िगर करता है:
+
+```ts filename="drizzle.config.ts"
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
+export default createDrizzleConfig();
+```
+
+अपनी स्कीमा का निरीक्षण करने के लिए `pnpm db:generate` का उपयोग करें और केवल स्थानीय डेटाबेस के विरुद्ध `pnpm db:push` का उपयोग करें।
+
+### 4. actions में क्वेरी करें {#querying}
+
+टाइप किया गया Drizzle क्लाइंट पाने के लिए अपनी actions से `getDb()` को कॉल करें। `drizzle-orm` से Drizzle के क्वेरी बिल्डर और पोर्टेबल ऑपरेटरों का उपयोग करें:
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(schema.tasks)
+  .where(
+    and(eq(schema.tasks.ownerEmail, userEmail), eq(schema.tasks.done, false)),
+  )
+  .orderBy(desc(schema.tasks.createdAt));
+
+await db
+  .update(schema.tasks)
+  .set({ done: true })
+  .where(eq(schema.tasks.id, taskId));
+```
+
+## उपयोगकर्ताओं तक डेटा को स्कोप करना {#scoping}
+
+उपयोगकर्ता-सामना वाली तालिकाओं के विरुद्ध सभी पठन और लेखन प्रमाणित उपयोगकर्ता तक स्कोप्ड होने चाहिए। फ्रेमवर्क दो पैटर्न प्रदान करता है, इस पर निर्भर करते हुए कि डेटा निजी है या साझा करने योग्य।
+
+**निजी डेटा:** वे तालिकाएँ जो एक उपयोगकर्ता की हैं। स्कीमा में `ownerEmail: text("owner_email").notNull()` जोड़ें और हर क्वेरी में `eq(table.ownerEmail, userEmail)` शामिल करें:
+
+```ts
+.where(eq(schema.tasks.ownerEmail, userEmail))
+```
+
+**साझा संसाधन:** वे तालिकाएँ जिन्हें अन्य उपयोगकर्ताओं या संगठनों के साथ साझा किया जा सकता है। स्कीमा में एक साधारण `owner_email` के बजाय `...ownableColumns()` फैलाएं। यह एक ही कॉल में `owner_email`, `org_id`, और `visibility` जोड़ता है, और `createSharesTable` के साथ एक साथी शेयर्स तालिका बनाता है:
+
+```ts filename="server/db/schema.ts"
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+export const deckShares = createSharesTable("deck_shares");
+```
+
+फिर सूची क्वेरी में मैनुअल `eq` जांच के बजाय `@agent-native/core/sharing` से `accessFilter` का उपयोग करें:
+
+```ts
+import { accessFilter } from "@agent-native/core/sharing";
+
+const rows = await db
+  .select()
+  .from(schema.decks)
+  .where(accessFilter(schema.decks, schema.deckShares));
+```
+
+`accessFilter` एक क्वेरी बनाता है जो उन पंक्तियों को स्वीकार करती है जिनका कॉलर मालिक है, जो उनके संगठन के साथ साझा की गई हैं, और जो स्पष्ट रूप से उनके साथ साझा की गई हैं। यह अन्य उपयोगकर्ताओं की पंक्तियों को उजागर नहीं करता।
+
+पूरे मॉडल के लिए [Security — Data Scoping](/docs/security#data-scoping) और [Sharing](/docs/sharing#building) देखें।
+
+## SQL-समर्थित सिंक {#sync}
+
+Agent-native फ़ाइल सिस्टम वॉचर्स या स्टिकी इन-मेमोरी स्टेट पर निर्भर नहीं करता। जब कोई Action डेटाबेस में लिखती है, तो एक सिंक संस्करण बढ़ जाता है। क्लाइंट का `useDbSync()` हुक `/_agent-native/poll` को पोल करता है और जब उसे उच्चतर संस्करण दिखता है तो React Query कैश को अमान्य कर देता है।
+
+यह सर्वर रहित और मल्टी-इंस्टेंस डिप्लॉयमेंट में काम करता है क्योंकि डेटाबेस समन्वय बिंदु है। यदि आप actions के बाहर कस्टम म्यूटेशन लिखते हैं, तो फ्रेमवर्क हेल्पर्स का उपयोग करें या उपयुक्त सिंक इनवैलिडेशन उत्सर्जित करें ताकि खुले UI रिफ्रेश हो सकें।
+
+<Diagram id="doc-block-qhkdv8" title="SQL-समर्थित सिंक लूप" summary="कोई वॉचर नहीं, कोई स्टिकी स्टेट नहीं। एक लेखन SQL में एक संस्करण बढ़ाता है; हर क्लाइंट संस्करण को पोल करता है और फिर से फ़ेच करता है।">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    Action / सहायक<br /><small class="diagram-muted">डेटा में बदलाव करता है</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL डेटाबेस</strong
+    ><small class="diagram-muted">सिंक संस्करण बढ़ता है</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >/_agent-native/poll को पोल करता है</small
+      >
+    </div>
+    <div class="diagram-pill ok">कैश अमान्य करें &rarr; UI रिफ्रेश होता है</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="पोल एंडपॉइंट" method="GET" path="/_agent-native/poll" summary="वर्तमान प्रति-स्रोत डेटाबेस सिंक संस्करण लौटाएं ताकि क्लाइंट परिवर्तनों का पता लगा सके।" auth="Session cookie (request-scoped identity)" responses={[
+  {
+    "status": "200",
+    "description": "Current sync versions keyed by source."
+  }
+]}>
+
+`useDbSync()` इसे एक अंतराल पर कॉल करता है और जब SSE उपलब्ध नहीं होता तो इस पर वापस आ जाता है। जब लौटाया गया संस्करण क्लाइंट के अंतिम-देखे गए मान से अधिक होता है, तो मिलान करने वाले React Query कैश अमान्य हो जाते हैं और फिर से फ़ेच होते हैं।
+
+</Endpoint>
+
+## कच्चा SQL {#raw-sql}
+
+उन्नत क्वेरीज़, स्वास्थ्य जांच, या एकमुश्त रखरखाव के लिए जिन्हें Drizzle क्वेरी बिल्डर व्यक्त नहीं कर सकता, `@agent-native/core/db` से `getDbExec` का उपयोग करें:
+
+```ts
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+
+const { rows } = await getDbExec().execute({
+  sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
+  args: [userEmail, 50],
+});
+```
+
+`getDbExec` Postgres के लिए `?` पैरामीटर को स्वतः `$1`, `$2`, आदि में बदल देता है। बोली पर शाखा (branch) लगाने के लिए `isPostgres()` का उपयोग करें, और वर्तमान बैकएंड के लिए सही पूर्णांक प्रकार लौटाने के लिए `intType()` का उपयोग करें। सामान्य पठन और लेखन के लिए Drizzle क्वेरी बिल्डर को प्राथमिकता दें। कच्चा SQL टाइप सुरक्षा को बायपास करता है और इसे बनाए रखना कठिन है।
+
+## पर्यावरण चर {#environment-variables}
+
+| वेरिएबल               | उद्देश्य                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`        | स्थायी SQL कनेक्शन स्ट्रिंग (अनसेट = स्थानीय SQLite; `pglite:./data/pglite` = स्थानीय Postgres ऑप्ट-इन) |
+| `DATABASE_AUTH_TOKEN` | उन प्रदाताओं के लिए Auth टोकन जिन्हें एक अलग टोकन की आवश्यकता होती है, जैसे Turso/libSQL          |
+
+## आगे क्या है
+
+- [**Security — Data Scoping**](/docs/security#data-scoping): कैसे `owner_email` और access हेल्पर्स पठन और लेखन को स्कोप करते हैं
+- [**Sharing**](/docs/sharing#building): `ownableColumns()` और साझा संसाधनों के लिए visibility मॉडल
+- [**प्लगइन्स**](/docs/server-plugins): स्टार्टअप प्लगइन लाइफ़साइकिल जहां माइग्रेशन चलते हैं
+- [**Actions**](/docs/actions): वह सतह जहां actions डेटा पढ़ने और लिखने के लिए `getDb()` को कॉल करती हैं
+- [**तैनाती**](/docs/deployment#persistent-database): प्रति डिप्लॉय टारगेट एक स्थायी डेटाबेस कनेक्ट करना
+- [**Real-Time Sync**](/docs/real-time-sync): `useDbSync()` और पूरा क्लाइंट-साइड सिंक मॉडल

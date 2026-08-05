@@ -1,0 +1,194 @@
+---
+title: "Rotas"
+description: "Rotas de servidor Nitro baseadas em arquivo, o catch-all de SSR, convenções de nomenclatura e como restringir rotas personalizadas ao usuário autenticado."
+---
+
+# Rotas
+
+O roteamento de servidor em um aplicativo nativo do agente é dividido em duas superfícies.
+
+**Rotas da estrutura** em `/_agent-native/*` são gerenciadas pela estrutura. Elas expõem o loop de chat do agente, o polling de sincronização, os endpoints de actions e outras capacidades centrais. Você não cria nem modifica essas rotas.
+
+**Rotas de arquivo personalizadas** em `server/routes/` são onde você adiciona seus próprios endpoints. O Nitro as detecta automaticamente com base em onde ficam na árvore de diretórios — nenhum registro ou configuração é necessário. O nome do arquivo define o método HTTP, o caminho do diretório se torna o caminho da URL, e cada arquivo exporta um único manipulador.
+
+## Rotas Montadas pela Estrutura {#framework-routes}
+
+A estrutura reserva o namespace `/_agent-native/` para seus próprios endpoints. Nunca coloque rotas personalizadas aqui. Esta tabela é representativa, não exaustiva.
+
+| Prefixo de rota                  | Finalidade                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | Endpoints HTTP de actions                                                          |
+| `/_agent-native/agent-chat`      | Loop de chat do agente                                                            |
+| `/_agent-native/poll`            | Sincronização de UI apoiada em SQL                                                 |
+| `/_agent-native/runs`            | Primitiva de progresso. O `RunsTray` consulta este endpoint; veja [Progresso](/docs/progress) |
+| `/_agent-native/resources/*`     | Recursos do workspace                                                             |
+| `/_agent-native/extensions/*`    | Extensões em tempo de execução e proxy de extensão (alias legado: `/_agent-native/tools/*`) |
+| `/_agent-native/integrations/*`  | Integrações de mensageria/webhook                                                  |
+| `/_agent-native/a2a`             | JSON-RPC agente-para-agente                                                       |
+| `/mcp`                           | Endpoint MCP                                                                       |
+| `/_agent-native/onboarding/*`    | Checklist de configuração                                                          |
+| `/_agent-native/observability/*` | Traces, feedback, avaliações, experimentos                                        |
+| `/_agent-native/file-upload`     | Endpoint do provedor de upload de arquivos                                        |
+
+Rotas de aplicativo personalizadas ficam em `/api/*` ou em outro caminho que não colida com `/_agent-native/`.
+
+## Quando Usar uma Rota Personalizada {#when-custom-routes}
+
+As actions cobrem a grande maioria das operações do aplicativo. Recorra a uma rota de arquivo em `server/routes/` apenas quando precisar de algo que uma action não consiga expressar.
+
+<Comparison>
+
+### Use uma rota personalizada
+
+- Uploads de arquivo ou dados de formulário multipart
+- Respostas em streaming ou server-sent events (SSE)
+- Webhooks de entrada que precisam de verificação do corpo bruto
+- Callbacks OAuth
+- Páginas públicas não autenticadas
+- Contratos REST externos que exigem um caminho de URL ou formato de resposta específico
+
+### Use uma action em vez disso
+
+- Operações que a UI e o agente precisam de ambos
+- Leitura ou gravação de dados do aplicativo
+- Endpoints em forma de HTTP (use a opção `http` em [Actions](/docs/actions))
+- Qualquer coisa que deva ser uma ferramenta do agente, ferramenta MCP ou comando CLI
+- APIs padrão de requisição/resposta em JSON
+
+</Comparison>
+
+### Exemplo: Webhook de entrada {#example-webhook}
+
+Webhooks são um caso claro para uma rota personalizada. Serviços externos enviam um corpo HTTP bruto que precisa ser lido como bytes antes de ser interpretado, para que você possa verificar a assinatura da requisição. Actions recebem JSON pré-interpretado e não conseguem acessar o corpo bruto, o que torna a verificação de assinatura impossível dentro de uma delas.
+
+A rota abaixo trata um webhook de entrada em `POST /api/webhooks/events`. Ela lê o corpo bruto, verifica uma assinatura HMAC e então processa o payload.
+
+```ts filename="server/routes/api/webhooks/events.post.ts"
+import { createHmac, timingSafeEqual } from "crypto";
+import { createError, defineEventHandler, getHeader, readRawBody } from "h3";
+
+export default defineEventHandler(async (event) => {
+  const secret = process.env.WEBHOOK_SECRET;
+  const signature = getHeader(event, "x-webhook-signature");
+  const rawBody = await readRawBody(event);
+
+  if (!secret || !signature || !rawBody) {
+    throw createError({ statusCode: 400, statusMessage: "Bad Request" });
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid signature" });
+  }
+
+  const payload = JSON.parse(rawBody) as { type: string; data: unknown };
+  // handle payload.type ...
+
+  return { received: true };
+});
+```
+
+O Nitro mapeia esse arquivo para `POST /api/webhooks/events` automaticamente. A variável de ambiente `WEBHOOK_SECRET` deve ser definida com o segredo de assinatura fornecido pelo serviço externo.
+
+## Rotas Baseadas em Arquivo {#file-based-routes}
+
+O caminho do diretório se torna o caminho da URL, e o sufixo do nome do arquivo define o método HTTP. Um arquivo em `server/routes/api/items/[id].get.ts` mapeia para `GET /api/items/:id` — `items/` vem do diretório, `[id]` se torna o parâmetro `:id`, e `.get` define o método.
+
+```text
+server/routes/
+  api/
+    items/
+      index.get.ts         -> GET    /api/items
+      index.post.ts        -> POST   /api/items
+      [id].get.ts          -> GET    /api/items/:id
+      [id].patch.ts        -> PATCH  /api/items/:id
+      [id].delete.ts       -> DELETE /api/items/:id
+    webhooks/
+      stripe.post.ts       -> POST   /api/webhooks/stripe
+  [...page].get.ts         -> catch-all de SSR para páginas públicas
+```
+
+`defineEventHandler` é a primitiva do H3 para escrever uma rota. Ela envolve sua função manipuladora e dá a ela acesso ao objeto `event`, que carrega a requisição, a resposta, os parâmetros de rota, a query string, os cabeçalhos e o corpo. Retornar um valor do manipulador o envia como resposta — um objeto simples se torna JSON automaticamente. Lançar um `createError` envia o status de erro HTTP apropriado.
+
+Parâmetros de rota como `[id]` são lidos a partir de `event` com `getRouterParam`:
+
+```ts filename="server/routes/api/items/[id].get.ts"
+import { defineEventHandler, getRouterParam, createError } from "h3";
+
+export default defineEventHandler((event) => {
+  const id = getRouterParam(event, "id");
+  if (!id) throw createError({ statusCode: 400, statusMessage: "Missing id" });
+  // fetch and return the item by id
+});
+```
+
+### Convenções de nomenclatura {#naming-conventions}
+
+| Caminho do arquivo (relativo a `server/routes/`) | Método HTTP | Caminho da URL    |
+| -------------------------------------------------- | ----------- | ----------------- |
+| `api/items/index.get.ts`                          | GET         | `/api/items`      |
+| `api/items/index.post.ts`                         | POST        | `/api/items`      |
+| `api/items/[id].get.ts`                           | GET         | `/api/items/:id`  |
+| `api/items/[id].patch.ts`                         | PATCH       | `/api/items/:id`  |
+| `api/items/[id].delete.ts`                        | DELETE      | `/api/items/:id`  |
+| `api/items/[...slug].get.ts`                      | GET         | `/api/items/*`    |
+
+## Contexto de Requisição e Acesso {#request-context}
+
+Actions montadas pela estrutura rodam automaticamente com contexto de requisição. Rotas personalizadas não. Se uma rota personalizada lê ou grava recursos ownable, carregue a sessão e envolva o trabalho:
+
+<AnnotatedCode
+  id="doc-block-server-routes-ctx"
+  title="Restringindo uma rota personalizada ao usuário da requisição"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "8-11",
+      label: "Rotas personalizadas não têm contexto automático",
+      note: "Ao contrário das actions, uma rota de arquivo precisa carregar a sessão por conta própria e falhar de forma fechada quando não há usuário autenticado.",
+    },
+    {
+      lines: "13",
+      label: "Estabelecer o contexto de requisição",
+      note: "`runWithRequestContext` disponibiliza o usuário/organização para os auxiliares de escopo durante a execução do trabalho.",
+    },
+    {
+      lines: "17-20",
+      label: "Delimitar leituras ownable",
+      note: "`accessFilter` restringe a consulta às linhas que o chamador pode ver. Nunca execute aqui um `db.select().from(ownableTable)` sem escopo.",
+    },
+  ]}
+/>
+
+`getDb` é criado por aplicativo via `createGetDb(schema)` em `server/db/index.ts`, então rotas personalizadas o importam a partir do caminho do modelo (`../../db/index.js`), não de `@agent-native/core/db`. Veja [Banco de dados](/docs/server-database#db-client).
+
+<Callout tone="warning">
+  Não execute `db.select().from(ownableTable)` sem escopo em rotas
+  personalizadas. Sempre estabeleça o contexto de requisição com
+  `runWithRequestContext` antes de consultar dados ownable.
+</Callout>
+
+## Catch-All de SSR {#ssr-catch-all}
+
+A rota `[...page].get.ts` na raiz de `server/routes/` trata a renderização no lado do servidor para páginas voltadas ao público. Ela usa `createH3SSRHandler` para repassar a requisição ao build do React Router:
+
+```ts filename="server/routes/[...page].get.ts"
+import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
+
+export default createH3SSRHandler(
+  () => import("virtual:react-router/server-build"),
+);
+```
+
+Toda resposta de SSR é um shell público e impessoal, em cache no CDN. Nunca leia cookies, estado de sessão ou ramificações de auth nesse manipulador. A personalização acontece no lado do cliente, depois da hidratação.
+
+## O que vem a seguir
+
+- [**Actions**](/docs/actions): a superfície preferida para operações do aplicativo; recorra a uma rota apenas quando ela não se encaixar
+- [**Plugins**](/docs/server-plugins): plugins de inicialização que rodam antes de as rotas serem servidas
+- [**Middleware**](/docs/server-middleware): guardas de autenticação que protegem todas as rotas, incluindo `/api/*`
+- [**Security**](/docs/security#access-guards): `accessFilter`/`assertAccess` e o modelo completo de escopo de dados

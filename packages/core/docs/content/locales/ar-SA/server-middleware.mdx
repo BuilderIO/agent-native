@@ -1,0 +1,149 @@
+---
+title: "البرمجيات الوسيطة"
+description: "البرمجيات الوسيطة في Nitro داخل server/middleware/ — ما هي، وكيفية كتابة برمجية وسيطة خاصة بك، وكيف يعمل حارس المصادقة المدمج."
+---
+
+# البرمجيات الوسيطة
+
+البرمجيات الوسيطة (Middleware) هي رمز يعمل مع كل طلب وارد قبل وصوله إلى معالج مسار. فهي تقع بين المستدعين والمسارات، مما يجعلها المكان المناسب للاهتمامات الشاملة (cross-cutting concerns): المصادقة، والتسجيل (logging)، وترويسات CORS، والحد من معدل الطلبات (rate limiting)، أو أي شيء يجب أن يُطبَّق بغض النظر عن المسار الذي يعالج الطلب.
+
+<Diagram id="doc-block-server-middleware-1" title="أين تعمل البرمجيات الوسيطة" summary="تعترض البرمجيات الوسيطة كل طلب قبل وصوله إلى مسار. تستمر الطلبات المسموح بها إلى معالج المسار؛ أما الطلبات المحظورة فتحصل على استجابة إعادة توجيه أو خطأ.">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">المتصفح / واجهة المستخدم</div>
+    <div class="diagram-node">حلقة الوكيل</div>
+    <div class="diagram-node">
+      العملاء الخارجيون<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>البرمجيات الوسيطة</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">تعمل مع كل طلب</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">مسموح</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>المسارات والمعالجات</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">محظور</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>إعادة التوجيه / الخطأ</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+تُلتقط الملفات الموجودة في `server/middleware/` تلقائيًا بواسطة Nitro — دون الحاجة إلى أي تسجيل. يعمل كل ملف في ذلك الدليل مع كل طلب، بالترتيب الأبجدي.
+
+## كتابة برمجية وسيطة {#writing-middleware}
+
+يُصدّر ملف البرمجية الوسيطة `defineEventHandler`. للسماح للطلب بالاستمرار، لا تُرجع شيئًا. ولحظره، ارمِ `createError` أو أرجع إعادة توجيه باستخدام `sendRedirect`.
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // returning nothing passes the request through to the route handler
+});
+```
+
+تعمل ملفات البرمجية الوسيطة المتعددة بترتيب اسم الملف الأبجدي قبل معالج المسار المطابق. يمكن لكل برمجية وسيطة فحص الطلب أو تعديله، أو ضبط ترويسات الاستجابة، أو إيقاف الاستجابة بالكامل قبل أوانها.
+
+لمزيد من أنماط البرمجيات الوسيطة — المنطق الشرطي، والعمليات غير المتزامنة، واعتراض الاستجابة — راجع [وثائق البرمجيات الوسيطة في Nitro](https://nitro.build/guide/routing#middleware) و[وثائق H3](https://h3.unjs.io).
+
+## البرمجية الوسيطة للمصادقة {#auth-middleware}
+
+يشحن كل تطبيق أصلي للوكيل ملف `server/middleware/auth.ts`. وهو يفرض المصادقة على جميع المسارات، بما في ذلك مسارات الصفحات العامة ومسارات `/api/*` المخصصة التي كانت ستتجاوز مصادقة إطار العمل المدمجة لولا ذلك.
+
+### حارس المصادقة {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+يتحقق `runAuthGuard` من كل طلب مقابل تكوين المصادقة الذي أعدته [إضافة المصادقة](/docs/server-plugins#auth-plugin). فإذا كان الطلب غير مصادَق عليه والمسار غير موجود ضمن `publicPaths`، فإنه يُعيد التوجيه إلى صفحة تسجيل الدخول.
+
+### لماذا برمجية وسيطة، لا إضافة أو حارس على مستوى المسار {#why-middleware}
+
+يقتصر نطاق سجل البرمجيات الوسيطة المدمج في معالج إطار العمل على مسارات `/_agent-native/*`. فبدون ملف برمجية وسيطة منفصل، تتجاوز مسارات الصفحات (`/`، و`/settings`) ومسارات API المخصصة (`/api/*`) المصادقة تمامًا.
+
+تعمل الإضافات عند بدء التشغيل، وليس مع كل طلب، لذا لا يمكنها فرض مصادقة لكل طلب. كما أن وضع حارس على مستوى المسار في كل معالج مسار مخصص عرضة للخطأ ويسهل نسيانه. البرمجية الوسيطة في `server/middleware/` هي المكان الوحيد الذي يعمل مع كل طلب بغض النظر عن المسار.
+
+### إضافة مسارات عامة {#public-paths}
+
+للسماح بالوصول غير المصادَق عليه إلى مسارات محددة، مرّرها إلى `createAuthPlugin` في `server/plugins/auth.ts` — وليس إلى البرمجية الوسيطة مباشرةً:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+يقرأ `runAuthGuard` المسارات العامة المُهيَّأة من إضافة المصادقة وقت الطلب.
+
+## ما هي الخطوة التالية
+
+- [**الإضافات**](/docs/server-plugins): تكوين إضافة المصادقة الذي تفرضه البرمجية الوسيطة
+- [**المسارات**](/docs/server-routes): المسارات المخصصة المحمية بواسطة هذه البرمجية الوسيطة
+- [**الأمان**](/docs/security): تحديد نطاق البيانات، وحراس الوصول، والنموذج الكامل للمصادقة
+- [**وثائق البرمجيات الوسيطة في Nitro**](https://nitro.build/guide/routing#middleware): واجهة برمجة التطبيقات الكاملة للبرمجيات الوسيطة وأنماطها

@@ -1,0 +1,234 @@
+---
+title: "Serveur"
+description: "La couche serveur Nitro dans une application native d'agent : à quoi elle sert, quand recourir à des routes personnalisées, et comment ses éléments s'articulent."
+---
+
+# Serveur
+
+Le répertoire `server/` est la couche d'infrastructure d'une application native d'agent. Il gère les tâches de démarrage, l'authentification et les surfaces HTTP que les actions ne couvrent pas. La majeure partie de la logique produit se trouve dans les [Actions](/docs/actions). Le serveur est ce qui rend ces actions disponibles.
+
+<Diagram id="doc-block-server-overview-1" title="Comment les requêtes circulent à travers le serveur" summary="Les appelants atteignent le serveur Nitro, qui traite la plupart des requêtes via les Actions. Le Middleware et les Routes couvrent les cas que les Actions ne peuvent pas gérer. Les deux chemins peuvent interroger la base de données.">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">Navigateur / UI</div>
+    <div class="diagram-node">Boucle de l'agent</div>
+    <div class="diagram-node">
+      Clients externes<br /><small class="diagram-muted"
+        >HTTP · MCP · A2A</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Serveur Nitro</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">chemin principal</small>
+    </div>
+    <div class="srv-or diagram-muted">ou</div>
+    <div class="srv-path">
+      <span class="diagram-pill">Middleware</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">Routes</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Base de données SQL<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## La place du serveur {#role}
+
+Dans une application web traditionnelle, c'est le serveur qui porte l'essentiel de la logique. Les règles métier, l'accès aux données et la présentation se déroulent tous à l'intérieur des gestionnaires de routes. Les applications natives d'agent fonctionnent différemment. La logique vit dans les actions, que l'agent et l'UI partagent à égalité. Le rôle du serveur se limite à la coordination : exécuter les migrations de base de données, configurer l'authentification, monter la boucle de l'agent, et gérer le petit ensemble de préoccupations HTTP que les actions ne peuvent pas exprimer par elles-mêmes.
+
+<Diagram id="doc-block-server-overview-2" title="Serveur traditionnel vs. Agent Native">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Traditionnel</div>
+    <div class="diagram-node">Navigateur</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Serveur</strong>
+      <small class="diagram-muted">la logique vit ici</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Gestionnaires de routes</span>
+        <span class="cmp-tag">Logique métier</span>
+        <span class="cmp-tag">Accès aux données</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Base de données</div>
+  </div>
+  <div class="cmp-vs diagram-muted">vs</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">Navigateur / UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Serveur</strong>
+      <small class="diagram-muted">coordination uniquement</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">Authentification</span>
+        <span class="cmp-tag">Migrations</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Base de données</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Les requêtes du navigateur, la boucle de l'agent et les clients d'API externes transitent tous par le même serveur Nitro et lisent la même base de données SQL. Il n'existe pas de backend distinct pour l'agent ou pour l'UI. La couche serveur est ce qui expose les actions au monde extérieur.
+
+## Ce que contient le répertoire server/ {#server-directory}
+
+Voici les répertoires et fichiers présents dans `server/` que toute application native d'agent embarque. Chacun correspond à un élément précis de la couche serveur : ce qu'il fait, quand y recourir, et comment il s'articule avec le reste du framework.
+
+| Page                                         | Ce qu'elle couvre                                                                                                                |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **[Base de données](/docs/server-database)** | Définition du schéma avec les assistants `table()`, `getDb`, et les modèles de tables ownable                                   |
+| **[Middleware](/docs/server-middleware)**    | Les gardes d'authentification dans `server/middleware/`, et pourquoi ils s'exécutent là plutôt que dans un plugin               |
+| **[Plugins](/docs/server-plugins)**          | Les trois plugins de démarrage que chaque application embarque : migrations de base de données, authentification, et agent-chat |
+| **[Routes](/docs/server-routes)**            | Les routes basées sur des fichiers, le catch-all SSR, et le cadrage des routes personnalisées à l'utilisateur de la requête     |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) est la boîte à outils serveur qui alimente la couche HTTP des applications natives d'agent. La majeure partie de ce que vous configurerez dans `server/` relève de Nitro : routes basées sur des fichiers, plugins de démarrage, et middleware.
+
+- **Routage basé sur des fichiers** : le nom du fichier correspond directement à une méthode HTTP et à un chemin d'URL, sans aucun enregistrement nécessaire. `server/routes/api/health.get.ts` devient automatiquement `GET /api/health`. Consultez [Routes](/docs/server-routes) pour plus de détails.
+- **Plugins** : du code qui s'exécute une seule fois au démarrage du serveur, avant qu'aucune requête ne soit servie. Les migrations de base de données, la configuration de l'authentification et le montage de l'agent-chat se font tous dans `server/plugins/`. Consultez [Plugins](/docs/server-plugins) pour plus de détails.
+- **Middleware** : du code qui s'exécute à chaque requête entrante avant qu'elle n'atteigne une route. Le garde d'authentification se trouve dans `server/middleware/`. Consultez [Middleware](/docs/server-middleware) pour plus de détails.
+
+Nitro est également indépendant du mode de déploiement. La même application se déploie sur Node.js, Cloudflare Workers, Netlify, Vercel et d'autres environnements d'exécution sans aucune modification de code. Il suffit de définir un preset. Voir [Deployment](/docs/deployment).
+
+L'API de requête/réponse sous-jacente est [H3](https://h3.unjs.io). Lorsque vous voyez `defineEventHandler`, `createError` ou `getQuery` dans des routes personnalisées, il s'agit de H3. La [documentation Nitro](https://nitro.build/guide) et la [documentation H3](https://h3.unjs.io) font référence pour tout ce que le framework ne couvre pas directement.
+
+## Privilégier les actions en premier {#actions-first}
+
+L'architecture Agent Native est différente. Chaque fois que vous envisagez une nouvelle fonctionnalité pour votre application, demandez-vous d'abord si elle peut être une action. Par exemple, si l'UI et l'agent doivent tous deux effectuer une opération, définissez une action plutôt qu'une route d'API personnalisée. Les actions deviennent automatiquement :
+
+- Des outils pour l'agent.
+- Des hooks frontend typés.
+- Des points de terminaison HTTP sous `/_agent-native/actions/:name`.
+- Des outils appelables via MCP et A2A.
+- Des commandes CLI pour le développement.
+
+N'utilisez des routes `/api/*` personnalisées que lorsque vous avez besoin d'un protocole en forme de route ou d'un comportement binaire/streaming. Pour plus de détails, consultez [Actions](/docs/actions).
+
+## Quelle est la prochaine étape
+
+- [**Actions**](/docs/actions) : la surface d'opération par défaut. Ne recourez à une route personnalisée que lorsqu'elle ne convient pas.
+- [**Base de données**](/docs/server-database) : le modèle `getDb()`/schéma que les routes personnalisées et les actions importent toutes deux
+- [**Middleware**](/docs/server-middleware) : gardes d'authentification et le répertoire `server/middleware/`
+- [**Plugins**](/docs/server-plugins) : plugins de démarrage pour les migrations, l'authentification et l'agent
+- [**Routes**](/docs/server-routes) : routes basées sur des fichiers, contexte de requête, et le catch-all SSR

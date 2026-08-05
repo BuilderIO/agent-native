@@ -1,0 +1,149 @@
+---
+title: "Middleware"
+description: "Nitro-Middleware in server/middleware/ – was sie ist, wie man eigene schreibt, und wie der eingebaute Auth-Guard funktioniert."
+---
+
+# Middleware
+
+Middleware ist Code, der bei jeder eingehenden Anfrage läuft, bevor sie einen Route-Handler erreicht. Sie sitzt zwischen Aufrufern und Routen und ist damit der richtige Ort für Querschnittsbelange: Authentifizierung, Logging, CORS-Header, Rate-Limiting oder alles, was unabhängig davon gelten muss, welche Route die Anfrage bedient.
+
+<Diagram id="doc-block-server-middleware-1" title="Wo Middleware läuft" summary="Middleware fängt jede Anfrage ab, bevor sie eine Route erreicht. Zugelassene Anfragen laufen weiter zum Route-Handler; blockierte Anfragen erhalten eine Weiterleitung oder eine Fehlerantwort.">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">Browser / Oberfläche</div>
+    <div class="diagram-node">Agentenschleife</div>
+    <div class="diagram-node">
+      Externe Clients<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Middleware</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">läuft bei jeder Anfrage</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">zugelassen</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>Routen &amp; Handler</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">blockiert</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>Weiterleitung / Fehler</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Dateien in `server/middleware/` werden automatisch von Nitro erkannt – keine Registrierung erforderlich. Jede Datei in diesem Verzeichnis läuft bei jeder Anfrage, in alphabetischer Reihenfolge.
+
+## Middleware schreiben {#writing-middleware}
+
+Eine Middleware-Datei exportiert einen `defineEventHandler`. Um die Anfrage weiterlaufen zu lassen, geben Sie nichts zurück. Um sie zu blockieren, werfen Sie einen `createError` oder geben Sie eine Weiterleitung mit `sendRedirect` zurück.
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // returning nothing passes the request through to the route handler
+});
+```
+
+Mehrere Middleware-Dateien laufen vor dem passenden Route-Handler in alphabetischer Dateinamenreihenfolge. Jede Middleware kann die Anfrage untersuchen oder verändern, Response-Header setzen oder die Antwort vollständig kurzschließen.
+
+Weitere Middleware-Muster — bedingte Logik, asynchrone Operationen, Response-Interception — finden Sie in der [Nitro-Middleware-Dokumentation](https://nitro.build/guide/routing#middleware) und der [H3-Dokumentation](https://h3.unjs.io).
+
+## Die Auth-Middleware {#auth-middleware}
+
+Jede agentennative App bringt `server/middleware/auth.ts` mit. Sie erzwingt Authentifizierung über alle Routen hinweg, einschließlich öffentlicher Seitenrouten und benutzerdefinierter `/api/*`-Routen, die sonst die eingebaute Auth des Frameworks umgehen würden.
+
+### Der Auth-Guard {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard` prüft jede Anfrage gegen die Auth-Konfiguration, die vom [Auth-Plugin](/docs/server-plugins#auth-plugin) eingerichtet wird. Ist die Anfrage nicht authentifiziert und der Pfad nicht in `publicPaths` enthalten, leitet es zur Anmeldeseite weiter.
+
+### Warum Middleware statt Plugin oder Route-Guard {#why-middleware}
+
+Die eingebaute Middleware-Registry des Framework-Handlers ist auf `/_agent-native/*`-Routen beschränkt. Ohne eine separate Middleware-Datei umgehen Seitenrouten (`/`, `/settings`) und benutzerdefinierte API-Routen (`/api/*`) die Authentifizierung vollständig.
+
+Plugins laufen beim Start, nicht pro Anfrage, und können daher keine Auth pro Anfrage erzwingen. Ein Guard auf Routenebene in jedem benutzerdefinierten Route-Handler ist fehleranfällig und leicht zu vergessen. Middleware in `server/middleware/` ist der eine Ort, der bei jeder Anfrage läuft, unabhängig vom Pfad.
+
+### Öffentliche Pfade hinzufügen {#public-paths}
+
+Um unauthentifizierten Zugriff auf bestimmte Pfade zu erlauben, übergeben Sie sie an `createAuthPlugin` in `server/plugins/auth.ts` — nicht direkt an die Middleware:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard` liest die konfigurierten öffentlichen Pfade zur Anfragezeit aus dem Auth-Plugin.
+
+## Was kommt als nächstes?
+
+- [**Plugins**](/docs/server-plugins): Auth-Plugin-Konfiguration, die von der Middleware durchgesetzt wird
+- [**Routen**](/docs/server-routes): benutzerdefinierte Routen, die durch diese Middleware geschützt werden
+- [**Security**](/docs/security): data scoping, access guards und das vollständige Auth-Modell
+- [**Nitro-Middleware-Dokumentation**](https://nitro.build/guide/routing#middleware): vollständige Middleware-API und -Muster

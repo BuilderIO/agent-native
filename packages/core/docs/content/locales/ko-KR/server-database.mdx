@@ -1,0 +1,423 @@
+---
+title: "데이터베이스"
+description: "이식 가능한 SQL 데이터베이스를 에이전트 기반 앱에 연결하세요: 스키마 도우미, 마이그레이션, 호스팅형 데이터베이스 옵션."
+---
+
+# 데이터베이스
+
+모든 에이전트 기반 앱은 상태를 SQL에 저장합니다. UI와 에이전트는 동일한 [Drizzle ORM](https://orm.drizzle.team) 클라이언트를 사용해 동일한 액션을 통해 동일한 테이블을 읽고 씁니다. 어느 한쪽이 데이터를 변경하면 다른 쪽은 폴링 계층을 통해 이를 확인하게 됩니다.
+
+<Diagram id="doc-block-vykcz4" title="데이터가 데이터베이스로 흐르는 방식" summary="UI와 에이전트는 모두 동일한 Actions 계층을 통해 데이터베이스에 접근합니다. 두 호출자 모두 동일한 getDb() 클라이언트와 동일한 SQL 테이블을 사용합니다. 각각을 위한 별도의 백엔드는 없습니다.">
+
+```html
+<div class="diagram-dbr">
+  <div class="diagram-col">
+    <div class="diagram-node">브라우저 / UI</div>
+    <div class="diagram-node">에이전트 루프</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>액션</strong>
+    <small class="diagram-muted">defineAction</small>
+    <small class="diagram-muted">getDb() &middot; Drizzle ORM</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL 데이터베이스<br /><small class="diagram-muted"
+      >DATABASE_URL에서 결정되는 방언</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-dbr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-dbr .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-dbr .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-dbr .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 호스팅 옵션 {#hosting}
+
+앱은 `DATABASE_URL`을 보고 어떤 백엔드를 사용할지 판단합니다. 이 변수가 설정되어 있지 않으면 로컬 SQLite 파일로 대체되므로 별도 설정 없이 바로 시작할 수 있습니다.
+
+### 기본값: SQLite 파일 {#default-sqlite}
+
+`DATABASE_URL`이 설정되어 있지 않으면 앱은 `data/app.db`에 SQLite 데이터베이스를 생성합니다. 별도의 구성이 필요 없습니다. 개발 서버를 시작하면 첫 실행 시 파일이 생성됩니다.
+
+이는 로컬 개발용으로만 사용됩니다. 컨테이너, 서버리스 함수, 미리보기 환경은 재시작 사이에 파일 시스템을 초기화할 수 있으므로 로컬 SQLite 파일이 사라질 수 있습니다. 배포하기 전에 `DATABASE_URL`을 영구적인 호스팅 데이터베이스로 설정하세요.
+
+### 로컬 Postgres: PGlite {#local-pglite}
+
+Docker나 호스팅 데이터베이스 없이 로컬에서 Postgres 방언에 맞춰 개발하려면 선택적인 PGlite 패키지를 설치하고 `DATABASE_URL`을 설정하세요.
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+```bash
+DATABASE_URL=pglite:./data/pglite
+```
+
+[PGlite](https://pglite.dev/)는 프로세스 내에서 실행되는 WASM 기반 Postgres 데이터베이스입니다. SQLite 기본값만큼 설정을 간단하게 유지하면서도 Postgres 전용 스키마 문제를 배포 전에 잡아낼 수 있게 해줍니다. SQLite와 마찬가지로 로컬 전용 저장소입니다. 프로덕션이나 공유 환경에는 사용하지 마세요.
+
+### 프로덕션 데이터베이스 {#production}
+
+`.env` 파일이나 배포 제공자 환경에서 `DATABASE_URL`을 설정해 호스팅된 데이터베이스를 연결하세요.
+
+```bash
+# Neon Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# 일반 Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL). DATABASE_AUTH_TOKEN도 필요합니다.
+DATABASE_URL=libsql://my-db-org.turso.io
+```
+
+프레임워크는 URL의 접두사에서 방언을 자동으로 감지하고 그에 맞춰 Drizzle를 구성합니다.
+
+### Builder.io 관리형 데이터베이스 {#builder-managed}
+
+_계획됨(아직 사용할 수 없음):_ Builder.io에 연결되면 앱은 연결 문자열 없이도 자동으로 프로비저닝되는 관리형 데이터베이스를 사용할 수 있게 됩니다.
+
+## 데이터베이스 설정하기 {#setup}
+
+데이터베이스를 사용하는 앱에는 세 개의 파일이 필요합니다.
+
+- `server/db/schema.ts`: 테이블 정의
+- `server/db/index.ts`: 타입이 지정된 DB 클라이언트 싱글톤
+- `server/plugins/db.ts`: 시작 시 실행되는 마이그레이션
+
+### 1. 스키마 정의하기 {#schema}
+
+`@agent-native/core/db/schema`에서 스키마 도우미를 가져오세요. `drizzle-orm/sqlite-core`나 `drizzle-orm/pg-core`에서 직접 가져오지 마세요. 프레임워크 도우미는 지원되는 모든 백엔드에서 동작하는, 방언에 구애받지 않는 정의를 생성합니다.
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| 도우미    | 목적                                                                |
+| --------- | -------------------------------------------------------------------- |
+| `table`   | 테이블 정의 — `pgTable` 또는 `sqliteTable`에 위임                    |
+| `text`    | 텍스트 열, `{ enum: [...] }` 지원                                    |
+| `integer` | 정수 열, `{ mode: "boolean" }`는 Postgres의 불리언에 매핑됩니다.     |
+| `real`    | 부동소수점 열. SQLite에서는 `real`, Postgres에서는 `double precision`에 매핑됩니다. |
+| `now`     | `.default(now())`를 위한, 방언에 구애받지 않는 현재 타임스탬프       |
+
+<DataModel
+  id="doc-block-14e70da"
+  title="tasks 테이블"
+  summary={
+    "프레임워크 도우미로 한 번만 정의하며, 방언은 런타임에 DATABASE_URL로부터 선택됩니다."
+  }
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+사용자별 데이터를 저장하는 테이블에는 반드시 `owner_email` 열을 포함시켜야 프레임워크가 인증된 사용자에 대해 행을 필터링할 수 있습니다. 다른 사용자나 조직과의 공유도 지원해야 하는 테이블은 단순한 `owner_email` 대신 `...ownableColumns()`를 확산해야 하며, 이는 한 번의 호출로 `owner_email`, `org_id`, `visibility`를 추가해 줍니다. 아래의 [사용자에게 데이터 범위 지정하기](#scoping)를 참조하세요.
+
+### 2. DB 클라이언트 생성하기 {#db-client}
+
+각 앱은 `createGetDb(schema)`를 호출해 게으른(lazy) 싱글톤 Drizzle 클라이언트를 생성합니다. 정식 위치는 `server/db/index.ts`입니다.
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+`createGetDb`는 처음 호출될 때 데이터베이스 연결을 열고, 이후 호출에서는 동일한 타입이 지정된 Drizzle 인스턴스를 반환하는 `getDb()` 함수를 반환합니다. 런타임에 `DATABASE_URL`을 읽어 어떤 백엔드와 방언을 사용할지 결정합니다.
+
+액션과 라우트에서는 이 템플릿 로컬 경로에서 `getDb`를 가져오세요. `@agent-native/core`에서 직접 가져오지 마세요. 코어의 내보내기는 타입이 지정되어 있지 않으며, 로컬 내보내기가 여러분의 스키마 타입을 담고 있습니다.
+
+### 3. 마이그레이션 작성하기 {#migrations}
+
+스키마 변경 사항은 `server/plugins/db.ts`의 Nitro 플러그인을 통해 시작 시 적용됩니다. `@agent-native/core/db`의 `runMigrations`를 사용하세요.
+
+<AnnotatedCode
+  id="doc-block-zaaj7e"
+  title="시작 시 실행되는 마이그레이션 플러그인"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "앱별 버전 테이블",
+      note: "각 앱은 자체 버전 테이블에서 적용된 버전을 추적합니다. 프레임워크 마이그레이션이나 동일한 데이터베이스를 공유하는 다른 앱과 충돌하지 않도록 앱 고유의 이름을 사용하세요.",
+    },
+    {
+      lines: "7",
+      label: "초기 테이블 생성",
+      note: "`CREATE TABLE IF NOT EXISTS`는 재시작할 때마다 다시 실행해도 안전합니다. 전체 테이블 정의는 버전 1에 넣으세요.",
+    },
+    {
+      lines: "17",
+      label: "추가 방식의 열 추가",
+      note: "`ADD COLUMN IF NOT EXISTS`는 초기 생성 이후에 열을 추가하는 안전한 방법입니다. 열을 삭제하거나 이름을 바꾸지 마세요.",
+    },
+    {
+      lines: "22-25",
+      label: "방언 게이팅",
+      note: "방언별로 키가 지정된 객체를 전달하면 백엔드마다 다른 SQL을 실행할 수 있습니다. 변경이 필요 없는 방언에는 `SELECT 1`을 아무 동작도 하지 않는(no-op) 값으로 사용하세요.",
+    },
+  ]}
+/>
+
+`runMigrations`는 각 항목을 순서대로 한 번씩 실행한 다음 버전을 기록해, 이후 재시작 시에는 건너뜁니다. 각 항목은 멱등적입니다. 이 플러그인은 매 부팅 시 호출해도 안전합니다.
+
+<Callout tone="risk">
+  프로덕션 데이터베이스에 대해 `drizzle-kit push`를 절대 실행하지 마세요. 템플릿 스키마는
+  앱별 테이블만 정의하며, 중앙 프레임워크 테이블(`user`, `session`,
+  `application_state` 등)은 포함하지 않습니다. 프로덕션에 대해 `drizzle-kit
+  push`를 실행하면 이러한 테이블을 알 수 없는 것으로 감지해 삭제를 시도하며,
+  즉각적인 데이터 손실로 이어집니다.
+</Callout>
+
+각 앱 루트의 `drizzle.config.ts`는 로컬 개발용 스키마 검사를 위해 drizzle-kit을 구성합니다.
+
+```ts filename="drizzle.config.ts"
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
+export default createDrizzleConfig();
+```
+
+스키마를 검사하려면 `pnpm db:generate`를, 로컬 데이터베이스에 대해서만 `pnpm db:push`를 사용하세요.
+
+### 4. 액션에서 쿼리하기 {#querying}
+
+액션에서 `getDb()`를 호출해 타입이 지정된 Drizzle 클라이언트를 얻으세요. Drizzle의 쿼리 빌더와 `drizzle-orm`의 이식 가능한 연산자를 사용하세요.
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(schema.tasks)
+  .where(
+    and(eq(schema.tasks.ownerEmail, userEmail), eq(schema.tasks.done, false)),
+  )
+  .orderBy(desc(schema.tasks.createdAt));
+
+await db
+  .update(schema.tasks)
+  .set({ done: true })
+  .where(eq(schema.tasks.id, taskId));
+```
+
+## 사용자에게 데이터 범위 지정하기 {#scoping}
+
+사용자 대상 테이블에 대한 모든 읽기와 쓰기는 인증된 사용자로 범위가 지정되어야 합니다. 프레임워크는 데이터가 비공개인지 공유 가능한지에 따라 두 가지 패턴을 제공합니다.
+
+**비공개 데이터:** 한 사용자에게 속한 테이블입니다. 스키마에 `ownerEmail: text("owner_email").notNull()`을 추가하고, 모든 쿼리에 `eq(table.ownerEmail, userEmail)`을 포함하세요.
+
+```ts
+.where(eq(schema.tasks.ownerEmail, userEmail))
+```
+
+**공유 리소스:** 다른 사용자나 조직과 공유할 수 있는 테이블입니다. 스키마에서 단순한 `owner_email` 대신 `...ownableColumns()`를 확산하세요. 이는 한 번의 호출로 `owner_email`, `org_id`, `visibility`를 추가하고, `createSharesTable`로 짝이 되는 공유 테이블을 생성합니다.
+
+```ts filename="server/db/schema.ts"
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+export const deckShares = createSharesTable("deck_shares");
+```
+
+그런 다음 목록 조회 쿼리에서는 수동 `eq` 검사 대신 `@agent-native/core/sharing`의 `accessFilter`를 사용하세요.
+
+```ts
+import { accessFilter } from "@agent-native/core/sharing";
+
+const rows = await db
+  .select()
+  .from(schema.decks)
+  .where(accessFilter(schema.decks, schema.deckShares));
+```
+
+`accessFilter`는 호출자가 소유한 행, 호출자의 조직과 공유된 행, 호출자에게 명시적으로 공유된 행만 허용하는 쿼리를 구성합니다. 다른 사용자의 행은 노출하지 않습니다.
+
+전체 모델은 [Security — Data Scoping](/docs/security#data-scoping)과 [Sharing](/docs/sharing#building)을 참조하세요.
+
+## SQL 기반 동기화 {#sync}
+
+에이전트 네이티브는 파일 시스템 워처나 고정된 인메모리 상태에 의존하지 않습니다. 액션이 데이터베이스에 쓸 때마다 동기화 버전이 증가합니다. 클라이언트의 `useDbSync()` 후크는 `/_agent-native/poll`을 폴링하다가 더 높은 버전을 감지하면 React Query 캐시를 무효화합니다.
+
+이 방식은 데이터베이스가 조율 지점이 되기 때문에 서버리스 및 다중 인스턴스 배포 환경에서도 동작합니다. 액션 바깥에서 커스텀 뮤테이션을 작성하는 경우, 프레임워크 도우미를 사용하거나 열려 있는 UI가 새로고침되도록 적절한 동기화 무효화를 발생시키세요.
+
+<Diagram id="doc-block-qhkdv8" title="SQL 기반 동기화 루프" summary="워처도, 고정 상태도 없습니다. 쓰기가 SQL의 버전을 올리면, 모든 클라이언트가 그 버전을 폴링해 다시 가져옵니다.">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    액션 / 도우미<br /><small class="diagram-muted">데이터를 변경함</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL 데이터베이스</strong
+    ><small class="diagram-muted">동기화 버전 증가</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >/_agent-native/poll을 폴링함</small
+      >
+    </div>
+    <div class="diagram-pill ok">캐시 무효화 &rarr; UI 새로고침</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="poll 엔드포인트" method="GET" path="/_agent-native/poll" summary="클라이언트가 변경을 감지할 수 있도록 소스별 현재 데이터베이스 동기화 버전을 반환합니다." auth="세션 쿠키(요청 범위 아이덴티티)" responses={[
+  {
+    "status": "200",
+    "description": "소스별로 키가 지정된 현재 동기화 버전."
+  }
+]}>
+
+`useDbSync()`는 이를 일정 간격으로 호출하며, SSE를 사용할 수 없을 때는 이 방식으로 대체됩니다. 반환된 버전이 클라이언트가 마지막으로 확인한 값보다 높으면, 해당하는 React Query 캐시가 무효화되고 다시 가져옵니다.
+
+</Endpoint>
+
+## 원시 SQL {#raw-sql}
+
+Drizzle 쿼리 빌더로 표현할 수 없는 고급 쿼리, 상태 확인, 일회성 유지 관리 작업에는 `@agent-native/core/db`의 `getDbExec`를 사용하세요.
+
+```ts
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+
+const { rows } = await getDbExec().execute({
+  sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
+  args: [userEmail, 50],
+});
+```
+
+`getDbExec`는 Postgres를 위해 `?` 매개변수를 `$1`, `$2` 등으로 자동 변환합니다. 방언에 따라 분기하려면 `isPostgres()`를, 현재 백엔드에 맞는 정수 타입을 반환받으려면 `intType()`을 사용하세요. 일반적인 읽기와 쓰기에는 Drizzle 쿼리 빌더를 우선 사용하세요. 원시 SQL은 타입 안전성을 우회하며 유지 보수가 더 어렵습니다.
+
+## 환경변수 {#environment-variables}
+
+| 변수                  | 목적                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`        | 영구 SQL 연결 문자열(설정 안 됨 = 로컬 SQLite, `pglite:./data/pglite` = 로컬 Postgres 선택) |
+| `DATABASE_AUTH_TOKEN` | Turso/libSQL처럼 별도 토큰이 필요한 공급자를 위한 인증 토큰                                 |
+
+## 다음 단계
+
+- [**Security — Data Scoping**](/docs/security#data-scoping): `owner_email`과 접근 도우미가 읽기/쓰기 범위를 지정하는 방법
+- [**Sharing**](/docs/sharing#building): `ownableColumns()`와 공유 리소스를 위한 가시성 모델
+- [**플러그인**](/docs/server-plugins): 마이그레이션이 실행되는 시작 플러그인 생명주기
+- [**Actions**](/docs/actions): 액션이 `getDb()`를 호출해 데이터를 읽고 쓰는 표면
+- [**Deployment**](/docs/deployment#persistent-database): 배포 대상마다 영구 데이터베이스를 연결하는 방법
+- [**Real-Time Sync**](/docs/real-time-sync): `useDbSync()`와 전체 클라이언트 측 동기화 모델

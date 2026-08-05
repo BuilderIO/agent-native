@@ -1,0 +1,149 @@
+---
+title: "ミドルウェア"
+description: "server/middleware/ にある Nitro ミドルウェア — それが何か、どう自作するか、組み込みの認証ガードがどう動くか。"
+---
+
+# ミドルウェア
+
+ミドルウェアは、ルート ハンドラーに到達する前に、受信するすべてのリクエストに対して実行されるコードです。呼び出し元とルートの間に位置するため、認証、ロギング、CORS ヘッダー、レート制限など、どのルートが処理するかにかかわらず適用すべき横断的な関心事に適した置き場所です。
+
+<Diagram id="doc-block-server-middleware-1" title="ミドルウェアが動作する場所" summary="ミドルウェアは、すべてのリクエストがルートに到達する前にそれを傍受します。許可されたリクエストはルート ハンドラーへ進み、ブロックされたリクエストはリダイレクトまたはエラー レスポンスを受け取ります。">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">ブラウザ / UI</div>
+    <div class="diagram-node">エージェント ループ</div>
+    <div class="diagram-node">
+      外部クライアント<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>ミドルウェア</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">すべてのリクエストで実行される</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">許可</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>ルートとハンドラー</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">ブロック</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>リダイレクト / エラー</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+`server/middleware/` 内のファイルは Nitro によって自動的に検出されます。登録は不要です。そのディレクトリ内のすべてのファイルが、アルファベット順にすべてのリクエストで実行されます。
+
+## ミドルウェアを書く {#writing-middleware}
+
+ミドルウェア ファイルは `defineEventHandler` をエクスポートします。リクエストを先へ進めるには何も返さず、ブロックするには `createError` を throw するか、`sendRedirect` でリダイレクトを返します。
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // returning nothing passes the request through to the route handler
+});
+```
+
+複数のミドルウェア ファイルは、一致したルート ハンドラーが実行される前に、ファイル名のアルファベット順で実行されます。各ミドルウェアは、リクエストの検査や変更、レスポンス ヘッダーの設定、あるいはレスポンスを完全にショートサーキットすることができます。
+
+条件分岐、非同期処理、レスポンスの傍受といった、さらなるミドルウェアのパターンについては、[Nitro ミドルウェアのドキュメント](https://nitro.build/guide/routing#middleware) と [H3 のドキュメント](https://h3.unjs.io) を参照してください。
+
+## 認証ミドルウェア {#auth-middleware}
+
+すべてのエージェント ネイティブ アプリは `server/middleware/auth.ts` を備えています。これは、公開ページ ルートやカスタム `/api/*` ルートを含む、すべてのルートに対して認証を強制します。これらは本来、フレームワーク組み込みの認証を回避してしまう可能性があるものです。
+
+### 認証ガード {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard` は、[認証プラグイン](/docs/server-plugins#auth-plugin) によって構成された認証設定に対して、すべてのリクエストをチェックします。リクエストが未認証で、そのパスが `publicPaths` に含まれていない場合は、サインイン ページへリダイレクトします。
+
+### なぜプラグインやルート ガードではなくミドルウェアなのか {#why-middleware}
+
+フレームワーク ハンドラーの組み込みミドルウェア レジストリは、`/_agent-native/*` ルートに限定されています。専用のミドルウェア ファイルがなければ、ページ ルート (`/`、`/settings`) やカスタム API ルート (`/api/*`) は認証を完全に迂回してしまいます。
+
+プラグインはリクエストごとではなく起動時に実行されるため、リクエストごとの認証を強制できません。各カスタム ルート ハンドラーでのルート レベルのガードはエラーが起きやすく、うっかり忘れがちです。`server/middleware/` にあるミドルウェアは、パスにかかわらずすべてのリクエストで実行される唯一の場所です。
+
+### パブリック パスの追加 {#public-paths}
+
+特定のパスへの未認証アクセスを許可するには、ミドルウェアに直接渡すのではなく、`server/plugins/auth.ts` の `createAuthPlugin` に渡します。
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard` は、リクエスト時に認証プラグインから構成済みのパブリック パスを読み取ります。
+
+## 次は何ですか
+
+- [**プラグイン**](/docs/server-plugins): このミドルウェアが強制する認証プラグインの構成
+- [**ルート**](/docs/server-routes): このミドルウェアによって保護されるカスタム ルート
+- [**セキュリティ**](/docs/security): データのスコープ設定、アクセス ガード、完全な認証モデル
+- [**Nitro ミドルウェアのドキュメント**](https://nitro.build/guide/routing#middleware): ミドルウェア API とパターンの全体

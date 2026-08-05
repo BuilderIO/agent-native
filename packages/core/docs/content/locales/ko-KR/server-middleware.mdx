@@ -1,0 +1,149 @@
+---
+title: "미들웨어"
+description: "server/middleware/의 Nitro 미들웨어 — 무엇인지, 직접 작성하는 법, 내장 인증 가드가 동작하는 방식."
+---
+
+# 미들웨어
+
+미들웨어는 라우트 핸들러에 도달하기 전, 들어오는 모든 요청에 대해 실행되는 코드입니다. 호출자와 라우트 사이에 위치하기 때문에 인증, 로깅, CORS 헤더, 속도 제한처럼 어떤 라우트가 요청을 처리하든 상관없이 적용되어야 하는 횡단 관심사를 다루기에 적합한 위치입니다.
+
+<Diagram id="doc-block-server-middleware-1" title="미들웨어가 실행되는 위치" summary="미들웨어는 모든 요청이 라우트에 도달하기 전에 가로챕니다. 허용된 요청은 라우트 핸들러로 계속 진행하고, 차단된 요청은 리다이렉트나 오류 응답을 받습니다.">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">브라우저 / UI</div>
+    <div class="diagram-node">에이전트 루프</div>
+    <div class="diagram-node">
+      외부 클라이언트<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>미들웨어</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">모든 요청에 대해 실행됨</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">허용됨</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>라우트 및 핸들러</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">차단됨</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>리다이렉트 / 오류</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+`server/middleware/` 안의 파일들은 별도의 등록 없이 Nitro가 자동으로 인식합니다. 해당 디렉터리의 모든 파일은 알파벳 순서로 모든 요청에 대해 실행됩니다.
+
+## 미들웨어 작성하기 {#writing-middleware}
+
+미들웨어 파일은 `defineEventHandler`를 내보냅니다. 요청을 계속 진행시키려면 아무것도 반환하지 마세요. 요청을 막으려면 `createError`를 던지거나 `sendRedirect`로 리다이렉트를 반환하세요.
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // 아무것도 반환하지 않으면 요청이 라우트 핸들러로 통과합니다
+});
+```
+
+여러 미들웨어 파일은 일치하는 라우트 핸들러보다 먼저, 파일 이름의 알파벳 순서대로 실행됩니다. 각 미들웨어는 요청을 검사하거나 수정하고, 응답 헤더를 설정하거나, 응답을 완전히 가로챌 수 있습니다.
+
+조건부 로직, 비동기 작업, 응답 가로채기 등 더 많은 미들웨어 패턴은 [Nitro 미들웨어 문서](https://nitro.build/guide/routing#middleware)와 [H3 문서](https://h3.unjs.io)를 참조하세요.
+
+## 인증 미들웨어 {#auth-middleware}
+
+모든 에이전트 기반 앱은 `server/middleware/auth.ts`를 기본으로 갖추고 있습니다. 이 파일은 공개 페이지 라우트와, 그렇지 않으면 프레임워크의 내장 인증을 우회할 수 있는 커스텀 `/api/*` 라우트를 포함한 모든 라우트에 대해 인증을 강제합니다.
+
+### 인증 가드 {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard`는 [인증 플러그인](/docs/server-plugins#auth-plugin)이 구성한 인증 설정에 대해 모든 요청을 검사합니다. 요청이 인증되지 않았고 해당 경로가 `publicPaths`에 없으면 로그인 페이지로 리다이렉트합니다.
+
+### 왜 플러그인이나 라우트 가드가 아니라 미들웨어인가 {#why-middleware}
+
+프레임워크 핸들러에 내장된 미들웨어 레지스트리는 `/_agent-native/*` 라우트에만 범위가 한정되어 있습니다. 별도의 미들웨어 파일이 없으면 페이지 라우트(`/`, `/settings`)와 커스텀 API 라우트(`/api/*`)는 인증을 완전히 우회하게 됩니다.
+
+플러그인은 요청마다가 아니라 시작 시에 실행되므로 요청 단위 인증을 강제할 수 없습니다. 각 커스텀 라우트 핸들러에 라우트 수준 가드를 넣는 방식은 오류가 나기 쉽고 빠뜨리기도 쉽습니다. `server/middleware/`의 미들웨어는 경로와 관계없이 모든 요청에 대해 실행되는 유일한 지점입니다.
+
+### 공개 경로 추가하기 {#public-paths}
+
+특정 경로에 인증되지 않은 접근을 허용하려면, 미들웨어에 직접 전달하는 대신 `server/plugins/auth.ts`의 `createAuthPlugin`에 전달하세요.
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard`는 요청 시점에 인증 플러그인에서 구성된 공개 경로를 읽습니다.
+
+## 다음 단계
+
+- [**플러그인**](/docs/server-plugins): 이 미들웨어가 강제하는 인증 플러그인 구성
+- [**라우트**](/docs/server-routes): 이 미들웨어로 보호되는 커스텀 라우트
+- [**Security**](/docs/security): 데이터 범위 지정, 접근 가드, 전체 인증 모델
+- [**Nitro 미들웨어 문서**](https://nitro.build/guide/routing#middleware): 전체 미들웨어 API와 패턴

@@ -1,0 +1,234 @@
+---
+title: "Server"
+description: "Die Nitro-Serverschicht in einer agentennativen App: wofür sie da ist, wann man zu benutzerdefinierten Routen greift und wie ihre Teile zusammenhängen."
+---
+
+# Server
+
+Das Verzeichnis `server/` ist die Infrastrukturschicht einer agentennativen App. Es übernimmt Startaufgaben, Authentifizierung und die HTTP-Oberflächen, die Actions nicht abdecken. Das meiste Produktverhalten gehört in [Actions](/docs/actions). Der Server macht diese Actions verfügbar.
+
+<Diagram id="doc-block-server-overview-1" title="Wie Anfragen durch den Server fließen" summary="Aufrufer erreichen den Nitro-Server, der die meisten Anfragen über Actions abwickelt. Middleware und Routen decken die Fälle ab, die Actions nicht können. Beide Pfade können die Datenbank abfragen.">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">Browser / Oberfläche</div>
+    <div class="diagram-node">Agentenschleife</div>
+    <div class="diagram-node">
+      Externe Clients<br /><small class="diagram-muted"
+        >HTTP · MCP · A2A</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro-Server</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">primärer Pfad</small>
+    </div>
+    <div class="srv-or diagram-muted">oder</div>
+    <div class="srv-path">
+      <span class="diagram-pill">Middleware</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">Routen</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL-Datenbank<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Wo der Server einzuordnen ist {#role}
+
+In einer traditionellen Web-App lebt der Großteil der Logik im Server. Geschäftsregeln, Datenzugriff und Darstellung passieren allesamt innerhalb von Route-Handlern. Agentennative Apps funktionieren anders. Die Logik lebt in Actions, die sich Agent und UI als gleichberechtigte Partner teilen. Die Aufgabe des Servers ist Koordination: Datenbankmigrationen ausführen, Authentifizierung konfigurieren, die Agentenschleife einhängen und die schmale Menge an HTTP-Belangen abdecken, die Actions allein nicht ausdrücken können.
+
+<Diagram id="doc-block-server-overview-2" title="Traditioneller Server vs. Agent-Native">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Traditionell</div>
+    <div class="diagram-node">Browser</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Server</strong>
+      <small class="diagram-muted">Logik lebt hier</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Routen-Handler</span>
+        <span class="cmp-tag">Geschäftslogik</span>
+        <span class="cmp-tag">Datenzugriff</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Datenbank</div>
+  </div>
+  <div class="cmp-vs diagram-muted">vs.</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent-Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">Browser / Oberfläche</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Server</strong>
+      <small class="diagram-muted">nur Koordination</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">Auth</span>
+        <span class="cmp-tag">Migrationen</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Datenbank</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Browseranfragen, die Agentenschleife und externe API-Clients laufen alle über denselben Nitro-Server und lesen aus derselben SQL-Datenbank. Es gibt kein separates Agenten-Backend oder UI-Backend. Die Serverschicht ist das, was Actions der Außenwelt zugänglich macht.
+
+## Was im Verzeichnis server/ steckt {#server-directory}
+
+Dies sind die Verzeichnisse und Dateien innerhalb von `server/`, die jede agentennative App mitbringt. Jedes entspricht einem bestimmten Teil der Serverschicht: was es tut, wann man dazu greift und wie es mit dem Rest des Frameworks zusammenhängt.
+
+| Seite                                      | Was sie behandelt                                                                                            |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **[Datenbank](/docs/server-database)**     | Schemadefinition mit `table()`-Helfern, `getDb` und ownable-Tabellenmustern                                    |
+| **[Middleware](/docs/server-middleware)**  | Auth-Guards in `server/middleware/` und warum sie dort laufen statt in einem Plugin                            |
+| **[Plugins](/docs/server-plugins)**         | Die drei Startup-Plugins jeder App: DB-Migrationen, Auth und Agent-Chat                                        |
+| **[Routen](/docs/server-routes)**          | Dateibasierte Routen, der SSR-Catch-all und die Eingrenzung benutzerdefinierter Routen auf den Anfragenutzer  |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) ist das Server-Toolkit, das die agentennative HTTP-Schicht antreibt. Das meiste, was Sie in `server/` konfigurieren, ist Nitro: dateibasierte Routen, Startup-Plugins und Middleware.
+
+- **Dateibasiertes Routing**: Der Dateiname wird ohne Registrierung direkt auf eine HTTP-Methode und einen URL-Pfad abgebildet. `server/routes/api/health.get.ts` wird automatisch zu `GET /api/health`. Weitere Details finden Sie unter [Routen](/docs/server-routes).
+- **Plugins**: Code, der einmal beim Serverstart läuft, bevor irgendeine Anfrage bedient wird. Datenbankmigrationen, Auth-Konfiguration und das Einhängen des Agent-Chats geschehen alle in `server/plugins/`. Weitere Details finden Sie unter [Plugins](/docs/server-plugins).
+- **Middleware**: Code, der bei jeder eingehenden Anfrage läuft, bevor sie eine Route erreicht. Der Auth-Guard lebt in `server/middleware/`. Weitere Details finden Sie unter [Middleware](/docs/server-middleware).
+
+Nitro ist außerdem bereitstellungsunabhängig. Dieselbe App wird ohne Codeänderungen auf Node.js, Cloudflare Workers, Netlify, Vercel und weiteren Laufzeitumgebungen bereitgestellt. Legen Sie einfach ein Preset fest. Siehe [Deployment](/docs/deployment).
+
+Die zugrunde liegende Request/Response-API ist [H3](https://h3.unjs.io). Wenn Sie in benutzerdefinierten Routen `defineEventHandler`, `createError` oder `getQuery` sehen, ist das H3. Die [Nitro-Dokumentation](https://nitro.build/guide) und die [H3-Dokumentation](https://h3.unjs.io) sind die Referenz für alles, was das Framework nicht direkt abdeckt.
+
+## Standardmäßig zuerst Actions {#actions-first}
+
+Die Agent-Native-Architektur ist anders. Wann immer Sie an ein neues Feature für Ihre App denken, prüfen Sie zuerst, ob es eine Action sein kann. Wenn zum Beispiel sowohl UI als auch Agent etwas tun müssen, definieren Sie eine Action statt einer benutzerdefinierten API-Route. Actions werden automatisch zu:
+
+- Agenten-Tools.
+- Typisierten Frontend-Hooks.
+- HTTP-Endpunkten unter `/_agent-native/actions/:name`.
+- MCP- und A2A-aufrufbaren Tools.
+- CLI-Befehlen für die Entwicklung.
+
+Verwenden Sie benutzerdefinierte `/api/*`-Routen nur, wenn Sie ein routenförmiges Protokoll oder binäres/streamendes Verhalten benötigen. Weitere Details finden Sie unter [Actions](/docs/actions).
+
+## Was kommt als nächstes?
+
+- [**Actions**](/docs/actions): die Standard-Operationsoberfläche. Greifen Sie nur dann zu einer benutzerdefinierten Route, wenn sie nicht passt.
+- [**Datenbank**](/docs/server-database): das `getDb()`/Schema-Muster, das sowohl benutzerdefinierte Routen als auch Actions importieren
+- [**Middleware**](/docs/server-middleware): Auth-Guards und das Verzeichnis `server/middleware/`
+- [**Plugins**](/docs/server-plugins): Startup-Plugins für Migrationen, Auth und den Agenten
+- [**Routen**](/docs/server-routes): dateibasierte Routen, Anfragekontext und der SSR-Catch-all

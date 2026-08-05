@@ -1,0 +1,149 @@
+---
+title: "मिडलवेयर"
+description: "server/middleware/ में Nitro मिडलवेयर — यह क्या है, अपना खुद का कैसे लिखें, और अंतर्निहित auth गार्ड कैसे काम करता है।"
+---
+
+# मिडलवेयर
+
+मिडलवेयर वह कोड है जो हर आने वाले अनुरोध पर, किसी रूट हैंडलर तक पहुँचने से पहले चलता है। यह कॉलर और रूट्स के बीच बैठता है, जिससे यह क्रॉस-कटिंग सरोकारों के लिए सही जगह बन जाती है: प्रमाणीकरण, लॉगिंग, CORS हेडर, रेट लिमिटिंग, या कुछ भी जिसे लागू होना चाहिए चाहे कोई भी रूट अनुरोध को संभाले।
+
+<Diagram id="doc-block-server-middleware-1" title="मिडलवेयर कहाँ चलता है" summary="मिडलवेयर हर अनुरोध को किसी रूट तक पहुँचने से पहले इंटरसेप्ट करता है। स्वीकृत अनुरोध रूट हैंडलर तक जारी रहते हैं; अवरुद्ध अनुरोधों को रीडायरेक्ट या एरर प्रतिक्रिया मिलती है।">
+
+```html
+<div class="diagram-mw">
+  <div class="diagram-col">
+    <div class="diagram-node">ब्राउज़र / UI</div>
+    <div class="diagram-node">एजेंट लूप</div>
+    <div class="diagram-node">
+      बाहरी क्लाइंट्स<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>मिडलवेयर</strong>
+    <small class="diagram-muted">server/middleware/</small>
+    <small class="diagram-muted">हर अनुरोध पर चलता है</small>
+  </div>
+  <div class="mw-outcomes">
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">स्वीकृत</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>रूट्स और हैंडलर</div>
+    </div>
+    <div class="mw-outcome">
+      <span class="mw-label diagram-muted">अवरुद्ध</span>
+      <span class="mw-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box" data-rough>रीडायरेक्ट / एरर</div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mw {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mw .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mw .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-mw .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mw-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mw-outcome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-label {
+  font-size: 11px;
+  min-width: 44px;
+  text-align: right;
+}
+.mw-arrow {
+  font-size: 16px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+`server/middleware/` में फ़ाइलें Nitro द्वारा स्वचालित रूप से उठाई जाती हैं - किसी रजिस्ट्रेशन की आवश्यकता नहीं है। उस डायरेक्टरी की हर फ़ाइल हर अनुरोध के लिए, वर्णानुक्रम में चलती है।
+
+## मिडलवेयर लिखना {#writing-middleware}
+
+एक मिडलवेयर फ़ाइल `defineEventHandler` निर्यात करती है। अनुरोध को जारी रहने देने के लिए, कुछ भी न लौटाएं। इसे अवरुद्ध करने के लिए, `createError` थ्रो करें या `sendRedirect` के साथ एक रीडायरेक्ट लौटाएं।
+
+```ts filename="server/middleware/cors.ts"
+import { defineEventHandler, setResponseHeader } from "h3";
+
+export default defineEventHandler((event) => {
+  setResponseHeader(event, "Access-Control-Allow-Origin", "*");
+  // कुछ भी न लौटाना अनुरोध को रूट हैंडलर तक पहुँचने देता है
+});
+```
+
+कई मिडलवेयर फ़ाइलें मेल खाने वाले रूट हैंडलर से पहले, वर्णानुक्रम फ़ाइलनाम क्रम में चलती हैं। प्रत्येक मिडलवेयर अनुरोध का निरीक्षण या संशोधन कर सकता है, प्रतिक्रिया हेडर सेट कर सकता है, या प्रतिक्रिया को पूरी तरह से शॉर्ट-सर्किट कर सकता है।
+
+अधिक मिडलवेयर पैटर्न - सशर्त लॉजिक, असिंक्रोनस ऑपरेशन, प्रतिक्रिया इंटरसेप्शन - के लिए [Nitro मिडलवेयर डॉक्स](https://nitro.build/guide/routing#middleware) और [H3 डॉक्स](https://h3.unjs.io) देखें।
+
+## Auth मिडलवेयर {#auth-middleware}
+
+हर एजेंट-नेटिव ऐप `server/middleware/auth.ts` शिप करता है। यह सभी रूट्स पर प्रमाणीकरण लागू करता है, जिसमें सार्वजनिक पेज रूट्स और कस्टम `/api/*` रूट्स भी शामिल हैं जो अन्यथा फ्रेमवर्क के अंतर्निहित auth को बायपास कर देंगे।
+
+### Auth गार्ड {#auth-guard}
+
+```ts filename="server/middleware/auth.ts"
+import { runAuthGuard } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(async (event) => {
+  return runAuthGuard(event);
+});
+```
+
+`runAuthGuard` हर अनुरोध की जांच [auth प्लगइन](/docs/server-plugins#auth-plugin) द्वारा सेटअप किए गए auth कॉन्फ़िगरेशन के विरुद्ध करता है। यदि अनुरोध अप्रमाणित है और पथ `publicPaths` में नहीं है, तो यह साइन-इन पेज पर रीडायरेक्ट कर देता है।
+
+### मिडलवेयर ही क्यों, कोई प्लगइन या रूट गार्ड क्यों नहीं {#why-middleware}
+
+फ्रेमवर्क हैंडलर की अंतर्निहित मिडलवेयर रजिस्ट्री `/_agent-native/*` रूट्स तक सीमित है। एक अलग मिडलवेयर फ़ाइल के बिना, पेज रूट्स (`/`, `/settings`) और कस्टम API रूट्स (`/api/*`) प्रमाणीकरण को पूरी तरह से बायपास कर देंगे।
+
+प्लगइन्स स्टार्टअप पर चलते हैं, प्रति-अनुरोध नहीं, इसलिए वे प्रति-अनुरोध auth लागू नहीं कर सकते। हर कस्टम रूट हैंडलर में रूट-स्तरीय गार्ड त्रुटि-प्रवण है और भूलना आसान है। `server/middleware/` में मिडलवेयर वह एकमात्र जगह है जो पथ चाहे जो भी हो, हर अनुरोध के लिए चलती है।
+
+### सार्वजनिक पथ जोड़ना {#public-paths}
+
+विशिष्ट पथों तक अप्रमाणित एक्सेस की अनुमति देने के लिए, उन्हें सीधे मिडलवेयर को नहीं, बल्कि `server/plugins/auth.ts` में `createAuthPlugin` को पास करें:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhooks/stripe"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+`runAuthGuard` अनुरोध के समय auth प्लगइन से कॉन्फ़िगर किए गए सार्वजनिक पथ पढ़ता है।
+
+## आगे क्या है
+
+- [**प्लगइन्स**](/docs/server-plugins): auth प्लगइन कॉन्फ़िगरेशन जिसे मिडलवेयर लागू करता है
+- [**रूट्स**](/docs/server-routes): कस्टम रूट्स जो इस मिडलवेयर द्वारा सुरक्षित हैं
+- [**Security**](/docs/security): डेटा स्कोपिंग, access गार्ड, और पूरा auth मॉडल
+- [**Nitro मिडलवेयर डॉक्स**](https://nitro.build/guide/routing#middleware): पूरा मिडलवेयर API और पैटर्न

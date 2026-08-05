@@ -1520,7 +1520,7 @@ const frFR = {
     pureAgentApps: "Apps orientées automatisation",
     faq: "FAQ",
     server: "Serveur",
-    serverOverview: "Overview",
+    serverOverview: "Vue d’ensemble",
     serverMiddleware: "Middleware",
     serverPlugins: "Plugins",
     serverRoutes: "Routes",

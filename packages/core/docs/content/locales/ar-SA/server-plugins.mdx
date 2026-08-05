@@ -1,0 +1,152 @@
+---
+title: "الإضافات"
+description: "إضافات بدء التشغيل في server/plugins/ — ما هي، والإضافتان اللتان يشحنهما كل تطبيق، وإضافة قاعدة البيانات الاختيارية، وكيفية كتابة إضافتك الخاصة."
+---
+
+# الإضافات
+
+الإضافات (Plugins) هي خطافات بدء التشغيل (startup hooks). يُصدّر كل ملف في `server/plugins/` دالة يستدعيها Nitro مرة واحدة عند تهيئة الخادم، قبل خدمة أي مسار. وهي المكان المناسب للإعداد لمرة واحدة: تكوين المصادقة، وتثبيت حلقة الوكيل، وتشغيل عمليات ترحيل قاعدة البيانات، أو تسجيل أي رمز تهيئة آخر يجب أن يكتمل قبل وصول الطلبات.
+
+يكتشف Nitro الإضافات تلقائيًا من نظام الملفات. لا حاجة إلى أي تسجيل أو استيراد. تعمل الملفات بالترتيب الأبجدي، لذا يُتحكم في ترتيب التنفيذ عبر بادئة اسم الملف.
+
+يشحن كل تطبيق أصلي للوكيل إضافتين افتراضيًا:
+
+```text
+server/plugins/
+  auth.ts        -> configure auth provider and public paths
+  agent-chat.ts  -> mount the agent loop with your actions and system prompt
+```
+
+أما التطبيقات التي تحتاج إلى جداول قاعدة بيانات مخصصة فتضيف إضافة ثالثة:
+
+```text
+server/plugins/
+  db.ts          -> run migrations on startup
+```
+
+## إضافة المصادقة {#auth-plugin}
+
+يُهيئ `server/plugins/auth.ts` كيفية تسجيل دخول المستخدمين. تربط `createAuthPlugin` من `@agent-native/core/server` موفر المصادقة وتضبط هوية صفحة تسجيل الدخول (branding):
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: [
+      "Feature one",
+      "Feature two",
+      "Feature three",
+    ],
+  },
+});
+```
+
+لفتح مسارات محددة أمام المستخدمين غير المصادَق عليهم، مرّر `publicPaths`:
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+تُهيئ إضافة المصادقة الحارس. وتفرضه البرمجية الوسيطة الموجودة في `server/middleware/auth.ts` على كل طلب. راجع [البرمجيات الوسيطة](/docs/server-middleware).
+
+## إضافة دردشة الوكيل {#agent-chat-plugin}
+
+يُثبّت `server/plugins/agent-chat.ts` حلقة الوكيل مع actions تطبيقك، وتعليمات النظام (system prompt)، ومجموعة الأدوات الأولية. هذه هي الإضافة التي تجعل تطبيقك تطبيقًا أصليًا للوكيل.
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+تلتقط `loadActionsFromStaticRegistry` كل action مُصدَّر من `actions/` عبر السجل المُولَّد. يتحكم `initialToolNames` في actions التي يمتلك الوكيل صلاحية الوصول إليها في بداية المحادثة. ولا يزال بإمكانه استدعاء غيرها عند الحاجة.
+
+## إضافة قاعدة البيانات {#database-plugin}
+
+إذا كان تطبيقك يُعرّف جداول قاعدة بيانات مخصصة، أضف `server/plugins/db.ts` لتشغيل ترحيلات المخطط عند بدء التشغيل. وهو يستخدم `runMigrations` من `@agent-native/core/db`:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+يحتاج كل إدخال إلى رقم `version` وسلسلة `sql`. يُسمّي الخيار `table` جدول تتبع الترحيلات. استخدم اسمًا فريدًا لتطبيقك حتى لا يتعارض مع ترحيلات إطار العمل. راجع [قاعدة البيانات](/docs/server-database) للاطلاع على الدليل الكامل لكتابة المخطط.
+
+<Callout tone="warning">
+  يجب أن تكون الترحيلات إضافية دائمًا. لا تضع أبدًا SQL تدميريًا (`DROP TABLE`،
+  و`ALTER TABLE ... DROP COLUMN`، و`DELETE FROM`) في إضافات بدء التشغيل.
+</Callout>
+
+## كتابة إضافات مخصصة {#custom-plugins}
+
+تُرجع كل من مساعدات إطار العمل (`createAuthPlugin`، و`createAgentChatPlugin`، و`runMigrations`) دالة إضافة Nitro. وبالنسبة لأي شيء خارج نطاق هذه المساعدات، اكتب إضافة باستخدام `defineNitroPlugin`:
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // runs on every request
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // runs when the server shuts down
+  });
+});
+```
+
+يمكن للإضافات استخدام أي من خطافات دورة حياة Nitro: `request`، و`beforeResponse`، و`close`، وغيرها. تغطي [وثائق إضافات Nitro](https://nitro.build/guide/plugins) واجهة برمجة الخطافات الكاملة وعقد الإضافة بالتفصيل.
+
+## ترتيب بدء التشغيل {#startup-order}
+
+يشغّل Nitro الإضافات بترتيب اسم الملف الأبجدي. وداخل ملف إضافة واحد، يُنتظر التصدير الافتراضي قبل بدء الإضافة التالية. ترتيب نموذجي:
+
+1. `db.ts` — تكتمل الترحيلات قبل أن يقرأ أي مسار أو إضافة قاعدة البيانات
+2. `auth.ts` — يكون تكوين المصادقة جاهزًا قبل وصول الطلبات
+3. `agent-chat.ts` — تُثبَّت مسارات الوكيل بعد تكوين المصادقة
+
+إذا أضفت إضافات مخصصة، أضف بادئة لأسماء ملفاتها للتحكم في موضعها ضمن التسلسل.
+
+## ما هي الخطوة التالية
+
+- [**قاعدة البيانات**](/docs/server-database): مساعدات المخطط ونمط `getDb` المستخدم داخل الإضافات
+- [**البرمجيات الوسيطة**](/docs/server-middleware): حارس المصادقة الذي يفرض ما تُهيئه إضافة المصادقة
+- [**المسارات**](/docs/server-routes): مسارات الملفات المخصصة التي تُخدَم بعد اكتمال الإضافات
+- [**كتابة تعليمات الوكيل**](/docs/writing-agent-instructions): كيفية صياغة `systemPrompt` في إضافة دردشة الوكيل
+- [**وثائق إضافات Nitro**](https://nitro.build/guide/plugins): واجهة برمجة الإضافات الكاملة وخطافات دورة الحياة
