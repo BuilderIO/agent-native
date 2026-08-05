@@ -87,8 +87,21 @@ describe("analytics historical rollup backfill", () => {
 
   it("uses an atomic batch for D1", async () => {
     const db = {
-      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
-      atomicBatch: vi.fn(async () => []),
+      execute: vi.fn(async (query: string | { sql: string }) => {
+        if (
+          typeof query !== "string" &&
+          query.sql.includes("status = 'running'")
+        ) {
+          return { rows: [], rowsAffected: 1 };
+        }
+        return { rows: [], rowsAffected: 1 };
+      }),
+      atomicBatch: vi.fn(async (statements: readonly unknown[]) =>
+        statements.map((_, index) => ({
+          rows: [],
+          rowsAffected: index === statements.length - 1 ? 1 : 0,
+        })),
+      ),
     };
     mocks.getDbExec.mockReturnValue(db);
     mocks.getDialect.mockReturnValue("d1");
@@ -107,6 +120,35 @@ describe("analytics historical rollup backfill", () => {
         }),
       ]),
     );
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("lease_expires_at"),
+      }),
+    );
+  });
+
+  it("skips a D1 backfill when another isolate owns the lease", async () => {
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({
+          rows: [{ status: "running" }],
+          rowsAffected: 0,
+        }),
+      atomicBatch: vi.fn(),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+    mocks.getDialect.mockReturnValue("d1");
+    mocks.isPostgres.mockReturnValue(false);
+
+    await expect(runAnalyticsRollupBackfillOnce()).resolves.toEqual({
+      status: "skipped-lock",
+      remaining: 1,
+    });
+
+    expect(db.atomicBatch).not.toHaveBeenCalled();
   });
 
   it("only reports completion after the durable state row is marked complete", async () => {

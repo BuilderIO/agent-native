@@ -11,12 +11,6 @@ declare global {
     | undefined;
 }
 
-function productionLike(): boolean {
-  return (
-    process.env.NODE_ENV === "production" || process.env.NETLIFY === "true"
-  );
-}
-
 function scheduledFunctionRuntime(): boolean {
   return (
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ ===
@@ -42,21 +36,15 @@ function headerMatchesSecret(
 export default defineEventHandler(async (event) => {
   const secret = cronSecret();
   const scheduledRuntime = scheduledFunctionRuntime();
-  if (!secret && productionLike() && !scheduledRuntime) {
+  const authenticatedHeader =
+    secret !== null &&
+    headerMatchesSecret(getHeader(event, "authorization"), secret);
+  if (!scheduledRuntime && !authenticatedHeader) {
     throw createError({
-      statusCode: 503,
-      statusMessage: "ANALYTICS_ROLLUP_BACKFILL_CRON_SECRET is required",
-    });
-  }
-
-  if (
-    secret &&
-    !scheduledRuntime &&
-    !headerMatchesSecret(getHeader(event, "authorization"), secret)
-  ) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: "Unauthorized",
+      statusCode: secret ? 401 : 503,
+      statusMessage: secret
+        ? "Unauthorized"
+        : "ANALYTICS_ROLLUP_BACKFILL_CRON_SECRET is required",
     });
   }
 

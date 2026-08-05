@@ -3,6 +3,7 @@ import { getDbExec, getDialect, isPostgres } from "@agent-native/core/db";
 const BACKFILL_STATE_ID = "historical-v1";
 const BACKFILL_LOCK_KEY =
   "agent-native:analytics-rollup-historical-backfill-v1";
+const BACKFILL_LEASE_MINUTES = 15;
 
 const POSTGRES_BACKFILL_STATEMENTS = [
   `
@@ -160,6 +161,38 @@ function ensureStateSql(): string {
        VALUES (?, 'pending', ${nowSql()})`;
 }
 
+function createBackfillLeaseToken(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `analytics-rollup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function claimStateSql(): string {
+  return `UPDATE analytics_rollup_backfill_state
+          SET status = 'running', lease_token = ?,
+              lease_expires_at = datetime('now', '+${BACKFILL_LEASE_MINUTES} minutes'),
+              updated_at = datetime('now')
+        WHERE id = ?
+          AND (
+            status = 'pending'
+            OR (
+              status = 'running'
+              AND (
+                lease_expires_at IS NULL
+                OR lease_expires_at <= datetime('now')
+              )
+            )
+          )`;
+}
+
+function releaseStateLeaseSql(): string {
+  return `UPDATE analytics_rollup_backfill_state
+             SET status = 'pending', lease_token = NULL,
+                 lease_expires_at = NULL, updated_at = datetime('now')
+           WHERE id = ? AND lease_token = ?`;
+}
+
 async function stateStatus(db: {
   execute: (query: { sql: string; args: unknown[] }) => Promise<{
     rows: any[];
@@ -229,29 +262,62 @@ async function runTransactionalBackfill(
 async function runD1Backfill(
   db: ReturnType<typeof getDbExec>,
 ): Promise<BackfillStatus> {
-  const status = await stateStatus(db);
-  if (status === "completed") return "already-complete";
   if (!db.atomicBatch) {
     throw new Error("D1 Analytics rollup backfill requires an atomic batch");
   }
 
-  await db.atomicBatch([
-    { sql: ensureStateSql(), args: [BACKFILL_STATE_ID] },
-    ...SQLITE_BACKFILL_STATEMENTS,
-    {
-      sql: `UPDATE analytics_rollup_backfill_state
-              SET status = 'completed', completed_at = ${nowSql()}, updated_at = ${nowSql()}
-            WHERE id = ?`,
-      args: [BACKFILL_STATE_ID],
-    },
-  ]);
-  return "completed";
+  await db.execute({ sql: ensureStateSql(), args: [BACKFILL_STATE_ID] });
+  const leaseToken = createBackfillLeaseToken();
+  const claim = await db.execute({
+    sql: claimStateSql(),
+    args: [leaseToken, BACKFILL_STATE_ID],
+  });
+  if (claim.rowsAffected !== 1) {
+    return (await stateStatus(db)) === "completed"
+      ? "already-complete"
+      : "skipped-lock";
+  }
+
+  try {
+    const results = await db.atomicBatch([
+      ...SQLITE_BACKFILL_STATEMENTS,
+      {
+        sql: `UPDATE analytics_rollup_backfill_state
+                SET status = 'completed', completed_at = ${nowSql()},
+                    lease_token = NULL, lease_expires_at = NULL,
+                    updated_at = ${nowSql()}
+              WHERE id = ? AND status = 'running' AND lease_token = ?`,
+        args: [BACKFILL_STATE_ID, leaseToken],
+      },
+    ]);
+    if (results[results.length - 1]?.rowsAffected !== 1) {
+      throw new Error(
+        "Analytics rollup backfill lost its D1 lease before completion",
+      );
+    }
+    return "completed";
+  } catch (error) {
+    try {
+      await db.execute({
+        sql: releaseStateLeaseSql(),
+        args: [BACKFILL_STATE_ID, leaseToken],
+      });
+    } catch (releaseError) {
+      console.warn(
+        "[analytics-rollup-backfill] Failed to release D1 lease after backfill error:",
+        releaseError instanceof Error ? releaseError.message : releaseError,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
  * Rebuild historical compact rollups outside the server boot path. The state
  * row is completed in the same transaction as both aggregates, so a timeout
  * or failed write leaves the job pending and a later scheduled run retries it.
+ * D1 claims a short lease before its atomic batch so concurrent isolates do not
+ * each scan the full event history.
  */
 export async function runAnalyticsRollupBackfillOnce(): Promise<AnalyticsRollupBackfillResult> {
   if (running) {

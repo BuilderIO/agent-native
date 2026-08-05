@@ -1389,12 +1389,16 @@ const runAnalyticsMigrations = runMigrations(
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL DEFAULT 'pending',
       completed_at TEXT,
+      lease_token TEXT,
+      lease_expires_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (now()::text)
     )`,
         sqlite: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL DEFAULT 'pending',
       completed_at TEXT,
+      lease_token TEXT,
+      lease_expires_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
       },
@@ -1408,6 +1412,14 @@ const runAnalyticsMigrations = runMigrations(
           return deferMigration();
         }
       },
+    },
+    {
+      version: 135,
+      name: "analytics-rollups-historical-backfill-lease",
+      sql: `
+        ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_token TEXT;
+        ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_expires_at TEXT;
+      `,
     },
   ],
   { table: "analytics_migrations" },
@@ -1424,10 +1436,17 @@ const runAnalyticsMigrations = runMigrations(
  * swallowed so it can never fail boot.
  */
 export default async (nitroApp: any): Promise<void> => {
-  if (isInBackgroundFunctionRuntime()) {
-    // Durable workers execute signed internal routes against a schema owned by
-    // the regular server. A second migration runner only adds a Neon pool
-    // probe to every worker cold start.
+  const isScheduledRollupRuntime =
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true;
+  if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {
+    // Most durable workers execute signed internal routes against a schema
+    // owned by the regular server. A second migration runner only adds a Neon
+    // pool probe to every worker cold start. The scheduled rollup worker is
+    // the exception because it can be the first post-deploy invocation.
     console.info(
       "[db] Skipping Analytics migrations in durable background runtime",
     );
