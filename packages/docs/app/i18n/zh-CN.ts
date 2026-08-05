@@ -1228,6 +1228,7 @@ const zhCN = {
         deckCapitalRaise: "融资",
         deckOfferingMemorandum: "发行备忘录",
         deckB2bSales: "B2B 销售提案",
+        deckTeamMeeting: "团队会议议程",
         deckLiveTalk: "现场演讲配套",
         promptDeckFor: "演示文稿，主题为",
         promptTextShouldBe: "文字应",

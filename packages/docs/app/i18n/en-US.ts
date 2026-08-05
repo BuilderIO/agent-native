@@ -1239,6 +1239,7 @@ const enUS = {
         deckCapitalRaise: "capital raise",
         deckOfferingMemorandum: "offering memorandum",
         deckB2bSales: "B2B sales pitch",
+        deckTeamMeeting: "team meeting agenda",
         deckLiveTalk: "live talk companion",
         promptDeckFor: "deck for",
         promptTextShouldBe: "Text should be",

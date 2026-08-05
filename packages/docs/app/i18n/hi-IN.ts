@@ -1238,6 +1238,7 @@ const hiIN = {
         deckCapitalRaise: "पूंजी जुटाने वाला",
         deckOfferingMemorandum: "प्रस्ताव ज्ञापन",
         deckB2bSales: "B2B बिक्री पिच",
+        deckTeamMeeting: "टीम मीटिंग एजेंडा",
         deckLiveTalk: "लाइव टॉक सहयोगी",
         promptDeckFor: "डेक बनाएँ:",
         promptTextShouldBe: "टेक्स्ट ऐसा हो:",

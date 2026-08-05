@@ -1248,6 +1248,7 @@ const frFR = {
         deckCapitalRaise: "levée de fonds",
         deckOfferingMemorandum: "mémorandum d’offre",
         deckB2bSales: "vente B2B",
+        deckTeamMeeting: "ordre du jour de réunion d’équipe",
         deckLiveTalk: "support de conférence en direct",
         promptDeckFor: "pour",
         promptTextShouldBe: "Le texte doit être",

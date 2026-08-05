@@ -1248,6 +1248,7 @@ const esES = {
         deckCapitalRaise: "captación de capital",
         deckOfferingMemorandum: "memorando de oferta",
         deckB2bSales: "ventas B2B",
+        deckTeamMeeting: "agenda de reunión de equipo",
         deckLiveTalk: "apoyo para una charla en directo",
         promptDeckFor: "para",
         promptTextShouldBe: "El texto debe ser",

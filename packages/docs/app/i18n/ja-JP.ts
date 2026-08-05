@@ -1244,6 +1244,7 @@ const jaJP = {
         deckCapitalRaise: "資金調達",
         deckOfferingMemorandum: "オファリング・メモランダム",
         deckB2bSales: "B2B 営業提案",
+        deckTeamMeeting: "チーム会議のアジェンダ",
         deckLiveTalk: "ライブ講演用補助",
         promptDeckFor: "デッキを作成してください。テーマ：",
         promptTextShouldBe: "テキストは",

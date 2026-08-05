@@ -1250,6 +1250,7 @@ const deDE = {
         deckCapitalRaise: "Fundraising-Deck",
         deckOfferingMemorandum: "Angebotsmemorandum",
         deckB2bSales: "B2B-Vertriebsdeck",
+        deckTeamMeeting: "Tagesordnung für Teammeeting",
         deckLiveTalk: "Live-Vortragsdeck",
         promptDeckFor: "für",
         promptTextShouldBe: "Der Text sollte",

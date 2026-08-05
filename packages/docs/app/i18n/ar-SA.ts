@@ -1238,6 +1238,7 @@ const arSA = {
         deckCapitalRaise: "عرضًا لجمع رأس المال",
         deckOfferingMemorandum: "مذكرة طرح",
         deckB2bSales: "عرض مبيعات B2B",
+        deckTeamMeeting: "جدول أعمال اجتماع الفريق",
         deckLiveTalk: "عرضًا مرافقًا لحديث مباشر",
         promptDeckFor: "حول",
         promptTextShouldBe: "يجب أن يكون النص",

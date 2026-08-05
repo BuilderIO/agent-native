@@ -1241,6 +1241,7 @@ const koKR = {
         deckCapitalRaise: "자금 조달",
         deckOfferingMemorandum: "오퍼링 메모랜덤",
         deckB2bSales: "B2B 영업 피치",
+        deckTeamMeeting: "팀 회의 안건",
         deckLiveTalk: "라이브 강연 보조",
         promptDeckFor: "덱을 만들어 주세요. 주제:",
         promptTextShouldBe: "텍스트는",

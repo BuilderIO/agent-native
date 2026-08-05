@@ -1242,6 +1242,7 @@ const ptBR = {
         deckCapitalRaise: "captação de investimentos",
         deckOfferingMemorandum: "memorando de oferta",
         deckB2bSales: "vendas B2B",
+        deckTeamMeeting: "pauta de reunião da equipe",
         deckLiveTalk: "apoio para palestra ao vivo",
         promptDeckFor: "para",
         promptTextShouldBe: "O texto deve ser",

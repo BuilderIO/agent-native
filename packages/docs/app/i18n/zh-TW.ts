@@ -1226,6 +1226,7 @@ const messages = {
         deckCapitalRaise: "募資",
         deckOfferingMemorandum: "發行備忘錄",
         deckB2bSales: "B2B 銷售提案",
+        deckTeamMeeting: "團隊會議議程",
         deckLiveTalk: "現場演講搭配",
         promptDeckFor: "簡報，主題為",
         promptTextShouldBe: "文字應",

@@ -292,7 +292,7 @@ export function SlidesTryNow() {
         >
           {tn("promptCreatePrefix")}{" "}
           <select
-            defaultValue="capital-raise"
+            defaultValue="b2b-sales"
             aria-label={tn("deckTypeLabel")}
             className="rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1 text-sm font-medium text-[var(--fg)]"
             contentEditable={false}
@@ -302,6 +302,7 @@ export function SlidesTryNow() {
               {tn("deckOfferingMemorandum")}
             </option>
             <option value="b2b-sales">{tn("deckB2bSales")}</option>
+            <option value="team-meeting">{tn("deckTeamMeeting")}</option>
             <option value="live-talk">{tn("deckLiveTalk")}</option>
           </select>{" "}
           {tn("promptDeckFor")} {SUBJECT_PLACEHOLDER}.{" "}
