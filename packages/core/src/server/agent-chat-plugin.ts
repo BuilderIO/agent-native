@@ -130,6 +130,7 @@ import {
   withThreadDataLock,
   deleteThread,
   setThreadQueuedMessages,
+  setThreadSourceIfMissing,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
@@ -2585,10 +2586,16 @@ export function createAgentChatPlugin(
               thread = await createThread(ownerEmail, {
                 id: threadId,
                 scope: runScope,
+                source: options?.appId ? { appId: options.appId } : null,
               });
             } catch {
               thread = await getThread(threadId);
             }
+          }
+          if (options?.appId) {
+            await setThreadSourceIfMissing(threadId, {
+              appId: options.appId,
+            });
           }
           if (!thread) {
             throw createError({
@@ -2711,6 +2718,7 @@ export function createAgentChatPlugin(
         },
         getModel: () => getRequestRunContext()?.model ?? resolvedModel,
         getParentThreadId: () => getRequestRunContext()?.threadId ?? "",
+        getAppId: () => options?.appId ?? null,
         getParentRunId: () => getRequestRunContext()?.runId ?? "",
         getSend: () => {
           // Return the send for the current run's thread
@@ -5416,10 +5424,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const q = query.q ? String(query.q).trim() : "";
             const scope = parseScopeFromQuery(query);
             const unscopedOnly = String(query.unscoped ?? "") === "1";
+            const includeExternal = String(query.includeExternal ?? "") === "1";
             if (q) {
               const threads = await searchThreads(owner, q, limit, {
                 scope: scope ?? undefined,
                 orgId,
+                includeExternal,
+                sourceAppId: options?.appId ?? null,
               });
               return { threads };
             }
@@ -5430,6 +5441,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               scope: scope ?? undefined,
               unscopedOnly,
               orgId,
+              includeExternal,
+              sourceAppId: options?.appId ?? null,
             });
             return { threads };
           }
@@ -5456,6 +5469,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 id: body?.id,
                 title: body?.title ?? "",
                 scope: parseScopeFromBody(body?.scope),
+                source: options?.appId ? { appId: options.appId } : null,
               });
               return thread;
             } catch (err) {

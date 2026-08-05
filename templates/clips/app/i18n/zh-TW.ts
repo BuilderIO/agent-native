@@ -1054,6 +1054,18 @@ const messages = {
     spaceCreated: "空間已建立",
     createFailed: "無法建立空間",
   },
+  spaceDialog: {
+    deleteSpace: "刪除空間",
+    renameSpace: "重新命名空間",
+    deleteTitle: "要刪除「{{name}}」嗎？",
+    deleteDescription: "這會刪除空間，並將其從所有錄影中移除。此操作無法復原。",
+    renamed: "空間已重新命名",
+    deleted: "已刪除「{{name}}」",
+    renameFailed: "重新命名空間失敗",
+    deleteFailed: "刪除空間失敗",
+    renaming: "正在重新命名...",
+    deleting: "正在刪除...",
+  },
   signInPrompt: {
     title: "登入以{{intent}}",
     description:

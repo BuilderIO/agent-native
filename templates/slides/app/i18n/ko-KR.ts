@@ -660,6 +660,21 @@ const messages = {
     referenceDeckNone: "사용 안 함",
     referenceDeckStarredGroup: "즐겨찾기",
     referenceDeckOtherGroup: "기타 덱",
+    referenceReviewTitle: "참조 검토",
+    referenceReviewDescription:
+      "삭제하지 않는 한 기본 디자인 시스템과 참조 덱을 유지합니다. 다른 덱을 검색하거나 파일을 가져온 후 준비되면 계속하세요.",
+    chooseAnotherDeck: "다른 덱 선택",
+    noMatchingDecks: "일치하는 덱이 없습니다.",
+    googleSlidesReferenceTitle: "Google Slides 덱",
+    googleSlidesReferenceConnect:
+      "Slides 덱을 가져오려면 Google Drive를 연결하세요.",
+    googleSlidesReferenceChoose: "Google Slides 덱 선택",
+    googleSlidesReferencePicking: "처리 중...",
+    googleSlidesReferenceConnected:
+      "연결되었습니다. 재사용 가능한 참조로 가져올 Google Slides 덱을 선택하세요.",
+    googleSlidesReferenceUnavailable:
+      "Google Slides 덱을 가져오려면 Google Drive를 연결하고 Picker를 구성하세요.",
+    skipReferences: "참조 건너뛰기",
     workspaceDefaultBadge: "워크스페이스 기본값",
     setWorkspaceDefault: "워크스페이스 기본값으로 설정",
     clearWorkspaceDefault: "워크스페이스 기본값 해제",

@@ -8,7 +8,10 @@ import {
   extractAssetUrl,
   imagePreviewMarkdown,
 } from "../server/lib/assets-image-delegation.js";
-import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
+import {
+  DEFAULT_STYLE_REFERENCE_URLS,
+  normalizeReferenceUrls,
+} from "../shared/api.js";
 
 interface ReferenceImage {
   data: string; // base64
@@ -47,6 +50,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("HTML of the target slide, used as generation context"),
+    referenceImageUrls: z
+      .array(z.string())
+      .optional()
+      .describe("Style reference URLs to forward to Assets"),
   }),
   run: async (args) => {
     const prompt = args.prompt;
@@ -59,6 +66,7 @@ export default defineAction({
       deckId: args.deckId,
       slideId: args.slideId,
       slideContent: args.slideContent,
+      referenceImageUrls: normalizeReferenceUrls(args.referenceImageUrls),
     });
 
     if (delegation.status === "delegated") {
@@ -78,7 +86,7 @@ export default defineAction({
     if (delegation.status === "pending") {
       throw new Error(
         `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}"). ` +
-          `It was not cancelled — check the Assets app for the result instead of generating again.`,
+          `It was not cancelled - check the Assets app for the result instead of generating again.`,
       );
     }
 
@@ -88,7 +96,7 @@ export default defineAction({
       );
     }
 
-    // Assets is unreachable — standalone-deploy fallback. The caller is told
+    // Assets is unreachable - standalone-deploy fallback. The caller is told
     // which path ran and why, so a brand-inconsistent image is never reported
     // as a library-grounded one.
     const { getProvider } =
@@ -97,7 +105,10 @@ export default defineAction({
 
     const refImages: ReferenceImage[] = [];
     const results = await Promise.all(
-      DEFAULT_STYLE_REFERENCE_URLS.map(urlToReferenceImage),
+      normalizeReferenceUrls([
+        ...DEFAULT_STYLE_REFERENCE_URLS,
+        ...normalizeReferenceUrls(args.referenceImageUrls),
+      ]).map(urlToReferenceImage),
     );
     for (const r of results) {
       if (r) refImages.push(r);

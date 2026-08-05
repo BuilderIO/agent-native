@@ -338,6 +338,205 @@ Summarize the inbox.`,
     );
   });
 
+  it("runs multiple due automations from one scan without serial starvation", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstRunGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let runCount = 0;
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-first",
+        owner: "__shared__",
+        path: "jobs/first.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the first job.`,
+      },
+      {
+        id: "resource-second",
+        owner: "__shared__",
+        path: "jobs/second.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the second job.`,
+      },
+    ]);
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      if (runCount === 1) await firstRunGate;
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    const scan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    let bothRunsStarted = false;
+    try {
+      await vi.waitFor(() => expect(runCount).toBe(2), { timeout: 1000 });
+      bothRunsStarted = true;
+    } finally {
+      releaseFirst();
+    }
+
+    await scan;
+    expect(bothRunsStarted).toBe(true);
+    expect(runCount).toBe(2);
+  });
+
+  it("allows a later scheduler scan to run while an earlier job is active", async () => {
+    let releaseFirst: () => void = () => {};
+    const firstRunGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let resolveFirstStarted: () => void = () => {};
+    const firstRunStarted = new Promise<void>((resolve) => {
+      resolveFirstStarted = resolve;
+    });
+    let runCount = 0;
+    resourceListAllOwnersMock
+      .mockResolvedValueOnce([
+        {
+          id: "resource-first-scan",
+          owner: "__shared__",
+          path: "jobs/first-scan.md",
+          content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the first scan job.`,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "resource-second-scan",
+          owner: "__shared__",
+          path: "jobs/second-scan.md",
+          content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run the second scan job.`,
+        },
+      ]);
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      if (runCount === 1) {
+        resolveFirstStarted();
+        await firstRunGate;
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    const firstScan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    await firstRunStarted;
+
+    const secondScan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    let laterRunStarted = false;
+    try {
+      await vi.waitFor(() => expect(runCount).toBe(2), { timeout: 1000 });
+      laterRunStarted = true;
+    } finally {
+      releaseFirst();
+    }
+
+    await Promise.all([firstScan, secondScan]);
+    expect(laterRunStarted).toBe(true);
+    expect(runCount).toBe(2);
+  });
+
+  it("caps the number of scheduled automations active in one process", async () => {
+    const resources = Array.from({ length: 9 }, (_, index) => ({
+      id: `resource-cap-${index}`,
+      owner: "__shared__",
+      path: `jobs/cap-${index}.md`,
+      content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: __shared__
+---
+
+Run capped job ${index}.`,
+    }));
+    resourceListAllOwnersMock.mockResolvedValueOnce(resources);
+    let releaseJobs: () => void = () => {};
+    const allJobsGate = new Promise<void>((resolve) => {
+      releaseJobs = resolve;
+    });
+    let runCount = 0;
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      await allJobsGate;
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    const scan = processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+    let capacityObserved = false;
+    try {
+      await vi.waitFor(() => expect(runCount).toBe(8), { timeout: 1000 });
+      capacityObserved = true;
+    } finally {
+      releaseJobs();
+    }
+
+    await scan;
+    expect(capacityObserved).toBe(true);
+    expect(runCount).toBe(8);
+  });
+
   it("passes persisted MCP capabilities to the background action suppliers", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {

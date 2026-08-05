@@ -689,6 +689,20 @@ const messages = {
     referenceDeckNone: "بدون مرجع",
     referenceDeckStarredGroup: "المميّزة بنجمة",
     referenceDeckOtherGroup: "عروض أخرى",
+    referenceReviewTitle: "مراجعة المراجع",
+    referenceReviewDescription:
+      "احتفظ بنظام التصميم والمرجع الافتراضيين ما لم تزل أحدهما. ابحث عن عرض آخر أو استورد ملفًا أو تابع عندما تكون جاهزًا.",
+    chooseAnotherDeck: "اختيار عرض آخر",
+    noMatchingDecks: "لم يتم العثور على عروض مطابقة.",
+    googleSlidesReferenceTitle: "عروض Google Slides",
+    googleSlidesReferenceConnect: "صِل Google Drive لاستيراد عرض من Slides.",
+    googleSlidesReferenceChoose: "اختيار عرض من Google Slides",
+    googleSlidesReferencePicking: "جارٍ العمل...",
+    googleSlidesReferenceConnected:
+      "تم الاتصال. اختر عرضًا من Google Slides لاستيراده كمرجع قابل لإعادة الاستخدام.",
+    googleSlidesReferenceUnavailable:
+      "صِل Google Drive واضبط Picker لاستيراد عرض من Google Slides.",
+    skipReferences: "تخطي المراجع",
     workspaceDefaultBadge: "افتراضي مساحة العمل",
     setWorkspaceDefault: "التعيين كافتراضي لمساحة العمل",
     clearWorkspaceDefault: "إزالة افتراضي مساحة العمل",

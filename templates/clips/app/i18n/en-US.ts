@@ -1101,6 +1101,19 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     spaceCreated: "Space created",
     createFailed: "Could not create space",
   },
+  spaceDialog: {
+    deleteSpace: "Delete space",
+    renameSpace: "Rename space",
+    deleteTitle: 'Delete "{{name}}"?',
+    deleteDescription:
+      "This will delete the space and remove it from all recordings. This action cannot be undone.",
+    renamed: "Space renamed",
+    deleted: 'Deleted "{{name}}"',
+    renameFailed: "Failed to rename space",
+    deleteFailed: "Failed to delete space",
+    renaming: "Renaming...",
+    deleting: "Deleting...",
+  },
   signInPrompt: {
     title: "Sign in to {{intent}}",
     description:

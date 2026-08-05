@@ -58,7 +58,15 @@ describe("new deck generation flow", () => {
 
   it("turns an imported PPTX into a reusable reference deck", () => {
     expect(flow).toContain('callAction("import-pptx"');
-    expect(flow).toContain("referenceDeckId: imported.id");
-    expect(flow).toContain("generationFiles = uploaded.filter");
+    expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
+    expect(flow).toContain("const generationFiles = uploaded.filter");
+    expect(flow).toContain("setPendingDeck((current) =>");
+  });
+
+  it("imports an uploaded PDF into a reusable reference deck", () => {
+    expect(flow).toContain('callAction("import-file"');
+    expect(flow).toContain('format: "pdf"');
+    expect(flow).toContain("importIntoDeck: true");
+    expect(flow).toContain("The PDF reference deck could not be imported.");
   });
 });

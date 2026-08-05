@@ -7,7 +7,6 @@ import {
   IconAlertTriangle,
   IconChevronLeft,
   IconChevronRight,
-  IconPlayerRecord,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router";
@@ -94,11 +93,8 @@ function NewRecordingTile({
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
-      <Button className="w-full max-w-[180px] gap-1.5" size="sm" asChild>
-        <NavLink to={recordHref}>
-          <IconPlayerRecord className="h-4 w-4" />
-          {t("navigation.newRecording")}
-        </NavLink>
+      <Button className="w-full max-w-[180px]" size="sm" asChild>
+        <NavLink to={recordHref}>{t("navigation.newRecording")}</NavLink>
       </Button>
       <ImportMenu
         uploadHref={uploadHref}

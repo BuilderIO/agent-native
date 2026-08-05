@@ -16,8 +16,8 @@ export function DemoModeSection() {
         </div>
         <p className="text-[10px] text-muted-foreground mt-0.5">
           Anonymize displayed emails in this browser and reshape supported
-          dashboard charts for presentations. Backend, MCP, and agent results
-          stay real and access-scoped.
+          dashboard charts for presentations. Backend, agent integrations, and
+          agent results stay real and access-scoped.
         </p>
       </div>
       <Switch

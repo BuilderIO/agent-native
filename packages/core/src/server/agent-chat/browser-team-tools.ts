@@ -415,6 +415,7 @@ export function createTeamTools(deps: {
   getEngine: () => AgentEngine;
   getModel: () => string;
   getParentThreadId: () => string;
+  getAppId?: () => string | null | undefined;
   getParentRunId?: () => string;
   getSend: () =>
     | ((event: import("../../agent/types.js").AgentChatEvent) => void)
@@ -526,6 +527,7 @@ export function createTeamTools(deps: {
             model: selectedModel,
             name: selectedName || undefined,
             parentThreadId: deps.getParentThreadId(),
+            parentSourceAppId: deps.getAppId?.() ?? null,
             parentRunId: deps.getParentRunId?.(),
             parentSend: (event) => {
               if (capturedSend) capturedSend(event);
