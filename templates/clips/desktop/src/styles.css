@@ -4383,8 +4383,7 @@ body[data-clips-route="recording-pill"] #root {
   justify-content: center;
   flex-shrink: 0;
   border-radius: 50%;
-  transition:
-    background 120ms;
+  transition: background 120ms;
 }
 
 .bubble-control-button {
@@ -5604,8 +5603,7 @@ body[data-clips-route="recording-pill"] #root {
      rectangle. */
   border-radius: 999px;
   cursor: pointer;
-  transition:
-    background 120ms ease;
+  transition: background 120ms ease;
 }
 
 /* CSS :hover covers the focused case; .pill-hovered is the Rust-polled
