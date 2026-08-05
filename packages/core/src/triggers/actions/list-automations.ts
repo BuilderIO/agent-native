@@ -79,6 +79,8 @@ export interface AutomationActionItem {
     grants?: Array<{
       email: string;
       role: "view" | "collaborate";
+      name: string | null;
+      avatar: string | null;
     }>;
   };
   creator: { email: string | null; label: string | null };

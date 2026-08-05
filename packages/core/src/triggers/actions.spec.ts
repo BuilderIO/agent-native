@@ -71,7 +71,14 @@ const definition = {
     visibility: "private",
     organizationId: null,
     grantCount: 1,
-    grants: [{ email: "viewer@example.com", role: "view" }],
+    grants: [
+      {
+        email: "viewer@example.com",
+        role: "view",
+        name: "Viewer",
+        avatar: "https://example.com/viewer.png",
+      },
+    ],
   },
   creator: { email: owner, label: "Alice" },
 };

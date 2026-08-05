@@ -33,15 +33,19 @@ export interface AutomationCapabilities {
   canManageSharing: boolean;
 }
 
+export interface AutomationSharingGrantSummary {
+  email: string;
+  role: AutomationSharingGrantRole;
+  name: string | null;
+  avatar: string | null;
+}
+
 export interface AutomationSharingListSummary {
   source: AutomationAccessSource;
   visibility: AutomationEffectiveVisibility;
   organizationId: string | null;
   grantCount: number;
-  grants?: Array<{
-    email: string;
-    role: AutomationSharingGrantRole;
-  }>;
+  grants?: AutomationSharingGrantSummary[];
 }
 
 export interface AutomationCreatorSummary {
@@ -78,11 +82,16 @@ interface ParsedCandidate {
   sharedCompatibility: boolean;
 }
 
+interface AutomationAccountProfile {
+  name: string | null;
+  avatar: string | null;
+}
+
 interface AccessData {
   overlays: Map<string, AutomationSharingOverlayRow>;
   grants: Map<string, AutomationSharingGrantRow[]>;
   memberships: Set<string>;
-  profileLabels: Map<string, string>;
+  profiles: Map<string, AutomationAccountProfile>;
 }
 
 const SQL_BATCH_SIZE = 200;
@@ -220,30 +229,41 @@ async function loadMemberships(
   return memberships;
 }
 
-async function loadProfileLabels(
+async function loadProfiles(
   candidates: readonly ParsedCandidate[],
+  grants: ReadonlyMap<string, AutomationSharingGrantRow[]>,
   client: DbExec,
-): Promise<Map<string, string>> {
+): Promise<Map<string, AutomationAccountProfile>> {
   const emails = [
-    ...new Set(
-      candidates
+    ...new Set([
+      ...candidates
         .map((candidate) => candidate.immutableCreator)
         .filter((value): value is string => !!value),
-    ),
+      ...[...grants.values()].flatMap((entries) =>
+        entries
+          .map((entry) => normalizeEmail(entry.email))
+          .filter((value): value is string => !!value),
+      ),
+    ]),
   ];
-  const labels = new Map<string, string>();
+  const profiles = new Map<string, AutomationAccountProfile>();
   for (const emailBatch of chunks(emails)) {
     const result = await client.execute({
-      sql: `SELECT email, name FROM "user" WHERE LOWER(email) IN (${emailBatch.map(() => "?").join(", ")})`,
+      sql: `SELECT email, name, image FROM "user" WHERE LOWER(email) IN (${emailBatch.map(() => "?").join(", ")})`,
       args: emailBatch,
     });
     for (const row of result.rows) {
       const email = normalizeEmail(String(row.email ?? ""));
+      if (!email) continue;
       const name = String(row.name ?? "").trim();
-      if (email && name) labels.set(email, name);
+      const avatar = String(row.image ?? "").trim();
+      profiles.set(email, {
+        name: name || null,
+        avatar: avatar || null,
+      });
     }
   }
-  return labels;
+  return profiles;
 }
 
 function capabilitiesForRole(
@@ -378,10 +398,21 @@ function evaluateCandidate(
     role === "owner" && grants.length
       ? {
           ...sharing,
-          grants: grants.map(({ email, role: grantRole }) => ({
-            email,
-            role: grantRole,
-          })),
+          grants: grants.map(({ email, role: grantRole }) => {
+            const normalizedEmail = normalizeEmail(email);
+            if (!normalizedEmail) {
+              throw new Error(
+                "Stored automation sharing grant has invalid email.",
+              );
+            }
+            const profile = data.profiles.get(normalizedEmail);
+            return {
+              email: normalizedEmail,
+              role: grantRole,
+              name: profile?.name ?? null,
+              avatar: profile?.avatar ?? null,
+            };
+          }),
         }
       : sharing;
   return {
@@ -398,7 +429,7 @@ function evaluateCandidate(
     creator: {
       email: candidate.immutableCreator,
       label: candidate.immutableCreator
-        ? (data.profileLabels.get(candidate.immutableCreator) ??
+        ? (data.profiles.get(candidate.immutableCreator)?.name ??
           candidate.immutableCreator)
         : null,
     },
@@ -411,13 +442,15 @@ async function loadAccessData(
   client: DbExec,
 ): Promise<AccessData> {
   const resourceIds = candidates.map((candidate) => candidate.resource.id);
-  const overlays = await loadAutomationSharingOverlays(resourceIds, client);
-  const [grants, memberships, profileLabels] = await Promise.all([
+  const [overlays, grants] = await Promise.all([
+    loadAutomationSharingOverlays(resourceIds, client),
     loadAutomationSharingGrants(resourceIds, client),
-    loadMemberships(candidates, overlays, callerEmail, client),
-    loadProfileLabels(candidates, client),
   ]);
-  return { overlays, grants, memberships, profileLabels };
+  const [memberships, profiles] = await Promise.all([
+    loadMemberships(candidates, overlays, callerEmail, client),
+    loadProfiles(candidates, grants, client),
+  ]);
+  return { overlays, grants, memberships, profiles };
 }
 
 export async function listAccessibleAutomations(

@@ -101,7 +101,11 @@ function grant(
 }
 
 let membershipRows: Array<{ org_id: string; email: string }>;
-let profileRows: Array<{ email: string; name: string }>;
+let profileRows: Array<{
+  email: string;
+  name: string | null;
+  image?: string | null;
+}>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -162,11 +166,26 @@ describe("automation access", () => {
     );
     mocks.loadGrants.mockResolvedValue(
       new Map([
-        ["owned", [grant("owned", "viewer@example.com", "view")]],
-        ["view", [grant("view", "alice@example.com", "view")]],
+        [
+          "owned",
+          [
+            grant("owned", " Viewer@Example.com ", "view"),
+            grant("owned", "missing@example.com", "collaborate"),
+          ],
+        ],
+        [
+          "view",
+          [
+            grant("view", "alice@example.com", "view"),
+            grant("view", "other-viewer@example.com", "view"),
+          ],
+        ],
         [
           "collaborate",
-          [grant("collaborate", "alice@example.com", "collaborate")],
+          [
+            grant("collaborate", "alice@example.com", "collaborate"),
+            grant("collaborate", "other-editor@example.com", "collaborate"),
+          ],
         ],
       ]),
     );
@@ -174,7 +193,14 @@ describe("automation access", () => {
       { org_id: "org-1", email: "alice@example.com" },
       { org_id: "org-1", email: "creator@example.com" },
     ];
-    profileRows = [{ email: "creator@example.com", name: "Creator Name" }];
+    profileRows = [
+      { email: "creator@example.com", name: "Creator Name", image: null },
+      {
+        email: "viewer@example.com",
+        name: "Viewer Name",
+        image: "https://example.com/viewer.png",
+      },
+    ];
 
     const result = await listAccessibleAutomations({
       userEmail: "Alice@Example.com",
@@ -199,7 +225,20 @@ describe("automation access", () => {
         sharing: {
           source: "explicit",
           visibility: "private",
-          grants: [{ email: "viewer@example.com", role: "view" }],
+          grants: [
+            {
+              email: "viewer@example.com",
+              role: "view",
+              name: "Viewer Name",
+              avatar: "https://example.com/viewer.png",
+            },
+            {
+              email: "missing@example.com",
+              role: "collaborate",
+              name: null,
+              avatar: null,
+            },
+          ],
         },
         classification: { kind: "automation" },
       },
@@ -218,6 +257,15 @@ describe("automation access", () => {
     ).toMatchObject({ canEdit: true, canOperate: true, canDelete: false });
     expect(
       result.find((entry) => entry.resource.id === "view")?.sharing,
+    ).toMatchObject({ grantCount: 2 });
+    expect(
+      result.find((entry) => entry.resource.id === "view")?.sharing,
+    ).not.toHaveProperty("grants");
+    expect(
+      result.find((entry) => entry.resource.id === "collaborate")?.sharing,
+    ).toMatchObject({ grantCount: 2 });
+    expect(
+      result.find((entry) => entry.resource.id === "collaborate")?.sharing,
     ).not.toHaveProperty("grants");
   });
 
@@ -583,6 +631,14 @@ describe("automation access", () => {
         ],
       ]),
     );
+    mocks.loadGrants.mockResolvedValue(
+      new Map(
+        organizationResources.map((resource, index) => [
+          resource.id,
+          [grant(resource.id, `grant-${index}@example.com`, "view")],
+        ]),
+      ),
+    );
     membershipRows = [
       { org_id: "org-1", email: "alice@example.com" },
       ...organizationResources.map((_, index) => ({
@@ -608,5 +664,14 @@ describe("automation access", () => {
       expect.arrayContaining(["org-1", "org-2"]),
     );
     expect(profileQueries).toHaveLength(1);
+    expect(profileQueries[0]?.[0].args).toEqual(
+      expect.arrayContaining([
+        "creator-0@example.com",
+        "creator-19@example.com",
+        "grant-0@example.com",
+        "grant-19@example.com",
+        "personal-owner@example.com",
+      ]),
+    );
   });
 });
