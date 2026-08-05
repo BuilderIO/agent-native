@@ -60,6 +60,16 @@ export interface Skill {
    * `ls` call. Empty array if the skill is single-file.
    */
   extraFiles: string[];
+  /**
+   * Text content of eligible sub-files (progressive-disclosure references),
+   * keyed by the same skill-dir-relative path used in `extraFiles`. Only
+   * populated for text extensions under the per-file/per-skill caps in
+   * `readSkillsDir` — files that exist but were skipped for size still show
+   * up in `extraFiles`, just not here. This is what makes reference content
+   * actually readable by the runtime agent (via docs-search); it is never
+   * injected into a prompt.
+   */
+  files: Record<string, string>;
 }
 
 export interface AgentsBundle {
@@ -177,6 +187,23 @@ const TEMPLATE_SKILLS_DIRS = [
 ] as const;
 
 /**
+ * Extensions eligible to have their content inlined into `Skill.files`.
+ * Binary/asset sub-files (images, scripts, etc.) are always listed in
+ * `extraFiles` but never read into memory.
+ */
+const READABLE_SUBFILE_EXTENSIONS = new Set([".md", ".txt", ".json"]);
+/**
+ * Per-file and per-skill caps on inlined reference content. This content is
+ * bundled into the virtual module (and therefore the server bundle) for
+ * every deployment target, so it must stay small even though it's never
+ * added to a prompt — only fetched on demand via docs-search. Measured
+ * against this repo's skills (largest single sub-file ~20KB, largest
+ * per-skill sub-file total ~83KB), these caps have generous headroom.
+ */
+const MAX_SUBFILE_BYTES = 64 * 1024;
+const MAX_SKILL_FILES_BYTES = 256 * 1024;
+
+/**
  * Paths to a workspace-core's agent resources, for merging into a template's
  * bundle. All fields optional — pass null for any missing piece.
  */
@@ -217,6 +244,8 @@ function readSkillsDir(
       if (skipExistingNames && out[name]) continue; // Template wins
 
       const extraFiles: string[] = [];
+      const files: Record<string, string> = {};
+      let skillFilesBytes = 0;
       try {
         const walk = (subdir: string, prefix: string) => {
           for (const e of fs.readdirSync(subdir, { withFileTypes: true })) {
@@ -229,6 +258,17 @@ function readSkillsDir(
               } catch {}
             } else if (e.isFile() && e.name !== "SKILL.md") {
               extraFiles.push(rel);
+              const ext = path.extname(e.name).toLowerCase();
+              if (!READABLE_SUBFILE_EXTENSIONS.has(ext)) continue;
+              try {
+                const stat = fs.statSync(abs);
+                if (stat.size > MAX_SUBFILE_BYTES) continue;
+                if (skillFilesBytes + stat.size > MAX_SKILL_FILES_BYTES) {
+                  continue;
+                }
+                files[rel] = fs.readFileSync(abs, "utf-8");
+                skillFilesBytes += stat.size;
+              } catch {}
             }
           }
         };
@@ -245,6 +285,7 @@ function readSkillsDir(
         content,
         dir: path.relative(rootForRelative, skillDirAbs).replace(/\\/g, "/"),
         extraFiles,
+        files,
       };
     } catch {
       // Skip unreadable skills
@@ -397,12 +438,34 @@ export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
   );
 }
 
-function skillDocsSlug(name: string): string {
+export function skillDocsSlug(name: string): string {
   return `skill-${name
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")}`;
+}
+
+function subfileSlugSuffix(relPath: string): string {
+  return relPath
+    .replace(/\.[^./]+$/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Slug docs-search resolves a skill sub-file (reference) content by. Kept in
+ * sync with the `skill-<name>--<subpath-slug>` docs it emits in
+ * `scripts/docs/search.ts` so the prompt hint always points at something the
+ * agent can actually read.
+ */
+export function skillSubfileDocsSlug(
+  skillName: string,
+  relPath: string,
+): string {
+  return `${skillDocsSlug(skillName)}--${subfileSlugSuffix(relPath)}`;
 }
 
 function generateSkillsPromptBlockForEntries(
@@ -412,10 +475,26 @@ function generateSkillsPromptBlockForEntries(
   if (entries.length === 0) return "";
 
   const lines = entries.map((s) => {
-    const extras =
-      s.extraFiles.length > 0
-        ? ` (also contains: ${s.extraFiles.join(", ")})`
-        : "";
+    let extras = "";
+    if (s.extraFiles.length > 0) {
+      if (mode === "runtime") {
+        const readable = s.extraFiles.filter((f) => f in s.files);
+        const unreadable = s.extraFiles.filter((f) => !(f in s.files));
+        const parts: string[] = [];
+        if (readable.length > 0) {
+          const refIds = readable.map((f) => subfileSlugSuffix(f)).join(", ");
+          parts.push(
+            `refs via docs-search --slug "${skillDocsSlug(s.meta.name)}--<ref>": ${refIds}`,
+          );
+        }
+        if (unreadable.length > 0) {
+          parts.push(`also contains: ${unreadable.join(", ")}`);
+        }
+        extras = ` (${parts.join("; ")})`;
+      } else {
+        extras = ` (also contains: ${s.extraFiles.join(", ")})`;
+      }
+    }
     const runtimeHint =
       mode === "runtime"
         ? ` Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`

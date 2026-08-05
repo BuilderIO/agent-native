@@ -12,12 +12,21 @@
  */
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  mergeCreativeContextReuseLabels,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -114,9 +123,10 @@ const PatchDeckFieldsOp = z.object({
       tweaks: z
         .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
         .optional(),
-      aspectRatio: z.string().optional(),
+      aspectRatio: z.enum(ASPECT_RATIO_VALUES).optional(),
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
+      starred: z.boolean().optional(),
     })
     .passthrough(),
 });
@@ -130,6 +140,67 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+
+// The browser uses the full operation union above. Agents additionally use
+// this action for one bounded, deck-wide layout repair: one patch-slide per
+// slide in a single SQL transaction, followed by a fresh read for verification.
+const AgentPatchDeckInputSchema = z.object({
+  deckId: z.string().describe("Deck ID"),
+  operations: z
+    .array(
+      z.union([
+        PatchSlideOp,
+        z.object({
+          op: z.literal("patch-deck-fields"),
+          fields: z.object({
+            title: z
+              .string()
+              .describe("The concise, specific title to apply to the deck"),
+          }),
+        }),
+      ]),
+    )
+    .min(1)
+    .describe(
+      "One patch-slide operation per slide that needs a structural HTML repair. Use patch-deck-fields only for a deck title change.",
+    ),
+});
+
+const CreativeContextReuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
+
+function storedCreativeContext(value: unknown): {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.contextMode !== "off" &&
+    record.contextMode !== "auto" &&
+    record.contextMode !== "pinned"
+  ) {
+    return null;
+  }
+  return {
+    contextMode: record.contextMode,
+    contextPackId:
+      typeof record.contextPackId === "string" ? record.contextPackId : null,
+    reuseLabels: Array.isArray(record.reuseLabels)
+      ? (record.reuseLabels as CreativeContextReuseLabel[])
+      : [],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Core merge logic (exported for unit tests)
@@ -239,9 +310,34 @@ export function applyOperation(deck: any, op: Operation): void {
         deck.aspectRatio = fields.aspectRatio;
       if (fields.shareToken !== undefined) deck.shareToken = fields.shareToken;
       if (fields.visibility !== undefined) deck.visibility = fields.visibility;
+      if (fields.starred !== undefined) deck.starred = fields.starred;
       break;
     }
   }
+}
+
+/**
+ * Resolve the last operation in a sequence. For example, when typing a new name
+ * this will be the latest name of the deck in a sequence of keystrokes.
+ */
+export function resolveDeckColumnUpdates(
+  current: { title: string; designSystemId: string | null },
+  operations: Operation[],
+): { title: string; designSystemId: string | null } {
+  const fieldOps = operations
+    .filter(
+      (op): op is z.infer<typeof PatchDeckFieldsOp> =>
+        op.op === "patch-deck-fields",
+    )
+    .reverse();
+  const titleOp = fieldOps.find((op) => typeof op.fields.title === "string");
+  const dsOp = fieldOps.find((op) => "designSystemId" in op.fields);
+  return {
+    title: titleOp?.fields.title ?? current.title,
+    designSystemId: dsOp
+      ? (dsOp.fields.designSystemId ?? null)
+      : current.designSystemId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -252,15 +348,31 @@ export default defineAction({
   description:
     "Granular deck patch used by the browser editor for concurrent-safe writes. " +
     "Each operation touches only the target slide or field — concurrent writers " +
-    "on different slides never overwrite each other's work.",
+    "on different slides never overwrite each other's work. For a deck-wide " +
+    "layout repair, send one patch-slide operation per affected slide in one " +
+    "call, then call get-deck to verify the persisted HTML before reporting success.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     operations: z
       .array(OperationSchema)
       .min(1)
       .describe("Ordered list of granular operations to apply"),
+    creativeContext: z
+      .object({
+        contextPackId: z.string().optional(),
+        contextModeOverride: z.literal("off").optional(),
+        reuseLabels: z
+          .array(CreativeContextReuseLabelSchema)
+          .optional()
+          .default([]),
+      })
+      .optional()
+      .describe(
+        "Optional exact Creative Context provenance for context-backed slide patch operations.",
+      ),
   }),
-  run: async ({ deckId, operations }) => {
+  agentInputSchema: AgentPatchDeckInputSchema,
+  run: async ({ deckId, operations, creativeContext }) => {
     await assertAccess("deck", deckId, "editor");
 
     return withDeckLock(deckId, async () => {
@@ -275,6 +387,22 @@ export default defineAction({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
+      const existingContext = storedCreativeContext(deck.creativeContext);
+
+      const existingSlideIds = new Set(
+        (Array.isArray(deck.slides) ? deck.slides : []).map(
+          (slide: { id?: unknown }) => slide.id,
+        ),
+      );
+      const missingSlideIds = operations
+        .filter((operation) => operation.op === "patch-slide")
+        .map((operation) => operation.slideId)
+        .filter((slideId) => !existingSlideIds.has(slideId));
+      if (missingSlideIds.length > 0) {
+        throw new Error(
+          `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
+        );
+      }
 
       for (const op of operations) {
         applyOperation(deck, op);
@@ -283,37 +411,170 @@ export default defineAction({
       const now = new Date().toISOString();
       deck.updatedAt = now;
 
-      // For patch-deck-fields ops that include a title, also update the
-      // SQL title column (kept in sync with deck.title for list queries).
-      const titleOp = operations.find(
-        (op): op is z.infer<typeof PatchDeckFieldsOp> =>
-          op.op === "patch-deck-fields" && typeof op.fields.title === "string",
-      );
-      const sqlTitle = titleOp?.fields.title ?? row.title;
+      const { title: sqlTitle, designSystemId: sqlDesignSystemId } =
+        resolveDeckColumnUpdates(
+          { title: row.title, designSystemId: row.designSystemId },
+          operations,
+        );
 
-      // For patch-deck-fields ops that include designSystemId, update the
-      // SQL designSystemId column (used by list queries and sharing checks).
-      const dsOp = operations.find(
-        (op): op is z.infer<typeof PatchDeckFieldsOp> =>
-          op.op === "patch-deck-fields" && "designSystemId" in op.fields,
-      );
-      const sqlDesignSystemId = dsOp
-        ? (dsOp.fields.designSystemId ?? null)
-        : row.designSystemId;
+      let generationRecord:
+        | {
+            contextMode: "off" | "auto" | "pinned";
+            contextPackId: string | null;
+            reuseLabels: CreativeContextReuseLabel[];
+            elementProvenance: Array<{
+              elementId: string;
+              influence:
+                | "reused"
+                | "adapted"
+                | "reference-conditioned"
+                | "generated";
+              itemId?: string;
+              itemVersionId?: string;
+              label?: string;
+            }>;
+          }
+        | undefined;
+      if (creativeContext) {
+        const affectedSlideIds = [
+          ...new Set(
+            operations.flatMap((operation) =>
+              operation.op === "patch-slide" || operation.op === "add-slide"
+                ? [operation.slideId]
+                : [],
+            ),
+          ),
+        ];
+        if (!affectedSlideIds.length) {
+          throw new Error(
+            "Creative Context provenance requires a patch-slide or add-slide operation",
+          );
+        }
+        if (
+          existingContext &&
+          creativeContext.contextPackId !== undefined &&
+          creativeContext.contextPackId !== existingContext.contextPackId
+        ) {
+          throw new Error(
+            "The deck patch must use the deck's existing creative-context pack",
+          );
+        }
+        const effectivePackId =
+          creativeContext.contextPackId ?? existingContext?.contextPackId;
+        const requestedLabels = affectedSlideIds.flatMap((slideId) => {
+          const labels = creativeContext.reuseLabels.filter(
+            (label) => !label.elementId || label.elementId === slideId,
+          );
+          return labels.length
+            ? labels.map((label) => ({ ...label, elementId: slideId }))
+            : [
+                {
+                  kind: "slide",
+                  label: "Net-new deck patch",
+                  dataRole: "untrusted-reference" as const,
+                  elementId: slideId,
+                  influence: "generated" as const,
+                },
+              ];
+        });
+        const validated = await validateGenerationCreativeContext({
+          contextPackId: effectivePackId,
+          contextPackSource:
+            creativeContext.contextPackId === undefined
+              ? "inherited"
+              : "explicit",
+          contextModeOverride: creativeContext.contextModeOverride,
+          reuseLabels: requestedLabels,
+          reuseLabelsSource: creativeContext.reuseLabels.length
+            ? "explicit"
+            : "inherited",
+        });
+        const contextMode =
+          validated.contextMode === "off"
+            ? "off"
+            : (existingContext?.contextMode ?? validated.contextMode);
+        const previous =
+          contextMode === "off"
+            ? null
+            : await getGenerationCreativeContext({
+                appId: "slides",
+                artifactType: "deck",
+                artifactId: deckId,
+              });
+        const nextElementProvenance = validated.reuseLabels.map((label) => ({
+          elementId: label.elementId!,
+          influence: label.influence ?? ("reference-conditioned" as const),
+          ...(label.itemId ? { itemId: label.itemId } : {}),
+          ...(label.itemVersionId
+            ? { itemVersionId: label.itemVersionId }
+            : {}),
+          label: label.label,
+        }));
+        const mergedReuseLabels = mergeCreativeContextReuseLabels(
+          existingContext?.reuseLabels ?? [],
+          validated.reuseLabels,
+        );
+        generationRecord = {
+          contextMode,
+          contextPackId: validated.contextPackId,
+          reuseLabels:
+            contextMode === "off" ? validated.reuseLabels : mergedReuseLabels,
+          elementProvenance:
+            contextMode === "off"
+              ? nextElementProvenance
+              : replaceCreativeContextElementProvenance(
+                  previous?.elementProvenance ?? [],
+                  nextElementProvenance,
+                ),
+        };
+        if (!(contextMode === "off" && existingContext)) {
+          deck.creativeContext = {
+            contextMode,
+            contextPackId: validated.contextPackId,
+            reuseLabels: mergedReuseLabels,
+          };
+        }
+      }
 
-      await db
-        .update(schema.decks)
-        .set({
-          title: sqlTitle,
-          data: JSON.stringify(deck),
-          designSystemId: sqlDesignSystemId,
-          updatedAt: now,
-        })
-        .where(eq(schema.decks.id, deckId));
+      await db.transaction(async (tx: any) => {
+        await tx
+          .update(schema.decks)
+          .set({
+            title: sqlTitle,
+            data: JSON.stringify(deck),
+            designSystemId: sqlDesignSystemId,
+            updatedAt: now,
+          })
+          .where(eq(schema.decks.id, deckId));
+        if (generationRecord) {
+          await recordGenerationCreativeContext(
+            {
+              appId: "slides",
+              artifactType: "deck",
+              artifactId: deckId,
+              ...generationRecord,
+            },
+            { db: tx },
+          );
+        }
+      });
 
       notifyClients(deckId);
 
-      return { ok: true, deckId, updatedAt: now };
+      return {
+        ok: true,
+        deckId,
+        updatedAt: now,
+        updatedSlideIds: [
+          ...new Set(
+            operations.flatMap((operation) =>
+              operation.op === "patch-slide" || operation.op === "add-slide"
+                ? [operation.slideId]
+                : [],
+            ),
+          ),
+        ],
+      };
     });
   },
 });

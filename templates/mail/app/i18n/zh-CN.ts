@@ -432,10 +432,9 @@ const messages = {
     suggestionWidget: "为我的收件箱创建自定义小组件",
   },
   settings: {
-    openAgentSettings: "打开代理设置",
-    agentDescription:
-      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-    agentTitle: "代理设置",
+    openAgentSettings: "管理代理",
+    agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+    agentTitle: "管理代理",
     aliasName: "别名名称",
     aliasNamePlaceholder: "例如：设计团队",
     recipientsOnePerLine: "收件人（每行一个邮箱）",

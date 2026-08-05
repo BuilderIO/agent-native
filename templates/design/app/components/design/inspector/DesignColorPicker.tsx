@@ -2678,16 +2678,16 @@ export function parseNumericDraft(draft: string): number | null {
 }
 
 /**
- * Expands a bare 1-digit hex fragment (e.g. "F") into the standard 3-digit
- * shorthand ("FFF", which `parseCssColor` then doubles up to "FFFFFF") so a
- * single typed hex digit still commits instead of being rejected as
- * unparseable. Standard 3/4/6/8-digit hex (already handled by
- * `parseCssColor`) passes through unchanged.
+ * Expands 1-3 digit hex inputs to their 6-digit Figma-style equivalents.
+ * One digit fills every channel, two digits repeat as a grayscale byte, and
+ * three digits use standard CSS shorthand expansion.
  */
 export function expandHexShorthand(value: string): string {
   const trimmed = value.trim().replace(/^#/, "");
-  if (/^[0-9a-f]$/i.test(trimmed)) {
-    return trimmed.repeat(3);
+  if (/^[0-9a-f]$/i.test(trimmed)) return trimmed.repeat(6);
+  if (/^[0-9a-f]{2}$/i.test(trimmed)) return trimmed.repeat(3);
+  if (/^[0-9a-f]{3}$/i.test(trimmed)) {
+    return [...trimmed].map((digit) => digit.repeat(2)).join("");
   }
   return trimmed;
 }

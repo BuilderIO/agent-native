@@ -277,8 +277,8 @@ function buildHeadlessSystemPrompt(actionNames: string[]): string {
   return [
     "You are the app agent for this Agent-Native project.",
     "Use the registered app actions as your source of truth for doing work.",
-    "Use docs-search before implementing or answering advanced Agent Native framework questions; it reads the version-matched docs bundled with @agent-native/core.",
-    "Use source-search when examples or implementation details matter; it reads the version-matched core and template source corpus bundled with @agent-native/core.",
+    "Use framework-search first for questions that may span the version-matched docs and source; it supports bounded substring, wildcard, SQL-like, and safe-regex matching.",
+    "Use docs-search or source-search for a focused page/file read after framework-search identifies the relevant evidence.",
     "Use connected GitHub repository tools for repo context when a repository is configured; do not assume a local clone or sandbox exists.",
     "You are running headlessly from the command line, so reply with the final useful result in plain text.",
     actionList,
@@ -306,7 +306,55 @@ export async function createHeadlessBuiltinActions(): Promise<
 > {
   const docsSearch = await import("../scripts/docs/search.js");
   const sourceSearch = await import("../scripts/docs/source-search.js");
+  const frameworkSearch = await import("../scripts/docs/framework-search.js");
   return {
+    "framework-search": {
+      readOnly: true,
+      tool: {
+        description:
+          "Search version-matched Agent Native docs and readable Core, Toolkit, and first-party template source together. Use this first when a docs answer may require implementation evidence; supports substring, glob, SQL-like, and safe regex modes.",
+        parameters: {
+          type: "object",
+          properties: {
+            pattern: {
+              type: "string",
+              description: "Text pattern to search across docs and source.",
+            },
+            scope: {
+              type: "string",
+              description:
+                "Search corpus: all, docs, or source (default: all).",
+              enum: ["all", "docs", "source"],
+            },
+            mode: {
+              type: "string",
+              description:
+                "Match mode: substring, glob, sql-like, or safe regex (default: substring).",
+              enum: ["substring", "glob", "sql-like", "regex"],
+            },
+            path: {
+              type: "string",
+              description: "Optional glob path filter.",
+            },
+            limit: {
+              type: "string",
+              description: "Maximum matching files to return, from 1 to 50.",
+            },
+            list: {
+              type: "string",
+              description:
+                'Set to "true" to list searchable docs and source roots.',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      run: async (args: Record<string, unknown>): Promise<string> => {
+        return captureCliOutput(() =>
+          frameworkSearch.default(cliArgsFromToolArgs(args)),
+        );
+      },
+    },
     "docs-search": {
       readOnly: true,
       tool: {
@@ -343,19 +391,19 @@ export async function createHeadlessBuiltinActions(): Promise<
       readOnly: true,
       tool: {
         description:
-          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
+          "Search and read readable version-matched Core, Toolkit, and first-party template source. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
         parameters: {
           type: "object",
           properties: {
             query: {
               type: "string",
               description:
-                "Search term to find relevant core or template source, for example defineAction, useActionQuery, view-screen, or AgentComposerFrame.",
+                "Search term to find relevant template source, for example defineAction, useActionQuery, view-screen, or AgentComposerFrame.",
             },
             path: {
               type: "string",
               description:
-                "Read a specific corpus file or list a directory, for example templates/plan/AGENTS.md or core/src/action.ts.",
+                "Read a specific corpus file or list a directory, for example templates/plan/AGENTS.md or templates/chat/actions/hello.ts.",
             },
             list: {
               type: "string",

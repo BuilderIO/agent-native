@@ -6,6 +6,7 @@ import { isSlidesReferenceFileExtension } from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
 const MAX_CHAT_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function decodeDataUrl(data: string | undefined): {
   bytes: Buffer;
@@ -95,6 +96,17 @@ export async function prepareSlidesChatAttachments(args: {
   const failureList = failed
     .map((file) => `- ${file.name}: ${file.reason}`)
     .join("\n");
+  // saveUploadedReferenceFile() saves the file either way but swallows the
+  // public-URL upload failure (missing/misbehaving file-upload provider) so
+  // the private path is never blocked. Without this callout the agent has no
+  // signal that embedding is impossible and silently drops the image from
+  // the deck instead of telling the user why.
+  const unembeddableImages = uploaded.filter(
+    (file) => !file.url && file.type.startsWith("image/"),
+  );
+  const unembeddableImageList = unembeddableImages
+    .map((file) => `- ${file.originalName}`)
+    .join("\n");
   const attachmentContext = [
     "<slides-chat-attachments>",
     uploaded.length > 0
@@ -110,6 +122,13 @@ export async function prepareSlidesChatAttachments(args: {
           "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
           '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
           "- Do not say no PDF/PPTX/DOCX/FIG/image was attached when a matching saved path is listed here.",
+        ].join("\n")
+      : "",
+    unembeddableImages.length > 0
+      ? [
+          "The following attached image(s) have NO embeddable URL — the file-upload provider that hosts public image URLs failed or is not configured, so they were only saved to private import storage and CANNOT be embedded as `<img>` in slide HTML:",
+          unembeddableImageList,
+          "Do not silently skip these images. Tell the user the image(s) could not be added to the deck because no public file-upload provider is available, and that connecting Builder.io (or another file provider) in Settings will enable embedding.",
         ].join("\n")
       : "",
     failed.length > 0
@@ -135,9 +154,12 @@ function stripForwardedAttachmentData(
   saved: { path: string; url?: string },
 ): AgentChatAttachment {
   const next = { ...attachment };
-  // Keep image data for the current model turn when storage only gives Slides
-  // an import path. A hosted URL is the replacement that lets us strip it.
-  if (saved.url || !isVisualAttachment(attachment)) {
+  // Keep visual data for the current model turn so uploaded screenshots remain
+  // available for vision analysis; non-visual files only need their path/URL.
+  const inlineImage = isVisualAttachment(attachment)
+    ? decodeDataUrl(attachment.data)
+    : null;
+  if (!inlineImage || inlineImage.bytes.length > MAX_INLINE_IMAGE_BYTES) {
     delete next.data;
   }
   (next as any).slidesUploadPath = saved.path;

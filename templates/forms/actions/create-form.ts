@@ -9,7 +9,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
-import { assertValidFields } from "../server/lib/validate-fields.js";
+import {
+  assertValidFields,
+  normalizeFieldIds,
+} from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
@@ -36,7 +39,7 @@ function formDeepLink(formId: string): string {
 
 export default defineAction({
   description:
-    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata. Published forms return a direct public response URL; drafts return an editor URL.",
+    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published forms return a direct public response URL; drafts return an editor URL.",
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),
@@ -88,12 +91,14 @@ export default defineAction({
         fields = args.fields as unknown as FormField[];
       }
     }
+    fields = normalizeFieldIds(fields) as FormField[];
     assertValidFields(fields);
 
     const defaultSettings: FormSettings = {
       submitText: "Submit",
       successMessage: "Thank you! Your response has been recorded.",
       showProgressBar: false,
+      emailOnNewResponses: false,
     };
 
     let settings = defaultSettings;

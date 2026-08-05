@@ -36,7 +36,7 @@ function Probe() {
       <a href="/dashboard" data-testid="chrome-link">
         Dashboard
       </a>
-      <a href="/settings/connections" data-testid="settings-link">
+      <a href="/settings#integrations" data-testid="settings-link">
         Settings
       </a>
       <a href="/api/export.csv" data-testid="api-link">
@@ -137,6 +137,18 @@ describe("useAgentChatHomeHandoffLinks", () => {
   });
 
   it("intercepts app chrome links from the chat route", () => {
+    ({ container, root } = renderProbe());
+
+    const event = clickLink(container, "chrome-link");
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(pathname(container)).toBe("/");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
+    expect(consumeAgentChatHomeHandoff("chat")).toBe(false);
+  });
+
+  it("intercepts app chrome links after chat activity marks a handoff", () => {
+    markAgentChatHomeHandoff("chat");
     ({ container, root } = renderProbe());
 
     const event = clickLink(container, "chrome-link");

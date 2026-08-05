@@ -32,7 +32,7 @@ const ERROR_CAPTURE_DOCS_URL =
   "https://www.agent-native.com/docs/tracking#error-capture";
 
 const ERROR_CAPTURE_SNIPPET = `// Agent Native templates already call configureTracking().
-import { configureTracking, captureException } from "@agent-native/core/client";
+import { configureTracking, captureException } from "@agent-native/core/client/observability";
 
 configureTracking({
   key: "anpk_...",

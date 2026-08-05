@@ -1,5 +1,5 @@
 {
-  "name": "Agent Native Calendar",
+  "name": "Calendar",
   "short_name": "Calendar",
   "description": "Google Calendar integration",
   "start_url": ".",

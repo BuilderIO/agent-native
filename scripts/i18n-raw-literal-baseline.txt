@@ -1,11 +1,73 @@
 # Existing raw visible UI literals.
 # Keep this file sorted. Remove entries as surfaces move to i18n.
 # Format: relative/source/path.tsx|Visible string
+packages/docs/app/components/blocks/cards.tsx|Feature name
+packages/docs/app/components/blocks/comparison.tsx|A side-by-side comparison of two to four options, e.g. Before/After or Option A/Option B.
+packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.
+packages/docs/app/components/blocks/steps.tsx|Step title
 packages/docs/app/components/docBlocks.tsx|| Extract
-templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY - topY
-templates/clips/app/components/player/transcript-panel.tsx|gsk_…
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
+templates/crm/app/components/crm/CreateCrmRecordDialog.tsx|This record lives in the local-authoritative Native SQL CRM. You can connect or mirror another CRM separately.
+templates/crm/app/components/crm/CrmSignalsPanel.tsx|Attach a bounded Clips evidence reference before running detectors.
+templates/crm/app/components/crm/CrmSignalsPanel.tsx|Confirm signal
+templates/crm/app/components/crm/CrmSignalsPanel.tsx|Dismiss signal
+templates/crm/app/components/crm/CrmSignalsPanel.tsx|Evidence-grounded moments and next steps from attached Clips calls.
+templates/crm/app/components/crm/CrmSignalsPanel.tsx|Open call evidence
+templates/crm/app/components/crm/RecordActions.tsx|Add record task
+templates/crm/app/components/crm/RecordActions.tsx|Add task
+templates/crm/app/components/crm/RecordActions.tsx|Create task
+templates/crm/app/components/crm/RecordActions.tsx|Follow-up task created.
+templates/crm/app/components/crm/RecordActions.tsx|Keep a local follow-up next to this CRM record.
+templates/crm/app/components/crm/RecordActions.tsx|Task creation failed.
+templates/crm/app/components/crm/SavedViewDataProgram.tsx|Cross-source context
+templates/crm/app/components/crm/Surface.tsx|Open shared connections
+templates/crm/app/components/crm/Surface.tsx|Start with Native SQL
+templates/crm/app/components/crm/WorkOverview.tsx|A focused queue across your CRM workspace.
+templates/crm/app/components/crm/WorkOverview.tsx|CRM will surface follow-up signals as records and interactions become available.
+templates/crm/app/components/crm/WorkOverview.tsx|Recently active
+templates/crm/app/components/crm/WorkOverview.tsx|Saved views
+templates/crm/app/components/crm/WorkOverview.tsx|Signals worth deciding on.
+templates/crm/app/components/crm/WorkOverview.tsx|Today’s work
+templates/crm/app/routes/_index.tsx|My work
+templates/crm/app/routes/_index.tsx|My work · CRM
+templates/crm/app/routes/accounts.tsx|Accounts · CRM
+templates/crm/app/routes/ask.tsx|Ask CRM
+templates/crm/app/routes/ask.tsx|Explore permitted account context, follow-up work, and evidence across Native SQL and connected records.
+templates/crm/app/routes/opportunities.tsx|Opportunities · CRM
+templates/crm/app/routes/people.tsx|People · CRM
+templates/crm/app/routes/settings.tsx|CRM settings
+templates/crm/app/routes/setup.tsx|Authorize the sandbox directly
+templates/crm/app/routes/setup.tsx|CRM connection
+templates/crm/app/routes/setup.tsx|CRM mirrors recently updated Accounts, Contacts, and Opportunities in this initial cohort.
+templates/crm/app/routes/setup.tsx|CRM sync failed.
+templates/crm/app/routes/setup.tsx|Choose a connection to see its initial object cohort.
+templates/crm/app/routes/setup.tsx|Cohort objects
+templates/crm/app/routes/setup.tsx|Could not start native CRM.
+templates/crm/app/routes/setup.tsx|Days, capped at 365.
+templates/crm/app/routes/setup.tsx|Deal pipeline IDs
+templates/crm/app/routes/setup.tsx|Leave blank for recently updated deals.
+templates/crm/app/routes/setup.tsx|No connected HubSpot or Salesforce account is available.
+templates/crm/app/routes/setup.tsx|Only workspace Connections granted to this app can be used. CRM never stores provider tokens.
+templates/crm/app/routes/setup.tsx|Open shared connections
+templates/crm/app/routes/setup.tsx|Optional, comma-separated
+templates/crm/app/routes/setup.tsx|Or connect an existing CRM
+templates/crm/app/routes/setup.tsx|Recent history
+templates/crm/app/routes/setup.tsx|Run accounts, people, opportunities, saved views, tasks, and cadence without connecting another CRM. Your CRM is local-authoritative and portable across SQLite, Postgres, and D1.
+templates/crm/app/routes/setup.tsx|Salesforce objects
+templates/crm/app/routes/setup.tsx|Select HubSpot or Salesforce
+templates/crm/app/routes/setup.tsx|Start with Native SQL
+templates/crm/app/routes/setup.tsx|You can start with Native SQL above, or authorize a provider and grant it to CRM from shared settings.
+templates/crm/app/routes/setup.tsx|Your native CRM is ready.
+templates/crm/app/routes/tasks.tsx|Create follow-up task
+templates/crm/app/routes/tasks.tsx|Create task
+templates/crm/app/routes/tasks.tsx|New task
+templates/crm/app/routes/tasks.tsx|No follow-up tasks
+templates/crm/app/routes/tasks.tsx|Open record
+templates/crm/app/routes/tasks.tsx|Task created.
+templates/crm/app/routes/tasks.tsx|Task creation failed.
+templates/crm/app/routes/tasks.tsx|Task update failed.
+templates/crm/app/routes/tasks.tsx|Tasks are local by default and never write to the provider silently.
 templates/design/app/components/design/DesignCanvas.tsx|handle ? [
 templates/design/app/components/design/FusionAppBanner.tsx|Publish failed
 templates/design/app/components/design/FusionAppBanner.tsx|Push failed
@@ -24,6 +86,6 @@ templates/design/app/components/design/code-workbench/workspace/types.ts|` or `l
 templates/design/app/components/design/edit-panel/effects-properties.tsx|, elementKey: string, nextLayers: readonly Pick
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, existingScreenIds: ReadonlySet
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, liveScreenIds: ReadonlySet
-templates/design/app/pages/design-editor/pending-edits.ts|, primaryInfo?: Pick
 templates/design/app/pages/DesignEditor.tsx|Could not open component source
 templates/design/app/pages/DesignEditor.tsx|Migration failed
+templates/design/app/pages/design-editor/pending-edits.ts|, primaryInfo?: Pick

@@ -1,14 +1,17 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  ShareButton,
   appBasePath,
   agentNativePath,
+} from "@agent-native/core/client/api-path";
+import {
   getBrowserTabId,
   readClientAppState,
-  sendToAgentChat,
-  useT,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   IconCheck,
   IconClipboard,
@@ -20,12 +23,14 @@ import {
   IconFolderPlus,
   IconLayoutBottombar,
   IconLayoutGrid,
+  IconLink,
   IconMessageCircle,
   IconPencil,
   IconPhoto,
   IconPhotoPlus,
   IconRefresh,
   IconSearch,
+  IconSettings,
   IconTrash,
   IconUpload,
   IconVideo,
@@ -57,7 +62,10 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
-import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
+import {
+  AssetPreviewDialog,
+  type PreviewAsset,
+} from "@/components/asset/AssetPreviewDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,10 +106,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -110,7 +116,6 @@ import {
 } from "@/components/ui/tooltip";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
 import { assetMediaUrl } from "@/lib/asset-urls";
-import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   chunkAssetUploads,
   getFailedUploadCount,
@@ -119,14 +124,7 @@ import {
   type AssetUploadResult,
 } from "@/lib/upload-results";
 
-import {
-  IMAGE_CATEGORIES,
-  ASPECT_RATIOS,
-  type AssetVariantState,
-  type AspectRatio,
-  type ImageCategory,
-  type ImageRole,
-} from "../../shared/api";
+import { type AssetVariantState, type ImageRole } from "../../shared/api";
 
 export type VariantSlot = AssetVariantState["slots"][number];
 
@@ -288,12 +286,6 @@ function removeVariantSlotsByScopeFromCache(
   );
 }
 
-function paletteDraftFromColors(colors: unknown): string {
-  return Array.isArray(colors)
-    ? colors.filter((color) => typeof color === "string").join(", ")
-    : "";
-}
-
 function referenceRoleForAsset(asset: any): ImageRole {
   if (asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")) {
     return "video_reference";
@@ -317,22 +309,6 @@ function assetUpdatedTime(asset: any): number {
   return Number.isNaN(time) ? 0 : time;
 }
 
-function parsePaletteDraft(value: string): string[] {
-  const seen = new Set<string>();
-  const colors: string[] = [];
-  for (const raw of value.split(/[\s,]+/)) {
-    const trimmed = raw.trim();
-    if (!trimmed) continue;
-    const color = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-    if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) continue;
-    const normalized = color.toLowerCase();
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    colors.push(normalized);
-  }
-  return colors;
-}
-
 export function loader({ params, request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   return redirect(`/library/${params.id}${url.search}`);
@@ -343,7 +319,8 @@ export default function BrandKitDetailRedirect() {
 }
 
 function libraryTabFromValue(value: unknown): LibraryTab | null {
-  return value === "references" ||
+  return value === "drafts" ||
+    value === "references" ||
     value === "generated" ||
     value === "runs" ||
     value === "settings"
@@ -386,7 +363,6 @@ export function BrandKitDetailRoute({
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
-  const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
     useState<HTMLElement | null>(null);
@@ -394,7 +370,7 @@ export function BrandKitDetailRoute({
     useState<HTMLElement | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
   const [activeTab, setActiveTab] = useState<LibraryTab>(
-    () => urlTab ?? "references",
+    () => urlTab ?? "generated",
   );
   const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("cards");
   const [assetScope, setAssetScope] = useState<AssetLibraryScope>("all");
@@ -415,9 +391,6 @@ export function BrandKitDetailRoute({
     "all",
   );
   const [search, setSearch] = useState("");
-  const [styleDescriptionDraft, setStyleDescriptionDraft] = useState("");
-  const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
-  const [paletteDraft, setPaletteDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -432,9 +405,13 @@ export function BrandKitDetailRoute({
   });
 
   useEffect(() => {
+    if (urlTab === "settings") {
+      navigate(`/brand-kits/${libraryId}/settings`, { replace: true });
+      return;
+    }
     if (!urlTab) return;
     setActiveTab((current) => (current === urlTab ? current : urlTab));
-  }, [urlTab]);
+  }, [urlTab, libraryId, navigate]);
 
   useEffect(() => {
     if (headerMode !== "actions" || typeof document === "undefined") {
@@ -502,11 +479,6 @@ export function BrandKitDetailRoute({
       (asset.status === "reference" && !isContentOnlyReference(asset)),
   );
   const unfiledCount = libraryAssets.filter((asset) => !asset.folderId).length;
-  const customInstructions = getLibraryCustomInstructions(library);
-  const libraryStyleDescription = library?.styleBrief?.description ?? "";
-  const libraryPaletteDraft = paletteDraftFromColors(
-    library?.styleBrief?.palette,
-  );
   const liveVariantsForLibrary =
     liveVariants?.libraryId === libraryId ? liveVariants : null;
   const liveCandidateSlots = useMemo(
@@ -547,17 +519,6 @@ export function BrandKitDetailRoute({
       );
   }, [assets, liveCandidateSlots]);
 
-  useEffect(() => {
-    setStyleDescriptionDraft(libraryStyleDescription);
-  }, [library?.id, libraryStyleDescription]);
-
-  useEffect(() => {
-    setCustomInstructionsDraft(customInstructions ?? "");
-  }, [library?.id, customInstructions]);
-
-  useEffect(() => {
-    setPaletteDraft(libraryPaletteDraft);
-  }, [library?.id, libraryPaletteDraft]);
   const pendingVisibleUploads = pendingUploads.filter((upload) => {
     if (mediaFilter !== "all" && upload.mediaType !== mediaFilter) return false;
     if (activeFolderId === "all") return true;
@@ -783,7 +744,7 @@ export function BrandKitDetailRoute({
 
   useEffect(() => {
     const selectableAssets =
-      activeTab === "runs" || activeTab === "settings"
+      activeTab === "runs" || activeTab === "settings" || activeTab === "drafts"
         ? []
         : libraryBoardAssets;
     const selectableIds = new Set(selectableAssets.map((asset) => asset.id));
@@ -839,37 +800,6 @@ export function BrandKitDetailRoute({
           type: "active",
         }),
       );
-  }
-
-  function analyzeBrand() {
-    if (!library) return;
-    const anchorIds = assets
-      .filter(
-        (asset) =>
-          asset.metadata?.isStyleAnchor ||
-          library.settings?.canonicalStyleAssetIds?.includes(asset.id),
-      )
-      .map((asset) => asset.id);
-    sendToAgentChat({
-      message: [
-        "Analyze this Assets library brand.",
-        `Call analyze-collection-style with libraryId: ${library.id}.`,
-        "Update the reusable style brief with palette and visual traits, then summarize what changed.",
-      ].join("\n"),
-      context: [
-        "## Assets library context",
-        `Library: ${library.title} (${library.id})`,
-        `Description: ${library.description || ""}`,
-        `Reference assets: ${references.length}`,
-        `Anchor assets: ${anchorIds.length ? anchorIds.join(", ") : "none"}`,
-        `Current style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
-        customInstructions
-          ? `Custom instructions: ${customInstructions}`
-          : "Custom instructions: none",
-      ].join("\n"),
-      submit: true,
-      newTab: true,
-    });
   }
 
   async function upload(files: FileList | null, category = "style-only") {
@@ -1107,10 +1037,112 @@ export function BrandKitDetailRoute({
     );
   }
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const activeSurfaceTab =
-    activeTab === "runs" || activeTab === "settings" ? activeTab : "assets";
+  const surfaceTab: LibraryTab =
+    activeTab === "settings" ? "generated" : activeTab;
+  const draftsCount = liveCandidateSlots.length + draftCandidateAssets.length;
   const hideEmptyLanes =
     activeFolderId !== "all" || mediaFilter !== "all" || search.trim() !== "";
+  const assetsToolbar = (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <FolderChip
+            active={activeFolderId === "all"}
+            label={t("library.allAssets")}
+            count={libraryAssets.length}
+            onClick={() => setActiveFolderId("all")}
+          />
+          <FolderChip
+            active={activeFolderId === null}
+            label={t("library.unfiled")}
+            count={unfiledCount}
+            onClick={() => setActiveFolderId(null)}
+          />
+          {folders.map((folder) => (
+            <FolderChip
+              key={folder.id}
+              active={activeFolderId === folder.id}
+              label={folder.title}
+              count={
+                libraryAssets.filter((asset) => asset.folderId === folder.id)
+                  .length
+              }
+              onClick={() => setActiveFolderId(folder.id)}
+            />
+          ))}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative">
+            <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("library.searchAssets")}
+              className="h-9 w-full pl-8 pr-8 sm:w-64"
+            />
+            {search && (
+              <button
+                type="button"
+                aria-label={t("library.clearSearch")}
+                className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setSearch("")}
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <Select
+            value={mediaFilter}
+            onValueChange={(value) =>
+              setMediaFilter(value as "all" | "image" | "video")
+            }
+          >
+            <SelectTrigger className="h-9 w-full sm:w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                {t("brandKitDetail.allMedia")}
+              </SelectItem>
+              <SelectItem value="image">
+                {t("brandKitDetail.images")}
+              </SelectItem>
+              <SelectItem value="video">
+                {t("brandKitDetail.videos")}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+    </section>
+  );
+  const renderAssetsBoard = (boardAssets: any[], uploads: PendingUpload[]) => (
+    <AssetSwimlaneBoard
+      libraryId={libraryId}
+      viewMode={assetViewMode}
+      onViewModeChange={setAssetViewMode}
+      scope="all"
+      onScopeChange={setAssetScope}
+      showScopeToggle={false}
+      hideEmptyLanes={hideEmptyLanes}
+      assets={boardAssets}
+      pendingUploads={uploads}
+      folders={folders}
+      promotingReferenceKeys={promotingReferenceKeys}
+      onUploadClick={() => fileInputRef.current?.click()}
+      onDrop={(files) => void upload(files)}
+      onMoveToReferences={(asset, slot) => {
+        void handleMoveToReferences(asset, slot);
+      }}
+      onRemoveFromReferences={(asset) => {
+        void handleRemoveFromReferences(asset);
+      }}
+      selectedIds={selectedAssetIds}
+      onSelectedIdsChange={setSelectedAssetIds}
+      onOptimisticDelete={markAssetsOptimisticallyDeleted}
+      onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
+    />
+  );
   const uploadAction = (
     <Button
       variant="outline"
@@ -1141,6 +1173,13 @@ export function BrandKitDetailRoute({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem asChild>
+          <Link to={`/brand-kits/${libraryId}/settings`}>
+            <IconSettings className="mr-2 h-4 w-4 shrink-0" />
+            {t("library.settings")}
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={(event) => {
             event.preventDefault();
@@ -1224,10 +1263,12 @@ export function BrandKitDetailRoute({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setEditOpen(true)}
+                  asChild
                   aria-label={t("library.editBrandKit")}
                 >
-                  <IconPencil className="h-4 w-4" />
+                  <Link to={`/brand-kits/${libraryId}/settings`}>
+                    <IconPencil className="h-4 w-4" />
+                  </Link>
                 </Button>
               </div>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
@@ -1248,11 +1289,6 @@ export function BrandKitDetailRoute({
         onChange={(event) => upload(event.target.files)}
       />
 
-      <EditLibraryDialog
-        library={library}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-      />
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1328,118 +1364,65 @@ export function BrandKitDetailRoute({
           </div>
         )}
         <Tabs
-          value={activeSurfaceTab}
-          onValueChange={(value) =>
-            setActiveTab(
-              value === "assets" ? "references" : (value as LibraryTab),
-            )
-          }
+          value={surfaceTab}
+          onValueChange={(value) => setActiveTab(value as LibraryTab)}
           className="space-y-4"
         >
           <TabsList>
-            <TabsTrigger value="assets">{t("library.assetsTab")}</TabsTrigger>
+            <TabsTrigger value="drafts" className="gap-1.5">
+              {t("library.drafts")}
+              {draftsCount > 0 ? (
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                  {draftsCount}
+                </span>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="generated">
+              {t("library.generated")}
+            </TabsTrigger>
+            <TabsTrigger value="references">
+              {t("library.references")}
+            </TabsTrigger>
             <TabsTrigger value="runs">{t("library.runs")}</TabsTrigger>
-            <TabsTrigger value="settings">{t("library.settings")}</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="assets" className="space-y-5">
-            <section className="space-y-3">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <FolderChip
-                    active={activeFolderId === "all"}
-                    label={t("library.allAssets")}
-                    count={libraryAssets.length}
-                    onClick={() => setActiveFolderId("all")}
-                  />
-                  <FolderChip
-                    active={activeFolderId === null}
-                    label={t("library.unfiled")}
-                    count={unfiledCount}
-                    onClick={() => setActiveFolderId(null)}
-                  />
-                  {folders.map((folder) => (
-                    <FolderChip
-                      key={folder.id}
-                      active={activeFolderId === folder.id}
-                      label={folder.title}
-                      count={
-                        libraryAssets.filter(
-                          (asset) => asset.folderId === folder.id,
-                        ).length
-                      }
-                      onClick={() => setActiveFolderId(folder.id)}
-                    />
-                  ))}
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="relative">
-                    <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder={t("library.searchAssets")}
-                      className="h-9 w-full pl-8 pr-8 sm:w-64"
-                    />
-                    {search && (
-                      <button
-                        type="button"
-                        aria-label={t("library.clearSearch")}
-                        className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                        onClick={() => setSearch("")}
-                      >
-                        <IconX className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <Select
-                    value={mediaFilter}
-                    onValueChange={(value) =>
-                      setMediaFilter(value as "all" | "image" | "video")
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-full sm:w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">
-                        {t("brandKitDetail.allMedia")}
-                      </SelectItem>
-                      <SelectItem value="image">
-                        {t("brandKitDetail.images")}
-                      </SelectItem>
-                      <SelectItem value="video">
-                        {t("brandKitDetail.videos")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+          <TabsContent value="drafts" className="space-y-4">
+            {draftsCount > 0 ? (
+              <LiveCandidatesStage
+                slots={liveCandidateSlots}
+                draftAssets={draftCandidateAssets}
+                libraryId={libraryId}
+                folders={folders}
+                savingSlotId={savingCandidateSlotId}
+                promotingReferenceKeys={promotingReferenceKeys}
+                onSave={(slot, folderId) => {
+                  void handleSaveLiveCandidate(slot, folderId);
+                }}
+                onSaveDraft={(asset, folderId) => {
+                  void handleSaveDraftCandidate(asset, folderId);
+                }}
+                onMoveToReferences={handleMoveLiveCandidateToReferences}
+                onMoveDraftToReferences={(asset) => {
+                  void handleMoveToReferences(asset);
+                }}
+              />
+            ) : (
+              <div className="flex min-h-64 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
+                <div className="max-w-sm text-sm text-muted-foreground">
+                  {t("library.noDrafts")}
                 </div>
               </div>
-            </section>
-            <AssetSwimlaneBoard
-              libraryId={libraryId}
-              viewMode={assetViewMode}
-              onViewModeChange={setAssetViewMode}
-              scope={assetScope}
-              onScopeChange={setAssetScope}
-              hideEmptyLanes={hideEmptyLanes}
-              assets={libraryBoardAssets}
-              pendingUploads={pendingVisibleUploads}
-              folders={folders}
-              promotingReferenceKeys={promotingReferenceKeys}
-              onUploadClick={() => fileInputRef.current?.click()}
-              onDrop={(files) => void upload(files)}
-              onMoveToReferences={(asset, slot) => {
-                void handleMoveToReferences(asset, slot);
-              }}
-              onRemoveFromReferences={(asset) => {
-                void handleRemoveFromReferences(asset);
-              }}
-              selectedIds={selectedAssetIds}
-              onSelectedIdsChange={setSelectedAssetIds}
-              onOptimisticDelete={markAssetsOptimisticallyDeleted}
-              onRestoreOptimisticDelete={restoreOptimisticallyDeletedAssets}
-            />
+            )}
+          </TabsContent>
+
+          <TabsContent value="generated" className="space-y-5">
+            {assetsToolbar}
+            {renderAssetsBoard(saved, pendingVisibleUploads)}
+          </TabsContent>
+
+          <TabsContent value="references" className="space-y-5">
+            {assetsToolbar}
+            {renderAssetsBoard(references, [])}
           </TabsContent>
 
           <TabsContent value="runs">
@@ -1502,107 +1485,6 @@ export function BrandKitDetailRoute({
               </div>
             )}
           </TabsContent>
-
-          <TabsContent value="settings">
-            <div className="assets-brand-kit-settings-grid grid gap-4">
-              <div className="space-y-4 rounded-lg border border-border p-4">
-                <Label>{t("brandKitDetail.styleDescription")}</Label>
-                <Textarea
-                  value={styleDescriptionDraft}
-                  onChange={(event) =>
-                    setStyleDescriptionDraft(event.target.value)
-                  }
-                  onBlur={() =>
-                    updateLibrary.mutate({
-                      id: library.id,
-                      styleBrief: {
-                        ...library.styleBrief,
-                        description: styleDescriptionDraft,
-                      },
-                    })
-                  }
-                  className="min-h-40"
-                />
-                <Separator />
-                <Label>{t("brandKitDetail.customInstructions")}</Label>
-                <Textarea
-                  value={customInstructionsDraft}
-                  onChange={(event) =>
-                    setCustomInstructionsDraft(event.target.value)
-                  }
-                  onBlur={() =>
-                    updateLibrary.mutate({
-                      id: library.id,
-                      customInstructions: customInstructionsDraft,
-                    })
-                  }
-                  placeholder={t(
-                    "brandKitDetail.customInstructionsPlaceholder",
-                  )}
-                  className="min-h-28"
-                />
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium">
-                      {t("brandKitDetail.palette")}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(library.styleBrief?.palette ?? []).map(
-                        (color: string) => (
-                          <span
-                            key={color}
-                            className="h-7 w-7 rounded-md border border-border"
-                            style={{ backgroundColor: color }}
-                            title={color}
-                          />
-                        ),
-                      )}
-                    </div>
-                    <Input
-                      value={paletteDraft}
-                      onChange={(event) => setPaletteDraft(event.target.value)}
-                      onBlur={() => {
-                        const palette = parsePaletteDraft(paletteDraft);
-                        setPaletteDraft(palette.join(", "));
-                        updateLibrary.mutate({
-                          id: library.id,
-                          styleBrief: {
-                            ...library.styleBrief,
-                            palette,
-                          },
-                        });
-                      }}
-                      placeholder={"#111827, #f8fafc, #2563eb"}
-                      className="mt-3 h-9 max-w-md text-xs"
-                    />
-                  </div>
-                  <Button variant="outline" onClick={analyzeBrand}>
-                    {library.settings?.brandAnalysis?.analyzedAt
-                      ? t("brandKitDetail.refreshBrand")
-                      : t("brandKitDetail.analyzeBrand")}
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <GenerationPresetsPanel
-                  libraryId={libraryId}
-                  presets={generationPresets}
-                />
-                <div className="rounded-lg border border-border p-4">
-                  <h3 className="text-sm font-semibold">
-                    {t("brandKitDetail.agentUsage")}
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {t("brandKitDetail.agentUsageDescription")}
-                  </p>
-                  <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
-                    {library.id}
-                  </code>
-                </div>
-              </div>
-            </div>
-          </TabsContent>
         </Tabs>
       </div>
     </div>
@@ -1617,7 +1499,7 @@ type PendingUpload = {
   status: "uploading" | "checking";
 };
 
-type LibraryTab = "references" | "generated" | "runs" | "settings";
+type LibraryTab = "drafts" | "references" | "generated" | "runs" | "settings";
 type AssetViewMode = "lanes" | "cards";
 type AssetLibraryScope = "all" | "references";
 
@@ -1630,6 +1512,7 @@ type LaneGalleryItem = {
   asset?: any;
   mediaType?: "image" | "video";
   href?: string;
+  onOpen?: () => void;
   selected?: boolean;
   busy?: boolean;
   showBusyOverlay?: boolean;
@@ -1638,6 +1521,7 @@ type LaneGalleryItem = {
   thumbnail: ReactNode; // i18n-ignore structural preview slot name
   menu?: ReactNode;
   primaryActions?: ReactNode;
+  headerActions?: ReactNode;
   onToggle?: (checked: boolean) => void;
 };
 
@@ -2084,288 +1968,6 @@ function SessionCard({
   );
 }
 
-function GenerationPresetsPanel({
-  libraryId,
-  presets,
-}: {
-  libraryId: string;
-  presets: any[];
-}) {
-  const t = useT();
-  const createPreset = useActionMutation("create-generation-preset");
-  const deletePreset = useActionMutation("delete-generation-preset");
-  const [open, setOpen] = useState(false);
-  const [confirmPresetId, setConfirmPresetId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<ImageCategory>("social");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
-  const [promptTemplate, setPromptTemplate] = useState("");
-  const [textPolicy, setTextPolicy] = useState(t("library.defaultTextPolicy"));
-  const [includeLogo, setIncludeLogo] = useState(false);
-
-  function reset() {
-    setTitle("");
-    setCategory("social");
-    setAspectRatio("1:1");
-    setPromptTemplate("");
-    setTextPolicy(t("library.defaultTextPolicy"));
-    setIncludeLogo(false);
-  }
-
-  function submit() {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    createPreset.mutate(
-      {
-        libraryId,
-        title: trimmed,
-        category,
-        aspectRatio,
-        imageSize: "2K",
-        promptTemplate: promptTemplate.trim() || undefined,
-        textPolicy,
-        referencePolicy: "auto",
-        includeLogo,
-      },
-      {
-        onSuccess: () => {
-          toast.success(t("brandKitDetail.generationPresetCreated"));
-          reset();
-          setOpen(false);
-        },
-        onError: (error: Error) => {
-          toast.error(
-            error.message || t("brandKitDetail.couldNotCreatePreset"),
-          );
-        },
-      },
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {t("brandKitDetail.generationPresets")}
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("brandKitDetail.generationPresetsDescription")}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-          {t("brandKitDetail.new")}
-        </Button>
-      </div>
-      <div className="mt-3 space-y-2">
-        {presets.slice(0, 5).map((preset) => (
-          <div
-            key={preset.id}
-            className="flex items-start justify-between gap-3 rounded-md border border-border bg-background p-3"
-          >
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  to={`/brand-kits/${libraryId}/presets/${preset.id}`}
-                  className="truncate text-sm font-medium underline-offset-4 hover:underline"
-                >
-                  {preset.title}
-                </Link>
-                <Badge variant="outline">{preset.aspectRatio}</Badge>
-                {preset.includeLogo ? (
-                  <Badge variant="secondary">{t("brandKitDetail.logo")}</Badge>
-                ) : null}
-              </div>
-              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                {preset.textPolicy || preset.description || preset.category}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="sm" asChild>
-                <Link to={`/brand-kits/${libraryId}/presets/${preset.id}`}>
-                  {t("brandKitDetail.edit")}
-                </Link>
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
-                onClick={() => setConfirmPresetId(preset.id)}
-              >
-                <IconTrash className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        ))}
-        {!presets.length ? (
-          <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-            {t("brandKitDetail.noPresetsYet")}
-          </p>
-        ) : null}
-      </div>
-
-      <AlertDialog
-        open={confirmPresetId !== null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) setConfirmPresetId(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("brandKitDetail.deleteGenerationPreset")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("brandKitDetail.deleteGenerationPresetDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={!confirmPresetId || deletePreset.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                if (!confirmPresetId) return;
-                deletePreset.mutate(
-                  { id: confirmPresetId },
-                  {
-                    onSuccess: () => {
-                      setConfirmPresetId(null);
-                      toast.success(
-                        t("brandKitDetail.generationPresetDeleted"),
-                      );
-                    },
-                    onError: (error: Error) => {
-                      toast.error(
-                        error.message ||
-                          t("brandKitDetail.couldNotDeletePreset"),
-                      );
-                    },
-                  },
-                );
-              }}
-            >
-              {t("assetDetail.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("brandKitDetail.newGenerationPreset")}</DialogTitle>
-            <DialogDescription>
-              {t("brandKitDetail.newGenerationPresetDescription")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="preset-title">{t("brandKitDetail.name")}</Label>
-              <Input
-                id="preset-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder={t("brandKitDetail.campaignLaunch")}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-2">
-                <Label>{t("brandKitDetail.category")}</Label>
-                <Select
-                  value={category}
-                  onValueChange={(value) => setCategory(value as ImageCategory)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {IMAGE_CATEGORIES.map((item) => (
-                      <SelectItem key={item} value={item}>
-                        {item}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>{t("brandKitDetail.aspectRatio")}</Label>
-                <Select
-                  value={aspectRatio}
-                  onValueChange={(value) =>
-                    setAspectRatio(value as AspectRatio)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ASPECT_RATIOS.map((ratio) => (
-                      <SelectItem key={ratio} value={ratio}>
-                        {ratio}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="preset-template">
-                {t("brandKitDetail.promptTemplate")}
-              </Label>
-              <Textarea
-                id="preset-template"
-                value={promptTemplate}
-                onChange={(event) => setPromptTemplate(event.target.value)}
-                placeholder={t("library.promptTemplatePlaceholder")}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="preset-text-policy">
-                {t("brandKitDetail.textPolicy")}
-              </Label>
-              <Textarea
-                id="preset-text-policy"
-                value={textPolicy}
-                onChange={(event) => setTextPolicy(event.target.value)}
-              />
-            </div>
-            <label
-              htmlFor="preset-include-logo"
-              className="flex items-start gap-3 rounded-md border border-border p-3"
-            >
-              <Checkbox
-                id="preset-include-logo"
-                checked={includeLogo}
-                onCheckedChange={(checked) => setIncludeLogo(checked === true)}
-                className="mt-0.5"
-              />
-              <span className="grid gap-1">
-                <span className="text-sm font-medium leading-none">
-                  {t("brandKitDetail.compositeCanonicalLogo")}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {t("brandKitDetail.compositeCanonicalLogoHint")}
-                </span>
-              </span>
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              {t("brandKitDetail.cancel")}
-            </Button>
-            <Button disabled={!title.trim()} onClick={submit}>
-              {t("brandKitDetail.create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
 function FolderChip({
   active,
   label,
@@ -2472,6 +2074,7 @@ function AssetSwimlaneBoard({
   onViewModeChange,
   scope,
   onScopeChange,
+  showScopeToggle = true,
   hideEmptyLanes,
   assets,
   pendingUploads,
@@ -2491,6 +2094,7 @@ function AssetSwimlaneBoard({
   onViewModeChange: (mode: AssetViewMode) => void;
   scope: AssetLibraryScope;
   onScopeChange: (scope: AssetLibraryScope) => void;
+  showScopeToggle?: boolean;
   hideEmptyLanes: boolean;
   assets: any[];
   pendingUploads: PendingUpload[];
@@ -2506,6 +2110,8 @@ function AssetSwimlaneBoard({
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const t = useT();
+  const [bulkContextOpen, setBulkContextOpen] = useState(false);
+  const [previewAsset, setPreviewAsset] = useState<any | null>(null);
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
@@ -2768,6 +2374,7 @@ function AssetSwimlaneBoard({
       status: isReference ? t("library.reference") : t("library.saved"),
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
+      onOpen: () => setPreviewAsset(asset),
       selected: selectedIds.has(asset.id),
       deleting: deletingIds.has(asset.id),
       busy,
@@ -2783,6 +2390,7 @@ function AssetSwimlaneBoard({
           onDelete={() => confirmDelete([asset.id])}
           onMoveToReferences={onMoveToReferences}
           onRemoveFromReferences={onRemoveFromReferences}
+          onOpenPreview={() => setPreviewAsset(asset)}
         />
       ),
       primaryActions:
@@ -2977,12 +2585,14 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <AssetScopeToggle
-            value={scope}
-            onChange={onScopeChange}
-            allCount={assets.length}
-            referenceCount={referenceAssets.length}
-          />
+          {showScopeToggle ? (
+            <AssetScopeToggle
+              value={scope}
+              onChange={onScopeChange}
+              allCount={assets.length}
+              referenceCount={referenceAssets.length}
+            />
+          ) : null}
           <AssetViewModeToggle value={viewMode} onChange={onViewModeChange} />
         </div>
       </div>
@@ -3056,6 +2666,17 @@ function AssetSwimlaneBoard({
               ) : null}
               <Button
                 type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkContextOpen(true)}
+                disabled={deleting || changingReference}
+              >
+                <IconLink className="h-4 w-4" />
+                Add to context
+                {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+              </Button>
+              <Button
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => onSelectedIdsChange(new Set())}
@@ -3082,6 +2703,18 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
       )}
+      <CreativeContextShareSheet
+        open={bulkContextOpen}
+        onOpenChange={setBulkContextOpen}
+        resources={selectedAssets.map((asset) => ({
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: assetDisplayTitle(asset),
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document" as const, label: "Asset" },
+        }))}
+      />
 
       {viewMode === "cards" ? (
         <AssetCardsView items={visibleGalleryItems} />
@@ -3129,6 +2762,12 @@ function AssetSwimlaneBoard({
           }
         />
       )}
+
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={boardAssets as PreviewAsset[]}
+        onAssetChange={setPreviewAsset}
+      />
     </>
   );
 }
@@ -3309,7 +2948,15 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
             aria-busy={item.busy}
           >
             <div className="relative aspect-4/3 bg-muted/30">
-              {item.href ? (
+              {item.onOpen ? (
+                <button
+                  type="button"
+                  onClick={item.onOpen}
+                  className="block h-full w-full text-left"
+                >
+                  {item.thumbnail}
+                </button>
+              ) : item.href ? (
                 <Link to={item.href} className="block h-full w-full">
                   {item.thumbnail}
                 </Link>
@@ -3326,7 +2973,7 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                     aria-label={t("library.selectAsset", {
                       title: item.title,
                     })}
-                    className="border-background bg-background/90 shadow-sm"
+                    className="border-2 border-foreground/40 bg-background/90 shadow-sm"
                   />
                 ) : null}
               </div>
@@ -3451,7 +3098,15 @@ function SwimLane({
                   aria-busy={activeItem?.busy}
                 >
                   <div className="aspect-16/10 bg-muted/30">
-                    {activeItem?.href ? (
+                    {activeItem?.onOpen ? (
+                      <button
+                        type="button"
+                        onClick={activeItem.onOpen}
+                        className="block h-full w-full text-left"
+                      >
+                        {activeItem.preview}
+                      </button>
+                    ) : activeItem?.href ? (
                       <Link
                         to={activeItem.href}
                         className="block h-full w-full"
@@ -3574,7 +3229,16 @@ function SwimLane({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {activeItem?.href ? (
+            {activeItem?.onOpen ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={activeItem.onOpen}
+              >
+                {t("brandKitDetail.open")}
+              </Button>
+            ) : activeItem?.href ? (
               <Button asChild variant="outline" size="sm" className="flex-1">
                 <Link to={activeItem.href}>{t("brandKitDetail.open")}</Link>
               </Button>
@@ -3679,6 +3343,7 @@ function AssetActionsMenu({
   onDelete,
   onMoveToReferences,
   onRemoveFromReferences,
+  onOpenPreview,
 }: {
   asset: any;
   folders: any[];
@@ -3687,92 +3352,130 @@ function AssetActionsMenu({
   onDelete: () => void;
   onMoveToReferences?: () => void;
   onRemoveFromReferences?: () => void;
+  onOpenPreview?: () => void;
 }) {
   const t = useT();
+  const [contextOpen, setContextOpen] = useState(false);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="h-8 w-8 shadow-sm"
-          aria-label={t("library.assetActions")}
-          disabled={busy}
-        >
-          <IconDotsVertical className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem asChild>
-          <Link to={`/asset/${asset.id}`}>
-            <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.viewDetails")}
-          </Link>
-        </DropdownMenuItem>
-        {onMoveToReferences ? (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              onMoveToReferences();
-            }}
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 shadow-sm"
+            aria-label={t("library.assetActions")}
+            disabled={busy}
           >
-            <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.addToReferences")}
-          </DropdownMenuItem>
-        ) : null}
-        {onRemoveFromReferences ? (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              onRemoveFromReferences();
-            }}
-          >
-            <IconX className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.removeFromReferences")}
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.moveTo")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
+            <IconDotsVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {onOpenPreview ? (
             <DropdownMenuItem
-              onSelect={() =>
-                updateAsset.mutate({
-                  id: asset.id,
-                  folderId: null,
-                })
-              }
+              onSelect={(event) => {
+                event.preventDefault();
+                onOpenPreview();
+              }}
             >
-              {t("library.unfiled")}
+              <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.viewDetails")}
             </DropdownMenuItem>
-            {folders.map((folder) => (
+          ) : (
+            <DropdownMenuItem asChild>
+              <Link to={`/asset/${asset.id}`}>
+                <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+                {t("library.viewDetails")}
+              </Link>
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setContextOpen(true);
+            }}
+          >
+            <IconLink className="mr-2 h-4 w-4 shrink-0" />
+            Add to context
+            {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+          </DropdownMenuItem>
+          {onMoveToReferences ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onMoveToReferences();
+              }}
+            >
+              <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.addToReferences")}
+            </DropdownMenuItem>
+          ) : null}
+          {onRemoveFromReferences ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onRemoveFromReferences();
+              }}
+            >
+              <IconX className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.removeFromReferences")}
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.moveTo")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
               <DropdownMenuItem
-                key={folder.id}
                 onSelect={() =>
                   updateAsset.mutate({
                     id: asset.id,
-                    folderId: folder.id,
+                    folderId: null,
                   })
                 }
               >
-                {folder.title}
+                {t("library.unfiled")}
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-          onSelect={onDelete}
-        >
-          <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-          {t("assetDetail.delete")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+              {folders.map((folder) => (
+                <DropdownMenuItem
+                  key={folder.id}
+                  onSelect={() =>
+                    updateAsset.mutate({
+                      id: asset.id,
+                      folderId: folder.id,
+                    })
+                  }
+                >
+                  {folder.title}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onSelect={onDelete}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            {t("assetDetail.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        resource={{
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: assetDisplayTitle(asset),
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document", label: "Asset" },
+        }}
+      />
+    </>
   );
 }
 
@@ -3829,6 +3532,7 @@ function AssetLaneTile({
   onMoveToReferences?: () => void;
 }) {
   const t = useT();
+  const [contextOpen, setContextOpen] = useState(false);
   const displayTitle = assetDisplayTitle(asset);
   const sourceText = assetLineageSourceText(asset);
   const canMoveToReferences = Boolean(onMoveToReferences);
@@ -3853,7 +3557,7 @@ function AssetLaneTile({
           onCheckedChange={(checked) => onToggle(checked === true)}
           aria-label={t("library.selectAsset", { title: displayTitle })}
           className={[
-            "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
+            "border-2 border-foreground/40 bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
             selected ? "sm:opacity-100" : "",
           ].join(" ")}
         />
@@ -3878,6 +3582,16 @@ function AssetLaneTile({
                 <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
                 {t("library.viewDetails")}
               </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setContextOpen(true);
+              }}
+            >
+              <IconLink className="mr-2 h-4 w-4 shrink-0" />
+              Add to context
+              {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
             </DropdownMenuItem>
             {canMoveToReferences ? (
               <DropdownMenuItem
@@ -4008,6 +3722,18 @@ function AssetLaneTile({
           </div>
         </div>
       ) : null}
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        resource={{
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: displayTitle,
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document", label: "Asset" },
+        }}
+      />
     </div>
   );
 }
@@ -4184,6 +3910,89 @@ export function LiveCandidatesStage({
     );
   }
 
+  function candidateHeaderActions({
+    canUseCandidate,
+    saving,
+    promoting,
+    candidateLibraryId,
+    onSaveCandidate,
+    onAddToReferences,
+    onUseCandidate,
+    onDismiss,
+  }: {
+    canUseCandidate: boolean;
+    saving?: boolean;
+    promoting?: boolean;
+    candidateLibraryId?: string | null;
+    onSaveCandidate?: (folderId: string | null) => void;
+    onAddToReferences?: () => void;
+    onUseCandidate?: () => void;
+    onDismiss: () => void;
+  }) {
+    const busy = saving || promoting || dismissing;
+    const actionLibraryId = candidateLibraryId || libraryId;
+    const candidateFolders =
+      foldersByLibraryId[actionLibraryId] ??
+      (actionLibraryId === libraryId ? folders : []);
+    if (!canUseCandidate) {
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          {t("library.dismiss")}
+        </Button>
+      );
+    }
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {onUseCandidate ? (
+          <Button
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onUseCandidate}
+            disabled={busy}
+          >
+            {t("library.useCandidate")}
+          </Button>
+        ) : null}
+        <CandidateSaveMenu
+          libraryId={actionLibraryId}
+          folders={candidateFolders}
+          allowCreateFolder={allowCreateFolder}
+          saving={saving}
+          disabled={busy}
+          onSave={(folderId) => onSaveCandidate?.(folderId)}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={onAddToReferences}
+          disabled={busy}
+        >
+          {promoting ? (
+            <Spinner className="h-3.5 w-3.5" />
+          ) : (
+            t("library.addToReferences")
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          {t("library.dismiss")}
+        </Button>
+      </div>
+    );
+  }
+
   function slotItem(slot: VariantSlot): LaneGalleryItem {
     const isFailed = slot.status === "failed";
     const canUseCandidate = slot.status === "ready" && Boolean(slot.assetId);
@@ -4228,6 +4037,21 @@ export function LiveCandidatesStage({
             slot,
           }),
       }),
+      headerActions: candidateHeaderActions({
+        canUseCandidate,
+        saving,
+        promoting,
+        candidateLibraryId: libraryId,
+        onSaveCandidate: (folderId) => onSave(slot, folderId),
+        onAddToReferences: () => onMoveToReferences(slot),
+        onUseCandidate: onUse ? () => onUse(slot) : undefined,
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "slot",
+            title,
+            slot,
+          }),
+      }),
     };
   }
 
@@ -4253,6 +4077,7 @@ export function LiveCandidatesStage({
       status: "draft",
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
+      onOpen: () => setPreviewAsset(asset),
       busy,
       preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
       thumbnail: <AssetPreview asset={asset} />,
@@ -4271,9 +4096,25 @@ export function LiveCandidatesStage({
             asset,
           }),
       }),
+      headerActions: candidateHeaderActions({
+        canUseCandidate: true,
+        saving,
+        promoting,
+        candidateLibraryId: asset.libraryId,
+        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
+        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "asset",
+            title: assetDisplayTitle(asset),
+            asset,
+          }),
+      }),
     };
   }
 
+  const [previewAsset, setPreviewAsset] = useState(null as any);
   const items = [...slots.map(slotItem), ...draftAssets.map(draftItem)];
   const itemIds = items.map((item) => item.id).join("\n");
   const activeItem =
@@ -4336,13 +4177,35 @@ export function LiveCandidatesStage({
       </AlertDialog>
 
       <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
-        <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
-          <div className="flex min-w-0 flex-1 items-center">
-            <h3 className="shrink-0 text-sm font-semibold">
-              {t("library.candidates")}
-            </h3>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 sm:px-4">
+          <h3 className="shrink-0 text-sm font-semibold">
+            {t("library.candidates")}
+          </h3>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {activeItem?.headerActions}
+            {activeItem?.onOpen ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={activeItem.onOpen}
+              >
+                <IconArrowUpRight className="h-3.5 w-3.5" />
+                {t("library.openDetails")}
+              </Button>
+            ) : activeItem?.href ? (
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+              >
+                <Link to={activeItem.href}>
+                  <IconArrowUpRight className="h-3.5 w-3.5" />
+                  {t("library.openDetails")}
+                </Link>
+              </Button>
+            ) : null}
             <LiveCandidatesActions
               slots={slots}
               draftAssets={draftAssets}
@@ -4350,150 +4213,76 @@ export function LiveCandidatesStage({
             />
           </div>
         </div>
-        <div className="assets-live-candidates-grid grid min-w-0">
-          <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
-            <div
-              className={[
-                "group relative overflow-hidden rounded-lg border border-border bg-background shadow-sm",
-                activeItem?.busy ? "opacity-80" : "",
-              ].join(" ")}
-              aria-busy={activeItem?.busy}
-            >
-              <div className="h-36 bg-muted/30 sm:h-44 lg:h-56 2xl:h-64">
-                {activeItem?.href ? (
-                  <Link to={activeItem.href} className="block h-full w-full">
-                    {activeItem.preview}
-                  </Link>
-                ) : (
-                  activeItem?.preview
-                )}
-              </div>
-              {activeItem?.busy ? (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
-                  <Spinner className="h-5 w-5" />
-                </div>
-              ) : null}
-              {activeItem?.href ? (
-                <Button
-                  asChild
-                  variant="secondary"
-                  size="sm"
-                  className="absolute right-2 top-2 h-8 gap-1.5 bg-background/85 px-2.5 text-xs opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 focus-within:opacity-100"
+        <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
+          <div
+            className={[
+              "group relative overflow-hidden rounded-lg border border-border bg-background shadow-sm",
+              activeItem?.busy ? "opacity-80" : "",
+            ].join(" ")}
+            aria-busy={activeItem?.busy}
+          >
+            <div className="h-[min(60vh,30rem)] overflow-hidden bg-muted/30">
+              {activeItem?.onOpen ? (
+                <button
+                  type="button"
+                  onClick={activeItem.onOpen}
+                  className="block h-full w-full text-left"
                 >
-                  <Link to={activeItem.href}>
-                    <IconArrowUpRight className="h-3.5 w-3.5" />
-                    {t("library.details")}
-                  </Link>
-                </Button>
-              ) : null}
-            </div>
-            <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1">
-              {items.map((item) => {
-                const active = item.id === activeItem?.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveItemId(item.id)}
-                    className={[
-                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
-                      active
-                        ? "border-primary ring-2 ring-primary/25"
-                        : "border-border/80 hover:border-foreground/30",
-                    ].join(" ")}
-                    aria-label={t("library.showCandidate", {
-                      title: item.title,
-                    })}
-                    aria-pressed={active}
-                  >
-                    {item.thumbnail}
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-background/90 to-transparent" />
-                    {item.busy && item.showBusyOverlay !== false ? (
-                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
-                        <Spinner className="h-3 w-3" />
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <aside className="flex min-w-0 flex-col justify-between gap-3 border-t border-border bg-background p-3 lg:border-l lg:border-t-0 lg:p-4">
-            <div className="min-w-0 space-y-3">
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  {activeItem?.status ? (
-                    <CandidateStatusPill status={activeItem.status} />
-                  ) : null}
-                  {activeItem?.metadata ? (
-                    <Badge
-                      variant="outline"
-                      className="h-6 max-w-full rounded-full px-2 text-[11px]"
-                    >
-                      {activeItem.metadata}
-                    </Badge>
-                  ) : null}
-                </div>
-                <div className="mt-2 truncate text-sm font-semibold">
-                  {activeItem?.title}
-                </div>
-                {activeItem?.subtitle ? (
-                  <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {activeItem.subtitle}
-                  </div>
-                ) : null}
-              </div>
-              {activeItem?.primaryActions ? (
-                <div>{activeItem.primaryActions}</div>
-              ) : null}
-            </div>
-            {activeItem?.href ? (
-              <Button asChild variant="ghost" size="sm" className="gap-1.5">
-                <Link to={activeItem.href}>
-                  <IconArrowUpRight className="h-3.5 w-3.5" />
-                  {t("library.openDetails")}
+                  {activeItem.preview}
+                </button>
+              ) : activeItem?.href ? (
+                <Link to={activeItem.href} className="block h-full w-full">
+                  {activeItem.preview}
                 </Link>
-              </Button>
+              ) : (
+                activeItem?.preview
+              )}
+            </div>
+            {activeItem?.busy ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                <Spinner className="h-5 w-5" />
+              </div>
             ) : null}
-          </aside>
+          </div>
+          <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1">
+            {items.map((item) => {
+              const active = item.id === activeItem?.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveItemId(item.id)}
+                  className={[
+                    "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                    active
+                      ? "border-primary ring-2 ring-primary/25"
+                      : "border-border/80 hover:border-foreground/30",
+                  ].join(" ")}
+                  aria-label={t("library.showCandidate", {
+                    title: item.title,
+                  })}
+                  aria-pressed={active}
+                >
+                  {item.thumbnail}
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-background/90 to-transparent" />
+                  {item.busy && item.showBusyOverlay !== false ? (
+                    <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                      <Spinner className="h-3 w-3" />
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
+
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={draftAssets as PreviewAsset[]}
+        onAssetChange={setPreviewAsset}
+      />
     </>
-  );
-}
-
-function CandidateStatusPill({ status }: { status: string }) {
-  const t = useT();
-  const normalized = status.toLowerCase();
-  const label =
-    normalized === "pending"
-      ? t("library.generating")
-      : normalized === "ready"
-        ? t("library.ready")
-        : normalized === "failed"
-          ? t("library.failed")
-          : normalized === "draft"
-            ? t("library.draft")
-            : status;
-  const className =
-    normalized === "ready"
-      ? "border-primary/30 bg-primary/10 text-primary"
-      : normalized === "failed"
-        ? "border-destructive/30 bg-destructive/10 text-destructive"
-        : normalized === "pending"
-          ? "border-border bg-muted/70 text-muted-foreground"
-          : "border-border bg-background text-muted-foreground";
-
-  return (
-    <span
-      className={[
-        "inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium",
-        className,
-      ].join(" ")}
-    >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-      <span className="truncate">{label}</span>
-    </span>
   );
 }
 

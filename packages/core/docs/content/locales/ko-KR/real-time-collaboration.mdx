@@ -238,10 +238,11 @@ export default defineConfig({
 
 ### 3. 협업 서버 플러그인 추가
 
-항상 등록된 공유 가능한 리소스의 이름으로 `resourceType`를 설정하세요.
-`registerShareableResource`를 통해. 없으면 콜라보 푸시 이벤트가 전달됩니다
-문서 수준 범위 지정 없이 인증된 모든 사용자 및 서버
-일회성 경고를 기록합니다.
+데이터 모델에 맞는 액세스 모드를 선택하세요. 소유자가 있거나 공유 가능한
+레코드는 `registerShareableResource`로 등록한 유형과 함께
+`mode: "resource"`를 사용합니다. 배포의 모든 인증된 사용자에게 의도적으로
+공개하는 레코드는 `mode: "all-authenticated"`를 명시합니다.
+경고를 없애기 위해 리소스 유형을 임의로 만들지 마세요.
 
 ```ts
 // server/plugins/collab.ts
@@ -251,14 +252,17 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+`access` 생략은 더 이상 권장되지 않는 레거시 동작입니다. `all-authenticated`처럼
+동작하고 경고를 기록하며 Doctor가 이를 표시합니다.
 
 ### 4. 클라이언트 후크를 사용하세요
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -316,7 +320,7 @@ useEffect(() => {
 템플릿은 문서에 대한 스레드 토론이 포함된 댓글 시스템을 추가할 수 있습니다. 콘텐츠 템플릿의 댓글 시스템에는 다음을 포함한 전체 구현이 포함됩니다.
 
 - `document_comments` SQL 테이블(스레드, 응답, 해결 상태)
-- `/api/comments/:id`에서 업데이트/삭제하기 위한 콘텐츠 템플릿의 REST 경로입니다. 생성 및 나열은 `add-comment` / `list-comments` actions를 통해 실행됩니다. 사용자 정의 템플릿은 핵심 `POST /_agent-native/collab/:docId/search-replace` 경로에 대해 자체적으로 동등한 엔드포인트를 구현합니다.
+- 업데이트 및 삭제는 `update-comment` / `delete-comment` actions를 통해 실행됩니다. 생성 및 나열은 `add-comment` / `list-comments` actions를 통해 실행됩니다. 사용자 정의 템플릿은 핵심 `POST /_agent-native/collab/:docId/search-replace` 경로에 대해 자체적으로 동등한 엔드포인트를 구현합니다.
 - 스레드 보기 및 답글 UI가 있는 댓글 사이드바
 - 스레드 해결/해결 취소
 - **AI로 보내기** 버튼 — `sendToAgentChat()`를 통해 상담원 채팅에 댓글 스레드 컨텍스트를 보냅니다.
@@ -431,8 +435,7 @@ import {
 원격 참가자의 반응 목록과 로컬 존재 페이로드에 대한 설정자를 반환합니다.
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -494,8 +497,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 팔로우하는 참가자의 뷰포트가 변경될 때마다 콜백을 호출합니다.
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -529,8 +531,7 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### 정규화된 좌표 도우미 {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,
@@ -602,22 +603,34 @@ try {
 
 ## 보안 {#security}
 
-### 항상 `resourceType`로 설정
+### 액세스 모델을 명시적으로 선택
+
+소유자가 있거나 공유 가능한 리소스에는 `registerShareableResource`로
+등록한 유형을 사용합니다.
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-`resourceType`가 없으면 플러그인은 경고를 기록하고 공동 작업 푸시를 브로드캐스트합니다.
-문서 수준 없이 배포 시 인증된 모든 사용자에 대한 이벤트
-범위 지정. 비소유자는 상태 벡터 따라잡기로 돌아갑니다(안전하지만 더 높음
-대기 시간) `resourceType` 설정 여부에 관계 없음
+배포 전체에서 의도적으로 공유하는 리소스의 경우:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+경고를 없애기 위해 `resourceType`를 만들지 마세요. 해당 소유권 및 공유 모델이
+존재할 때만 `resource` 모드가 올바릅니다. 레거시 호환성을 위해 `access` 생략은
+계속 지원되지만 `all-authenticated`처럼 동작하고 경고를 기록하며 Doctor가 이를
+표시합니다. 명시적 액세스 권한이 있는 비소유자는 상태 벡터 따라잡기를 사용합니다
+(안전하지만 대기 시간이 더 깁니다).
 
 ### 액세스 확인
 
-모든 협력 경로에는 인증이 필요합니다. `resourceType`가 설정되면 읽습니다.
+모든 협업 경로에는 인증이 필요합니다. `resource` 모드에서는 읽기에
 적어도 뷰어 액세스 권한이 필요하며 쓰기에는 편집자 액세스 권한이 필요합니다.
 공유 시스템과 동일한 `resolveAccess` / `assertAccess` 도우미. 404
 (403 아님)은 문서 존재 누출을 방지하기 위해 액세스 실패 시 반환됩니다.
@@ -630,7 +643,7 @@ HTTP 413으로 구성된 제한을 초과하는 페이로드. 기본값은 2MB�
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -762,7 +775,7 @@ undoManager.redo(); // Shift+Cmd+Z
 - [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
   `updatedAt` 범프 드라이빙 에디터 조정을 제공하는 시스템
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  `resourceType`에서 참조하는 액세스 모델의 경우 `assertAccess`입니다.
+  리소스 범위 협업에 사용하는 `assertAccess`입니다.
 - [Sharing](/docs/sharing) — 문서 공유 방법 및 액세스 권한 부여 방법
 - [Template: Content](/docs/template-content) — 참조 구현
   공동 서식 있는 텍스트 편집.

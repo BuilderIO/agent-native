@@ -30,6 +30,22 @@ function queryArgs(query: string | { args?: unknown[] }): unknown[] {
   return typeof query === "string" ? [] : (query.args ?? []);
 }
 
+/**
+ * `recoverDueA2AContinuationIds` short-circuits on a cheap
+ * `status IN ('pending','processing','delivering')` probe, so a double that
+ * answers every SELECT with zero rows never reaches the recovery statements
+ * these tests assert on. Report one live row from the probe and nothing else.
+ */
+function mockEmptyExceptLiveProbe(): void {
+  executeMock.mockImplementation(async (query: string | { sql: string }) =>
+    querySql(query).includes(
+      "status IN ('pending', 'processing', 'delivering')",
+    )
+      ? { rows: [{ id: "cont-live" }], rowsAffected: 0 }
+      : { rows: [], rowsAffected: 0 },
+  );
+}
+
 function continuationRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "cont-1",
@@ -52,6 +68,10 @@ function continuationRow(overrides: Record<string, unknown> = {}) {
     dedupe_key: "message-hash-1",
     a2a_task_id: "a2a-task-1",
     a2a_auth_token: null,
+    verified_artifact_checkpoint: null,
+    terminal_delivery_kind: null,
+    terminal_delivery_confirmed_at: null,
+    terminal_history_payload: null,
     status: "processing",
     attempts: 1,
     next_check_at: 1,
@@ -88,6 +108,21 @@ describe("A2A continuations store", () => {
     expect(calls).toContainEqual(
       expect.stringContaining("ADD COLUMN progress_ref"),
     );
+    expect(calls).toContainEqual(
+      expect.stringContaining("ADD COLUMN verified_artifact_checkpoint"),
+    );
+    expect(calls).toContainEqual(
+      expect.stringContaining("ADD COLUMN terminal_delivery_kind"),
+    );
+    expect(calls).toContainEqual(
+      expect.stringContaining("ADD COLUMN terminal_delivery_confirmed_at"),
+    );
+    expect(calls).toContainEqual(
+      expect.stringContaining("ADD COLUMN terminal_history_payload"),
+    );
+    expect(calls).toContainEqual(
+      expect.stringContaining("SET terminal_delivery_kind = 'success'"),
+    );
     const progressOwnerAlterIndex = calls.findIndex((sql) =>
       sql.includes("ADD COLUMN progress_ref_claimed"),
     );
@@ -104,6 +139,479 @@ describe("A2A continuations store", () => {
     expect(progressOwnerIndexIndex).toBeGreaterThan(-1);
     expect(progressOwnerAlterIndex).toBeLessThan(progressOwnerBackfillIndex);
     expect(progressOwnerBackfillIndex).toBeLessThan(progressOwnerIndexIndex);
+  });
+
+  it("applies terminal receipt and history migrations on Postgres", async () => {
+    isPostgresMock.mockReturnValue(true);
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    const { getA2AContinuationForIntegrationTask } = await loadStore();
+
+    await getA2AContinuationForIntegrationTask("task-existing");
+
+    const calls = executeMock.mock.calls.map(([query]) => querySql(query));
+    expect(calls).toContainEqual(
+      expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at",
+      ),
+    );
+    expect(calls).toContainEqual(
+      expect.stringContaining(
+        "ADD COLUMN IF NOT EXISTS terminal_history_payload",
+      ),
+    );
+    expect(calls).toContainEqual(
+      expect.stringContaining("SET terminal_delivery_kind = 'success'"),
+    );
+  });
+
+  it("persists and verifies a bounded artifact checkpoint on an active continuation", async () => {
+    const { saveA2AVerifiedArtifactCheckpoint } = await loadStore();
+    let checkpoint: string | null = null;
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (sql.includes("SET verified_artifact_checkpoint = ?")) {
+          checkpoint = String(args[0]);
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [
+              continuationRow({ verified_artifact_checkpoint: checkpoint }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    await expect(
+      saveA2AVerifiedArtifactCheckpoint(
+        "cont-1",
+        "  verified /page/content-1  ",
+      ),
+    ).resolves.toBe("verified /page/content-1");
+  });
+
+  it("rejects an oversized verified artifact checkpoint", async () => {
+    const { saveA2AVerifiedArtifactCheckpoint } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await expect(
+      saveA2AVerifiedArtifactCheckpoint("cont-1", "x".repeat(16_001)),
+    ).rejects.toThrow("exceeds 16000 characters");
+  });
+
+  it("retains an unconfirmed delivery claim until stale recovery", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { retainA2AUnconfirmedDeliveryClaim } = await loadStore();
+    const before = Date.now();
+
+    await retainA2AUnconfirmedDeliveryClaim("cont-1");
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET next_check_at = ?"),
+    );
+    expect(querySql(update![0])).toContain("status = 'delivering'");
+    expect(queryArgs(update![0])).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      "cont-1",
+    ]);
+    expect(Number(queryArgs(update![0])[0])).toBeGreaterThanOrEqual(
+      before + 5 * 60_000,
+    );
+  });
+
+  it.each([
+    [[], "missing"],
+    [
+      [{ status: "processing", terminal_delivery_confirmed_at: null }],
+      "active",
+    ],
+    [
+      [{ status: "completed", terminal_delivery_confirmed_at: 10 }],
+      "terminal-delivered",
+    ],
+    [[{ status: "delivering", terminal_delivery_confirmed_at: 10 }], "active"],
+    [
+      [
+        { status: "delivering", terminal_delivery_confirmed_at: 10 },
+        { status: "processing", terminal_delivery_confirmed_at: null },
+      ],
+      "active",
+    ],
+    [
+      [{ status: "failed", terminal_delivery_confirmed_at: null }],
+      "terminal-without-delivery",
+    ],
+  ])("classifies task continuation custody as %s", async (rows, expected) => {
+    const { getA2AContinuationTaskOutcome } = await loadStore();
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      if (
+        querySql(query).includes(
+          "SELECT status, terminal_delivery_confirmed_at",
+        )
+      ) {
+        return { rows, rowsAffected: 0 };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(getA2AContinuationTaskOutcome("task-1")).resolves.toBe(
+      expected,
+    );
+  });
+
+  it.each([
+    [
+      [
+        {
+          status: "failed",
+          terminal_delivery_kind: null,
+          terminal_delivery_confirmed_at: null,
+          terminal_history_payload: null,
+        },
+      ],
+      true,
+    ],
+    [
+      [
+        {
+          status: "failed",
+          terminal_delivery_kind: "failure",
+          terminal_delivery_confirmed_at: 10,
+          terminal_history_payload: null,
+        },
+      ],
+      false,
+    ],
+  ])(
+    "detects ambiguous legacy failed custody as %s",
+    async (rows, expected) => {
+      executeMock.mockImplementation(
+        async (query: string | { sql: string }) => {
+          if (
+            querySql(query).includes("SELECT status, terminal_delivery_kind")
+          ) {
+            return { rows, rowsAffected: 0 };
+          }
+          return { rows: [], rowsAffected: 0 };
+        },
+      );
+      const { hasOnlyLegacyFailedA2AContinuationsForIntegrationTask } =
+        await loadStore();
+
+      await expect(
+        hasOnlyLegacyFailedA2AContinuationsForIntegrationTask("task-1"),
+      ).resolves.toBe(expected);
+    },
+  );
+
+  it("records provider-confirmed terminal delivery without terminalizing or scrubbing history custody", async () => {
+    const persisted = new Map<string, Record<string, unknown>>();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (sql.includes("terminal_delivery_confirmed_at = COALESCE")) {
+          persisted.set(String(args[6]), {
+            status: "delivering",
+            terminal_delivery_kind: args[0],
+            terminal_delivery_confirmed_at: args[1],
+            terminal_history_payload: args[2],
+            error_message: args[5],
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [continuationRow(persisted.get(String(args[0])) ?? {})],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+    const { recordA2ATerminalDeliveryReceipt } = await loadStore();
+    const history = {
+      text: "Created /page/content-1",
+      deliveredAt: new Date().toISOString(),
+      messageRefs: ["slack-message-1"],
+      artifacts: [
+        {
+          id: "content-1",
+          resourceType: "document",
+          sourceAction: "call-agent",
+        },
+      ],
+    };
+
+    const beforeReceipt = Date.now();
+    await recordA2ATerminalDeliveryReceipt("cont-success", "success", history);
+    await recordA2ATerminalDeliveryReceipt(
+      "cont-failure",
+      "failure",
+      history,
+      "remote failed",
+    );
+
+    const terminalUpdates = executeMock.mock.calls
+      .map(([query]) => query)
+      .filter(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("terminal_delivery_confirmed_at = COALESCE"),
+      );
+    expect(terminalUpdates).toHaveLength(2);
+    expect(terminalUpdates[0].args).toEqual([
+      "success",
+      expect.any(Number),
+      JSON.stringify(history),
+      expect.any(Number),
+      expect.any(Number),
+      null,
+      "cont-success",
+      "success",
+    ]);
+    expect(terminalUpdates[1].args).toEqual([
+      "failure",
+      expect.any(Number),
+      JSON.stringify(history),
+      expect.any(Number),
+      expect.any(Number),
+      "remote failed",
+      "cont-failure",
+      "failure",
+    ]);
+    expect(Number(terminalUpdates[0].args[3])).toBeGreaterThanOrEqual(
+      beforeReceipt + 60_000,
+    );
+    expect(Number(terminalUpdates[1].args[3])).toBeGreaterThanOrEqual(
+      beforeReceipt + 60_000,
+    );
+  });
+
+  it("fails loud when terminal delivery confirmation does not persist", async () => {
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      if (
+        querySql(query).includes(
+          "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+        )
+      ) {
+        return {
+          rows: [continuationRow({ status: "delivering" })],
+          rowsAffected: 0,
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+    const { recordA2ATerminalDeliveryReceipt } = await loadStore();
+
+    await expect(
+      recordA2ATerminalDeliveryReceipt("cont-unconfirmed", "success", {
+        text: "Created /page/content-1",
+        deliveredAt: new Date().toISOString(),
+        messageRefs: [],
+        artifacts: [],
+      }),
+    ).rejects.toThrow("did not persist");
+  });
+
+  it("rejects an oversized terminal history payload before writing a receipt", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    const { recordA2ATerminalDeliveryReceipt } = await loadStore();
+
+    await expect(
+      recordA2ATerminalDeliveryReceipt("cont-1", "success", {
+        text: "x".repeat(64_001),
+        deliveredAt: new Date().toISOString(),
+        messageRefs: [],
+        artifacts: [],
+      }),
+    ).rejects.toThrow("exceeds 64000 characters");
+  });
+
+  it("terminalizes and scrubs only after durable history persistence", async () => {
+    let finalized = false;
+    let finalizationSql = "";
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("terminal_history_payload = NULL")) {
+          finalizationSql = sql;
+          finalized = true;
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [
+              continuationRow({
+                status: finalized ? "completed" : "delivering",
+                terminal_delivery_kind: "success",
+                terminal_delivery_confirmed_at: 10,
+                terminal_history_payload: finalized
+                  ? null
+                  : JSON.stringify({
+                      text: "Created /page/content-1",
+                      deliveredAt: new Date().toISOString(),
+                      messageRefs: [],
+                      artifacts: [],
+                    }),
+              }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+    const { finalizeA2ATerminalHistory } = await loadStore();
+
+    await expect(finalizeA2ATerminalHistory("cont-1")).resolves.toBeUndefined();
+    expect(finalized).toBe(true);
+    expect(finalizationSql).toContain(
+      "status IN ('pending', 'processing', 'delivering')",
+    );
+  });
+
+  it("finalizes receipt-backed history after stale delivery recovery and a fresh processing claim", async () => {
+    const history = JSON.stringify({
+      text: "Created /page/content-1",
+      deliveredAt: new Date().toISOString(),
+      messageRefs: ["slack-message-1"],
+      artifacts: [],
+    });
+    const state = continuationRow({
+      status: "delivering",
+      terminal_delivery_kind: "success",
+      terminal_delivery_confirmed_at: 10,
+      terminal_history_payload: history,
+      next_check_at: 0,
+    });
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (
+          sql.includes("WHERE status = 'delivering'") &&
+          sql.includes("terminal_delivery_confirmed_at")
+        ) {
+          state.status = "pending";
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SELECT id FROM integration_a2a_continuations")) {
+          return { rows: [{ id: state.id }], rowsAffected: 0 };
+        }
+        if (sql.includes("attempts = attempts + 1")) {
+          state.status = "processing";
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("terminal_history_payload = NULL")) {
+          state.status = "completed";
+          state.terminal_history_payload = null;
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return { rows: [{ ...state }], rowsAffected: 0 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+    const {
+      claimA2AContinuation,
+      finalizeA2ATerminalHistory,
+      recoverDueA2AContinuationIds,
+    } = await loadStore();
+
+    await expect(recoverDueA2AContinuationIds(1)).resolves.toEqual(["cont-1"]);
+    await expect(claimA2AContinuation("cont-1")).resolves.toMatchObject({
+      status: "processing",
+      terminalDeliveryConfirmedAt: 10,
+    });
+    await expect(finalizeA2ATerminalHistory("cont-1")).resolves.toBeUndefined();
+    expect(state.status).toBe("completed");
+    expect(state.terminal_history_payload).toBeNull();
+  });
+
+  it("loads recoverable continuation owners and scope without task N+1 reads", async () => {
+    const { listRecoverableA2AIntegrationTasks } = await loadStore();
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      if (querySql(query).includes("INNER JOIN integration_pending_tasks")) {
+        return {
+          rows: [
+            {
+              integration_task_id: "task-1",
+              platform: "slack",
+              external_thread_id: "C123:123.456",
+              dispatch_scope: "C123",
+              status: "processing",
+              has_pending_confirmed_delivery: 1,
+            },
+          ],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(listRecoverableA2AIntegrationTasks(10)).resolves.toEqual([
+      {
+        id: "task-1",
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        dispatchScope: "C123",
+        status: "processing",
+        hasPendingConfirmedDelivery: true,
+      },
+    ]);
+    const joinedReads = executeMock.mock.calls.filter(([query]) =>
+      querySql(query).includes("INNER JOIN integration_pending_tasks"),
+    );
+    expect(joinedReads).toHaveLength(1);
+    expect(queryArgs(joinedReads[0]![0]).at(-1)).toBe(10);
+  });
+
+  it("terminalizes all active A2A rows for a disabled durable task", async () => {
+    const { failA2AContinuationsForIntegrationTask } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 2 });
+
+    await failA2AContinuationsForIntegrationTask(
+      "task-disabled",
+      "durable scope disabled",
+    );
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET status = 'failed'"),
+    )?.[0];
+    expect(querySql(update!)).toContain(
+      "status IN ('pending', 'processing', 'delivering')",
+    );
+    expect(querySql(update!)).toContain(
+      "terminal_delivery_confirmed_at IS NULL",
+    );
+    expect(queryArgs(update!)).toEqual([
+      "durable scope disabled",
+      expect.any(Number),
+      expect.any(Number),
+      "task-disabled",
+    ]);
   });
 
   it("does not swallow non-duplicate column migration errors", async () => {
@@ -628,6 +1136,7 @@ describe("A2A continuations store", () => {
       expect.any(Number),
       expect.any(Number),
       "{}",
+      expect.any(Number),
       "cont-completed",
     ]);
     expect(terminalUpdates[1].args).toEqual([
@@ -781,7 +1290,7 @@ describe("A2A continuations store", () => {
 
   it("recovers stale delivering continuations as retryable pending during due sweeps", async () => {
     const { claimDueA2AContinuations } = await loadStore();
-    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    mockEmptyExceptLiveProbe();
 
     await expect(claimDueA2AContinuations()).resolves.toEqual([]);
 
@@ -800,6 +1309,7 @@ describe("A2A continuations store", () => {
           expect.any(Number),
           expect.any(Number),
           expect.any(Number),
+          expect.any(Number),
         ],
       }),
     );
@@ -807,9 +1317,99 @@ describe("A2A continuations store", () => {
     expect(querySql(recoveryCall![0])).not.toContain("completed_at");
   });
 
+  it("limits disabled-scope recovery to receipt-confirmed continuation rows", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    mockEmptyExceptLiveProbe();
+
+    await expect(
+      recoverDueA2AContinuationIds(5, ["task-mixed"], true),
+    ).resolves.toEqual([]);
+
+    const custodyQueries = executeMock.mock.calls
+      .map(([query]) => querySql(query))
+      .filter(
+        (sql) =>
+          sql.includes("integration_a2a_continuations") &&
+          (sql.includes("SET status = ?") || sql.includes("SELECT id FROM")),
+      );
+    // Live probe + two lease resets + the due selection.
+    expect(custodyQueries).toHaveLength(4);
+    for (const sql of custodyQueries) {
+      expect(sql).toContain("terminal_delivery_confirmed_at IS NOT NULL");
+    }
+  });
+
+  it("lists due/stale scheduler recovery ids without claiming terminal rows", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("SELECT id FROM integration_a2a_continuations")) {
+          return {
+            rows: [{ id: "cont-due" }, { id: "cont-stale-processing" }],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+
+    await expect(recoverDueA2AContinuationIds(2)).resolves.toEqual([
+      "cont-due",
+      "cont-stale-processing",
+    ]);
+
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("attempts = attempts + 1"),
+      ),
+    ).toBe(false);
+    const selection = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("ORDER BY next_check_at ASC"),
+    );
+    expect(querySql(selection![0])).toContain("status = 'pending'");
+    expect(querySql(selection![0])).not.toContain("completed");
+    expect(queryArgs(selection![0])).toHaveLength(2);
+  });
+
+  it("costs one query and writes nothing when no continuation is live", async () => {
+    // The 60s retry job calls this on every app. Both lease resets used to run
+    // blind, so an app whose queue has been empty since boot still paid three
+    // round trips a minute forever.
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await expect(recoverDueA2AContinuationIds(5)).resolves.toEqual([]);
+
+    const workQueries = executeMock.mock.calls
+      .map(([query]) => querySql(query))
+      .filter(
+        (sql) =>
+          sql.includes("integration_a2a_continuations") &&
+          (sql.startsWith("UPDATE") || sql.includes("SELECT id FROM")),
+      );
+    expect(workQueries).toHaveLength(1);
+    expect(workQueries[0]).toContain(
+      "status IN ('pending', 'processing', 'delivering')",
+    );
+  });
+
+  it("limits durable scheduler recovery updates to eligible task scopes", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    mockEmptyExceptLiveProbe();
+
+    await recoverDueA2AContinuationIds(5, ["task-canary"]);
+
+    const recoveryQueries = executeMock.mock.calls.slice(-3);
+    for (const [query] of recoveryQueries) {
+      expect(querySql(query)).toContain("integration_task_id IN (?)");
+      expect(queryArgs(query)).toContain("task-canary");
+    }
+  });
+
   it("recovers processing continuations with stale next checks during due sweeps", async () => {
     const { claimDueA2AContinuations } = await loadStore();
-    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    mockEmptyExceptLiveProbe();
 
     await expect(claimDueA2AContinuations()).resolves.toEqual([]);
 

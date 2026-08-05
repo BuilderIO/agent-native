@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   queryOptions: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (
     _name: string,
     _params: unknown,
@@ -18,6 +18,9 @@ vi.mock("@agent-native/core/client", () => ({
     mocks.queryOptions = options;
     return { data: { jobs: [], total: 0 }, refetch: mocks.refetch };
   },
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

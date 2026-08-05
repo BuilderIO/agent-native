@@ -8,18 +8,246 @@ import { describe, expect, it } from "vitest";
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
+  applyBuilderAttachCompletion,
+  applyOptimisticItemToContentDatabase,
+  applyOptimisticBuilderWriteMode,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
+  contentDatabaseResponseCanSeedQuery,
+  contentDatabaseItemsPageQueryKey,
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  moveOptimisticContentDatabaseItem,
+  preserveScopedDatabasePlaceholder,
   readCachedContentDatabaseResponse,
   removeDocumentPropertyFromDatabaseResponse,
+  removeOptimisticItemFromContentDatabase,
   writeContentDatabaseResponseToCache,
+  writeBuilderAttachPreviewToCache,
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
+
+describe("preserveScopedDatabasePlaceholder", () => {
+  const previous = { database: "organization-files" };
+
+  it("preserves data while only pagination changes within one database", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { documentId: "organization-files", limit: 50 },
+          ],
+        },
+        { documentId: "organization-files" },
+      ),
+    ).toBe(previous);
+  });
+
+  it("never carries database rows across workspace database ids", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { databaseId: "organization-files" },
+          ],
+        },
+        { databaseId: "personal-files" },
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("optimistic Content database items", () => {
+  it("shows the durable Builder row count before the authoritative readback", () => {
+    const completed = applyBuilderAttachCompletion(
+      {
+        ...databaseResponse(),
+        pagination: {
+          offset: 0,
+          limit: 100,
+          totalItems: 100,
+          returnedItems: 100,
+          hasMore: false,
+        },
+      },
+      {
+        responseProjection: "ack",
+        databaseId: "database",
+        documentId: "database-page",
+        sourceId: "builder-source",
+        sourceType: "builder-cms",
+        sourceTable: "agent-native-blog-article-test",
+        importedItemCount: 584,
+        fetchedAt: createdAt,
+      },
+    );
+
+    expect(completed?.pagination).toMatchObject({
+      totalItems: 584,
+      hasMore: true,
+    });
+    expect(completed?.attachPreview).toEqual({
+      sourceTable: "agent-native-blog-article-test",
+      fetchedAt: createdAt,
+      importedItemCount: 584,
+      complete: true,
+    });
+  });
+
+  it("shows stable read-only Builder rows while attachment is pending", () => {
+    const queryClient = new QueryClient();
+    const queryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.setQueryData(queryKey, databaseResponse());
+    const previewItem = {
+      ...databaseResponse().items[0]!,
+      id: "builder-item_stable",
+      document: {
+        ...databaseResponse().items[0]!.document,
+        id: "builder-doc_stable",
+        title: "Real Builder row",
+        accessRole: "viewer" as const,
+        canEdit: false,
+        canManage: false,
+      },
+    };
+
+    writeBuilderAttachPreviewToCache(queryClient, "database-page", {
+      databaseId: "database",
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      base: databaseResponse(),
+      items: [previewItem],
+      fetchedAt: createdAt,
+      hasMore: true,
+    });
+
+    const preview =
+      queryClient.getQueryData<ContentDatabaseResponse>(queryKey)!;
+    expect(preview.items).toEqual([previewItem]);
+    expect(preview.attachPreview).toEqual({
+      sourceTable: "agent-native-blog-article-test",
+      fetchedAt: createdAt,
+    });
+    expect(preview.pagination).toMatchObject({
+      returnedItems: 1,
+      hasMore: true,
+    });
+  });
+
+  it("seeds the optimistic Builder preview while the database query has no data", () => {
+    const queryClient = new QueryClient();
+    const queryKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", limit: 100 },
+    ] as const;
+    queryClient.getQueryCache().build(queryClient, {
+      queryKey,
+      queryFn: async () => databaseResponse(),
+    });
+    const previewItem = {
+      ...databaseResponse().items[0]!,
+      id: "builder-item_fresh",
+      document: {
+        ...databaseResponse().items[0]!.document,
+        id: "builder-doc_fresh",
+        title: "Fresh Builder row",
+      },
+    };
+
+    writeBuilderAttachPreviewToCache(queryClient, "database-page", {
+      databaseId: "database",
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      base: databaseResponse(),
+      items: [previewItem],
+      fetchedAt: createdAt,
+      hasMore: true,
+    });
+
+    expect(
+      queryClient.getQueryData<ContentDatabaseResponse>(queryKey)?.items,
+    ).toEqual([previewItem]);
+  });
+
+  it("adds a new page immediately and rolls it back by document id", () => {
+    const current = {
+      ...databaseResponse(),
+      items: [],
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 0,
+        returnedItems: 0,
+        hasMore: false,
+      },
+    };
+    const optimisticItem = {
+      id: "optimistic-new-page",
+      databaseId: "database",
+      document: databaseResponse().items[0]!.document,
+      position: 9999,
+      properties: [],
+    };
+
+    const added = applyOptimisticItemToContentDatabase(current, optimisticItem);
+
+    expect(added?.items).toEqual([optimisticItem]);
+    expect(added?.pagination).toMatchObject({
+      totalItems: 1,
+      returnedItems: 1,
+    });
+    expect(applyOptimisticItemToContentDatabase(added, optimisticItem)).toBe(
+      added,
+    );
+
+    const rolledBack = removeOptimisticItemFromContentDatabase(
+      added,
+      optimisticItem.document.id,
+    );
+    expect(rolledBack?.items).toEqual([]);
+    expect(rolledBack?.pagination).toMatchObject({
+      totalItems: 0,
+      returnedItems: 0,
+    });
+  });
+
+  it("moves one exact membership immediately and keeps positions gapless", () => {
+    const current = {
+      ...databaseResponse(),
+      items: databaseResponse().items.slice(0, 3),
+    };
+
+    const moved = moveOptimisticContentDatabaseItem(
+      current,
+      current.items[2]!.id,
+      0,
+    );
+
+    expect(moved?.items.map((item) => item.id)).toEqual([
+      current.items[2]!.id,
+      current.items[0]!.id,
+      current.items[1]!.id,
+    ]);
+    expect(moved?.items.map((item) => item.position)).toEqual([0, 1, 2]);
+    expect(
+      moveOptimisticContentDatabaseItem(current, "another-membership", 0),
+    ).toBe(current);
+  });
+});
 
 function databaseResponse(): ContentDatabaseResponse {
   return {
@@ -133,6 +361,58 @@ function databaseResponse(): ContentDatabaseResponse {
     },
   };
 }
+
+describe("applyOptimisticBuilderWriteMode", () => {
+  it("updates the active Builder policy without replacing database rows", () => {
+    const current = databaseResponse();
+    current.sources = [current.source!];
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      documentId: "database-page",
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.items).toBe(current.items);
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: true },
+      metadata: {
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublishWrites: true,
+        pushMode: "publish",
+      },
+    });
+    expect(updated?.sources?.[0]).toMatchObject(updated?.source ?? {});
+  });
+
+  it("optimistically disables publication transitions for read-only mode", () => {
+    const current = applyOptimisticBuilderWriteMode(databaseResponse(), {
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      sourceId: "source",
+      writeMode: "read_only",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: false },
+      metadata: {
+        writeMode: "read_only",
+        allowPublicationTransitions: false,
+        allowedWriteModes: [],
+        allowPublishWrites: false,
+        pushMode: "none",
+      },
+    });
+  });
+});
 
 function sourceFieldPatch(): ContentDatabaseSourceFieldPropertyResponse {
   return {
@@ -386,7 +666,7 @@ describe("invalidateContentDatabaseSourceRefreshQueries", () => {
       );
     }
 
-    expect(invalidations).toHaveLength(10);
+    expect(invalidations).toHaveLength(15);
     expect(
       invalidations.filter(
         (filters) =>
@@ -396,6 +676,7 @@ describe("invalidateContentDatabaseSourceRefreshQueries", () => {
     expect(invalidations).toEqual(
       Array.from({ length: 5 }).flatMap(() => [
         { queryKey: contentDatabaseQueryKey("database-page") },
+        { queryKey: contentDatabaseItemsPageQueryKey },
         {
           queryKey: [
             "action",
@@ -484,7 +765,17 @@ describe("writeContentDatabaseResponseToCache", () => {
       items: [],
       source: null,
     };
-    const attached = databaseResponse();
+    const attached = {
+      ...databaseResponse(),
+      items: databaseResponse().items.slice(0, 100),
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 500,
+        returnedItems: 100,
+        hasMore: true,
+      },
+    };
     const queryClient = new QueryClient();
     const visibleQueryKey = [
       "action",
@@ -501,7 +792,40 @@ describe("writeContentDatabaseResponseToCache", () => {
     const visibleCache =
       queryClient.getQueryData<ContentDatabaseResponse>(visibleQueryKey);
     expect(visibleCache?.source?.sourceTable).toBe("blog-article");
-    expect(visibleCache?.items).toHaveLength(500);
+    expect(visibleCache?.items).toHaveLength(100);
+  });
+
+  it("does not overwrite a constrained cache with an unconstrained response", () => {
+    const response = {
+      ...databaseResponse(),
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 500,
+        returnedItems: 100,
+        hasMore: true,
+      },
+    };
+    expect(
+      contentDatabaseResponseCanSeedQuery(
+        [
+          "action",
+          "get-content-database",
+          {
+            documentId: "database-page",
+            limit: 100,
+            tableQuery: {
+              search: "alpha",
+              filters: [],
+              sorts: [],
+              filterMode: "and",
+            },
+          },
+        ],
+        "database-page",
+        response,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -588,10 +912,11 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
       });
     }
 
-    expect(calls).toHaveLength(12);
+    expect(calls).toHaveLength(18);
     expect(calls).toEqual(
       Array.from({ length: 6 }).flatMap(() => [
         { queryKey: contentDatabaseQueryKey("database-page") },
+        { queryKey: contentDatabaseItemsPageQueryKey },
         {
           queryKey: [
             "action",
@@ -607,9 +932,15 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
   });
 
   it("invalidates the opened row document only for priority hydration", () => {
-    const calls: Array<{ queryKey?: readonly unknown[] }> = [];
+    const calls: Array<{
+      queryKey?: readonly unknown[];
+      predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+    }> = [];
     const queryClient = {
-      invalidateQueries: (options: { queryKey?: readonly unknown[] }) => {
+      invalidateQueries: (options: {
+        queryKey?: readonly unknown[];
+        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      }) => {
         calls.push(options);
       },
     };
@@ -620,6 +951,7 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
 
     expect(calls).toEqual([
       { queryKey: contentDatabaseQueryKey("database-page") },
+      { queryKey: contentDatabaseItemsPageQueryKey },
       {
         queryKey: [
           "action",
@@ -627,7 +959,21 @@ describe("invalidateBuilderBodyHydrationQueries", () => {
           { documentId: "database-page" },
         ],
       },
-      { queryKey: ["action", "get-document", { id: "row-page" }] },
+      {
+        queryKey: ["action", "get-document"],
+        predicate: expect.any(Function),
+      },
     ]);
+    const documentFilter = calls[calls.length - 1]?.predicate;
+    expect(
+      documentFilter?.({
+        queryKey: ["action", "get-document", { id: "row-page" }],
+      }),
+    ).toBe(true);
+    expect(
+      documentFilter?.({
+        queryKey: ["action", "get-document", { id: "other-page" }],
+      }),
+    ).toBe(false);
   });
 });

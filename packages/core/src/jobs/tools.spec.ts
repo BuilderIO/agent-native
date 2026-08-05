@@ -29,10 +29,17 @@ vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
 }));
 
+// The timezone resolver reads the user's saved preference; unset here so the
+// tests exercise the request-header fallback.
+vi.mock("../settings/user-settings.js", () => ({
+  getUserSetting: async () => null,
+}));
+
 vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
   getIntegrationRequestContext: getIntegrationRequestContextMock,
+  getRequestTimezone: () => "UTC",
 }));
 
 // Partial-mock db/client so the org-admin lookup is stubbed while other
@@ -65,6 +72,19 @@ function sharedJobContent(opts: {
   return lines.join("\n");
 }
 
+function eventAutomationContent(): string {
+  return `---
+schedule: ""
+enabled: true
+triggerType: event
+event: mail.received
+mode: agentic
+createdBy: alice@example.com
+---
+
+Notify me about the message.`;
+}
+
 describe("manage-jobs tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -73,6 +93,18 @@ describe("manage-jobs tool", () => {
     getIntegrationRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
     resourceDeleteMock.mockResolvedValue(true);
+  });
+
+  it("allows only list in Plan mode", () => {
+    const entry = createJobTools()["manage-jobs"];
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "create" })).toBe("write");
+    expect(effect({ action: "update" })).toBe("write");
+    expect(effect({ action: "delete" })).toBe("write");
   });
 
   describe("create", () => {
@@ -132,6 +164,44 @@ describe("manage-jobs tool", () => {
         scope: "personal",
       });
       expect(resourcePutMock.mock.calls[0][0]).toBe("alice@example.com");
+    });
+
+    it("persists only explicit MCP tool capabilities with a job", async () => {
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "hourly-meeting-todos",
+          schedule: "0 * * * *",
+          instructions: "Import explicit action items.",
+          scope: "personal",
+          mcpTools: [
+            "mcp__meeting-notes__list_meetings",
+            "mcp__meeting-notes__get_transcript",
+          ],
+        }),
+      );
+
+      expect(out.mcpTools).toEqual([
+        "mcp__meeting-notes__list_meetings",
+        "mcp__meeting-notes__get_transcript",
+      ]);
+      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      expect(meta.mcpTools).toEqual(out.mcpTools);
+    });
+
+    it("rejects arbitrary non-MCP capability references", async () => {
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "unsafe-job",
+          schedule: "0 * * * *",
+          instructions: "Do work.",
+          mcpTools: ["https://example.com/mcp"],
+        }),
+      );
+
+      expect(out.error).toMatch(/mcpTools must contain only framework MCP/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
     it("partitions shared jobs by the active request org", async () => {
@@ -327,6 +397,26 @@ describe("manage-jobs tool", () => {
       const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
       expect(meta.schedule).toBe("*/30 * * * *");
     });
+
+    it("rejects event-triggered resources without rewriting them", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/event-alert.md",
+        content: eventAutomationContent(),
+      });
+
+      const out = JSON.parse(
+        await run({
+          action: "update",
+          name: "event-alert",
+          enabled: "false",
+        }),
+      );
+
+      expect(out.error).toMatch(/is an automation.*manage-automations/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("delete", () => {
@@ -364,6 +454,22 @@ describe("manage-jobs tool", () => {
       resourceGetByPathMock.mockResolvedValue(null);
       const out = JSON.parse(await run({ action: "delete", name: "ghost" }));
       expect(out.error).toMatch(/not found/);
+    });
+
+    it("rejects deleting an event-triggered resource", async () => {
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "event-1",
+        owner: SHARED_OWNER,
+        path: "jobs/event-alert.md",
+        content: eventAutomationContent(),
+      });
+
+      const out = JSON.parse(
+        await run({ action: "delete", name: "event-alert" }),
+      );
+
+      expect(out.error).toMatch(/is an automation.*manage-automations/);
+      expect(resourceDeleteMock).not.toHaveBeenCalled();
     });
   });
 
@@ -412,6 +518,37 @@ describe("manage-jobs tool", () => {
 
       const jobs = JSON.parse(await run({ action: "list", scope: "personal" }));
       expect(jobs.map((j: any) => j.name)).toEqual(["personal"]);
+    });
+
+    it("excludes explicit scheduled and event-triggered automations", async () => {
+      resourceListMock.mockImplementation(async (owner: string) =>
+        owner === "alice@example.com"
+          ? [
+              { owner, path: "jobs/legacy.md" },
+              { owner, path: "jobs/scheduled.md" },
+              { owner, path: "jobs/event.md" },
+            ]
+          : [],
+      );
+      resourceGetByPathMock.mockImplementation(
+        async (owner: string, path: string) => ({
+          id: path,
+          owner,
+          path,
+          content: path.endsWith("event.md")
+            ? eventAutomationContent()
+            : path.endsWith("scheduled.md")
+              ? sharedJobContent({ createdBy: "alice@example.com" }).replace(
+                  "enabled: true",
+                  "enabled: true\ntriggerType: schedule\nmode: agentic",
+                )
+              : sharedJobContent({ createdBy: "alice@example.com" }),
+        }),
+      );
+
+      const jobs = JSON.parse(await run({ action: "list" }));
+
+      expect(jobs.map((job: any) => job.name)).toEqual(["legacy"]);
     });
 
     it("never lists another org's shared partition", async () => {

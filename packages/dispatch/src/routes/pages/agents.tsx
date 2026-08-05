@@ -1,9 +1,8 @@
 import {
-  agentNativePath,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck, IconCopy, IconPlugConnected } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -39,7 +38,7 @@ interface McpAccessState {
 }
 
 function dispatchMcpUrl(): string {
-  const path = agentNativePath("/_agent-native/mcp");
+  const path = "/mcp";
   if (typeof window === "undefined") return path;
   return new URL(path, window.location.origin).href;
 }
@@ -103,7 +102,7 @@ function DispatchMcpAccessPanel() {
   }
 
   return (
-    <section className="rounded-2xl border bg-card p-5">
+    <section className="rounded-2xl bg-card p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">

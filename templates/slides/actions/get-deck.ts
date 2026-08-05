@@ -52,7 +52,9 @@ export default defineAction({
 
     const access = await resolveAccess("deck", args.id);
     if (!access) {
-      throw new Error("Deck not found");
+      // 404 rather than 403/500 so HTTP callers can't probe for decks they
+      // can't see, and so the slide preview can tell "missing" from "broken".
+      throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
     }
 
     const row = access.resource;

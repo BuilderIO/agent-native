@@ -24,6 +24,7 @@ import {
   IconRoute,
   IconWorld,
   IconPhoto,
+  IconListCheck,
 } from "@tabler/icons-react";
 
 import { UpdateIndicator } from "./UpdateIndicator.js";
@@ -56,6 +57,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   CalendarTime: IconCalendarTime,
   Globe: IconWorld,
   Photo: IconPhoto,
+  ListCheck: IconListCheck,
 };
 
 interface SidebarProps {

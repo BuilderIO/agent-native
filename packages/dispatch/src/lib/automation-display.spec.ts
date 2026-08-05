@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   automationIdentity,
   automationNextRun,
+  automationScopeLabel,
   automationStatus,
   automationTarget,
+  automationTroubleshootPath,
   sortAutomations,
 } from "./automation-display.js";
 import type { DispatchAutomationItem } from "./automations.js";
@@ -24,6 +26,12 @@ describe("automation-display", () => {
     expect(
       automationIdentity({ owner: "user@example.com", path: "jobs/digest.md" }),
     ).toBe("user@example.com:jobs/digest.md");
+  });
+
+  it("prepares a thread-debug search for an automation", () => {
+    expect(
+      automationTroubleshootPath({ name: "coach onboarding reminder" }),
+    ).toBe("/thread-debug?query=coach+onboarding+reminder");
   });
 
   it("prefers event names, then schedule descriptions", () => {
@@ -68,6 +76,45 @@ describe("automation-display", () => {
       label: "Paused",
       tone: "muted",
     });
+  });
+
+  it("labels blocked scheduler checks separately from execution failures", () => {
+    const blocked = item({
+      id: "blocked",
+      name: "Blocked",
+      path: "jobs/blocked.md",
+      owner: "user@example.com",
+      lastStatus: "skipped",
+      lastError: "Condition was false",
+    });
+
+    expect(automationStatus(blocked)).toEqual({
+      label: "Blocked",
+      tone: "warning",
+    });
+  });
+
+  it("identifies personal and organization ownership in the UI", () => {
+    expect(
+      automationScopeLabel(
+        item({
+          id: "personal",
+          name: "Personal",
+          path: "jobs/personal.md",
+          owner: "user@example.com",
+        }),
+      ),
+    ).toBe("Personal");
+    expect(
+      automationScopeLabel(
+        item({
+          id: "organization",
+          name: "Organization",
+          path: "jobs/organization.md",
+          owner: "__organization__:org-1",
+        }),
+      ),
+    ).toBe("Organization");
   });
 
   it("sorts enabled errors ahead of healthy runs", () => {

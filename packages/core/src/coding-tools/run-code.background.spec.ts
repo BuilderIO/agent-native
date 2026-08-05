@@ -94,6 +94,7 @@ afterEach(() => {
 describe("run-code background param", () => {
   it("advertises background + executionId in the tool schema", () => {
     const entry = createRunCodeEntry(makeActions);
+    expect(entry.dedupe).toBeUndefined();
     expect(entry.tool.description).toContain("background: true");
     const props = (
       entry.tool.parameters as { properties: Record<string, unknown> }
@@ -255,6 +256,7 @@ describe("get-code-execution entry", () => {
     const runCode = createRunCodeEntry(makeActions);
     const getExec = createGetCodeExecutionEntry();
     expect(getExec.readOnly).toBe(true);
+    expect(getExec.dedupe).toBe(false);
 
     const enqueued = JSON.parse(
       (await runCode.run(

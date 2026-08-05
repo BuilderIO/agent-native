@@ -89,7 +89,7 @@ describe("run recovery surfaces", () => {
     expect(container.querySelector("svg")).toBeNull();
 
     const apiKeyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Use API key"),
+      (button) => button.textContent?.includes("Add your own keys"),
     );
     expect(apiKeyButton).toBeDefined();
 
@@ -97,7 +97,7 @@ describe("run recovery surfaces", () => {
       apiKeyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(container.textContent).toContain("Use your own API key");
+    expect(container.textContent).toContain("Add your own keys");
     expect(container.querySelector("svg")).toBeNull();
   });
 });

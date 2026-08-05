@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "Acciones",
     commandSearch: "Buscar",
+    openAgent: "Abrir agente",
     commandAppearance: "Apariencia",
     toggleTheme: "Cambiar tema",
     extensionSignedInTitle: "Sesión iniciada",
@@ -55,6 +56,7 @@ const messages = {
     videoProjects: "Proyectos de video",
     archive: "Archivo",
     trash: "Papelera",
+    agent: "Agente",
     settings: "Ajustes",
     notifications: "Notificaciones",
     insights: "Información",
@@ -226,6 +228,9 @@ const messages = {
     autoChapters: "capítulos automáticos",
     removeFillerWords: "Eliminar palabras de relleno",
     removeSilences: "Eliminar silencios (>1,2s)",
+    silenceWorking: "Eliminando silencios…",
+    silenceCompleted: "Eliminación de silencios completada",
+    silenceFailed: "No se pudieron eliminar los silencios",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
@@ -298,7 +303,6 @@ const messages = {
       "Almacenamiento conectado. Comprobando este vídeo...",
     signInToFinish: "Inicia sesión para finalizar",
     signInIfYours: "Inicia sesión si este es tuyo",
-    openDashboard: "Abrir panel",
     checkAgain: "Comprobar de nuevo",
     backToHome: "De vuelta a casa",
     generatingTitle: "Generando título",
@@ -456,6 +460,7 @@ const messages = {
     invite: "Invitar",
     embed: "Insertar",
     shareLink: "Enlace para compartir",
+    shareWithHumans: "Compartir con personas",
     shareWithAgents: "Compartir con agentes",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
@@ -466,6 +471,8 @@ const messages = {
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
     openPlayer: "jugador abierto",
+    chooseFile: "Elige el archivo",
+    remove: "Eliminar",
     downloadMp4: "Descargar MP4",
     embedsNeedPublic: "Los elementos insertados necesitan un clip público",
     embedPublicDescription:
@@ -492,6 +499,7 @@ const messages = {
     makePublicAndCopy: "Hacer público y copiar",
     copy: "Copiar",
     addPeopleByEmail: "Agregar personas por correo electrónico",
+    invite: "Invitar",
     notifyPeople: "Notificar a la gente",
     peopleWithAccess: "personas con acceso",
     ownerRole: "Dueño",
@@ -551,11 +559,17 @@ const messages = {
     brandingUpdated: "Marca actualizada",
     saveFailed: "No se pudo guardar",
     organizationName: "Nombre de la organización",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a las nuevas grabaciones, a menos que elijas otra visibilidad.",
     brandColor: "Color de la marca",
     brandColorPicker: "Selector de color de marca",
     useColor: "Utilice {{color}}",
     logo: "Logo",
     logoPreview: "Vista previa del logotipo",
+    logoUsage:
+      "Se muestra a los destinatarios en los correos de uso compartido y en las páginas públicas de los clips.",
+    emailHeaderPreview: "Encabezado del correo de uso compartido",
     dropReplace: "Suelta una nueva imagen para reemplazar",
     dropHere: "Coloque un PNG / JPG / SVG aquí",
     uploading: "Subiendo…",
@@ -618,17 +632,28 @@ const messages = {
     pageTitle: "Unirse al equipo · Clips",
   },
   settings: {
-    openAgentSettings: "Abrir ajustes del agente",
+    openAgentSettings: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    agentTitle: "Ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
+    preferencesTitle: "Preferencias",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
     languageLabel: "Idioma de la interfaz",
+    uploadWorkspaceTitle: "Espacio activo",
+    uploadWorkspaceDescription:
+      "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",
+    uploadWorkspaceLabel: "Espacio actual",
+    uploadWorkspacePlaceholder: "Elige un espacio",
+    uploadWorkspaceHint:
+      "Al cambiarlo también se actualizan las vistas de Clips vinculadas al espacio.",
+    uploadWorkspaceSaving: "Guardando espacio…",
+    uploadWorkspaceSaved: "Espacio activo actualizado",
+    uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
     viewAllUpdates: "Ver todas las actualizaciones",
@@ -643,10 +668,6 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
 ### Añadido
 
 - Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
-    profile: "Perfil",
-    email: "Correo electrónico",
-    displayName: "Nombre visible",
-    displayNamePlaceholder: "Tu nombre",
     playback: "Reproducción",
     defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
     playbackDescription:
@@ -659,9 +680,16 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     backupTranscriptionDescription:
       "Activado por defecto. Si no se capturó una transcripción local, el audio de la grabación se envía a tu proveedor de nube conectado (créditos de Builder.io o Groq) para transcribirlo. Desactívalo para mantener el audio estrictamente en este dispositivo — esos clips quedarán sin transcripción.",
     notifications: "Notificaciones",
+    sharing: "Compartir",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a cada grabación que crees. Puedes cambiar la visibilidad en cada grabación.",
+    visibilityPrivate: "Privado - solo tú",
+    visibilityOrg: "Organización - cualquiera de tu espacio",
+    visibilityPublic: "Público - cualquiera con el enlace",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:
-      "Recibe un correo cuando alguien comenta, reacciona o comparte una grabación contigo.",
+      "Recibe un correo cuando alguien comente o reaccione a tu grabación.",
     saved: "Ajustes guardados",
     saveFailed: "No se pudo guardar",
     builderConnectedToast: "Builder.io conectado",
@@ -793,6 +821,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     description:
       "Administración de organización: marca, miembros e invitaciones.",
     adminsOnlyBranding: "Solo los administradores pueden editar la marca.",
+    brandingLoadFailed: "No se pudo cargar la identidad de la organización.",
     members: "Miembros",
     pendingInvites: "Invitaciones pendientes",
     noPendingInvites: "No hay invitaciones pendientes.",
@@ -813,11 +842,27 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     recentViewers: "Espectadores recientes",
     noViewers: "Aún no hay espectadores.",
     anonymous: "Anónimo",
-    anon: "Anón.",
     moreViewers: "+{{count}} más",
     viewedBy: "Visto por",
     someone: "Alguien",
     noViewsYet: "Aún no hay visualizaciones.",
+    viewsCount_one: "{{count}} visualización",
+    viewsCount_many: "{{count}} visualizaciones",
+    viewsCount_other: "{{count}} visualizaciones",
+    agentViewsCount_one: "{{count}} vista de agente de IA",
+    agentViewsCount_many: "{{count}} vistas de agentes de IA",
+    agentViewsCount_other: "{{count}} vistas de agentes de IA",
+    totalViewsSummary:
+      "{{total}} visualizaciones totales, {{unique}} espectadores únicos",
+    viewsTab: "Vistas",
+    insightsTab: "Estadísticas",
+    humanViews: "Vistas humanas",
+    agentViews: "Vistas de agentes de IA",
+    noAgentViewsYet: "Todavía no hay vistas de agentes de IA.",
+    unknownAgent: "Agente desconocido",
+    totalVideoViews: "Visualizaciones totales del vídeo",
+    averageCompletionRate: "Tasa media de finalización",
+    moreInsights: "Más estadísticas",
   },
   libraryGrid: {
     spaceRoot: "Raíz del espacio",
@@ -840,6 +885,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     loadFailedBody:
       "Algo salió mal al cargar esta lista. Tus grabaciones están a salvo — inténtalo de nuevo.",
     retry: "Reintentar",
+    paginationRange: "{{start}}–{{end}} de {{total}}",
+    paginationPrevious: "Anterior",
+    paginationNext: "Siguiente",
+    paginationPage: "Página {{page}} de {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Notificaciones · Clips",
@@ -909,15 +958,6 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "{{email}} perderá acceso a esta organización. Siempre puedes volver a invitarlo.",
     remove: "Eliminar",
   },
-  slackShareHint: {
-    playsInline: "Se reproduce inline en Slack",
-    connectedDescription:
-      "Pega este enlace en cualquier espacio conectado para reproducirlo inline.",
-    makeInline: "Haz que se reproduzca inline en Slack",
-    connectDescription:
-      "Conecta un espacio para que este enlace se despliegue como video.",
-    connect: "Conectar",
-  },
   commentsPanel: {
     disabled: "Los comentarios están desactivados para esta grabación.",
     beFirst: "Sé la primera persona en comentar",
@@ -929,6 +969,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     replyingTo: "Respondiendo a",
     commentAt: "Comentar en",
     writeReply: "Escribe una respuesta...",
+    editComment: "Editar comentario",
     commentButton: "Comentar",
     composerPlaceholder: "Añadir un comentario…",
     mentionSomeone: "Mencionar a alguien",
@@ -944,6 +985,18 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     summary: "Resumen",
     keyPoints: "Puntos clave",
     actionItems: "Elementos de acción",
+    sharedContent: "Contenido compartido",
+    summaryIncluded: "Resumen, puntos clave y elementos de acción",
+    includeTranscript: "Incluir la transcripción completa",
+    includeTranscriptDescription:
+      "Cualquier persona con acceso a esta reunión puede leer la transcripción completa.",
+    transcriptUnavailable: "La transcripción aún no está lista.",
+    transcript: "Transcripción",
+    copyTranscript: "Copiar transcripción",
+    transcriptCopied: "Transcripción copiada",
+    copyTranscriptFailed: "No se pudo copiar la transcripción",
+    updateTranscriptSharingFailed:
+      "No se pudo actualizar el uso compartido de la transcripción",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip movido a la papelera",
@@ -1110,6 +1163,19 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     spaceCreated: "Espacio creado",
     createFailed: "No se pudo crear el espacio",
   },
+  spaceDialog: {
+    deleteSpace: "Eliminar espacio",
+    renameSpace: "Renombrar espacio",
+    deleteTitle: "¿Eliminar «{{name}}»?",
+    deleteDescription:
+      "Esto eliminará el espacio y lo quitará de todas las grabaciones. Esta acción no se puede deshacer.",
+    renamed: "Espacio renombrado",
+    deleted: "Se eliminó «{{name}}»",
+    renameFailed: "No se pudo renombrar el espacio",
+    deleteFailed: "No se pudo eliminar el espacio",
+    renaming: "Renombrando...",
+    deleting: "Eliminando...",
+  },
   signInPrompt: {
     title: "Inicia sesión para {{intent}}",
     description:
@@ -1157,6 +1223,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     desktopTitle: "App de escritorio",
     desktopDescription:
       "La opción más fluida para atajos globales, grabación desde la barra de menús, reuniones y capturas repetidas.",
+    openDesktopApp: "Open desktop app (Localizado)",
   },
   editableTitle: {
     untitled: "Clip sin título",
@@ -1307,10 +1374,15 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     cameraOff: "Cámara apagada",
     includeCameraAria: "Incluir cámara en esta grabación",
     startRecording: "Iniciar grabación",
+    micOffConfirmTitle: "Record without a microphone? (Localizado)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Localizado)",
+    startWithoutMic: "Start anyway (Localizado)",
     uploadVideo: "Subir video",
     importLoom: "Importar Loom",
     importing: "Importando...",
     import: "Importar",
+    recordNew: "Nueva grabación",
   },
   playerSettings: {
     title: "Ajustes",
@@ -1320,9 +1392,11 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     visibilityOrg: "Organización",
     visibilityPublic: "Público",
     passwordProtection: "Protección con contraseña",
-    passwordSetPlaceholder:
-      "La contraseña está definida — escribe para reemplazarla, déjala vacía y guarda para quitarla",
+    passwordSetPlaceholder: "Password is set — type to replace (Localizado)",
     noPasswordPlaceholder: "Sin contraseña",
+    passwordWhitespaceOnly:
+      "Spaces alone aren't a valid password. (Localizado)",
+    removePassword: "Remove (Localizado)",
     expiry: "Caducidad",
     viewerOptions: "Opciones para espectadores",
     comments: "Comentarios",
@@ -1359,6 +1433,8 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     recordingReadyToUpload: "La grabación está lista para subirse",
     recordingSaved: "Grabación guardada",
     markerAdded: "{{kind}} añadido",
+    linkCopied: "Enlace copiado",
+    copyLinkAction: "Copiar enlace",
     noLocalRecordingData:
       "No hay datos de grabación locales disponibles para descargar.",
     recordingDownloadStarted: "Descarga de la grabación iniciada",
@@ -1380,12 +1456,32 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     downloadDesktopApp: "Descargar app de escritorio",
     technicalDetails: "Detalles técnicos",
     whatToCheck: "Qué comprobar",
-    downloadRecording: "Descargar grabación",
+    downloadRecording: "Download (Localizado)",
     openRecorderInTab: "Abrir grabador en una pestaña",
     connectStorageToFinish:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips reintentará la importación.",
+  },
+  importRoute: {
+    pageTitle: "Importar Loom — Clips",
+    title: "Importar Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importar",
+    helperText:
+      "Funciona muy bien con Loom. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
+    stageFetching: "Trayendo tu vídeo…",
+    stageUploading: "Subiendo el material original…",
+    stageTranscript:
+      "Haciendo que el habla y lo visual en pantalla sean legibles por el agente…",
+    stageFinalizing: "Haciéndolo Agent-Native…",
+    importingSubtitle:
+      "Convirtiendo una grabación plana en un primitivo Agent-Native.",
+    doneHeading: "¡Y listo! Tu vídeo ahora es:",
+    benefitTranscript: "Habla y visuales en pantalla, totalmente buscables",
+    benefitQueryable: "Comprendido y consultable por tu agente",
+    benefitSummaries: "Resúmenes y clips al instante bajo demanda",
+    benefitPrimitive: "Un primitivo Agent-Native de primera clase",
   },
   dictateRoute: {
     pageTitle: "Dictar · Clips",
@@ -1446,6 +1542,8 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
   clipsFinalRaw: {
     splitAtPlayhead: "Dividir en el cabezal (S)",
     selectedCount: "{{count}} seleccionados",
+    selectAll: "Seleccionar todo",
+    deselectAll: "Deseleccionar todo",
     move: "Mover",
     moveSelected: "Mover {{count}} seleccionados",
     current: "Actual",
@@ -1456,7 +1554,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     connectStorageToFinish:
       "Ábrelo para conectar almacenamiento y terminar de guardar.",
     retryFromClipsMenu:
-      "Reintenta desde el icono de Clips en la barra de menús: la tarjeta del clip guardado también tiene un botón de carpeta que abre el archivo local.",
+      "Abre Clips desde la barra de menús para reintentar esta carga guardada; no hace falta grabar de nuevo.",
     removeFailedClip: "Eliminar este clip fallido.",
     remove: "Eliminar",
     viewsCount: "{{count}} visualizaciones",
@@ -1537,6 +1635,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     calendarNeedsReconnect:
       "Es necesario volver a conectar Google Calendar para seguir mostrando tus próximas reuniones.",
     connectGoogleCalendar: "Conectar Google Calendar",
+    googleMayShowWarning: "Revisar el acceso de Google",
+    googleNotVerifiedTitle: "Verifica la aplicación antes de conectarte",
+    googleWarningBeforeAdvanced:
+      "Confirma que el nombre de la aplicación y el acceso a Calendar solicitado coincidan con la implementación de Clips en la que confías. Si Google muestra una advertencia de aplicación no verificada o la identidad no te resulta familiar, detente y contacta con el administrador del espacio de trabajo.",
     desktopReminder:
       "Conecta Google Calendar, mantén Clips Desktop abierto y haz clic en Iniciar notas desde el recordatorio o la barra de menús cuando empiece tu reunión.",
     getDesktopApp: "Obtener la app de escritorio",
@@ -1610,6 +1712,23 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "No se pudo cargar este proyecto. Puede que se haya eliminado o que no tengas acceso.",
     renameProject: "Renombrar proyecto",
   },
+  rewindExtension: {
+    title: "Añadir lo que ocurrió antes",
+    description:
+      "Elige un intervalo del Rewind local y añádelo al inicio de este clip. No se añade nada automáticamente.",
+    progressLabel: "Progreso del procesamiento del historial de Rewind",
+    privateFirstTitle: "Haz privado este clip primero",
+    privateFirstDescription:
+      "El historial local de Rewind puede incluir contexto anterior al inicio de la grabación. Esto hará privado el clip. Si alguien aún tiene acceso directo, Clips se detendrá para que lo elimines primero en Compartir.",
+    makePrivateContinue: "Hacer privado y continuar",
+    add30Seconds: "Añadir los 30 segundos anteriores",
+    add5Minutes: "Añadir los 5 minutos anteriores",
+    add5MinutesDescription:
+      "Útil para recuperar el inicio de una explicación más larga.",
+    privateReady:
+      "Este clip es privado. Ya puedes añadir el historial local de Rewind.",
+  },
+  timeline: { clipStartedHere: "El clip empezó aquí" },
 };
 
 export default messages;

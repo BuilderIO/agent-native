@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconX,
   IconCheck,
@@ -458,7 +458,7 @@ export function SlideCommentsPanel({
   const showInput = pendingComment || addingComment;
 
   return (
-    <div className="w-72 flex-shrink-0 border-l border-border bg-background flex flex-col h-full">
+    <div className="flex h-full w-[17rem] flex-shrink-0 flex-col border-l border-border bg-background">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
         <span className="text-[13px] font-medium text-foreground/80">

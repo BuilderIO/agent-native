@@ -116,4 +116,95 @@ describe("notifyActionChange", () => {
       { requestSource: "tab-123" },
     );
   });
+
+  it("can publish the fast invalidation without waiting for the durable marker", async () => {
+    let releaseMarker!: () => void;
+    mockAppStatePut.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMarker = resolve;
+        }),
+    );
+    const { notifyActionChangeInBackground } =
+      await import("./action-change.js");
+
+    expect(
+      notifyActionChangeInBackground({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      }),
+    ).toBeUndefined();
+    expect(mockRecordChange).toHaveBeenCalledWith({
+      source: "action",
+      type: "change",
+      key: "update-project",
+      owner: "owner@example.com",
+    });
+    expect(mockAppStatePut).toHaveBeenCalled();
+
+    releaseMarker();
+    await Promise.resolve();
+  });
+
+  it("surfaces a background marker failure instead of swallowing it", async () => {
+    mockAppStatePut.mockRejectedValue(new Error("database unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeInBackground } =
+      await import("./action-change.js");
+
+    notifyActionChangeInBackground({
+      actionName: "update-project",
+      owner: "owner@example.com",
+    });
+
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        "[action-change] durable marker write failed:",
+        "database unavailable",
+      );
+    });
+    warn.mockRestore();
+  });
+});
+
+describe("actionCallIsReadOnly", () => {
+  const listOrWrite = {
+    planMode: {
+      effect: (args: { action?: string }) =>
+        args.action === "list" ? ("read" as const) : ("write" as const),
+    },
+  };
+
+  it("lets a mixed action's per-call effect decide", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    expect(actionCallIsReadOnly(listOrWrite, { action: "list" }, false)).toBe(
+      true,
+    );
+    expect(actionCallIsReadOnly(listOrWrite, { action: "set" }, false)).toBe(
+      false,
+    );
+  });
+
+  it("falls back to readOnly, then to the caller's default", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    expect(actionCallIsReadOnly({ readOnly: true }, {}, false)).toBe(true);
+    expect(actionCallIsReadOnly({ readOnly: false }, {}, true)).toBe(false);
+    expect(actionCallIsReadOnly({}, {}, true)).toBe(true);
+    expect(actionCallIsReadOnly({}, {}, false)).toBe(false);
+  });
+
+  it("treats a throwing effect as no answer rather than as a read", async () => {
+    const { actionCallIsReadOnly } = await import("./action-change.js");
+
+    const entry = {
+      planMode: {
+        effect: () => {
+          throw new Error("boom");
+        },
+      },
+    };
+    expect(actionCallIsReadOnly(entry, {}, false)).toBe(false);
+  });
 });

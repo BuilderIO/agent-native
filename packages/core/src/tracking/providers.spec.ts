@@ -41,7 +41,14 @@ describe("tracking providers", () => {
       await freshTrackingModules();
 
     registerBuiltinProviders();
-    track("qa.event", { app: "qa", signed_in: true }, { userId: "u1" });
+    track(
+      "qa.event",
+      { app: "qa", signed_in: true },
+      {
+        userId: "u1",
+        anonymousId: "anon_1",
+      },
+    );
     await flushTracking();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -53,6 +60,7 @@ describe("tracking providers", () => {
       event: "qa.event",
       properties: { app: "qa", signed_in: true },
       userId: "u1",
+      anonymousId: "anon_1",
     });
   });
 
@@ -120,6 +128,75 @@ describe("tracking providers", () => {
         $ai_output_tokens: 20,
       },
     });
+  });
+
+  it("reshapes tracked exceptions into PostHog's $exception_list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "$exception",
+      {
+        exceptionType: "TypeError",
+        exceptionMessage: "boom",
+        exceptionStack: "TypeError: boom\n    at run (/app/src/a.ts:3:5)",
+        handled: false,
+        level: "error",
+        app: "content",
+      },
+      { userId: "u1" },
+    );
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://us.i.posthog.com/i/v0/e/");
+    const body = JSON.parse(init.body);
+    expect(body.event).toBe("$exception");
+    expect(body.properties.distinct_id).toBe("u1");
+    expect(body.properties.app).toBe("content");
+    expect(body.properties.$exception_level).toBe("error");
+    expect(body.properties.$exception_list[0]).toMatchObject({
+      type: "TypeError",
+      value: "boom",
+      mechanism: { handled: false },
+      stacktrace: {
+        type: "raw",
+        frames: [
+          {
+            platform: "custom",
+            lang: "javascript",
+            function: "run",
+            filename: "/app/src/a.ts",
+            lineno: 3,
+            colno: 5,
+          },
+        ],
+      },
+    });
+    expect(body.properties).not.toHaveProperty("exceptionType");
+  });
+
+  it("keeps non-exception-shaped $exception events on /capture/", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("$exception", { unrelated: true }, { userId: "u1" });
+    await flushTracking();
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://us.i.posthog.com/capture/",
+    );
   });
 
   it("waits for queued provider sends when flushing", async () => {

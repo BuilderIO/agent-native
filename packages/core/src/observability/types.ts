@@ -175,9 +175,19 @@ export interface ExperimentMetricResult {
 
 export interface ObservabilityConfig {
   enabled: boolean;
+  /**
+   * Export prompt and completion content (`$ai_input`, `$ai_output_choices`)
+   * to configured LLM-analytics backends. Off by default: message bodies are
+   * user data, and a trace backend is not a place to put it without a decision.
+   *
+   * When off the fields are OMITTED, never sent empty — an empty array is
+   * indistinguishable from a genuinely empty prompt.
+   */
   capturePrompts: boolean;
   captureToolArgs: boolean;
   captureToolResults: boolean;
+  /** Emit one `$ai_span` per tool call alongside the run's `$ai_trace`. */
+  captureLlmSpans: boolean;
   evalSampleRate: number;
   /**
    * Classify the raw user message as positive, negative, or neutral. Off by
@@ -203,6 +213,7 @@ export const DEFAULT_OBSERVABILITY_CONFIG: ObservabilityConfig = {
   capturePrompts: false,
   captureToolArgs: false,
   captureToolResults: false,
+  captureLlmSpans: true,
   evalSampleRate: 0,
   inferredSentimentEnabled: false,
   inferredSentimentSampleRate: 0,

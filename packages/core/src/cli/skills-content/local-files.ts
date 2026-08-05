@@ -36,9 +36,9 @@ The local-files contract:
   — encode multiline code as JSON string attributes such as \`code={"const x =\\n  y"}\`
   (a static template literal is accepted only when it has no \`\${...}\`
   interpolation). \`plan local check\` is a quick OFFLINE lint (a subset of the
-  renderer schema), so a green \`check\` does not guarantee the plan renders;
-  \`plan local verify\` is the authoritative validation against the real renderer
-  schema.
+  renderer schema), so a green \`check\` does not guarantee the plan renders.
+  \`plan local verify\` also stays on-device: it uses the offline lint unless it
+  can reach a Plan renderer on an explicit loopback \`--app-url\`.
 - **Write a local MDX folder.** Use \`plans/<slug>/\` to check the artifact into the
   repo, or a repo-ignored/temporary folder such as \`.agent-native/plans/<slug>/\`
   or \`/tmp/agent-native-plans/<slug>/\` when it should not be checked in. The
@@ -53,7 +53,10 @@ The local-files contract:
   (use \`--kind plan\` for plans, \`--kind recap\` for recaps). Report the local
   bridge URL from stdout or \`<plan-dir>/.plan-url\`; treat \`.plan-url\` as a local
   token file and do not commit it. The URL opens the hosted Plan UI but reads from
-  the localhost bridge on this machine, so it is not shareable across machines. On
+  the localhost bridge on this machine, so it is not shareable across machines.
+  The token is carried in the URL fragment (which is not sent to the hosted
+  origin), and the local-plan route disables DOM autocapture and session replay
+  while retaining sanitized pageviews and error monitoring. On
   macOS \`--open\` prefers Chromium browsers; if Safari opens, switch to
   Chrome/Chromium because Safari can block the hosted HTTPS page from fetching the
   HTTP localhost bridge. If the Plan app itself is running locally with the same
@@ -63,14 +66,16 @@ The local-files contract:
   running local Plan app.
 - **Headless verify.** Run
   \`npx @agent-native/core@latest plan local verify --dir <plan-dir> --kind <plan|recap>\`.
-  It starts the bridge, checks the private-network preflight and JSON payload, AND
-  validates the content against the real renderer schema via the Plan app's
-  \`validate-local-plan-source\` action. A non-\`ok\` result with
+  It starts the bridge and checks the private-network preflight and JSON payload
+  entirely on loopback. It never sends MDX or assets to a remote validation
+  action. When \`--app-url\` points to a loopback Plan app, verify also validates
+  against that local app's real renderer schema via \`validate-local-plan-source\`.
+  A non-\`ok\` result with
   \`validation.valid: false\` lists the renderer's exact schema-path issues (e.g.
   \`blocks[1].data.tabs[0]...\`); fix those before handing off. If \`validation.ran\`
-  is \`false\`, the Plan app did not expose the validate endpoint (older/unreachable
-  deploy) — point \`--app-url\` at a current Plan app (e.g. a local
-  \`http://localhost:8096\`) for the authoritative check. If the browser hangs on
+  is \`false\`, verify used the offline lint because the app URL was remote or the
+  local Plan app was unavailable. Run a local Plan app and pass
+  \`--app-url http://localhost:8096\` for the authoritative check. If the browser hangs on
   "Loading plan", fetch the \`bridgeUrl\` from the verify/serve JSON to read the
   concrete validation error.
 - **Never call hosted tools for that plan/recap.** Do not call
@@ -86,8 +91,8 @@ The local-files contract:
   attachment, and publish/export receipts are unavailable until the user
   explicitly opts into publishing.
 
-Local-files mode only prevents plan/recap content from reaching the Agent-Native
-Plan database. It does not by itself make the coding agent's language model local;
+Local-files mode prevents plan/recap content from being uploaded to the
+Agent-Native Plan server or database. It does not by itself make the coding agent's language model local;
 for that stronger boundary the host agent/model must also be local or otherwise
 approved by the user.
 

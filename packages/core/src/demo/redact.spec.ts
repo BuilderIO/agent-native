@@ -25,11 +25,12 @@ describe("determinism", () => {
     expect(a).toBe(b);
   });
 
-  it("different salt produces different output", () => {
+  it("always uses the canonical anonymous email regardless of salt", () => {
     const input = "Reach out to sarah.connor@acme.com";
     const a = redactDemoString(input, { salt: "alpha" });
     const b = redactDemoString(input, { salt: "beta" });
-    expect(a).not.toBe(b);
+    expect(a).toBe("Reach out to anonymous@builder.io");
+    expect(b).toBe(a);
   });
 
   it("repeated value maps consistently within one redactDemoData call", () => {
@@ -64,45 +65,111 @@ describe("determinism", () => {
 });
 
 describe("emails", () => {
-  it("replaces emails with realistic (non-example.com) addresses", () => {
+  it("replaces emails with the canonical anonymous address", () => {
     const out = redactDemoString("Email me at jane.doe@acme.io please");
-    expect(out).not.toContain("jane.doe@acme.io");
-    expect(out).not.toContain("example.com");
-    const m = out.match(/\S+@[a-z0-9.-]+\.[a-z]{2,}/i);
-    expect(m).not.toBeNull();
-    expect(m![0]).not.toContain("example.com");
+    expect(out).toBe("Email me at anonymous@builder.io please");
   });
 
   it("keeps email consistent across occurrences", () => {
     const out = redactDemoString("a@x.com then again a@x.com", { salt: "k" });
     const emails = out.match(/[a-z0-9._]+@[a-z0-9.-]+\.[a-z]{2,}/gi) ?? [];
     expect(emails.length).toBe(2);
-    expect(emails[0]).toBe(emails[1]);
-    expect(emails[0]).not.toContain("example.com");
+    expect(emails).toEqual(["anonymous@builder.io", "anonymous@builder.io"]);
+  });
+
+  it("can redact email-backed identities while preserving other IDs", () => {
+    const out = redactDemoData(
+      {
+        userId: "jane.doe@acme.com",
+        user_key: "jane.doe@acme.com",
+        sessionId: "session-1234",
+      },
+      {
+        salt: "s",
+        redactNumbers: false,
+        redactProtectedEmails: true,
+      },
+    ) as {
+      userId: string;
+      user_key: string;
+      sessionId: string;
+    };
+
+    expect(out.userId).toBe("anonymous@builder.io");
+    expect(out.user_key).toBe(out.userId);
+    expect(out.sessionId).toBe("session-1234");
+  });
+
+  it("supports email-only frontend redaction without changing numbers", () => {
+    const out = redactDemoData(
+      {
+        email: "jane.doe@acme.com",
+        count: 4200,
+        summary: "4200 visits by jane.doe@acme.com",
+      },
+      { salt: "s", redactNumbers: false },
+    ) as {
+      email: string;
+      count: number;
+      summary: string;
+    };
+
+    expect(out.email).not.toBe("jane.doe@acme.com");
+    expect(out.count).toBe(4200);
+    expect(out.summary).toContain("4200 visits");
+    expect(out.email).toBe("anonymous@builder.io");
+    expect(out.summary).toContain("anonymous@builder.io");
+  });
+
+  it("anonymizes every email-bearing field in an error-reporting response", () => {
+    const out = redactDemoData(
+      {
+        events: [
+          {
+            userId: "alice@builder.io",
+            userKey: "alice@builder.io",
+            message: "Contact alice@builder.io",
+            tags: { reporter: "bob@example.com" },
+            breadcrumbs: [{ message: "Signed in as bob@example.com" }],
+          },
+        ],
+      },
+      { redactNumbers: false, redactProtectedEmails: true },
+    );
+
+    expect(out).toEqual({
+      events: [
+        {
+          userId: "anonymous@builder.io",
+          userKey: "anonymous@builder.io",
+          message: "Contact anonymous@builder.io",
+          tags: { reporter: "anonymous@builder.io" },
+          breadcrumbs: [{ message: "Signed in as anonymous@builder.io" }],
+        },
+      ],
+    });
   });
 });
 
-describe("full names", () => {
-  it("replaces 2+ capitalized word sequences in free text", () => {
-    const out = redactDemoString("Please call Sarah Connor today");
-    expect(out).not.toContain("Sarah Connor");
-    expect(out).toMatch(/Please call [A-Z][a-z]+ [A-Z][a-z]+ today/);
+describe("names and free text", () => {
+  it("does not guess at or replace full names in free text", () => {
+    expect(redactDemoString("Please call Sarah Connor today")).toBe(
+      "Please call Sarah Connor today",
+    );
+    expect(redactDemoString("From Sarah J Connor")).toBe("From Sarah J Connor");
   });
 
-  it("handles a middle initial (Sarah J Connor)", () => {
-    const out = redactDemoString("From Sarah J Connor");
-    expect(out).not.toContain("Sarah J Connor");
+  it("keeps names while still replacing explicit emails and large numbers", () => {
+    const out = redactDemoString(
+      "Sarah Connor has 4200 visits; email sarah.connor@acme.com",
+      { salt: "s" },
+    );
+    expect(out).toContain("Sarah Connor");
+    expect(out).not.toContain("4200");
+    expect(out).not.toContain("sarah.connor@acme.com");
   });
 
-  it("does NOT replace lone capitalized words in prose", () => {
-    const input = "Monday Inbox The Quarterly Report is ready";
-    const out = redactDemoString(input);
-    const lone = redactDemoString("Monday. Inbox. The. Done.");
-    expect(lone).toBe("Monday. Inbox. The. Done.");
-    expect(typeof out).toBe("string");
-  });
-
-  it("preserves structural labels but redacts standalone person-name values", () => {
+  it("leaves name-like labels and standalone person-name values unchanged", () => {
     const labels = redactDemoData(
       [
         { name: "Important", count: 4200 },
@@ -118,19 +185,17 @@ describe("full names", () => {
     expect(labels[1].name).toBe("Automated notifications");
     expect(labels[2].name).toBe("Note to Self");
     expect(labels[3].name).toBe("Other");
-    expect(labels[4].name).not.toBe("Olivia Parker");
-    expect(labels[4].name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+    expect(labels[4].name).toBe("Olivia Parker");
   });
 
-  it("preserves label keys but still redacts contact-style full names", () => {
+  it("leaves names unchanged regardless of their field key", () => {
     const out = redactDemoData(
       { from: "Cher", name: "Madonna", full: "Jane Cooper", note: "Madonna" },
       { salt: "s" },
     ) as { from: string; name: string; full: string; note: string };
     expect(out.from).toBe("Cher");
     expect(out.name).toBe("Madonna");
-    expect(out.full).not.toBe("Jane Cooper");
-    expect(out.full).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+    expect(out.full).toBe("Jane Cooper");
     expect(out.note).toBe("Madonna");
   });
 });
@@ -255,8 +320,7 @@ describe("ID-safety (critical)", () => {
     // Recurse into nested objects under a protected key, but the protected key
     // itself does not transform its own leaf.
     expect(out.nested.id).toBe("Bob Jones");
-    // Contact-shaped label/name leaves still redact person names.
-    expect(out.nested.label).not.toBe("Bob Jones");
+    expect(out.nested.label).toBe("Bob Jones");
   });
 
   it("never rewrites SQL/query/code keys or chart titles", () => {
@@ -292,7 +356,7 @@ describe("ID-safety (critical)", () => {
     expect(Array.isArray(out.ids)).toBe(true);
     expect(out.ids.length).toBe(2);
     expect(out.meta.id).toBe("x");
-    expect(out.meta.owner).not.toBe("Mary Major");
+    expect(out.meta.owner).toBe("Mary Major");
   });
 
   it("name-like keys still redact emails and defer to ID protection", () => {
@@ -347,7 +411,7 @@ describe("structure preservation", () => {
     expect(out.active).toBe(true);
     expect(out.missing).toBeNull();
     expect(out.maybe).toBeUndefined();
-    expect(out.list[0].person).not.toBe("John Smith");
+    expect(out.list[0].person).toBe("John Smith");
     expect(typeof out.list[0].count).toBe("number");
     expect(out.list[1].count).toBe(7); // < 1000 untouched
   });

@@ -251,7 +251,7 @@ export default defineAction({
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — `POST` الافتراضي. تم وضع علامة `GET` على actions تلقائيًا على `readOnly`، لذا لا تؤدي المكالمات الناجحة إلى تحديث استقصاء UI.
 - **`http: { path: "..." }`** — تجاوز URL المثبت أسفل `/_agent-native/actions/`. الإعدادات الافتراضية لاسم الملف. **تجاوزات المسار تغير URL فقط للمتصلين المباشرين HTTP** — `useActionQuery` و`useActionMutation` و`callAction` يتصلون دائمًا بـ `/_agent-native/actions/<name>` بغض النظر عن هذا التجاوز، لذا فإن تجاوز المسار يجعل هذه الخطافات 404. استخدم تجاوزات المسار فقط للمتصلين HTTP الخارجيين. لاحظ أيضًا أن مقاطع مسار `:param` في مسار التجاوز **لم** يتم تحليلها إلى وسيطات `run()` — فقط معلمات سلسلة الاستعلام وحقول النص JSON هي التي يتم تحليلها.
 - **`http: false`** — تعطيل نقطة النهاية HTTP بالكامل. الوكيل + CLI فقط.
-- **`readOnly: true`** — تخطي تحديث الاستقصاء بشكل صريح حتى بالنسبة إلى POST actions التي لم تتغير.
+- **`readOnly: true`** — تخطي تحديث الاستقصاء بشكل صريح حتى بالنسبة إلى POST actions التي لم تتغير. إنه **ليس** تحكّمًا في الوصول: فهو لا يقيّد من يمكنه استدعاء الـ action، ولا يؤثر على `useActionQuery` أو `useActionMutation` أو أي hook في العميل. تأثيره الوحيد هو منع حدث التحديث بعد الاستدعاء واستثناء الـ action من تدقيق الكتابة. لإخفاء action عن النموذج استخدم `agentTool: false`، ولتقييد المستدعين استخدم خيارات المصادقة/الوصول أعلاه.
 - **`parallelSafe: true`** — السماح بإجراء تغيير بالتزامن مع استدعاءات أداة التشغيل نفسها. قم بتعيين هذا فقط عندما يكون الإجراء آمنًا للتزامن داخليًا ومستقلًا عن الطلب؛ تحويل actions إلى تسلسل افتراضي.
 
 ### اجعل سطح العمل صغيرًا {#small-surface}
@@ -441,8 +441,7 @@ export default defineAction({
 بالنسبة إلى actions التي تغير الحالة:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -460,8 +459,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 للقراءة فقط GET actions:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -538,7 +536,7 @@ pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
 
 ## تعريضه على MCP {#mcp}
 
-مع تمكين MCP، تظهر actions في خادم MCP الخاص بالإطار في `/_agent-native/mcp`. يحصل كل متصل على كتالوج مضغوط بشكل افتراضي - عناصر مدمجة تواجه التطبيق بالإضافة إلى التطبيق المعلن عن القالب actions - و`tool-search` موجود دائمًا بحيث تظل أي أداة أخرى قابلة للوصول عند الطلب. يتم تقديم سطح الإجراء الكامل فقط عند الاشتراك الصريح (الرمز المميز `--full-catalog` أو `AGENT_NATIVE_MCP_FULL_CATALOG=1`)، ويختار `publicAgent.expose` أداة قراءة/الاستيعاب الآمنة على السطح العام. راجع [MCP Protocol](/docs/mcp-protocol) للتعرف على طبقات الكتالوج والمصادقة وتفاصيل موارد `mcpApp`.
+مع تمكين MCP، تظهر actions في خادم MCP الخاص بالإطار في `/mcp`. يحصل كل متصل على كتالوج مضغوط بشكل افتراضي - عناصر مدمجة تواجه التطبيق بالإضافة إلى التطبيق المعلن عن القالب actions - و`tool-search` موجود دائمًا بحيث تظل أي أداة أخرى قابلة للوصول عند الطلب. يتم تقديم سطح الإجراء الكامل فقط عند الاشتراك الصريح (الرمز المميز `--full-catalog` أو `AGENT_NATIVE_MCP_FULL_CATALOG=1`)، ويختار `publicAgent.expose` أداة قراءة/الاستيعاب الآمنة على السطح العام. راجع [MCP Protocol](/docs/mcp-protocol) للتعرف على طبقات الكتالوج والمصادقة وتفاصيل موارد `mcpApp`.
 
 بالنسبة للمضيفين MCP القادرين على UI، يمكن للإجراء الإعلان عن مورد MCP Apps الاختياري عبر حقل `mcpApp` (بالإضافة إلى `link` المطابق) بحيث يعرض المضيفون القادرون النتيجة بشكل مضمن. عندما يشير `link` و`mcpApp` إلى نفس المسار، فإن `embedRoute()` يبني كليهما من منشئ مسار خالص واحد:
 
@@ -615,6 +613,44 @@ export default defineAction({
   },
 });
 ```
+
++## حماية الميزات المرحلية {#feature-flags}
+
+استخدم أعلام ميزات Core عندما تكون العملية آمنة للنشر لكن ينبغي طرحها تدريجياً في الإنتاج. عرّف العلم المعطّل افتراضياً مرة واحدة، وسجّله من إضافة Nitro، وقيّمه داخل كل عملية محمية. إخفاء الزر المطابق عرضٌ فقط؛ أما فحص العملية فهو الإنفاذ.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+استخدم `useFeatureFlag(FULL_APP_BUILDING.key)` من `@agent-native/core/client` لإخفاء واجهة العميل أو إظهارها. يوفّر Core الإجراءات `get-feature-flags` و`list-feature-flags` و`set-feature-flag`. تخضع الإدارة لفحص الأذونات والتدقيق؛ وتستدعي واجهات fleet الإجراءات المحلية للتطبيق نفسها عبر تفويض A2A محدود بدقة. لا تمرّر عمليات كتابة الأعلام عبر نقاط نهاية الإعدادات العامة أو SQL الخام، ولا تضع المصادقة أو التفويض أو التدقيق أو الأسرار أو ذاكرة SSR المؤقتة خلف علم وقت تشغيل.
 
 ## نمط CLI القديم actions {#legacy-cli-actions}
 

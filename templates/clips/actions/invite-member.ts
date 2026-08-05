@@ -125,6 +125,7 @@ export default defineAction({
 
     const appName = getAppName();
     const { html, text } = renderEmail({
+      brandName: appName,
       preheader: `${inviter} invited you to ${orgName} on ${appName}.`,
       heading: `You're invited to join ${orgName}`,
       paragraphs: [
@@ -132,6 +133,7 @@ export default defineAction({
         `Click the button below to accept the invite and start collaborating.`,
       ],
       cta: { label: "Accept invite", url: inviteUrl },
+      // guard:allow-raw-color - email HTML cannot reference CSS theme tokens.
       brandColor: "#18181B",
     });
     try {

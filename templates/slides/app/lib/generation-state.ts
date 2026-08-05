@@ -10,12 +10,22 @@ export function shouldShowNewDeckGeneratingOverlay({
   return generating && isNewDeckCreation && (slideCount ?? 0) === 0;
 }
 
-export function shouldClearNewDeckGeneratingState({
+export function shouldShowNewDeckGeneratingProgress({
   generating,
-  slideCount,
+  isNewDeckCreation,
 }: {
   generating: boolean;
-  slideCount?: number | null;
+  isNewDeckCreation: boolean;
 }): boolean {
-  return !generating || (slideCount ?? 0) > 0;
+  return generating && isNewDeckCreation;
+}
+
+export function shouldClearNewDeckGeneratingState({
+  generating,
+  generationStarted,
+}: {
+  generating: boolean;
+  generationStarted: boolean;
+}): boolean {
+  return generationStarted && !generating;
 }

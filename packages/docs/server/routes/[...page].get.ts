@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 
 import {
   createH3SSRHandler,
-  DEFAULT_SSR_CACHE_HEADERS,
+  resolveSsrCacheHeaders,
 } from "@agent-native/core/server/ssr-handler";
 import {
   createError,
@@ -15,6 +15,7 @@ import {
 } from "h3";
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
+import { wrapDocumentResponse } from "../../lib/analytics";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,7 +28,7 @@ export default async function docsPageHandler(event: H3Event) {
   const agentWebAsset = readAgentWebAssetForRequest(event);
   if (agentWebAsset) {
     setHeader(event, "content-type", agentWebAsset.contentType);
-    setDefaultSsrCacheHeaders(event);
+    setSsrCacheHeaders(event);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     return agentWebAsset.content;
   }
@@ -44,7 +45,7 @@ export default async function docsPageHandler(event: H3Event) {
     )) {
       setHeader(event, name, value);
     }
-    setDefaultSsrCacheHeaders(event);
+    setSsrCacheHeaders(event);
     // These page URLs can return either HTML or markdown based on Accept.
     // Keep the variants isolated in browser/CDN caches.
     setHeader(event, "vary", "Accept");
@@ -56,15 +57,15 @@ export default async function docsPageHandler(event: H3Event) {
   }
 
   const response = await ssrHandler(event);
-  return responseWithVaryAccept(response);
+  return responseWithVaryAccept(wrapDocumentResponse(response));
 }
 
-function setDefaultSsrCacheHeaders(event: H3Event) {
+function setSsrCacheHeaders(event: H3Event) {
   // Keep docs-only public text/markdown assets on the same framework SSR cache
   // policy as HTML and React Router .data. Do not move these back to
   // netlify.toml: core owns the browser/CDN/Netlify durable header set so every
   // provider and template gets the same long-fresh/long-SWR edge behavior.
-  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+  for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
 }

@@ -1,5 +1,5 @@
-import { useT } from "@agent-native/core/client";
-import type { DocumentProperty } from "@shared/api";
+import { useT } from "@agent-native/core/client/i18n";
+import type { DocumentPropertiesResponse, DocumentProperty } from "@shared/api";
 import {
   blocksRenderMode,
   blocksStorageTarget,
@@ -17,9 +17,12 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import { useDocumentProperties } from "@/hooks/use-document-properties";
-import { useReorderDocumentProperty } from "@/hooks/use-document-properties";
-import { useSetDocumentProperty } from "@/hooks/use-document-properties";
+import {
+  documentPropertiesResponseMatchesScope,
+  useDocumentProperties,
+  useReorderDocumentProperty,
+  useSetDocumentProperty,
+} from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
 
 import {
@@ -38,6 +41,8 @@ const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 
 interface DocumentBlockFieldsProps {
   documentId: string;
+  databaseId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   /**
    * The fully-wired collaborative body editor for the primary "Content" field.
@@ -190,17 +195,18 @@ export type BlockFieldsRenderState =
   | { kind: "solo"; field: DocumentProperty; target: BlocksStorageTarget }
   | { kind: "multi"; fields: DocumentProperty[] };
 
-// Whether the query data we are holding actually belongs to the CURRENT row.
+// Whether the query data we are holding belongs to the current row and database.
 // `useDocumentProperties` keeps the previous document's data as placeholder
-// across a documentId change, so identity must be confirmed before the field
+// across a scope change, so both identities must be confirmed before the field
 // layout is trusted — otherwise the old doc's solo-primary layout could route
 // the new doc's edits to the body. The response carries its own `documentId`
 // (shared/api.ts → DocumentPropertiesResponse).
 export function isLoadedForDocument(
   documentId: string,
-  data: { documentId: string } | undefined,
+  databaseId: string,
+  data: DocumentPropertiesResponse | undefined,
 ): boolean {
-  return data?.documentId === documentId;
+  return documentPropertiesResponseMatchesScope(documentId, databaseId, data);
 }
 
 export function blockFieldsRenderState(args: {
@@ -238,27 +244,22 @@ export function blockFieldsRenderState(args: {
  */
 export function DocumentBlockFields({
   documentId,
+  databaseId,
+  databaseDocumentId,
   canEdit,
   primaryEditor,
 }: DocumentBlockFieldsProps) {
   const t = useT();
-  const query = useDocumentProperties(documentId);
+  const query = useDocumentProperties(documentId, databaseId);
   const properties = query.data?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
     [properties],
   );
 
-  // Loaded ONLY when the query data we hold actually belongs to the CURRENT
-  // documentId. `useDocumentProperties` uses `placeholderData: (prev) => prev`,
-  // so right after the viewed row changes, `query.data` still holds the PREVIOUS
-  // document's field layout for a tick. Trusting it would let the old doc's
-  // solo-primary layout route the NEW doc's edits to the body (clobbering a
-  // non-primary field). The response carries its own `documentId`
-  // (shared/api.ts → DocumentPropertiesResponse), so we gate on an identity
-  // match: until the data is for THIS document, treat the row as still loading
-  // (a non-editable placeholder), never a writable body editor.
-  const loaded = isLoadedForDocument(documentId, query.data);
+  // Placeholder data may belong to the previous row or database. Trust it only
+  // after both response identities match the active scope.
+  const loaded = isLoadedForDocument(documentId, databaseId, query.data);
   const state = blockFieldsRenderState({ loaded, blockFields });
 
   switch (state.kind) {
@@ -303,6 +304,7 @@ export function DocumentBlockFields({
               // field while SAVING to another across an identity change.
               key={`${documentId}:${state.field.definition.id}`}
               documentId={documentId}
+              databaseDocumentId={databaseDocumentId}
               property={state.field}
               canEdit={canEdit}
             />
@@ -318,6 +320,8 @@ export function DocumentBlockFields({
       return (
         <MultiBlockFields
           documentId={documentId}
+          databaseId={databaseId}
+          databaseDocumentId={databaseDocumentId}
           canEdit={canEdit}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
@@ -329,18 +333,26 @@ export function DocumentBlockFields({
 
 function MultiBlockFields({
   documentId,
+  databaseId,
+  databaseDocumentId,
   canEdit,
   blockFields,
   primaryEditor,
   t,
 }: {
   documentId: string;
+  databaseId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   t: ReturnType<typeof useT>;
 }) {
-  const reorder = useReorderDocumentProperty(documentId);
+  const reorder = useReorderDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverGapIndex, setDragOverGapIndex] = useState<number | null>(null);
   const [dragPreview, setDragPreview] =
@@ -504,6 +516,7 @@ function MultiBlockFields({
                   // doc's edits to the old field's closure.
                   key={`${documentId}:${property.definition.id}`}
                   documentId={documentId}
+                  databaseDocumentId={databaseDocumentId}
                   property={property}
                   canEdit={canEdit}
                 />
@@ -789,14 +802,20 @@ export function useBlockFieldEditor({
  */
 function AdditionalBlockEditor({
   documentId,
+  databaseDocumentId,
   property,
   canEdit,
 }: {
   documentId: string;
+  databaseDocumentId: string;
   property: DocumentProperty;
   canEdit: boolean;
 }) {
-  const setProperty = useSetDocumentProperty(documentId);
+  const setProperty = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";

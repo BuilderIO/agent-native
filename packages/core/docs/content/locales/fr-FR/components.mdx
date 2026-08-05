@@ -13,7 +13,7 @@ composants lorsque vous le pouvez, et déposez un calque lorsque vous avez besoi
 Importer le navigateur UI à partir des sous-chemins client ciblés :
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -179,8 +179,10 @@ pour l'utilisation du connecteur, le flux d'événements normalisé et quand l'a
 
 ## Champ de discussion et compositeur {#composer}
 
-Utilisez `@agent-native/core/client/composer` lorsque vous devez lancer la même discussion
-champ utilisé par la barre latérale à l'intérieur du UI personnalisé.
+Utilisez `@agent-native/core/client/composer` lorsque vous avez besoin du même champ de discussion
+que la barre latérale dans une UI personnalisée. `@agent-native/toolkit/composer` fournit
+l’implémentation portable et autonome de Tiptap et de l’UI ; pour les services du framework, enveloppez-la dans
+`ComposerRuntimeAdaptersProvider` et fournissez les services. Core fournit la couche préconfigurée pour les pièces jointes, les mentions, les compétences, la voix et le choix du modèle.
 
 | API                               | Utiliser quand                                                                                                                                                                                                                                |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   getSetting: vi.fn(async () => null),
   getUsageSummary: vi.fn(),
   listWorkspaceApps: vi.fn(),
+  currentOrgId: vi.fn((): string | null => null),
+  currentOwnerEmail: vi.fn(() => "owner@example.test"),
   registerBuiltinEngines: vi.fn(),
 }));
 
@@ -45,17 +47,36 @@ vi.mock("./app-creation-store.js", () => ({
 }));
 
 vi.mock("./dispatch-store.js", () => ({
-  currentOrgId: () => null,
-  currentOwnerEmail: () => "owner@example.test",
+  currentOrgId: () => mocks.currentOrgId(),
+  currentOwnerEmail: () => mocks.currentOwnerEmail(),
 }));
 
 const { listDispatchUsageMetrics } = await import("./usage-metrics-store.js");
 
 afterEach(() => {
   vi.clearAllMocks();
+  mocks.currentOrgId.mockReturnValue(null);
+  mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
 });
 
 describe("listDispatchUsageMetrics", () => {
+  it("rejects non-admin organization members with a typed 403", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
+
+    await expect(
+      listDispatchUsageMetrics({ sinceDays: 30 }),
+    ).rejects.toMatchObject({
+      name: "ForbiddenError",
+      statusCode: 403,
+      message:
+        "Only organization owners and admins can view workspace usage metrics.",
+    });
+    expect(mocks.getUsageSummary).not.toHaveBeenCalled();
+    expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
+  });
+
   it("returns empty metrics when usage storage bootstrap and reads fail", async () => {
     mocks.getUsageSummary.mockRejectedValue(new Error("database is locked"));
     mocks.execute.mockRejectedValue(new Error("no such table: token_usage"));

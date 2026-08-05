@@ -1,8 +1,8 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
@@ -176,6 +176,7 @@ function NotionLogoMark({ className }: { className?: string }) {
 export function DatabaseSettingsPanelSheet({
   open,
   panel,
+  databaseId,
   documentId,
   canEdit,
   activeView,
@@ -208,6 +209,7 @@ export function DatabaseSettingsPanelSheet({
 }: {
   open: boolean;
   panel: DatabaseSettingsPanel;
+  databaseId: string;
   documentId: string;
   canEdit: boolean;
   activeView: ContentDatabaseView;
@@ -348,6 +350,7 @@ export function DatabaseSettingsPanelSheet({
         ) : panel === "property_visibility" ? (
           <DatabaseSettingsPropertyVisibilityPanel
             documentId={documentId}
+            databaseId={databaseId}
             properties={properties}
             activeView={activeView}
             items={items}
@@ -449,6 +452,9 @@ export function builderReviewableChangeSets(
   return source.changeSets.filter(
     (changeSet) =>
       changeSet.direction === "outbound" &&
+      !changeSet.executions.some(
+        (execution) => execution.state === "succeeded",
+      ) &&
       (changeSet.state === "pending_push" ||
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
@@ -530,6 +536,7 @@ export function buildClientBuilderReviewPayload(
       (field) => field.localFieldKey === "title",
     );
     const proposedTitle = titleChange?.proposedValue;
+    const effect = resolveBuilderCmsWriteEffect({ source, changeSet });
 
     return {
       changeSetId: changeSet.id,
@@ -539,12 +546,14 @@ export function buildClientBuilderReviewPayload(
         typeof proposedTitle === "string" && proposedTitle.trim()
           ? proposedTitle
           : sourceRow?.sourceDisplayKey || "Untitled",
+      targetEntryId:
+        effect === "create_draft" ? null : (sourceRow?.sourceRowId ?? null),
       fieldChanges: changeSet.fieldChanges,
       bodyChange: changeSet.bodyChange,
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
-      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
+      effect,
       execution: latestExecution,
     };
   });
@@ -667,16 +676,13 @@ function DatabaseSettingsSourcePanel({
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
+  const reviewableBuilderChangeSets = builderReviewableChangeSets(source);
   const outboundChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "outbound",
-    ) ?? [];
-  const reviewableBuilderChangeSets = outboundChangeSets.filter(
-    (changeSet) =>
-      changeSet.state === "pending_push" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved",
-  );
+    source?.sourceType === "builder-cms"
+      ? reviewableBuilderChangeSets
+      : (source?.changeSets.filter(
+          (changeSet) => changeSet.direction === "outbound",
+        ) ?? []);
   const conflictChangeSets =
     source?.changeSets.filter(
       (changeSet) => changeSet.conflictState === "source_changed",
@@ -765,20 +771,19 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onAddDetails={() =>
-          secondary
-            ? onNavPush({
-                kind: "keyConfirm",
-                candidate: {
-                  sourceType: secondary.sourceType,
-                  sourceName: secondary.sourceName,
-                  sourceTable: secondary.sourceTable,
-                  displayName: secondary.sourceName,
-                  existingSourceId: secondary.id,
-                },
-              })
-            : undefined
-        }
+        onAddDetails={() => {
+          if (!secondary || secondary.sourceType === "local-folder") return;
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: secondary.sourceType,
+              sourceName: secondary.sourceName,
+              sourceTable: secondary.sourceTable,
+              displayName: secondary.sourceName,
+              existingSourceId: secondary.id,
+            },
+          });
+        }}
         onAddItems={async () => {
           if (!secondary) return;
           await onChangeSourceRole(secondary.id, "items");
@@ -1139,12 +1144,16 @@ function DatabaseSettingsSourcePanel({
 
         <SourceRoleCard
           source={source}
-          canAddDetails={sources.some(
-            (item) => item.id !== source.id && !sourceAddsDetails(item),
-          )}
+          canAddDetails={
+            source.sourceType !== "local-folder" &&
+            sources.some(
+              (item) => item.id !== source.id && !sourceAddsDetails(item),
+            )
+          }
           canEdit={canEdit}
           pending={sourceActionPending}
-          onAddDetails={() =>
+          onAddDetails={() => {
+            if (source.sourceType === "local-folder") return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -1154,8 +1163,8 @@ function DatabaseSettingsSourcePanel({
                 displayName: source.sourceName,
                 existingSourceId: source.id,
               },
-            })
-          }
+            });
+          }}
           onAddItems={async () => {
             await onChangeSourceRole(source.id, "items");
             onNavReplace([]);
@@ -2790,6 +2799,7 @@ function DatabaseOpenPagesInSetting({
 
 function DatabaseSettingsPropertyVisibilityPanel({
   documentId,
+  databaseId,
   properties,
   activeView,
   items,
@@ -2800,6 +2810,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   onPropertiesHiddenChange,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   activeView: ContentDatabaseView;
   items: ContentDatabaseItem[];
@@ -2899,6 +2910,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
       <div className="border-t border-border/70 pt-3">
         <AddProperty
           documentId={documentId}
+          databaseId={databaseId}
           label={dbText("newProperty")}
           source={source}
           sources={sources}

@@ -1,14 +1,15 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  agentNativePath,
-  useT,
-} from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
@@ -144,6 +145,7 @@ function AccountAvatar({
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/settings" ||
+    pathname === "/agent" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -194,7 +196,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <AgentSidebar
       position="right"
-      defaultOpen={!isMobile}
+      defaultOpen={false}
+      agentPageHref="/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[
         t("agent.suggestionSummarize"),
@@ -380,6 +383,57 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
+
+  const collapseButton =
+    sidebarPinned && !isMobile ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((value) => !value)}
+            className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            aria-label={
+              showCollapsedSidebar
+                ? t("sidebar.expandSidebar")
+                : t("sidebar.collapseSidebar")
+            }
+          >
+            {showCollapsedSidebar ? (
+              <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+            ) : (
+              <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {showCollapsedSidebar
+            ? t("sidebar.expandSidebar")
+            : t("sidebar.collapseSidebar")}
+        </TooltipContent>
+      </Tooltip>
+    ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          aria-label={t("mail.search.label")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={showCollapsedSidebar ? "icon" : "sidebar"}
+      side="right"
+      className={showCollapsedSidebar ? "size-8" : "min-w-0"}
+    />
+  );
 
   // Drag-to-reorder tabs
   const [dragPinnedId, setDragPinnedId] = useState<string | null>(null);
@@ -887,6 +941,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       },
     },
   ]);
+
+  useEffect(() => {
+    const handler = () => setPaletteOpen(true);
+    window.addEventListener("agent-native:open-command-menu", handler);
+    return () =>
+      window.removeEventListener("agent-native:open-command-menu", handler);
+  }, []);
 
   // Sequence shortcuts (g + key = go to view)
   const qc = useQueryClient();
@@ -1434,45 +1495,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     : "justify-between px-4",
                 )}
               >
-                {showCollapsedSidebar ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => setSidebarCollapsed(false)}
-                        className="flex h-10 w-10 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                        aria-label={t("sidebar.expandSidebar")}
-                      >
-                        <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t("sidebar.expandSidebar")}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
+                {showCollapsedSidebar ? null : (
                   <>
                     <span className="text-[13px] font-medium text-foreground">
                       {t("mail.appName")}
                     </span>
                     <div className="flex items-center gap-1">
-                      {sidebarPinned && !isMobile ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => setSidebarCollapsed(true)}
-                              className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                              aria-label={t("sidebar.collapseSidebar")}
-                            >
-                              <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {t("sidebar.collapseSidebar")}
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : null}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button
@@ -1737,17 +1765,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
 
                   <div className="shrink-0">
-                    <div className="px-2 py-1">
-                      <ExtensionsSidebarSection />
-                    </div>
-
                     <div className="px-3 py-2">
                       <OrgSwitcher />
                     </div>
 
-                    <div className="flex items-center gap-1 px-2 py-2">
+                    <div className="flex items-center justify-end gap-1 px-2 py-2">
                       <DevDatabaseLink />
-                      <FeedbackButton className="min-w-0 flex-1" />
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Link
@@ -1772,6 +1795,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
                 </>
               )}
+              <SidebarFooterActions
+                collapsed={showCollapsedSidebar}
+                feedback={feedbackButton}
+                search={searchButton}
+                collapse={collapseButton}
+              />
             </div>
           </>
         )}
@@ -1958,6 +1987,48 @@ function StandardLayout({ children }: AppLayoutProps) {
   const queuedDrafts = useQueuedDraftCount();
   const view = location.pathname.split("/").filter(Boolean)[0] || "";
 
+  const collapseButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(false)}
+          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          aria-label={t("sidebar.collapseSidebar")}
+        >
+          <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => {
+            setSidebarOpen(false);
+            window.setTimeout(
+              () => document.getElementById("mail-search")?.focus(),
+              0,
+            );
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          aria-label={t("mail.search.label")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton variant="sidebar" side="right" className="min-w-0" />
+  );
+
   // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
   // toolbar inside the shared
   // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
@@ -1967,6 +2038,7 @@ function StandardLayout({ children }: AppLayoutProps) {
 
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return t("settings.title");
+    if (location.pathname === "/agent") return t("settings.agentTitle");
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");
@@ -2089,17 +2161,12 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
 
           <div className="shrink-0">
-            <div className="px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher />
             </div>
 
-            <div className="flex items-center gap-1 px-2 py-2">
+            <div className="flex items-center justify-end gap-1 px-2 py-2">
               <DevDatabaseLink />
-              <FeedbackButton className="min-w-0 flex-1" />
               <div className="flex shrink-0 items-center gap-0.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -2121,6 +2188,11 @@ function StandardLayout({ children }: AppLayoutProps) {
                 <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>
             </div>
+            <SidebarFooterActions
+              feedback={feedbackButton}
+              search={searchButton}
+              collapse={collapseButton}
+            />
           </div>
         </div>
       </>

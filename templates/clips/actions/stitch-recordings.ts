@@ -12,20 +12,27 @@
  *      recordings in order.
  *   2. It fetches each source video via `/api/video/:id`, concatenates them
  *      using ffmpeg.wasm (see `app/lib/ffmpeg-export.ts` for the wasm init).
- *   3. It uploads the resulting blob through the configured file-upload provider.
- *   4. It calls THIS action to create the new recording row, passing
- *      `sourceRecordingIds` for provenance, the uploaded `videoUrl`, and the
- *      new `durationMs`.
+ *   3. For S3-backed uploads, it reserves a destination `recordingId` and
+ *      uploads the resulting blob as `<recordingId>.mp4` through the configured
+ *      file-upload provider. Other providers may continue to omit the ID and
+ *      let this action generate it server-side.
+ *   4. It calls THIS action to create the new recording row, passing that
+ *      `recordingId`, `sourceRecordingIds` for provenance, the uploaded
+ *      `videoUrl`, and the new `durationMs`.
  *
  * If the caller omits `videoUrl`/`durationMs` we create a row in `processing`
  * state — the UI can then upload and finalize via `/api/uploads/:id/complete`.
  *
- * Usage (from the UI after the concat completes):
+ * Usage (from the UI after the concat completes; `recordingId` is required for
+ * S3-backed uploads so the object can be bound to the destination recording):
  *   pnpm action stitch-recordings \
+ *     --recordingId="550e8400-e29b-41d4-a716-446655440000" \
  *     --title="Combined walkthrough" \
  *     --sourceRecordingIds='["rec_a","rec_b"]' \
  *     --videoUrl="/api/video/..." --durationMs=124000
  */
+
+import { randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
@@ -36,15 +43,23 @@ import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
-  nanoid,
+  getDefaultRecordingVisibility,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
+import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
   description:
     "Stitch multiple recordings into a new recording. The client-side editor is expected to concat the video files via ffmpeg.wasm and pass in the uploaded videoUrl + durationMs. Returns the new recording id.",
   schema: z.object({
+    recordingId: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{8,128}$/)
+      .optional()
+      .describe(
+        "Pre-reserved destination ID used to bind S3-backed media. Optional for backward compatibility with other upload providers.",
+      ),
     sourceRecordingIds: z
       .union([z.string(), z.array(z.string())])
       .describe("Ordered list of source recording IDs (or JSON-encoded array)"),
@@ -52,7 +67,9 @@ export default defineAction({
     visibility: z
       .enum(["private", "org", "public"])
       .optional()
-      .describe("Visibility for the new recording (defaults to 'private')"),
+      .describe(
+        "Visibility for the new recording. When omitted, uses the organization default and falls back to public.",
+      ),
     videoUrl: z
       .string()
       .optional()
@@ -92,10 +109,10 @@ export default defineAction({
       throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
     }
 
-    // Stitch creates a brand-new recording owned by the caller that defaults
-    // to public visibility, so every source must be OWNED by the caller (not
+    // Stitch creates a brand-new recording owned by the caller, so every
+    // source must be OWNED by the caller (not
     // just editor-shared) — otherwise a user with editor access to a
-    // private/org clip could reshare it as a new public recording they own.
+    // private/org clip could reshare it as a new recording they own.
     const sources = await db
       .select()
       .from(schema.recordings)
@@ -117,6 +134,8 @@ export default defineAction({
       assertNativeRecordingMedia(source);
     }
     const organizationId = ordered[0].organizationId;
+    const defaultVisibility =
+      await getDefaultRecordingVisibility(organizationId);
 
     const totalDuration =
       args.durationMs ??
@@ -128,12 +147,27 @@ export default defineAction({
     const height =
       args.height ?? Math.max(...ordered.map((r) => r.height || 0), 0);
 
-    const id = nanoid();
+    // Preserve the established action contract for callers using Builder.io or
+    // another external upload provider: they may omit recordingId and receive
+    // a server-generated destination ID. S3 callers must pre-reserve the ID so
+    // the uploaded key can be proven to belong to this recording; an unbound
+    // S3 object is still rejected below rather than reintroducing cross-recording
+    // object aliasing.
+    const id = args.recordingId ?? randomUUID();
+    if (videoUrl) {
+      const isBound = await isS3ObjectUrlBoundToRecording(videoUrl, id);
+      if (isBound === false) {
+        throw new Error(
+          "The stitched upload is not bound to its destination recording.",
+        );
+      }
+    }
     const now = new Date().toISOString();
 
     // Seed editsJson with provenance so the editor/player can link back.
     const edits = parseEdits("{}");
     edits.stitchedFrom = ids;
+    edits.mediaStorageLayout = "external";
 
     await db.insert(schema.recordings).values({
       id,
@@ -152,7 +186,7 @@ export default defineAction({
       hasCamera: ordered.some((r) => Boolean(r.hasCamera)),
       editsJson: serializeEdits(edits),
       ownerEmail,
-      visibility: args.visibility ?? "public",
+      visibility: args.visibility ?? defaultVisibility,
       createdAt: now,
       updatedAt: now,
       // Reuse the first source's thumbnail so the new row has something to show immediately.

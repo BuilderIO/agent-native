@@ -249,7 +249,7 @@ Default POST है; `http: { method: "GET" }` इसे GET बनाता ह
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — डिफ़ॉल्ट `POST`. `GET` actions स्वतः-चिह्नित `readOnly` हैं, इसलिए सफल कॉल UI पोल-रीफ्रेश को ट्रिगर नहीं करते हैं।
 - **`http: { path: "..." }`** — `/_agent-native/actions/` के अंतर्गत माउंटेड URL को ओवरराइड करें। फ़ाइल नाम पर डिफ़ॉल्ट. **पथ ओवरराइड केवल प्रत्यक्ष HTTP कॉलर्स के लिए URL को बदलता है** - `useActionQuery`, `useActionMutation`, और `callAction` हमेशा इस ओवरराइड की परवाह किए बिना `/_agent-native/actions/<name>` को कॉल करते हैं, इसलिए पथ को ओवरराइड करने से वे हुक 404 हो जाते हैं। पथ ओवरराइड का उपयोग केवल बाहरी HTTP कॉलर्स के लिए करें। यह भी ध्यान दें कि ओवरराइड पथ में `:param` रूट सेगमेंट को `run()` आर्ग्स में **नहीं** पार्स किया गया है - केवल क्वेरी-स्ट्रिंग पैरामीटर और JSON बॉडी फ़ील्ड हैं।
 - **`http: false`** - HTTP एंडपॉइंट को पूरी तरह से अक्षम करें। केवल एजेंट + CLI.
-- **`readOnly: true`** - स्पष्ट रूप से उन POST actions के लिए भी पोल-रीफ्रेश को छोड़ दें जो उत्परिवर्तन नहीं करते हैं।
+- **`readOnly: true`** - स्पष्ट रूप से उन POST actions के लिए भी पोल-रीफ्रेश को छोड़ दें जो उत्परिवर्तन नहीं करते हैं। यह **एक्सेस कंट्रोल नहीं है**: यह इस बात को सीमित नहीं करता कि action को कौन कॉल कर सकता है, और यह `useActionQuery`, `useActionMutation` या किसी भी क्लाइंट hook को प्रभावित नहीं करता। इसका एकमात्र प्रभाव कॉल के बाद के रिफ़्रेश इवेंट को रोकना और action को राइट-ऑडिटिंग से बाहर रखना है। मॉडल से action छिपाने के लिए `agentTool: false` का उपयोग करें; कॉल करने वालों को सीमित करने के लिए ऊपर दिए गए auth/access विकल्पों का उपयोग करें।
 - **`parallelSafe: true`** - एक परिवर्तनशील क्रिया को अन्य समान-टर्न टूल कॉल के साथ समवर्ती रूप से चलाने की अनुमति दें। इसे केवल तभी सेट करें जब कार्रवाई आंतरिक रूप से समवर्ती-सुरक्षित और ऑर्डर-स्वतंत्र हो; actions को डिफ़ॉल्ट रूप से क्रमबद्ध रूप से बदलना।
 
 ### कार्य सतह को छोटा रखें {#small-surface}
@@ -439,8 +439,7 @@ export default defineAction({
 actions के लिए जो स्थिति बदलता है:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -458,8 +457,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 केवल पढ़ने के लिए GET actions के लिए:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -536,7 +534,7 @@ JSON इनपुट एजेंटों और जटिल वस्तु�
 
 ## इसे MCP पर उजागर करना {#mcp}
 
-MCP सक्षम होने पर, आपका actions फ्रेमवर्क के MCP सर्वर में `/_agent-native/mcp` पर दिखाई देता है। प्रत्येक कॉल करने वाले को डिफ़ॉल्ट रूप से एक कॉम्पैक्ट कैटलॉग मिलता है - ऐप-फेसिंग बिल्टिन और टेम्पलेट-घोषित ऐप actions - और `tool-search` हमेशा मौजूद रहता है ताकि कोई भी अन्य टूल मांग पर उपलब्ध रहे। पूर्ण क्रिया सतह केवल स्पष्ट ऑप्ट-इन (`--full-catalog` टोकन या `AGENT_NATIVE_MCP_FULL_CATALOG=1`) पर प्रदान की जाती है, और `publicAgent.expose` सार्वजनिक सतह पर एक सुरक्षित रीड/इन्जेस्ट टूल का विकल्प चुनता है। कैटलॉग टियर, ऑथ और `mcpApp` संसाधन विवरण के लिए [MCP Protocol](/docs/mcp-protocol) देखें।
+MCP सक्षम होने पर, आपका actions फ्रेमवर्क के MCP सर्वर में `/mcp` पर दिखाई देता है। प्रत्येक कॉल करने वाले को डिफ़ॉल्ट रूप से एक कॉम्पैक्ट कैटलॉग मिलता है - ऐप-फेसिंग बिल्टिन और टेम्पलेट-घोषित ऐप actions - और `tool-search` हमेशा मौजूद रहता है ताकि कोई भी अन्य टूल मांग पर उपलब्ध रहे। पूर्ण क्रिया सतह केवल स्पष्ट ऑप्ट-इन (`--full-catalog` टोकन या `AGENT_NATIVE_MCP_FULL_CATALOG=1`) पर प्रदान की जाती है, और `publicAgent.expose` सार्वजनिक सतह पर एक सुरक्षित रीड/इन्जेस्ट टूल का विकल्प चुनता है। कैटलॉग टियर, ऑथ और `mcpApp` संसाधन विवरण के लिए [MCP Protocol](/docs/mcp-protocol) देखें।
 
 UI-सक्षम MCP होस्ट के लिए, एक क्रिया `mcpApp` फ़ील्ड (साथ ही एक मिलान `link`) के माध्यम से एक वैकल्पिक MCP ऐप्स संसाधन घोषित कर सकती है ताकि सक्षम होस्ट परिणाम इनलाइन प्रस्तुत कर सकें। जब `link` और `mcpApp` को एक ही मार्ग पर इंगित करना चाहिए, तो `embedRoute()` दोनों को एक शुद्ध पथ बिल्डर से बनाता है:
 
@@ -613,6 +611,44 @@ export default defineAction({
   },
 });
 ```
+
++## चरणबद्ध सुविधाओं की सुरक्षा {#feature-flags}
+
+Core फीचर फ़्लैग का उपयोग तब करें जब कोई action सुरक्षित रूप से deploy की जा सकती हो, लेकिन production तक धीरे-धीरे पहुँचनी हो। डिफ़ॉल्ट रूप से बंद फ़्लैग को एक बार घोषित करें, Nitro plugin से register करें और हर guarded action में evaluate करें। संबंधित बटन छिपाना केवल प्रस्तुति है; action check ही enforcement है।
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+क्लाइंट सतह को छिपाने या दिखाने के लिए `@agent-native/core/client` से `useFeatureFlag(FULL_APP_BUILDING.key)` का उपयोग करें। Core `get-feature-flags`, `list-feature-flags`, और `set-feature-flag` उपलब्ध कराता है। प्रबंधन में अनुमतियों की जाँच और audit होता है; fleet UI सख्ती से सीमित A2A delegation के जरिए वही app-local actions कॉल करता है। फ़्लैग writes को सामान्य settings endpoints या raw SQL से route न करें, और authentication, authorization, audit, secrets या SSR cache को runtime flag के पीछे न रखें।
 
 ## विरासत CLI-शैली actions {#legacy-cli-actions}
 

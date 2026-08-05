@@ -88,7 +88,9 @@ function HtmlDiagram({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
-  const style = useWireframeStyle();
+  const preferredStyle = useWireframeStyle();
+  const designMode = data.renderMode === "design";
+  const style = designMode ? "clean" : preferredStyle;
   const showFrame = resolveVisualFrame(data.frame, ctx);
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   // Sanitize author HTML/CSS at the render point (defense-in-depth against
@@ -127,7 +129,7 @@ function HtmlDiagram({
       </div>
       <RoughOverlay
         scopeRef={ref}
-        enabled={style === "sketchy"}
+        enabled={!designMode && style === "sketchy"}
         drawFrame={showFrame}
         selector={DIAGRAM_ROUGH_SELECTOR}
       />
@@ -650,7 +652,8 @@ function ExpandableDiagramBody({
   compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const supportsStyleToggle = Boolean(data.html);
+  const designMode = data.renderMode === "design";
+  const supportsStyleToggle = Boolean(data.html) && !designMode;
   const style = useWireframeStyle();
   const copy = useBlockCopy();
   const sketchy = style === "sketchy";
@@ -794,7 +797,9 @@ export function DiagramEdit({
     onChange({
       html: html.trim() || undefined,
       css: css.trim() || undefined,
+      renderMode: data.renderMode,
       caption: caption.trim() || undefined,
+      frame: data.frame,
       nodes: data.nodes,
       edges: data.edges,
       notes: data.notes,
@@ -946,7 +951,7 @@ export const diagramBlock = defineBlock<DiagramData>({
   editSurface: "panel",
   label: "Diagram",
   description:
-    "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
+    "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use renderMode design for clean presentation or .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
   // Seed the legacy fallback shape so a fresh block validates while agents can
   // replace it with html/css when layout quality matters.
   empty: () => ({ nodes: [{ id: "n1", label: "Module" }], edges: [] }),

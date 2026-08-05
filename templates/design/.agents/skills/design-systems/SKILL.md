@@ -10,6 +10,14 @@ description: >-
 
 Design systems store brand identity tokens (colors, fonts, spacing, logos) that are applied to all designs in a project.
 
+Before creating or applying a system, read the `creative-context` skill and
+retrieve approved brand primitives separately from factual, visual, and layout
+examples. Apply its exact reuse ladder before inventing new primitives. A
+context pack is an immutable generation snapshot; it is not a design system and
+must not be silently promoted into one. Preserve the chosen `contextPackId` and
+reuse labels on the generation session/screens, and require an explicit user
+decision before making a retrieved pattern a durable design-system default.
+
 ## Data Model
 
 Design systems are stored in the `design_systems` SQL table. Each has:
@@ -22,6 +30,7 @@ Design systems are stored in the `design_systems` SQL table. Each has:
 - `is_default` — boolean, whether this is the user's default design system
 - `owner_email` — auto-set from session
 - `org_id` — organization scope
+- `visibility` — defaults to `org` inside an organization, otherwise `private`
 
 ### DesignSystemData Schema
 
@@ -117,7 +126,9 @@ brand's actual extracted fonts) rather than defaulting to Space Grotesk/DM
 Sans every time; that pairing is this skill's own most common convergence
 fingerprint.
 
-If this is the user's first design system, it is automatically set as the default.
+If this is the user's first design system in the active organization, it is
+automatically set as the default. Organization-scoped systems are shared with
+that organization by default.
 
 ### Starting from an established public system
 
@@ -167,7 +178,8 @@ Only provided fields are updated. You can also update `--title`, `--description`
 pnpm action set-default-design-system --id <id>
 ```
 
-Unsets any previously-default design system for this user.
+Pass `--isDefault false` to clear the current default. Setting a system as the
+default unsets the previous default in the same user and organization scope.
 
 ## Multi-Source Import Flow
 
@@ -447,6 +459,21 @@ When the user provides multiple sources, call all applicable import actions in p
 6. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve conflicts
 7. **Call `create-design-system`** with the combined result
 8. **Link to design** via `update-design --designSystemId`
+
+## Fidelity Limits And Open-Ended Figma/GitHub API Access
+
+Figma import/read/paste and design-system/token workflows
+(`import-figma-frame`, `get-figma-design-context`,
+`list-figma-library-assets`, clipboard paste, `.fig` upload) are covered above —
+read them before guessing the calling convention.
+
+Never claim universal lossless Figma import/export; consult
+`FIGMA_INTEROPERABILITY.md` for the real fidelity contract.
+
+For open-ended GitHub/Figma API questions, use
+`provider-api-catalog`/`provider-api-docs`/`provider-api-request` rather than
+treating provider actions as a capability ceiling. Non-read Figma requests need
+human approval.
 
 ## Applying Design System to Generated HTML
 

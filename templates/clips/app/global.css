@@ -813,6 +813,29 @@ body:has([data-clips-video-editor]) {
   }
 }
 
+@keyframes clips-import-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(50%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@keyframes clips-benefit-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes clips-collapsible-down {
   from {
     height: 0;

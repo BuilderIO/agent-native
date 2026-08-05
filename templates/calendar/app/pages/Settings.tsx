@@ -1,15 +1,19 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { callAction } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
-  AppearancePicker,
-  callAction,
-  ChangelogSettingsCard,
-  LanguagePicker,
+  AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  type AppearancePresetId,
   type SettingsSearchEntry,
-  useT,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
+import {
+  AppearancePicker,
+  type AppearancePresetId,
+} from "@agent-native/core/client/ui";
 import {
   IconBrandZoom,
   IconExternalLink,
@@ -196,6 +200,7 @@ export default function Settings() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       generalLabel={t("settings.general")}
       teamLabel={t("navigation.team")}
       extraTabs={agentSettingsTabs}
@@ -206,20 +211,36 @@ export default function Settings() {
             {t("settings.description")}
           </p>
 
-          <Card id="language" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.languageTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.languageDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+            <SettingsRow
+              id="appearance"
+              label={t("settings.appearance")}
+              description={t("settings.appearanceDescription")}
+            >
+              <AppearancePicker
+                onChange={(preset: AppearancePresetId) => {
+                  // Persist server-side so the choice survives reload and syncs
+                  // across devices; the local UI has already updated optimistically.
+                  callAction(
+                    "change-appearance" as any,
+                    { preset } as any,
+                  ).catch(() => {
+                    // Server write failed; the local DOM change still stands.
+                  });
+                }}
+              />
+            </SettingsRow>
+          </SettingsGroup>
 
           {/* Google Calendar Connection */}
           <Card id="google-calendar" className="scroll-mt-16">
@@ -455,32 +476,6 @@ export default function Settings() {
                   </Link>
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Appearance */}
-          <Card id="appearance" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.appearance")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.appearanceDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AppearancePicker
-                onChange={(preset: AppearancePresetId) => {
-                  // Persist server-side so the choice survives reload and syncs
-                  // across devices; the local UI has already updated optimistically.
-                  callAction(
-                    "change-appearance" as any,
-                    { preset } as any,
-                  ).catch(() => {
-                    // Server write failed; the local DOM change still stands.
-                  });
-                }}
-              />
             </CardContent>
           </Card>
         </div>

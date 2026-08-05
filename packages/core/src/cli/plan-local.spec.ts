@@ -421,10 +421,12 @@ describe("local plan CLI helpers", () => {
       expect(result.ok, label).toBe(true);
       expect(result.appUrl, label).toBe("https://plan.example.com");
       expect(result.bridgeUrl, label).toContain("http://127.0.0.1:");
-      expect(result.url, label).toBe(
-        `https://plan.example.com/local-plans/checkout?bridge=${encodeURIComponent(
-          result.bridgeUrl,
-        )}`,
+      const [pageUrl, encodedBridgeUrl] = result.url.split("#bridge=");
+      expect(pageUrl, label).toMatch(
+        /^https:\/\/plan\.example\.com\/local-plans\/local-[a-f0-9]{16}$/,
+      );
+      expect(decodeURIComponent(encodedBridgeUrl), label).toBe(
+        result.bridgeUrl,
       );
       expect(result.urlFile, label).toBe(urlFile);
       expect(fs.readFileSync(urlFile, "utf-8"), label).toBe(`${result.url}\n`);
@@ -741,10 +743,12 @@ describe("local plan CLI helpers", () => {
     });
 
     try {
-      expect(bridge.result.url).toBe(
-        `https://plan.example.com/local-plans/checkout?bridge=${encodeURIComponent(
-          bridge.result.bridgeUrl,
-        )}`,
+      const [pageUrl, encodedBridgeUrl] = bridge.result.url.split("#bridge=");
+      expect(pageUrl).toMatch(
+        /^https:\/\/plan\.example\.com\/local-plans\/local-[a-f0-9]{16}$/,
+      );
+      expect(decodeURIComponent(encodedBridgeUrl)).toBe(
+        bridge.result.bridgeUrl,
       );
       expect(bridge.result.bridgeUrl).toContain("127.0.0.1");
       expect(bridge.result.files).toContain("plan.mdx");
@@ -810,16 +814,25 @@ describe("local plan CLI helpers", () => {
     }) as typeof fetch;
   }
 
-  it("verifies the localhost bridge headlessly and reports browser guidance", async () => {
+  it("never sends local plan source to a remote renderer", async () => {
     const dir = path.join(tmpDir(), "checkout");
     writeSamplePlan(dir);
+    const remoteCalls: string[] = [];
+    const fetchFn: typeof fetch = (async (input, init) => {
+      const url = new URL(String(input));
+      if (url.hostname !== "127.0.0.1") {
+        remoteCalls.push(String(input));
+        throw new Error("Local plan verification attempted remote egress");
+      }
+      return fetch(input as never, init);
+    }) as typeof fetch;
 
     const result = await verifyLocalPlanBridge({
       dir,
       appUrl: "https://plan.example.com",
       token: "test-token",
       urlFile: false,
-      fetchFn: verifyFetchFn({ body: { valid: true, issues: [] } }),
+      fetchFn,
     });
 
     expect(result.ok).toBe(true);
@@ -828,8 +841,9 @@ describe("local plan CLI helpers", () => {
     expect(result.bridge.ok).toBe(true);
     expect(result.bridge.source).toBe("agent-native-local-bridge");
     expect(result.bridge.mdxFiles).toContain("plan.mdx");
-    expect(result.validation.ran).toBe(true);
-    expect(result.validation.valid).toBe(true);
+    expect(result.validation.ran).toBe(false);
+    expect(result.validation.error).toContain("Skipped remote renderer");
+    expect(remoteCalls).toEqual([]);
     expect(result.warnings.join("\n")).toContain(
       "Chrome/Edge will ask for Local Network access",
     );
@@ -846,7 +860,7 @@ describe("local plan CLI helpers", () => {
 
     const result = await verifyLocalPlanBridge({
       dir,
-      appUrl: "https://plan.example.com",
+      appUrl: "http://localhost:8096",
       token: "test-token",
       urlFile: false,
       fetchFn: verifyFetchFn({
@@ -877,7 +891,7 @@ describe("local plan CLI helpers", () => {
 
     const result = await verifyLocalPlanBridge({
       dir,
-      appUrl: "https://plan.example.com",
+      appUrl: "http://localhost:8096",
       token: "test-token",
       urlFile: false,
       fetchFn: verifyFetchFn(null),
@@ -886,7 +900,7 @@ describe("local plan CLI helpers", () => {
     expect(result.ok).toBe(true);
     expect(result.validation.ran).toBe(false);
     expect(result.warnings.join("\n")).toContain(
-      "NOT validated against the renderer schema",
+      "NOT validated against a local renderer schema",
     );
   });
 
@@ -898,7 +912,7 @@ describe("local plan CLI helpers", () => {
     // authoritative renderer and report ITS verdict — not throw early.
     const result = await verifyLocalPlanBridge({
       dir,
-      appUrl: "https://plan.example.com",
+      appUrl: "http://localhost:8096",
       token: "test-token",
       urlFile: false,
       fetchFn: verifyFetchFn({
@@ -925,7 +939,7 @@ describe("local plan CLI helpers", () => {
 
     const result = await verifyLocalPlanBridge({
       dir,
-      appUrl: "https://plan.example.com",
+      appUrl: "http://localhost:8096",
       token: "test-token",
       urlFile: false,
       fetchFn: verifyFetchFn(null),

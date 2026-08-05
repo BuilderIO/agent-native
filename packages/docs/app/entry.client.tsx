@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
 

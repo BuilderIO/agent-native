@@ -146,10 +146,14 @@ Two additive, owner-scoped tables (`server/db/schema-errors.ts`):
   can't grow unbounded. Stores normalized stack frames, breadcrumbs, tags/extra,
   and the resolved session recording.
 
-Grouping keys off error type + top in-app stack frame (function + normalized
-file, ignoring line/column so small edits don't split a group), falling back to
-a normalized message when there is no usable stack. A resolved issue is
-automatically **reopened** when it recurs; **ignored** issues stay muted.
+Grouping keys off error type + a normalized message (ids, uuids, numbers,
+quoted values, and paths stripped) + top in-app stack frame (function +
+normalized file, ignoring line/column so small edits don't split a group). The
+message is always part of the key so unrelated errors sharing one dispatch
+frame stay separate. "Users affected" counts distinct real identities (user
+key, anonymous id, or session id); occurrences with no identity count toward
+event volume only. A resolved issue is automatically **reopened** when it
+recurs; **ignored** issues stay muted.
 
 ## How the agent triages issues
 

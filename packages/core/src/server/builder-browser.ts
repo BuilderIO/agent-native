@@ -1,8 +1,14 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
@@ -15,6 +21,422 @@ const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
+export const BUILDER_RELAY_PATH = "/_agent-native/builder/relay";
+export const BUILDER_RELAY_STATE_PARAM = "_an_relay";
+export const BUILDER_RELAY_SECRET_ENV = "AGENT_NATIVE_BUILDER_RELAY_SECRET";
+export const BUILDER_RELAY_TARGET_ORIGINS_ENV =
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS";
+export const BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV =
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES";
+export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
+export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
+export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
+
+const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
+const BUILDER_RELAY_STATE_VERSION = 1;
+const BUILDER_RELAY_TTL_MS = 10 * 60 * 1000;
+const BUILDER_RELAY_REQUEST_SKEW_MS = 2 * 60 * 1000;
+const IMMUTABLE_NETLIFY_RELAY_HOST =
+  /^(?<deploy>[a-f0-9]{24})--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
+const NETLIFY_DEPLOY_PREVIEW_HOST =
+  /^deploy-preview-\d+--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
+
+export interface BuilderPreviewRelayState {
+  v: 1;
+  purpose: typeof BUILDER_RELAY_PURPOSE;
+  flowId: string;
+  ownerEmail: string;
+  targetOrigin: string;
+  basePath: string;
+  iat: number;
+  exp: number;
+}
+
+export interface BuilderRelayCredentials {
+  privateKey: string;
+  publicKey: string;
+  userId: string | null;
+  orgName: string | null;
+  orgKind: string | null;
+  subscription: string | null;
+  subscriptionLevel: string | null;
+  subscriptionName: string | null;
+  isEnterprise: boolean | null;
+  isFreeAccount: boolean | null;
+}
+
+export interface BuilderRelayRequestBody {
+  relayState: string;
+  credentials: BuilderRelayCredentials;
+}
+
+function builderRelaySecret(): string {
+  const secret = process.env[BUILDER_RELAY_SECRET_ENV]?.trim();
+  if (!secret) {
+    throw new Error(
+      `${BUILDER_RELAY_SECRET_ENV} is required for Builder preview authorization relay.`,
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      `${BUILDER_RELAY_SECRET_ENV} must be at least 32 characters long.`,
+    );
+  }
+  return secret;
+}
+
+function builderRelayMac(value: string): string {
+  return createHmac("sha256", builderRelaySecret())
+    .update(value)
+    .digest("base64url");
+}
+
+function safeEqualText(expected: string, actual: string): boolean {
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(actual);
+  return (
+    expectedBuffer.length === actualBuffer.length &&
+    timingSafeEqual(expectedBuffer, actualBuffer)
+  );
+}
+
+function normalizeBuilderRelayBasePath(value: string): string | null {
+  if (!value) return "";
+  if (!value.startsWith("/") || value.includes("?") || value.includes("#")) {
+    return null;
+  }
+  const normalized = value.replace(/\/+$/, "");
+  if (normalized.split("/").some((part) => part === "." || part === "..")) {
+    return null;
+  }
+  return normalized;
+}
+
+export function isSafeBuilderRelayTargetOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (
+      url.origin !== value ||
+      url.username ||
+      url.password ||
+      url.hostname.includes("*")
+    )
+      return false;
+    const hostname = url.hostname.toLowerCase();
+    const loopback =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]";
+    if (loopback)
+      return url.protocol === "http:" && process.env.NODE_ENV !== "production";
+    if (url.protocol !== "https:") return false;
+    return (
+      hostname.endsWith(".netlify.app") ||
+      hostname.endsWith(".vercel.app") ||
+      hostname === "agent-native.com" ||
+      hostname.endsWith(".agent-native.com") ||
+      hostname.endsWith(".builder.io") ||
+      hostname.endsWith(".builderio.xyz") ||
+      hostname.endsWith(".builderio.dev") ||
+      hostname.endsWith(".builder.codes")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
+  if (!isSafeBuilderRelayTargetOrigin(value)) return false;
+  const hostname = new URL(value).hostname.toLowerCase();
+  if (
+    hostname.endsWith(".netlify.app") &&
+    !/^[a-f0-9]{24}--[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.netlify\.app$/.test(
+      hostname,
+    )
+  ) {
+    return false;
+  }
+  const exactOriginMatch = (process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .some((origin) => origin === value && !origin.includes("*"));
+  return (
+    exactOriginMatch ||
+    builderRelayTargetDomainSuffixes().some((suffix) =>
+      hostname.endsWith(suffix),
+    )
+  );
+}
+
+/**
+ * Netlify's deploy-preview alias is convenient for people but mutable, so it
+ * must never be the signed relay destination. The deploy builder embeds
+ * Netlify's DEPLOY_ID into the Nitro server bundle, while SITE_NAME remains
+ * available to Functions at runtime. Use that pair only when it
+ * identifies the same site as the visible preview alias; otherwise preserve
+ * the visible origin so callback validation fails closed.
+ */
+export function resolveBuilderPreviewRelayTargetOrigin(
+  previewOrigin: string,
+): string {
+  let previewUrl: URL;
+  try {
+    previewUrl = new URL(previewOrigin);
+  } catch {
+    return previewOrigin;
+  }
+  const previewMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    previewUrl.hostname.toLowerCase(),
+  );
+  if (!previewMatch?.groups?.site) return previewOrigin;
+
+  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim().toLowerCase();
+  const siteName = process.env.SITE_NAME?.trim().toLowerCase();
+  if (
+    !buildId ||
+    !siteName ||
+    !/^[a-f0-9]{24}$/.test(buildId) ||
+    siteName !== previewMatch.groups.site
+  ) {
+    return previewOrigin;
+  }
+
+  const immutableOrigin = `https://${buildId}--${siteName}.netlify.app`;
+  return IMMUTABLE_NETLIFY_RELAY_HOST.test(new URL(immutableOrigin).hostname)
+    ? immutableOrigin
+    : previewOrigin;
+}
+export function signBuilderPreviewRelayState(input: {
+  ownerEmail: string;
+  targetOrigin: string;
+  basePath?: string;
+  flowId?: string;
+  now?: number;
+}): { state: string; payload: BuilderPreviewRelayState } {
+  if (!isSafeBuilderRelayTargetOrigin(input.targetOrigin)) {
+    throw new Error(
+      "Builder relay target origin is not an approved preview origin.",
+    );
+  }
+  const basePath = normalizeBuilderRelayBasePath(input.basePath ?? "");
+  if (basePath === null) throw new Error("Builder relay base path is invalid.");
+  const now = input.now ?? Date.now();
+  const payload: BuilderPreviewRelayState = {
+    v: BUILDER_RELAY_STATE_VERSION,
+    purpose: BUILDER_RELAY_PURPOSE,
+    flowId: input.flowId ?? randomBytes(24).toString("base64url"),
+    ownerEmail: input.ownerEmail,
+    targetOrigin: input.targetOrigin,
+    basePath,
+    iat: now,
+    exp: now + BUILDER_RELAY_TTL_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64url",
+  );
+  return { state: `${encoded}.${builderRelayMac(encoded)}`, payload };
+}
+
+function builderRelayTargetDomainSuffixes(): string[] {
+  return (process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? "")
+    .split(",")
+    .map((suffix) => suffix.trim().toLowerCase())
+    .filter((suffix) => {
+      if (!suffix.startsWith(".") || suffix.includes("*")) return false;
+      const hostname = suffix.slice(1);
+      if (!hostname.includes(".") || hostname.length > 253) return false;
+      if (
+        !hostname
+          .split(".")
+          .every((label) =>
+            /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label),
+          )
+      ) {
+        return false;
+      }
+      try {
+        return new URL(`https://${hostname}`).hostname === hostname;
+      } catch {
+        return false;
+      }
+    });
+}
+
+export function verifyBuilderPreviewRelayState(
+  state: string | null | undefined,
+  options: { now?: number } = {},
+): BuilderPreviewRelayState | null {
+  if (!state) return null;
+  const parts = state.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  if (!safeEqualText(builderRelayMac(parts[0]), parts[1])) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Partial<BuilderPreviewRelayState>;
+  const now = options.now ?? Date.now();
+  if (
+    payload.v !== BUILDER_RELAY_STATE_VERSION ||
+    payload.purpose !== BUILDER_RELAY_PURPOSE ||
+    typeof payload.flowId !== "string" ||
+    !/^[A-Za-z0-9_-]{24,128}$/.test(payload.flowId) ||
+    typeof payload.ownerEmail !== "string" ||
+    !payload.ownerEmail.includes("@") ||
+    typeof payload.targetOrigin !== "string" ||
+    !isSafeBuilderRelayTargetOrigin(payload.targetOrigin) ||
+    typeof payload.basePath !== "string" ||
+    normalizeBuilderRelayBasePath(payload.basePath) !== payload.basePath ||
+    typeof payload.iat !== "number" ||
+    typeof payload.exp !== "number" ||
+    payload.exp <= payload.iat ||
+    payload.exp - payload.iat > BUILDER_RELAY_TTL_MS ||
+    payload.iat > now + BUILDER_RELAY_REQUEST_SKEW_MS ||
+    payload.exp < now
+  ) {
+    return null;
+  }
+  return payload as BuilderPreviewRelayState;
+}
+
+/**
+ * Corporate callback trust check. Preview-side state verification and relay
+ * receipt deliberately do not require this callback-only allowlist.
+ */
+export function verifyBuilderPreviewRelayStateForCallback(
+  state: string | null | undefined,
+  options: { now?: number } = {},
+): BuilderPreviewRelayState | null {
+  const payload = verifyBuilderPreviewRelayState(state, options);
+  return payload && isTrustedBuilderRelayTargetOrigin(payload.targetOrigin)
+    ? payload
+    : null;
+}
+
+export function getBuilderPreviewRelayUrl(
+  payload: BuilderPreviewRelayState,
+): string {
+  return `${payload.targetOrigin}${payload.basePath}${BUILDER_RELAY_PATH}`;
+}
+
+function builderRelayBodyDigest(body: string): string {
+  return createHash("sha256").update(body).digest("base64url");
+}
+
+function builderRelayRequestSignature(
+  timestamp: number,
+  flowId: string,
+  body: string,
+): string {
+  return builderRelayMac(
+    `v1.${timestamp}.${flowId}.${builderRelayBodyDigest(body)}`,
+  );
+}
+
+export function createBuilderRelayRequest(
+  relayState: string,
+  credentials: BuilderRelayCredentials,
+  options: { now?: number } = {},
+): { body: string; headers: Record<string, string>; url: string } {
+  const payload = verifyBuilderPreviewRelayState(relayState, options);
+  if (!payload) throw new Error("Builder relay state is invalid or expired.");
+  const body = JSON.stringify({
+    relayState,
+    credentials,
+  } satisfies BuilderRelayRequestBody);
+  const timestamp = options.now ?? Date.now();
+  return {
+    body,
+    url: getBuilderPreviewRelayUrl(payload),
+    headers: {
+      "content-type": "application/json",
+      [BUILDER_RELAY_TIMESTAMP_HEADER]: String(timestamp),
+      [BUILDER_RELAY_FLOW_HEADER]: payload.flowId,
+      [BUILDER_RELAY_SIGNATURE_HEADER]: builderRelayRequestSignature(
+        timestamp,
+        payload.flowId,
+        body,
+      ),
+    },
+  };
+}
+
+export function verifyBuilderRelayRequest(input: {
+  body: string;
+  timestamp: string | null | undefined;
+  flowId: string | null | undefined;
+  signature: string | null | undefined;
+  requestOrigin: string;
+  requestBasePath: string;
+  now?: number;
+}): {
+  payload: BuilderPreviewRelayState;
+  body: BuilderRelayRequestBody;
+} | null {
+  const timestamp = Number(input.timestamp);
+  const now = input.now ?? Date.now();
+  if (
+    !Number.isFinite(timestamp) ||
+    Math.abs(now - timestamp) > BUILDER_RELAY_REQUEST_SKEW_MS ||
+    !input.flowId ||
+    !input.signature ||
+    !safeEqualText(
+      builderRelayRequestSignature(timestamp, input.flowId, input.body),
+      input.signature,
+    )
+  ) {
+    return null;
+  }
+  let body: BuilderRelayRequestBody;
+  try {
+    body = JSON.parse(input.body) as BuilderRelayRequestBody;
+  } catch {
+    return null;
+  }
+  const payload = verifyBuilderPreviewRelayState(body.relayState, { now });
+  if (
+    !payload ||
+    payload.flowId !== input.flowId ||
+    payload.targetOrigin !== input.requestOrigin ||
+    payload.basePath !== input.requestBasePath ||
+    !body.credentials ||
+    typeof body.credentials.privateKey !== "string" ||
+    typeof body.credentials.publicKey !== "string" ||
+    !body.credentials.privateKey ||
+    !body.credentials.publicKey
+  ) {
+    return null;
+  }
+  const nullableString = (value: unknown): string | null =>
+    typeof value === "string" ? value : null;
+  const nullableBoolean = (value: unknown): boolean | null =>
+    typeof value === "boolean" ? value : null;
+  return {
+    payload,
+    body: {
+      relayState: body.relayState,
+      // Explicitly rebuild the credential payload. Extra fields such as an
+      // attacker-supplied ownerEmail/orgId never reach the credential writer.
+      credentials: {
+        privateKey: body.credentials.privateKey,
+        publicKey: body.credentials.publicKey,
+        userId: nullableString(body.credentials.userId),
+        orgName: nullableString(body.credentials.orgName),
+        orgKind: nullableString(body.credentials.orgKind),
+        subscription: nullableString(body.credentials.subscription),
+        subscriptionLevel: nullableString(body.credentials.subscriptionLevel),
+        subscriptionName: nullableString(body.credentials.subscriptionName),
+        isEnterprise: nullableBoolean(body.credentials.isEnterprise),
+        isFreeAccount: nullableBoolean(body.credentials.isFreeAccount),
+      },
+    },
+  };
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
@@ -516,6 +938,7 @@ export function buildBuilderCliAuthUrl(
   state: string | null = null,
   options: {
     previewOrigin?: string;
+    relayState?: string;
     tracking?: BuilderConnectTrackingParams;
   } = {},
 ): string {
@@ -535,6 +958,9 @@ export function buildBuilderCliAuthUrl(
   );
   if (state) {
     callbackUrl.searchParams.set(BUILDER_STATE_PARAM, state);
+  }
+  if (options.relayState) {
+    callbackUrl.searchParams.set(BUILDER_RELAY_STATE_PARAM, options.relayState);
   }
   // When the cli-auth allow-list forces preview_url onto the gateway origin,
   // the callback would otherwise lose the real opener origin and post its
@@ -568,6 +994,9 @@ export function buildBuilderCliAuthUrl(
   );
   url.searchParams.set("framework", "agent-native");
   applyBuilderConnectTrackingParams(url.searchParams, tracking);
+  applyBuilderUtmTrackingParams(url.searchParams, {
+    content: cleanTrackingParam(tracking.agentNativeConnectSource) ?? null,
+  });
   return url.toString();
 }
 
@@ -840,6 +1269,39 @@ export function resolveSafePreviewUrl(
     return previewUrl;
   }
   return getBuilderBrowserOriginForEvent(event);
+}
+
+export function resolveBuilderPreviewRelayParentOrigin(options: {
+  openerOrigin?: string | null;
+  targetOrigin: string;
+}): string {
+  if (!options.openerOrigin) return options.targetOrigin;
+  let openerUrl: URL;
+  let targetUrl: URL;
+  try {
+    openerUrl = new URL(options.openerOrigin);
+    targetUrl = new URL(options.targetOrigin);
+  } catch {
+    return options.targetOrigin;
+  }
+  if (
+    openerUrl.origin !== options.openerOrigin ||
+    !isSafeBuilderRelayTargetOrigin(openerUrl.origin)
+  ) {
+    return options.targetOrigin;
+  }
+  if (openerUrl.origin === targetUrl.origin) return openerUrl.origin;
+
+  const openerMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    openerUrl.hostname.toLowerCase(),
+  );
+  const targetMatch = IMMUTABLE_NETLIFY_RELAY_HOST.exec(
+    targetUrl.hostname.toLowerCase(),
+  );
+  return openerMatch?.groups?.site &&
+    openerMatch.groups.site === targetMatch?.groups?.site
+    ? openerUrl.origin
+    : options.targetOrigin;
 }
 
 export function resolveBuilderCallbackReturnUrl(options: {
@@ -1244,8 +1706,16 @@ export async function runBuilderAgent(
       "Builder project ID is not configured. Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or BUILDER_PROJECT_ID.",
     );
   }
-  const builderUserId = args.userId || creds.userId || undefined;
-  const builderUserEmail = builderUserId ? undefined : args.userEmail;
+  // The requesting user's email must win over any stored BUILDER_USER_ID.
+  // The connect flow always persists BUILDER_USER_ID, so preferring it here
+  // attributed every branch to whoever connected the credential — at org scope
+  // that is the admin, not the person who asked. Builder resolves userEmail
+  // against Space membership, so fall back to the credential's user id when
+  // there is no session email or the email is not a member.
+  const requestedEmail = args.userEmail?.trim() || undefined;
+  const fallbackUserId = args.userId || creds.userId || undefined;
+  const builderUserEmail = requestedEmail;
+  const builderUserId = requestedEmail ? undefined : fallbackUserId;
   if (!builderUserEmail && !builderUserId) {
     throw new Error("userEmail or userId is required");
   }
@@ -1253,27 +1723,47 @@ export async function runBuilderAgent(
   const url = new URL("/agents/run", getBuilderApiHost());
   url.searchParams.set("apiKey", creds.publicKey);
 
-  const body: Record<string, unknown> = {
-    userMessage: { userPrompt: args.prompt },
-    projectId,
-  };
-  if (args.branchName) body.branchName = args.branchName;
-  if (builderUserEmail) body.userEmail = builderUserEmail;
-  if (builderUserId) body.userId = builderUserId;
+  const postRun = async (actor: { userEmail?: string; userId?: string }) => {
+    const body: Record<string, unknown> = {
+      userMessage: { userPrompt: args.prompt },
+      projectId,
+    };
+    if (args.branchName) body.branchName = args.branchName;
+    if (actor.userEmail) body.userEmail = actor.userEmail;
+    if (actor.userId) body.userId = actor.userId;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.privateKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.privateKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const parsed = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    return { response, parsed };
+  };
+
+  let { response, parsed } = await postRun({
+    userEmail: builderUserEmail,
+    userId: builderUserId,
   });
 
-  const parsed = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
+  // Builder rejects an email that is not a member of the Space (403/404). Retry
+  // once as the connected credential's user so a non-member still gets a branch,
+  // rather than losing the run entirely.
+  if (
+    !response.ok &&
+    (response.status === 403 || response.status === 404) &&
+    builderUserEmail &&
+    fallbackUserId
+  ) {
+    ({ response, parsed } = await postRun({ userId: fallbackUserId }));
+  }
+
   if (!response.ok) {
     const msg =
       typeof parsed.error === "string"

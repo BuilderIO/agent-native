@@ -1,0 +1,494 @@
+---
+title: "Organizations, Teams & Permissions"
+description: "A practical guide to organization context, team roles, resource sharing, RBAC, and the environment variables used by Agent Native apps."
+---
+
+# Organizations, Teams & Permissions
+
+If you are building an app for more than one person, start here. Agent Native
+has several scopes that are easy to conflate:
+
+| Scope            | What it identifies                                                   | Where it appears                                        |
+| ---------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
+| **User**         | The signed-in person                                                 | `session.email`, `ctx.userEmail`                        |
+| **Organization** | The team or tenant the person is currently using                     | `session.orgId`, `session.orgRole`, `ctx.orgId`         |
+| **Resource**     | A document, dashboard, design, or other app row                      | `owner_email`, `org_id`, `visibility`, and share grants |
+| **Workspace**    | A deployment shape containing multiple apps and shared configuration | `AGENT_NATIVE_WORKSPACE`, shared `.env`, app base paths |
+
+An organization is the team boundary for application data. A workspace is a
+deployment and customization concept; it is not a replacement for an
+organization and it does not grant access to application rows by itself.
+
+## The access model in one minute
+
+The framework resolves a request in this order:
+
+1. Authentication identifies the user.
+2. The org module resolves the user's active organization and membership role.
+3. SQL and resource access helpers scope reads and writes to that identity.
+
+```text
+Better Auth session
+  -> active organization: orgId + orgRole
+  -> request context: userEmail + orgId
+  -> scoped SQL / resource access
+```
+
+The same context is used by the UI, actions, custom server routes, and the
+agent. Hiding a button in React is useful UX, but it is not authorization. The
+server-side action or access guard must enforce the rule.
+
+## Organizations and teams
+
+Every scaffold includes the framework's own `org/` module. It is backed by
+`organizations`, `org_members`, `org_invitations`, and `app_member_roles`; it is
+not Better Auth's organization plugin. The built-in flow supports:
+
+- Creating an organization. The creator becomes the `owner`.
+- Inviting people as `member` or `admin` and accepting invitations.
+- Switching the active organization when a user belongs to more than one.
+- Joining by an allowed email domain when the organization enables that policy.
+- Renaming an organization, managing members, and managing cross-app A2A
+  settings from the team surface.
+
+The framework mounts the server surface under `/_agent-native/org/*`. The main
+routes are:
+
+| Route                                            | Purpose                                                         |
+| ------------------------------------------------ | --------------------------------------------------------------- |
+| `GET /_agent-native/org/me`                      | Active org, memberships, pending invites, and domain matches    |
+| `POST /_agent-native/org`                        | Create an organization                                          |
+| `PATCH /_agent-native/org`                       | Rename the active organization                                  |
+| `DELETE /_agent-native/org`                      | Delete the organization (owner only)                            |
+| `PUT /_agent-native/org/switch`                  | Switch the active organization                                  |
+| `GET /_agent-native/org/members`                 | List members in the active organization                         |
+| `DELETE /_agent-native/org/members/:email`       | Remove a member                                                 |
+| `PUT /_agent-native/org/members/:email/role`     | Change a member's role                                          |
+| `GET /_agent-native/org/app-roles?appId=X`       | An app's role vocabulary plus its assignments in the active org |
+| `PUT /_agent-native/org/app-roles/:email`        | Assign or clear one member's app role (owner/admin only)        |
+| `GET /_agent-native/org/invitations`             | List pending invites                                            |
+| `POST /_agent-native/org/invitations`            | Invite one or more people                                       |
+| `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                            |
+| `POST /_agent-native/org/join-by-domain`         | Join an organization matched by email domain                    |
+| `PUT /_agent-native/org/domain`                  | Set or clear the allowed email domain                           |
+| `GET /_agent-native/org/a2a-secret`              | Reveal the active org's A2A secret (owner/admin, on demand)     |
+| `PUT /_agent-native/org/a2a-secret`              | Set or regenerate the active org's A2A secret                   |
+| `POST /_agent-native/org/a2a-secret/sync`        | Push the org's A2A secret to every connected app (owner/admin)  |
+| `POST /_agent-native/org/a2a-secret/receive`     | Accept a peer app's secret push (JWT-authenticated, no session) |
+
+Use the shared UI and hooks instead of recreating this flow in each app:
+
+```tsx
+import {
+  OrgSwitcher,
+  RequireActiveOrg,
+  TeamPage,
+  useOrgRole,
+} from "@agent-native/core/client/org-team";
+
+export function AppShell() {
+  return <OrgSwitcher />;
+}
+
+export function TeamSettings() {
+  return (
+    <RequireActiveOrg>
+      {/* `appRoles` is optional — see App roles below */}
+      <TeamPage appRoles={coachRoles} />
+    </RequireActiveOrg>
+  );
+}
+
+export function InviteButton() {
+  const { canInviteMembers } = useOrgRole();
+  return canInviteMembers ? <button>Invite members</button> : null;
+}
+```
+
+On the server, import the org helpers from `@agent-native/core/org-team`.
+`getOrgContext(event)` returns the resolved `{ email, orgId, orgName, role }`.
+For actions, the second `run` argument is the simpler path for the identity
+needed by most app code:
+
+```ts
+export default defineAction({
+  description: "Create a project in the active organization.",
+  schema: z.object({ name: z.string().min(1) }),
+  run: async ({ name }, ctx) => {
+    if (!ctx?.userEmail) throw new Error("Authentication required");
+
+    await db.insert(projects).values({
+      id: crypto.randomUUID(),
+      name,
+      ownerEmail: ctx.userEmail,
+      orgId: ctx.orgId,
+    });
+
+    return { ok: true };
+  },
+});
+```
+
+The active organization is selected from the user's memberships. For a user
+with several memberships, the framework honors the `active-org-id` user
+setting. If a signed-in user has no membership, the framework creates a
+personal organization by default. Set `AUTO_CREATE_DEFAULT_ORG=0` when an app
+must require an explicit invite or organization-creation step.
+
+## Organization roles (membership RBAC)
+
+Organization roles answer: **what may this person do to the team itself?**
+
+| Role     | Meaning                          | Typical capabilities                                                                                                                                                                                |
+| -------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner`  | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings                                                                                                                 |
+| `admin`  | Team administrator               | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, only the owner manages admin-to-admin transitions, and the shared client domain helper is owner-only |
+| `member` | Regular team member              | Use resources that the app shares with the organization; cannot manage membership                                                                                                                   |
+
+The shared role helpers are deliberately small and composable:
+
+```ts
+import {
+  canInviteOrgMembers,
+  canManageOrg,
+  canManageOrgDomain,
+  orgRoleAtLeast,
+} from "@agent-native/core/org-team";
+
+if (!orgRoleAtLeast(role, "admin")) {
+  throw new Error("Organization admin role required");
+}
+```
+
+The same helpers are available from
+`@agent-native/core/client/org-team` for presentation logic. Treat those
+client checks as progressive disclosure only; repeat the authorization check
+in the server action or route that changes org state.
+
+## App roles (per-app RBAC)
+
+App roles answer: **what may this person do inside _one app_?**
+
+An organization role is a statement about the team, and a resource role is a
+statement about a row. Neither can express "Dana runs the coaching program, but
+is an ordinary member everywhere else." App roles are that overlay: an
+app-defined vocabulary layered on the org roster, stored in `app_member_roles`
+and edited from the same team surface. They are not a second roster — do not
+create another organization to get app-specific permissions.
+
+Declare the vocabulary once in app source, then guard actions with an explicit
+list of accepted roles:
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only — never satisfies a guard
+  label: "Coach role", // column header in TeamPage
+  roleLabels: { "coach-admin": "Coach admin" },
+});
+```
+
+```ts
+// actions/archive-plan.ts
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+Against `requireAny("coach-admin")`, the caller resolves to exactly one of:
+
+| Caller                                     | `resolve()` status | Passes the guard              |
+| ------------------------------------------ | ------------------ | ----------------------------- |
+| Org member assigned `coach-admin`          | `assigned`         | Yes                           |
+| Org member assigned `member`               | `assigned`         | No — not in the accepted list |
+| Org member with no assignment row          | `unassigned`       | No, even with a `defaultRole` |
+| Signed-in user who is not in this org      | `not-a-member`     | No                            |
+| Request with no active organization        | `no-org`           | No                            |
+| Unattended caller with no user (CLI, cron) | `no-identity`      | No                            |
+
+The caveats that make this safe to build on:
+
+- **Roles are an unordered set, not a ladder.** Declaration order carries no
+  meaning; `["ae", "se", "csm"]` are classifications, and ranking them would
+  silently grant the last one everything the first one has. Authorization is
+  always an explicit accepted-role list, never "at least".
+- **`defaultRole` is display only.** `requireAny` matches an explicit
+  assignment row and nothing else. If the default satisfied a guard, "nobody
+  has assigned this person" and "this person was granted the role" would be the
+  same answer, and later widening the default would silently widen every guard
+  that names it.
+- **Org membership is a precondition.** Membership and assignment resolve in
+  one SQL statement, so an assignment left behind by a removed member can never
+  authorize.
+- **A failed lookup throws.** It is not one of the deny statuses above: a
+  database error is not an answer, and reporting it as a denial would look
+  exactly like a legitimate one.
+- **`requireAny` validates at definition time.** Calling it with no roles, or
+  with a role outside the declared vocabulary, throws when the module loads —
+  a dropped argument breaks where the mistake is instead of surfacing later as
+  an unexplained 403 in production.
+- **An explicit `null` caller is not "unspecified".** `resolve({ userEmail:
+null })` means "this run has no user" and does not fall back to the ambient
+  request context; only `undefined` does. Collapsing the two would let a system
+  or cron caller that deliberately declared no identity inherit whichever
+  request happens to be on the stack and authorize as that person.
+- **`appId` comes from trusted server config, never from the request.** The
+  REST layer resolves descriptors out of the `defineAppRoles` registry and 404s
+  an app id the server never declared.
+- **An app admin is not an org admin.** Only org owners and admins may change
+  app-role assignments, and nothing in the org handlers reads an app role. The
+  implication does not run in either direction.
+
+In the browser, `<TeamPage appRoles={coachRoles} />` adds a role column and
+picker next to the org role. The argument is the descriptor — the serializable
+half of the declaration, free of database imports — so hoist that object literal
+into a shared module as `coachRoles`, hand it to `defineAppRoles` on the server,
+and pass the same object to `TeamPage`. Passing `coachAccess` itself would drag
+the database into the browser bundle. To read the current user's own role:
+
+```tsx
+import { useAppRole } from "@agent-native/core/client/org-team";
+
+const { role } = useAppRole("coach");
+```
+
+`useAppRoles`, `useAppRole`, and `useSetAppMemberRole` are progressive
+disclosure only. Every guarded operation re-resolves the role on the server, so
+a client that shows the wrong affordance still cannot perform the operation.
+See [Actions → Authorization](/docs/actions#authorize) for how `authorize`
+differs from `needsApproval` and from row-level access guards.
+
+## Resource permissions (sharing RBAC)
+
+Organization roles and resource roles are different systems:
+
+- **Organization role** controls team administration.
+- **App role** controls what a member may do inside one app.
+- **Resource role** controls access to one document, dashboard, or other
+  shareable row.
+
+Shareable resources use three layers together:
+
+1. `owner_email` identifies the creator.
+2. `org_id` and `visibility` define the resource's tenant and coarse visibility.
+3. A companion shares table grants a user or organization `viewer`, `editor`,
+   or `admin` access.
+
+| Resource role | Access                         |
+| ------------- | ------------------------------ |
+| `viewer`      | Read                           |
+| `editor`      | Read and write                 |
+| `admin`       | Read, write, and manage shares |
+
+`admin` on a resource does not transfer ownership. The resource owner remains
+separate from every share grant.
+
+For the `ownableColumns()` schema helper, the `accessFilter` / `resolveAccess` /
+`assertAccess` helper API, and the CI guard that enforces scoped queries, see
+[Security → Data Scoping](/docs/security#data-scoping) — the single source of
+truth for the scoping pipeline every resource role above rides on.
+
+## Environment variables: what belongs where
+
+Environment variables configure the deployment. They are not a database for
+user or team state.
+
+| Store                           | Use it for                                                                                              | Do not use it for                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Server/deploy environment       | One value shared by the whole app instance, such as `DATABASE_URL`, auth signing keys, or an A2A secret | A user's API key or a team's mutable setting                              |
+| `VITE_*` build-time environment | Non-secret values that must be embedded in browser code                                                 | Secrets; anything with `VITE_` can be public                              |
+| Encrypted credential/vault APIs | Per-user and per-organization provider keys, OAuth tokens, and app secrets                              | Deployment bootstrapping that must exist before the database is available |
+| SQL application state/settings  | App state, preferences, and references                                                                  | Raw credentials, tokens, or large file payloads                           |
+
+For local development, put deploy-level values in a gitignored `.env`. In a
+workspace, the root `.env` is shared by apps and `apps/<name>/.env` overrides it
+for that app. Never commit real values.
+
+## How environment files are loaded {#env-loading}
+
+There is not one central environment schema. The effective contract is split
+between dotenv loading, Vite's browser exposure, secret registration, and the
+feature that consumes each value. For the framework's dotenv loader, the
+effective precedence is:
+
+1. Values already present in the shell.
+2. The app's `.env.local`.
+3. The app's `.env`.
+4. The workspace root `.env.local`.
+5. The workspace root `.env`.
+
+Workspace files only fill keys the app has not already defined. This lets a
+workspace keep shared defaults in one place while an app or shell overrides a
+value deliberately. `VITE_*` values are an additional build-time contract:
+Vite embeds them in browser code, so treat every `VITE_*` value as public even
+when it came from a private `.env` file.
+
+## Framework environment variables
+
+There is no single useful list of every environment variable in an app: each
+template and provider adds its own integration settings. The table below is the
+framework-level set developers most often need. Feature-specific variables stay
+on the page for the feature that owns them, and
+[Deployment → Environment Variables](/docs/deployment#environment-variables) is
+the canonical production checklist (build/runtime vars, required secrets such as
+`ANTHROPIC_API_KEY` and `A2A_SECRET`, and production code execution) — the
+tables below don't repeat what's already covered there.
+
+### Database and public URL
+
+| Variable                                                  | What it does                                                                                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `APP_NAME`                                                | Names the current app and enables prefixed lookups such as `MAIL_DATABASE_URL` when the app name is `mail`.               |
+| `DATABASE_URL`                                            | Persistent SQL connection. Unset uses local SQLite; `pglite:./data/pglite` opts into local Postgres semantics.            |
+| `DATABASE_AUTH_TOKEN`                                     | Separate auth token for providers such as Turso/libSQL.                                                                   |
+| `<APP_NAME>_DATABASE_URL`                                 | Per-app database override in a multi-app workspace; it wins over `DATABASE_URL` and `NETLIFY_DATABASE_URL`.               |
+| `<APP_NAME>_DATABASE_AUTH_TOKEN`                          | Per-app auth-token override; it wins over `DATABASE_AUTH_TOKEN` and `NETLIFY_DATABASE_AUTH_TOKEN`.                        |
+| `NETLIFY_DATABASE_URL`                                    | Netlify-managed database fallback when no app-prefixed or generic `DATABASE_URL` is set.                                  |
+| `NETLIFY_DATABASE_AUTH_TOKEN`                             | Netlify-managed database auth-token fallback.                                                                             |
+| `<APP_NAME>_DATABASE_URL_UNPOOLED`                        | Per-app direct connection used for migrations where the provider exposes a pooled and unpooled endpoint.                  |
+| `DATABASE_URL_UNPOOLED` / `NETLIFY_DATABASE_URL_UNPOOLED` | Generic or Netlify direct migration connection fallback. The app-prefixed value wins when present.                        |
+| `ALLOW_DRIZZLE_PUSH_ON_NEON`                              | Set to `1` only for an intentional local schema push against Neon. Do not set it in CI or production.                     |
+| `WORKSPACE_OAUTH_ORIGIN` / `VITE_WORKSPACE_OAUTH_ORIGIN`  | Workspace OAuth origin, used when the workspace gateway and app origin differ.                                            |
+| `WEBHOOK_BASE_URL`                                        | Optional callback origin when webhook self-callbacks should use a stable custom domain instead of the deploy preview URL. |
+| `URL` / `DEPLOY_URL` / `DEPLOY_PRIME_URL`                 | Platform-provided public URL fallbacks, especially for Netlify previews and deploys.                                      |
+| `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL`            | Vercel's production and deployment-hostname fallbacks.                                                                    |
+
+`APP_URL`, `BETTER_AUTH_URL` / `VITE_BETTER_AUTH_URL`, `PORT`,
+`APP_BASE_PATH` / `VITE_APP_BASE_PATH`, and `NITRO_PRESET` are documented in
+[Deployment → Environment Variables](/docs/deployment#environment-variables).
+
+### Authentication, cookies, and org defaults
+
+Signing-key, cookie, and social-login variables (`BETTER_AUTH_SECRET`,
+`OAUTH_STATE_SECRET`, `AUTH_DISABLED`, `AUTH_SKIP_EMAIL_VERIFICATION`,
+`COOKIE_DOMAIN`, `GOOGLE_CLIENT_ID` / `GITHUB_CLIENT_ID`, and the rest) are
+documented once in [Authentication → Environment Variables](/docs/authentication#environment-variables);
+the secrets-encryption-key fallback chain is in
+[Security → Secrets Management](/docs/security#secrets). The variables below are
+org/workspace-specific and aren't covered on either of those pages:
+
+| Variable                      | What it does                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `AGENT_NATIVE_WORKSPACE`      | Enables the shared workspace session realm for a multi-app workspace.                                  |
+| `VITE_AGENT_NATIVE_WORKSPACE` | Build-time/browser equivalent of `AGENT_NATIVE_WORKSPACE`.                                             |
+| `AUTO_CREATE_DEFAULT_ORG`     | Defaults to enabled; set to `0` to stop creating a personal organization for users with no membership. |
+| `GOOGLE_AUTH_MODE`            | Chooses Google sign-in UX: `auto`, `popup`, or `redirect`; defaults to `auto`.                         |
+
+### Agent providers and runtime
+
+| Variable                       | What it does                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `AGENT_ENGINE`                 | Explicitly selects the agent engine, for example a built-in provider or `codex-cli`.  |
+| `AGENT_ENGINE_PREFER_BYO_KEY`  | Set to `true` to prefer a user's stored provider key over the managed Builder engine. |
+| `OPENAI_API_KEY`               | Deploy-level OpenAI provider key.                                                     |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Deploy-level Google Gemini provider key.                                              |
+| `OPENROUTER_API_KEY`           | Deploy-level OpenRouter provider key.                                                 |
+| `GROQ_API_KEY`                 | Deploy-level Groq provider key.                                                       |
+| `MISTRAL_API_KEY`              | Deploy-level Mistral provider key.                                                    |
+| `COHERE_API_KEY`               | Deploy-level Cohere provider key.                                                     |
+| `AGENT_MAX_ITERATIONS`         | Default maximum agent loop iterations; app settings can override it where supported.  |
+| `AGENT_MAX_OUTPUT_TOKENS`      | Default output-token limit for the agent.                                             |
+
+`ANTHROPIC_API_KEY` and `AGENT_PROD_CODE_EXECUTION` are documented in
+[Deployment → Environment Variables](/docs/deployment#environment-variables).
+
+### Optional framework integrations
+
+These values enable optional capabilities. When a user or organization has a
+scoped credential in the app's secret or credential settings, that scoped value
+can take precedence over the deploy environment.
+
+| Variable                                                                        | What it does                                                                                                                                    |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BRAVE_SEARCH_API_KEY` / `TAVILY_API_KEY` / `EXA_API_KEY` / `FIRECRAWL_API_KEY` | Enable the corresponding web-search BYOK provider. The search tool tries configured providers before the managed Builder fallback.              |
+| `GITHUB_TOKEN`                                                                  | Workspace-level GitHub API fallback for repository and PR operations.                                                                           |
+| `RESEND_API_KEY`                                                                | Enables Resend email delivery.                                                                                                                  |
+| `SENDGRID_API_KEY` / `EMAIL_FROM`                                               | Enables SendGrid email delivery and supplies its sender address. Production email requires Resend or SendGrid; SendGrid also requires a sender. |
+
+Product-analytics variables (PostHog, Mixpanel, Amplitude, the tracking
+webhook, and the first-party analytics keys) are documented once in
+[Tracking → Built-in providers](/docs/tracking#built-in). Sentry
+error-reporting variables are in
+[Observability → Error Reporting](/docs/observability#sentry).
+`AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is in
+[Security → Inbound Webhooks](/docs/security#webhooks).
+
+Template-specific variables belong with the template that owns the feature and
+its `.env.example` or feature docs. Start with [Messaging](/docs/messaging),
+[Tracking](/docs/tracking), [Observability](/docs/observability), or the
+template's development guide when a variable is not in this framework-level
+map.
+
+### MCP, A2A, and CLI identity
+
+`A2A_SECRET` and the static MCP bearer fallbacks (`ACCESS_TOKEN` /
+`ACCESS_TOKENS`) are documented in
+[Authentication → Environment Variables](/docs/authentication#environment-variables)
+and [Security → A2A Identity Verification](/docs/security#a2a-identity). The
+variables below are CLI/agent-identity fallbacks specific to running outside a
+browser session:
+
+| Variable                     | What it does                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `MCP_OAUTH_ACCESS_TOKEN_TTL` | Lifetime for MCP OAuth access tokens; defaults to `30d`.                                                  |
+| `AGENT_USER_EMAIL`           | CLI-only user identity fallback when no request context exists. It does not impersonate browser requests. |
+| `AGENT_USER_NAME`            | CLI-only display-name fallback.                                                                           |
+| `AGENT_ORG_ID`               | CLI-only active-org fallback when no request context exists. It does not override a browser session.      |
+| `AGENT_USER_TIMEZONE`        | CLI/agent timezone fallback.                                                                              |
+
+`A2A_SECRET` is deployment-wide signing material. The organization-level
+`organizations.a2a_secret` is a separate, UI-managed secret used when an org
+delegates between separately deployed apps by organization domain. Do not copy
+the org-level secret into `.env`; manage it from the organization settings
+surface.
+
+### Workspace route visibility
+
+These are generated automatically by the workspace deploy/dev commands in most
+projects. Configure them directly only when you are building the workspace
+runtime yourself:
+
+| Variable                                     | What it does                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| `AGENT_NATIVE_WORKSPACE_APP_ID`              | Identifies the current app inside a multi-app workspace.           |
+| `AGENT_NATIVE_WORKSPACE_APP_AUDIENCE`        | Sets the app audience, usually `internal` or `public`.             |
+| `AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS`    | JSON array of public route prefixes.                               |
+| `AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS` | JSON array of route prefixes that remain authenticated.            |
+| `WORKSPACE_ORG_NAME`                         | Optional organization name used by workspace bootstrap tooling.    |
+| `WORKSPACE_ORG_DOMAIN`                       | Optional allowed email domain used by workspace bootstrap tooling. |
+| `WORKSPACE_OWNER_EMAIL`                      | Optional owner identity used by workspace bootstrap tooling.       |
+
+## A practical setup sequence
+
+For a new team app, configure in this order:
+
+1. Set `DATABASE_URL` if the app will be shared or deployed.
+2. Set `BETTER_AUTH_SECRET` and an explicit public URL such as `APP_URL` or
+   `BETTER_AUTH_URL` before production.
+3. Render `OrgSwitcher` and `TeamPage` from the shared org/team kit.
+4. Add `...ownableColumns()` to tenant-aware tables.
+5. Use `ctx.orgId` when creating rows and `accessFilter` / `assertAccess` when
+   reading or mutating them.
+6. Put provider credentials in the encrypted credential/vault surface when
+   they vary by user or organization; keep env keys for deploy-level defaults.
+7. Add `A2A_SECRET` to every production app that delegates to a sibling app or
+   processes signed integration tasks.
+
+## Related docs
+
+- [**Authentication**](/docs/authentication) — sessions, OAuth, cookies, and auth flags
+- [**Multi-Tenancy**](/docs/multi-tenancy) — org switching and tenant isolation
+- [**Security — Data Scoping**](/docs/security#data-scoping) — SQL scoping and access guards
+- [**Sharing & Privacy**](/docs/sharing) — resource visibility and share roles
+- [**Database**](/docs/database) — schema and connection details
+- [**Deployment**](/docs/deployment#environment-variables) — production and provider environment
+- [**Org & Team Kit**](/docs/toolkit-org-team) — reusable UI components and hooks

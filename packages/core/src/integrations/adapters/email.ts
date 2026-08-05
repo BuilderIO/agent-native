@@ -18,6 +18,7 @@ import type {
   OutgoingMessage,
   IntegrationStatus,
   OutboundTarget,
+  PlatformDeliveryReceipt,
 } from "../types.js";
 
 /** Max body length before truncation */
@@ -249,7 +250,7 @@ export function emailAdapter(): PlatformAdapter {
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-    ): Promise<void> {
+    ): Promise<void | PlatformDeliveryReceipt> {
       const agentAddress = await resolveSecret("EMAIL_AGENT_ADDRESS");
       if (!agentAddress) {
         console.error("[email] EMAIL_AGENT_ADDRESS not configured");
@@ -284,7 +285,9 @@ export function emailAdapter(): PlatformAdapter {
         });
       } catch (err) {
         console.error("[email] Failed to send response:", err);
+        throw err;
       }
+      return { status: "delivered" };
     },
 
     async sendMessageToTarget(

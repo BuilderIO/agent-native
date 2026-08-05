@@ -10,16 +10,27 @@ const clientState = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentChatSurface: (props: Record<string, unknown>) => {
     clientState.surfaceProps = props;
     return <>{props.composerSlot as ReactNode}</>;
   },
+  markAgentChatHomeHandoff: vi.fn(),
+  navigateWithAgentChatViewTransition: (
+    navigate: (path: string) => void,
+    path: string,
+  ) => navigate(path),
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
+  appApiPath: (path: string) => path,
   appBasePath: () => "",
   appPath: (path: string) => path,
-  isInBuilderFrame: () => false,
-  markAgentChatHomeHandoff: vi.fn(),
-  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: { defaultValue?: string }) =>
     values?.defaultValue ?? key,
 }));
@@ -29,6 +40,11 @@ describe("Dispatch ChatRoute", () => {
   let root: Root;
 
   beforeEach(() => {
+    // ChatRoute intentionally clears navigation handoff state on a zero-delay
+    // timer. Keep that timer deterministic so a busy workspace test run cannot
+    // advance to the post-handoff hero render before this spec inspects the
+    // transition frame.
+    vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.surfaceProps = null;
     container = document.createElement("div");
@@ -39,6 +55,7 @@ describe("Dispatch ChatRoute", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 

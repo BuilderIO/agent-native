@@ -24,13 +24,29 @@ import {
 } from "@shared/media-device-selection";
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
+  SCREEN_CAPTURE_FRAME_RATE,
+  screenCaptureVideoConstraints,
+  type ScreenCaptureSurface,
+} from "@shared/recording-capture";
+import {
   chunkUploadUrl,
   pickMimeType,
   type UploadMode,
 } from "@shared/recording-core";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
-import { waitForReadyRecordingAfterFinalizeError } from "./finalize-recovery";
+import { waitForAcceptedRecordingAfterFinalizeError } from "./finalize-recovery";
+import {
+  createNativeTranscriptionCapture,
+  type NativeTranscriptionCapture,
+} from "./native-transcription";
+import {
+  createRecordingDurationState,
+  pauseRecordingDuration,
+  resumeRecordingDuration,
+  startRecordingDuration,
+  type RecordingDurationState,
+} from "./recording-duration";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("offscreen");
@@ -40,6 +56,8 @@ const STORAGE_SETUP_REQUIRED_MESSAGE =
 const STORAGE_SETUP_FAILURE_RE =
   /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const CHUNK_UPLOAD_TIMEOUT_MS = 60_000;
+const FINAL_CHUNK_UPLOAD_TIMEOUT_MS = 180_000;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
 ]);
@@ -129,6 +147,7 @@ type BeginMessage = {
   // Bearer token so chunk uploads authenticate the same way create-recording
   // does. The offscreen document has no Clips session cookie of its own.
   authToken?: string;
+  transcriptUrl?: string;
 };
 
 type SimpleMessage = {
@@ -160,6 +179,8 @@ type UploadResult = {
   waitingForStorage?: boolean;
   storageSetupRequired?: boolean;
   error?: string;
+  nativeTranscript?: string;
+  nativeTranscriptFailure?: string;
 };
 
 type PreparedStreams = {
@@ -180,8 +201,10 @@ type ActiveRecording = {
   uploadUrl: string;
   uploadMode: UploadMode;
   authToken: string | null;
+  transcriptUrl: string | null;
   mode: CaptureMode;
   startedAtMs: number;
+  duration: RecordingDurationState;
   mimeType: string;
   recorder: MediaRecorder;
   outputStream: MediaStream;
@@ -218,6 +241,10 @@ type ActiveRecording = {
   dimensions: { width: number; height: number };
   hasAudio: boolean;
   hasCamera: boolean;
+  nativeTranscription: NativeTranscriptionCapture;
+  nativeTranscript: string;
+  nativeTranscriptFailure: string | null;
+  nativeTranscriptSaved: boolean;
   stopped: Promise<UploadResult>;
   resolveStopped: (result: UploadResult) => void;
   rejectStopped: (error: Error) => void;
@@ -300,19 +327,10 @@ async function streamDimensions(
 }
 
 function displayConstraints(
-  surface: "browser" | "window" | "monitor",
+  surface: ScreenCaptureSurface,
 ): MediaStreamConstraints {
-  const displaySurface =
-    surface === "browser"
-      ? "browser"
-      : surface === "window"
-        ? "window"
-        : "monitor";
   return {
-    video: {
-      frameRate: { ideal: 30, max: 30 },
-      ...({ displaySurface } as object),
-    },
+    video: screenCaptureVideoConstraints(surface),
     audio: {
       echoCancellation: false,
       noiseSuppression: false,
@@ -373,6 +391,10 @@ function cameraConstraints(deviceId: string): MediaTrackConstraints {
   const base: MediaTrackConstraints = {
     width: { ideal: 1280 },
     height: { ideal: 720 },
+    frameRate: {
+      ideal: SCREEN_CAPTURE_FRAME_RATE,
+      max: SCREEN_CAPTURE_FRAME_RATE,
+    },
   };
   if (deviceId) base.deviceId = { exact: deviceId };
   else base.facingMode = "user";
@@ -750,7 +772,7 @@ async function buildCompositor(
   };
   raf = requestAnimationFrame(draw);
 
-  const canvasStream = canvas.captureStream(30);
+  const canvasStream = canvas.captureStream(SCREEN_CAPTURE_FRAME_RATE);
   return {
     videoTrack: canvasStream.getVideoTracks()[0],
     canvasStream,
@@ -840,6 +862,11 @@ async function uploadChunk(
         headers,
         credentials: "include",
         body,
+        signal: AbortSignal.timeout(
+          extra.isFinal
+            ? FINAL_CHUNK_UPLOAD_TIMEOUT_MS
+            : CHUNK_UPLOAD_TIMEOUT_MS,
+        ),
       });
     } catch (err) {
       if (attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS) throw err;
@@ -855,7 +882,7 @@ async function uploadChunk(
       if (extra.isFinal && res.status === 504) {
         triedFinalUploadRecovery = true;
         await res.text().catch(() => "");
-        const recovered = await waitForReadyRecordingAfterFinalizeError({
+        const recovered = await waitForAcceptedRecordingAfterFinalizeError({
           uploadUrl: recording.uploadUrl,
           recordingId: recording.recordingId,
           authToken: recording.authToken,
@@ -1194,8 +1221,11 @@ async function begin(message: BeginMessage): Promise<{
   const mimeType = pickMimeType() || "video/webm";
   const recorder = new MediaRecorder(outputStream, {
     mimeType,
-    // Crisp 1080p capture — matches the web/desktop recorders. Files upload
-    // directly (no client-side shrink), so we favor sharpness over a budget.
+    // Crisp 1080p capture — matches the web/desktop recorders. displayConstraints()
+    // (see screenCaptureVideoConstraints in @shared/recording-capture) caps retina/5K
+    // surfaces down to 1920x1080 before this point, so the software VP8 encoder is
+    // never fed native-resolution frames. Files upload directly (no client-side
+    // shrink), so within that cap we favor sharpness over a bitrate budget.
     videoBitsPerSecond: 8_000_000,
     audioBitsPerSecond: 128_000,
   });
@@ -1213,8 +1243,10 @@ async function begin(message: BeginMessage): Promise<{
     uploadUrl: message.uploadUrl,
     uploadMode: message.uploadMode ?? "buffered",
     authToken: message.authToken ?? null,
+    transcriptUrl: message.transcriptUrl ?? null,
     mode: ready.mode,
     startedAtMs: 0,
+    duration: createRecordingDurationState(),
     mimeType,
     recorder,
     outputStream,
@@ -1247,6 +1279,12 @@ async function begin(message: BeginMessage): Promise<{
       typeof message.hasCamera === "boolean"
         ? message.hasCamera
         : ready.mode === "camera",
+    nativeTranscription: createNativeTranscriptionCapture({
+      enabled: Boolean(ready.micStream),
+    }),
+    nativeTranscript: "",
+    nativeTranscriptFailure: null,
+    nativeTranscriptSaved: false,
     stopped,
     resolveStopped,
     rejectStopped,
@@ -1346,7 +1384,9 @@ function startRecorderNow(recording: ActiveRecording): void {
     // Chime first (on "Go") so it mostly lands before the recording begins.
     playStartChime();
     recording.recorder.start(2000);
+    recording.nativeTranscription.start();
     recording.startedAtMs = Date.now();
+    recording.duration = startRecordingDuration(recording.startedAtMs);
     console.log("[clips-offscreen] recorder.start ok");
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
@@ -1354,6 +1394,7 @@ function startRecorderNow(recording: ActiveRecording): void {
       height: recording.dimensions.height,
       hasAudio: recording.hasAudio,
       hasCamera: recording.hasCamera,
+      mimeType: recording.mimeType,
     });
   } catch (err) {
     captureExtensionError(err, {
@@ -1370,9 +1411,14 @@ function startRecorderNow(recording: ActiveRecording): void {
         hasCamera: recording.hasCamera,
       },
     });
+    recording.cancelled = true;
+    recording.nativeTranscription.cancel();
+    cleanup(recording);
+    if (activeRecording === recording) activeRecording = null;
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
       error: err instanceof Error ? err.message : "Could not start recording.",
+      recordingStep: "recorder-start",
     });
   }
 }
@@ -1385,6 +1431,47 @@ function recordingDownloadFilename(recording: ActiveRecording): string {
     .replace("T", "_")
     .slice(0, 19);
   return `clip-${stamp}.${ext}`;
+}
+
+async function saveNativeTranscript(recording: ActiveRecording): Promise<void> {
+  if (recording.nativeTranscriptSaved || !recording.transcriptUrl) return;
+  const captured = await recording.nativeTranscription.stop();
+  recording.nativeTranscript = captured.text.trim();
+  recording.nativeTranscriptFailure = captured.failureReason;
+
+  const body = recording.nativeTranscript
+    ? {
+        recordingId: recording.recordingId,
+        fullText: recording.nativeTranscript,
+        source: "web-speech",
+      }
+    : {
+        recordingId: recording.recordingId,
+        fullText: "",
+        source: "web-speech",
+        failureReason:
+          recording.nativeTranscriptFailure ||
+          "Chrome Web Speech recognition returned no transcript.",
+      };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Agent-Native-Frontend": "1",
+    ...(recording.authToken
+      ? { Authorization: `Bearer ${recording.authToken}` }
+      : {}),
+  };
+  const response = await fetch(recording.transcriptUrl, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    cache: "no-store",
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Native transcript save failed (${response.status}).`);
+  }
+  recording.nativeTranscriptSaved = true;
 }
 
 // Last-resort recovery: if a finished recording can't be uploaded, save the
@@ -1443,6 +1530,23 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     recording.resolveStopped({ ok: true, status: "cancelled" });
     return;
   }
+  // Freeze the media duration as soon as MediaRecorder stops. Waiting for
+  // outstanding uploads below must not make the clip appear longer, and time
+  // spent paused is excluded by pauseRecordingDuration().
+  recording.duration = pauseRecordingDuration(recording.duration, Date.now());
+  const durationMs = recording.duration.elapsedMs;
+  try {
+    await saveNativeTranscript(recording);
+  } catch (error) {
+    console.warn("[clips-offscreen] native transcript save failed", error);
+    captureExtensionError(error, {
+      tags: {
+        surface: "offscreen",
+        recordingStep: "save-native-transcript",
+      },
+      extra: { recordingId: recording.recordingId },
+    });
+  }
   reportStatus(recording.sessionId, "uploading", {
     recordingId: recording.recordingId,
   });
@@ -1457,7 +1561,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         ? rejected.reason
         : new Error(String(rejected.reason));
     }
-    const durationMs = Math.max(0, Date.now() - recording.startedAtMs);
     // Surface WHY a finalize might fail before the server's cryptic "No chunks
     // found": 0 chunks means the recorder emitted no non-empty data (empty
     // capture / never started), which is a different problem than an auth 401.
@@ -1497,6 +1600,15 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         hasAudio: recording.hasAudio,
         hasCamera: recording.hasCamera,
       });
+      result = {
+        ...result,
+        ...(recording.nativeTranscript
+          ? { nativeTranscript: recording.nativeTranscript }
+          : {}),
+        ...(recording.nativeTranscriptFailure
+          ? { nativeTranscriptFailure: recording.nativeTranscriptFailure }
+          : {}),
+      };
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       (error as { finalUpload?: boolean }).finalUpload = true;
@@ -1515,7 +1627,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     const error = err instanceof Error ? err : new Error(String(err));
 
     if (isFinalUploadRecoveryCandidate(error)) {
-      const recovered = await waitForReadyRecordingAfterFinalizeError({
+      const recovered = await waitForAcceptedRecordingAfterFinalizeError({
         uploadUrl: recording.uploadUrl,
         recordingId: recording.recordingId,
         authToken: recording.authToken,
@@ -1546,7 +1658,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         recordingId: recording.recordingId,
         chunkCount: recording.chunkIndex,
         mimeType: recording.mimeType,
-        durationMs: Math.max(0, Date.now() - recording.startedAtMs),
+        durationMs,
       },
     });
     // The upload failed — save the buffered recording to disk so it isn't lost.
@@ -1571,7 +1683,14 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
 function pause(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
-    if (recording.recorder.state === "recording") recording.recorder.pause();
+    if (recording.recorder.state === "recording") {
+      recording.recorder.pause();
+      recording.nativeTranscription.pause();
+      recording.duration = pauseRecordingDuration(
+        recording.duration,
+        Date.now(),
+      );
+    }
     reportStatus(recording.sessionId, "paused", {
       recordingId: recording.recordingId,
     });
@@ -1582,7 +1701,14 @@ function pause(message: SimpleMessage): { ok: boolean } {
 function resume(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
-    if (recording.recorder.state === "paused") recording.recorder.resume();
+    if (recording.recorder.state === "paused") {
+      recording.recorder.resume();
+      recording.nativeTranscription.resume();
+      recording.duration = resumeRecordingDuration(
+        recording.duration,
+        Date.now(),
+      );
+    }
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
     });
@@ -1615,6 +1741,7 @@ function cancel(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
     recording.cancelled = true;
+    recording.nativeTranscription.cancel();
     if (recording.startTimer !== null) {
       clearTimeout(recording.startTimer);
       recording.startTimer = null;
@@ -1644,6 +1771,18 @@ function startNow(message: SimpleMessage): { ok: boolean } {
   return { ok: true };
 }
 
+function getRecordingState(): {
+  ok: boolean;
+  activeSessionId?: string;
+  preparedSessionId?: string;
+} {
+  return {
+    ok: true,
+    ...(activeRecording ? { activeSessionId: activeRecording.sessionId } : {}),
+    ...(prepared ? { preparedSessionId: prepared.sessionId } : {}),
+  };
+}
+
 // Restart: discard the in-progress recording but keep the same source streams
 // (so the user does not have to re-pick a screen), then re-home them into a
 // prepared slot. A fresh recorder is built on the next BEGIN.
@@ -1658,6 +1797,7 @@ async function restart(
   // handler ignores the final flush, so the source tracks stay live.
   recording.restarting = true;
   recording.cancelled = true;
+  recording.nativeTranscription.cancel();
   if (recording.recorder.state !== "inactive") recording.recorder.stop();
   // Tear down the old compositor + mixing context; keep the capture tracks alive
   // so the next BEGIN can build a fresh compositor/recorder on the same streams.
@@ -1711,6 +1851,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
     case "CLIPS_OFFSCREEN_START_NOW":
       task = Promise.resolve(startNow(message as SimpleMessage));
+      break;
+    case "CLIPS_OFFSCREEN_STATUS":
+      task = Promise.resolve(getRecordingState());
       break;
     case "CLIPS_OFFSCREEN_COPY_TEXT":
       task = copyTextToClipboard(message as CopyTextMessage);

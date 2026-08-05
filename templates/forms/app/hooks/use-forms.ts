@@ -1,10 +1,20 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
-  appApiPath,
   useActionQuery,
   useActionMutation,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+
+type FormListItem = { id: string; [key: string]: unknown };
+type FormListMutationContext = {
+  removed: Array<{
+    queryKey: readonly unknown[];
+    form: FormListItem;
+    index: number;
+  }>;
+};
 
 // ---------------------------------------------------------------------------
 // Admin hooks (authenticated)
@@ -76,13 +86,56 @@ export function usePatchFormFields() {
 
 export function useDeleteForm() {
   const qc = useQueryClient();
+  const t = useT();
   return useActionMutation("delete-form", {
+    onMutate: async (variables) => {
+      if (variables.purge) return undefined;
+
+      const activeListFilter = {
+        queryKey: ["action", "list-forms"],
+        predicate: (query: { queryKey: readonly unknown[] }) => {
+          const params = query.queryKey[2];
+          return !(
+            params &&
+            typeof params === "object" &&
+            (params as { archived?: boolean }).archived === true
+          );
+        },
+      } as const;
+
+      await qc.cancelQueries(activeListFilter);
+      const previous = qc.getQueriesData<FormListItem[]>(activeListFilter);
+      const removed: FormListMutationContext["removed"] = [];
+      for (const [queryKey, data] of previous) {
+        const index = data?.findIndex((form) => form.id === variables.id) ?? -1;
+        const form = index >= 0 ? data?.[index] : undefined;
+        if (form) removed.push({ queryKey, form, index });
+        qc.setQueryData<FormListItem[]>(queryKey, (old) =>
+          old?.filter((form) => form.id !== variables.id),
+        );
+      }
+
+      return { removed } satisfies FormListMutationContext;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["action", "list-forms"] });
       qc.invalidateQueries({ queryKey: ["action", "get-form"] });
     },
-    onError: () => {
-      toast.error("Failed to delete form");
+    onError: (_error, variables, context) => {
+      const mutationContext = context as FormListMutationContext | undefined;
+      for (const { queryKey, form, index } of mutationContext?.removed ?? []) {
+        qc.setQueryData<FormListItem[]>(queryKey, (old) => {
+          if (!old || old.some((item) => item.id === form.id)) return old;
+          const next = [...old];
+          next.splice(Math.min(index, next.length), 0, form);
+          return next;
+        });
+      }
+      if (variables.purge) {
+        toast.error("Failed to delete form");
+      } else if (!mutationContext?.removed.length) {
+        toast.error(t("forms.archiveFailed"));
+      }
     },
   });
 }

@@ -1,3 +1,5 @@
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+
 export interface WorkspaceAppSummary {
   id: string;
   name: string;
@@ -13,6 +15,9 @@ export interface WorkspaceAppSummary {
   builderUrl?: string | null;
   branchName?: string | null;
   createdAt?: string | null;
+  createdBy?: string | null;
+  owner?: string | null;
+  teams?: string[];
   agentCardUrl?: string | null;
   agentCardReachable?: boolean;
   a2aEndpointUrl?: string | null;
@@ -22,7 +27,14 @@ export interface WorkspaceAppSummary {
 }
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
-  if (app.status === "pending") return app.builderUrl || null;
+  if (app.status === "pending") {
+    return app.builderUrl
+      ? withBuilderUtmTrackingParams(app.builderUrl, {
+          campaign: "product",
+          content: "dispatch_branch",
+        })
+      : null;
+  }
   return app.path || app.url || null;
 }
 

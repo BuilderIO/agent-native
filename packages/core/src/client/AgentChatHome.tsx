@@ -31,6 +31,8 @@ export function AgentChatHome({
   surfaceClassName,
   chatViewTransition = true,
   defaultMode = "chat",
+  showHeader = false,
+  showTabBar = false,
   ...props
 }: AgentChatHomeProps) {
   return (
@@ -50,6 +52,8 @@ export function AgentChatHome({
           {...props}
           mode="page"
           defaultMode={defaultMode}
+          showHeader={showHeader}
+          showTabBar={showTabBar}
           chatViewTransition={chatViewTransition}
           className={cn(
             "min-h-0 flex-1 rounded-lg border border-border shadow-sm",

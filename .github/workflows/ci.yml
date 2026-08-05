@@ -63,12 +63,32 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-  test:
-    name: Fast tests
+  # The full fast-test suite runs on every PR — nothing is change-selected, so a
+  # test can never be silently skipped. It's split into parallel lanes purely for
+  # wall-clock: @agent-native/core runs isolated and uncapped (test-core), and
+  # every other test package is partitioned across balanced lanes (test-rest) by
+  # scripts/ci-test-lanes.ts, which asserts every package lands in exactly one
+  # lane. Adding a package auto-assigns it; dropping one fails the discover job.
+  discover-lanes:
+    name: Plan test lanes
     runs-on: ubuntu-latest
-    # Cap the run so a hung test fails fast instead of pinning a runner for
-    # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
-    # below so they can run in parallel instead of serially behind fast tests.
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Partition non-core test packages into lanes
+        id: plan
+        run: node --experimental-strip-types scripts/ci-test-lanes.ts
+
+  test-core:
+    name: Fast tests core
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -95,8 +115,105 @@ jobs:
       - name: Install Playwright Chromium for browser-backed unit tests
         run: pnpm exec playwright install --only-shell chromium
 
-      - name: Run fast tests
-        run: pnpm test:fast
+      - name: Run core fast tests (uncapped)
+        # Invoke vitest directly rather than `run test` so core uses the whole
+        # runner. The package's `test` script keeps --maxWorkers=25% for local /
+        # nightly co-scheduled runs (4-6 packages at once); here core runs alone,
+        # so the cap only wastes cores. Exclusions mirror the `test:fast` root
+        # script; keep the lists in sync. create-e2e.spec.ts is a heavyweight
+        # scaffold e2e test (real `createApp`, needs AGENT_NATIVE_CREATE_USE_LOCAL_CORE
+        # + disk setup) — it runs in the dedicated scaffold-e2e job, not here.
+        run: >-
+          pnpm --filter @agent-native/core exec vitest run --dir src
+          --exclude "**/*.db.test.ts"
+          --exclude "**/*.integration.spec.ts"
+          --exclude "**/*.integration.test.ts"
+          --exclude "**/*.e2e.spec.ts"
+          --exclude "**/*.e2e.test.ts"
+          --exclude "**/e2e/**"
+          --exclude "**/*.live.spec.ts"
+          --exclude "**/*.live.test.ts"
+          --exclude "**/*.perf.spec.ts"
+          --exclude "**/*.perf.test.ts"
+          --exclude "**/create-e2e.spec.ts"
+
+  test-rest:
+    name: Fast tests ${{ matrix.lane }}
+    needs: discover-lanes
+    runs-on: ubuntu-latest
+    # Cap the run so a hung test fails fast instead of pinning a runner for
+    # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
+    # below so they can run in parallel instead of serially behind fast tests.
+    timeout-minutes: 20
+    strategy:
+      # Report every lane's result; don't cancel siblings on the first failure.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-lanes.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium for browser-backed unit tests
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run fast tests for lane
+        # --workspace-concurrency=1: one package at a time so each gets the whole
+        # runner (vitest's default worker count ~= all cores). Packages run their
+        # own test script/config unchanged. Exclusions mirror the `test:fast`
+        # root script; keep the lists in sync.
+        run: >-
+          pnpm -r --no-bail --workspace-concurrency=1 ${{ matrix.filters }} run test
+          --exclude "**/*.db.test.ts"
+          --exclude "**/*.integration.spec.ts"
+          --exclude "**/*.integration.test.ts"
+          --exclude "**/*.e2e.spec.ts"
+          --exclude "**/*.e2e.test.ts"
+          --exclude "**/e2e/**"
+          --exclude "**/*.live.spec.ts"
+          --exclude "**/*.live.test.ts"
+          --exclude "**/*.perf.spec.ts"
+          --exclude "**/*.perf.test.ts"
+          --exclude "**/create-e2e.spec.ts"
+
+  # Stable required status check. Point branch protection at "Fast tests" (this
+  # gate), not the per-lane jobs whose names vary with the matrix.
+  fast-tests:
+    name: Fast tests
+    needs: [discover-lanes, test-core, test-rest]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate on lane results
+        run: |
+          for dep in "discover-lanes:${{ needs.discover-lanes.result }}" \
+                     "test-core:${{ needs.test-core.result }}" \
+                     "test-rest:${{ needs.test-rest.result }}"; do
+            name="${dep%%:*}"; result="${dep##*:}"
+            if [ "$result" != "success" ]; then
+              echo "::error::$name did not succeed ($result)"
+              exit 1
+            fi
+          done
+          echo "Full fast-test suite passed (core + all lanes)."
 
   content-parity:
     name: Content parity
@@ -141,6 +258,54 @@ jobs:
 
       - name: Run Content DB tests
         run: pnpm test:content-db
+
+      - name: Install isolated PGlite test driver
+        run: >-
+          npm install --ignore-scripts --no-save
+          --prefix "$RUNNER_TEMP/s2573-pglite"
+          @electric-sql/pglite@0.5.4
+
+      - name: Run PGlite lock and migration action semantics tests
+        run: node scripts/test-content-database-lock-pglite.mjs
+        env:
+          S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
+
+  content-db-postgres-tests:
+    name: Content DB PostgreSQL locking
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: content_migration_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d content_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run Content PostgreSQL lock integration tests
+        run: pnpm test:content-db-postgres
+        env:
+          CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
 
   core-integration-tests:
     name: Core integration tests
@@ -220,6 +385,28 @@ jobs:
       - name: Run brain evals
         run: pnpm test:brain-evals
 
+  brain-privacy-evals:
+    name: Brain privacy leakage evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Block privacy leaks and false positives
+        run: pnpm test:brain-privacy-evals
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -242,12 +429,41 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
+  trusted-acceptance:
+    name: Trusted acceptance substrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate config, provenance, receipts, and workflow boundaries
+        run: pnpm test:trusted-acceptance
+
+      - name: Build the pilot as secretless Netlify artifacts
+        env:
+          AGENT_NATIVE_BUILD_SHA: ${{ github.sha }}
+          NITRO_PRESET: netlify
+        run: |
+          pnpm --filter calendar build
+          pnpm --filter content build
+          test -d templates/calendar/dist
+          test -f templates/calendar/.netlify/functions-internal/server/main.mjs
+          test -d templates/content/dist
+          test -f templates/content/.netlify/functions-internal/server/main.mjs
+
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -261,8 +477,7 @@ jobs:
             /usr/local/lib/android \
             /usr/local/share/boost \
             /usr/share/dotnet \
-            /usr/share/swift \
-            ~/.cache/ms-playwright
+            /usr/share/swift
           docker system prune -af || true
           sudo apt-get clean
           df -h
@@ -281,28 +496,23 @@ jobs:
       # cache hit); no separate `pnpm build` step needed.
       - run: pnpm install --frozen-lockfile
 
-      - name: Restore Playwright browser cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      - name: Install Playwright Chromium for dev smoke
-        run: pnpm exec playwright install --only-shell chromium
-
-      - name: Standalone chat dev smoke (auto-login + SSR render)
-        # Catches Vite dev SSR failures (e.g. Meta outside HydratedRouter) that
-        # production build alone does not surface. Also scaffolds + pnpm install.
-        run: pnpm qa:standalone-chat-dev
-
       - name: Headless scaffold — pnpm install + typecheck + action
         # Guards the documented one-file headless onboarding: a fresh
         # `--headless` scaffold must `pnpm typecheck` (no inherited vite/client
         # types) and `pnpm action hello` (server-safe package root, no React /
-        # react-query in the load graph) out of the box. AGENT_NATIVE_CREATE_USE_LOCAL_CORE
-        # is set at the job level, so the gated heavyweight guard actually runs.
+        # react-query in the load graph) out of the box.
         run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
+
+      - name: Headless onboarding — local core install + typecheck + action
+        # Keep the local package-linking setup scoped to the heavyweight test.
+        # Applying it to the whole create-e2e file makes lightweight scaffold
+        # tests spend their timeout packing the local Core and Toolkit.
+        env:
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+        run: >-
+          pnpm --filter @agent-native/core exec vitest run
+          src/cli/create-e2e.spec.ts
+          -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         # Dispatch is in the combo because it exercises the
@@ -392,13 +602,17 @@ jobs:
       # control the exact build order and avoid redundant parallel builds.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Build core and its package dependency so the deploy build's CLI and
-      # compatibility shims are available, then produce the real serverless
-      # bundle.
-      - name: Build toolkit and core
+      # Build the extracted recap CLI before core so its compatibility shim is
+      # available to source imports, then produce the real serverless bundle.
+      - name: Build recap CLI, toolkit, core, and creative context
         run: |
+          pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/creative-context build
+
+      - name: Build Content template (Cloudflare Pages preset)
+        run: NITRO_PRESET=cloudflare_pages pnpm --filter content build
 
       # Plan covers diagram-heavy SSR and Clips covers public-share SSR. Build
       # both real Netlify function artifacts so a core runtime dependency cannot
@@ -440,6 +654,15 @@ jobs:
       # Guard scripts only need dependencies and should not depend on package
       # lifecycle builds; skipping scripts avoids native optional builds here.
       - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Source-backed guards import published-style package entrypoints, so
+      # build the workspace packages they inspect before loading locale data.
+      - name: Build packages for source-backed guards
+        run: |
+          pnpm --filter @agent-native/recap-cli build
+          pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/creative-context build
 
       - name: Run security guards
         run: pnpm guards

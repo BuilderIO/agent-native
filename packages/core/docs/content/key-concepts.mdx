@@ -1,19 +1,31 @@
 ---
 title: "Key Concepts"
-description: "How agent-native apps work: actions first, SQL database, app-agent loop, optional UI, polling sync, external-agent entry points, context awareness, and portability."
+description: "How agent-native apps work across three layers: the Core framework, optional Toolkit building blocks, and optional Templates, plus the shared actions, SQL database, app-agent loop, and portability contract."
 ---
 
 # Key Concepts
 
 How agent-native apps work under the hood — the principles and the architecture. This page is the contract; for the vision and the case for building this way, see [What Is Agent-Native?](/docs/what-is-agent-native).
 
+## The three layers {#three-layers}
+
+Agent Native is a framework, not a single template. It has three layers:
+
+| Layer                                                    | What it is                                                                                                                                                                                            |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core - the framework**                                 | The foundational runtime contract: actions, SQL and Drizzle helpers, auth, application state, agent execution, access checks, routing, and live sync. Every app can use Core directly.                |
+| **Toolkit - optional reusable pieces for the framework** | Shared app-building UI and product systems such as primitives, editors, sharing, collaboration, settings, and agent UX. Apps can use, compose, or fork the pieces they need.                          |
+| **Templates - optional apps built on Core**              | Complete, domain-specific apps with routes, schema, actions, instructions, and visual identity. First-party and custom templates commonly use Toolkit, and can be forked and used as starting points. |
+
+Core is the foundation. Toolkit and Templates are optional: a template can use Toolkit, but Toolkit is not required to build an app on Core.
+
 ## The architecture {#the-architecture}
 
-Every agent-native app is three things working together:
+At runtime, every agent-native app is three things working together:
 
-- **Agent** — Autonomous AI that reads data, writes data, runs actions, and modifies code. Customizable with skills and instructions.
+- **Agent** — Autonomous AI that reads data, writes data, runs actions, and uses configured tools. It can also modify source when its frame is intentionally granted workspace and write tooling. Customizable with skills and instructions.
 - **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
-- **Computer** — Database, browser, code execution. Agents work directly with SQL and built-in tools; MCP servers are optional add-ons, not the foundation.
+- **Computer** — Database, browser, and configured tool runtimes. Agents work through the app's action and data surface; an app may expose that same action surface over MCP, while external MCP servers remain optional add-ons rather than the foundation.
 
 <Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
 
@@ -23,7 +35,7 @@ Every agent-native app is three things working together:
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >reads + writes data, runs actions, modifies code</small
+        >reads + writes data, runs actions, uses configured tools</small
       >
     </div>
     <div class="diagram-card">
@@ -114,14 +126,13 @@ a `customer-research` skill might tell the agent which sources to inspect and
 how to summarize evidence, while `search-crm` and `create-brief` actions fetch
 and write the actual data.
 
-Six rules govern the architecture:
+Five rules govern the architecture:
 
 1. **Data lives in SQL** — all app state lives in the database via Drizzle ORM
 2. **All AI goes through the agent** — no inline LLM calls
 3. **Actions for agent operations** — complex work runs as actions
 4. **Live sync keeps the UI in sync** — database changes stream over SSE with polling as the universal fallback
-5. **The agent can modify code** — the app evolves as you use it
-6. **Application state in SQL** — ephemeral UI state lives in the database, readable by both agent and UI
+5. **Application state in SQL** — ephemeral UI state lives in the database, readable by both agent and UI
 
 ## The four-area checklist {#four-area-checklist}
 
@@ -256,8 +267,7 @@ The UI never calls an LLM directly. When a user clicks "Generate chart" or "Writ
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -268,8 +278,8 @@ sendToAgentChat({
 Why not call an LLM inline?
 
 - **AI is non-deterministic.** You need conversation flow to give feedback and iterate — not one-shot buttons.
-- **Context matters.** The agent has your full codebase, instructions, skills, and history. An inline call has none of that.
-- **The agent can do more.** It can run actions, browse the web, modify code, and chain multiple steps together.
+- **Context matters.** The agent has the app's instructions, skills, and history. An inline call has none of that.
+- **The agent can do more.** It can run actions, browse the web, and chain multiple steps together.
 - **External execution.** Because everything goes through the agent and actions, any app can be driven from Slack, Telegram, scheduled jobs, scripts, or another agent via [A2A](/docs/a2a-protocol).
 
 ## Actions system {#actions-system}
@@ -308,8 +318,7 @@ Database changes are synced to the UI through `useDbSync()`. Same-process writes
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -399,17 +408,15 @@ Implement a domain operation once as an action; the framework exposes it to ever
 
 For the full protocol/surface matrix (MCP server and OAuth, MCP Apps, A2A, deep links, native chat widgets, Generative UI, AgentChatRuntime connectors, Agent Web, and the adapter horizon for ACP and A2UI), and for choosing a product shape — chat, inline UI, full app pages, embedded sidecar, automation, or external-agent access — see [Agent Surfaces](/docs/agent-surfaces).
 
-## Agent modifies code {#agent-modifies-code}
+## App code and customization {#agent-modifies-code}
 
-This is a feature, not a bug. The agent can safely edit the app's source code: components, routes, styles, actions.
-
-There's no shared codebase to break. You own the app, and the agent evolves it for you over time:
-
-1. Fork a template (e.g. the analytics template)
-2. Customize it by asking the agent
-3. "Add a new chart type for cohort analysis" — the agent builds it
-4. "Connect to our Stripe account" — the agent writes the integration
-5. Your app keeps improving without manual development
+The framework does not grant the embedded agent ambient access to an app's
+source code. In a deployed app, the agent normally works through actions,
+SQL-backed state, and configured integrations. It can edit components, routes,
+styles, and actions when its frame is intentionally granted workspace and write
+tooling. Templates are complete apps that you can fork and customize in your
+own repository and development workflow either way. For runtime customization
+without source changes, use [Extensions](/docs/extensions).
 
 ## Portable by default {#hosting-agnostic}
 
@@ -418,9 +425,9 @@ Two architectural rules keep apps portable across databases and hosts:
 - **Database-agnostic.** Write schemas with `@agent-native/core/db/schema` and reads/writes with Drizzle's portable query DSL so the same code runs on any supported provider. Use raw SQL only for additive migrations or one-off maintenance, kept parameterized and dialect-agnostic. See [Database](/docs/database).
 - **Hosting-agnostic.** The server runs on Nitro and compiles to any deployment target. Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes or plugins, and never assume a persistent server process — serverless and edge are stateless, so keep all state in SQL. See [Deployment](/docs/deployment).
 
-## Workspace {#workspace}
+## Agent Resources {#workspace}
 
-Every user gets a personal **workspace** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Workspace](/docs/workspace).
+Every user gets a personal set of **agent resources** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Agent Resources](/docs/agent-resources).
 
 ## Related building blocks {#building-blocks}
 
@@ -432,14 +439,14 @@ These sit on top of the same contract and have their own deep dives:
 
 ## What you get for free {#what-you-get-for-free}
 
-Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
+Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the five rules, you inherit:
 
 - **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
-- **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
-- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
+- **A full set of agent resources per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Agent Resources](/docs/agent-resources).
+- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + resources anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
 - **BYO agent chat runtimes.** The same chat UI can sit on top of OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, or your own normalized HTTP stream. See [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).
 - **Live sync between agent and UI.** Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.
-- **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).
+- **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication). Building for more than one user? Start with [Organizations, Teams & Permissions](/docs/organizations-teams-permissions).
 - **Context awareness.** The agent always knows what the user is looking at through the `navigation` app-state key. See [Context Awareness](/docs/context-awareness).
 - **MCP client + server, both directions.** The app ingests MCP servers (local, remote, hub-shared) _and_ exposes its own actions as an MCP server. See [MCP Clients](/docs/mcp-clients) and [MCP Protocol](/docs/mcp-protocol).
 - **Inter-app delegation.** Agents in different apps talk over [A2A](/docs/a2a-protocol). Same-origin deploys skip JWT; cross-origin uses a shared `A2A_SECRET`.

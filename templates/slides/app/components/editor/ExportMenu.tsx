@@ -1,11 +1,17 @@
-import { appBasePath, useT } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconDownload,
+  IconUpload,
   IconFileTypePdf,
   IconCode,
   IconCopy,
   IconShare2,
   IconBrandGoogle,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 
@@ -17,6 +23,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
+
+/** Google Slides' File → Import dialog, primed to ask for a file. */
+const GOOGLE_SLIDES_IMPORT_URL =
+  "https://docs.google.com/presentation/u/0/?usp=import";
 
 interface ExportMenuProps {
   deckId: string;
@@ -24,6 +35,7 @@ interface ExportMenuProps {
   onDuplicate: () => void;
   onExportPdf: () => void;
   onExportPptx: () => Promise<void> | void;
+  onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
 }
@@ -34,6 +46,7 @@ export function ExportMenu({
   onDuplicate,
   onExportPdf,
   onExportPptx,
+  onExportGoogleSlides,
   onShareLink,
   onShareTeam,
 }: ExportMenuProps) {
@@ -83,13 +96,78 @@ export function ExportMenu({
   };
 
   const handleExportGoogleSlides = async () => {
+    if (!onExportGoogleSlides) return;
+    // Opened up-front: browsers only honour window.open() inside the click
+    // gesture, and building the PPTX is async.
+    const target = window.open("", "_blank");
     try {
-      await onExportPptx();
+      const result = await onExportGoogleSlides();
+      if (result.url !== null) {
+        if (target) target.location.href = result.url;
+        toast.success(t("editorExport.googleSlidesCreated"), {
+          description: t("editorExport.googleSlidesCreatedHint"),
+        });
+        return;
+      }
+      console.warn("Google Slides upload unavailable:", result.reason);
+      if (target) target.location.href = GOOGLE_SLIDES_IMPORT_URL;
       toast.success(t("editorExport.googleSlidesDownloaded"), {
         description: t("editorExport.googleSlidesImportHint"),
       });
     } catch (err) {
+      target?.close();
       console.error("Export failed:", err);
+      toast.error(t("editorExport.exportFailed"), {
+        description:
+          err instanceof Error
+            ? err.message
+            : t("editorExport.exportGoogleSlidesError"),
+      });
+    }
+  };
+
+  const handleConnectGoogle = async () => {
+    const authUrl = new URL(
+      agentNativePath("/_agent-native/google-docs/auth-url"),
+      window.location.origin,
+    );
+    authUrl.searchParams.set(
+      "return",
+      window.location.pathname + window.location.search,
+    );
+
+    const popup = window.open(
+      "",
+      "google-docs-oauth",
+      "popup,width=520,height=720",
+    );
+    if (!popup) {
+      toast.error(t("editorExport.exportFailed"), {
+        description: t("editorExport.exportGoogleSlidesError"),
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(authUrl.toString(), {
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        throw new Error(
+          await readErrorMessage(
+            response,
+            t("editorExport.exportGoogleSlidesError"),
+          ),
+        );
+      }
+      const data = (await response.json()) as { url?: unknown };
+      if (typeof data.url !== "string") {
+        throw new Error(t("editorExport.exportGoogleSlidesError"));
+      }
+      popup.location.href = data.url;
+    } catch (err) {
+      popup?.close();
+      console.error("Google connection failed:", err);
       toast.error(t("editorExport.exportFailed"), {
         description:
           err instanceof Error
@@ -132,7 +210,7 @@ export function ExportMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
-          <IconDownload className="w-3.5 h-3.5" />
+          <IconUpload className="w-3.5 h-3.5" />
           <span className="hidden md:inline">{t("editorExport.export")}</span>
         </button>
       </DropdownMenuTrigger>
@@ -165,13 +243,24 @@ export function ExportMenu({
           <IconDownload className="w-4 h-4 mr-2" />
           {t("editorExport.exportPptx")}
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={handleExportGoogleSlides}
-          className="cursor-pointer"
-        >
-          <IconBrandGoogle className="w-4 h-4 mr-2" />
-          {t("editorExport.downloadGoogleSlides")}
-        </DropdownMenuItem>
+        {onExportGoogleSlides && (
+          <>
+            <DropdownMenuItem
+              onClick={handleConnectGoogle}
+              className="cursor-pointer"
+            >
+              <IconPlugConnected className="w-4 h-4 mr-2" />
+              {t("editorExport.connectGoogle")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={handleExportGoogleSlides}
+              className="cursor-pointer"
+            >
+              <IconBrandGoogle className="w-4 h-4 mr-2" />
+              {t("editorExport.openInGoogleSlides")}
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
           <IconCopy className="w-4 h-4 mr-2" />

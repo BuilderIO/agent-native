@@ -9,6 +9,11 @@ editor or table is useful.
 Detailed building, publishing, response, storage, and UI rules live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -32,6 +37,20 @@ Detailed building, publishing, response, storage, and UI rules live in
   `create-form` call with `status: "published"`, verify the persisted form, and
   return the action's exact public `/f/<slug>` response URL rather than only
   the private editor link.
+- To email the form owner when someone submits a response, set
+  `settings.emailOnNewResponses: true` through `create-form` or `update-form`.
+  Delivery uses the configured framework email provider (`RESEND_API_KEY` or
+  `SENDGRID_API_KEY`) in the form owner's request context and sends to the form
+  owner's account email. A public submission can succeed even when delivery
+  fails, so check the server logs and provider configuration when debugging.
+- Conditional fields use `conditional: { fieldId, operator, value }`. The
+  `fieldId` must reference an earlier field; supported operators are `equals`,
+  `not_equals`, and `contains`. Hidden fields and their stale values are not
+  persisted or delivered to integrations.
+- Form integrations are outbound webhooks. Slack requires an Incoming Webhook
+  URL, and Google Sheets requires a deployed Google Apps Script `/exec` URL that
+  parses `JSON.parse(e.postData.contents)` and appends the received values.
+  They are separate from the managed Slack/Messaging connection.
 - Form UX should stay focused: clear labels, sensible validation, minimal
   required fields, and progressive disclosure for advanced settings.
 - Public form submission endpoints must be intentionally public; keep management

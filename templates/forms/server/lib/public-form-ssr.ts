@@ -1,5 +1,5 @@
 import { getAppBasePath } from "@agent-native/core/server";
-import { DEFAULT_SSR_CACHE_HEADERS } from "@agent-native/core/server/ssr-handler";
+import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -22,14 +22,38 @@ import { getDb, schema } from "../db/index.js";
 const cache = new Map<string, { data: any; ts: number }>();
 const TTL = 60_000;
 
+type PublicFormCacheKeys = {
+  id?: string | null;
+  slug?: string | null;
+};
+
+export function invalidatePublicFormCache(
+  ...forms: Array<PublicFormCacheKeys | null | undefined>
+) {
+  for (const form of forms) {
+    for (const key of [form?.id, form?.slug]) {
+      if (!key) continue;
+      cache.delete(key);
+      const versionPrefix = `${key}?v=`;
+      for (const cachedKey of cache.keys()) {
+        if (cachedKey.startsWith(versionPrefix)) cache.delete(cachedKey);
+      }
+    }
+  }
+}
+
 function getCached(key: string) {
   const entry = cache.get(key);
   if (entry && Date.now() - entry.ts < TTL) return entry.data;
   return null;
 }
 
-export async function getPublicFormBySlugOrId(slugOrId: string) {
-  const cached = getCached(slugOrId);
+export async function getPublicFormBySlugOrId(
+  slugOrId: string,
+  version?: string,
+) {
+  const cacheKey = version ? `${slugOrId}?v=${version}` : slugOrId;
+  const cached = getCached(cacheKey);
   if (cached) return cached;
 
   const db = getDb();
@@ -60,11 +84,13 @@ export async function getPublicFormBySlugOrId(slugOrId: string) {
     slug: row.slug,
     title: row.title,
     description: row.description,
+    ownerEmail: row.ownerEmail,
+    updatedAt: row.updatedAt,
     fields: JSON.parse(row.fields) as FormField[],
     settings: toPublicFormSettings(settings),
   };
 
-  cache.set(slugOrId, { data: result, ts: Date.now() });
+  cache.set(cacheKey, { data: result, ts: Date.now() });
   return result;
 }
 
@@ -101,6 +127,7 @@ const FALLBACK_PUBLIC_FORM_ORIGIN = "http://agent-native.local";
 function parsePublicFormUrl(url: string): {
   pathname: string;
   origin?: string;
+  version?: string;
 } {
   try {
     const parsed = new URL(url, FALLBACK_PUBLIC_FORM_ORIGIN);
@@ -108,6 +135,7 @@ function parsePublicFormUrl(url: string): {
     return {
       pathname: parsed.pathname,
       origin: isAbsolute ? parsed.origin : undefined,
+      version: parsed.searchParams.get("v") || undefined,
     };
   } catch {
     return { pathname: url.split("?")[0] || "/" };
@@ -259,7 +287,9 @@ export async function renderPublicFormHtml(
       ? pathname.slice(basePath.length)
       : pathname;
   const slugOrId = decodeURIComponent(pathWithoutBase.replace(/^\/f\//, ""));
-  const form = slugOrId ? await getPublicFormBySlugOrId(slugOrId) : null;
+  const form = slugOrId
+    ? await getPublicFormBySlugOrId(slugOrId, parsedUrl.version)
+    : null;
 
   if (!form) {
     return { html: notFoundPage(parsedUrl.origin), status: 404 };
@@ -284,7 +314,7 @@ export async function renderPublicForm(event: H3Event) {
     // Public form SSR is anonymous HTML and follows the same framework-level
     // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
     // here; relying on provider config would make templates perform differently.
-    Object.assign(headers, DEFAULT_SSR_CACHE_HEADERS);
+    Object.assign(headers, resolveSsrCacheHeaders());
   }
   return new Response(getMethod(event) === "HEAD" ? null : html, {
     status,
@@ -302,6 +332,8 @@ function renderFormPage(
     slug: string;
     title: string;
     description?: string | null;
+    ownerEmail?: string | null;
+    updatedAt?: string | null;
     fields: FormField[];
     settings: PublicFormSettings;
   },
@@ -315,7 +347,7 @@ function renderFormPage(
   const faviconPath = `${appBasePath}/favicon.svg`;
   const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
     form.slug || form.id,
-  )}/og.png`;
+  )}/og.png${form.updatedAt ? `?v=${encodeURIComponent(form.updatedAt)}` : ""}`;
   const ogImageUrl = origin
     ? new URL(ogImagePath, origin).toString()
     : ogImagePath;
@@ -342,7 +374,7 @@ function renderFormPage(
 <meta property="og:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
-<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<meta name="twitter:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
 <link rel="icon" type="image/svg+xml" href="${faviconPath}">
 <!-- Self-hosted Inter via Bunny Fonts CDN (privacy-respecting, no tracking) -->
 <link rel="preconnect" href="https://fonts.bunny.net">
@@ -398,9 +430,24 @@ function renderFormPage(
 <script>
 (function(){
   var FORM_ID = ${JSON.stringify(form.id)};
+  var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
+  var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
+
+  function revalidateFormVersion() {
+    fetch(PUBLIC_FORM_API, { cache: "no-store" })
+      .then(function(response) { return response.ok ? response.json() : null; })
+      .then(function(latest) {
+        if (!latest || typeof latest.updatedAt !== "string" || !latest.updatedAt || latest.updatedAt === FORM_VERSION) return;
+        var currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set("v", latest.updatedAt);
+        window.location.replace(currentUrl.toString());
+      })
+      .catch(function() {});
+  }
+  revalidateFormVersion();
 
   // Theme toggle
   var html = document.documentElement;
@@ -463,19 +510,40 @@ function renderFormPage(
       var condVal = el.dataset.condVal;
       var depVal = getFieldValue(depId);
       var show = true;
-      if (op === "equals") show = depVal === condVal;
+      if (Array.isArray(depVal)) {
+        if (op === "equals") show = depVal.length === 1 && depVal[0] === condVal;
+        else if (op === "not_equals") show = depVal.indexOf(condVal) < 0;
+        else if (op === "contains") show = depVal.indexOf(condVal) >= 0;
+      } else if (op === "equals") show = depVal === condVal;
       else if (op === "not_equals") show = depVal !== condVal;
       else if (op === "contains") show = depVal.indexOf(condVal) >= 0;
       el.style.display = show ? "" : "none";
       el.dataset.hidden = show ? "" : "1";
+      el.querySelectorAll("input, textarea, select, button").forEach(function(control) {
+        control.disabled = !show;
+      });
     });
   }
 
   function getFieldValue(id) {
-    var el = document.querySelector('[name="' + id + '"]');
-    if (!el) return "";
-    if (el.type === "checkbox" && !el.closest(".ms-group")) return el.checked ? "true" : "";
-    return el.value || "";
+    var controls = document.getElementsByName(id);
+    if (!controls.length) return "";
+    var first = controls[0];
+    if (first.type === "checkbox") {
+      if (controls.length > 1) {
+        return Array.prototype.map.call(controls, function(control) {
+          return control.checked ? control.value : "";
+        }).filter(Boolean);
+      }
+      return first.checked ? "true" : "false";
+    }
+    if (first.type === "radio") {
+      for (var i = 0; i < controls.length; i++) {
+        if (controls[i].checked) return controls[i].value || "";
+      }
+      return "";
+    }
+    return first.value || "";
   }
 
   document.getElementById("mainForm").addEventListener("input", updateVisibility);

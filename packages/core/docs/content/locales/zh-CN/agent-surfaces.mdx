@@ -6,6 +6,33 @@ search: "无头代理丰富聊天完整应用程序 BYO 代理运行时 AgentCha
 
 # 特工表面
 
+## 完整的 Agent 工作区 {#agent-page}
+
+当完整应用需要一个持久位置来检查和配置代理时，请在 `/agent` 挂载
+`AgentTabsPage`。将此路由加入应用导航，并向 `AgentSidebar` 传入
+`agentPageHref="/agent"`，这样 Resources 和 Settings 模式就可以链接到完整
+页面，而不必重复这些流程。
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+共享页面目前提供五个选项卡：
+
+- **Context** — 显示范围预览、令牌预算、按来源/治理/来源引用分组的有序系统部分、列表/treemap 视图和最新实时线程快照。
+- **Files** — 为个人或组织资源重新托管现有的 `ResourcesPanel`。
+- **Connections** — MCP 服务器管理和 A2A 远程代理列表，即此应用的代理可以调用什么。
+- **Automations** — 支持暂停/恢复、详情和删除的个人与组织 Scheduled/Event 自动化。兼容 URL 仍为 `/agent#jobs`。
+- **Access** — MCP URL、可用时的 A2A 代理卡片以及共享客户端设置指南；完整连接流程和令牌回退位于 `/mcp/connect`。
+
+该页面目前使用个人范围，不提供页面级 **Personal / Organization** 切换器。
+当底层操作支持时，选项卡可以显示自己的组织部分：**Automations** 显示 Scheduled
+与 Event 的个人和组织部分。组织 Event 自动化始终以创建者身份运行。该页面只是对现有组件、操作和访问
+检查的薄封装，不是新的管理控制台。
+
 Agent-Native 是故意可组合的。不用太多就可以使用代理UI，
 在没有内置代理运行时的情况下使用 UI，或者将两者一起用作完整的
 应用程序。
@@ -377,8 +404,7 @@ export default createAgentNativeEmbeddedPlugin({
 React sidecar 传递页面上下文和主机命令：
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

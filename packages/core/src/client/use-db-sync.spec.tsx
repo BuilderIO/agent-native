@@ -14,6 +14,11 @@ import {
   type SyncEvent,
 } from "./use-db-sync.js";
 
+interface ProbeQuery {
+  queryKey: readonly unknown[];
+  state?: { error?: unknown };
+}
+
 class QueryClientProbe {
   queries = [
     { queryKey: ["sql-chart", "panel-1"] },
@@ -22,7 +27,7 @@ class QueryClientProbe {
   calls: Array<
     | {
         queryKey?: string[];
-        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+        predicate?: (query: ProbeQuery) => boolean;
       }
     | undefined
   > = [];
@@ -31,7 +36,7 @@ class QueryClientProbe {
   invalidateQueries(
     opts?: {
       queryKey?: string[];
-      predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      predicate?: (query: ProbeQuery) => boolean;
     },
     options?: { cancelRefetch?: boolean },
   ) {
@@ -107,6 +112,17 @@ async function renderWithEvent(event: Record<string, unknown>) {
   return { container, fetchMock, queryClient, root };
 }
 
+/**
+ * Query keys targeted by each recorded invalidation. Every sync-driven
+ * invalidation also carries the framework's terminal-auth-failure skip
+ * predicate, so assertions compare keys rather than whole filter objects.
+ */
+function invalidatedQueryKeys(
+  calls: QueryClientProbe["calls"],
+): Array<string[] | undefined> {
+  return calls.map((call) => call?.queryKey);
+}
+
 function resultlessActionInvalidations(
   calls: QueryClientProbe["calls"],
 ): QueryClientProbe["calls"] {
@@ -150,10 +166,41 @@ describe("useDbSync", () => {
     containers.push(result.container);
 
     expect(result.fetchMock).toHaveBeenCalled();
-    expect(result.queryClient.calls).toEqual([{ queryKey: ["action"] }]);
+    expect(invalidatedQueryKeys(result.queryClient.calls)).toEqual([
+      ["action"],
+    ]);
     expect(result.queryClient.refetchOptions).toEqual([
       { cancelRefetch: false },
     ]);
+  });
+
+  it("does not refetch an action query that terminally 401'd", async () => {
+    const result = await renderWithEvent({
+      version: 1,
+      source: "action",
+      type: "change",
+      key: "create-project",
+    });
+    roots.push(result.root);
+    containers.push(result.container);
+
+    const actionCall = result.queryClient.calls.find(
+      (call) => call?.queryKey?.[0] === "action",
+    );
+    const unauthorized: ProbeQuery = {
+      queryKey: ["action", "get-feature-flags"],
+      state: {
+        error: Object.assign(new Error("Action failed: Unauthorized"), {
+          status: 401,
+        }),
+      },
+    };
+    const healthy: ProbeQuery = { queryKey: ["action", "list-projects"] };
+
+    // A 401 repeats until the session changes; refetching it on every sync
+    // tick is what turned one expired session into 135k background 401s.
+    expect(actionCall?.predicate?.(unauthorized)).toBe(false);
+    expect(actionCall?.predicate?.(healthy)).toBe(true);
   });
 
   it("does not refetch for an action event echoed back to its originating tab", async () => {
@@ -182,12 +229,12 @@ describe("useDbSync", () => {
     roots.push(result.root);
     containers.push(result.container);
 
-    expect(result.queryClient.calls).toContainEqual({
-      queryKey: ["app-state"],
-    });
-    expect(result.queryClient.calls).toContainEqual({
-      queryKey: ["navigate-command"],
-    });
+    expect(invalidatedQueryKeys(result.queryClient.calls)).toContainEqual([
+      "app-state",
+    ]);
+    expect(invalidatedQueryKeys(result.queryClient.calls)).toContainEqual([
+      "navigate-command",
+    ]);
   });
 
   it("can scope the broad action invalidate away from expensive query keys", async () => {
@@ -281,11 +328,10 @@ describe("useDbSync", () => {
     });
 
     expect(resultlessActionInvalidations(queryClient.calls)).toHaveLength(0);
-    expect(queryClient.calls).not.toContainEqual({ queryKey: ["extension"] });
-    expect(queryClient.calls).not.toContainEqual({ queryKey: ["extensions"] });
-    expect(queryClient.calls).not.toContainEqual({
-      queryKey: ["slot-installs"],
-    });
+    const keys = invalidatedQueryKeys(queryClient.calls);
+    expect(keys).not.toContainEqual(["extension"]);
+    expect(keys).not.toContainEqual(["extensions"]);
+    expect(keys).not.toContainEqual(["slot-installs"]);
     // Suppression must not swallow the events themselves — templates layer
     // surgical logic on onEvent and must still see suppressed-action batches.
     expect(forwardedEvents).toContainEqual(
@@ -342,13 +388,13 @@ describe("useDbSync", () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    expect(queryClient.calls).toEqual(
+    expect(invalidatedQueryKeys(queryClient.calls)).toEqual(
       expect.arrayContaining([
-        { queryKey: ["action"] },
-        { queryKey: ["extension"] },
-        { queryKey: ["extensions"] },
-        { queryKey: ["tool"] },
-        { queryKey: ["tools"] },
+        ["action"],
+        ["extension"],
+        ["extensions"],
+        ["tool"],
+        ["tools"],
       ]),
     );
   });
@@ -364,8 +410,12 @@ describe("useDbSync", () => {
     containers.push(result.container);
 
     expect(result.fetchMock).toHaveBeenCalled();
-    expect(result.queryClient.calls).not.toContainEqual(undefined);
-    expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
+    expect(invalidatedQueryKeys(result.queryClient.calls)).not.toContainEqual(
+      undefined,
+    );
+    expect(invalidatedQueryKeys(result.queryClient.calls)).toContainEqual([
+      "action",
+    ]);
     expect(result.queryClient.refetchOptions).not.toContainEqual({
       cancelRefetch: true,
     });
@@ -390,24 +440,15 @@ describe("useDbSync", () => {
     containers.push(result.container);
 
     expect(result.fetchMock).toHaveBeenCalled();
+    const keys = invalidatedQueryKeys(result.queryClient.calls);
     // The one query app-state writes legitimately refresh.
-    expect(result.queryClient.calls).toContainEqual({
-      queryKey: ["app-state"],
-    });
+    expect(keys).toContainEqual(["app-state"]);
     // But never the broad data-query prefixes.
-    expect(result.queryClient.calls).not.toContainEqual(undefined);
-    expect(result.queryClient.calls).not.toContainEqual({
-      queryKey: ["action"],
-    });
-    expect(result.queryClient.calls).not.toContainEqual({
-      queryKey: ["extension"],
-    });
-    expect(result.queryClient.calls).not.toContainEqual({
-      queryKey: ["tool"],
-    });
-    expect(result.queryClient.calls).not.toContainEqual({
-      queryKey: ["tools"],
-    });
+    expect(keys).not.toContainEqual(undefined);
+    expect(keys).not.toContainEqual(["action"]);
+    expect(keys).not.toContainEqual(["extension"]);
+    expect(keys).not.toContainEqual(["tool"]);
+    expect(keys).not.toContainEqual(["tools"]);
   });
 
   it("still refetches action queries when an action event rides alongside app-state churn", async () => {
@@ -451,12 +492,11 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
-    expect(queryClient.calls).not.toContainEqual(undefined);
-    expect(queryClient.calls).toContainEqual({ queryKey: ["app-state"] });
-    expect(queryClient.calls).toContainEqual({
-      queryKey: ["navigate-command"],
-    });
+    const keys = invalidatedQueryKeys(queryClient.calls);
+    expect(keys).toContainEqual(["action"]);
+    expect(keys).not.toContainEqual(undefined);
+    expect(keys).toContainEqual(["app-state"]);
+    expect(keys).toContainEqual(["navigate-command"]);
   });
 
   it("flushes app-state navigate/show-questions/__set_url__ events immediately, bypassing the coalesce window", async () => {
@@ -495,10 +535,12 @@ describe("useDbSync", () => {
     // app-state writes) must bypass INVALIDATE_COALESCE_MS entirely — no
     // 260ms wait needed, the invalidation lands in the same flush of
     // microtasks that delivered the event.
-    expect(queryClient.calls).toContainEqual({ queryKey: ["app-state"] });
-    expect(queryClient.calls).toContainEqual({
-      queryKey: ["navigate-command"],
-    });
+    expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual([
+      "app-state",
+    ]);
+    expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual([
+      "navigate-command",
+    ]);
   });
 
   it("flushes __set_url__ and show-questions app-state events immediately too", async () => {
@@ -539,10 +581,12 @@ describe("useDbSync", () => {
       await Promise.resolve();
     });
 
-    expect(queryClient.calls).toContainEqual({ queryKey: ["__set_url__"] });
-    expect(queryClient.calls).toContainEqual({
-      queryKey: ["show-questions"],
-    });
+    expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual([
+      "__set_url__",
+    ]);
+    expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual([
+      "show-questions",
+    ]);
   });
 
   it("still coalesces pure action-change bursts into a single delayed flush", async () => {
@@ -588,7 +632,7 @@ describe("useDbSync", () => {
       await new Promise((resolve) => setTimeout(resolve, 260));
     });
 
-    expect(queryClient.calls).toEqual([{ queryKey: ["action"] }]);
+    expect(invalidatedQueryKeys(queryClient.calls)).toEqual([["action"]]);
   });
 
   it("backs off polling after repeated failures and resets on success", async () => {
@@ -732,6 +776,127 @@ describe("useDbSync", () => {
       await vi.advanceTimersByTimeAsync(58_000);
     });
     expect(pollCallCount()).toBe(5);
+  });
+
+  it("keeps active sync alive at a slower cadence while hidden", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibilityState);
+
+    function BackgroundProbe() {
+      useDbSync({ queryClient, sseUrl: false });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<BackgroundProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "thread-1" },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    visibilitySpy.mockRestore();
+  });
+
+  it("still supports explicitly pausing sync while hidden", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibilityState);
+
+    function PausedProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        interval: 50,
+        pauseWhenHidden: true,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<PausedProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    visibilitySpy.mockRestore();
   });
 
   it("subscribeSyncEvents shares the transport and reports SSE state on join", async () => {
@@ -953,8 +1118,10 @@ describe("useDbSync", () => {
 
     // useDbSync received the action event and invalidated only action-backed
     // queries; it no longer fans the event across the entire active cache.
-    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
-    expect(queryClient.calls).not.toContainEqual(undefined);
+    expect(invalidatedQueryKeys(queryClient.calls)).toContainEqual(["action"]);
+    expect(invalidatedQueryKeys(queryClient.calls)).not.toContainEqual(
+      undefined,
+    );
     // useScreenRefreshKey received the screen-refresh event.
     expect(capturedScreenKey).toBe(1);
   });

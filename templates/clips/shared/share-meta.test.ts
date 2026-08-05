@@ -57,4 +57,20 @@ describe("Clips share metadata", () => {
       content: "summary_large_image",
     });
   });
+
+  it("prefers the stable still thumbnail over an animated preview", () => {
+    const meta = buildClipsShareMeta({
+      origin: "https://clips.example.com",
+      recording: {
+        title: "Launch notes",
+        thumbnailUrl: "/api/thumbnail/rec-1",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      },
+    });
+
+    expect(meta).toContainEqual({
+      property: "og:image",
+      content: "https://clips.example.com/api/thumbnail/rec-1",
+    });
+  });
 });

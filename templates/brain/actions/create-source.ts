@@ -8,7 +8,12 @@ import {
   sha256Hex,
 } from "../server/lib/brain.js";
 import { assertSourceWorkspaceConnectionAvailable } from "../server/lib/source-credentials.js";
-import { jsonRecordSchema, sourceProviderSchema } from "./_schemas.js";
+import { withSourceAnswerPolicy } from "../server/lib/source-policy.js";
+import {
+  jsonRecordSchema,
+  sourceAnswerPolicySchema,
+  sourceProviderSchema,
+} from "./_schemas.js";
 
 export default defineAction({
   description:
@@ -26,10 +31,21 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional signed-ingest bearer token; stored only as a hash"),
-    visibility: z.enum(["private", "org", "public"]).default("org"),
+    visibility: z.enum(["private", "org"]).default("org"),
+    policy: sourceAnswerPolicySchema
+      .optional()
+      .describe(
+        "Optional answer policy controlling trust, eligibility, authority, freshness, review, and conflicts",
+      ),
   }),
   run: async (args) => {
-    const config = { ...args.config };
+    let config = { ...args.config };
+    if (args.policy !== undefined || config.answerPolicy !== undefined) {
+      config = withSourceAnswerPolicy(
+        config,
+        args.policy ?? config.answerPolicy,
+      );
+    }
     const workspaceConnectionId =
       typeof config.workspaceConnectionId === "string"
         ? config.workspaceConnectionId.trim()

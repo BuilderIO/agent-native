@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
+    openAgent: "Open Agent",
     commandAppearance: "Appearance",
     toggleTheme: "Toggle theme",
     extensionSignedInTitle: "Signed in",
@@ -55,6 +56,7 @@ const messages = {
     videoProjects: "Video projects",
     archive: "Archive",
     trash: "Trash",
+    agent: "Agent",
     settings: "Settings",
     notifications: "Notifications",
     insights: "Insights",
@@ -161,6 +163,9 @@ const messages = {
     chapterQueued: "Chapter request queued",
     fillerQueued: "Filler-word removal queued",
     silenceQueued: "Silence removal queued",
+    silenceWorking: "Removing silences…",
+    silenceCompleted: "Silence removal complete",
+    silenceFailed: "Silence removal failed",
     workflowQueued: "Workflow request queued",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
@@ -287,7 +292,6 @@ const messages = {
     storageConnectedChecking: "Storage connected. Checking this clip...",
     signInToFinish: "Sign in to finish",
     signInIfYours: "Sign in if this is yours",
-    openDashboard: "Open dashboard",
     checkAgain: "Check again",
     backToHome: "Back to home",
     generatingTitle: "Generating title",
@@ -442,6 +446,7 @@ const messages = {
     invite: "Invite",
     embed: "Embed",
     shareLink: "Share link",
+    shareWithHumans: "Share with humans",
     shareWithAgents: "Share with agents",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
@@ -452,6 +457,8 @@ const messages = {
     retryAgentLink: "Retry",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
+    chooseFile: "Choose file",
+    remove: "Remove",
     downloadMp4: "Download MP4",
     embedsNeedPublic: "Embeds need a public clip",
     embedPublicDescription:
@@ -477,6 +484,7 @@ const messages = {
     makePublicAndCopy: "Make public and copy",
     copy: "Copy",
     addPeopleByEmail: "Add people by email",
+    invite: "Invite",
     notifyPeople: "Notify people",
     peopleWithAccess: "People with access",
     ownerRole: "Owner",
@@ -535,11 +543,16 @@ const messages = {
     brandingUpdated: "Branding updated",
     saveFailed: "Failed to save",
     organizationName: "Organization name",
+    defaultVisibility: "Default recording visibility",
+    defaultVisibilityDescription:
+      "Applied to new recordings unless you choose a different visibility.",
     brandColor: "Brand color",
     brandColorPicker: "Brand color picker",
     useColor: "Use {{color}}",
     logo: "Logo",
     logoPreview: "Logo preview",
+    logoUsage: "Shown to recipients in share emails and on public clip pages.",
+    emailHeaderPreview: "Share email header",
     dropReplace: "Drop a new image to replace",
     dropHere: "Drop a PNG / JPG / SVG here",
     uploading: "Uploading…",
@@ -601,17 +614,28 @@ const messages = {
     pageTitle: "Join team · Clips",
   },
   settings: {
-    openAgentSettings: "Open agent settings",
+    openAgentSettings: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    agentTitle: "Agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    agentTitle: "Manage agent",
     title: "Settings",
     pageTitle: "Settings · Clips",
     intro: "Preferences and connected services for this Clips workspace.",
+    preferencesTitle: "Preferences",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language for this account. Clips remembers it across devices.",
     languageLabel: "Interface language",
+    uploadWorkspaceTitle: "Active workspace",
+    uploadWorkspaceDescription:
+      "Choose the workspace Clips uses for new recordings, including desktop uploads.",
+    uploadWorkspaceLabel: "Current workspace",
+    uploadWorkspacePlaceholder: "Choose a workspace",
+    uploadWorkspaceHint:
+      "Switching this also updates workspace-scoped Clips views.",
+    uploadWorkspaceSaving: "Saving workspace…",
+    uploadWorkspaceSaved: "Active workspace updated",
+    uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
     viewAllUpdates: "View all updates",
@@ -626,10 +650,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
 ### Added
 
 - See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
-    profile: "Profile",
-    email: "Email",
-    displayName: "Display name",
-    displayNamePlaceholder: "Your name",
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -641,9 +661,16 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     backupTranscriptionDescription:
       "On by default. When no local transcript was captured, the recording's audio is sent to your connected cloud provider (Builder.io credits or Groq) to transcribe. Turn off to keep audio strictly on this device — such clips then stay untranscribed.",
     notifications: "Notifications",
+    sharing: "Sharing",
+    defaultVisibility: "Default visibility for new recordings",
+    defaultVisibilityDescription:
+      "Applied to every recording you create. You can still change visibility per recording.",
+    visibilityPrivate: "Private - only you",
+    visibilityOrg: "Organization - anyone in your workspace",
+    visibilityPublic: "Public - anyone with the link",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
-      "Get an email when someone comments, reacts, or shares a recording with you.",
+      "Get an email when someone comments on or reacts to your recording.",
     saved: "Settings saved",
     saveFailed: "Failed to save",
     builderConnectedToast: "Builder.io connected",
@@ -772,6 +799,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "No organization yet. Create one from the organization switcher to get started.",
     description: "Organization admin: branding, members, invites.",
     adminsOnlyBranding: "Only admins can edit branding.",
+    brandingLoadFailed: "Couldn't load organization branding.",
     members: "Members",
     pendingInvites: "Pending invites",
     noPendingInvites: "No pending invites.",
@@ -792,11 +820,24 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     recentViewers: "Recent viewers",
     noViewers: "No viewers yet.",
     anonymous: "Anonymous",
-    anon: "Anon",
     moreViewers: "+{{count}} more",
     viewedBy: "Viewed by",
     someone: "Someone",
     noViewsYet: "No views yet.",
+    viewsCount_one: "{{count}} view",
+    viewsCount_other: "{{count}} views",
+    agentViewsCount_one: "{{count}} agent view",
+    agentViewsCount_other: "{{count}} agent views",
+    totalViewsSummary: "{{total}} total views, {{unique}} unique viewers",
+    viewsTab: "Views",
+    insightsTab: "Insights",
+    humanViews: "Human views",
+    agentViews: "Agent views",
+    noAgentViewsYet: "No agent views yet.",
+    unknownAgent: "Unknown agent",
+    totalVideoViews: "Total video views",
+    averageCompletionRate: "Average completion rate",
+    moreInsights: "More insights",
   },
   libraryGrid: {
     spaceRoot: "Space root",
@@ -819,6 +860,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     loadFailedBody:
       "Something went wrong while loading this list. Your recordings are safe — try again.",
     retry: "Retry",
+    paginationRange: "{{start}}–{{end}} of {{total}}",
+    paginationPrevious: "Previous",
+    paginationNext: "Next",
+    paginationPage: "Page {{page}} of {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Notifications · Clips",
@@ -887,14 +932,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "{{email}} will lose access to this organization. You can always invite them back.",
     remove: "Remove",
   },
-  slackShareHint: {
-    playsInline: "Plays inline in Slack",
-    connectedDescription:
-      "Paste this link in any connected workspace to play it inline.",
-    makeInline: "Make it play inline in Slack",
-    connectDescription: "Connect a workspace so this link unfurls as a video.",
-    connect: "Connect",
-  },
   commentsPanel: {
     disabled: "Comments are disabled for this recording.",
     beFirst: "Be the first to comment",
@@ -906,6 +943,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     replyingTo: "Replying to",
     commentAt: "Comment at",
     writeReply: "Write a reply...",
+    editComment: "Edit comment",
     commentButton: "Comment",
     composerPlaceholder: "Add a comment…",
     mentionSomeone: "Mention someone",
@@ -921,6 +959,17 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     summary: "Summary",
     keyPoints: "Key points",
     actionItems: "Action items",
+    sharedContent: "Shared content",
+    summaryIncluded: "Summary, key points, and action items",
+    includeTranscript: "Include full transcript",
+    includeTranscriptDescription:
+      "Anyone with access to this meeting can read the complete transcript.",
+    transcriptUnavailable: "The transcript isn't ready yet.",
+    transcript: "Transcript",
+    copyTranscript: "Copy transcript",
+    transcriptCopied: "Transcript copied",
+    copyTranscriptFailed: "Couldn't copy the transcript",
+    updateTranscriptSharingFailed: "Couldn't update transcript sharing",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip moved to trash",
@@ -1086,6 +1135,19 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     spaceCreated: "Space created",
     createFailed: "Could not create space",
   },
+  spaceDialog: {
+    deleteSpace: "Delete space",
+    renameSpace: "Rename space",
+    deleteTitle: 'Delete "{{name}}"?',
+    deleteDescription:
+      "This will delete the space and remove it from all recordings. This action cannot be undone.",
+    renamed: "Space renamed",
+    deleted: 'Deleted "{{name}}"',
+    renameFailed: "Failed to rename space",
+    deleteFailed: "Failed to delete space",
+    renaming: "Renaming...",
+    deleting: "Deleting...",
+  },
   signInPrompt: {
     title: "Sign in to {{intent}}",
     description:
@@ -1133,6 +1195,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     desktopTitle: "Desktop app",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    openDesktopApp: "Open desktop app",
   },
   editableTitle: {
     untitled: "Untitled Clip",
@@ -1281,10 +1344,15 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
+    micOffConfirmTitle: "Record without a microphone?",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
+    startWithoutMic: "Start anyway",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",
     import: "Import",
+    recordNew: "Record new",
   },
   playerSettings: {
     title: "Settings",
@@ -1294,9 +1362,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     visibilityOrg: "Organization",
     visibilityPublic: "Public",
     passwordProtection: "Password protection",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear",
+    passwordSetPlaceholder: "Password is set — type to replace",
     noPasswordPlaceholder: "No password",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password.",
+    removePassword: "Remove",
     expiry: "Expiry",
     viewerOptions: "Viewer options",
     comments: "Comments",
@@ -1331,6 +1400,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     recordingReadyToUpload: "Recording is ready to upload",
     recordingSaved: "Recording saved",
     markerAdded: "{{kind}} added",
+    linkCopied: "Link copied",
+    copyLinkAction: "Copy link",
     noLocalRecordingData: "No local recording data is available to download.",
     recordingDownloadStarted: "Recording download started",
     backToLibrary: "Back to library",
@@ -1350,12 +1421,31 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     downloadDesktopApp: "Download desktop app",
     technicalDetails: "Technical details",
     whatToCheck: "What to check",
-    downloadRecording: "Download recording",
+    downloadRecording: "Download",
     openRecorderInTab: "Open recorder in tab",
     connectStorageToFinish:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
+  },
+  importRoute: {
+    pageTitle: "Import Loom — Clips",
+    title: "Import Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Import",
+    helperText:
+      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+    stageFetching: "Pulling in your video…",
+    stageUploading: "Uploading the raw footage…",
+    stageTranscript: "Making speech and on-screen visuals agent-readable…",
+    stageFinalizing: "Making it Agent-Native…",
+    importingSubtitle:
+      "Turning a flat recording into an Agent-Native primitive.",
+    doneHeading: "And we're done! Your video is now:",
+    benefitTranscript: "Speech & on-screen visuals, fully searchable",
+    benefitQueryable: "Understood & queryable by your agent",
+    benefitSummaries: "Instant summaries and clips on demand",
+    benefitPrimitive: "A first-class Agent-Native primitive",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips",
@@ -1415,6 +1505,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
   clipsFinalRaw: {
     splitAtPlayhead: "Split at playhead (S)",
     selectedCount: "{{count}} selected",
+    selectAll: "Select all",
+    deselectAll: "Deselect all",
     move: "Move",
     moveSelected: "Move {{count}} selected",
     current: "Current",
@@ -1424,7 +1516,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     uploadFailed: "Upload failed",
     connectStorageToFinish: "Open to connect storage and finish saving.",
     retryFromClipsMenu:
-      "Retry from the Clips menu-bar icon — the saved clip card there also has a folder button that opens the local file.",
+      "Open Clips from the menu bar to retry this saved upload; no need to re-record.",
     removeFailedClip: "Remove this failed clip.",
     remove: "Remove",
     viewsCount: "{{count}} views",
@@ -1505,6 +1597,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
+    googleMayShowWarning: "Review Google access",
+    googleNotVerifiedTitle: "Verify the app before connecting",
+    googleWarningBeforeAdvanced:
+      "Confirm the app name and requested Calendar access match the Clips deployment you trust. If Google shows an unverified-app warning or the identity looks unfamiliar, stop and contact your workspace administrator.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
     getDesktopApp: "Get desktop app",
@@ -1575,6 +1671,24 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     loadFailed:
       "This project could not be loaded. It may have been deleted or you may not have access.",
     renameProject: "Rename project",
+  },
+  rewindExtension: {
+    title: "Add what happened before",
+    description:
+      "Pull a specific interval from local Rewind and add it to the start of this Clip. Nothing is added automatically.",
+    progressLabel: "Rewind history processing progress",
+    privateFirstTitle: "Make this Clip private first",
+    privateFirstDescription:
+      "Local Rewind history can contain context from before you chose to record. This changes the Clip to private. If anyone still has direct access, Clips will stop here so you can remove them in Share first.",
+    makePrivateContinue: "Make private and continue",
+    add30Seconds: "Add the previous 30 seconds",
+    add5Minutes: "Add the previous 5 minutes",
+    add5MinutesDescription:
+      "Good for recovering the lead-in to a longer explanation.",
+    privateReady: "This Clip is private. You can now add local Rewind history.",
+  },
+  timeline: {
+    clipStartedHere: "Clip started here",
   },
 };
 

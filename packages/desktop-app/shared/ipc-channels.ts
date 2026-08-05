@@ -97,6 +97,7 @@ export const IPC = {
   CODE_AGENTS_CHOOSE_PROJECT: "code-agents:choose-project",
   CODE_AGENTS_LIST_MIGRATION_RUNS: "code-agents:list-migration-runs",
   CODE_AGENTS_OPEN_TERMINAL: "code-agents:open-terminal",
+  CODE_AGENTS_OPEN_CODEX_LOGIN: "code-agents:open-codex-login",
   CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS:
     "code-agents:remote-connector:get-status",
   CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED:

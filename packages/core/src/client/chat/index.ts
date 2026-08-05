@@ -101,6 +101,7 @@ export {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
   type ActionChatUIConfig,
 } from "../../action-ui.js";
 export {
@@ -157,5 +158,4 @@ export {
   type ChatHistorySection,
   type ChatHistoryListProps,
 } from "./ChatHistoryList.js";
-export * from "../composer/index.js";
 export * from "../conversation/index.js";

@@ -66,9 +66,9 @@ Automation-first app 是无浏览器的 Agent-Native app，用于 scheduled jobs
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
-## 稍后添加聊天 {#add-chat-later}
+## 稍后添加 UI {#add-chat-later}
 
-`--headless` 只选择初始 scaffold；没有可将现有仅 actions 项目原地转换为聊天应用的 `agent-native` 命令。当用户需要浏览器对话时，请将 [Chat 模板](/docs/template-chat) 用作迁移参考：保留 actions、SQL 数据、instructions 和 skills，并添加浏览器 shell、server plugins、`<AgentChatSurface>` 以及加载现有 actions 的 chat plugin。验证 `pnpm typecheck`，并完成一次调用现有 action 的聊天。`agent-native add` 用于 integration blueprints，不用于此转换。
+`--headless` 只选择初始 scaffold；没有可将现有仅 actions 项目原地转换为浏览器应用的 `agent-native` 命令。当用户需要 UI 时，请将 [Chat 模板](/docs/template-chat) 用作迁移参考：保留 actions、SQL 数据、instructions 和 skills，并添加浏览器 shell 和 server plugins。对于聊天界面，再添加 `<AgentChatSurface>` 以及加载现有 actions 的 chat plugin。验证 `pnpm typecheck`，并完成一次调用现有 action 的 UI 流程。`agent-native add` 用于 integration blueprints，不用于此转换。
 
 ## 下一步是什么
 

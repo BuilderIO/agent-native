@@ -44,18 +44,27 @@ function setStatus(next: UpdateStatus) {
 }
 
 async function runCheck() {
-  if (cachedStatus.state === "downloaded") return;
   if (checkInFlight) return checkInFlight;
+
+  // A staged update keeps checking on the normal cadence. Stopping here is what
+  // made "Restart to update" land on a binary that was already out of date and
+  // immediately ask to restart again — every check runs against the *running*
+  // version, so it re-offers the staged version until a newer one ships.
+  const staged =
+    cachedStatus.state === "downloaded" ? cachedStatus.version : null;
 
   lastCheckStartedAt = Date.now();
   checkInFlight = (async () => {
     try {
-      setStatus({ state: "checking" });
+      if (!staged) setStatus({ state: "checking" });
       const update = await check();
       if (!update) {
-        setStatus({ state: "not-available" });
+        // The endpoint answering "current" while a newer bundle sits staged is
+        // a contradiction, not a reason to drop the download. Keep it staged.
+        if (!staged) setStatus({ state: "not-available" });
         return;
       }
+      if (staged && update.version === staged) return;
       pendingUpdate = update;
       const version = update.version;
       const notes = update.body ?? undefined;
@@ -98,7 +107,6 @@ async function runCheck() {
 
 function maybeCheckForUpdate() {
   if (!canRunUpdateChecks()) return;
-  if (cachedStatus.state === "downloaded") return;
   if (
     checkInFlight ||
     Date.now() - lastCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS

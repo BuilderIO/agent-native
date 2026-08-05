@@ -12,6 +12,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import {
   discoverAgents,
   getBuiltinAgents,
+  normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "@agent-native/core/server/agent-discovery";
 import { z } from "zod";
@@ -58,8 +59,12 @@ export default defineAction({
       const manifest = parseRemoteAgentManifest(full.content, resource.path);
       if (!manifest) continue;
       if (!shouldIncludeRemoteAgentManifest(manifest, "dispatch")) continue;
-      if (builtinIds.has(manifest.id)) continue;
-      customById.set(manifest.id, {
+      // discoverAgents keys agents by the normalized id (image/images/asset
+      // all collapse to assets). Keying this map by the raw manifest id makes
+      // the id lookups below miss, so the same agent lands in the list twice.
+      const manifestId = normalizeAgentId(manifest.id);
+      if (builtinIds.has(manifestId)) continue;
+      customById.set(manifestId, {
         resourceId: resource.id,
         path: resource.path,
         scope: resource.owner === SHARED_OWNER ? "shared" : "personal",

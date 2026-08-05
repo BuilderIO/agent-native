@@ -10,6 +10,7 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
+import { Picker, Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
@@ -18,11 +19,11 @@ import {
   IconExternalLink,
   IconLoader2,
   IconLockOpen,
-  IconMicrophone,
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { SettingsRow } from "./SettingsRow.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -118,7 +119,9 @@ function batchProvider(provider: Provider | null): Provider {
   return provider;
 }
 
-export function VoiceTranscriptionSection() {
+export function VoiceTranscriptionSection({
+  compact = false,
+}: { compact?: boolean } = {}) {
   const [transcriptionMode, setTranscriptionMode] =
     useState<TranscriptionMode | null>(null);
   const [provider, setProvider] = useState<Provider>(DEFAULT_BATCH_PROVIDER);
@@ -370,6 +373,32 @@ export function VoiceTranscriptionSection() {
     );
   }
 
+  if (compact) {
+    return (
+      <SettingsRow
+        label="Voice transcription"
+        description="Choose how voice input is transcribed."
+        control={
+          <Picker
+            mode="select"
+            options={[
+              { value: "mac-native", label: "Mac Native" },
+              { value: "google-realtime", label: "Google Realtime" },
+              { value: "batch", label: "Batch" },
+            ]}
+            value={transcriptionMode}
+            onChange={(next) => {
+              const value = String(next ?? "");
+              if (isTranscriptionMode(value)) chooseSource(value);
+            }}
+            aria-label="Voice transcription"
+            className="w-44 text-start"
+          />
+        }
+      />
+    );
+  }
+
   return (
     <div className="space-y-2">
       <div className="rounded-md border border-border bg-background p-2">
@@ -407,7 +436,7 @@ export function VoiceTranscriptionSection() {
               googleRealtimeReady
                 ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
                 : googleRealtimeConfigured
-                  ? "Google credentials are set. Connect Builder completely to mint the managed realtime session."
+                  ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session."
                   : "BYOK only for v1. Configure Google service account before selecting this source."
             }
             rightSlot={
@@ -426,7 +455,6 @@ export function VoiceTranscriptionSection() {
                   className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
                 >
                   Connect Builder.io
-                  <IconExternalLink size={10} />
                 </button>
               ) : (
                 <button
@@ -467,24 +495,12 @@ export function VoiceTranscriptionSection() {
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={!!cleanupEnabled}
-            onClick={() => toggleCleanup(!cleanupEnabled)}
-            // Theme tokens; streaming agent owns layout.
-            className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-              cleanupEnabled
-                ? "bg-primary"
-                : "bg-muted-foreground/30 hover:bg-muted-foreground/50"
-            }`}
-          >
-            <span
-              className={`inline-block h-3 w-3 transform rounded-full bg-background transition-transform ${
-                cleanupEnabled ? "translate-x-3.5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+          <Switch
+            checked={!!cleanupEnabled}
+            onChange={toggleCleanup}
+            aria-label="AI cleanup"
+            className="shrink-0"
+          />
           {cleanupEnabled && (
             <span className="text-[10px] text-muted-foreground">
               {builderStatus?.configured
@@ -526,7 +542,7 @@ export function VoiceTranscriptionSection() {
               title="Google Speech-to-Text service account"
               subtitle={
                 googleRealtimeConfigured
-                  ? "Service-account JSON is set. Connect Builder to mint the managed realtime WebSocket session."
+                  ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session."
                   : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize."
               }
               rightSlot={
@@ -546,7 +562,6 @@ export function VoiceTranscriptionSection() {
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 ) : (
                   <button
@@ -582,8 +597,8 @@ export function VoiceTranscriptionSection() {
               title="Builder.io Connect"
               subtitle={
                 builderStatus?.configured
-                  ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and cleanup."
-                  : "One-click connect for Gemini Flash-Lite cleanup and batch transcription. No Google key needed."
+                  ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and Luna for text cleanup."
+                  : "One-click connect for Gemini Flash-Lite transcription and Luna text cleanup. No Google key needed."
               }
               rightSlot={
                 builderStatus?.configured ? (
@@ -601,7 +616,6 @@ export function VoiceTranscriptionSection() {
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 )
               }
@@ -639,8 +653,8 @@ export function VoiceTranscriptionSection() {
               id="openai"
               selected={transcriptionMode === "batch" && provider === "openai"}
               onSelect={() => chooseBatchProvider("openai")}
-              title="OpenAI Whisper"
-              subtitle="Batch Whisper provider. Requires an OpenAI API key."
+              title="OpenAI Transcribe"
+              subtitle="Batch transcription provider. Requires an OpenAI API key."
               rightSlot={
                 openAiConfigured === null ? null : openAiConfigured ? (
                   <span className="flex items-center gap-1 text-[10px] text-green-500">
@@ -953,8 +967,4 @@ function SystemAudioStatus() {
       </div>
     </div>
   );
-}
-
-export function VoiceTranscriptionIcon() {
-  return <IconMicrophone size={14} />;
 }

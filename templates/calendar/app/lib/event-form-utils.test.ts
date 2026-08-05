@@ -1,11 +1,48 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildEventTitleUpdate,
   buildRecurrenceRules,
+  dateTimeInTimezoneToIso,
   formatRecurrenceText,
+  getEditableEventTitle,
   getEventEndValidationMessage,
   getRecurrencePreset,
+  normalizeAllDayEditEndDate,
+  resolveTimeEditScope,
 } from "./event-form-utils";
+
+describe("getEditableEventTitle", () => {
+  it("keeps the display-only unnamed label out of editable state", () => {
+    expect(
+      getEditableEventTitle({
+        title: "(No title)",
+        titleIsGenerated: true,
+      }),
+    ).toBe("");
+  });
+
+  it("preserves a real event title even when it matches a display label", () => {
+    expect(getEditableEventTitle({ title: "(No title)" })).toBe("(No title)");
+  });
+});
+
+describe("buildEventTitleUpdate", () => {
+  it("clears generated provenance when a real title is saved", () => {
+    expect(buildEventTitleUpdate("  Team offsite  ")).toEqual({
+      title: "Team offsite",
+      titleIsGenerated: false,
+    });
+  });
+});
+
+describe("dateTimeInTimezoneToIso", () => {
+  it("uses the first valid instant when a timezone skips local midnight", () => {
+    expect(
+      dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
+    ).toBe("2026-09-06T04:00:00.000Z");
+  });
+});
 
 describe("getEventEndValidationMessage", () => {
   it("clarifies equal timed start and end values", () => {
@@ -31,6 +68,34 @@ describe("getEventEndValidationMessage", () => {
   });
 });
 
+describe("normalizeAllDayEditEndDate", () => {
+  it("keeps working-location edits to exactly one day", () => {
+    expect(normalizeAllDayEditEndDate(true, "2026-07-08", "2026-07-10")).toBe(
+      "2026-07-08",
+    );
+  });
+
+  it("preserves ranges for ordinary all-day events", () => {
+    expect(normalizeAllDayEditEndDate(false, "2026-07-08", "2026-07-10")).toBe(
+      "2026-07-10",
+    );
+  });
+});
+
+describe("resolveTimeEditScope", () => {
+  it("pins single-day working-location edits to one occurrence", () => {
+    expect(resolveTimeEditScope(true, true, "all")).toBe("single");
+  });
+
+  it("preserves the requested scope for ordinary recurring events", () => {
+    expect(resolveTimeEditScope(true, false, "all")).toBe("all");
+  });
+
+  it("uses single scope for non-recurring events", () => {
+    expect(resolveTimeEditScope(false, false, "all")).toBe("single");
+  });
+});
+
 describe("recurrence helpers", () => {
   it("formats common recurrence rules", () => {
     expect(formatRecurrenceText(["RRULE:FREQ=DAILY"])).toBe("Every day");
@@ -42,7 +107,7 @@ describe("recurrence helpers", () => {
   it("detects presets from Google RRULE values", () => {
     expect(getRecurrencePreset(["RRULE:FREQ=MONTHLY"])).toBe("monthly");
     expect(getRecurrencePreset(["RRULE:FREQ=WEEKLY;INTERVAL=2"])).toBe(
-      "custom",
+      "biweekly",
     );
   });
 
@@ -56,5 +121,11 @@ describe("recurrence helpers", () => {
     expect(
       buildRecurrenceRules("weekly", "2026-05-17T15:30:00.000Z", "Asia/Tokyo"),
     ).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=MO"]);
+  });
+
+  it("builds biweekly rules using the event start day", () => {
+    expect(
+      buildRecurrenceRules("biweekly", "2026-05-20T16:00:00.000Z"),
+    ).toEqual(["RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=WE"]);
   });
 });

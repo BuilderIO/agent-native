@@ -1,0 +1,703 @@
+---
+title: "Extending Plan"
+description: "The Plan template's data model, action surface, custom MDX block system, and route map — for anyone customizing or self-hosting Agent-Native Plan."
+---
+
+# Extending Plan
+
+This page is for anyone customizing or self-hosting the Plan template, or writing
+a coding agent integration against its actions directly. Most users should
+install the skill with the CLI instead of scaffolding the app — see
+[Visual Plans](/docs/template-plan).
+
+## Quick start
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+The hosted app-backed skill uses:
+
+- App: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/mcp`
+
+The local template is useful when you are developing Plans itself, testing
+local persistence, or running a fully self-hosted review surface.
+
+## Data model
+
+Schema lives in `templates/plan/server/db/schema.ts`. Core tables:
+
+| Table              | What it holds                                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | Each plan or recap — `title`, `brief`, `kind` (plan/recap), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, usage stats, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | Ordered sections within a plan — `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                            |
+| `plan_comments`    | Threaded comments — `parent_comment_id`, `kind`, `status`, `anchor`, `message`, `author_email`, `resolution_target`, `mentions_json`, `resolved_by`                                     |
+| `plan_events`      | Audit log of agent/human events on a plan — `type`, `message`, JSON `payload`, `created_by`                                                                                             |
+| `plan_reports`     | Abuse reports on a public plan — `reason`, `status`, `reporter_email`, `occurrence_count`                                                                                               |
+| `plan_versions`    | Point-in-time snapshots for version history — `snapshot_json`, `change_label`, plus denormalized `block_count`/`section_count`/`preview_text` for fast listing                          |
+| `plan_shares`      | Per-principal share grants (viewer / editor / admin)                                                                                                                                    |
+| `plan_guest_mints` | Rate-limit records for guest session issuance                                                                                                                                           |
+| `plan_assets`      | Inline image assets stored as base64 (fallback when no upload provider)                                                                                                                 |
+
+<DataModel
+  id="doc-block-1dtds8f"
+  title="Plan data model"
+  summary="One plan row owns ordered sections plus comments, events, reports, versions, shares, and inline assets."
+  entities={[
+    {
+      id: "plans",
+      name: "plans",
+      note: "each plan or recap",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "kind",
+          type: "enum",
+          note: "plan | recap",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "hosted_plan_id",
+          type: "text",
+          nullable: true,
+          note: "hosted_plan_url paired",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          note: "private | org | public",
+        },
+        {
+          name: "deleted_at",
+          type: "timestamp",
+          nullable: true,
+          note: "soft delete; deleted_by paired",
+        },
+      ],
+    },
+    {
+      id: "plan_sections",
+      name: "plan_sections",
+      note: "ordered sections within a plan",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "body",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "sort_order",
+          type: "integer",
+        },
+        {
+          name: "created_by",
+          type: "enum",
+          note: "agent | human | import",
+        },
+      ],
+    },
+    {
+      id: "plan_comments",
+      name: "plan_comments",
+      note: "threaded comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "parent_comment_id",
+          type: "text",
+          fk: "plan_comments.id",
+          nullable: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "open | resolved",
+        },
+        {
+          name: "anchor",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "message",
+          type: "text",
+        },
+        {
+          name: "author_email",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "resolution_target",
+          type: "text",
+          nullable: true,
+          note: "agent | human | null",
+        },
+        {
+          name: "mentions_json",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "resolved_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_events",
+      name: "plan_events",
+      note: "audit log of agent/human events",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "type",
+          type: "text",
+          note: "e.g. plan.created, plan.commented",
+        },
+        {
+          name: "message",
+          type: "text",
+        },
+        {
+          name: "payload",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "created_by",
+          type: "enum",
+          note: "agent | human | import",
+        },
+      ],
+    },
+    {
+      id: "plan_reports",
+      name: "plan_reports",
+      note: "abuse reports on a public plan",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "reason",
+          type: "enum",
+          note: "spam | harassment | hate | sexual | violence | self-harm | privacy | illegal | other",
+        },
+        {
+          name: "details",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "open | reviewed | dismissed",
+        },
+        {
+          name: "reporter_email",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "occurrence_count",
+          type: "integer",
+          note: "bumped instead of duplicated on repeat reports",
+        },
+      ],
+    },
+    {
+      id: "plan_versions",
+      name: "plan_versions",
+      note: "point-in-time snapshots",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "snapshot_json",
+          type: "json",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_by",
+          type: "enum",
+          note: "agent | human | import",
+        },
+        {
+          name: "block_count",
+          type: "integer",
+          nullable: true,
+          note: "denormalized, avoids parsing snapshot_json to list versions",
+        },
+        {
+          name: "preview_text",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_shares",
+      name: "plan_shares",
+      note: "per-principal grants",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "resource_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "principal_type",
+          type: "enum",
+          note: "user | org",
+        },
+        {
+          name: "principal_id",
+          type: "text",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "viewer | editor | admin",
+        },
+      ],
+    },
+    {
+      id: "plan_guest_mints",
+      name: "plan_guest_mints",
+      note: "rate-limit records for guest session issuance",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "ip_hash",
+          type: "text",
+        },
+        {
+          name: "created_at",
+          type: "timestamp",
+        },
+      ],
+    },
+    {
+      id: "plan_assets",
+      name: "plan_assets",
+      note: "inline image assets as base64",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "mime_type",
+          type: "text",
+        },
+        {
+          name: "byte_size",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "plans",
+      to: "plan_sections",
+      kind: "1-n",
+      label: "has sections",
+    },
+    {
+      from: "plans",
+      to: "plan_comments",
+      kind: "1-n",
+      label: "has comments",
+    },
+    {
+      from: "plans",
+      to: "plan_events",
+      kind: "1-n",
+      label: "has events",
+    },
+    {
+      from: "plans",
+      to: "plan_reports",
+      kind: "1-n",
+      label: "has reports",
+    },
+    {
+      from: "plans",
+      to: "plan_versions",
+      kind: "1-n",
+      label: "has versions",
+    },
+    {
+      from: "plans",
+      to: "plan_shares",
+      kind: "1-n",
+      label: "has shares",
+    },
+    {
+      from: "plans",
+      to: "plan_assets",
+      kind: "1-n",
+      label: "has assets",
+    },
+  ]}
+/>
+
+## Key actions
+
+Actions in `templates/plan/actions/`:
+
+- **Creation & conversion** — `create-visual-plan`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`, `create-visual-recap`, `visualize-plan`, `convert-visual-plan-to-prototype`
+- **Reading & editing** — `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `show-visual-plan`, `get-plan-blocks`, `list-plan-components`, `visual-answer`
+- **Lifecycle** — `delete-visual-plan` for owner-only soft delete, restore, and typed-confirmation permanent delete
+- **Publishing & sharing** — `publish-visual-plan`, `export-visual-plan`
+- **Versions** — `list-plan-versions`, `get-plan-version`, `restore-plan-version`
+- **Feedback & moderation** — `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`, `report-visual-plan`
+- **Access** — `get-plan-access-status`, `request-plan-access` — both browser-only (`agentTool: false`); the agent does not call these itself
+- **MDX source sync** — `read-visual-plan-source`, `import-visual-plan-source`, `patch-visual-plan-source`
+- **Local plan folders (DB-free)** — `get-local-plan-folder`, `update-local-plan-folder`, `update-local-plan-comments`, `promote-local-plan-folder`, `validate-local-plan-source`
+- **Context & navigation** — `view-screen`, `navigate`
+- **Search** — `search-pr-recaps`
+
+## Custom MDX blocks {#custom-mdx-blocks}
+
+Plans source files are MDX, but the app does not render arbitrary imported JSX
+components. A custom MDX tag must be registered as a Plan block so the server can
+parse and serialize it, the browser can render and edit it, and the agent can
+see it in the block vocabulary returned by `get-plan-blocks`.
+
+A registered block has three surfaces:
+
+- A React-free schema and MDX config, safe for server and agent code.
+- A normalized runtime type/schema entry in `shared/plan-content.ts`.
+- A browser block spec with `Read` and optional `Edit` React components.
+
+Keep the block `type` and MDX `tag` stable. The `type` is stored in normalized
+plan JSON; the `tag` is the component name in `plan.mdx`. The registry handles
+the base MDX attributes `id`, `title`, `summary`, and `editable`, so do not
+repeat them in `toAttrs`.
+
+1. Add a shared config for the data shape and MDX round trip.
+
+<AnnotatedCode
+  id="doc-block-plan6"
+  filename="templates/plan/shared/risk-card.config.ts"
+  language="ts"
+  code={
+    'import { z } from "zod";\nimport {\n  markdown,\n  type BlockMdxConfig,\n} from "@agent-native/core/blocks/server";\n\nexport type RiskCardSeverity = "low" | "medium" | "high";\n\nexport interface RiskCardData {\n  severity?: RiskCardSeverity;\n  body: string;\n}\n\nconst severities = new Set(["low", "medium", "high"]);\n\nexport const riskCardSchema = z.object({\n  severity: z.enum(["low", "medium", "high"]).optional(),\n  body: markdown(z.string().trim().min(1).max(10_000)),\n}) as z.ZodType<RiskCardData>;\n\nexport const riskCardMdx: BlockMdxConfig<RiskCardData> = {\n  tag: "RiskCard",\n  childrenField: "body",\n  toAttrs: (data) => ({\n    severity: data.severity,\n  }),\n  fromAttrs: (attrs, children) => {\n    const severity = attrs.string("severity");\n\n    return {\n      severity: severities.has(severity ?? "")\n        ? (severity as RiskCardSeverity)\n        : undefined,\n      body: children,\n    };\n  },\n};'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "Data shape",
+      note: "`RiskCardSeverity` and `RiskCardData` are the TypeScript shape everything else in this file targets — a severity plus a markdown body.",
+    },
+    {
+      lines: "16-19",
+      label: "Schema",
+      note: "The Zod schema controls what the server accepts. `markdown()` tags `body` so the browser's auto-editor renders it with the rich-text editor instead of a plain textarea.",
+    },
+    {
+      lines: "21-26",
+      label: "MDX write",
+      note: "`tag` is the MDX element name (`<RiskCard>`), and `childrenField: 'body'` makes the markdown body the element's children instead of an attribute. `toAttrs` controls what else becomes an attribute on export.",
+    },
+    {
+      lines: "27-36",
+      label: "MDX read",
+      note: "`fromAttrs` parses the element back into `RiskCardData` on import — an unrecognized `severity` value falls back to `undefined` instead of throwing, so a hand-edited MDX file degrades gracefully.",
+    },
+  ]}
+/>
+
+2. Extend the normalized Plan content model in
+   `templates/plan/shared/plan-content.ts`.
+
+Add the new `type` to `PlanBlockType`, add a matching block interface to the
+`PlanBlock` union, and add the same data shape to `planBlockSchema`. This keeps
+database saves, source imports, and `update-block` patches validating the custom
+block instead of rejecting it as an unknown type.
+
+3. Register the React-free server spec in
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts filename="templates/plan/shared/plan-block-registry.ts"
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description: "A markdown risk note with a low, medium, or high severity.",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. Register the browser spec in
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx filename="templates/plan/app/components/plan/planBlocks.tsx"
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description: "A markdown risk note with a low, medium, or high severity.",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+With that in place, Plan MDX can use:
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+The server registry makes this source importable/exportable, and the client
+registry makes it render in `PlanBlockView`. If the block should be generated by
+agents, keep `label`, `description`, `placement`, and `empty` precise; those
+fields flow into the live block vocabulary.
+
+When overriding an existing block, register the override after the shared
+library registration. Last registration wins for both `type` and MDX `tag`.
+
+After adding a block, run focused Plan tests:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+## Route map and the Extensions system {#route-map}
+
+<FileTree
+  id="doc-block-plan7"
+  title="templates/plan/app/routes"
+  entries={[
+    { path: "app/routes/plans.$id.tsx", note: "plan editor / review surface" },
+    { path: "app/routes/plans._index.tsx", note: "plan list" },
+    {
+      path: "app/routes/recaps.$id.tsx",
+      note: "recap viewer (read-only text, highlight + comment still work)",
+    },
+    { path: "app/routes/share.$token.tsx", note: "public / shared plan view" },
+    {
+      path: "app/routes/local-plans.$slug.tsx",
+      note: "local-files mode preview",
+    },
+    {
+      path: "app/routes/extensions.$id.tsx",
+      note: "the shared framework Extensions viewer",
+    },
+    {
+      path: "app/routes/agent.tsx",
+      note: "the standard /agent context/files/connections/jobs/access surface",
+    },
+    {
+      path: ".agents/skills/",
+      note: "27 skills — plan-authoring-flow, plan-comments-and-feedback, plan-events, plan-source-sync, plan-version-history, and more",
+    },
+  ]}
+/>
+
+`app/routes/extensions.tsx` and `app/routes/team.tsx` are thin redirects to
+`/settings#extensions` and `/settings#organization` — Plan installs the same
+framework-wide [Extensions](/docs/extensions) mini-app system and organization
+management every other template gets, rather than a Plan-specific system.
+Extensions are sandboxed Alpine.js mini-apps a user installs at runtime from
+Settings; they are unrelated to the custom MDX blocks above, which are
+TypeScript block types compiled into the Plan renderer itself. Use an
+extension when you want a small widget inside Plan without a code change; use
+a custom MDX block when the plan content itself needs a new structured shape.
+
+## Local mode (advanced, offline) {#local-mode}
+
+For fully offline, no-account use, you can run the Plans app locally and point
+it at local MDX folders. For the stricter no-DB path, use
+[local-files privacy mode](/docs/template-plan-local-and-desktop#local-files),
+which reads from MDX folders instead of creating local SQL rows. Local mode is
+a separate, advanced path — not the default hosted flow.
+
+## What's next
+
+- [**Visual Plans**](/docs/template-plan) — the CLI skill install most users should use instead
+- [**Reviewing and Commenting on Plans**](/docs/template-plan-review-workflow) — the comment and sharing model these tables back
+- [**Local-Files Mode and Desktop Sync**](/docs/template-plan-local-and-desktop) — the MDX source-sync actions in practice
+- [**Events and Automations**](/docs/template-plan-automations) — the event bus these actions write to
+- [**Extensions**](/docs/extensions) — the shared mini-app system Plan installs
+- [**Templates**](/docs/cloneable-saas) — the Cloneable SaaS model

@@ -249,7 +249,7 @@ export default defineAction({
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — 기본값 `POST`. `GET` actions는 `readOnly`로 자동 표시되므로 성공적인 호출은 UI 폴링 새로 고침을 트리거하지 않습니다.
 - **`http: { path: "..." }`** — `/_agent-native/actions/` 아래에 마운트된 URL를 재정의합니다. 기본값은 파일 이름입니다. **경로 재정의는 직접 HTTP 호출자에 대해서만 URL를 변경합니다** — `useActionQuery`, `useActionMutation` 및 `callAction`는 이 재정의에 관계없이 항상 `/_agent-native/actions/<name>`를 호출하므로 경로를 재정의하면 해당 후크가 404가 됩니다. 외부 HTTP 호출자에 대해서만 경로 재정의를 사용하세요. 또한 재정의 경로의 `:param` 경로 세그먼트는 `run()` 인수로 구문 분석되지 **않습니다**. 쿼리 문자열 매개변수와 JSON 본문 필드만 구문 분석됩니다.
 - **`http: false`** — HTTP 엔드포인트를 완전히 비활성화합니다. 상담원 + CLI만 해당.
-- **`readOnly: true`** — 변형되지 않는 POST actions에 대해서도 폴링 새로 고침을 명시적으로 건너뜁니다.
+- **`readOnly: true`** — 변형되지 않는 POST actions에 대해서도 폴링 새로 고침을 명시적으로 건너뜁니다. 이것은 접근 제어가 **아닙니다**. 누가 action을 호출할 수 있는지 제한하지 않으며, `useActionQuery`, `useActionMutation` 등 어떤 클라이언트 hook에도 영향을 주지 않습니다. 유일한 효과는 호출 후 새로고침 이벤트를 억제하고 action을 쓰기 감사 대상에서 제외하는 것입니다. 모델에서 action을 숨기려면 `agentTool: false`를, 호출자를 제한하려면 위의 인증/접근 옵션을 사용하세요.
 - **`parallelSafe: true`** — 변경 작업이 다른 동일 회전 도구 호출과 동시에 실행되도록 허용합니다. 작업이 내부적으로 동시성이 안전하고 순서에 독립적인 경우에만 이 설정을 설정하세요. 기본적으로 actions 직렬화를 변경합니다.
 
 ### 작업 표면을 작게 유지 {#small-surface}
@@ -439,8 +439,7 @@ export default defineAction({
 상태를 변경하는 actions의 경우:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -458,8 +457,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 읽기 전용 GET actions의 경우:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -536,7 +534,7 @@ JSON 입력은 에이전트 및 복합 개체에 선호되는 모양입니다. �
 
 ## MCP를 통해 노출 {#mcp}
 
-MCP를 활성화하면 actions가 프레임워크의 MCP 서버 `/_agent-native/mcp`에 표시됩니다. Every caller gets a compact catalog by default — app-facing builtins plus the template-declared app actions — and `tool-search` is always present so any other tool stays reachable on demand. 전체 작업 표면은 명시적인 선택(`--full-catalog` 토큰 또는 `AGENT_NATIVE_MCP_FULL_CATALOG=1`)에서만 제공되며 `publicAgent.expose`는 공개 표면에서 안전한 읽기/수집 도구를 선택합니다. 카탈로그 계층, 인증 및 `mcpApp` 리소스 세부정보는 [MCP Protocol](/docs/mcp-protocol)를 참조하세요.
+MCP를 활성화하면 actions가 프레임워크의 MCP 서버 `/mcp`에 표시됩니다. Every caller gets a compact catalog by default — app-facing builtins plus the template-declared app actions — and `tool-search` is always present so any other tool stays reachable on demand. 전체 작업 표면은 명시적인 선택(`--full-catalog` 토큰 또는 `AGENT_NATIVE_MCP_FULL_CATALOG=1`)에서만 제공되며 `publicAgent.expose`는 공개 표면에서 안전한 읽기/수집 도구를 선택합니다. 카탈로그 계층, 인증 및 `mcpApp` 리소스 세부정보는 [MCP Protocol](/docs/mcp-protocol)를 참조하세요.
 
 UI 지원 MCP 호스트의 경우 작업은 `mcpApp` 필드(및 일치하는 `link`)를 통해 선택적 MCP 앱 리소스를 선언할 수 있으므로 지원 호스트는 결과를 인라인으로 렌더링합니다. `link` 및 `mcpApp`가 동일한 경로를 가리켜야 하는 경우 `embedRoute()`는 하나의 순수 경로 빌더에서 두 가지를 모두 빌드합니다.
 
@@ -613,6 +611,44 @@ export default defineAction({
   },
 });
 ```
+
++## 단계적 기능 보호하기 {#feature-flags}
+
+배포 자체는 안전하지만 프로덕션에 점진적으로 도입해야 하는 action에는 Core feature flag를 사용하세요. 기본적으로 꺼진 flag를 한 번 선언하고 Nitro 플러그인에서 등록한 뒤 모든 보호된 action 안에서 평가하세요. 해당 버튼을 숨기는 것은 표현일 뿐이며, action 검사가 실제 적용입니다.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+클라이언트 화면을 숨기거나 표시하려면 `@agent-native/core/client`의 `useFeatureFlag(FULL_APP_BUILDING.key)`를 사용하세요. Core는 `get-feature-flags`, `list-feature-flags`, `set-feature-flag`를 제공합니다. 관리는 권한 검사와 감사를 거치며, fleet UI는 엄격히 제한된 A2A 위임으로 같은 앱 로컬 actions를 호출합니다. flag 쓰기를 일반 설정 endpoint나 원시 SQL로 처리하지 말고, 인증, 권한 부여, 감사, secret 또는 SSR 캐시를 runtime flag 뒤에 두지 마세요.
 
 ## 레거시 CLI 스타일 actions {#legacy-cli-actions}
 

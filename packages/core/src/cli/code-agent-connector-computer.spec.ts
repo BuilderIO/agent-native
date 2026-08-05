@@ -167,7 +167,10 @@ async function makeEnvelope(): Promise<ComputerCommandEnvelope> {
     sequence: 7,
     idempotencyKey: "operation-7",
     operationClass: "browser.control",
-    action: { type: "click", target: { role: "button", name: "Save" } },
+    action: {
+      type: "browser.click",
+      target: { role: "button", name: "Save" },
+    },
     approval: {
       id: "approval-1",
       scope: "once",

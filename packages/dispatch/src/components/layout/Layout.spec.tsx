@@ -13,17 +13,13 @@ const clientState = vi.hoisted(() => ({
   threads: [] as Array<Record<string, unknown>>,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: ({ children }: { children: React.ReactNode }) => children,
-  FeedbackButton: () => <div>Feedback</div>,
-  appBasePath: () => "",
-  appPath: (path: string) => path,
   focusAgentChat: vi.fn(),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
   ) => navigate(path),
-  useActionQuery: () => ({ data: undefined }),
   useAgentChatHomeHandoff: () => false,
   useAgentChatHomeHandoffLinks: vi.fn(),
   useChatThreads: () => ({
@@ -35,9 +31,18 @@ vi.mock("@agent-native/core/client", () => ({
     renameThread: vi.fn(),
     refreshThreads: vi.fn(),
   }),
-  useFormatters: () => ({
-    formatDate: () => "Jan 1",
-  }),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
+  appPath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: () => ({ data: undefined }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -57,8 +62,12 @@ vi.mock("@agent-native/core/client", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/extensions", () => ({
-  ExtensionsSidebarSection: () => <div>Extensions</div>,
+vi.mock("@agent-native/core/client/navigation", () => ({
+  openCommandMenu: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/ui", () => ({
+  FeedbackButton: () => <div>Feedback</div>,
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -106,6 +115,7 @@ describe("Dispatch NavContent", () => {
         messageCount: 1,
         updatedAt: Date.now() - 5 * 60_000,
         createdAt: Date.now() - 5 * 60_000,
+        source: { platform: "slack", url: "https://example.slack.com/thread" },
       },
     ];
     container = document.createElement("div");
@@ -138,7 +148,65 @@ describe("Dispatch NavContent", () => {
     );
   });
 
-  it("uses the quieter Analytics-style chat history and retains thread actions", async () => {
+  it("keeps collapsed navigation compact and preserves section spacing", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent collapsed />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const lists = [...container.querySelectorAll("nav > ul")];
+    expect(lists).toHaveLength(4);
+    expect(lists[0].className).toContain("gap-1");
+    expect(lists[1].className).toContain("mt-5");
+    expect(lists[1].className).toContain("gap-1");
+    expect(lists[2].className).toContain("mt-3");
+    expect(lists[2].className).toContain("gap-1");
+    expect(lists[3].querySelector('a[href="/settings"]')).not.toBeNull();
+    expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
+  });
+
+  it("keeps Dispatch branding and anchors Settings above the organization picker", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const sidebarLabel = container.querySelector(
+      "[data-dispatch-sidebar-label]",
+    );
+    expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
+    expect(container.textContent).not.toContain("Agent-Native Dispatch");
+
+    const settingsLink = container.querySelector('a[href="/settings"]');
+    const organization = [...container.querySelectorAll("div")].find(
+      (element) => element.textContent?.trim() === "Organization",
+    );
+    const footerActions = container.querySelector(
+      "[data-sidebar-footer-actions]",
+    );
+
+    expect(settingsLink).not.toBeNull();
+    expect(organization).toBeDefined();
+    expect(footerActions).not.toBeNull();
+    expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(organization!.compareDocumentPosition(footerActions!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat/active-thread"]}>
@@ -154,18 +222,23 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
     expect(container.textContent).toContain("5m");
-    const age = [...container.querySelectorAll("time")].find(
+    expect(container.querySelector('[aria-label="Slack"]')).not.toBeNull();
+    const sourceToggle = container.querySelector(
+      "[data-dispatch-chat-source-toggle]",
+    ) as HTMLButtonElement;
+    expect(sourceToggle.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => {
+      sourceToggle.click();
+    });
+    expect(sourceToggle.getAttribute("aria-pressed")).toBe("true");
+    const age = [...container.querySelectorAll("span")].find(
       (element) => element.textContent === "5m",
     );
-    expect(age?.className).toContain("w-8");
-    expect(age?.className).toContain("shrink-0");
-    expect(age?.className).toContain("whitespace-nowrap");
-    expect(age?.className).toContain("tabular-nums");
-    expect(
-      [...container.querySelectorAll("div")].some((element) =>
-        element.className.includes("group/item"),
-      ),
-    ).toBe(true);
+    expect(age?.className).toContain("an-chat-history-row__timestamp");
+    const historyList = container.querySelector(
+      '[data-agent-native="chat-history-list"]',
+    );
+    expect(historyList?.className).toContain("an-chat-history--rail");
     expect(
       container.querySelector('img[src="/agent-native-icon-light.svg"]')
         ?.parentElement?.className,

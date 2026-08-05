@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import type {
   ConfigureDocumentPropertyRequest,
   ContentDatabaseResponse,
@@ -9,22 +12,64 @@ import type {
   ReorderDocumentPropertyRequest,
   SetDocumentPropertyRequest,
 } from "@shared/api";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 
 import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
   contentDatabaseQueryFilter,
+  contentDatabaseConstrainedQueryFilter,
   contentDatabaseQueryKey,
   removeDocumentPropertyFromDatabaseResponse,
 } from "./use-content-database";
+import {
+  documentPropertiesQueryKey,
+  documentQueryFilter,
+} from "./use-documents";
 
-export function useDocumentProperties(documentId: string | null) {
+type DatabaseScopedRequest = { databaseId: string };
+
+export function documentPropertiesResponseMatchesScope(
+  documentId: string,
+  databaseId: string,
+  data: DocumentPropertiesResponse | undefined,
+): data is DocumentPropertiesResponse {
+  return data?.documentId === documentId && data.databaseId === databaseId;
+}
+
+function withDatabaseScope<
+  TData,
+  TVariables extends DatabaseScopedRequest,
+  TContext,
+>(
+  mutation: UseMutationResult<TData, Error, TVariables, TContext>,
+  databaseId: string,
+) {
+  type ScopedVariables = Omit<TVariables, "databaseId">;
+  return {
+    ...mutation,
+    mutate: (variables: ScopedVariables, options?: unknown) =>
+      mutation.mutate(
+        { ...variables, databaseId } as TVariables,
+        options as never,
+      ),
+    mutateAsync: (variables: ScopedVariables, options?: unknown) =>
+      mutation.mutateAsync(
+        { ...variables, databaseId } as TVariables,
+        options as never,
+      ),
+  } as UseMutationResult<TData, Error, ScopedVariables, TContext>;
+}
+
+export function useDocumentProperties(
+  documentId: string | null,
+  databaseId: string | null,
+) {
   return useActionQuery<DocumentPropertiesResponse>(
     "list-document-properties",
-    documentId ? { documentId } : undefined,
+    documentId && databaseId ? { documentId, databaseId } : undefined,
     {
-      enabled: !!documentId,
+      enabled: !!documentId && !!databaseId,
       placeholderData: (prev) => prev,
     },
   );
@@ -32,10 +77,11 @@ export function useDocumentProperties(documentId: string | null) {
 
 export function useConfigureDocumentProperty(
   documentId: string,
+  databaseId: string,
   databaseDocumentId = documentId,
 ) {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  const mutation = useActionMutation<
     DocumentPropertiesResponse,
     ConfigureDocumentPropertyRequest
   >("configure-document-property", {
@@ -46,27 +92,28 @@ export function useConfigureDocumentProperty(
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: documentId }],
-      });
-      queryClient.invalidateQueries({
-        ...contentDatabaseQueryFilter(databaseDocumentId),
-      });
+      queryClient.invalidateQueries(documentQueryFilter(documentId));
+      queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
     },
   });
+  return withDatabaseScope(mutation, databaseId);
 }
 
 export function useSetDocumentProperty(
   documentId: string,
+  databaseId: string,
   databaseDocumentId = documentId,
 ) {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  const mutation = useActionMutation<
     DocumentPropertiesResponse,
     SetDocumentPropertyRequest
   >("set-document-property", {
+    skipActionQueryInvalidation: true,
     onMutate: async (variables) => {
       await queryClient.cancelQueries(
         contentDatabaseQueryFilter(databaseDocumentId),
@@ -110,18 +157,12 @@ export function useSetDocumentProperty(
           }),
       );
       queryClient.invalidateQueries({
-        queryKey: [
-          "action",
-          "list-document-properties",
-          { documentId: variables.documentId },
-        ],
+        queryKey: documentPropertiesQueryKey(variables.documentId, databaseId),
       });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: variables.documentId }],
-      });
-      queryClient.invalidateQueries({
-        ...contentDatabaseQueryFilter(databaseDocumentId),
-      });
+      queryClient.invalidateQueries(documentQueryFilter(variables.documentId));
+      queryClient.invalidateQueries(
+        contentDatabaseConstrainedQueryFilter(databaseDocumentId),
+      );
       queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -131,14 +172,16 @@ export function useSetDocumentProperty(
       });
     },
   });
+  return withDatabaseScope(mutation, databaseId);
 }
 
 export function useDuplicateDocumentProperty(
   documentId: string,
+  databaseId: string,
   databaseDocumentId = documentId,
 ) {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  const mutation = useActionMutation<
     DocumentPropertiesResponse,
     DuplicateDocumentPropertyRequest
   >("duplicate-document-property", {
@@ -149,47 +192,47 @@ export function useDuplicateDocumentProperty(
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: documentId }],
-      });
+      queryClient.invalidateQueries(documentQueryFilter(documentId));
       queryClient.invalidateQueries({
         ...contentDatabaseQueryFilter(databaseDocumentId),
       });
     },
   });
+  return withDatabaseScope(mutation, databaseId);
 }
 
 export function useReorderDocumentProperty(
   documentId: string,
+  databaseId: string,
   databaseDocumentId = documentId,
 ) {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  const mutation = useActionMutation<
     DocumentPropertiesResponse,
     ReorderDocumentPropertyRequest
   >("reorder-document-property", {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: documentId }],
-      });
+      queryClient.invalidateQueries(documentQueryFilter(documentId));
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(databaseDocumentId),
       });
     },
   });
+  return withDatabaseScope(mutation, databaseId);
 }
 
 export function useDeleteDocumentProperty(
   documentId: string,
+  databaseId: string,
   databaseDocumentId = documentId,
 ) {
   const queryClient = useQueryClient();
-  return useActionMutation<
+  const mutation = useActionMutation<
     DocumentPropertiesResponse,
     DeleteDocumentPropertyRequest
   >("delete-document-property", {
@@ -227,14 +270,13 @@ export function useDeleteDocumentProperty(
         (current) => applyDocumentPropertiesToDatabaseResponse(current, data),
       );
       queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: documentPropertiesQueryKey(documentId, databaseId),
       });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: documentId }],
-      });
+      queryClient.invalidateQueries(documentQueryFilter(documentId));
       queryClient.invalidateQueries({
         ...contentDatabaseQueryFilter(databaseDocumentId),
       });
     },
   });
+  return withDatabaseScope(mutation, databaseId);
 }

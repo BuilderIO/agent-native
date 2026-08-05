@@ -32,6 +32,7 @@ import { describe, it, afterEach } from "node:test";
 
 import {
   looksLikeMaterializedCorpus,
+  shouldIncludeCorpusSourceFile,
   swapCorpusDirIntoPlace,
 } from "./materialize-source-corpus.mjs";
 
@@ -48,6 +49,49 @@ afterEach(() => {
     const dir = scratchDirs.pop();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("shouldIncludeCorpusSourceFile", () => {
+  it("keeps only the English example among template locale catalogs", () => {
+    assert.equal(
+      shouldIncludeCorpusSourceFile(
+        "templates",
+        "templates/plan/app/i18n/de-DE.ts",
+      ),
+      false,
+    );
+    assert.equal(
+      shouldIncludeCorpusSourceFile(
+        "templates",
+        "templates/plan/app/i18n/en-US.ts",
+      ),
+      true,
+    );
+    assert.equal(
+      shouldIncludeCorpusSourceFile(
+        "templates",
+        "templates/plan/app/i18n/index.ts",
+      ),
+      true,
+    );
+    assert.equal(
+      shouldIncludeCorpusSourceFile(
+        "templates",
+        "templates/plan/app/i18n/formatters.ts",
+      ),
+      true,
+    );
+  });
+
+  it("does not filter functional scaffold locales inside a template", () => {
+    assert.equal(
+      shouldIncludeCorpusSourceFile(
+        "templates",
+        "templates/plan/app/components/i18n/de-DE.ts",
+      ),
+      true,
+    );
+  });
 });
 
 describe("looksLikeMaterializedCorpus", () => {

@@ -25,6 +25,10 @@ type ToolSearchResult = {
   source?: string;
   description: string;
   score: number;
+  /** Whether this result can be loaded and called in the current registry. */
+  callable: boolean;
+  /** How the action behaves while the agent is in Plan mode. */
+  planAvailability: "read" | "conditional" | "act-only";
   parameters: ToolParameterSummary[];
   inputSchema?: unknown;
 };
@@ -129,6 +133,8 @@ export function searchToolRegistry(
         name,
         kind: parseMcpToolName(name) ? ("mcp" as const) : ("action" as const),
         score: 0,
+        callable: registry[name]?.allowInPlanMode !== false,
+        planAvailability: getPlanAvailability(name, registry[name]),
         description:
           "Already returned by an earlier identical tool-search call.",
         parameters: [],
@@ -152,6 +158,8 @@ export function searchToolRegistry(
     const parsedMcp = parseMcpToolName(name);
     const kind = parsedMcp ? "mcp" : "action";
     const source = parsedMcp?.serverId;
+    const callable = entry.allowInPlanMode !== false;
+    const planAvailability = getPlanAvailability(name, entry);
 
     if (listAll) {
       candidates.push({
@@ -160,6 +168,8 @@ export function searchToolRegistry(
         ...(source ? { source } : {}),
         description: truncate(description, 140),
         score: 0,
+        callable,
+        planAvailability,
         parameters: [],
       });
       continue;
@@ -184,6 +194,8 @@ export function searchToolRegistry(
       ...(source ? { source } : {}),
       description,
       score,
+      callable,
+      planAvailability,
       parameters,
       ...(includeSchemas ? { inputSchema: entry.tool.parameters ?? {} } : {}),
     });
@@ -216,6 +228,30 @@ export function searchToolRegistry(
   };
   if (!includeSchemas) rememberToolSearchResult(cacheKey, result);
   return result;
+}
+
+const PLAN_MODE_BLOCKED_DISCOVERY_TOOLS = new Set([
+  "refresh-screen",
+  "set-search-params",
+  "set-url-path",
+]);
+
+function getPlanAvailability(
+  name: string,
+  entry: ActionEntry | undefined,
+): ToolSearchResult["planAvailability"] {
+  if (!entry || entry.allowInPlanMode === false) return "act-only";
+  if (PLAN_MODE_BLOCKED_DISCOVERY_TOOLS.has(name)) return "act-only";
+  if (name === "bash") return "conditional";
+  if (typeof entry.planMode?.effect === "function") return "conditional";
+  if (entry.planMode?.effect === "read") return "read";
+  if (
+    entry.planMode?.effect === "write" ||
+    entry.planMode?.effect === "unknown"
+  ) {
+    return "act-only";
+  }
+  return entry.readOnly === true ? "read" : "act-only";
 }
 
 function normalizeToolSearchCacheKey(options: {

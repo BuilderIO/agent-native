@@ -2,10 +2,12 @@
 // (visual-recap renders standalone wireframes, not a canvas).
 export const CANVAS_SURFACE_CORE = `<!-- SHARED-CORE:canvas-surface START -->
 
-**The coordinate rule.** The \`surface\` locks each artboard's footprint and
-aspect — never set artboard width/height and never use coordinates inside the
-wireframe HTML; board-level artboard \`x\`/\`y\` IS allowed when it creates clear
-lanes. Let canvas auto-placement handle simple one-row boards.
+**The coordinate rule.** The \`surface\` sets each artboard's default footprint
+and width — never set width or use coordinates inside the wireframe HTML.
+Board-level artboard \`x\`/\`y\` IS allowed when it creates clear lanes. A
+larger explicit artboard \`height\` is allowed when the screen's content needs
+more vertical room; canvas frames do not scroll, so reserve enough height to
+show the entire UI. Let canvas auto-placement handle simple one-row boards.
 
 **Lay out mixed canvases in lanes.** When a canvas contains broad browser /
 desktop frames plus compact \`mobile\`, \`popover\`, or \`panel\` surfaces, do not put
@@ -28,6 +30,14 @@ and move any frame whose label, connector, or annotation crosses another frame.
 - y-gap between rows of any surface: **≥ 1400** (includes frame height + section header + buffer)
 
 When in doubt, use larger values — the canvas auto-zooms to fit everything.
+
+**Full-content artboards.** Canvas frames are pan/zoom surfaces, not scroll
+containers. Keep wireframe HTML in natural document flow without an inner
+scroll region or fixed child height. If the screen is taller than the default
+surface preset, set the artboard's \`height\` to the measured content height plus
+breathing room; keep the surface width unchanged. Before handoff, inspect the
+bottom edge of every artboard at default zoom and confirm no control, row, or
+footer is clipped.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
 present, sprinkle design-review notes near the frames they explain: a short
@@ -145,7 +155,8 @@ ${CANVAS_SURFACE_CORE}
 // files so the SKILL.md stays lean (progressive disclosure); the agent loads the
 // detail on demand.
 export const CANVAS_REFERENCE_POINTER = `The canvas is the single source of truth for static UI mockups: the \`surface\`
-locks each artboard's footprint, mixed surfaces lay out
+sets each artboard's default footprint and width, while an explicit taller
+\`height\` keeps long non-scrolling screens fully visible; mixed surfaces lay out
 in lanes, annotations are plain-text designer notes anchored by
 \`targetId\`/\`placement\`, and edits are surgical \`contentPatches\`. Before
 authoring or editing ANY canvas, artboard, or annotation, READ

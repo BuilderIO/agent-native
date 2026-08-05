@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { agentNativePath } from "./api-path.js";
+import { readClientAppState } from "./application-state.js";
 import { useChangeVersions } from "./use-change-version.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
-const DEFAULT_MAX_SUGGESTIONS = 4;
+const DEFAULT_MAX_SUGGESTIONS = 3;
 
 export interface AgentDynamicSuggestionContext {
   navigation: unknown;
@@ -89,17 +89,9 @@ function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
 }
 
 async function readAppState(key: string): Promise<unknown> {
-  const res = await fetch(
-    agentNativePath(`/_agent-native/application-state/${key}`),
-  );
-  if (!res.ok || res.status === 204) return null;
-  const text = await res.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+  // Reads issued in the same tick coalesce into one batched request, so the
+  // four keys below cost one round trip rather than four.
+  return readClientAppState(key).catch(() => null);
 }
 
 async function readScopedAppState(
@@ -322,7 +314,7 @@ export function mergeAgentSuggestions(options: {
 }): string[] {
   if (options.dynamicSuggestions.length === 0) {
     return options.includeStatic
-      ? dedupeSuggestions(options.staticSuggestions ?? [])
+      ? dedupeSuggestions(options.staticSuggestions ?? []).slice(0, options.max)
       : [];
   }
 
@@ -424,7 +416,7 @@ export function useAgentDynamicSuggestionsResult(
   const suggestions = useMemo(() => {
     if (!enabled) {
       return options.staticSuggestions
-        ? dedupeSuggestions(options.staticSuggestions)
+        ? dedupeSuggestions(options.staticSuggestions).slice(0, config.max)
         : undefined;
     }
     if (context === null) return undefined;

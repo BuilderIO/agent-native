@@ -1,6 +1,6 @@
 import type { AppConfig } from "@agent-native/shared-app-config";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 
 const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Mail: "mail",
@@ -15,6 +15,8 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Database: "database",
   MessageSquare: "message-square",
   Route: "shuffle",
+  Users: "users",
+  ListCheck: "check-square",
   Settings: "settings",
 };
 
@@ -22,7 +24,7 @@ function getFeatherIcon(iconName: string): keyof typeof Feather.glyphMap {
   return ICON_MAP[iconName] ?? "box";
 }
 
-function AppIcon({
+export function AppIcon({
   iconName,
   size,
   color,
@@ -47,53 +49,25 @@ interface AppCardProps {
 export default function AppCard({ app, onPress, onLongPress }: AppCardProps) {
   return (
     <TouchableOpacity
-      style={styles.card}
+      className="flex-1 bg-gray-dark rounded-2xl p-4 m-1.5 items-center min-h-32 active:opacity-75"
       onPress={onPress}
       onLongPress={onLongPress}
-      activeOpacity={0.7}
     >
-      <View style={styles.iconContainer}>
+      <View className="w-14 h-14 rounded-xl items-center justify-center mb-2.5 bg-gray-medium-dark">
         <AppIcon iconName={app.icon} size={28} color="#ffffff" />
       </View>
-      <Text style={styles.name} numberOfLines={1}>
+      <Text
+        className="text-white text-sm font-semibold mb-0.75"
+        numberOfLines={1}
+      >
         {app.name}
       </Text>
-      <Text style={styles.description} numberOfLines={2}>
+      <Text
+        className="text-status-gray text-xs text-center leading-4"
+        numberOfLines={2}
+      >
         {app.description}
       </Text>
     </TouchableOpacity>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: "#1A1A1A",
-    borderRadius: 16,
-    padding: 16,
-    margin: 6,
-    alignItems: "center",
-    minHeight: 130,
-  },
-  iconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-    backgroundColor: "#252525",
-  },
-  name: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 3,
-  },
-  description: {
-    color: "#888888",
-    fontSize: 11,
-    textAlign: "center",
-    lineHeight: 15,
-  },
-});

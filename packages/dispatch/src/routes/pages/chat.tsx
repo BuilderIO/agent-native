@@ -1,10 +1,9 @@
 import {
   AgentChatSurface,
-  appBasePath,
-  appPath,
   markAgentChatHomeHandoff,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useCallback,
   useEffect,
@@ -75,6 +74,8 @@ interface DispatchChatLocationState {
     id?: string | number;
     message?: string;
     selectedModel?: string | null;
+    selectedEngine?: string | null;
+    selectedEffort?: ComponentProps<typeof AgentChatSurface>["selectedEffort"];
   };
   dispatchThread?: {
     id?: string | number;
@@ -132,6 +133,8 @@ export default function ChatRoute() {
       if (message) {
         submitOverviewPrompt(message, prompt?.selectedModel, {
           openSidebar: false,
+          selectedEngine: prompt?.selectedEngine,
+          selectedEffort: prompt?.selectedEffort,
         });
       }
       navigate(`${location.pathname}${location.search}${location.hash}`, {
@@ -149,6 +152,8 @@ export default function ChatRoute() {
     prompt?.id,
     prompt?.message,
     prompt?.selectedModel,
+    prompt?.selectedEngine,
+    prompt?.selectedEffort,
     thread?.id,
     thread?.threadId,
   ]);

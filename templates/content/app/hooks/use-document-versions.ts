@@ -1,6 +1,11 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import type { Document, DocumentVersion } from "@shared/api";
 import { useQueryClient } from "@tanstack/react-query";
+
+import { documentQueryFilter } from "./use-documents";
 
 export function useDocumentVersions(documentId: string | null) {
   return useActionQuery<DocumentVersion[]>(
@@ -26,9 +31,7 @@ export function useRestoreDocumentVersion(documentId: string) {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-document-versions", { documentId }],
         });
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: documentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(documentId));
       },
     },
   );

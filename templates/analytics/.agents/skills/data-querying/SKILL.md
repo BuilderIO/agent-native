@@ -20,6 +20,21 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
+For first-party counts, active-user, and retention questions, prefer the compact
+tenant-scoped daily event and user-day rollups. Use `analytics_events` only for a
+bounded recent drill-down with an explicit date/time range; the built-in source
+does not require a customer warehouse connection.
+
+Before a large or historical first-party query, call
+`get-first-party-analytics-health`. Keep Neon as the default while its status is
+`healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
+1M+ events, repeated slow queries, or a timeout/30-second query. If BigQuery is
+not configured, use the returned setup link or `data-source-status --key
+bigquery` to guide the user through the existing Data Sources walkthrough. Do
+not silently move the collector: `/track` still lands in first-party Analytics,
+and BigQuery is the opt-in backend for high-volume or historical analysis after
+the user connects it.
+
 Example pageviews query for a local calendar day:
 
 ```sql
@@ -34,11 +49,48 @@ Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
 
-## Showing Charts In Chat
+## Inline Charts In Chat
 
-For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Full shape in `AGENTS.md` ("Inline Charts in Chat" section). Reach for `generate-chart` only when you're building a `save-analysis` artifact whose markdown will render outside the app.
+For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Reach for `generate-chart` only when you're building a dashboard artifact that needs a persisted report image.
 
 If `generate-chart` returns an error in any chat-answering flow, the recovery is to switch to the live embed, not to retry with reformatted params.
+
+**How it renders.** The core chat markdown renderer turns any fenced block tagged `embed` into a sandboxed, same-origin iframe. Emit:
+
+````markdown
+```embed
+src: /chart?panel=<base64url-encoded panel JSON>
+title: Daily pageviews
+height: 320
+```
+````
+
+Fence keys: `src` (required, same-origin path), `title`, and either `height` (px) or `aspect` (`16/9`, `4/3`, `1/1`, `21/9`, `3/2`, `2/1`; default `16/9`). A cross-origin `src` renders an "Embed blocked" notice instead of a chart.
+
+**This fence is the only supported syntax.** Never write a bare line like
+`` `/chart type=bar title="..." labels=[...] data=[...] color=#...` `` in chat
+text — that pattern comes from confusing `generate-chart`'s tool parameters
+(`title`, `labels`, `data`, `type`) with markdown; those are arguments to a
+tool call, not something to type into a chat message. The chat renderer has a
+best-effort compatibility fallback that tries to recover a chart from that
+exact shorthand shape, but it is not the contract: it rejects mismatched
+lengths, negative values, and malformed input (falling back to plain text),
+and it does not re-query live data the way the embed does. If you catch
+yourself typing `label` or `data` followed by `=` in a chat reply, stop and
+build the ` ```embed ` fence above instead.
+
+**Panel JSON.** The `/chart` route decodes `panel` into a `SqlPanel` (`app/pages/adhoc/sql-dashboard/types.ts`):
+
+- `sql` — required, non-empty.
+- `source` — required, one of `bigquery`, `ga4`, `amplitude`, `first-party`, `demo`, `prometheus`. `program` is deliberately **not** embeddable.
+- `chartType` — required, one of `line`, `area`, `bar`, `metric`, `table`, `pie`. Dashboard-layout types (`section`, `heatmap`, `callout`, `extension`) are rejected.
+- `id` (defaults `"embed"`), `title` (rendered above the chart), `width` (dashboard-only, ignored here), `config` (passed through unvalidated — `xKey`/`yKeys`, `colors`, `yFormatter`, `rightYKeys`/`rightYFormatter` for a dual-axis line/area/bar chart, `columns`, `stacked`, `legend`, …).
+
+An unknown `source`/`chartType` or blank `sql` renders an error card, not a chart.
+
+**Encoding.** JSON-stringify the panel, base64-encode it, then make it URL-safe: `+` → `-`, `/` → `_`, strip `=` padding. No further URL-encoding is needed. Keep the SQL short — it rides in a query string; if it's long, save it as a dashboard panel and link to the dashboard instead.
+
+Full details (per-field validation, `config` keys, a verified round-trip example, and how this differs from `generate-chart`) are in `references/inline-chart-embeds.md` — read it with `docs-search --slug "skill-data-querying--references-inline-chart-embeds"`.
 
 ## Script Patterns
 
@@ -136,7 +188,7 @@ future analyses.
 - Before finalizing an analytics answer, make the evidence trail explicit enough
   to audit: source(s), time window, filters, sample size or row count, join or
   match method, caveats/gaps, and what action to take next when useful.
-- Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, `generate-chart`, and `save-analysis` are not data queries. For analyses and dashboards, run at least one provider query action and preserve the result evidence in the final answer or `resultData`.
+- Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, and `generate-chart` are not data queries. For dashboard artifacts, run at least one provider query action and preserve the result evidence in the final answer or dashboard config/description.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used.
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns.
 - For BigQuery queries, check `.agents/skills/bigquery/SKILL.md` first; if the data dictionary does not contain the exact table/columns, call `search-bigquery-schema`.

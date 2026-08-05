@@ -9,7 +9,6 @@ import {
   IconCopy,
   IconX,
   IconChevronDown,
-  IconExternalLink,
   IconGitFork,
   IconGauge,
   IconSettings,
@@ -28,6 +27,7 @@ import {
 } from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
+import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 
@@ -105,6 +105,20 @@ export function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
     ...(runId ? { runId } : {}),
     ...(runError.recoverable ? { recoverable: true } : {}),
   };
+}
+
+/**
+ * Identity of one failure, shared by the banner and the inline turn marker so
+ * the same run is never announced twice.
+ */
+export function runErrorKey(info: RunErrorInfo): string {
+  return `${info.runId ?? ""}:${info.errorCode ?? ""}:${info.message}`;
+}
+
+export function runErrorHeadline(info: RunErrorInfo): string {
+  return info.recoverable === true
+    ? "The agent stopped before finishing"
+    : "The agent hit an error";
 }
 
 export function getRequestModeMetadata(
@@ -272,10 +286,7 @@ export function BuilderConnectCta({
             Waiting…
           </>
         ) : (
-          <>
-            Connect
-            <IconExternalLink size={10} />
-          </>
+          "Connect"
         )}
       </button>
     </div>
@@ -294,6 +305,7 @@ const API_KEY_PROVIDERS: Array<{
 ];
 
 export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
+  const t = useT();
   const [provider, setProvider] = useState<AgentEngineProvider>("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -318,7 +330,7 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
   return (
     <div className="rounded-md border border-border bg-background/60 p-3">
       <div className="mb-2 text-[11px] font-medium text-foreground">
-        Use your own API key
+        {t("agentPanel.addOwnKeys", { defaultValue: "Add your own keys" })}
       </div>
       <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
         Stored securely for this app only.
@@ -405,6 +417,7 @@ export function BuilderSetupContent({
   onConnected?: () => void;
   layout?: BuilderSetupCardLayout;
 }) {
+  const t = useT();
   const [keyOpen, setKeyOpen] = useState(false);
   const sidebarLayout = layout === "sidebar";
 
@@ -423,10 +436,13 @@ export function BuilderSetupContent({
       >
         <div className="agent-builder-setup-card__copy min-w-0">
           <h3 className="text-[13px] font-medium text-foreground">
-            Connect AI
+            {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
           </h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            Use Builder.io (free credits), or add an Anthropic/OpenAI key.
+            {t("agentPanel.builderOrOwnKeys", {
+              defaultValue:
+                "Use Builder.io (free credits), or add your own provider keys.",
+            })}
           </p>
         </div>
         <div
@@ -449,7 +465,9 @@ export function BuilderSetupContent({
             )}
             aria-expanded={keyOpen}
           >
-            Use API key
+            {t("agentPanel.addOwnKeys", {
+              defaultValue: "Add your own keys",
+            })}
           </button>
         </div>
       </div>
@@ -602,9 +620,7 @@ export function RunErrorRecoveryCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">
-            {canRecover
-              ? "The agent stopped before finishing"
-              : "The agent hit an error"}
+            {runErrorHeadline(info)}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}
@@ -612,7 +628,8 @@ export function RunErrorRecoveryCard({
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
-              Reconnect Builder.io, then retry this message.
+              Reconnect Builder.io (free tier available), then retry this
+              message.
             </p>
           )}
           {isConnectionRecoveryError && (
@@ -668,9 +685,7 @@ export function RunErrorRecoveryCard({
           >
             {builderReconnect.connecting ? (
               <IconLoader2 size={13} className="animate-spin" />
-            ) : (
-              <IconExternalLink size={13} />
-            )}
+            ) : null}
             {builderReconnect.connecting
               ? "Connecting Builder.io"
               : "Reconnect Builder.io"}

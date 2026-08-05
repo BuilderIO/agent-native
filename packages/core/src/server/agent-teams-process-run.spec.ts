@@ -176,6 +176,8 @@ vi.mock("../chat-threads/store.js", () => ({
 
 // ── run-manager: drive runFn then onComplete with a synthetic run ─────────
 const runAgentLoopMock = vi.fn();
+const instrumentAgentLoopMock = vi.fn();
+const getObservabilityConfigMock = vi.fn();
 const abortRunMock = vi.fn();
 const getRunMock = vi.fn();
 const subscribeToRunMock = vi.fn();
@@ -251,6 +253,7 @@ function fakeFilterInitialEngineTools(
   if (!initialToolNames) return tools;
   const defaultNames = new Set([
     "resources",
+    "framework-search",
     "docs-search",
     "get-framework-context",
     "read-attachment",
@@ -266,8 +269,17 @@ function fakeFilterInitialEngineTools(
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (actions: any) => actionsToEngineToolsMock(actions),
   filterInitialEngineTools: fakeFilterInitialEngineTools,
+  resolveAgentRequestReasoningEffort: ({ model }: { model: string }) =>
+    model === "gpt-5.6" ? "medium" : undefined,
+  resolveMainChatMaxOutputTokens: (model: string) =>
+    model === "gpt-5.6" ? 32_000 : 4_096,
   appendAgentLoopContinuation: vi.fn(),
   runAgentLoop: (opts: any) => runAgentLoopMock(opts),
+}));
+
+vi.mock("../observability/traces.js", () => ({
+  getObservabilityConfig: () => getObservabilityConfigMock(),
+  instrumentAgentLoop: (opts: any) => instrumentAgentLoopMock(opts),
 }));
 
 // Real `attachToolSearch` transitively imports the mcp-client/secrets/db
@@ -340,14 +352,18 @@ const { runWithRequestContext } = await import("./request-context.js");
 
 const OWNER = "owner@example.com";
 
-async function seedTask(taskId: string) {
+async function seedTask(taskId: string, parentRunId?: string) {
   await queue.enqueueAgentTeamRun({
     taskId,
     threadId: "thread-1",
     runId: `run-task-${taskId}`,
     ownerEmail: OWNER,
     orgId: null,
-    payload: { description: "do the thing", turnId: `run-task-${taskId}` },
+    payload: {
+      description: "do the thing",
+      turnId: `run-task-${taskId}`,
+      ...(parentRunId ? { parentRunId } : {}),
+    },
   });
   appState.set(`agent-task:${taskId}`, {
     taskId,
@@ -367,7 +383,7 @@ function resolveConfig() {
     baseSystemPrompt: "base",
     actions: {},
     engine: { name: "test", defaultModel: "m" } as any,
-    model: "m",
+    model: "gpt-5.6",
   };
 }
 
@@ -381,6 +397,12 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     activeRequestContext = undefined;
     queue._agentTeamRunQueueForTests.resetInit();
     runAgentLoopMock.mockReset();
+    instrumentAgentLoopMock.mockReset();
+    instrumentAgentLoopMock.mockImplementation(
+      async ({ runAgentLoop, loopOpts }: any) => runAgentLoop(loopOpts),
+    );
+    getObservabilityConfigMock.mockReset();
+    getObservabilityConfigMock.mockResolvedValue({ enabled: true });
     getRunMock.mockReset();
     abortRunMock.mockReset();
     subscribeToRunMock.mockReset();
@@ -406,6 +428,10 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(res.ok).toBe(true);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(runAgentLoopMock.mock.calls[0]?.[0]).toMatchObject({
+      maxOutputTokens: 32_000,
+      reasoningEffort: "medium",
+    });
     expect(requestContexts.some((ctx) => ctx.userEmail === OWNER)).toBe(true);
 
     const task = appState.get("agent-task:t1");
@@ -417,6 +443,33 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     // thread_data persisted with the assistant turn
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("records child-run telemetry with the durable parent correlation", async () => {
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: "the traced result" });
+    });
+    await seedTask("telemetry", "run-parent-123");
+
+    await processAgentTeamRun({
+      taskId: "telemetry",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(instrumentAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "run-task-telemetry-c0",
+        threadId: "thread-1",
+        userId: OWNER,
+        delegation: {
+          protocol: "agent-team",
+          callerApp: "agent-teams",
+          taskId: "telemetry",
+          parentRunId: "run-parent-123",
+        },
+      }),
+    );
+  });
 
   it("defers framework-added tools behind tool-search on the first sub-agent request when an initial tool list is supplied", async () => {
     actionsToEngineToolsMock.mockImplementation(

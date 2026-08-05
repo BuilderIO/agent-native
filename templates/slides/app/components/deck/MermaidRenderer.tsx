@@ -46,11 +46,13 @@ let idCounter = 0;
 interface MermaidRendererProps {
   definition: string;
   className?: string;
+  index?: number;
 }
 
 export function MermaidRenderer({
   definition,
   className,
+  index,
 }: MermaidRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
@@ -98,6 +100,7 @@ export function MermaidRenderer({
   if (error) {
     return (
       <div
+        data-mermaid-index={index}
         className={`flex items-center justify-center p-4 text-xs text-red-400/70 ${className || ""}`}
       >
         <pre className="whitespace-pre-wrap">{error}</pre>
@@ -105,11 +108,19 @@ export function MermaidRenderer({
     );
   }
 
-  if (!svg) return null;
+  if (!svg) {
+    // Mermaid's import + render is async, so this placeholder is the only
+    // thing in the DOM until it resolves. Without it, an edit to another
+    // element on the same slide made while the diagram is still loading
+    // would see zero `[data-mermaid-index]` nodes when serializing the
+    // slide, and silently drop the diagram from the saved content.
+    return <div data-mermaid-index={index} className={className} />;
+  }
 
   return (
     <div
       ref={containerRef}
+      data-mermaid-index={index}
       className={`flex items-center justify-center [&_svg]:max-w-full [&_svg]:max-h-full ${className || ""}`}
       dangerouslySetInnerHTML={{ __html: svg }}
     />

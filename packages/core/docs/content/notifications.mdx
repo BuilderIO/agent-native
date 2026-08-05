@@ -38,10 +38,26 @@ await notify(
       </div>
     </div>
     <div class="fan-row">
+      <span class="diagram-pill">email</span>
+      <div class="diagram-box" data-rough>
+        Resend / SendGrid<br /><small class="diagram-muted"
+          >always registered &middot; best-effort</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
+      <span class="diagram-pill">slack</span>
+      <div class="diagram-box" data-rough>
+        Block Kit JSON to an incoming webhook<br /><small class="diagram-muted"
+          >always registered &middot; best-effort</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
       <span class="diagram-pill">webhook</span>
       <div class="diagram-box" data-rough>
         POST JSON to NOTIFICATIONS_WEBHOOK_URL<br /><small class="diagram-muted"
-          >best-effort</small
+          >always registered &middot; best-effort</small
         >
       </div>
     </div>
@@ -121,28 +137,10 @@ channel no-ops for the emission.
 
 The webhook and Slack channels resolve `${keys.NAME}` references in both the URL and `NOTIFICATIONS_*_AUTH` against the owner's ad-hoc [secrets](/docs/security), so the raw value never enters the agent's context. Per-key URL allowlists are enforced — same rule the automations `web-request` tool uses.
 
-<Diagram id="doc-block-1lduyog" title="Channels and severity" summary={"inbox is always on; webhook needs an env var; custom channels register at startup. Severity drives badge styling and is passed through to every channel."}>
+<Diagram id="doc-block-1lduyog" title="Severity drives the badge" summary={"Severity is passed through to every channel and drives the bell dropdown's badge color."}>
 
 ```html
 <div class="diagram-channels">
-  <div class="diagram-panel col" data-rough>
-    <strong>Channels</strong>
-    <div class="diagram-box" data-rough>
-      inbox<br /><small class="diagram-muted"
-        >always on &mdash; part of the primitive</small
-      >
-    </div>
-    <div class="diagram-box" data-rough>
-      webhook<br /><small class="diagram-muted"
-        >needs NOTIFICATIONS_WEBHOOK_URL</small
-      >
-    </div>
-    <div class="diagram-box" data-rough>
-      custom<br /><small class="diagram-muted"
-        >registerNotificationChannel()</small
-      >
-    </div>
-  </div>
   <div class="diagram-panel col" data-rough>
     <strong>Severity drives the badge</strong>
     <div class="sev-row">

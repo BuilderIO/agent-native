@@ -11,7 +11,7 @@ description: "ईमेल/पासवर्ड, सामाजिक प्�
 
 ऑथ सर्वर प्लगइन में `autoMountAuth(app)` के माध्यम से ऑथ स्वचालित रूप से कॉन्फ़िगर किया गया है। तीन मोड हैं:
 
-- **डिफ़ॉल्ट:** ईमेल/पासवर्ड + सामाजिक प्रदाताओं के साथ बेहतर प्रामाणिकता। पहली बार विजिट करने पर ऑनबोर्डिंग पेज दिखाया गया।
+- **डिफ़ॉल्ट:** आउटबाउंड ईमेल तैयार होने पर Better Auth में magic link पहले, ईमेल/पासवर्ड fallback और सामाजिक प्रदाताओं के साथ। fallback को बाध्य करने के लिए `AUTH_MAGIC_LINK=0` सेट करें।
 - **रिमोट MCP OAuth:** MCP होस्ट जैसे Claude कोड और ChatGPT कनेक्टर के लिए मानक OAuth 2.1।
 - **कस्टम:** `getSession` कॉलबैक के माध्यम से अपना स्वयं का लेख लाएँ।
 
@@ -106,7 +106,7 @@ description: "ईमेल/पासवर्ड, सामाजिक प्�
 
 डिफ़ॉल्ट रूप से, Better Auth प्रमाणीकरण को शक्ति प्रदान करता है। यह प्रदान करता है:
 
-- ईमेल/पासवर्ड पंजीकरण और लॉगिन
+- magic link पंजीकरण और लॉगिन, ईमेल/पासवर्ड fallback के साथ
 - सामाजिक प्रदाता (Google, GitHub, और 35+ अन्य)
 - भूमिकाओं और आमंत्रणों वाले संगठन
 - API और A2A एक्सेस के लिए JWT टोकन
@@ -115,6 +115,7 @@ description: "ईमेल/पासवर्ड, सामाजिक प्�
 बेहतर प्रामाणिक मार्ग `/_agent-native/auth/ba/*` पर स्थापित हैं। फ्रेमवर्क पिछड़े-संगत समापन बिंदु भी प्रदान करता है:
 
 - `GET /_agent-native/auth/session` - वर्तमान सत्र प्राप्त करें
+- `POST /_agent-native/auth/magic-link` - magic link ईमेल का अनुरोध करें
 - `POST /_agent-native/auth/login` - ईमेल/पासवर्ड लॉगिन
 - `POST /_agent-native/auth/register` - खाता बनाएं
 - `POST /_agent-native/auth/logout` - साइन आउट करें
@@ -219,7 +220,7 @@ ACCESS_TOKENS=token1,token2,token3
 प्रत्येक ऐप का MCP एंडपॉइंट एक मानक संरक्षित MCP संसाधन के रूप में कार्य कर सकता है। OAuth-सक्षम क्लाइंट को केवल दूरस्थ MCP URL के साथ कॉन्फ़िगर किया जा सकता है:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 अप्रमाणित MCP अनुरोध `/.well-known/oauth-protected-resource` की ओर इशारा करते हुए एक `WWW-Authenticate` चुनौती लौटाते हैं। क्लाइंट तब ऐप के OAuth मेटाडेटा को खोजता है, गतिशील रूप से एक सार्वजनिक क्लाइंट को पंजीकृत करता है, ऐप के प्राधिकरण पृष्ठ को खोलता है, और एक्सेस और रीफ्रेश टोकन के लिए PKCE के साथ एक प्राधिकरण कोड का आदान-प्रदान करता है।
@@ -363,8 +364,9 @@ interface AuthSession {
 क्लाइंट पर, `useSession()` हुक का उपयोग करें:
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;
@@ -403,6 +405,8 @@ function SignInCta() {
 ### निजी पथ बुकमार्क किए गए
 
 सामान्य ऐप पेज हर विज़िटर के लिए एक ही गैर-व्यक्तिगत, सार्वजनिक रूप से कैश होने वाला SSR शेल उपयोग करते हैं। `AppProviders` क्लाइंट पर सेशन जाँचता है; `/dashboard` जैसे निजी पथ पर यह निजी ऐप UI माउंट करने से पहले अनाम विज़िटर को `/_agent-native/sign-in?return=%2Fdashboard` पर रीडायरेक्ट करता है। साइन-इन के बाद विज़िटर `/dashboard` पर लौटता है। सार्वजनिक/SEO रूट के लिए `isPublicPath`, या MCP एम्बेड टोकन जैसी किसी अन्य सीमित प्रमाणीकरण विधि वाले सतह के लिए `sessionBypass` उपयोग करें।
+
+वह शेल कितनी देर कैश रहता है यह पूरे परिनियोजन की सेटिंग है — `AGENT_NATIVE_SSR_CACHE` के लिए [SSR Caching](/docs/deployment#ssr-caching) देखें। कैश को छोटा या अक्षम करने से केवल अवधि बदलती है; SSR अब भी कुकीज़ हटाकर अनाम ब्रांच रेंडर करता है।
 
 ### पर्दे के पीछे: Google OAuth
 

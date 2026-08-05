@@ -253,7 +253,7 @@ POST por padrao; `http: { method: "GET" }` torna a chamada GET. Os hooks React e
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — padrão `POST`. `GET` actions são marcados automaticamente como `readOnly`, portanto, chamadas bem-sucedidas não acionam uma atualização de pesquisa UI.
 - **`http: { path: "..." }`** — substitui o URL montado em `/_agent-native/actions/`. O padrão é o nome do arquivo. **As substituições de caminho alteram o URL apenas para chamadores HTTP diretos** — `useActionQuery`, `useActionMutation` e `callAction` sempre chamam `/_agent-native/actions/<name>` independentemente dessa substituição, portanto, substituir o caminho torna esses ganchos 404. Use substituições de caminho apenas para chamadores HTTP externos. Observe também que os segmentos de rota `:param` no caminho de substituição **não** são analisados em argumentos `run()` — apenas parâmetros de string de consulta e campos de corpo JSON são.
 - **`http: false`** — desative totalmente o endpoint HTTP. Somente agente + CLI.
-- **`readOnly: true`** — ignora explicitamente a atualização da enquete, mesmo para POST actions que não sofre mutação.
+- **`readOnly: true`** — ignora explicitamente a atualização da enquete, mesmo para POST actions que não sofre mutação. **Não** é controle de acesso: não restringe quem pode chamar a action e não afeta `useActionQuery`, `useActionMutation` nem qualquer hook de cliente. Seus únicos efeitos são suprimir o evento de atualização após a chamada e excluir a action da auditoria de escrita. Para ocultar uma action do modelo use `agentTool: false`; para restringir quem chama use as opções de auth/acesso acima.
 - **`parallelSafe: true`** — permite que uma ação mutante seja executada simultaneamente com outras chamadas de ferramenta do mesmo turno. Defina isso apenas quando a ação for internamente segura em termos de simultaneidade e independente de ordem; serialização actions mutante por padrão.
 
 ### Mantenha a superfície de ação pequena {#small-surface}
@@ -443,8 +443,7 @@ Dois ganchos, ambos em `@agent-native/core/client`. Os tipos são inferidos a pa
 Para actions que muda de estado:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -462,8 +461,7 @@ Em caso de sucesso, a estrutura emite um evento de mudança com `source: "action
 Para GET actions somente leitura:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -540,7 +538,7 @@ Se seu aplicativo for um par [A2A](/docs/a2a-protocol), outros aplicativos nativ
 
 ## Expondo-o sobre MCP {#mcp}
 
-Com MCP ativado, seu actions aparece no servidor MCP da estrutura em `/_agent-native/mcp`. Cada chamador recebe um catálogo compacto por padrão – recursos integrados voltados para o aplicativo mais o aplicativo declarado por modelo actions – e o `tool-search` está sempre presente para que qualquer outra ferramenta permaneça acessível sob demanda. A superfície de ação completa é veiculada apenas com aceitação explícita (token `--full-catalog` ou `AGENT_NATIVE_MCP_FULL_CATALOG=1`), e `publicAgent.expose` opta por uma ferramenta de leitura/ingestão segura na superfície pública. Consulte [MCP Protocol](/docs/mcp-protocol) para níveis de catálogo, autenticação e detalhes do recurso `mcpApp`.
+Com MCP ativado, seu actions aparece no servidor MCP da estrutura em `/mcp`. Cada chamador recebe um catálogo compacto por padrão – recursos integrados voltados para o aplicativo mais o aplicativo declarado por modelo actions – e o `tool-search` está sempre presente para que qualquer outra ferramenta permaneça acessível sob demanda. A superfície de ação completa é veiculada apenas com aceitação explícita (token `--full-catalog` ou `AGENT_NATIVE_MCP_FULL_CATALOG=1`), e `publicAgent.expose` opta por uma ferramenta de leitura/ingestão segura na superfície pública. Consulte [MCP Protocol](/docs/mcp-protocol) para níveis de catálogo, autenticação e detalhes do recurso `mcpApp`.
 
 Para hosts MCP compatíveis com UI, uma ação pode declarar um recurso opcional de aplicativos MCP por meio do campo `mcpApp` (mais um `link` correspondente) para que hosts compatíveis renderizem o resultado in-line. Quando `link` e `mcpApp` devem apontar para a mesma rota, `embedRoute()` constrói ambos a partir de um construtor de caminho puro:
 
@@ -617,6 +615,44 @@ export default defineAction({
   },
 });
 ```
+
++## Protegendo recursos em etapas {#feature-flags}
+
+Use feature flags do Core quando uma action for segura para implantar, mas precisar chegar gradualmente à produção. Declare a flag desativada por padrão uma vez, registre-a em um plugin Nitro e avalie-a dentro de cada action protegida. Ocultar o botão correspondente é apresentação; a verificação na action é a aplicação da regra.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Use `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar ou revelar a superfície do cliente. O Core disponibiliza `get-feature-flags`, `list-feature-flags` e `set-feature-flag`. O gerenciamento verifica permissões e é auditado; interfaces de frota chamam as mesmas actions locais do app por delegação A2A estritamente limitada. Nunca encaminhe gravações de flags por endpoints genéricos de configurações ou SQL bruto, nem coloque autenticação, autorização, auditoria, segredos ou cache SSR atrás de uma flag de runtime.
 
 ## actions estilo CLI legado {#legacy-cli-actions}
 

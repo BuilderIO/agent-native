@@ -14,6 +14,7 @@ import { z } from "zod";
 // the registration eagerly from the always-loaded db plugin.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { uploadLeaseExpiry } from "../lib/upload-lease.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -65,6 +66,7 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["recording_viewers", "counted_view", false],
     ["recording_viewers", "cta_clicked", false],
     ["meeting_participants", "is_organizer", false],
+    ["clips_meetings", "share_transcript", false],
   ];
   for (const [table, column, defaultTrue] of alters) {
     try {
@@ -105,7 +107,7 @@ const migrations = runMigrations(
       slug TEXT NOT NULL,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -192,6 +194,12 @@ const migrations = runMigrations(
       description TEXT NOT NULL DEFAULT '',
       thumbnail_url TEXT,
       animated_thumbnail_url TEXT,
+      filmstrip_url TEXT,
+      filmstrip_frame_count INTEGER NOT NULL DEFAULT 0,
+      filmstrip_columns INTEGER NOT NULL DEFAULT 0,
+      filmstrip_rows INTEGER NOT NULL DEFAULT 0,
+      filmstrip_frame_width INTEGER NOT NULL DEFAULT 0,
+      filmstrip_frame_height INTEGER NOT NULL DEFAULT 0,
       duration_ms INTEGER NOT NULL DEFAULT 0,
       video_url TEXT,
       video_format TEXT NOT NULL DEFAULT 'webm',
@@ -349,7 +357,7 @@ const migrations = runMigrations(
       organization_id TEXT PRIMARY KEY,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -790,6 +798,7 @@ const migrations = runMigrations(
     },
     {
       version: 45,
+      name: "clips-video-projects",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_video_projects (
           id TEXT PRIMARY KEY,
@@ -820,6 +829,7 @@ const migrations = runMigrations(
     },
     {
       version: 46,
+      name: "clips-editor-media-assets",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_editor_media_assets (
           id TEXT PRIMARY KEY,
@@ -837,6 +847,7 @@ const migrations = runMigrations(
     },
     {
       version: 47,
+      name: "clips-annotations",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_annotations (
           id TEXT PRIMARY KEY,
@@ -862,6 +873,7 @@ const migrations = runMigrations(
     },
     {
       version: 48,
+      name: "clips-edit-versions",
       sql: [
         `CREATE TABLE IF NOT EXISTS clips_edit_versions (
           id TEXT PRIMARY KEY,
@@ -885,6 +897,7 @@ const migrations = runMigrations(
     },
     {
       version: 49,
+      name: "recording-transcripts-raw-snapshot",
       sql: [
         `ALTER TABLE recording_transcripts ADD COLUMN raw_full_text TEXT`,
         `ALTER TABLE recording_transcripts ADD COLUMN raw_segments_json TEXT`,
@@ -940,6 +953,111 @@ const migrations = runMigrations(
         `ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers (recording_id, viewer_key)`,
       ].join("; "),
+    },
+    {
+      version: 54,
+      name: "clips-meetings-share-transcript",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS share_transcript INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 55,
+      name: "clips-public-organization-default",
+      // Earlier releases persisted the old private default into org rows.
+      // Normalize that state once; the org setting remains an explicit override.
+      // guard:allow-unscoped — startup migration normalizes legacy defaults across organizations.
+      sql: [
+        `UPDATE workspaces SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+        `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+      ].join("; "),
+    },
+    // -------------------------------------------------------------------------
+    // Agent views — external agents polling a public clip's agent context,
+    // transcript, or frame APIs. Kept in its own table so human view counts
+    // cannot accidentally include agents.
+    // -------------------------------------------------------------------------
+    {
+      version: 56,
+      name: "recording-agent-views",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_agent_views (
+          id TEXT PRIMARY KEY,
+          recording_id TEXT NOT NULL,
+          agent_key TEXT NOT NULL,
+          agent_label TEXT,
+          view_session_id TEXT NOT NULL,
+          first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          request_count INTEGER NOT NULL DEFAULT 1
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_views_session_unique_idx ON recording_agent_views (recording_id, agent_key, view_session_id)`,
+        `CREATE INDEX IF NOT EXISTS recording_agent_views_recording_idx ON recording_agent_views (recording_id, last_seen_at)`,
+      ].join("; "),
+    },
+    {
+      version: 57,
+      name: "recording-loom-import-claim-lease",
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS loom_import_claim_id TEXT`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS loom_import_claimed_at TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 58,
+      name: "recording-upload-lease",
+      // Grant every pre-lease in-progress recording one full lease horizon so
+      // the reaper can reach rows the old session-keyed sweeps could never
+      // select. Backfilling `updated_at` instead would hand a live upload an
+      // already-expired lease and reap it before its next chunk lands, so
+      // pre-lease rows get the same horizon any other row gets. Long-stranded
+      // rows are terminated one horizon after this runs.
+      // Idempotent: the UPDATE only touches NULL leases.
+      // guard:allow-unscoped — startup migration backfills every owner's rows.
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_lease_expires_at TEXT`,
+        `CREATE INDEX IF NOT EXISTS recordings_upload_lease_idx ON recordings (status, upload_lease_expires_at)`,
+        `UPDATE recordings SET upload_lease_expires_at = '${uploadLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status IN ('uploading', 'processing')`,
+      ].join("; "),
+    },
+    {
+      version: 59,
+      name: "recording-upload-attempt-fence",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_attempt_id TEXT`,
+    },
+    {
+      version: 60,
+      name: "recording-upload-generation-fence",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_generation_id TEXT`,
+    },
+    {
+      version: 61,
+      name: "recording-agent-views-user-agent",
+      sql: `ALTER TABLE recording_agent_views ADD COLUMN IF NOT EXISTS user_agent TEXT`,
+    },
+    {
+      version: 62,
+      name: "recording-agent-views-clear-placeholder-label",
+      // Rows written before the user-agent column stored the literal placeholder
+      // 'Agent' for any agent the user-agent patterns could not name, which is
+      // indistinguishable from an agent that really is called "Agent". NULL is
+      // the one value that means "we don't know", so unnamed history renders as
+      // unknown too.
+      // guard:allow-unscoped — startup migration normalizes a legacy placeholder across all rows.
+      sql: `UPDATE recording_agent_views SET agent_label = NULL WHERE agent_label = 'Agent'`,
+    },
+    {
+      version: 63,
+      name: "recording-playback-positions",
+      sql: `CREATE TABLE IF NOT EXISTS recording_playback_positions (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL,
+      viewer_key TEXT NOT NULL,
+      viewer_email TEXT,
+      position_ms INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS recording_playback_positions_recording_viewer_key_unique_idx
+      ON recording_playback_positions (recording_id, viewer_key)`,
     },
   ],
   { table: "clips_migrations" },
@@ -1225,285 +1343,6 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
   }
 }
 
-/**
- * Sweep orphaned recording-chunk scratch rows out of `application_state`.
- *
- * Why: `/api/uploads/:id/chunk` base64-encodes each MediaRecorder chunk and
- * stores it in `application_state` keyed `recording-chunks-<recordingId>-<idx>`.
- * `finalize-recording` is responsible for deleting those rows after assembling
- * the final blob — but before this sweep existed, a finalize that threw
- * mid-way (uploadFile failure, DB hiccup, dev-server restart between chunk
- * arrival and finalize) left every chunk in place forever. Each chunk is ~1 MB
- * of base64; a 30-minute recording is ~1.5 GB of orphaned scratch space, and
- * those rows are resident in memory as soon as the server fetches them. This
- * was the server-side half of the 70 GB memory leak Steve reported.
- *
- * Safe rules: we only delete chunks whose matching `recordings` row is either
- * (a) absent (the recording was deleted but chunks remained), or
- * (b) in status=`ready` or `failed` (finalize ran and should have cleaned, or
- *     bailed), AND last updated more than 1 hour ago (don't race a finalize
- *     that's CURRENTLY running).
- *
- * Runs once on server startup. Best-effort — any individual delete or probe
- * failure is logged and ignored; the rest of the sweep continues.
- */
-async function sweepOrphanedRecordingChunks(): Promise<void> {
-  const exec = getDbExec();
-  const pg = isPostgres();
-
-  let chunkRows: Array<{ key: string }> = [];
-  try {
-    const probe = await exec.execute({
-      sql: `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%'`,
-      args: [],
-    });
-    chunkRows = (probe.rows as Array<{ key: string }>) ?? [];
-  } catch (err) {
-    // application_state may not exist on a fresh dev DB — bail quietly.
-    const message = (err as Error)?.message ?? String(err);
-    if (
-      /no such table:\s*application_state/i.test(message) ||
-      /relation ["']?application_state["']? does not exist/i.test(message)
-    ) {
-      return;
-    }
-    console.warn("[db] chunk sweep: application_state probe failed", message);
-    return;
-  }
-
-  if (chunkRows.length === 0) return;
-
-  // Group by recordingId so one probe per recording, not per chunk.
-  const keysByRecording = new Map<string, string[]>();
-  for (const row of chunkRows) {
-    // Key shape: recording-chunks-<recordingId>-<paddedIdx>. `recordingId` may
-    // contain hyphens, so we peel off the trailing `-<idx>` first and then
-    // the `recording-chunks-` prefix.
-    const stripped = row.key.replace(/^recording-chunks-/, "");
-    const lastDash = stripped.lastIndexOf("-");
-    if (lastDash < 0) continue;
-    const recordingId = stripped.slice(0, lastDash);
-    const list = keysByRecording.get(recordingId) ?? [];
-    list.push(row.key);
-    keysByRecording.set(recordingId, list);
-  }
-
-  const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  let totalDeleted = 0;
-  let recordingsCleaned = 0;
-
-  for (const [recordingId, keys] of keysByRecording) {
-    let shouldSweep = false;
-    // guard:allow-unscoped — orphaned-chunk GC sweep — system-level by design
-    try {
-      const probe = await exec.execute({
-        sql: pg
-          ? `SELECT status, updated_at FROM recordings WHERE id = $1 LIMIT 1`
-          : `SELECT status, updated_at FROM recordings WHERE id = ? LIMIT 1`,
-        args: [recordingId],
-      });
-      const row = (
-        probe.rows as Array<{ status?: string; updated_at?: string }>
-      )[0];
-      if (!row) {
-        // Recording row gone — chunks are orphaned.
-        shouldSweep = true;
-      } else if (
-        (row.status === "ready" || row.status === "failed") &&
-        (row.updated_at ?? "") < oneHourAgoIso
-      ) {
-        // Finalize ran (ready) or bailed (failed) and it's been >1h — safe.
-        shouldSweep = true;
-      }
-    } catch (err) {
-      console.warn("[db] chunk sweep: recording probe failed", {
-        recordingId,
-        err: (err as Error)?.message ?? err,
-      });
-      continue;
-    }
-
-    if (!shouldSweep) continue;
-
-    for (const key of keys) {
-      try {
-        await exec.execute({
-          sql: pg
-            ? `DELETE FROM application_state WHERE key = $1`
-            : `DELETE FROM application_state WHERE key = ?`,
-          args: [key],
-        });
-        totalDeleted += 1;
-      } catch (err) {
-        console.warn("[db] chunk sweep: delete failed", {
-          key,
-          err: (err as Error)?.message ?? err,
-        });
-      }
-    }
-    recordingsCleaned += 1;
-  }
-
-  if (totalDeleted > 0) {
-    console.log("[db] swept orphaned recording chunks", {
-      totalDeleted,
-      recordingsCleaned,
-    });
-  }
-}
-
-function rowNumber(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "bigint") return Number(value);
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
-/**
- * Sweep orphaned resumable upload sessions out of `application_state`.
- *
- * The streaming upload path stores provider session handles under
- * `resumable-session-<recordingId>` and deletes them after finalize commits a
- * ready recording. Crashes between those two steps can strand small session
- * rows forever. We only delete sessions whose recording row is gone, or whose
- * recording reached a terminal status more than an hour ago. Abandoned browser
- * uploads can leave the recording stuck in `uploading`, so those are swept only
- * after a much longer grace window.
- */
-async function sweepOrphanedResumableSessions(): Promise<void> {
-  const exec = getDbExec();
-  const pg = isPostgres();
-
-  let sessionRows: Array<{
-    session_id?: unknown;
-    key?: unknown;
-    updated_at?: unknown;
-  }> = [];
-  try {
-    const probe = await exec.execute({
-      sql: `SELECT session_id, key, updated_at FROM application_state WHERE key LIKE 'resumable-session-%'`,
-      args: [],
-    });
-    sessionRows =
-      (probe.rows as Array<{
-        session_id?: unknown;
-        key?: unknown;
-        updated_at?: unknown;
-      }>) ?? [];
-  } catch (err) {
-    const message = (err as Error)?.message ?? String(err);
-    if (
-      /no such table:\s*application_state/i.test(message) ||
-      /relation ["']?application_state["']? does not exist/i.test(message)
-    ) {
-      return;
-    }
-    console.warn(
-      "[db] resumable-session sweep: application_state probe failed",
-      message,
-    );
-    return;
-  }
-
-  if (sessionRows.length === 0) return;
-
-  const prefix = "resumable-session-";
-  const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const staleInProgressIso = new Date(
-    Date.now() - 24 * 60 * 60 * 1000,
-  ).toISOString();
-  let totalDeleted = 0;
-
-  for (const row of sessionRows) {
-    const key = typeof row.key === "string" ? row.key : "";
-    if (!key.startsWith(prefix)) continue;
-    const recordingId = key.slice(prefix.length);
-    if (!recordingId) continue;
-
-    let shouldSweep = false;
-    try {
-      const probe = await exec.execute({
-        sql: pg
-          ? `SELECT status, updated_at FROM recordings WHERE id = $1 LIMIT 1`
-          : `SELECT status, updated_at FROM recordings WHERE id = ? LIMIT 1`,
-        args: [recordingId],
-      });
-      const recording = (
-        probe.rows as Array<{ status?: string; updated_at?: string }>
-      )[0];
-      if (!recording) {
-        shouldSweep = true;
-      } else if (
-        (recording.status === "ready" || recording.status === "failed") &&
-        (recording.updated_at ?? "") < oneHourAgoIso
-      ) {
-        shouldSweep = true;
-      } else if (
-        (recording.status === "uploading" ||
-          recording.status === "processing") &&
-        (recording.updated_at ?? "") < staleInProgressIso
-      ) {
-        try {
-          await exec.execute({
-            sql: pg
-              ? `UPDATE recordings SET status = 'failed', failure_reason = $1, updated_at = $2 WHERE id = $3 AND status = $4`
-              : `UPDATE recordings SET status = 'failed', failure_reason = ?, updated_at = ? WHERE id = ? AND status = ?`,
-            args: [
-              "Upload did not finish before the resumable upload cleanup window.",
-              new Date().toISOString(),
-              recordingId,
-              recording.status,
-            ],
-          });
-        } catch (err) {
-          console.warn(
-            "[db] resumable-session sweep: stale upload mark-failed failed",
-            {
-              recordingId,
-              status: recording.status,
-              err: (err as Error)?.message ?? err,
-            },
-          );
-        }
-        shouldSweep = true;
-      }
-    } catch (err) {
-      console.warn("[db] resumable-session sweep: recording probe failed", {
-        recordingId,
-        err: (err as Error)?.message ?? err,
-      });
-      continue;
-    }
-
-    if (!shouldSweep) continue;
-
-    try {
-      await exec.execute({
-        sql: pg
-          ? `DELETE FROM application_state WHERE session_id = $1 AND key = $2`
-          : `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
-        args: [String(row.session_id ?? ""), key],
-      });
-      totalDeleted += 1;
-    } catch (err) {
-      console.warn("[db] resumable-session sweep: delete failed", {
-        key,
-        updatedAt: rowNumber(row.updated_at),
-        err: (err as Error)?.message ?? err,
-      });
-    }
-  }
-
-  if (totalDeleted > 0) {
-    console.log("[db] swept orphaned resumable upload sessions", {
-      totalDeleted,
-    });
-  }
-}
-
 async function backfillRecordingOrgId(): Promise<void> {
   const exec = getDbExec();
   try {
@@ -1761,17 +1600,6 @@ export default async (nitroApp: any): Promise<void> => {
   await backfillLegacyClipsTables();
   await syncWorkspacesToOrganizations();
   await backfillRecordingOrgId();
-  // Best-effort chunk sweep — don't block startup on failures.
-  sweepOrphanedRecordingChunks().catch((err) => {
-    console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
-  });
-  sweepOrphanedResumableSessions().catch((err) => {
-    console.warn(
-      "[db] resumable-session sweep failed:",
-      (err as Error)?.message ?? err,
-    );
-  });
-
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

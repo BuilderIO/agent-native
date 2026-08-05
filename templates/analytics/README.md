@@ -1,6 +1,6 @@
 # Analytics
 
-An open-source, agent-native alternative to Amplitude, Mixpanel, and Looker. Ask
+An open-source, agent-native alternative to Amplitude and FullStory. Ask
 analytics questions in plain English and get charts, dashboards, and re-runnable
 investigations back — you own the code, the queries, and the data.
 

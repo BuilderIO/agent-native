@@ -311,6 +311,18 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+对于启用 SSR 的 Cloudflare Worker，请使用 Nitro 原生模块输出。运行
+`npx @agent-native/core@latest build`，然后使用
+`npx wrangler deploy --config .output/server/wrangler.json` 部署。
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
 ## AWS 拉姆达 {#aws-lambda}
 
 ```ts
@@ -329,16 +341,54 @@ export default defineConfig({
 });
 ```
 
+## SSR 缓存 {#ssr-caching}
+
+每个 SSR HTML 响应和每个 React Router `.data` 响应都是同一个非个性化的公共外壳：`createH3SSRHandler` 会在渲染前剥离 cookie，因此同样的字节对每个访问者都是正确的，所有个性化都在加载完成后于客户端进行。这正是为什么默认在这些响应上盖上单一硬缓存策略是安全的：
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+同样的值会镜像到 `cdn-cache-control` 和 `netlify-cdn-cache-control` 上。这样一个共享的 CDN 条目就能服务整个站点，而不是逐请求渲染，这是首次响应延迟上最大的单一杠杆——除非您的部署符合下面的某种情况，否则请保持开启。
+
+### 使用 `AGENT_NATIVE_SSR_CACHE` 覆盖设置 {#ssr-cache-env}
+
+在部署环境中设置 `AGENT_NATIVE_SSR_CACHE`，即可更改整个部署的策略：
+
+| 值                                                  | 结果                                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 未设置、`on`、`default`、`true`、`1`                | 上面的默认策略，不变。推荐——性能最佳。                                                |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | `cache-control`、`cdn-cache-control` 和 `netlify-cdn-cache-control` 上的 `no-store`。 |
+| 一个时长：`30`、`30s`、`5m`、`2h`                   | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。              |
+
+裸数字表示秒。`stale-while-revalidate` 有意为自定义时长镜像 `max-age`：将一个短的新鲜度窗口与默认的七天陈旧窗口搭配，会恰好返回您本想选择退出的那种陈旧数据。无法识别的值会记录一条警告并回退到默认值，因此拼写错误永远不会悄悄禁用 CDN。
+
+在以下任一情况成立时，请将其调低或关闭：
+
+1. **您的主机不会在部署时清除其 CDN。** Netlify 和 Vercel 会；一些自托管的部署不会。如果没有清除，已发布的构建可能会在 `max-age` 加上 `stale-while-revalidate` 的时长内继续提供之前的外壳。
+2. **您的加载器返回可变的公共数据。** 在一次成功的变更之后，`useRevalidator()` 或操作后重定向触发的重新获取，可能会读取浏览器缓存的 `.data` 副本，而不是最新的加载器输出。
+
+该设置适用于每一个公共外壳界面：React Router 的 SSR HTML 与 `.data`、登录 HTML 外壳、`/_agent-native/speculation-rules.json` 路由、文档站点，以及 forms 模板中的公共表单 SSR。生成的 Cloudflare Worker 会在构建时解析该值，因此请在构建运行之前于部署环境中设置它。
+
+有三点需要记住：
+
+- **关闭缓存并不会让 SSR 变得个性化。** Cookie 在渲染前仍会被剥离，SSR 加载器仍然只会看到匿名分支。用户专属数据依然必须在客户端解析。此变量只控制缓存*时长*。
+- **它是部署范围的设置，而非按路由，这是有意为之的设计。** 按路由或按请求的缓存覆盖，会导致一个访问者的负载最终出现在另一个访问者共享的 CDN 条目中，因此框架不提供这种选项——`guard:ssr-cache-shell` 会强制执行这一点。
+- **对于需要变更后立即新鲜的数据，优先使用 actions 而不是禁用缓存。** 应用数据属于 [actions](/docs/actions)，通过 `useActionQuery` / `useActionMutation` 从客户端读取，并通过 `useDbSync()` 轮询保持实时；这些都不会经过 SSR 外壳缓存。让 SSR 加载器继续渲染公共外壳，只有在您确实需要更新鲜的加载器数据时，才使用此变量。
+
 ## 环境变量 {#environment-variables}
 
 ### 构建/运行时 {#env-runtime}
 
-| 变量                        | 描述                                                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `PORT`                      | 服务器端口（仅限Node.js）                                                                                                      |
-| `NITRO_PRESET`              | 在构建时覆盖构建预设                                                                                                           |
-| `APP_BASE_PATH`             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                   |
-| `AGENT_PROD_CODE_EXECUTION` | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。 |
+| 变量                                        | 描述                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | 服务器端口（仅限Node.js）                                                                                                                                                                                                                                                             |
+| `NITRO_PRESET`                              | 在构建时覆盖构建预设                                                                                                                                                                                                                                                                  |
+| `APP_BASE_PATH`                             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                                                                                                                                                                          |
+| `AGENT_PROD_CODE_EXECUTION`                 | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。                                                                                                                                                        |
+| `AGENT_NATIVE_SSR_CACHE`                    | 部署范围的 SSR 外壳缓存策略：未设置/`on` 保持默认硬缓存，`off` 发送 `no-store`，或使用一个时长（例如 `30s` / `5m`）设置更短的新鲜度。参见 [SSR Caching](#ssr-caching)。                                                                                                               |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用于预览安全的 Builder 授权中继的专用 32+ 字符共享 HMAC 密钥。只有当授权结果必须写入隔离的预览数据库时，才在获批的企业回调部署和预览部署上设置相同的值。                                                                                                                              |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 仅用于企业回调的、以逗号分隔的精确可信预览来源允许列表（例如 `https://0123456789abcdef01234567--content.netlify.app`）。仅在企业回调部署中设置。Netlify 来源必须使用包含 24 位十六进制 ID、不可变且特定于部署的永久链接；可变的 `deploy-preview-*` 别名、通配符和域名后缀均会被拒绝。 |
 
 数据库连接变量（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每个应用程序 `<APP_NAME>_DATABASE_URL`）位于 [Database](/docs/database#production) 中。
 
@@ -346,14 +396,16 @@ export default defineConfig({
 
 这些必须在将应用程序升级到真正的产品部署之前设置。缺失值要么失败关闭（框架拒绝启动/拒绝处理请求），要么回退到较弱的行为并发出响亮的警告。
 
-| 变量                     | 描述                                                                                                                                                                                      |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ 字符随机字符串。签署会话 cookies AND 是 `OAUTH_STATE_SECRET` 和 `SECRETS_ENCRYPTION_KEY` 的后备 HMAC。硬性要求：如果在生产中缺失，框架将在启动时抛出异常。                            |
-| `BETTER_AUTH_URL`        | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                  |
-| `ANTHROPIC_API_KEY`      | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。                                                  |
-| `OAUTH_STATE_SECRET`     | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。 |
-| `A2A_SECRET`             | 为应用程序间 A2A JSON-RPC 共享 HMAC。如果没有它，每个 A2A 端点和 `/_agent-native/integrations/process-task` 自发射端点在生产中都会返回 503。                                              |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM 静态加密机密保管库的密钥。回落至 `BETTER_AUTH_SECRET`。当两者都未设置时，生产中会发生硬故障。                                                                                 |
+| 变量                                        | 描述                                                                                                                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ 字符的随机字符串。签署会话 cookie，并作为 `OAUTH_STATE_SECRET` 和应用本地加密值的后备。它也是读取现有共享保管库密文的旧版候选项。生产环境中必需。                                     |
+| `BETTER_AUTH_URL`                           | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                  |
+| `ANTHROPIC_API_KEY`                         | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。                                                  |
+| `OAUTH_STATE_SECRET`                        | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。 |
+| `A2A_SECRET`                                | 应用间 A2A JSON-RPC 的共享 HMAC。未设置专用工作区密钥时，共享保管库使用由此值按用途派生的密钥，因此轮换它也会轮换保管库密钥。                                                             |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 共享工作区保管库首选的稳定 AES-256-GCM 密钥。每个读取保管库的应用都应设置相同值；它与应用本地 OAuth 加密分开。                                                                            |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 轮换期间可选的旧工作区密钥。与新密钥一起部署，等待读取迁移数据行，然后删除旧密钥。                                                                                                        |
+| `SECRETS_ENCRYPTION_KEY`                    | 用于应用本地加密和保管库的旧版组合密钥。仍受支持，但新的多应用部署应使用专用工作区密钥。                                                                                                  |
 
 ### 身份验证和身份 {#env-auth}
 
@@ -373,7 +425,7 @@ OAuth 提供商凭证（Google、GitHub）、静态 MCP 承载后备（`ACCESS_T
 
 ### 生成强大的秘密 {#env-generate-secrets}
 
-对于任何标记为“32+ char random”的密钥（`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`），请使用以下命令生成新值：
+对于任何标记为“32+ char random”的密钥（`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`），请使用以下命令生成新值：
 
 ```bash
 openssl rand -hex 32
@@ -392,7 +444,14 @@ openssl rand -hex 32
 export default createAgentChatPlugin({
   // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  extensionTools: true,
+});
+```
+
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
 });
 ```
 
@@ -402,9 +461,9 @@ export default createAgentChatPlugin({
   用于有意的原始 SQL 维护。写入范围限定为当前用户/组织，并阻止架构更改。
 - `databaseTools: "off"` 或 `false` — 从
   代理表面，因此应用程序的 actions 是唯一的数据访问路径。
-- `extensionTools: false` — 删除框架扩展管理 actions 和
-  针对以下应用的提示指导（`create-extension`、`update-extension` 等）
-  不希望代理创建沙盒迷你应用程序。
+- `extensionTools: true` — 为应用启用框架扩展管理 actions 和提示指导
+  （`create-extension`、`update-extension` 等）。在两个 plugins 上都设置
+  此选项，也可允许经过身份验证的 REST 创建。扩展默认关闭。
 
 ## 生产代码执行 {#production-code-execution}
 
@@ -431,17 +490,17 @@ export default createAgentChatPlugin({
 
 ## 在生产中更新 UI {#updating-ui-in-production}
 
-agent-native 的核心功能之一是代理可以修改应用程序的源代码 - 组件、路由、样式、actions。在本地开发期间，这可以无缝工作，因为代理具有完整的文件系统访问权限。
+普通的已部署应用代理通过应用工具 - actions、数据库、MCP 和已配置的集成 - 工作，而不会自动获得源代码访问权限。源代码更改属于仓库开发工作流。嵌入式、本地或 Builder frame 只有在被有意授予工作区和写入工具时才能编辑仓库。
 
 在 [production code execution](#production-code-execution) 关闭的标准生产部署中，代理可以访问应用程序工具（actions、数据库、MCP），但不能访问文件系统。这意味着代理可以读取和写入数据、运行 actions 以及与外部服务交互 - 但它无法编辑 React 组件或在已部署的实例上添加新路由。
 
 ### Builder.io：制作中的可视化编辑 {#builderio}
 
-[Builder.io](https://www.builder.io) 通过提供托管云环境来解决此问题，在该环境中，代理保留在生产中修改应用程序的 UI 的能力。将您的存储库连接到 Builder.io 并直接提示 UI 更改 - 无需重新部署。
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是一个独立的托管代码工作流，代理可在其中修改生产应用的 UI。将仓库连接到 Builder.io（提供免费套餐）后即可直接请求 UI 更改，无需重新部署。
 
 **工作原理：**
 
-1. 将您的代理本机存储库连接到 Builder.io
+1. 将您的代理本机存储库连接到 Builder.io（提供免费套餐）
 2. Builder.io提供具有代理、可视化编辑和实时协作的云框架
 3. 提示代理进行 UI 更改 - 它会实时编辑您的组件、路线和样式
 4. 更改将提交回您的存储库

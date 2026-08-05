@@ -4,6 +4,16 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   assertAccess: vi.fn(),
   existingDesignFiles: [] as Array<{ filename: string }>,
+  existingDesignRows: [] as Array<{ data: string | null }>,
+  recordGenerationCreativeContext: vi.fn(),
+  resolveGenerationCreativeContext: vi.fn(
+    async (input: { contextModeOverride?: "off" }) => ({
+      contextMode: input.contextModeOverride === "off" ? "off" : "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      results: [],
+    }),
+  ),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -20,22 +30,31 @@ vi.mock("drizzle-orm", () => ({
   sql: (strings: unknown, ...values: unknown[]) => ({ strings, values }),
 }));
 
-vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({
-    select: () => ({
-      from: () => ({
-        where: () => Promise.resolve(mocks.existingDesignFiles),
-      }),
-    }),
-  }),
-  schema: {
+vi.mock("../server/db/index.js", () => {
+  const schema = {
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
       filename: "designFiles.filename",
     },
-  },
-}));
+    designs: { id: "designs.id", data: "designs.data" },
+  };
+  return {
+    getDb: () => ({
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () =>
+            Promise.resolve(
+              table === schema.designs
+                ? mocks.existingDesignRows
+                : mocks.existingDesignFiles,
+            ),
+        }),
+      }),
+    }),
+    schema,
+  };
+});
 
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: (args: {
@@ -47,6 +66,11 @@ vi.mock("@agent-native/core/server", () => ({
     `/_agent-native/open?app=${args.app}&view=${args.view}&designId=${args.params?.designId ?? ""}&to=${encodeURIComponent(args.to ?? "")}`,
 }));
 
+vi.mock("@agent-native/creative-context/server", () => ({
+  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
+  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
+}));
+
 import action from "./generate-screens.js";
 
 describe("generate-screens", () => {
@@ -54,6 +78,26 @@ describe("generate-screens", () => {
     mocks.writeAppState.mockReset();
     mocks.assertAccess.mockReset();
     mocks.existingDesignFiles = [];
+    mocks.existingDesignRows = [];
+  });
+
+  it("offsets a new batch clear of screens already on the board", async () => {
+    mocks.existingDesignRows = [
+      {
+        data: JSON.stringify({
+          canvasFrames: { f1: { x: 0, y: 0, width: 1440, height: 900 } },
+        }),
+      },
+    ];
+
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Add a settings screen",
+      screens: [{ title: "Settings" }],
+    });
+
+    // Placed to the right of the existing 1440-wide screen, not stacked at 0.
+    expect(result.targets[0]!.canvasFrame!.x).toBeGreaterThanOrEqual(1440);
   });
 
   it("creates an overview generation session and returns placed targets", async () => {
@@ -232,7 +276,7 @@ describe("generate-screens", () => {
 
       expect(result.targets[0]!.canvasFrame).toMatchObject({
         width: 1440,
-        height: 1024,
+        height: 900,
       });
     });
 

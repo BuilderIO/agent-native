@@ -5,6 +5,8 @@ import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
+import askAppStatus from "./ask_app_status.js";
+import createBrowserChatSession from "./create-browser-chat-session.js";
 import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
 import createPylonTicket from "./create-pylon-ticket.js";
@@ -29,9 +31,11 @@ import getWorkspaceInfo from "./get-workspace-info.js";
 import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
+import listAgentRunFailures from "./list-agent-run-failures.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
 import listConnectedAgents from "./list-connected-agents.js";
+import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
 import listDispatchAudit from "./list-dispatch-audit.js";
@@ -63,10 +67,13 @@ import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
 import queryStagedDataset from "./query-staged-dataset.js";
+import readSlackThreadContext from "./read-slack-thread-context.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
+import remixWorkspaceTemplate from "./remix-workspace-template.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
+import resolveIntegrationSourceContext from "./resolve-integration-source-context.js";
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
@@ -99,6 +106,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "approve-vault-request": approveVaultRequest,
   "archive-workspace-app": archiveWorkspaceApp,
   ask_app: askApp,
+  ask_app_status: askAppStatus,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,
   "create-vault-grant": createVaultGrant,
@@ -106,6 +114,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-workspace-resource-grant": createWorkspaceResourceGrant,
   "create-workspace-resource": createWorkspaceResource,
   "create-dream-report": createDreamReport,
+  "create-browser-chat-session": createBrowserChatSession,
   create_embed_session: createEmbedSession,
   "delete-staged-dataset": deleteStagedDataset,
   "delete-destination": deleteDestination,
@@ -125,7 +134,9 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "grant-workspace-resources-to-app": grantWorkspaceResourcesToApp,
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
   "list-agent-thread-sources": listAgentThreadSources,
+  "list-agent-run-failures": listAgentRunFailures,
   "list-available-workspace-templates": listAvailableWorkspaceTemplates,
+  "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
   "list-dispatch-approvals": listDispatchApprovals,
@@ -159,9 +170,12 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "provider-api-register": providerApiRegister,
   "provider-api-request": providerApiRequest,
   "query-staged-dataset": queryStagedDataset,
+  "read-slack-thread-context": readSlackThreadContext,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,
+  "resolve-integration-source-context": resolveIntegrationSourceContext,
+  "remix-workspace-template": remixWorkspaceTemplate,
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,

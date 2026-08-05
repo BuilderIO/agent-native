@@ -746,6 +746,113 @@ describe("@agent-native/skills", () => {
     );
   });
 
+  it("delegates Rewind installs to the core local Screen Memory flow", async () => {
+    const project = tmpDir();
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--skill",
+          "rewind",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--yes",
+          "--json",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      [
+        "add",
+        "rewind",
+        "--client",
+        "codex",
+        "--scope",
+        "user",
+        "--yes",
+        "--json",
+      ],
+      expect.objectContaining({
+        baseDir: project,
+        catalogMode: "all",
+        isInteractive: expect.any(Function),
+        publicSkillEntries: [],
+        publicSkillSource: "BuilderIO/skills",
+      }),
+    );
+  });
+
+  it("surfaces Core's rejection when Rewind MCP setup is disabled", async () => {
+    const project = tmpDir();
+    vi.mocked(runCoreSkills).mockRejectedValueOnce(
+      new Error(
+        "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
+      ),
+    );
+
+    await expect(
+      runSkillsCli(
+        [
+          "add",
+          "--skill",
+          "rewind",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--no-mcp",
+          "--yes",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      ),
+    ).rejects.toThrow("cannot be installed with --no-mcp");
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      expect.arrayContaining(["rewind", "--no-mcp"]),
+      expect.objectContaining({ baseDir: project }),
+    );
+  });
+
+  it.each(["screen-memory", "clips-rewind", "agent-native-rewind"])(
+    "delegates the Rewind alias %s directly to Core",
+    async (alias) => {
+      const project = tmpDir();
+
+      await runSkillsCli(
+        [
+          "add",
+          "--skill",
+          alias,
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--yes",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+
+      expect(runCoreSkills).toHaveBeenCalledWith(
+        expect.arrayContaining([alias]),
+        expect.objectContaining({
+          baseDir: project,
+          publicSkillEntries: [],
+        }),
+      );
+    },
+  );
+
   it("delegates content local-files installs to agent-native core", async () => {
     const project = tmpDir();
     const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
@@ -835,7 +942,7 @@ describe("@agent-native/skills", () => {
       scope: "project",
       baseDir: project,
       planMode: "self-hosted",
-      mcpUrl: "https://plans.example.com/team",
+      mcpUrl: "https://plans.example.com/team/_agent-native/mcp",
       updateInstructions: false,
       connect: false,
       yes: true,
@@ -845,7 +952,7 @@ describe("@agent-native/skills", () => {
     expect(result.mcpServers).toHaveLength(1);
     expect(result.mcpServers[0]).toMatchObject({
       serverName: "plan",
-      mcpUrl: "https://plans.example.com/team/_agent-native/mcp",
+      mcpUrl: "https://plans.example.com/team/mcp",
     });
   });
 
@@ -1166,6 +1273,21 @@ describe("@agent-native/skills", () => {
     );
     expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
       "pr-visual-recap-reusable.yml@main",
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      "if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''",
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}`,
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}`,
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `required-labels: \${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}`,
     );
   });
 });

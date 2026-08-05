@@ -132,38 +132,55 @@ async function loadGetTableConfig(): Promise<
 }
 
 /**
- * Live columns already present on `table`, keyed by column name.
- * Postgres: `information_schema.columns` scoped to the table's schema
- * (default `public`). SQLite: `PRAGMA table_info(table)`.
- *
- * Returns `null` when the table itself does not exist (caller no-ops —
- * table creation owns that path) or when introspection fails outright.
+ * Load every requested Postgres table's live columns in one round trip.
+ * Calling information_schema separately for each table adds dozens of
+ * serialized network requests to every serverless cold start.
  */
-async function introspectLiveColumns(
+async function introspectPostgresColumns(
+  db: DbExec,
+  tables: DeclaredTableLike[],
+): Promise<Map<string, Set<string>> | null> {
+  if (tables.length === 0) return new Map();
+  const pairs = [
+    ...new Map(
+      tables.map((table) => {
+        const schema = table.schema || "public";
+        return [`${schema}.${table.name}`, { schema, table: table.name }];
+      }),
+    ).values(),
+  ];
+  const args: unknown[] = [];
+  const predicates = pairs.map(({ schema, table }) => {
+    args.push(schema, table);
+    return `(table_schema = ? AND table_name = ?)`;
+  });
+  // Deliberately not caught: this one query now covers every table, so
+  // swallowing a failure here would skip the entire safety net while
+  // reporting a clean result. The caller records it as an error instead.
+  const { rows } = await db.execute({
+    sql: `SELECT table_schema, table_name, column_name
+          FROM information_schema.columns
+          WHERE ${predicates.join(" OR ")}`,
+    args,
+  });
+  const columns = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const key = `${String(row.table_schema)}.${String(row.table_name)}`;
+    const tableColumns = columns.get(key) ?? new Set<string>();
+    tableColumns.add(String(row.column_name));
+    columns.set(key, tableColumns);
+  }
+  return columns;
+}
+
+/**
+ * Live SQLite columns already present on `table`, keyed by column name.
+ * Returns `null` when the table does not exist or introspection fails.
+ */
+async function introspectSqliteLiveColumns(
   db: DbExec,
   table: string,
-  schema: string | undefined,
 ): Promise<Set<string> | null> {
-  if (isPostgres()) {
-    try {
-      const tableSchema = schema || "public";
-      const { rows: existsRows } = await db.execute({
-        sql: `SELECT 1 FROM information_schema.tables
-              WHERE table_schema = ? AND table_name = ? LIMIT 1`,
-        args: [tableSchema, table],
-      });
-      if (existsRows.length === 0) return null;
-      const { rows } = await db.execute({
-        sql: `SELECT column_name FROM information_schema.columns
-              WHERE table_schema = ? AND table_name = ?`,
-        args: [tableSchema, table],
-      });
-      return new Set(rows.map((r) => String(r.column_name)));
-    } catch {
-      return null;
-    }
-  }
-
   // SQLite: PRAGMA table_info returns zero rows for a non-existent table
   // (no error), so we can't distinguish "missing table" from "no columns"
   // that way — probe sqlite_master first.
@@ -308,10 +325,13 @@ export async function ensureAdditiveColumns(
     return result;
   }
 
+  const declaredTables: DeclaredTableLike[] = [];
   for (const tableObj of tables) {
-    let config: DeclaredTableLike;
     try {
-      config = getTableConfig(tableObj);
+      const config = getTableConfig(tableObj);
+      if (config.name && PLAIN_IDENTIFIER.test(config.name)) {
+        declaredTables.push(config);
+      }
     } catch (err) {
       // Not a table this dialect's getTableConfig understands (e.g. a stray
       // export that isn't a Drizzle table) — skip quietly rather than
@@ -319,15 +339,33 @@ export async function ensureAdditiveColumns(
       logger.warn(
         `[ensure-additive-columns] skipping non-table export: ${err instanceof Error ? err.message : String(err)}`,
       );
-      continue;
     }
+  }
 
+  let postgresColumns: Map<string, Set<string>> | null = null;
+  if (isPostgres()) {
+    try {
+      postgresColumns = await introspectPostgresColumns(db, declaredTables);
+    } catch (err) {
+      // One batch probe now covers every table, so its failure means nothing
+      // was checked. Returning an empty-but-clean result here would be
+      // indistinguishable from "schema already correct".
+      result.errors.push({
+        column: "*",
+        error: describeSchemaDriftError(err),
+      });
+      return result;
+    }
+  }
+
+  for (const config of declaredTables) {
     const tableName = config.name;
-    if (!tableName || !PLAIN_IDENTIFIER.test(tableName)) continue;
-
     let liveColumns: Set<string> | null;
     try {
-      liveColumns = await introspectLiveColumns(db, tableName, config.schema);
+      liveColumns = isPostgres()
+        ? (postgresColumns?.get(`${config.schema || "public"}.${tableName}`) ??
+          null)
+        : await introspectSqliteLiveColumns(db, tableName);
     } catch (err) {
       result.errors.push({
         column: `${tableName}.*`,

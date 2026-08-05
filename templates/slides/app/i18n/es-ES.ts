@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["es-ES"],
   root: {
     commandPresentations: "Presentaciones",
     searchDecks: "Buscar decks",
@@ -25,6 +28,10 @@ const messages = {
   settings: {
     title: "Ajustes",
     description: "Preferencias de idioma y espacio de trabajo para esta app.",
+    emailNotifications: "Notificaciones por correo",
+    emailNotificationsDescription:
+      "Recibe un correo cuando alguien comente o responda en tu presentación.",
+    saveFailed: "No se pudo guardar",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
@@ -34,13 +41,14 @@ const messages = {
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
     openTeamSettings: "Abrir ajustes del equipo",
     openResourceSettings: "Abrir ajustes de recursos",
-    agentTitle: "Ajustes del agente",
+    agentTitle: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    openAgentSettings: "Abrir ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    openAgentSettings: "Gestionar agente",
   },
   agent: {
     emptyState: "Pregúntame cualquier cosa sobre tus presentaciones",
+    thisDeck: "Este deck",
     suggestionPitch: "Crea un pitch de 10 diapositivas desde este doc",
     suggestionBrand: "Aplica nuestra marca a este deck",
     suggestionHero: "Genera una imagen principal para esta diapositiva",
@@ -58,6 +66,8 @@ const messages = {
     deckOptions: "Opciones de la presentación",
     generatingImage: "Generando imagen...",
     noAssetsYet: "Aún no hay recursos.",
+    assetUploadFailed: "Algunas subidas fallaron",
+    assetDeleteFailed: "No se pudo eliminar el recurso",
     contentMarkdown: "Contenido (Markdown)",
     speakerNotes: "Notas del presentador",
     speakerNotesForSlide:
@@ -105,6 +115,7 @@ const messages = {
     searchImagesPlaceholder: "Buscar imágenes...",
     searchForLogosImagesIcons: "Buscar logos, imágenes, iconos...",
     search: "Buscar",
+    searchFailed: "Error al buscar",
     logoSearchTitle: "Búsqueda de logos",
     searchCompanyLogo: "Busca una empresa para encontrar su logo",
     searchCompanyPlaceholder: "Buscar nombre de empresa (p. ej. Intuit)",
@@ -118,6 +129,7 @@ const messages = {
     uploadAttachedFailed: "No se pudo subir el archivo adjunto.",
     uploadFailed: "Error al subir",
     doubleClickEdit: "Haz doble clic en cualquier texto para editarlo",
+    dragToMove: "Arrastra para mover",
     aiEditing: "IA editando",
     startTypingCommands: "Empieza a escribir… o pulsa / para comandos",
     pinDropHint:
@@ -157,6 +169,13 @@ const messages = {
   designSystems: {
     new: "Nuevo sistema de diseño",
     setupBrand: "Configura tu marca",
+    delete: "Eliminar",
+    cancel: "Cancelar",
+    moreActions: "Más acciones",
+    deleteDialogTitle: "¿Eliminar el sistema de diseño?",
+    deleteDialogDescription:
+      "Esto elimina el sistema de diseño de forma permanente. Las presentaciones que lo usan mantienen su aspecto actual, pero dejan de estar vinculadas a él.",
+    deleteError: "No se pudo eliminar el sistema de diseño",
     emptyTitle: "Configura la identidad de tu marca",
     emptyDescription:
       "Crea un sistema de diseño con los colores, la tipografía y los logotipos de tu marca. Cada nueva presentación seguirá tu identidad visual.",
@@ -193,6 +212,7 @@ const messages = {
     slideSettings: "Ajustes de diapositiva",
     layout: "Diseño",
     background: "Fondo",
+    customColor: "Color personalizado",
     media: "Multimedia",
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
@@ -211,10 +231,9 @@ const messages = {
     slideTools: "Herramientas de diapositiva",
     elementAnimations: "Animaciones de elementos",
     tweaks: "Ajustes finos",
-    drawOnSlide: "Dibujar en la diapositiva",
+    drawOnSlide: "Anotar diapositiva",
+    addTextBox: "Añadir cuadro de texto",
     pinComments: "Fijar comentarios",
-    pinCommentsDescription:
-      "Haz clic en puntos de la diapositiva para encolar varias ediciones y enviarlas todas a la vez.",
     undo: "Deshacer",
     undoWithShortcut: "Deshacer ({{shortcut}})",
     redo: "Rehacer",
@@ -253,7 +272,11 @@ const messages = {
     downloadHtml: "Descargar como HTML",
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
-    downloadGoogleSlides: "Descargar para Google Slides",
+    connectGoogle: "Conectar Google",
+    openInGoogleSlides: "Abrir en Google Slides",
+    googleSlidesCreated: "Abierto en Google Slides",
+    googleSlidesCreatedHint:
+      "Se creó una copia de esta presentación en tu Google Drive.",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -344,6 +367,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Cerrar inspector de estilo",
+    slideBackground: "Fondo de la diapositiva",
+    slide: "Diapositiva",
     deckStyle: "Estilo de la presentación",
     designSystemTweaks: "Ajustes del sistema de diseño",
     closeTweaks: "Cerrar ajustes",
@@ -371,6 +396,31 @@ const messages = {
     spacing: "Spacing",
     x: "X",
     y: "Y",
+    position: "Posición",
+    horizontal: "Horizontal",
+    vertical: "Vertical",
+    top: "Superior",
+    middle: "Medio",
+    bottom: "Inferior",
+    rotation: "Rotación",
+    layoutDimensions: "Diseño y dimensiones",
+    width: "Ancho",
+    height: "Alto",
+    appearance: "Apariencia",
+    opacity: "Opacidad",
+    cornerRadius: "Radio de esquina",
+    strokeWeight: "Grosor",
+    typography: "Tipografía",
+    weight: "Grosor",
+    italic: "Cursiva",
+    underline: "Subrayado",
+    bulletList: "Lista con viñetas",
+    numberedList: "Lista numerada",
+    align: "Alineación",
+    decreaseSize: "Reducir tamaño de fuente",
+    increaseSize: "Aumentar tamaño de fuente",
+    mixed: "Mezclado",
+    textColor: "Color del texto",
     primary: "Primary",
     secondary: "Secondary",
     accent: "Accent",
@@ -386,6 +436,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Orden",
+    bringToFront: "Traer al frente",
+    sendToBack: "Enviar al fondo",
   },
   animations: {
     appear: "Aparecer",
@@ -466,9 +520,16 @@ const messages = {
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
-    slides: "Diapositivas",
   },
   presentation: {
+    loadFailed: "No se pudo cargar esta presentación.",
+    tryAgain: "Reintentar",
+    presenterView: "Vista del presentador",
+    speakerNotes: "Notas del orador",
+    noNotesForSlide: "No hay notas para esta diapositiva",
+    upNext: "A continuación",
+    endOfDeck: "Fin de la presentación",
+    closePresenterView: "Cerrar la vista del presentador",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",
@@ -500,6 +561,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Descartar advertencia de diseño",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -512,6 +574,31 @@ const messages = {
     figParseFailed:
       "No se pudo iniciar la indexación de Builder para ese archivo de Figma.",
     updated: "Sistema de diseño actualizado",
+    sourceLabel: "Fuente",
+    sourceFigma: "Archivo de Figma",
+    sourceCode: "Archivos de código",
+    sourceGitHub: "Repositorio de GitHub",
+    sourceMixed: "Varias fuentes",
+    sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
+    sourceIndexing: "Indexando",
+    sourceIndexed: "Indexado",
+    sourceUnavailable: "Resultados no disponibles",
+    sourceIndexingDescription:
+      "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
+    sourceIndexedDescription:
+      "{{docs}} documentos · {{tokens}} tokens indexados",
+    sourceIndexedDocsOnly: "{{docs}} documentos indexados",
+    sourceIndexedTokensOnly: "{{tokens}} tokens indexados",
+    sourceUnavailableDescription:
+      "Builder no pudo cargar los resultados más recientes de la fuente.",
+    sourceOpenInBuilder: "Abrir en Builder",
+    loadFailed:
+      "No se pudo cargar este sistema de diseño. Ciérralo y vuelve a intentarlo.",
+    otherSources: "Otros",
+    otherSourcesDescription:
+      "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
+    chooseSourcePrompt: "Elige una fuente para configurar",
+    loading: "Cargando sistema de diseño",
     updateFailed: "No se pudo actualizar",
     generationStarted: "Generación del sistema de diseño iniciada",
     generationStartedDescription:
@@ -533,6 +620,7 @@ const messages = {
     builderDesignSystemId: "Sistema de diseño",
     builderJobId: "Job",
     openInBuilder: "Abrir en Builder",
+    decodeFailed: "Error al decodificar: {{error}}",
     websiteUrl: "URL del sitio web",
     websitePlaceholder: "example.com o Nike",
     add: "Añadir",
@@ -596,6 +684,46 @@ const messages = {
     newDeckPlaceholder: "Describe tu deck, visual o diagrama...",
     skipPrompt: "Omitir prompt",
     designSystem: "Sistema de diseño",
+    referenceDeck: "Deck de referencia",
+    referenceDeckPlaceholder: "Imitar el estilo de un deck existente",
+    referenceDeckNone: "No usar ninguno",
+    referenceDeckStarredGroup: "Destacados",
+    referenceDeckOtherGroup: "Otros decks",
+    referenceReviewTitle: "Revisar referencias",
+    referenceReviewDescription:
+      "Mantén el sistema de diseño y el deck de referencia predeterminados salvo que los quites. Busca otro deck, importa un archivo o continúa cuando estés listo.",
+    chooseAnotherDeck: "Elegir otro deck",
+    noMatchingDecks: "No se encontraron decks coincidentes.",
+    googleSlidesReferenceTitle: "Decks de Google Slides",
+    googleSlidesReferenceConnect:
+      "Conecta Google Drive para importar un deck de Slides.",
+    googleSlidesReferenceChoose: "Elegir un deck de Google Slides",
+    googleSlidesReferencePicking: "Procesando...",
+    googleSlidesReferenceConnected:
+      "Conectado. Elige un deck de Google Slides para importarlo como referencia reutilizable.",
+    googleSlidesReferenceUnavailable:
+      "Conecta Google Drive y configura Picker para importar un deck de Google Slides.",
+    skipReferences: "Omitir referencias",
+    workspaceDefaultBadge: "Predeterminado del espacio de trabajo",
+    setWorkspaceDefault:
+      "Establecer como predeterminado del espacio de trabajo",
+    clearWorkspaceDefault: "Quitar el predeterminado del espacio de trabajo",
+    workspaceDefaultSet:
+      "Establecido como predeterminado del espacio de trabajo",
+    workspaceDefaultCleared:
+      "Se quitó el predeterminado del espacio de trabajo",
+    duplicateFailed: "No se pudo duplicar esa presentación",
+    workspaceDefaultFailed:
+      "No se pudo actualizar el predeterminado del espacio de trabajo",
+    workspaceDefaultConfirmTitle:
+      "¿Establecer como predeterminado del espacio de trabajo?",
+    workspaceDefaultDeckShareBody:
+      '"{{title}}" es privado. Al establecerlo como predeterminado del espacio de trabajo, se compartirá con todos los miembros de este espacio de trabajo y los decks nuevos lo usarán como referencia de estilo. Los miembros pueden seleccionar otro deck de referencia al crear un deck.',
+    workspaceDefaultSystemShareBody:
+      '"{{title}}" es privado. Al establecerlo como predeterminado del espacio de trabajo, se compartirá con todos los miembros de este espacio de trabajo y los decks nuevos lo usarán. Los miembros que hayan establecido su propio sistema predeterminado lo conservarán.',
+    workspaceDefaultConfirmAction: "Establecer como predeterminado",
+    starDeck: "Destacar deck",
+    unstarDeck: "Quitar de destacados",
     none: "Ninguno",
     defaultSuffix: " (Predeterminado)",
     signInTitle: "Inicia sesión para crear un deck",

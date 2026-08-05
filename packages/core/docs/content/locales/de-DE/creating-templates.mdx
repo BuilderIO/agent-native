@@ -9,6 +9,14 @@ Vorlagen sind vollständige, forkbare agentennative Apps, die einen echten Arbei
 
 Verwenden Sie `@agent-native/core` für den Laufzeitvertrag: Actions, Server-Plugins, Datenbank-Helfer, App-State, Routing-Helfer und Agent-Chat. Verwenden Sie `@agent-native/toolkit` für wiederverwendbare App-Building-UI und Helfer wie gemeinsame Primitives, Toast- und Mobile-Hooks, Date-Picker und einfache App-Shell-Slots. Halten Sie template-spezifische Varianten lokal, wenn sie Produktverhalten oder visuelle Identität kodieren.
 
+Behalten Sie bei der Zuordnung einer Funktion die drei Ebenen im Blick:
+
+- **Core - das Framework:** der erforderliche Laufzeit- und Datenvertrag, den jede App nutzen kann.
+- **Toolkit - optionale wiederverwendbare Teile:** gemeinsame UI- und Produktsysteme, die Apps übernehmen, zusammensetzen oder forken können.
+- **Templates - optionale Apps:** vollständige Domänenprodukte auf Core, die häufig Toolkit nutzen und als Ausgangspunkt geforkt werden können.
+
+Toolkit und Templates sind optional. Ein Template ist nicht das Framework selbst, und Toolkit ersetzt Core nicht.
+
 Eine gute Vorlage:
 
 - Löst einen Workflow durchgängig, mit nützlichen Seed-Daten oder einem Leerzustandsfluss.
@@ -270,8 +278,10 @@ Verwenden Sie `http: { method: "GET" }` oder `readOnly: true` für schreibgesch�
 Routen leben in `app/routes/` und verwenden das Dateirouting von React Router v8. Fragen Sie Daten über actions- oder API-Handler ab und machen Sie Mutationen standardmäßig optimistisch.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +297,7 @@ export default function ProjectsPage() {
 Verdrahten Sie die Live-Synchronisierung einmal in der Nähe der App-Shell, damit React Abfrage-Caches aktualisiert werden, wenn der Agent, eine andere Registerkarte oder eine Aktion Daten ändert:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +310,7 @@ export function AppSync() {
 **Das agentennative Versprechen: Agentenschreibvorgänge werden im UI ohne manuelle Aktualisierung angezeigt.** `useActionQuery` ist der einfache Weg – jeder Hook wird erneut abgerufen, wenn eine mutierende Aktion `source: "action"` ausgibt. Wenn Sie mit einem benutzerdefinierten Schlüssel nach dem rohen `useQuery` greifen (z. B. einem Low-Level-Client-Helper, der den Integrationsstatus liest), falten Sie den Zähler pro Quelle in den queryKey für gezielte Aktualisierungen:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +333,7 @@ Durch den Anwendungsstatus weiß der Agent, was der Benutzer sieht. Fügen Sie m
 Verwenden Sie `useAgentRouteState` für den UI-Hook, damit Anwendungsstatus-Schreibvorgänge, tabulatorbezogene Befehlslesevorgänge, Löschung nach dem Lesen und Schutz vor doppelten Befehlen konsistent bleiben:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -493,11 +503,23 @@ Vor dem Teilen:
 4. Dokumentieren Sie die erforderlichen Umgebungsvariablen und Onboarding-Schritte.
 5. Fügen Sie Beispiele oder Seed-Zeilen durch additive Migrationen ein, nicht durch verfolgte Laufzeitdatendateien.
 
-Community-Vorlagen können aus einem GitHub-Repo erstellt werden:
+Community-Vorlagen werden direkt aus einem öffentlichen GitHub-Repository installiert. Die Agent-Native-App muss im Stammverzeichnis liegen:
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+Mit `#branch`, `#tag` oder `#commit` kann eine bestimmte Version festgelegt werden:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+Die CLI lädt nur den Quellcode herunter. Sie installiert keine Abhängigkeiten und führt keine Skripte der Vorlage aus. Community-Vorlagen sind Drittanbieter-Code; prüfe Repository, Lizenz, Abhängigkeiten und Installationsskripte vor `pnpm install`.
+
+Für eine Aufnahme in den Community-Katalog braucht die Vorlage eine vollständige App im Repository-Stamm, ein öffentliches Repository mit Lizenz und Setup-README, eine Abhängigkeit von `@agent-native/core` sowie erfolgreiche Typprüfungen und Tests. Eine gehostete Demo und ein Screenshot sind optional.
+
+[Community-Vorlage einreichen](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml), wenn das Repository bereit ist. Community-Einträge bleiben vom kleineren First-Party-Katalog getrennt und werden von ihren Autoren gepflegt.
 
 ## Beitrag zum Framework Monorepo {#contributing}
 

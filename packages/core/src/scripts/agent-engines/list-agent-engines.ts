@@ -13,10 +13,9 @@ import {
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
+  resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
-import { resolveHostedDefaultModelExperiment } from "../../observability/hosted-model-experiment.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -84,24 +83,20 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         ? current?.model
         : undefined;
   const currentEngineName = currentEntry?.name ?? "anthropic";
-  let currentModel =
+  // Resolve the OpenAI-compatible-endpoint capability so a custom gateway model
+  // is reported as-is instead of being normalized to the engine default — the
+  // read-side counterpart of the same fix in set-/manage-agent-engine.
+  const preserveCustomModels = currentEntry
+    ? await resolveEnginePreservesCustomModels(currentEntry)
+    : false;
+  const currentModel =
     currentEntry && !envUnavailable
       ? normalizeModelForEngine(
           currentEntry,
           currentModelCandidate ?? currentEntry.defaultModel,
+          { preserveCustomModels },
         )
       : (currentModelCandidate ?? DEFAULT_MODEL);
-  const hostedExperiment =
-    currentEntry && !currentModelCandidate
-      ? resolveHostedDefaultModelExperiment({
-          userId: getRequestUserEmail(),
-          engineName: currentEntry.name,
-          isDefaultModelSelection: true,
-          supportedModels: currentEntry.supportedModels,
-        })
-      : null;
-  if (hostedExperiment) currentModel = hostedExperiment.model;
-
   const result = {
     engines: engines.map((e) => ({
       name: e.name,
@@ -119,12 +114,6 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       : {
           engine: currentEngineName,
           model: currentModel,
-          ...(hostedExperiment
-            ? {
-                modelSelectionSource: "experiment",
-                experimentAssignment: hostedExperiment.assignment,
-              }
-            : {}),
         },
   };
 

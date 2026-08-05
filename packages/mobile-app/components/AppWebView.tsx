@@ -1,40 +1,117 @@
+import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useFocusEffect, usePathname } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import {
-  View,
-  StyleSheet,
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
   ActivityIndicator,
-  Linking,
   AppState,
+  Linking,
+  Platform,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { WebView } from "react-native-webview";
+import type { WebView as WebViewRef } from "react-native-webview";
+
+import { WebView } from "@/components/uniwind-interop";
+import { clipsSessionOwnerKey } from "@/lib/clips-session";
+import { completeOAuthCallback } from "@/lib/oauth-session";
+import {
+  OAUTH_BASE_URL_KEY,
+  OAUTH_OWNER_KEY_KEY,
+  OAUTH_RETURN_PATH_KEY,
+  OAUTH_STATE_KEY,
+  OAUTH_TOKEN_STORE_KEY,
+} from "@/lib/oauth-storage";
+import {
+  clearSessionToken,
+  getSessionToken,
+  saveSessionToken,
+  SESSION_TOKEN_KEY,
+} from "@/lib/session-token-store";
+import {
+  isTrustedWebViewUrl,
+  parseTrustedOrigin,
+} from "@/lib/webview-security";
 
 interface AppWebViewProps {
   url: string;
   captureSessionToken?: boolean;
+  sessionTokenKey?: string;
+  sessionOwnerKey?: string;
+  /** Shown in the load-failure message, e.g. "Failed to load Calendar". */
+  appName?: string;
 }
 
-const SESSION_TOKEN_KEY = "agent-native:session-token";
-const OAUTH_STATE_KEY = "agent-native:oauth-state";
+export interface AppWebViewHandle {
+  reload: () => void;
+}
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
 // system browser (Safari) instead.
 const EXTERNAL_HOSTS = ["accounts.google.com", "oauth2.googleapis.com"];
+
+// The web sign-in page navigates the WebView to this same-origin endpoint,
+// which then 302s to accounts.google.com. Android does not re-fire
+// onShouldStartLoadWithRequest on that server redirect, so Google's block
+// page loads inside the WebView. Intercept the start URL here instead.
+const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
+
+// The remote sign-in page opens Google in a window.open popup. Inside this
+// WebView that popup either loads Google inline (which Google blocks) or spins
+// forever polling a callback that never lands. Neutering window.open on the
+// sign-in page forces the page's built-in redirect fallback, which navigates
+// the main frame to /_agent-native/google/auth-url — a top-level navigation
+// handleShouldStartLoad intercepts and hands to the system browser. Scoped to
+// the sign-in page so the authenticated app's own window.open is untouched.
+const FORCE_REDIRECT_AUTH_SCRIPT = `
+  (function () {
+    try {
+      if (location.pathname.indexOf('/_agent-native/sign-in') !== -1) {
+        window.open = function () { return null; };
+      }
+    } catch (e) {}
+    return true;
+  })();
+  true;
+`;
 const SESSION_BRIDGE_SCRIPT = `
   (function () {
     if (window.__agentNativeSessionBridgeRunning) return true;
     window.__agentNativeSessionBridgeRunning = true;
     var postToken = function () {
       fetch('/_agent-native/auth/session', {
+        cache: 'no-store',
         credentials: 'include',
         headers: { Accept: 'application/json' }
       })
         .then(function (response) { return response.json(); })
         .then(function (data) {
-          if (data && typeof data.token === 'string' && data.token.length > 0) {
+          if (
+            data &&
+            typeof data.token === 'string' &&
+            data.token.length > 0 &&
+            typeof data.email === 'string' &&
+            data.email.length > 0
+          ) {
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'agent-native-session',
-              token: data.token
+              token: data.token,
+              email: data.email,
+              orgId: typeof data.orgId === 'string' ? data.orgId : null
+            }));
+          } else {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'agent-native-session-cleared'
             }));
           }
         })
@@ -42,6 +119,8 @@ const SESSION_BRIDGE_SCRIPT = `
     };
     postToken();
     setTimeout(postToken, 1000);
+    setInterval(postToken, 5000);
+    window.addEventListener('focus', postToken);
     return true;
   })();
   true;
@@ -56,117 +135,367 @@ function rememberOAuthState(url: string) {
   }
 }
 
-export default function AppWebView({
-  url,
-  captureSessionToken = false,
-}: AppWebViewProps) {
-  const webviewRef = useRef<WebView>(null);
+function isGoogleAuthUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.endsWith(GOOGLE_AUTH_URL_PATH);
+  } catch {
+    return false;
+  }
+}
+
+// Resolve the auth-url endpoint's JSON form (without `redirect=1`) so we get
+// the accounts.google.com URL — including the server-minted `state`. The start
+// URL itself has no `state` yet (the server mints it), so it can't be opened
+// directly without breaking the callback's state check.
+async function resolveGoogleAuthUrl(startUrl: string): Promise<string | null> {
+  try {
+    const parsed = new URL(startUrl);
+    parsed.searchParams.delete("redirect");
+    const res = await fetch(parsed.toString(), {
+      headers: { Accept: "application/json" },
+    });
+    const data = (await res.json()) as { url?: unknown };
+    return typeof data.url === "string" && data.url.length > 0
+      ? data.url
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function AppWebView(
+  {
+    url,
+    captureSessionToken = false,
+    sessionTokenKey = SESSION_TOKEN_KEY,
+    sessionOwnerKey,
+    appName,
+  }: AppWebViewProps,
+  ref: React.Ref<AppWebViewHandle>,
+) {
+  const webviewRef = useRef<WebViewRef>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const lastTokenRef = useRef<string | null>(null);
+  const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
 
-  // Load stored session token on mount
-  useEffect(() => {
-    AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-      lastTokenRef.current = t;
-      setSessionToken(t);
-    });
+  // Remember the current route so the oauth-complete fallback can return here
+  // instead of Home if the deep link leaks to the OS (Android resets the stack,
+  // so router.canGoBack() is false and it would otherwise land on Home).
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
+  const reload = useCallback(() => {
+    setError(false);
+    setLoading(true);
+    webviewRef.current?.reload();
   }, []);
+
+  useImperativeHandle(ref, () => ({ reload }), [reload]);
+
+  // Load stored session token on mount.
+  useEffect(() => {
+    void getSessionToken(sessionTokenKey).then((token) => {
+      lastTokenRef.current = token;
+      setSessionToken(token);
+    });
+  }, [sessionTokenKey]);
+
+  // Re-read the token every time this screen regains focus. Returning from the
+  // Google sign-in browser (via oauth-complete's replace/back, or the inline
+  // auth session) refocuses this screen; without this, an already-mounted
+  // WebView keeps its stale null token and stays signed out.
+  useFocusEffect(
+    useCallback(() => {
+      void getSessionToken(sessionTokenKey).then((token) => {
+        if (token !== lastTokenRef.current) {
+          lastTokenRef.current = token;
+          setSessionToken(token);
+        }
+      });
+    }, [sessionTokenKey]),
+  );
 
   // When the app returns to foreground, check if the session token was updated
   // (e.g. by the oauth-complete deep link handler storing a new token in
-  // AsyncStorage). If it changed, update state — the resulting URL change
+  // SecureStore). If it changed, update state — the resulting URL change
   // causes the WebView to navigate to the new URL with ?_session automatically.
   // No explicit reload() needed; changing source.uri triggers navigation.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         setTimeout(() => {
-          AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-            if (t && t !== lastTokenRef.current) {
-              lastTokenRef.current = t;
-              setSessionToken(t);
+          void getSessionToken(sessionTokenKey).then((token) => {
+            if (token !== lastTokenRef.current) {
+              lastTokenRef.current = token;
+              setSessionToken(token);
             }
           });
         }, 1000);
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [sessionTokenKey]);
 
-  const handleShouldStartLoad = useCallback((event: { url: string }) => {
-    try {
-      const parsed = new URL(event.url);
-      if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
-        rememberOAuthState(event.url);
-        Linking.openURL(event.url);
+  // The OAuth completion context for this WebView — passed to the shared
+  // completeOAuthCallback so the iOS inline path and the Android deep-link
+  // handler validate and persist the session identically.
+  const oauthContext = useMemo(
+    () => ({
+      tokenKey: sessionTokenKey,
+      ownerKeyName: sessionOwnerKey ?? null,
+      baseUrl: trustedOrigin,
+    }),
+    [sessionTokenKey, sessionOwnerKey, trustedOrigin],
+  );
+
+  // Persist everything the deep-link handler needs to finish an OAuth callback
+  // (route to return to, token/owner storage keys, app origin) so completion
+  // works even if Android kills this app while it's in the browser. Shared by
+  // every path that hands OAuth off to the system browser via a deep link.
+  const persistOAuthReturnContext = useCallback(
+    () =>
+      AsyncStorage.multiSet([
+        [OAUTH_RETURN_PATH_KEY, pathnameRef.current],
+        [OAUTH_TOKEN_STORE_KEY, sessionTokenKey],
+        [OAUTH_OWNER_KEY_KEY, sessionOwnerKey ?? ""],
+        [OAUTH_BASE_URL_KEY, trustedOrigin ?? ""],
+      ]),
+    [sessionTokenKey, sessionOwnerKey, trustedOrigin],
+  );
+
+  // Google refuses OAuth inside embedded WebViews, so run the flow in a system
+  // browser tab.
+  const openGoogleSession = useCallback(
+    async (googleUrl: string) => {
+      rememberOAuthState(googleUrl);
+      try {
+        if (Platform.OS === "android") {
+          // openAuthSessionAsync is unreliable on Android — it can hand off to
+          // an external browser/app and never redirect back (expo #27500).
+          // Open a Custom Tab in the preferred browser and let the
+          // agentnative://oauth-complete deep link (OAuthDeepLinkHandler) bring
+          // the result back.
+          await persistOAuthReturnContext();
+          const { preferredBrowserPackage } =
+            await WebBrowser.getCustomTabsSupportingBrowsersAsync();
+          await WebBrowser.openBrowserAsync(googleUrl, {
+            browserPackage: preferredBrowserPackage,
+            showInRecents: true,
+          });
+          return;
+        }
+        // iOS: the auth session returns the callback inline. Run it through the
+        // same validated completion, then apply the token to this WebView.
+        const result = await WebBrowser.openAuthSessionAsync(
+          googleUrl,
+          "agentnative://oauth-complete",
+        );
+        console.log("[oauth] auth session result:", result.type);
+        if (result.type !== "success" || !result.url) return;
+        const token = await completeOAuthCallback(result.url, oauthContext);
+        if (token && token !== lastTokenRef.current) {
+          lastTokenRef.current = token;
+          setSessionToken(token);
+        }
+      } catch (e) {
+        console.log("[oauth] auth session error:", String(e));
+      }
+    },
+    [oauthContext, persistOAuthReturnContext],
+  );
+
+  // Some core versions navigate the WebView straight to the auth-url endpoint,
+  // which has no `state` yet; resolve its JSON form to the accounts.google.com
+  // URL (with state) before opening the browser session.
+  const startGoogleAuth = useCallback(
+    async (startUrl: string) => {
+      const authUrl = await resolveGoogleAuthUrl(startUrl);
+      if (authUrl) {
+        await openGoogleSession(authUrl);
+      } else {
+        // We already blocked the in-WebView auth navigation, so a failed
+        // resolve would otherwise leave the page stuck with no browser and no
+        // feedback. Surface the recoverable error/retry screen instead.
+        setError(true);
+      }
+    },
+    [openGoogleSession],
+  );
+
+  const handleShouldStartLoad = useCallback(
+    (event: { url: string }) => {
+      // Same-origin Google sign-in start URL: open the flow in the system
+      // browser so Google doesn't reject the embedded WebView.
+      if (
+        isTrustedWebViewUrl(event.url, trustedOrigin) &&
+        isGoogleAuthUrl(event.url)
+      ) {
+        void startGoogleAuth(event.url);
         return false;
       }
-    } catch {
-      // Invalid URL — let WebView handle it
-    }
-    return true;
-  }, []);
+      if (isTrustedWebViewUrl(event.url, trustedOrigin)) return true;
+      try {
+        const parsed = new URL(event.url);
+        if (parsed.protocol === "about:") return true;
+        parsed.searchParams.delete("_session");
+        // Direct navigation to Google's consent screen: it already carries the
+        // `state`, so open it in the browser session and apply the token here.
+        if (parsed.hostname === "accounts.google.com") {
+          void openGoogleSession(parsed.toString());
+          return false;
+        }
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          void Linking.openURL(parsed.toString());
+        }
+      } catch {
+        // Invalid and non-web URLs do not belong in the authenticated WebView.
+      }
+      return false;
+    },
+    [trustedOrigin, startGoogleAuth, openGoogleSession],
+  );
 
   // Handle messages from the web app (e.g. open a URL in the system browser)
   const handleMessage = useCallback(
-    (event: { nativeEvent: { data: string } }) => {
+    (event: { nativeEvent: { data: string; url: string } }) => {
+      if (!isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)) return;
       try {
         const msg = JSON.parse(event.nativeEvent.data);
         if (
           captureSessionToken &&
           msg.type === "agent-native-session" &&
           typeof msg.token === "string" &&
-          msg.token.length > 0
+          msg.token.length > 0 &&
+          (!sessionOwnerKey ||
+            (typeof msg.email === "string" && msg.email.trim().length > 0))
         ) {
-          void AsyncStorage.setItem(SESSION_TOKEN_KEY, msg.token);
-          if (msg.token !== lastTokenRef.current) {
-            lastTokenRef.current = msg.token;
-            setSessionToken(msg.token);
-          }
+          void (async () => {
+            await saveSessionToken(msg.token, sessionTokenKey);
+            if (sessionOwnerKey) {
+              await AsyncStorage.setItem(
+                sessionOwnerKey,
+                clipsSessionOwnerKey(
+                  msg.email,
+                  typeof msg.orgId === "string" ? msg.orgId : undefined,
+                ),
+              );
+            }
+            if (msg.token !== lastTokenRef.current) {
+              lastTokenRef.current = msg.token;
+              setSessionToken(msg.token);
+            }
+          })().catch(() => {});
+          return;
+        }
+        if (
+          captureSessionToken &&
+          msg.type === "agent-native-session-cleared"
+        ) {
+          void (async () => {
+            await clearSessionToken(sessionTokenKey);
+            if (sessionOwnerKey) {
+              await AsyncStorage.removeItem(sessionOwnerKey);
+            }
+            lastTokenRef.current = null;
+            setSessionToken(null);
+          })().catch(() => {});
           return;
         }
         if (msg.type === "openUrl" && typeof msg.url === "string") {
           const parsed = new URL(msg.url);
-          // Only open external hosts in Safari — anything else is ignored
+          // Only open external hosts in Safari — anything else is ignored.
+          // These are Google OAuth hosts, so persist the completion context
+          // (like the intercepted-navigation path) before handing off, or the
+          // deep-link callback can't restore the return route / Clips token key.
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
             rememberOAuthState(msg.url);
-            Linking.openURL(msg.url);
+            void (async () => {
+              await persistOAuthReturnContext();
+              await Linking.openURL(msg.url);
+            })().catch(() => {});
           }
         }
       } catch {
         // Ignore malformed messages
       }
     },
-    [captureSessionToken],
+    [
+      captureSessionToken,
+      sessionOwnerKey,
+      sessionTokenKey,
+      trustedOrigin,
+      persistOAuthReturnContext,
+    ],
   );
 
-  const handleLoadEnd = useCallback(() => {
-    setLoading(false);
-    if (captureSessionToken) {
-      webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
-    }
-  }, [captureSessionToken]);
+  const handleLoadEnd = useCallback(
+    (event: { nativeEvent: { url: string } }) => {
+      setLoading(false);
+      if (
+        captureSessionToken &&
+        isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)
+      ) {
+        webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
+      }
+    },
+    [captureSessionToken, trustedOrigin],
+  );
 
   // Append the session token as a query param so the server can promote it to
-  // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.
-  const webviewUrl = sessionToken
-    ? `${url}${url.includes("?") ? "&" : "?"}_session=${sessionToken}`
-    : url;
+  // an httpOnly cookie (bridges the Safari/WKWebView cookie jar gap).
+  const webviewUrl = useMemo(() => {
+    if (!sessionToken) return url;
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set("_session", sessionToken);
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  }, [sessionToken, url]);
+
+  if (error) {
+    return (
+      <View className="flex-1 justify-center items-center bg-background-pure p-6">
+        <Feather name="alert-circle" size={48} color="#EF4444" />
+        <Text className="text-white text-lg font-semibold mt-4 mb-1.5">
+          Failed to load{appName ? ` ${appName}` : ""}
+        </Text>
+        <Text className="text-gray-medium text-xs mb-5">{url}</Text>
+        <TouchableOpacity
+          className="flex-row items-center bg-white px-5 py-2.5 rounded-lg gap-2 active:opacity-75"
+          onPress={reload}
+        >
+          <Feather name="refresh-cw" size={16} color="#111111" />
+          <Text className="text-background-dark text-sm font-semibold">
+            Retry
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
+    <View className="flex-1 bg-background-pure">
       <WebView
         ref={webviewRef}
         source={{ uri: webviewUrl }}
-        style={styles.webview}
+        className="flex-1 bg-background-pure"
         onLoadStart={() => setLoading(true)}
         onLoadEnd={handleLoadEnd}
+        onError={() => {
+          setLoading(false);
+          setError(true);
+        }}
+        onHttpError={(event: { nativeEvent: { statusCode: number } }) => {
+          if (event.nativeEvent.statusCode >= 500) setError(true);
+        }}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onMessage={handleMessage}
-        injectedJavaScript={
-          captureSessionToken ? SESSION_BRIDGE_SCRIPT : undefined
-        }
+        injectedJavaScriptBeforeContentLoaded={FORCE_REDIRECT_AUTH_SCRIPT}
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled
@@ -174,9 +503,16 @@ export default function AppWebView({
         startInLoadingState={false}
         allowsBackForwardNavigationGestures
         pullToRefreshEnabled
+        // Google refuses OAuth in embedded WebViews. The remote sign-in page
+        // defaults to a window.open popup that Android's multi-window support
+        // would load inline (and Google blocks). Disabling it makes window.open
+        // return null, so the page falls back to a top-level redirect to
+        // /_agent-native/google/auth-url — which handleShouldStartLoad hands to
+        // the system browser. Works across every app domain and core version.
+        setSupportMultipleWindows={false}
       />
       {loading && (
-        <View style={styles.loadingOverlay}>
+        <View className="absolute inset-0 justify-center items-center bg-background-pure">
           <ActivityIndicator size="large" color="#ffffff" />
         </View>
       )}
@@ -184,23 +520,4 @@ export default function AppWebView({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  loadingOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#111111",
-  },
-});
+export default forwardRef(AppWebView);

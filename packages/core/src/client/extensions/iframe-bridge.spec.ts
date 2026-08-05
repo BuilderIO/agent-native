@@ -31,6 +31,18 @@ describe("extension iframe bridge", () => {
     ).toBe(true);
     expect(
       isAllowedExtensionPath(
+        "/_agent-native/actions/list-mcp-tools",
+        "extension-1",
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedExtensionPath(
+        "/_agent-native/actions/call-mcp-tool",
+        "extension-1",
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedExtensionPath(
         "/_agent-native/application-state/navigation",
         "extension-1",
       ),
@@ -247,13 +259,21 @@ describe("checkBridgePolicy (audit H4)", () => {
       isAuthor: false,
       source: "local-files" as const,
       permissions: {
-        appActions: ["list-documents"],
+        appActions: ["list-documents", "list-mcp-tools", "call-mcp-tool"],
         extensionData: true,
       },
     };
 
     expect(
       checkBridgePolicy("/_agent-native/actions/list-documents", "POST", local)
+        .ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/actions/list-mcp-tools", "POST", local)
+        .ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/actions/call-mcp-tool", "POST", local)
         .ok,
     ).toBe(true);
     expect(

@@ -12,7 +12,6 @@
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
-import { dropMicEchoFinals } from "./transcript-echo";
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -20,8 +19,10 @@ import {
   startTranscriptionEngine,
   stopTranscriptionEngine,
   TranscriptionEngine,
-  type FinalTranscriptEvent,
+  transcriptFullText,
+  transcriptSegments,
   type SourcedTranscriptSegment,
+  type TranscriptLine,
 } from "./transcription-engine";
 
 /** Grace period after stop for whisper to emit any flushed trailing finals. */
@@ -292,6 +293,17 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
 export const __test = { createWebSpeechTranscriptBuffer };
 
+/**
+ * Local transcription opens a microphone capture of its own. System-only
+ * recordings must wait for post-upload transcription instead of sampling the
+ * Mac's default microphone.
+ */
+export function shouldStartLocalRecordingTranscription(
+  microphoneEnabled: boolean,
+): boolean {
+  return microphoneEnabled;
+}
+
 export async function startTranscriptionCapture(
   mic?: {
     deviceId?: string | null;
@@ -302,9 +314,11 @@ export async function startTranscriptionCapture(
     voiceProcessing?: boolean;
   },
 ): Promise<TranscriptionCapture | null> {
-  // Finals are buffered raw and flattened at stop — the speaker-echo dedupe
-  // (mic re-hearing system audio) needs BOTH streams' finals side by side.
-  const finalEvents: FinalTranscriptEvent[] = [];
+  const lines: TranscriptLine[] = [];
+  // Word-level whisper timestamps (token timestamps, max_len=1), collected
+  // alongside the sentence-ish lines. The saved recording transcript prefers
+  // these — the editors highlight, seek, and delete per word.
+  const words: SourcedTranscriptSegment[] = [];
   let disposed = false;
   let paused = false;
   let desiredPaused = false;
@@ -326,26 +340,18 @@ export async function startTranscriptionCapture(
     });
   };
 
-  const captured = (): CapturedTranscript => {
-    const lines: string[] = [];
-    const segments: SourcedTranscriptSegment[] = [];
-    const words: SourcedTranscriptSegment[] = [];
-    for (const event of dropMicEchoFinals(finalEvents)) {
-      appendFinalTranscript(event, lines, segments, words);
-    }
-    return {
-      text: lines.join("\n\n").trim(),
-      segments,
-      words,
-    };
-  };
+  const captured = (): CapturedTranscript => ({
+    text: transcriptFullText(lines),
+    segments: transcriptSegments(lines),
+    words,
+  });
 
   let engine: TranscriptionEngine;
   try {
     unlistens.push(
       await onFinalTranscript((event) => {
         if (disposed) return;
-        if (event.text.trim()) finalEvents.push(event);
+        appendFinalTranscript(event, lines, words);
       }),
     );
 
@@ -353,6 +359,10 @@ export async function startTranscriptionCapture(
       mic,
       captureSystem,
       voiceProcessing: opts?.voiceProcessing,
+      // Recordings only persist final segments. Meetings use the same engine
+      // directly and retain live partials, but repeatedly inferring partials
+      // here burns CPU without any recording UI consuming them.
+      emitPartials: false,
     });
     console.log(
       `[clips-recorder] transcription started (${engine} mic${captureSystem ? "+system" : ""})`,
@@ -383,6 +393,7 @@ export async function startTranscriptionCapture(
           mic,
           captureSystem,
           voiceProcessing: opts?.voiceProcessing,
+          emitPartials: false,
         });
         // stop()/cancel() can run during the await above; if it did, the new
         // engine would leak (mic/system capture stays live). Tear it down.

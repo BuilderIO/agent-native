@@ -15,7 +15,8 @@ English when an app has not translated a string yet.
 Use the provider through `AppProviders`:
 
 ```tsx
-import { AppProviders, getLocaleInitScript } from "@agent-native/core/client";
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { i18nCatalog } from "./i18n";
 
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
@@ -41,8 +42,7 @@ Each localized template keeps catalogs under `app/i18n/`:
 
 ```ts filename="app/i18n/index.ts"
 import enUS from "./en-US";
-import type { AgentNativeI18nCatalog } from "@agent-native/core/client";
-
+import type { AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
 export const i18nCatalog = {
   sourceLocale: "en-US",
   messages: enUS,
@@ -69,12 +69,8 @@ Use `useT()` for interface strings and put `<LanguagePicker />` on the app's
 the header language icon is only a shortcut.
 
 ```tsx
-import {
-  LanguagePicker,
-  openAgentSettings,
-  useT,
-} from "@agent-native/core/client";
-
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openAgentSettings } from "@agent-native/core/client/navigation";
 function SettingsPage() {
   const t = useT();
   return (

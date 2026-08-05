@@ -31,6 +31,7 @@ export interface DashboardPanelQueryResult {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
   truncated?: boolean;
+  bytesProcessed?: number;
 }
 
 export function isDashboardPanelSource(
@@ -399,8 +400,9 @@ export async function runDashboardPanelQuery(args: {
   source: DashboardPanelSource;
   query: string;
   ctx: CredentialContext;
+  timeoutMs?: number;
 }): Promise<DashboardPanelQueryResult | MissingKeyResponse> {
-  const { source, query, ctx } = args;
+  const { source, query, ctx, timeoutMs } = args;
 
   if (source === "bigquery") {
     const missing = await missingCredential(
@@ -445,10 +447,17 @@ export async function runDashboardPanelQuery(args: {
   }
 
   if (source === "first-party") {
-    return await queryFirstPartyAnalytics(query, {
-      userEmail: ctx.userEmail,
-      orgId: ctx.orgId ?? null,
-    });
+    return await queryFirstPartyAnalytics(
+      query,
+      {
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId ?? null,
+      },
+      {
+        cache: true,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
+    );
   }
 
   if (source === "demo") {

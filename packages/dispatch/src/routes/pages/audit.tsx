@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -16,7 +16,7 @@ export default function AuditRoute() {
       title="Audit"
       description="Change history for routes, settings, and approvals."
     >
-      <section className="rounded-2xl border bg-card p-5">
+      <section className="rounded-2xl bg-card p-5">
         {query.isError ? (
           <ActionQueryError
             error={query.error}

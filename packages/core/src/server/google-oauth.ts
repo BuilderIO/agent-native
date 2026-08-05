@@ -17,9 +17,13 @@ import {
   type H3Event,
 } from "h3";
 
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { normalizeAnalyticsAnonymousId } from "../shared/analytics-anonymous-id.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
+import {
+  readAnalyticsAnonymousId,
+  signupAttributionFromCookieHeader,
+} from "./attribution.js";
 import {
   addSession,
   getSession,
@@ -34,6 +38,7 @@ import {
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -170,6 +175,12 @@ function getConfiguredOriginAllowlist(): Set<string> {
   return out;
 }
 
+/** Return whether a candidate is one of this deployment's configured origins. */
+export function isConfiguredAppOrigin(value: string | undefined): boolean {
+  const origin = normalizeOrigin(value);
+  return !!origin && getConfiguredOriginAllowlist().has(origin);
+}
+
 function getWorkspaceCallbackOrigin(): string | undefined {
   const publicAuthOrigin = firstOriginFromEnv(EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS, {
     allowLoopback: true,
@@ -275,20 +286,17 @@ export function getOrigin(event: H3Event): string {
 
 /** App mount prefix, if the template is served under APP_BASE_PATH. */
 export function getAppBasePath(): string {
-  return getConfiguredAppBasePath();
+  // Vite statically replaces VITE_* values in the server bundle during the
+  // build, but Netlify/Nitro does not necessarily expose those build vars at
+  // runtime. Keep auth and OAuth path matching aligned with the SSR handler by
+  // falling back to import.meta.env (including BASE_URL).
+  return getAppBasePathFromViteEnv();
 }
 
 /** Build an absolute same-origin URL that preserves APP_BASE_PATH. */
 export function getAppUrl(event: H3Event, path = "/"): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
-}
-
-function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
-  );
 }
 
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {
@@ -456,6 +464,7 @@ export interface OAuthStatePayload {
   returnUrl?: string;
   flowId?: string;
   signupAttribution?: Record<string, string | undefined>;
+  signupAnonymousId?: string;
 }
 
 /**
@@ -520,6 +529,7 @@ export interface EncodeOAuthStateOptions {
   returnUrl?: string;
   flowId?: string;
   signupAttribution?: Record<string, string | undefined>;
+  signupAnonymousId?: string;
 }
 
 function sanitizeStateAttribution(
@@ -533,6 +543,10 @@ function sanitizeStateAttribution(
     if (typeof raw === "string") out[key] = raw;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizeStateAnonymousId(value: unknown): string | undefined {
+  return normalizeAnalyticsAnonymousId(value);
 }
 
 /**
@@ -594,6 +608,10 @@ export function encodeOAuthState(
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
   if (opts.signupAttribution) payload.ft = opts.signupAttribution;
+  const signupAnonymousId = normalizeAnalyticsAnonymousId(
+    opts.signupAnonymousId,
+  );
+  if (signupAnonymousId) payload.ai = signupAnonymousId;
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const sig = crypto
     .createHmac("sha256", getStateSigningKey())
@@ -645,6 +663,7 @@ export function decodeOAuthState(
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
         signupAttribution: sanitizeStateAttribution(parsed.ft),
+        signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
       };
     } catch {}
   }
@@ -698,6 +717,7 @@ export async function createOAuthSession(
       authUserId?: string;
       name?: string | null;
       attribution?: Record<string, string | undefined>;
+      signupAnonymousId?: string;
     };
   },
 ): Promise<OAuthSessionResult> {
@@ -723,12 +743,16 @@ export async function createOAuthSession(
       const attribution =
         opts.trackSignup.attribution ??
         signupAttributionFromCookieHeader(getHeader(event, "cookie") ?? null);
+      const anonymousId =
+        opts.trackSignup.signupAnonymousId ??
+        readAnalyticsAnonymousId(getHeader(event, "cookie") ?? null);
       await trackSignupEvent({
         authProvider: opts.trackSignup.authProvider,
         authUserId: opts.trackSignup.authUserId,
         email,
         name: opts.trackSignup.name,
         attribution,
+        anonymousId,
       });
     }
     // Desktop SSO: record this session in the home-dir broker file so

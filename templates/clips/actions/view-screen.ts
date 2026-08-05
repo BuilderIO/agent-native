@@ -32,12 +32,14 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { agentRecordingAccessFilter } from "../server/lib/agent-recording-access.js";
 import {
   getActiveOrganizationId,
   ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
   view?: string;
@@ -87,7 +89,12 @@ async function fetchRecording(id: string) {
     .where(
       and(
         eq(schema.recordings.id, id),
-        accessFilter(schema.recordings, schema.recordingShares),
+        agentRecordingAccessFilter(
+          schema.recordings,
+          schema.recordingShares,
+          schema.recordingViewers,
+          { agentOnly: true },
+        ),
       ),
     );
   return row ? mapRecording(row) : null;
@@ -204,7 +211,12 @@ async function fetchLibrary({
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return [];
   const conditions = [
-    accessFilter(schema.recordings, schema.recordingShares),
+    agentRecordingAccessFilter(
+      schema.recordings,
+      schema.recordingShares,
+      schema.recordingViewers,
+      { agentOnly: true },
+    ),
     isNull(schema.recordings.archivedAt),
     isNull(schema.recordings.trashedAt),
   ];
@@ -435,6 +447,7 @@ async function fetchMeetingDetail(meetingId: string) {
       source: meeting.source,
       userNotesMd: meeting.userNotesMd,
       transcriptStatus: meeting.transcriptStatus,
+      shareTranscript: Boolean(meeting.shareTranscript),
       summaryMd: meeting.summaryMd,
       bullets: safeJsonArray<{ text: string }>(meeting.bulletsJson),
     },
@@ -500,13 +513,56 @@ async function fetchDictationDetail(dictationId: string) {
   };
 }
 
+async function addRecordingContext(
+  screen: Record<string, unknown>,
+  recordingId: string,
+) {
+  const recording = await fetchRecording(recordingId);
+  if (!recording) return;
+
+  const [
+    transcript,
+    comments,
+    annotations,
+    browserDiagnosticsSummary,
+    bugReportSummary,
+  ] = await Promise.all([
+    fetchTranscript(recordingId),
+    fetchComments(recordingId),
+    fetchAnnotations(recordingId),
+    fetchBrowserDiagnosticsSummary(recordingId),
+    fetchBugReportSummary(recordingId),
+  ]);
+  screen.recording = recording;
+  if (annotations.length > 0) {
+    screen.annotations = annotations.slice(0, 100);
+  }
+  if (transcript) {
+    screen.transcript = buildTranscriptPreview({
+      recordingId: transcript.recordingId,
+      language: transcript.language,
+      status: transcript.status,
+      fullText: transcript.fullText,
+      segments: transcript.segments,
+    });
+  }
+  screen.comments = comments.slice(0, 50);
+  if (browserDiagnosticsSummary) {
+    screen.browserDiagnostics = {
+      summary: browserDiagnosticsSummary,
+      note: "Summary only. Call get-recording-player-data for full redacted diagnostics when you have editor access.",
+    };
+  }
+  if (bugReportSummary) screen.bugReport = bugReportSummary;
+}
+
 async function fetchShare(shareId: string) {
   const db = getDb();
-  const [row] = await db
+  const [share] = await db
     .select()
     .from(schema.recordingShares)
     .where(eq(schema.recordingShares.id, shareId));
-  return row ?? null;
+  return share ?? null;
 }
 
 function parseJsonArray(raw: string): unknown[] {
@@ -628,58 +684,7 @@ export default defineAction({
     switch (nav.view) {
       case "recording":
       case "insights": {
-        if (nav.recordingId) {
-          const recording = await fetchRecording(nav.recordingId);
-          if (recording) {
-            const [
-              transcript,
-              comments,
-              annotations,
-              browserDiagnosticsSummary,
-              bugReportSummary,
-            ] = await Promise.all([
-              fetchTranscript(nav.recordingId),
-              fetchComments(nav.recordingId),
-              fetchAnnotations(nav.recordingId),
-              fetchBrowserDiagnosticsSummary(nav.recordingId),
-              fetchBugReportSummary(nav.recordingId),
-            ]);
-            screen.recording = recording;
-            if (transcript) {
-              // Ambient snapshot only — embed a short fullText snippet and the
-              // segment count, NOT the entire transcript + every word-level
-              // segment. The full transcript can be tens of thousands of tokens
-              // and is injected into <current-screen> on EVERY message, which
-              // can blow the model's context window. The agent calls
-              // get-recording-player-data for the complete transcript/segments.
-              const segmentCount = Array.isArray(transcript.segments)
-                ? transcript.segments.length
-                : 0;
-              screen.transcript = {
-                recordingId: transcript.recordingId,
-                language: transcript.language,
-                status: transcript.status,
-                fullTextSnippet: (transcript.fullText ?? "").slice(0, 2000),
-                fullTextLength: (transcript.fullText ?? "").length,
-                segmentCount,
-                note: "Snippet only. Call get-recording-player-data for the full transcript and segments.",
-              };
-            }
-            screen.comments = comments.slice(0, 50);
-            if (annotations.length > 0) {
-              screen.annotations = annotations.slice(0, 100);
-            }
-            if (browserDiagnosticsSummary) {
-              screen.browserDiagnostics = {
-                summary: browserDiagnosticsSummary,
-                note: "Summary only. Call get-recording-player-data for full redacted diagnostics when you have editor access.",
-              };
-            }
-            if (bugReportSummary) {
-              screen.bugReport = bugReportSummary;
-            }
-          }
-        }
+        if (nav.recordingId) await addRecordingContext(screen, nav.recordingId);
         break;
       }
       case "library": {
@@ -729,7 +734,10 @@ export default defineAction({
       case "embed": {
         if (nav.shareId) {
           const share = await fetchShare(nav.shareId);
-          if (share) screen.share = share;
+          if (share) {
+            screen.share = share;
+            await addRecordingContext(screen, share.resourceId);
+          }
         }
         break;
       }

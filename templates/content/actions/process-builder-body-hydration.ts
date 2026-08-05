@@ -15,7 +15,7 @@ export default defineAction({
   schema: z.object({
     sourceId: z.string(),
     documentId: z.string().optional(),
-    limit: z.number().int().positive().max(50).optional(),
+    limit: z.number().int().positive().max(600).optional(),
   }),
   agentTool: false,
   run: async (
@@ -42,6 +42,7 @@ export default defineAction({
       sourceId: args.sourceId,
       documentId: args.documentId,
       limit: args.limit,
+      preloadBodies: !args.documentId,
     });
   },
 });

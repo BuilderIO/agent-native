@@ -12,7 +12,6 @@ import {
 import {
   defineEventHandler,
   getQuery,
-  sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
@@ -98,7 +97,10 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
       });
       const url = await getGoogleDocsAuthUrl(redirectUri, state, owner);
       if (q.redirect === "1") {
-        return sendRedirect(event, url, 302);
+        return new Response(null, {
+          status: 302,
+          headers: { Location: url },
+        });
       }
       return { url };
     } catch (error) {

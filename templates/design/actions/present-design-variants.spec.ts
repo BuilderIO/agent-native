@@ -149,6 +149,7 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
 import action from "./present-design-variants.js";
 
 describe("present-design-variants", () => {
@@ -332,15 +333,14 @@ describe("present-design-variants", () => {
     expect(data.canvasFrames).toMatchObject({
       "file-a": { x: 0, y: 0, width: 390, height: 844 },
       "file-b": { x: 486, y: 0, width: 390, height: 844 },
-      "file-c": { x: 972, y: 0, width: 1440, height: 1024 },
+      "file-c": { x: 972, y: 0, width: 1440, height: 900 },
     });
     expect(data.breakpointSet).toMatchObject({
-      breakpoints: [
-        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
-        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
-        expect.objectContaining({ label: "Desktop", widthPx: 1440 }),
-      ],
+      breakpoints: [expect.objectContaining({ label: "Mobile", widthPx: 390 })],
     });
+    expect(
+      (data.breakpointSet as { breakpoints: unknown[] }).breakpoints,
+    ).toHaveLength(1);
     expect(data.screenMetadata["file-a"]).toMatchObject({
       title: "Pure White",
       width: 390,
@@ -495,6 +495,56 @@ describe("present-design-variants", () => {
       expect.any(String),
       expect.stringContaining("Keyboard hints"),
     );
+  });
+
+  it("spaces desktop directions by their whole painted row, not just the primary frame", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+        { id: "comic", label: "Comic Poster" },
+      ],
+    });
+
+    const data = mocks.designData;
+    // Desktop-base directions (1440) each paint a 390 mobile preview to their
+    // right, so a cell is 1440 + 24 + 390 = 1854 wide before the 96 gap.
+    // Spacing by the primary width alone dropped the next direction 1110px
+    // inside the previous one's breakpoint row.
+    expect(Object.values(data.canvasFrames).map((frame) => frame.x)).toEqual([
+      0, 1950, 3900,
+    ]);
+    expect(
+      Object.values(data.canvasFrames).map((frame) => frame.width),
+    ).toEqual([1440, 1440, 1440]);
+  });
+
+  it("reserves every breakpoint the design already has", async () => {
+    mocks.designData.breakpointSet = {
+      id: "existing",
+      breakpoints: [
+        { id: "m", label: "Mobile", widthPx: 390 },
+        { id: "t", label: "Tablet", widthPx: 768 },
+        { id: "d", label: "Desktop", widthPx: 1440 },
+      ],
+    };
+
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    // 1440 base drops the redundant 1440 preview and reserves 768 + 390:
+    // 1440 + (24 + 768) + (24 + 390) = 2646, then the 96 gap.
+    expect(
+      Object.values(mocks.designData.canvasFrames).map((f) => f.x),
+    ).toEqual([0, 2742]);
   });
 
   it("renders compact fallback variants from non-todo mobile direction data", async () => {
@@ -791,6 +841,46 @@ describe("present-design-variants", () => {
 
     expect(result.cleanedUpPreviousVariantScreens).toBe(0);
     expect(result.deletedSupersededSetIds).toEqual([]);
+  });
+
+  it("rejects malformed variant HTML before deleting anything", async () => {
+    // Ordering, not just validation: supersession and deletion are irreversible,
+    // so a gate that ran after them would destroy the caller's existing sets and
+    // create nothing to replace them.
+    mocks.designData = {
+      screenMetadata: {
+        "old-file-a": { title: "Old A", variantSetId: "old-set" },
+        "old-file-b": { title: "Old B", variantSetId: "old-set" },
+      },
+      designVariantSets: {
+        "old-set": {
+          id: "old-set",
+          prompt: "Old prompt",
+          createdAt: "2026-07-01T00:00:00.000Z",
+          screenCount: 2,
+          screens: [
+            { id: "old-file-a", variantId: "a", label: "Old A" },
+            { id: "old-file-b", variantId: "b", label: "Old B" },
+          ],
+        },
+      },
+    };
+
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Try again",
+        deleteSupersededSetIds: ["old-set"],
+        variants: [
+          { id: "a", label: "A", content: '<div class="p-6">fine</div>' },
+          { id: "b", label: "B", content: '<div class="p-6>never closed' },
+        ],
+      }),
+    ).rejects.toThrow(DESIGN_HTML_INTEGRITY_ERROR_CODE);
+
+    expect(mocks.deleteChain.where).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.updateChain.set).not.toHaveBeenCalled();
   });
 
   it("deletes a superseded set's screens only when the agent explicitly opts in via deleteSupersededSetIds", async () => {

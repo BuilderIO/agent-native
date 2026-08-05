@@ -34,6 +34,13 @@ function eventContext(
   return event.context;
 }
 
+function requestWaitUntil(
+  event: H3Event,
+): ((promise: Promise<unknown>) => void) | undefined {
+  const waitUntil = event.req?.waitUntil;
+  return typeof waitUntil === "function" ? waitUntil : undefined;
+}
+
 function normalizeId(value: string | null | undefined): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
@@ -67,6 +74,25 @@ export function readAgentRunTimezone(event: H3Event): string | undefined {
   return typeof value === "string" &&
     value.trim().length > 0 &&
     value.trim().length < 64
+    ? value.trim()
+    : undefined;
+}
+
+/**
+ * The caller's browser analytics session id, when the page sent one.
+ *
+ * Emitted as PostHog's `$session_id` on the run's `$ai_*` events so an agent
+ * trace joins to the session replay it happened in. Distinct from
+ * `$ai_session_id`, which is the conversation thread.
+ */
+export function readAgentRunBrowserSessionId(
+  event: H3Event,
+): string | undefined {
+  const raw = readHeaderValue(event, "x-agent-native-session-id");
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.trim().length < 128
     ? value.trim()
     : undefined;
 }
@@ -179,14 +205,19 @@ export async function resolveAgentRunRequestContext(options: {
 }): Promise<RequestContext> {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
+  const browserSessionId = readAgentRunBrowserSessionId(options.event);
+  const waitUntil = requestWaitUntil(options.event);
+  const run = {
+    ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
+    ...(waitUntil ? { waitUntil } : {}),
+  };
   return {
     userEmail: options.ownerContext.owner,
     userName: options.ownerContext.name,
     orgId,
     timezone,
-    ...(options.isBackgroundWorker
-      ? { run: { isBackgroundWorker: true } }
-      : {}),
+    ...(browserSessionId ? { browserSessionId } : {}),
+    ...(Object.keys(run).length > 0 ? { run } : {}),
   };
 }
 

@@ -6,6 +6,11 @@ vault secrets, messaging routes, MCP/app setup, and agent operations.
 Detailed framework rules live in root skills; this file only keeps Dispatch
 specific essentials.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -31,6 +36,11 @@ specific essentials.
   setup item is unclear.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
+- Curated workspace templates are private app sources. Use
+  `list-curated-workspace-templates` to inspect the reviewed catalog and
+  `remix-workspace-template` to create an independent app. A new app may use
+  empty or synthetic data only; never copy source-app records, credentials,
+  secrets, or private configuration.
 - `/operations` is the focused operator console. Its Monitoring tab reuses the
   shared observability dashboard for traces, conversations, evaluations,
   experiments, and feedback; its Database tab reuses the Code-mode database
@@ -39,11 +49,28 @@ specific essentials.
   Destinations for concrete thread, change-history, and delivery investigations;
   Dispatch does not invent a separate issue tracker when those framework
   surfaces contain the operational evidence.
+- Thread Debug accepts the copied request/run ID from an Agent Native chat
+  response as well as a chat thread ID; use the exact source that owns the run.
+  Hosted production sources appear only when Dispatch has their
+  <APP>_DATABASE_URL connection variables (or an equivalent
+  AGENT_NATIVE_THREAD_DEBUG_DATABASES configuration).
+- For reliability triage, call `list-agent-run-failures` first, then inspect a
+  returned run with `get-agent-thread-debug` using the same source id. Do not
+  infer run failure from thread text search. Cross-app results may be partial;
+  preserve the returned per-source health instead of treating an unavailable
+  source as zero failures.
+- For a Slack-linked issue, call `read-slack-thread-context` with the exact
+  permalink before diagnosing it. It resolves child links to the parent thread,
+  preserves attachments and related URLs, and reports whether pagination is
+  complete. Never treat an unreadable Slack thread as an empty one.
 
 ## Application State
 
 - `navigation` exposes current Dispatch view, selected integration/resource,
   approval, route, or settings panel.
+- On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
+  `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
+  and `threadId` expose the visible failure or thread filters and selection.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
 

@@ -1,10 +1,11 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 
 export interface DispatchAutomationItem {
   id: string;
   name: string;
   path: string;
   owner: string;
+  scope?: "personal" | "organization";
   canUpdate?: boolean;
   triggerType?: "schedule" | "event" | string;
   event?: string;
@@ -14,8 +15,10 @@ export interface DispatchAutomationItem {
   mode?: string;
   domain?: string;
   enabled?: boolean;
+  timezone?: string;
   lastStatus?: string;
   lastRun?: string;
+  lastCheck?: string;
   lastError?: string;
   nextRun?: string;
   createdBy?: string;
@@ -43,9 +46,11 @@ export async function listDispatchAutomations(): Promise<
   DispatchAutomationItem[]
 > {
   const response = await fetch(agentNativePath("/_agent-native/automations"));
-  if (!response.ok) return [];
-  const rows = await response.json().catch(() => []);
-  return Array.isArray(rows) ? rows : [];
+  const rows = await readAutomationResponse<unknown>(response);
+  if (!Array.isArray(rows)) {
+    throw new Error("Automation list returned an invalid response");
+  }
+  return rows as DispatchAutomationItem[];
 }
 
 export async function setDispatchAutomationEnabled(

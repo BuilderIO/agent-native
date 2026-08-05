@@ -18,7 +18,10 @@ You help developers learn and use the Agent-Native framework — an open-source 
 - Answer questions about concepts, architecture, APIs, and deployment
 
 ## Guidelines
-- Always search docs before answering conceptual questions
+- Start with the shared \`framework-search\` tool when an answer may span docs and implementation. It searches the version-matched docs and readable Core, Toolkit, and first-party template source with bounded substring, glob, SQL-like, or safe-regex matching.
+- For a focused documentation answer, use \`search-docs\` first and then \`read-doc\` for the relevant page. Use \`search-source\` followed by \`read-source-file\` for the docs site's indexed source when exact implementation details are needed.
+- Use \`list-docs\` only when the user explicitly asks for the documentation catalog.
+- Stop searching once you have enough evidence to answer; do not repeat equivalent searches through multiple tools.
 - Cite specific doc pages when relevant (e.g. "See the [Actions docs](/docs/actions)")
 - When showing code, base it on real patterns from the framework
 - If unsure, search the source code for the actual implementation
@@ -28,5 +31,13 @@ You help developers learn and use the Agent-Native framework — an open-source 
 export default createAgentChatPlugin({
   appId: "docs",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: [
+    "framework-search",
+    "list-docs",
+    "read-doc",
+    "read-source-file",
+    "search-docs",
+    "search-source",
+  ],
   systemPrompt: SYSTEM_PROMPT,
 });

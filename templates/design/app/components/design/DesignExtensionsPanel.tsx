@@ -1,12 +1,12 @@
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
-  agentNativePath,
   useActionQuery,
   useActionMutation,
   useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
-import { EmbeddedExtension } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
@@ -123,6 +123,7 @@ interface DesignExtensionsPanelProps {
   className?: string;
   hideAssetLibrary?: boolean;
   title?: string;
+  enableExtensionDiscovery?: boolean;
 }
 
 type CreateExtensionSubmitHandler = (text: string) => void;
@@ -283,7 +284,7 @@ function useSlotInstalls(slotId: string) {
   });
 }
 
-function useAvailableExtensions(slotId: string) {
+function useAvailableExtensions(slotId: string, enabled: boolean) {
   const versions = useChangeVersions(["action"]);
   return useQuery<AvailableExtension[]>({
     queryKey: ["design-editor-extension-slot-available", slotId, versions],
@@ -300,6 +301,7 @@ function useAvailableExtensions(slotId: string) {
       }
       return res.json();
     },
+    enabled,
     placeholderData: (prev) => prev,
   });
 }
@@ -480,9 +482,9 @@ interface AssetLibraryPanelProps {
    * overview canvas, over the board surface, or the editor is in
    * single-screen mode and the point is outside that screen's iframe).
    *
-   * When omitted (the default — no DesignEditor wiring yet), this panel
-   * falls back to EXACTLY today's behavior: it sends the raw viewport point
-   * as `x`/`y` with no `screenId`, which the action already handles safely
+   * When omitted by another host, this panel falls back to sending the raw
+   * viewport point as `x`/`y` with no `screenId`, which the action already
+   * handles safely
    * (a raw client point rarely lands inside a real screen's small content
    * bounds, and even when it coincidentally does, worst case is an
    * imprecisely-placed insert — never a crash or data loss; see
@@ -693,9 +695,9 @@ export function AssetLibraryPanel({
       // isUsableDropPosition for the exact "both x and y, non-negative"
       // usability contract a caller-supplied position must meet, and this
       // component's resolveScreenPoint prop doc above for how dropPosition
-      // gets its coordinate space (converted screen-content px when
-      // resolveScreenPoint is wired up by the DesignEditor owner, otherwise
-      // the raw viewport point as an inert-but-harmless fallback).
+      // gets its coordinate space (converted screen-content px when the host
+      // supplies resolveScreenPoint, otherwise the raw viewport point as an
+      // inert-but-harmless fallback).
       insertNativeAsset.mutate(
         {
           kind: asset.kind,
@@ -755,9 +757,9 @@ export function AssetLibraryPanel({
     if (!draggedNativeAsset) return;
     // Convert the viewport drop point into a specific screen's own
     // content-px coordinates via the optional resolveScreenPoint prop (see
-    // its doc comment above for the exact contract). Without that prop
-    // (no DesignEditor wiring yet), fall back to sending the raw viewport
-    // point with no screenId — the exact behavior this drop handler always
+    // its doc comment above for the exact contract). Without that prop, fall
+    // back to sending the raw viewport point with no screenId — the behavior
+    // this drop handler historically
     // had, and still safe: insert-design-native-asset's isUsableDropPosition
     // only requires non-negative finite numbers, so an unconverted point is
     // never rejected, just imprecise (see that action's fallback doc).
@@ -765,6 +767,10 @@ export function AssetLibraryPanel({
       clientX: event.clientX,
       clientY: event.clientY,
     });
+    if (resolveScreenPoint && !resolved) {
+      clearNativeAssetDrag();
+      return;
+    }
     handleInsertNativeAsset(
       draggedNativeAsset,
       resolved
@@ -1428,6 +1434,7 @@ export function DesignExtensionsPanel({
   className,
   hideAssetLibrary = false,
   title,
+  enableExtensionDiscovery = false,
 }: DesignExtensionsPanelProps) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1447,7 +1454,7 @@ export function DesignExtensionsPanel({
     isError: installsErrored,
   } = useSlotInstalls(slotId);
   const { data: available = [], isError: availableErrored } =
-    useAvailableExtensions(slotId);
+    useAvailableExtensions(slotId, enableExtensionDiscovery);
   const installedIds = useMemo(
     () => new Set(installs.map((install) => install.extensionId)),
     [installs],
@@ -1529,7 +1536,9 @@ export function DesignExtensionsPanel({
   );
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const sourceMatches = (source: ToolSourceFilter) =>
-    sourceFilter === "all" || sourceFilter === source;
+    !enableExtensionDiscovery ||
+    sourceFilter === "all" ||
+    sourceFilter === source;
   const categoryMatches = (category: ToolCategoryFilter) =>
     categoryFilter === "all" || categoryFilter === category;
   const textMatches = (name: string, description?: string | null) => {
@@ -1550,17 +1559,20 @@ export function DesignExtensionsPanel({
       categoryMatches("plugins") &&
       textMatches(install.name, install.description),
   );
-  const visibleInstallable = installable.filter(
-    (extension) =>
-      sourceMatches("extensions") &&
-      categoryMatches("plugins") &&
-      textMatches(extension.name, extension.description),
-  );
+  const visibleInstallable = enableExtensionDiscovery
+    ? installable.filter(
+        (extension) =>
+          sourceMatches("extensions") &&
+          categoryMatches("plugins") &&
+          textMatches(extension.name, extension.description),
+      )
+    : [];
   const hasAnyVisibleTool =
     visibleFirstPartyRows.length > 0 ||
     visibleInstalls.length > 0 ||
     visibleInstallable.length > 0;
   const showPluginsEmptyState =
+    enableExtensionDiscovery &&
     !hasAnyVisibleTool &&
     categoryFilter === "plugins" &&
     !normalizedSearch &&
@@ -1572,11 +1584,13 @@ export function DesignExtensionsPanel({
         <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
           {title ?? t("designEditor.extensions")}
         </h3>
-        <CreateExtensionPopover
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          onSubmit={submitCreatePrompt}
-        />
+        {enableExtensionDiscovery ? (
+          <CreateExtensionPopover
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            onSubmit={submitCreatePrompt}
+          />
+        ) : null}
       </div>
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
@@ -1591,16 +1605,18 @@ export function DesignExtensionsPanel({
         </div>
 
         <div className="mb-4 flex flex-wrap gap-1.5">
-          <ToolFilterMenu
-            label="Source"
-            value={sourceFilter}
-            onChange={setSourceFilter}
-            options={[
-              { value: "all", label: "Source" },
-              { value: "built-in", label: "Built-in" },
-              { value: "extensions", label: "Extensions" },
-            ]}
-          />
+          {enableExtensionDiscovery ? (
+            <ToolFilterMenu
+              label="Source"
+              value={sourceFilter}
+              onChange={setSourceFilter}
+              options={[
+                { value: "all", label: "Source" },
+                { value: "built-in", label: "Built-in" },
+                { value: "extensions", label: "Extensions" },
+              ]}
+            />
+          ) : null}
           <ToolFilterMenu
             label="Category"
             value={categoryFilter}
@@ -1610,12 +1626,15 @@ export function DesignExtensionsPanel({
               { value: "shader", label: "Shaders" },
               { value: "tokens", label: "Tokens" },
               { value: "motion", label: "Motion" },
-              { value: "plugins", label: "Plugins" },
+              ...(enableExtensionDiscovery
+                ? [{ value: "plugins" as const, label: "Plugins" }]
+                : []),
             ]}
           />
         </div>
 
-        {(installsErrored || availableErrored) && (
+        {(installsErrored ||
+          (enableExtensionDiscovery && availableErrored)) && (
           <p className="mb-3 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[10px] leading-snug text-destructive">
             Couldn&apos;t load extensions. Built-in tools are still available
             below — check your connection and try again.

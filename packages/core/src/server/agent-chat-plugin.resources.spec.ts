@@ -54,6 +54,10 @@ vi.mock("./agents-bundle.js", () => ({
 }));
 
 import { loadResourcesForPrompt } from "./agent-chat-plugin.js";
+import {
+  promptResourceManifestSections,
+  registerPromptContextProvider,
+} from "./agent-chat/prompt-resources.js";
 
 const resourcesById = new Map([
   [
@@ -248,7 +252,100 @@ beforeEach(() => {
   mocks.resourceGet.mockImplementation(async (id) => resourcesById.get(id));
 });
 
+describe("promptResourceManifestSections", () => {
+  it("accounts for runtime resource notes, budget notes, and available apps", () => {
+    const sections = promptResourceManifestSections(`
+<context-note>Personal memory remains available on demand.</context-note>
+<context-budget-note>Some startup context was omitted.</context-budget-note>
+<available-apps>Analytics (analytics) — Query product data.</available-apps>
+`);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        label: "Resource availability note",
+        provenance: "framework-core",
+        governance: "required",
+        content: "Personal memory remains available on demand.",
+      }),
+      expect.objectContaining({
+        label: "Context budget note",
+        provenance: "framework-core",
+        governance: "required",
+        content: "Some startup context was omitted.",
+      }),
+      expect.objectContaining({
+        label: "Available workspace apps",
+        provenance: "tools",
+        governance: "required",
+        content: "Analytics (analytics) — Query product data.",
+      }),
+    ]);
+  });
+
+  it("accounts for registered package context with explicit provenance", () => {
+    const sections = promptResourceManifestSections(`
+<prompt-context-provider id="creative-context" label="Published brand context" provenance="organization" governance="inherited" scope="org" path="context/brand-context.md">
+<brand-context><color>#6633ff</color></brand-context>
+</prompt-context-provider>
+`);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        label: "Published brand context",
+        provenance: "organization",
+        governance: "inherited",
+        content: "\n<brand-context><color>#6633ff</color></brand-context>\n",
+        sourceRef: {
+          path: "context/brand-context.md",
+          scope: "org",
+        },
+      }),
+    ]);
+  });
+});
+
 describe("loadResourcesForPrompt", () => {
+  it("loads bounded package context providers into every prompt path", async () => {
+    const unregister = registerPromptContextProvider({
+      id: "creative-context-test",
+      load: async (context) => ({
+        label: "Published brand context",
+        provenance: context.orgId ? "organization" : "personal",
+        governance: "inherited",
+        sourceRef: {
+          path: "context/brand-context.md",
+          scope: context.orgId ? "org" : "user",
+        },
+        content: "<brand-context><font>Inter</font></brand-context>",
+      }),
+    });
+
+    try {
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        false,
+        "slides",
+        "org_example",
+      );
+      expect(prompt).toContain(
+        '<prompt-context-provider id="creative-context-test"',
+      );
+      expect(prompt).toContain(
+        "<brand-context><font>Inter</font></brand-context>",
+      );
+      expect(promptResourceManifestSections(prompt)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Published brand context",
+            provenance: "organization",
+          }),
+        ]),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
     const analyticsPrompt = await loadResourcesForPrompt(
       "user@example.test",
@@ -427,6 +524,75 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<context-budget-note>");
     expect(prompt).toContain("docs-search");
     expect(prompt).toContain("tool-search");
+  });
+
+  it("keeps cross-app discovery and names what it dropped when compact context overflows", async () => {
+    // 30 peers with real descriptions is a ~14,000-character block: large
+    // enough that the old greedy fitter had no room left for it.
+    mocks.discoverAgents.mockResolvedValueOnce(
+      Array.from({ length: 30 }, (_, index) => ({
+        id: index === 0 ? "analytics" : `app-${index}`,
+        name: index === 0 ? "Analytics" : `App ${index}`,
+        description: `Query product data ${index}. ${"capability detail ".repeat(20)}`,
+      })) as never,
+    );
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: `# Workspace\n${"workspace ".repeat(2_000)}`,
+      agentsMd: `# Template\n${"template ".repeat(2_000)}`,
+      skills: Object.fromEntries(
+        Array.from({ length: 80 }, (_, index) => [
+          `skill-${index}`,
+          {
+            meta: {
+              name: `skill-${index}`,
+              description: `Runtime workflow ${index} ${"detail ".repeat(40)}`,
+              scope: "both",
+            },
+            content: `# Skill ${index}`,
+            dir: `.agents/skills/skill-${index}`,
+            extraFiles: [],
+          },
+        ]),
+      ),
+    });
+    mocks.resourceGetByPath.mockImplementation(async (_owner, path) => {
+      if (path === "AGENTS.md" || path === "LEARNINGS.md") {
+        return { content: `# ${path}\n${"instruction ".repeat(2_000)}` };
+      }
+      return null;
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+      expect(prompt).toContain("<available-apps>");
+      expect(prompt).toContain("Analytics (analytics)");
+      expect(prompt).toContain("describe-workspace-apps");
+      expect(prompt).toContain("<context-note>");
+      expect(prompt).toMatch(/section\(s\) did not fit the 48,000-character/);
+      expect(prompt).toContain("Treat them as unread, not as absent");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("startup context exceeded"),
+      );
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("required startup context alone exceeds"),
+      );
+      expect(promptResourceManifestSections(prompt)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Available workspace apps",
+            governance: "required",
+          }),
+          expect.objectContaining({
+            label: "Context budget note",
+            governance: "required",
+          }),
+        ]),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("excludes scope: dev skills from the compact skills summary", async () => {

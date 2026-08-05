@@ -62,6 +62,15 @@ infrastructure, and add providers only when you need them.
 
 ### What you'll see
 
+<WireframeBlock id="doc-block-ob1">
+  <Screen
+    surface="panel"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:10px;padding:14px 16px;min-height:460px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:8px'><strong style='flex:1'>Setup</strong><span class='wf-pill accent'>1 of 4</span><span data-icon='chevronUp'></span></div><div class='wf-card' style='display:flex;align-items:center;gap:8px'><span data-icon='check' style='color:var(--wf-ok)'></span><span style='flex:1'>Database</span><small class='wf-muted'>optional</small></div><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><strong style='flex:1'>Connect an AI engine</strong><span class='wf-pill' style='color:var(--wf-warn);border-color:var(--wf-warn)'>required</span></div><small class='wf-muted'>Connect Builder (one click) or paste an LLM key</small><button class='primary'>Connect Builder.io</button><small style='text-decoration:underline'>or paste your own key</small></div><div class='wf-card' style='display:flex;align-items:center;gap:8px'><span style='flex:1'>Authentication</span><small class='wf-muted'>optional</small></div><div class='wf-card' style='display:flex;align-items:center;gap:8px'><span style='flex:1'>Email delivery</span><small class='wf-muted'>optional</small></div><div style='flex:1'></div><small style='text-decoration:underline;align-self:flex-start'>Hide setup</small></div>"
+    }
+  />
+</WireframeBlock>
+
 - A **Setup** panel above the agent chat with a checklist like "Connect an AI
   engine", "Email delivery", etc.
 - A counter at the top (e.g. "1 of 4") shows how many steps are ready.
@@ -105,6 +114,10 @@ behind a picker or disclosure when a step has several equivalent providers.
 - **Email delivery** (optional) — useful before deploy for password resets,
   team invitations, and share notifications. Use the provider you already use;
   local development can run without it.
+- **Connect a GitHub repository** (optional) — grants a scoped GitHub token so
+  the agent can read/write repo files for cloud or headless work, without
+  cloning the repo or running code. Skip it for local development where the
+  agent already has the repo on disk.
 
 Templates can add their own steps on top of these — e.g. a CRM template might
 add "Connect Gmail", a docs template might add "Pick a default workspace". See
@@ -239,12 +252,13 @@ before it is available.
 
 ### Built-in steps
 
-| ID         | Required | Description                                       |
-| ---------- | -------- | ------------------------------------------------- |
-| `llm`      | yes      | Builder connection or a provider LLM key          |
-| `database` | no       | Default database or any SQL `DATABASE_URL`        |
-| `auth`     | no       | Built-in accounts, optional OAuth or access token |
-| `email`    | no       | Resend or SendGrid for transactional email        |
+| ID                  | Required | Description                                             |
+| ------------------- | -------- | ------------------------------------------------------- |
+| `llm`               | yes      | Builder connection or a provider LLM key                |
+| `database`          | no       | Default database or any SQL `DATABASE_URL`              |
+| `auth`              | no       | Built-in accounts, optional OAuth or access token       |
+| `email`             | no       | Resend or SendGrid for transactional email              |
+| `github-repository` | no       | Scoped GitHub token for cloud/headless repo file access |
 
 Any of these can be overridden by re-registering with the same `id` after the
 defaults load.

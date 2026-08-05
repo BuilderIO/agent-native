@@ -7,13 +7,23 @@ description: "Agent-Native 應用程式的工作原理：首先是 actions、SQL
 
 Agent-Native 應用程式如何在幕後工作 - 原則和架構。此頁面為合同；有關以這種方式建置的願景和案例，請參閱 [What Is Agent-Native?](/docs/what-is-agent-native)。
 
+## 三個層次 {#three-layers}
+
+Agent Native 是一個 framework，而不是單一範本：
+
+- **Core - framework：** 所有應用程式都能使用的基礎執行階段與資料契約。
+- **Toolkit - 可選的可重複使用元件：** 應用程式可以採用、組合或 fork 的共用 UI 與產品系統。
+- **Templates - 可選的應用程式：** 建立在 Core 之上的完整領域應用程式，通常使用 Toolkit，也能 fork 並作為起點使用。
+
+Core 是基礎。Toolkit 與 Templates 都是可選的。
+
 ## 架構 {#the-architecture}
 
 每個 Agent-Native 應用程式都由三部分協同工作：
 
-- **代理** — 讀取資料、寫入資料、執行 actions 和修改程式碼的自主 AI。可使用 skills 和說明進行定制。
+- **代理** — 讀取資料、寫入資料、執行 actions 並使用已設定工具的自主 AI。可使用 skills 和說明進行定制。
 - **應用** — 試劑週圍的產品表面。一開始這可能只是操作、豐富的聊天、小型控制平面或帶有儀表板、流程和視覺化的完整 React 介面。
-- **電腦** — 資料庫、瀏覽器、程式碼執行。代理直接使用 SQL 和內建工具進行工作； MCP 伺服器是可選的附加元件，而不是基礎。
+- **電腦** — 資料庫、瀏覽器、程式碼執行。代理透過應用程式的動作與資料介面工作；應用程式可以透過 MCP 公開相同的動作介面，而外部 MCP 伺服器仍是可選的附加元件，不是基礎。
 
 <Diagram id="doc-block-1apqpo9" title={"代理、應用程式和電腦"} summary={"三層在一個共用的 SQL 儲存上協同工作。代理和應用程式讀取和寫入相同的資料。"}>
 
@@ -23,7 +33,7 @@ Agent-Native 應用程式如何在幕後工作 - 原則和架構。此頁面為�
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >讀取和寫入資料、執行 actions、修改程式碼</small
+        >讀取和寫入資料、執行 actions、使用已設定工具</small
       >
     </div>
     <div class="diagram-card">
@@ -114,14 +124,13 @@ Skills 和 actions 一起工作。一項技能教代理如何做一類
 如何在 `search-crm` 和 `create-brief` actions 取得的同時總結證據
 並寫入實際資料。
 
-管理架構的六項規則：
+管理架構的五項規則：
 
 1. **資料存在於 SQL** - 所有應用程式狀態都透過 Drizzle ORM 存在於資料庫中
 2. **所有 AI 都透過代理** - 無行內 LLM 呼叫
 3. **Actions 用於代理操作** — 複雜的工作作為 actions 執行
 4. **即時同步使 UI 保持同步** — 透過 SSE 進行資料庫更改流，並以輪詢作為通用回退
-5. **代理可以修改程式碼** - 應用程式會隨著您的使用而不斷發展
-6. **SQL 中的應用程式狀態** — 臨時 UI 狀態存在於資料庫中，代理和 UI 都可讀
+5. **應用程式狀態儲存在 SQL 中** - 暫時的 UI 狀態位於資料庫中，代理和 UI 都可以讀取
 
 ## 四個區域清單 {#four-area-checklist}
 
@@ -252,8 +261,7 @@ UI 從不直接呼叫 LLM。當使用者點選“產生圖表”或“寫入摘�
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -265,7 +273,7 @@ sendToAgentChat({
 
 - **人工智慧是不確定的。**您需要對話流來提供意見回饋和迭代——而不是一次性按鈕。
 - **脈絡很重要。**代理擁有您的完整程式碼庫、說明、skills 和歷史紀錄。行內呼叫則沒有這些。
-- **代理可以做更多事情。**它可以執行 actions、瀏覽網頁、修改程式碼以及將多個步驟連結在一起。
+- **代理可以做更多事情。**它可以執行 actions、瀏覽網頁以及將多個步驟連結在一起。
 - **無頭執行。**因為一切都透過代理進行，所以任何應用程式都可以完全由 Slack、Telegram 或其他代理透過 [A2A](/docs/a2a-protocol) 驅動。
 
 ## Actions系統 {#actions-system}
@@ -304,8 +312,7 @@ export default defineAction({
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -393,17 +400,13 @@ UI 在路由變更時寫入此資訊；代理在採取任何操作之前都會�
 
 有關完整的協議/表面矩陣（MCP 伺服器和 OAuth、MCP 應用程式、A2A、深層連結、本機聊天小工具、AgentChatRuntime 連線器、Agent Web 以及 ACP 和 A2UI 的轉接器範圍），以及選取產品形狀（無頭、豐富聊天、嵌入式邊車或完整應用程式），請參閱[Agent Surfaces](/docs/agent-surfaces)。
 
-## 代理修改程式碼 {#agent-modifies-code}
+## 應用程式程式碼與自訂 {#agent-modifies-code}
 
-這是一個功能，而不是一個錯誤。代理可以安全地編輯應用程式的來源程式碼：元件、路由、樣式、actions。
-
-沒有需要破壞的共用程式碼庫。您擁有該應用程式，代理會隨著時間的推移為您改進它：
-
-1. 分叉範本（例如分析範本）
-2. 透過詢問代理進行定制
-3. “為同期群分析新增新的圖表型別”——代理建置它
-4. “連線到我們的 Stripe 帳戶”- 代理編寫整合
-5. 您的應用無需手動開發即可不斷改進
+嵌入式代理預設不會編輯應用程式原始碼。只有當主機有意授予
+repository/workspace 寫入工具時，它才能編輯原始碼。在一般已部署的
+應用程式中，代理透過 actions、SQL 支援的狀態和已設定的整合來工作。
+Templates 是完整的應用程式，您可以在自己的程式碼庫和開發流程中 fork
+並自訂它們。
 
 ## 預設為便攜式 {#hosting-agnostic}
 
@@ -414,7 +417,7 @@ UI 在路由變更時寫入此資訊；代理在採取任何操作之前都會�
 
 ## 工作區 {#workspace}
 
-每個使用者都會獲得一個個人**工作空間** - 指令、skills、記憶、自訂子代理、計畫作業和連線的 MCP 伺服器 - 全部儲存在 SQL 而不是檔案中。這使得 Claude 程式碼級定制可以在多租戶 SaaS 中實現，而無需為每個使用者啟動一個容器。參見[Workspace](/docs/workspace)。
+每個使用者都會獲得一個個人**工作空間** - 指令、skills、記憶、自訂子代理、計畫作業和連線的 MCP 伺服器 - 全部儲存在 SQL 而不是檔案中。這使得 Claude 程式碼級定制可以在多租戶 SaaS 中實現，而無需為每個使用者啟動一個容器。參見[代理資源](/docs/agent-resources)。
 
 ## 相關建置塊 {#building-blocks}
 
@@ -427,10 +430,10 @@ UI 在路由變更時寫入此資訊；代理在採取任何操作之前都會�
 
 ## 您免費獲得的東西 {#what-you-get-for-free}
 
-采用此框架很有價值，主要是因為您不再需要建置什麼。一旦您的應用遵循這六個規則，您就繼承了：
+采用此框架很有價值，主要是因為您不再需要建置什麼。一旦您的應用遵循這五個規則，您就繼承了：
 
 - **一個操作 = 每個表面。** 使用 `defineAction()` 定義的每個操作同時是一個代理工具、型別安全前端掛鉤 (`useActionQuery` / `useActionMutation`)、框架擁有的 HTTP 傳輸、CLI 指令、用於外部用戶端的 MCP 工具以及用於其他 Agent-Native 應用程式的 A2A 工具。可選的 `link` 和 `mcpApp` 中繼資料新增深層連結和 MCP 應用 UI，無需第二次實現。
-- **每個使用者一個完整的工作區。** Skills、共用 `LEARNINGS.md`、個人 `memory/MEMORY.md`、`AGENTS.md`、自訂子代理、計畫作業、連線的 MCP 伺服器 — 所有 SQL 支援，無需開發盒。參見[Workspace](/docs/workspace)。
+- **每個使用者一個完整的工作區。** Skills、共用 `LEARNINGS.md`、個人 `memory/MEMORY.md`、`AGENTS.md`、自訂子代理、計畫作業、連線的 MCP 伺服器 — 所有 SQL 支援，無需開發盒。參見[代理資源](/docs/agent-resources)。
 - **插入 React 元件。** `<AgentPanel />` 和 `<AgentSidebar />` 在應用程式中的任何位置呈現聊天 + 工作區。參見[Drop-in Agent](/docs/drop-in-agent)。
 - **BYO 代理聊天執行時。** 相同的聊天 UI 可以位於 OpenAI 代理、OpenAI 回應、Claude 代理 SDK、Vercel AI SDK、AG-UI 或您自己的規範化 HTTP 流之上。參見[Native 聊天介面](/docs/native-chat-ui#byo-agent-runtimes)。
 - **代理和 UI 之間的即時同步。**同一行程立即透過 `/_agent-native/events` 寫入流；輕量級輪詢使無伺服器、cron 和跨行程寫入保持收斂。改變 actions 會自動使操作支援的查詢失效，因此無需手動重新整理即可顯示代理建立的紀錄。請參閱下面的 [Live Sync](#polling-sync)。

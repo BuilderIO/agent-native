@@ -1,4 +1,5 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useTheme } from "next-themes";
 import { Link } from "react-router";
 
@@ -72,6 +73,17 @@ export default function IndexPage() {
             </p>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {t("home.settingsDescription")}
+            </p>
+          </Link>
+          <Link
+            to="/agent"
+            className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"
+          >
+            <p className="text-[13px] font-medium text-foreground">
+              {t("settings.agentTitle")}
+            </p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t("settings.agentDescription")}
             </p>
           </Link>
         </div>

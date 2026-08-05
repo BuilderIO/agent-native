@@ -13,7 +13,7 @@ description: "العناصر الأساسية العامة React للوكيل ا
 استيراد المتصفح UI من مسارات العميل الفرعية المركزة:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -177,8 +177,10 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## حقل الدردشة والملحن {#composer}
 
-استخدم `@agent-native/core/client/composer` عندما تحتاج إلى إجراء نفس الدردشة
-الحقل الذي يستخدمه الشريط الجانبي داخل UI المخصص.
+استخدم `@agent-native/core/client/composer` عندما تحتاج إلى حقل الدردشة نفسه
+الذي يستخدمه الشريط الجانبي داخل UI مخصص. توفّر `@agent-native/toolkit/composer`
+واجهة Tiptap ومكوّنات UI المحمولة المجردة؛ وعند استخدامها مع خدمات إطار العمل، غلّفها
+بـ `ComposerRuntimeAdaptersProvider` وقدّم الخدمات. Core هو الغلاف الموصّل للمرفقات والإشارات والمهارات والصوت واختيار النموذج.
 
 | API                               | استخدم عندما                                                                                                                                                     |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |

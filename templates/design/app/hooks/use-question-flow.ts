@@ -2,14 +2,29 @@ import {
   formatGuidedAnswersForAgent,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { useCallback } from "react";
 
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
+export interface QuestionFlowModelSelection {
+  model?: string;
+  engine?: string;
+  effort?: PromptComposerSubmitOptions["effort"];
+}
+
 interface UseQuestionFlowOptions {
+  enabled?: boolean;
   continuationTabId?: string | null;
   onContinue?: (tabId: string) => void;
+  /**
+   * The model this generation started with, read AT SEND TIME. The continuation
+   * is the turn that generates and it opens a fresh thread, which has no
+   * override to inherit. A getter, not a value: the caller's source is a ref
+   * filled after render, so a snapshot taken here would be the pre-kickoff one.
+   */
+  getModelSelection?: () => QuestionFlowModelSelection | null | undefined;
 }
 
 function designQuestionsStateKey(designId: string | undefined): string {
@@ -27,10 +42,16 @@ const RESPONSIVE_GENERATION_REQUIREMENTS =
  */
 export function useQuestionFlow(
   designId: string | undefined,
-  { continuationTabId, onContinue }: UseQuestionFlowOptions = {},
+  {
+    enabled = true,
+    continuationTabId,
+    onContinue,
+    getModelSelection,
+  }: UseQuestionFlowOptions = {},
 ) {
   const stateKey = designQuestionsStateKey(designId);
   const flow = useGuidedQuestionFlow({
+    enabled,
     stateKey,
     queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",
@@ -59,6 +80,8 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     (message: string, context?: string) => {
+      const selection = getModelSelection?.() ?? {};
+      const { model, engine, effort } = selection;
       // Always request `newTab` (mirroring useAgentGenerating.submit's
       // default). Without it, when there is no continuationTabId yet the
       // message goes to whatever tab is currently active, but the id we
@@ -77,11 +100,14 @@ export function useQuestionFlow(
         submit: true,
         newTab: true,
         ...(continuationTabId ? { tabId: continuationTabId } : {}),
+        ...(model ? { model } : {}),
+        ...(engine ? { engine } : {}),
+        ...(effort ? { effort } : {}),
       });
       onContinue?.(tabId);
       flow.clear();
     },
-    [continuationTabId, flow, onContinue],
+    [continuationTabId, designId, flow, getModelSelection, onContinue],
   );
 
   const handleSubmit = useCallback(

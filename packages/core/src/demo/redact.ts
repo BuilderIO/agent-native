@@ -1,17 +1,25 @@
 /**
  * Pure, dependency-free, deterministic demo-mode redactor.
  *
- * Replaces sensitive values (names, emails, and free numbers) with stable fake
- * substitutes so a demo looks coherent — the same input always maps to the
- * same fake. Crucially, it NEVER rewrites identifiers, structural tokens, or
- * timestamps: under-redaction is safe, corrupting an ID is not. The string
- * redactor uses a protect-first strategy (mask IDs with opaque placeholders
- * before any transform runs, restore them byte-identical afterwards), and the
- * structure-aware walker additionally protects leaf values by key name.
+ * Replaces every email with one canonical anonymous address and free numbers
+ * with stable fake substitutes. Crucially, it NEVER rewrites identifiers,
+ * structural tokens, or timestamps. Names and other free text are deliberately
+ * left alone because guessing whether arbitrary text is a person's name is too
+ * inaccurate. The string redactor uses a protect-first strategy (mask IDs with
+ * opaque placeholders before any transform runs, restore them byte-identical
+ * afterwards), and the structure-aware walker additionally protects leaf
+ * values by key name.
  */
 
 export interface RedactOptions {
   salt?: string;
+  /** Redact numeric values. Defaults to true for backward compatibility. */
+  redactNumbers?: boolean;
+  /**
+   * Redact emails stored in otherwise protected structural fields such as
+   * `userId` and `userKey`. Intended for display-only frontend responses.
+   */
+  redactProtectedEmails?: boolean;
 }
 
 /* ------------------------------------------------------------------ *
@@ -49,10 +57,6 @@ function seededRng(value: string, salt: string): () => number {
   return mulberry32(seedFn());
 }
 
-function pick<T>(rng: () => number, pool: readonly T[]): T {
-  return pool[Math.floor(rng() * pool.length) % pool.length];
-}
-
 /* ------------------------------------------------------------------ *
  * Stable mapping cache (bounded, TTL, leak-free)
  *
@@ -66,7 +70,7 @@ function pick<T>(rng: () => number, pool: readonly T[]): T {
  *      round-trips back through redaction (e.g. you edit a draft that's
  *      already showing fake text, it autosaves, then refetches) it is passed
  *      through UNCHANGED instead of being re-faked into something new. This
- *      is what stops names/emails drifting on every edit.
+ *      is what stops emails drifting on every edit.
  *
  * Leak-free by construction: no timers, a hard size cap, and lazy TTL purge
  * on write. Works the same per-tab in the browser and per-process on the
@@ -149,158 +153,18 @@ function memoFake(
 }
 
 /* ------------------------------------------------------------------ *
- * Curated name pools
- * ------------------------------------------------------------------ */
-
-const FIRST_NAMES: readonly string[] = [
-  "Jane",
-  "John",
-  "Alex",
-  "Maria",
-  "Sam",
-  "Olivia",
-  "Liam",
-  "Emma",
-  "Noah",
-  "Ava",
-  "Lucas",
-  "Mia",
-  "Ethan",
-  "Sofia",
-  "Mason",
-  "Isla",
-  "Leo",
-  "Aria",
-  "Henry",
-  "Zoe",
-  "Owen",
-  "Nora",
-  "Caleb",
-  "Lily",
-  "Ryan",
-  "Ruby",
-  "Adam",
-  "Chloe",
-  "Eli",
-  "Hazel",
-  "Max",
-  "Iris",
-  "Ben",
-  "Clara",
-  "Theo",
-  "Maya",
-  "Felix",
-  "Elena",
-  "Jonah",
-  "Greta",
-];
-
-const LAST_NAMES: readonly string[] = [
-  "Doe",
-  "Smith",
-  "Johnson",
-  "Lee",
-  "Brown",
-  "Garcia",
-  "Miller",
-  "Davis",
-  "Wilson",
-  "Moore",
-  "Taylor",
-  "Anderson",
-  "Thomas",
-  "Jackson",
-  "White",
-  "Harris",
-  "Martin",
-  "Clark",
-  "Lewis",
-  "Walker",
-  "Hall",
-  "Young",
-  "King",
-  "Wright",
-  "Hill",
-  "Green",
-  "Adams",
-  "Baker",
-  "Nelson",
-  "Carter",
-  "Mitchell",
-  "Perez",
-  "Roberts",
-  "Turner",
-  "Phillips",
-  "Campbell",
-  "Parker",
-  "Evans",
-  "Edwards",
-  "Collins",
-];
-
-/* ------------------------------------------------------------------ *
  * Fake value generators (deterministic in value + salt)
  * ------------------------------------------------------------------ */
 
-function fakeName(original: string, salt: string): string {
-  return memoFake("name", original, salt, () => {
-    const rng = seededRng(`name:${original}`, salt);
-    const first = pick(rng, FIRST_NAMES);
-    const last = pick(rng, LAST_NAMES);
-    return `${first} ${last}`;
-  });
-}
-
-// Realistic-looking but safe stand-in domains: real consumer providers (the
-// local part is fake, so no real mailbox is implied) plus the canonical
-// reserved fictional-company domains (Contoso/Fabrikam/Northwind), which read
-// as real businesses but are intentional placeholders. No example.com.
-const FAKE_EMAIL_DOMAINS: readonly string[] = [
-  "gmail.com",
-  "outlook.com",
-  "icloud.com",
-  "yahoo.com",
-  "proton.me",
-  "hey.com",
-  "fastmail.com",
-  "contoso.com",
-  "fabrikam.com",
-  "northwind.com",
-  "acme.io",
-  "globex.net",
-];
+export const DEMO_ANONYMOUS_EMAIL = "anonymous@builder.io";
 
 function fakeEmail(original: string, salt: string): string {
-  return memoFake("email", original.toLowerCase(), salt, () => {
-    const rng = seededRng(`email:${original.toLowerCase()}`, salt);
-    const first = pick(rng, FIRST_NAMES).toLowerCase();
-    const last = pick(rng, LAST_NAMES).toLowerCase();
-    const domain = pick(rng, FAKE_EMAIL_DOMAINS);
-    // Vary the local part so addresses don't all look templated.
-    const shape = Math.floor(rng() * 6);
-    let local: string;
-    switch (shape) {
-      case 0:
-        local = `${first}.${last}`;
-        break;
-      case 1:
-        local = `${first}${last}`;
-        break;
-      case 2:
-        local = `${first[0]}${last}`;
-        break;
-      case 3:
-        local = `${first}.${last}${1 + Math.floor(rng() * 89)}`;
-        break;
-      case 4:
-        local = `${first}_${last}`;
-        break;
-      default:
-        local = `${last}.${first}`;
-        break;
-    }
-    return `${local}@${domain}`;
-  });
+  return memoFake(
+    "email",
+    original.toLowerCase(),
+    salt,
+    () => DEMO_ANONYMOUS_EMAIL,
+  );
 }
 
 /**
@@ -484,10 +348,6 @@ function unprotect(text: string, restore: Map<string, string>): string {
 
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 
-// 2+ capitalized words (each starts uppercase, allows internal lowercase /
-// apostrophes / hyphens). Single-letter middle initials allowed: `Sarah J Connor`.
-const FULL_NAME_RE = /\b[A-Z][a-zA-Z'’-]*(?:\s+[A-Z](?:[a-zA-Z'’-]*)?){1,3}\b/g;
-
 // A standalone numeric token: optional currency + sign, digits with optional
 // comma grouping and a single optional decimal part. Bounded so it is NOT
 // adjacent to a letter (placeholders already removed letter-mixed tokens, but
@@ -497,10 +357,6 @@ const NUMBER_RE =
 
 function transformEmails(text: string, salt: string): string {
   return text.replace(EMAIL_RE, (match) => fakeEmail(match, salt));
-}
-
-function transformNames(text: string, salt: string): string {
-  return text.replace(FULL_NAME_RE, (match) => fakeName(match, salt));
 }
 
 function isProbablyYear(digits: string): boolean {
@@ -550,20 +406,26 @@ function transformNumbers(text: string, salt: string): string {
 function redactDemoStringInternal(
   text: string,
   salt: string,
-  redactNames: boolean,
+  redactNumbers: boolean,
 ): string {
   if (typeof text !== "string" || text.length === 0) return text;
+  if (!text.includes("@") && (!redactNumbers || !/[\d$€£¥]/.test(text))) {
+    return text;
+  }
 
   const { text: masked, restore } = protect(text);
   let out = masked;
   out = transformEmails(out, salt);
-  if (redactNames) out = transformNames(out, salt);
-  out = transformNumbers(out, salt);
+  if (redactNumbers) out = transformNumbers(out, salt);
   return unprotect(out, restore);
 }
 
 export function redactDemoString(text: string, opts?: RedactOptions): string {
-  return redactDemoStringInternal(text, opts?.salt ?? "", true);
+  return redactDemoStringInternal(
+    text,
+    opts?.salt ?? "",
+    opts?.redactNumbers !== false,
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -573,34 +435,13 @@ export function redactDemoString(text: string, opts?: RedactOptions): string {
 // Keys whose leaf values must NEVER be transformed (still recurse into nested
 // objects/arrays under them). Besides ids/urls/timestamps this also covers
 // code/query-bearing keys (`sql`, `query`, `expression`, `formula`, `code`):
-// prose-redacting a SQL string injects fake emails/numbers into it and rewrites
-// its leading tokens, producing `syntax error at or near "Henry"` /
-// `queries must start with SELECT or WITH`. The query must run untouched; its
-// RESULTS are what get redacted so the chart still shows fake values.
+// redacting a SQL string mutates literals and can make the query semantically
+// wrong or invalid. The query must run untouched; its RESULTS are what get
+// redacted so the chart still shows fake values.
 const PROTECTED_KEY_RE =
   /^id$|(^|_)id$|Id$|Ids$|uuid|guid|slug|token|secret|password|passwd|apikey|api_key|hash|sha\d*|etag|cursor|nonce|sessionid|messageid|threadid|nodeid|(^|_)key$|keyid|(^|_)ref$|url$|uri$|href$|src$|path$|filename$|mimetype|mime|^sql$|sql$|query|expression|formula|^code$|createdat|updatedat|deletedat|expiresat|timestamp|.+at$|.+_at$/i;
 
-// UI labels and chart/dashboard titles often look like person names ("Maya
-// Davis (First-party)", "Clicks by Henry Moore") but are structural labels. Keep
-// them stable while still redacting free-text and contact-style person fields.
-const LABEL_TEXT_KEY_RE = /^(name|title|label)$/i;
-
 const MAX_DEPTH = 64;
-
-function isStandalonePersonNameLabel(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  return /^[A-Z][a-zA-Z'’-]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-zA-Z'’-]+$/.test(
-    trimmed,
-  );
-}
-
-function shouldRedactNamesForChild(key: string, entry: unknown): boolean {
-  if (!LABEL_TEXT_KEY_RE.test(key)) return true;
-  // Preserve structural labels/titles, but do not let common contact-shaped
-  // fields like `{ name: "Olivia Parker" }` leak real person names.
-  return typeof entry === "string" ? isStandalonePersonNameLabel(entry) : true;
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object") return false;
@@ -608,14 +449,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value instanceof Date) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
-}
-
-function redactDemoStringWithSalt(
-  text: string,
-  salt: string,
-  redactNames: boolean,
-): string {
-  return redactDemoStringInternal(text, salt, redactNames);
 }
 
 function redactNumberLeaf(value: number, salt: string): number {
@@ -635,7 +468,8 @@ function walk(
   salt: string,
   depth: number,
   seen: WeakSet<object>,
-  redactNames: boolean,
+  redactNumbers: boolean,
+  redactProtectedEmails: boolean,
 ): unknown {
   if (depth > MAX_DEPTH) return value;
 
@@ -644,11 +478,11 @@ function walk(
   const t = typeof value;
 
   if (t === "string") {
-    return redactDemoStringWithSalt(value as string, salt, redactNames);
+    return redactDemoStringInternal(value as string, salt, redactNumbers);
   }
 
   if (t === "number") {
-    return redactNumberLeaf(value as number, salt);
+    return redactNumbers ? redactNumberLeaf(value as number, salt) : value;
   }
 
   if (t === "boolean" || t === "bigint" || t === "function" || t === "symbol") {
@@ -661,7 +495,7 @@ function walk(
     if (seen.has(value)) return value;
     seen.add(value);
     const out = value.map((item) =>
-      walk(item, salt, depth + 1, seen, redactNames),
+      walk(item, salt, depth + 1, seen, redactNumbers, redactProtectedEmails),
     );
     seen.delete(value);
     return out;
@@ -681,7 +515,20 @@ function walk(
         ) {
           // Still recurse into nested structures, but the protected key does
           // not transform its own leaf value.
-          out[key] = walk(entry, salt, depth + 1, seen, redactNames);
+          out[key] = walk(
+            entry,
+            salt,
+            depth + 1,
+            seen,
+            redactNumbers,
+            redactProtectedEmails,
+          );
+        } else if (
+          redactProtectedEmails &&
+          typeof entry === "string" &&
+          entry.includes("@")
+        ) {
+          out[key] = redactDemoStringInternal(entry, salt, false);
         } else {
           // Leaf under a protected key: pass through completely untouched.
           out[key] = entry;
@@ -693,7 +540,8 @@ function walk(
         salt,
         depth + 1,
         seen,
-        redactNames && shouldRedactNamesForChild(key, entry),
+        redactNumbers,
+        redactProtectedEmails,
       );
     }
     seen.delete(value);
@@ -706,7 +554,14 @@ function walk(
 
 export function redactDemoData<T>(value: T, opts?: RedactOptions): T {
   const salt = opts?.salt ?? "";
-  return walk(value, salt, 0, new WeakSet<object>(), true) as T;
+  return walk(
+    value,
+    salt,
+    0,
+    new WeakSet<object>(),
+    opts?.redactNumbers !== false,
+    opts?.redactProtectedEmails === true,
+  ) as T;
 }
 
 /**

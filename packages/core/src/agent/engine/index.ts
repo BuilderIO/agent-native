@@ -25,6 +25,9 @@ export {
   getConfiguredEngineNameForRequest,
   getStoredModelForEngine,
   normalizeModelForEngine,
+  resolveDelegatedRunModel,
+  resolveEnginePreservesCustomModels,
+  type NormalizeModelOptions,
   detectEngineFromEnv,
   detectEngineFromEnvForRequest,
   detectEngineFromUserSecrets,
@@ -52,3 +55,10 @@ export {
 } from "./anthropic-engine.js";
 export { createAISDKEngine, type AISDKProvider } from "./ai-sdk-engine.js";
 export { registerBuiltinEngines } from "./builtin.js";
+export {
+  AGENT_FAILURE_TAXONOMY_CODES,
+  classifyAgentFailure,
+  type AgentFailureRegime,
+  type AgentFailureTaxonomy,
+  type AgentFailureTaxonomyCode,
+} from "./failure-taxonomy.js";

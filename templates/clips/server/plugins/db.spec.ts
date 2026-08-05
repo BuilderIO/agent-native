@@ -143,14 +143,28 @@ describe("clips db.ts migration entries follow the naming convention", () => {
 
 describe("recording viewer identity migration", () => {
   it("is named, additive, and safe to apply repeatedly", () => {
+    // Fork numbering: upstream's version 48 landed as 53 here (fork owns
+    // 45-49; earlier upstream batches were renumbered after them).
     expect(dbTsSource).toMatch(
-      /version:\s*48,\s*name:\s*"recording-viewers-canonical-viewer-key"/,
+      /version:\s*53,\s*name:\s*"recording-viewers-canonical-viewer-key"/,
     );
     expect(dbTsSource).toMatch(
       /ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT/,
     );
     expect(dbTsSource).toMatch(
       /CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers \(recording_id, viewer_key\)/,
+    );
+  });
+});
+
+describe("organization recording visibility default migration", () => {
+  it("promotes untouched legacy private defaults without overwriting explicit choices", () => {
+    expect(dbTsSource).toContain('name: "clips-public-organization-default"');
+    expect(dbTsSource).toContain(
+      "UPDATE workspaces SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at",
+    );
+    expect(dbTsSource).toContain(
+      "UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at",
     );
   });
 });

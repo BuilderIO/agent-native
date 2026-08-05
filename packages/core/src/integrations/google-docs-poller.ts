@@ -1,11 +1,12 @@
+import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import { createAnthropicEngine } from "../agent/engine/index.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
-  runAgentLoop,
   actionsToEngineTools,
   filterInitialEngineTools,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   buildAssistantMessage,
@@ -15,6 +16,7 @@ import { attachToolSearch } from "../agent/tool-search.js";
 import {
   createThread,
   getThread,
+  setThreadSourceIfMissing,
   updateThreadData,
 } from "../chat-threads/store.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
@@ -27,7 +29,11 @@ import {
   listChanges,
   listDocComments,
 } from "./adapters/google-docs.js";
-import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
+import {
+  getIntegrationConfig,
+  integrationConfigWriteEpoch,
+  saveIntegrationConfig,
+} from "./config-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -427,14 +433,24 @@ async function processComment(
     timestamp: Date.now(),
   };
 
+  const source = {
+    platform: PLATFORM,
+    url: `https://docs.google.com/document/d/${fileId}/edit`,
+  };
+
   let threadId = existingThreadId;
   if (!threadId) {
     const thread = await createThread(options.ownerEmail, {
       title: `Google Doc: ${senderName}`,
+      source,
     });
     await saveThreadMapping(PLATFORM, key, thread.id, { fileId, commentId });
     threadId = thread.id;
   }
+
+  // Older mapped conversations predate thread provenance. Backfill them as
+  // they are touched so Dispatch's default local-history view excludes them.
+  await setThreadSourceIfMissing(threadId, source);
 
   const thread = await getThread(threadId);
   const existingMessages: EngineMessage[] = [];
@@ -498,17 +514,34 @@ async function processComment(
       await runWithRequestContext(
         { userEmail: options.ownerEmail, orgId, isIntegrationCaller: true },
         () =>
-          runAgentLoop({
-            engine,
-            model: options.model,
-            systemPrompt: options.systemPrompt,
-            tools,
-            availableTools,
-            messages,
-            actions: runnableActions,
-            send,
-            signal,
-          }),
+          // Wrapper, not raw `runAgentLoop`: a doc-comment reply has no client
+          // driving continuation, so a transport-level cut has to be resumed
+          // inside this invocation or the commenter never gets an answer.
+          runAgentLoopDirectWithSoftTimeout(
+            {
+              engine,
+              model: options.model,
+              systemPrompt: options.systemPrompt,
+              tools,
+              availableTools,
+              messages,
+              actions: runnableActions,
+              send,
+              signal,
+            },
+            undefined,
+            // Same omission the scheduled-job runner had: without this, a
+            // poller-driven reply inherits the interactive clamp (40s soft
+            // timeout, a no-progress backstop at 0.75x that, 6 continuations)
+            // even though no client is waiting on a response. Uses the runtime
+            // check rather than a hardcoded `true` — matching webhook-handler.ts
+            // in this same subsystem — because unlike the job runner there is no
+            // hard-abort cap here to bound a wider ceiling.
+            {
+              useHostedDefault: true,
+              backgroundFunction: isInBackgroundFunctionRuntime(),
+            },
+          ),
       );
     },
     async (completedRun: ActiveRun) => {
@@ -528,6 +561,9 @@ async function processComment(
         console.error("[google-docs] Error sending response:", err);
       }
     },
+    // No userId here: `options.ownerEmail` is PII (email), which the
+    // terminal event must not carry.
+    { model: options.model, engineName: engine.name },
   );
 }
 
@@ -624,14 +660,34 @@ export async function startGoogleDocsPoller(
   }
 }
 
+/** Backoff for the config probe while google-docs is disabled. */
+const DISABLED_CONFIG_RECHECK_MS = 5 * 60 * 1000;
+
 function startPollLoop(
   options: GoogleDocsPollerOptions,
   intervalMs: number,
 ): void {
+  let disabledUntil = 0;
+  let disabledAtConfigWriteEpoch = -1;
+
   async function poll() {
     try {
+      // The loop starts even when google-docs was never configured (so it picks
+      // up a later enable), which used to mean one `integration_configs` read
+      // every 30s per app forever. While disabled, re-read only every
+      // DISABLED_CONFIG_RECHECK_MS — or immediately after any in-process config
+      // write, so enabling the integration still takes effect on the next tick.
+      const epoch = integrationConfigWriteEpoch();
+      if (Date.now() < disabledUntil && epoch === disabledAtConfigWriteEpoch) {
+        return;
+      }
       const config = await getIntegrationConfig(PLATFORM);
-      if (!config?.configData?.enabled) return;
+      if (!config?.configData?.enabled) {
+        disabledUntil = Date.now() + DISABLED_CONFIG_RECHECK_MS;
+        disabledAtConfigWriteEpoch = epoch;
+        return;
+      }
+      disabledUntil = 0;
       await processChanges(options);
     } catch (err) {
       // Unwrap ErrorEvent (Neon WS driver emits these on network failure) so logs show the real cause

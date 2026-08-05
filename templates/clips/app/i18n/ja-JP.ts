@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "アクション",
     commandSearch: "検索",
+    openAgent: "エージェントを開く",
     commandAppearance: "表示",
     toggleTheme: "テーマを切り替え",
     extensionSignedInTitle: "サインインしました",
@@ -55,6 +56,7 @@ const messages = {
     videoProjects: "動画プロジェクト",
     archive: "アーカイブ",
     trash: "ゴミ箱",
+    agent: "エージェント",
     settings: "設定",
     notifications: "通知",
     insights: "インサイト",
@@ -224,6 +226,9 @@ const messages = {
     autoChapters: "自動チャプター",
     removeFillerWords: "つなぎ言葉を削除する",
     removeSilences: "無音部分を削除 (>1.2 秒)",
+    silenceWorking: "無音部分を削除しています…",
+    silenceCompleted: "無音部分の削除が完了しました",
+    silenceFailed: "無音部分の削除に失敗しました",
     generatePrSummary: "PRサマリーを生成する",
     generateSop: "SOPを生成する",
     generateSopTooltip:
@@ -294,7 +299,6 @@ const messages = {
       "ストレージが接続されました。このクリップをチェック中...",
     signInToFinish: "サインインして終了します",
     signInIfYours: "これがあなたのものである場合はサインインしてください",
-    openDashboard: "ダッシュボードを開く",
     checkAgain: "再確認",
     backToHome: "家に戻る",
     generatingTitle: "タイトルの生成",
@@ -451,6 +455,7 @@ const messages = {
     invite: "招待",
     embed: "埋め込み",
     shareLink: "共有リンク",
+    shareWithHumans: "人と共有する",
     shareWithAgents: "エージェントと共有する",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
@@ -461,6 +466,8 @@ const messages = {
     retryAgentLink: "再試行",
     gifPreview: "GIF プレビュー",
     openPlayer: "プレーヤーを開く",
+    chooseFile: "ファイルを選択してください",
+    remove: "取り除く",
     downloadMp4: "ダウンロード",
     embedsNeedPublic: "埋め込みにはパブリッククリップが必要です",
     embedPublicDescription:
@@ -487,6 +494,7 @@ const messages = {
     makePublicAndCopy: "公開してコピーする",
     copy: "コピー",
     addPeopleByEmail: "メールで人を追加",
+    invite: "招待",
     notifyPeople: "人々に通知する",
     peopleWithAccess: "アクセスできる人",
     ownerRole: "所有者",
@@ -546,11 +554,16 @@ const messages = {
     brandingUpdated: "ブランドを更新しました",
     saveFailed: "保存に失敗しました",
     organizationName: "組織名",
+    defaultVisibility: "新しい録画のデフォルトの公開範囲",
+    defaultVisibilityDescription:
+      "別の公開範囲を選択しない限り、新しい録画に適用されます。",
     brandColor: "ブランドカラー",
     brandColorPicker: "ブランドカラーピッカー",
     useColor: "{{color}} を使用してください",
     logo: "ロゴ",
     logoPreview: "ロゴのプレビュー",
+    logoUsage: "共有メールと公開クリップページで受信者に表示されます。",
+    emailHeaderPreview: "共有メールのヘッダー",
     dropReplace: "新しい画像をドロップして置き換えます",
     dropHere: "ここに PNG / JPG / SVG をドロップしてください",
     uploading: "アップロード中…",
@@ -612,17 +625,29 @@ const messages = {
     pageTitle: "チームに参加 · Clips",
   },
   settings: {
-    openAgentSettings: "エージェント設定を開く",
+    openAgentSettings: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    agentTitle: "エージェント設定",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェントを管理",
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "この Clips ワークスペースの設定と接続済みサービスです。",
+    preferencesTitle: "環境設定",
     languageTitle: "言語",
     languageDescription:
       "このアカウントのインターフェイス言語を選択します。Clips はデバイス間で設定を記憶します。",
     languageLabel: "インターフェイス言語",
+    uploadWorkspaceTitle: "アクティブなワークスペース",
+    uploadWorkspaceDescription:
+      "デスクトップからのアップロードを含む新しい Clips 録画で使用するワークスペースを選択します。",
+    uploadWorkspaceLabel: "現在のワークスペース",
+    uploadWorkspacePlaceholder: "ワークスペースを選択",
+    uploadWorkspaceHint:
+      "変更すると、ワークスペースに関連する Clips の表示も更新されます。",
+    uploadWorkspaceSaving: "ワークスペースを保存中…",
+    uploadWorkspaceSaved: "アクティブなワークスペースを更新しました",
+    uploadWorkspaceSaveFailed:
+      "アクティブなワークスペースを更新できませんでした",
     whatsNew: "最新情報",
     changelogEmpty: "まだ更新はありません。",
     viewAllUpdates: "すべての更新を見る",
@@ -637,10 +662,6 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
 ### 追加
 
 - Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
-    profile: "プロフィール",
-    email: "メール",
-    displayName: "表示名",
-    displayNamePlaceholder: "あなたの名前",
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
@@ -652,9 +673,16 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     backupTranscriptionDescription:
       "デフォルトはオンです。ローカルの文字起こしが得られなかった場合、録画の音声が接続済みのクラウドプロバイダー（Builder.ioクレジットまたはGroq）に送信されて文字起こしされます。オフにすると音声はこのデバイスから出ません — その場合、該当クリップは文字起こしなしのままになります。",
     notifications: "通知",
+    sharing: "共有",
+    defaultVisibility: "新しい録画のデフォルトの公開範囲",
+    defaultVisibilityDescription:
+      "作成するすべての録画に適用されます。録画ごとに公開範囲を変更できます。",
+    visibilityPrivate: "非公開 - 自分のみ",
+    visibilityOrg: "組織 - ワークスペースの全員",
+    visibilityPublic: "公開 - リンクを知っている全員",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
-      "誰かがコメント、リアクション、または録画を共有したときにメールを受け取ります。",
+      "誰かがあなたの録画にコメントまたはリアクションしたときにメールを受け取ります。",
     saved: "設定を保存しました",
     saveFailed: "保存に失敗しました",
     builderConnectedToast: "Builder.io に接続しました",
@@ -783,6 +811,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "組織はまだありません。開始するには組織スイッチャーから作成してください。",
     description: "組織管理: ブランド、メンバー、招待。",
     adminsOnlyBranding: "ブランドを編集できるのは管理者のみです。",
+    brandingLoadFailed: "組織のブランド情報を読み込めませんでした。",
     members: "メンバー",
     pendingInvites: "保留中の招待",
     noPendingInvites: "保留中の招待はありません。",
@@ -803,11 +832,24 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     recentViewers: "最近の視聴者",
     noViewers: "視聴者はまだいません。",
     anonymous: "匿名",
-    anon: "匿名",
     moreViewers: "+{{count}} 件",
     viewedBy: "視聴者",
     someone: "誰か",
     noViewsYet: "まだ再生されていません。",
+    viewsCount_one: "{{count}} 回視聴",
+    viewsCount_other: "{{count}} 回視聴",
+    agentViewsCount_one: "AI エージェント {{count}} 回視聴",
+    agentViewsCount_other: "AI エージェント {{count}} 回視聴",
+    totalViewsSummary: "合計 {{total}} 回視聴、ユニーク視聴者 {{unique}} 人",
+    viewsTab: "視聴",
+    insightsTab: "インサイト",
+    humanViews: "人による視聴",
+    agentViews: "AI エージェントの視聴",
+    noAgentViewsYet: "AI エージェントによる視聴はまだありません。",
+    unknownAgent: "不明なエージェント",
+    totalVideoViews: "動画の合計視聴数",
+    averageCompletionRate: "平均完了率",
+    moreInsights: "インサイトをもっと見る",
   },
   libraryGrid: {
     spaceRoot: "スペースのルート",
@@ -830,6 +872,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     loadFailedBody:
       "このリストの読み込み中に問題が発生しました。録画は安全に保存されています — もう一度お試しください。",
     retry: "再試行",
+    paginationRange: "{{total}} 件中 {{start}}–{{end}} 件",
+    paginationPrevious: "前へ",
+    paginationNext: "次へ",
+    paginationPage: "{{page}} / {{totalPages}} ページ",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
@@ -898,15 +944,6 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "{{email}} はこの組織へのアクセスを失います。いつでも再招待できます。",
     remove: "削除",
   },
-  slackShareHint: {
-    playsInline: "Slack 内でインライン再生",
-    connectedDescription:
-      "このリンクを接続済みワークスペースに貼り付けるとインライン再生されます。",
-    makeInline: "Slack でインライン再生する",
-    connectDescription:
-      "ワークスペースを接続すると、このリンクが動画として展開されます。",
-    connect: "接続",
-  },
   commentsPanel: {
     disabled: "この録画ではコメントが無効です。",
     beFirst: "最初にコメントする",
@@ -918,6 +955,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     replyingTo: "返信先",
     commentAt: "コメント位置",
     writeReply: "返信を書く...",
+    editComment: "コメントを編集",
     commentButton: "コメント",
     composerPlaceholder: "コメントを追加…",
     mentionSomeone: "メンバーをメンション",
@@ -933,6 +971,17 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     summary: "要約",
     keyPoints: "重要ポイント",
     actionItems: "アクション項目",
+    sharedContent: "共有コンテンツ",
+    summaryIncluded: "要約、重要ポイント、アクション項目",
+    includeTranscript: "完全な文字起こしを含める",
+    includeTranscriptDescription:
+      "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
+    transcriptUnavailable: "文字起こしはまだ準備できていません。",
+    transcript: "文字起こし",
+    copyTranscript: "文字起こしをコピー",
+    transcriptCopied: "文字起こしをコピーしました",
+    copyTranscriptFailed: "文字起こしをコピーできませんでした",
+    updateTranscriptSharingFailed: "文字起こしの共有を更新できませんでした",
   },
   deleteRecordingMenu: {
     movedToTrash: "クリップをゴミ箱に移動しました",
@@ -1099,6 +1148,19 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     spaceCreated: "スペースを作成しました",
     createFailed: "スペースを作成できませんでした",
   },
+  spaceDialog: {
+    deleteSpace: "スペースを削除",
+    renameSpace: "スペース名を変更",
+    deleteTitle: "「{{name}}」を削除しますか？",
+    deleteDescription:
+      "スペースを削除し、すべての録画から削除します。この操作は元に戻せません。",
+    renamed: "スペース名を変更しました",
+    deleted: "「{{name}}」を削除しました",
+    renameFailed: "スペース名の変更に失敗しました",
+    deleteFailed: "スペースの削除に失敗しました",
+    renaming: "名前を変更中...",
+    deleting: "削除中...",
+  },
   signInPrompt: {
     title: "{{intent}}するにはログイン",
     description:
@@ -1146,6 +1208,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     desktopTitle: "デスクトップアプリ",
     desktopDescription:
       "グローバルショートカット、メニューバーからの録画、会議、繰り返しのキャプチャに最適です。",
+    openDesktopApp: "Open desktop app (ローカライズ済み)",
   },
   editableTitle: {
     untitled: "無題のクリップ",
@@ -1295,10 +1358,15 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     cameraOff: "カメラオフ",
     includeCameraAria: "この録画にカメラを含める",
     startRecording: "録画を開始",
+    micOffConfirmTitle: "Record without a microphone? (ローカライズ済み)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (ローカライズ済み)",
+    startWithoutMic: "Start anyway (ローカライズ済み)",
     uploadVideo: "動画をアップロード",
     importLoom: "Loom をインポート",
     importing: "インポート中...",
     import: "インポート",
+    recordNew: "新規録画",
   },
   playerSettings: {
     title: "設定",
@@ -1309,8 +1377,11 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     visibilityPublic: "公開",
     passwordProtection: "パスワード保護",
     passwordSetPlaceholder:
-      "パスワードは設定済みです — 入力すると置き換え、空のまま保存すると解除されます",
+      "Password is set — type to replace (ローカライズ済み)",
     noPasswordPlaceholder: "パスワードなし",
+    passwordWhitespaceOnly:
+      "Spaces alone aren't a valid password. (ローカライズ済み)",
+    removePassword: "Remove (ローカライズ済み)",
     expiry: "有効期限",
     viewerOptions: "視聴者オプション",
     comments: "コメント",
@@ -1347,6 +1418,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     recordingReadyToUpload: "録画のアップロード準備ができました",
     recordingSaved: "録画を保存しました",
     markerAdded: "{{kind}}を追加しました",
+    linkCopied: "リンクをコピーしました",
+    copyLinkAction: "リンクをコピー",
     noLocalRecordingData:
       "ダウンロードできるローカルの録画データがありません。",
     recordingDownloadStarted: "録画のダウンロードを開始しました",
@@ -1368,12 +1441,32 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     downloadDesktopApp: "デスクトップアプリをダウンロード",
     technicalDetails: "技術的な詳細",
     whatToCheck: "確認すべき項目",
-    downloadRecording: "録画をダウンロード",
+    downloadRecording: "Download (ローカライズ済み)",
     openRecorderInTab: "タブでレコーダーを開く",
     connectStorageToFinish:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
+  },
+  importRoute: {
+    pageTitle: "Loom をインポート — Clips",
+    title: "Loom をインポート",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "インポート",
+    helperText:
+      "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
+    stageFetching: "動画を取り込んでいます…",
+    stageUploading: "元の映像をアップロードしています…",
+    stageTranscript:
+      "音声と画面の映像をエージェントが読み取れるようにしています…",
+    stageFinalizing: "Agent-Native にしています…",
+    importingSubtitle:
+      "ただの録画を Agent-Native なプリミティブに変えています。",
+    doneHeading: "完了です！あなたの動画は今：",
+    benefitTranscript: "音声と画面の映像、すべて検索可能",
+    benefitQueryable: "エージェントが理解しクエリ可能",
+    benefitSummaries: "オンデマンドで即座に要約とクリップ",
+    benefitPrimitive: "第一級の Agent-Native プリミティブ",
   },
   dictateRoute: {
     pageTitle: "ディクテーション · Clips",
@@ -1434,6 +1527,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
   clipsFinalRaw: {
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
+    selectAll: "すべて選択",
+    deselectAll: "すべて選択解除",
     move: "移動",
     moveSelected: "選択した {{count}} 件を移動",
     current: "現在",
@@ -1443,7 +1538,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     uploadFailed: "アップロードに失敗しました",
     connectStorageToFinish: "開いてストレージを接続し、保存を完了します。",
     retryFromClipsMenu:
-      "メニューバーの Clips アイコンから再試行してください。保存されたクリップのカードにはローカルファイルを開くフォルダーボタンもあります。",
+      "メニューバーからClipsを開いて、この保存済みアップロードを再試行できます。録画し直す必要はありません。",
     removeFailedClip: "失敗したクリップを削除します。",
     remove: "削除",
     viewsCount: "{{count}} 回表示",
@@ -1523,6 +1618,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarNeedsReconnect:
       "今後の会議を表示し続けるには、Google Calendar を再接続する必要があります。",
     connectGoogleCalendar: "Google Calendar を接続",
+    googleMayShowWarning: "Google アクセスを確認",
+    googleNotVerifiedTitle: "接続前にアプリを確認してください",
+    googleWarningBeforeAdvanced:
+      "アプリ名と要求される Calendar へのアクセスが、信頼する Clips のデプロイと一致することを確認してください。Google に未確認アプリの警告が表示された場合や、見覚えのない識別情報が表示された場合は中止し、ワークスペース管理者に連絡してください。",
     desktopReminder:
       "Google Calendarを連携し、Clips Desktopを開いたままにして、会議が始まったらリマインダーまたはメニューバーから「ノートを開始」をクリックしてください。",
     getDesktopApp: "デスクトップアプリを入手",
@@ -1595,6 +1694,22 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "このプロジェクトを読み込めませんでした。削除されたか、アクセス権がない可能性があります。",
     renameProject: "プロジェクト名を変更",
   },
+  rewindExtension: {
+    title: "直前の出来事を追加",
+    description:
+      "ローカルのRewindから指定した時間範囲を選び、このクリップの先頭に追加します。自動では追加されません。",
+    progressLabel: "Rewind履歴の処理状況",
+    privateFirstTitle: "先にこのクリップを非公開にする",
+    privateFirstDescription:
+      "ローカルのRewind履歴には録画開始前の情報が含まれる場合があります。この操作でクリップは非公開になります。直接アクセスできる人がいる場合は、先に共有画面で削除できるようClipsが停止します。",
+    makePrivateContinue: "非公開にして続行",
+    add30Seconds: "直前の30秒を追加",
+    add5Minutes: "直前の5分を追加",
+    add5MinutesDescription: "長い説明の導入部分を復元するのに便利です。",
+    privateReady:
+      "このクリップは非公開です。ローカルのRewind履歴を追加できます。",
+  },
+  timeline: { clipStartedHere: "クリップはここから開始" },
 };
 
 export default messages;

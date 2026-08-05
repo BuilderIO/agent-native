@@ -86,6 +86,20 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — current Figma tool bindings", () => {
+  it("routes standard canvas commands through their existing callbacks", async () => {
+    const onCopy = vi.fn();
+    const onDuplicate = vi.fn();
+    const onBringForward = vi.fn();
+    await withHotkeys({ onCopy, onDuplicate, onBringForward }, () => {
+      dispatchKey("c", { metaKey: true });
+      dispatchKey("d", { metaKey: true });
+      dispatchKey("}", { code: "BracketRight", metaKey: true });
+    });
+    expect(onCopy).toHaveBeenCalledTimes(1);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+    expect(onBringForward).toHaveBeenCalledTimes(1);
+  });
+
   it("opens keyboard shortcuts with literal Ctrl+Shift+?", async () => {
     const onShowKeyboardShortcuts = vi.fn();
     await withHotkeys({ onShowKeyboardShortcuts }, () => {
@@ -690,11 +704,23 @@ describe("useDesignHotkeys — Shift+A adds auto layout", () => {
   });
 });
 
-describe("useDesignHotkeys — Cmd+\\ show/hide UI and Shift+C show/hide comments", () => {
-  it("fires onToggleUi for Cmd+\\", async () => {
+describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
+  it("uses Figma's Shift+\\ chord without claiming Cmd/Ctrl+\\", async () => {
     const onToggleUi = vi.fn();
     await withHotkeys({ onToggleUi }, () => {
-      dispatchKey("\\", { metaKey: true });
+      dispatchKey("|", { code: "Backslash", shiftKey: true });
+      dispatchKey("\\", { code: "Backslash", metaKey: true });
+      dispatchKey("\\", { code: "Backslash", ctrlKey: true });
+      dispatchKey("|", {
+        code: "Backslash",
+        metaKey: true,
+        shiftKey: true,
+      });
+      dispatchKey("|", {
+        code: "Backslash",
+        ctrlKey: true,
+        shiftKey: true,
+      });
     });
     expect(onToggleUi).toHaveBeenCalledTimes(1);
   });

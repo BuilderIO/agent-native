@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -34,6 +34,7 @@ const enUS = {
     created: "Created {{date}}",
   },
   dashboard: {
+    sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard history",
     historyDescription:
       "Restore a previous dashboard state. Restoring snapshots the current state first.",
@@ -45,6 +46,14 @@ const enUS = {
     historyRestoreQuestion: "Restore this dashboard version?",
     historyRestoreWarning:
       "This replaces the current dashboard layout and saves the current state in history.",
+    undo: "Undo",
+    undoSuccess: "Dashboard change undone",
+    undoFailed: "Couldn't undo dashboard change",
+    undoFailedWithMessage: "Couldn't undo dashboard change: {{message}}",
+    redo: "Redo",
+    redoSuccess: "Dashboard change redone",
+    redoFailed: "Couldn't redo dashboard change",
+    redoFailedWithMessage: "Couldn't redo dashboard change: {{message}}",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",
@@ -64,6 +73,7 @@ const enUS = {
     noAnalysesYet: "No analyses yet",
     dashboardsLoadFailed: "Couldn't load dashboards.",
     analysesLoadFailed: "Couldn't load analyses.",
+    favoritesUnavailable: "Favorites are unavailable right now",
     retry: "Retry",
     search: "Search",
     searchShortcut: "Search ({{shortcut}})",
@@ -168,10 +178,10 @@ const enUS = {
     untitledDashboard: "Untitled dashboard",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     account: "Account",
     signedInAs: "Signed in as",
     credentials: "Data Source Credentials",
@@ -184,6 +194,14 @@ const enUS = {
     openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
+    errorEmailNotifications: "Email new error alerts",
+    errorEmailNotificationsDescription:
+      "Send an email when a new JavaScript error is captured. Off by default.",
+    errorEmailNotificationsSaveFailed: "Couldn't save the email preference.",
+    bellSound: "Bell sound",
+    bellSoundDescription:
+      "Play a sound when the agent finishes a run. Off by default.",
+    bellSoundSaveFailed: "Couldn't save the sound preference.",
     about: "About",
     aboutDescription:
       "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
@@ -409,6 +427,10 @@ const enUS = {
     dashboardUsageTotal: "Dashboards",
     dashboardUsageActive: "{{count}} active",
     dashboardUsageViews: "Views",
+    dashboardUsageEdits: "Edits",
+    dashboardUsageSort: "Sort dashboards",
+    dashboardUsageMostViewed: "Most viewed",
+    dashboardUsageMostEdited: "Most edited",
     dashboardUsageTop: "Top: {{name}}",
     dashboardUsageEngagements: "Engagements",
     dashboardUsageEngagementsHint: "Non-pageview events plus saved views",
@@ -419,6 +441,10 @@ const enUS = {
     dashboardUsageUsers: "Users",
     dashboardUsageModified: "Modified",
     dashboardUsageCreated: "Created",
+    dashboardMetadataCreated: "Created",
+    dashboardMetadataCreatedBy: "Created by",
+    dashboardMetadataUpdated: "Updated",
+    dashboardMetadataUpdatedBy: "Updated by",
     dashboardUsageState: "State",
     dashboardUsagePanels: "{{count}} panels",
     dashboardUsageSavedViews: "{{count}} saved views",
@@ -458,6 +484,27 @@ const enUS = {
     deleteConnectionTitle: "Delete database connection?",
     deleteConnectionDescription:
       "This removes {{name}} from Analytics and deletes its stored connection secrets. The target app database is not modified.",
+    featureFlags: "Feature flags",
+    featureFlagsDescription:
+      "Review registered app flags and make deliberate, reversible rollout changes.",
+    reloadFlags: "Reload flags",
+    loading: "Loading",
+    flagsUnavailable: "Feature flags are unavailable",
+    flagsUnreachable:
+      "The workspace directory could not be reached. Retry when its connection is available.",
+    flagsEmpty: "No workspace apps reported flags",
+    flagsEmptyDetail:
+      "Registered flags will appear here when connected apps are ready.",
+    flagsNotReady:
+      "This app is {{status}}. Its flag state is not assumed to be off.",
+    noFlagDefinitions: "This ready app has no registered flag definitions.",
+    noFlagDescription: "No description supplied.",
+    selected: "Selected",
+    openFlag: "Open feature flag",
+    confirm: "Confirm",
+    name: "Name",
+    appId: "App ID",
+    flagKey: "Feature flag",
   },
   providerCorpusNotifier: {
     completed: "Provider corpus job completed",
@@ -588,6 +635,7 @@ const enUS = {
     clearAll: "Clear all",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
+    filterSeries: "Filter",
     hide: "Hide",
     show: "Show",
     saveAsView: "Save as View",
@@ -597,15 +645,26 @@ const enUS = {
     off: "Off",
     since: "Since",
     sectionOptions: "Section options",
-    extensionMissingId: "This extension panel has no extension selected.",
+    extensionMissingId: "This custom block has no source selected.",
     extensionUnavailable:
-      "This extension isn't shared with you, or it no longer exists.",
+      "This custom block isn't shared with you, or it no longer exists.",
     panelOptions: "Panel options",
     chatWithPanel: "Chat with panel",
+    customBlock: "Custom block",
+    customBlockProvenance: "Sandboxed dashboard block",
+    customBlockAgentProvenance: "Agent-authored dashboard patch",
+    promoteToAppCode: "Promote to app code",
+    promoteCustomBlockMessage:
+      'Promote the custom block "{{title}}" into reusable native Analytics app code.',
     fullScreen: "Full screen",
     refresh: "Refresh",
     refreshing: "Refreshing...",
     downloadCsv: "Download CSV",
+    exportToGoogleSheets: "Export to Google Sheets",
+    exportingToGoogleSheets: "Exporting to Google Sheets...",
+    googleSheetsExported: "Exported to Google Sheets",
+    openGoogleSheet: "Open sheet",
+    googleSheetsExportFailed: "Couldn't export to Google Sheets: {{message}}",
     viewSql: "View SQL",
     dragToReorder: "Drag to reorder",
     deleteSectionTitle: "Delete section?",
@@ -791,6 +850,11 @@ const enUS = {
   },
   dataSources: {
     uploadFile: "Upload file",
+    googleSheetsExport: "Google Sheets export",
+    googleSheetsExportDescription:
+      "Export dashboard reports to Google Sheets through a shared Google connection.",
+    connected: "Connected",
+    googleSheets: "Google Sheets",
     open: "Open",
     savedValueHint:
       "A value is already saved. Leave blank to keep it, or enter a new value to replace it.",
@@ -808,6 +872,9 @@ const enUS = {
     githubOAuthUnavailable:
       "OAuth app credentials are not configured on this deployment. Use the personal access token field below.",
     sharedIntegration: "Shared integration",
+    workspaceAdminRequiredTitle: "Organization connection requires an admin",
+    workspaceAdminRequiredDescription:
+      "Ask an organization owner or admin to connect {{name}} for everyone in this organization.",
     sharedReady:
       "Analytics can use this provider through a workspace connection granted from Dispatch.",
     sharedNeedsGrant:
@@ -843,6 +910,9 @@ const enUS = {
     sharedCredentials: "Shared credentials: {{credentials}}",
     ready: "Ready",
     notConfigured: "Not configured",
+    statusUnknown: "Couldn't check connection status",
+    statusUnknownDescription:
+      "The connection status couldn't be read, so this source may already be connected. Reload to check again before adding credentials.",
     back: "Back",
     continue: "Continue",
     saveCredentials: "Save Credentials",
@@ -857,6 +927,22 @@ const enUS = {
     firstPartyAnalytics: "First-party Analytics",
     firstPartyDescription:
       "Receive product, session, and $ai_generation events through the same first-party endpoint for dashboarding and LLM observability.",
+    bigQueryRecommendationTitle: "BigQuery is recommended for this data",
+    bigQueryRecommendationDescription:
+      "Neon is still the default. Connect BigQuery when you have 1M+ observed events or repeated slow queries/timeouts, then use it for high-volume or historical analysis.",
+    bigQueryConnectedTitle: "BigQuery is ready for heavier queries",
+    bigQueryConnectedDescription:
+      "Use BigQuery for high-volume or historical tracking queries. Neon remains available for recent operational analytics.",
+    bigQuerySetup: "Set up BigQuery",
+    bigQueryMonitorDescription:
+      "Neon is still a good fit. Keep an eye on event volume and query latency; this card will recommend BigQuery if pressure grows.",
+    bigQueryHealthyDescription:
+      "Neon is a good fit for this first-party data right now. We will flag this again if volume or query latency grows.",
+    bigQueryHealthUnavailable:
+      "We could not check first-party analytics pressure right now. Reload and try again before changing backends.",
+    analyticsEventCount: "Observed events",
+    slowQueries24h: "Slow queries (24h)",
+    maxQueryDuration: "Max query time",
     defaultKeyName: "Hosted templates",
     endpoint: "Endpoint",
     serverEnv: "Server env",
@@ -885,12 +971,30 @@ const enUS = {
     chartTypePie: "Pie",
     chartTypeMetric: "Metric",
     chartTypeTable: "Table",
+    chartTypeFunnel: "Funnel",
+    chartTypeHeatmap: "Heatmap",
+    chartTypeCallout: "Callout",
+    chartTypeSection: "Section",
+    chartTypeExtension: "Custom visualization",
     failedToSavePanel: "Failed to save panel",
     failedToFormatSql: "Failed to format SQL",
     title: "Title",
     titlePlaceholder: "e.g. Weekly signups",
     chartType: "Chart type",
     source: "Source",
+    extensionDisplay: "Custom block display",
+    sharedExtension: "Shared custom block",
+    perViewerSlot: "Per-viewer slot",
+    extension: "Custom block",
+    loadingExtensions: "Loading custom blocks...",
+    selectExtension: "Select a custom block",
+    noExtensions:
+      "No visible custom blocks. Ask the agent to create one first.",
+    sharedExtensionHelp:
+      "The selected custom block is shared with this dashboard and appears in scheduled reports. Viewers still need access to it.",
+    slotIdOptional: "Slot ID (optional)",
+    perViewerSlotHelp:
+      "Each viewer installs their own extension. Scheduled reports may show an empty slot. Leave blank to generate a stable ID.",
     sectionColumns: "Section columns",
     format: "Format",
     filterInterpolation: "Use {{example}} to interpolate filter values.",
@@ -1238,6 +1342,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "上传文件",
+      googleSheetsExport: "Google Sheets 导出",
+      googleSheetsExportDescription:
+        "通过共享的 Google 连接将仪表板报告导出到 Google Sheets。",
+      connected: "已连接",
+      googleSheets: "Google Sheets",
       open: "打开",
       savedValueHint: "值已保存。留空以保留它，或输入新值以替换它。",
       githubOAuth: "GitHub OAuth",
@@ -1254,6 +1363,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "此部署中未配置 OAuth 应用程序凭据。使用下面的个人访问令牌字段。",
       sharedIntegration: "共享集成",
+      workspaceAdminRequiredTitle: "组织连接需要管理员",
+      workspaceAdminRequiredDescription:
+        "请让组织所有者或管理员为此组织中的所有人连接 {{name}}。",
       sharedReady:
         "Analytics 可以通过 Dispatch 授予的工作空间连接来使用此提供程序。",
       sharedNeedsGrant: "存在工作区连接。打开Dispatch，授予Analytics访问权限。",
@@ -1288,6 +1400,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共享凭证：{{credentials}}",
       ready: "准备好",
       notConfigured: "未配置",
+      statusUnknown: "无法检查连接状态",
+      statusUnknownDescription:
+        "无法读取连接状态，此数据源可能已连接。请重新加载页面确认后再添加凭据。",
       back: "后退",
       continue: "继续",
       saveCredentials: "保存凭证",
@@ -1302,6 +1417,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "第一方 Analytics",
       firstPartyDescription:
         "通过同一个第一方端点接收产品、会话和 $ai_generation 事件，用于仪表板和 LLM 可观测性。",
+      bigQueryRecommendationTitle: "建议为此数据使用 BigQuery",
+      bigQueryRecommendationDescription:
+        "Neon 仍是默认选择。当观察到 100 万以上事件或反复出现慢查询/超时时，请连接 BigQuery，并用它进行高数据量或历史分析。",
+      bigQueryConnectedTitle: "BigQuery 已准备好处理更重的查询",
+      bigQueryConnectedDescription:
+        "使用 BigQuery 处理高数据量或历史跟踪查询。Neon 仍可用于近期运营分析。",
+      bigQuerySetup: "设置 BigQuery",
+      bigQueryMonitorDescription:
+        "Neon 目前仍然适合。请关注事件量和查询延迟；如果压力增加，此卡片会建议 BigQuery。",
+      bigQueryHealthyDescription:
+        "目前 Neon 适合这项第一方数据。如果事件量或查询延迟增加，我们会再次提醒你。",
+      bigQueryHealthUnavailable:
+        "现在无法检查第一方 Analytics 压力。请重新加载后再尝试更换后端。",
+      analyticsEventCount: "观察到的事件",
+      slowQueries24h: "慢查询（24 小时）",
+      maxQueryDuration: "最长查询时间",
       defaultKeyName: "托管模板",
       endpoint: "端点",
       serverEnv: "服务器环境",
@@ -1329,12 +1460,29 @@ const analyticsSliceTranslations: {
       chartTypePie: "馅饼",
       chartTypeMetric: "公制",
       chartTypeTable: "桌子",
+      chartTypeFunnel: "漏斗",
+      chartTypeHeatmap: "热力图",
+      chartTypeCallout: "提示",
+      chartTypeSection: "分区",
+      chartTypeExtension: "自定义可视化",
       failedToSavePanel: "保存面板失败",
       failedToFormatSql: "格式化SQL失败",
       title: "标题",
       titlePlaceholder: "例如每周注册人数",
       chartType: "图表类型",
       source: "来源",
+      extensionDisplay: "自定义块显示方式",
+      sharedExtension: "共享自定义块",
+      perViewerSlot: "每位查看者的插槽",
+      extension: "自定义块",
+      loadingExtensions: "正在加载自定义块...",
+      selectExtension: "选择自定义块",
+      noExtensions: "没有可见的自定义块。请让代理先创建一个。",
+      sharedExtensionHelp:
+        "所选自定义块会与此仪表板共享并显示在计划报告中。查看者仍需拥有访问权限。",
+      slotIdOptional: "插槽 ID（可选）",
+      perViewerSlotHelp:
+        "每位查看者各自安装扩展。计划报告可能显示空插槽。留空即可生成稳定 ID。",
       sectionColumns: "剖面列",
       format: "格式",
       filterInterpolation: "使用 {{example}} 插值滤波器值。",
@@ -1508,6 +1656,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Subir archivo",
+      googleSheetsExport: "Exportación a Google Sheets",
+      googleSheetsExportDescription:
+        "Exporte informes del panel a Google Sheets mediante una conexión de Google compartida.",
+      connected: "Conectado",
+      googleSheets: "Google Sheets",
       open: "Abierto",
       savedValueHint:
         "Ya hay un valor guardado. Déjelo en blanco para conservarlo o ingrese un nuevo valor para reemplazarlo.",
@@ -1526,6 +1679,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Las credenciales de la aplicación OAuth no están configuradas en esta implementación. Utilice el campo de token de acceso personal a continuación.",
       sharedIntegration: "Integración compartida",
+      workspaceAdminRequiredTitle:
+        "La conexión de la organización requiere un administrador",
+      workspaceAdminRequiredDescription:
+        "Pide a un propietario o administrador de la organización que conecte {{name}} para todos.",
       sharedReady:
         "Analytics puede utilizar este proveedor a través de una conexión de espacio de trabajo otorgada por Dispatch.",
       sharedNeedsGrant:
@@ -1562,6 +1719,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciales compartidas: {{credentials}}",
       ready: "Listo",
       notConfigured: "No configurado",
+      statusUnknown: "No se pudo comprobar el estado de la conexión",
+      statusUnknownDescription:
+        "No se pudo leer el estado de la conexión, así que esta fuente puede estar ya conectada. Vuelve a cargar la página para comprobarlo antes de añadir credenciales.",
       back: "Atrás",
       continue: "Continuar",
       saveCredentials: "Guardar credenciales",
@@ -1576,6 +1736,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "zx3qz",
       firstPartyDescription:
         "Reciba eventos de producto, sesión y $ai_generation en el mismo endpoint propio para dashboards y observabilidad de LLM.",
+      bigQueryRecommendationTitle: "Se recomienda BigQuery para estos datos",
+      bigQueryRecommendationDescription:
+        "Neon sigue siendo la opción predeterminada. Conecta BigQuery cuando tengas más de 1 millón de eventos observados o consultas lentas/tiempos de espera repetidos, y úsalo para análisis históricos o de gran volumen.",
+      bigQueryConnectedTitle: "BigQuery está listo para consultas más pesadas",
+      bigQueryConnectedDescription:
+        "Usa BigQuery para consultas históricas o de seguimiento de gran volumen. Neon sigue disponible para análisis operativos recientes.",
+      bigQuerySetup: "Configurar BigQuery",
+      bigQueryMonitorDescription:
+        "Neon sigue siendo una buena opción. Vigila el volumen de eventos y la latencia; esta tarjeta recomendará BigQuery si aumenta la presión.",
+      bigQueryHealthyDescription:
+        "Neon es una buena opción para estos datos propios por ahora. Te avisaremos si aumentan el volumen o la latencia.",
+      bigQueryHealthUnavailable:
+        "No se pudo comprobar la presión de Analytics propio. Recarga e inténtalo de nuevo antes de cambiar de backend.",
+      analyticsEventCount: "Eventos observados",
+      slowQueries24h: "Consultas lentas (24 h)",
+      maxQueryDuration: "Tiempo máximo de consulta",
       defaultKeyName: "Plantillas alojadas",
       endpoint: "Punto final",
       serverEnv: "entorno del servidor",
@@ -1604,12 +1780,30 @@ const analyticsSliceTranslations: {
       chartTypePie: "Pastel",
       chartTypeMetric: "Métrico",
       chartTypeTable: "Mesa",
+      chartTypeFunnel: "Embudo",
+      chartTypeHeatmap: "Mapa de calor",
+      chartTypeCallout: "Aviso",
+      chartTypeSection: "Sección",
+      chartTypeExtension: "Visualización personalizada",
       failedToSavePanel: "No se pudo guardar el panel",
       failedToFormatSql: "No se pudo formatear SQL",
       title: "Título",
       titlePlaceholder: "p.ej. Inscripciones semanales",
       chartType: "Tipo de gráfico",
       source: "Fuente",
+      extensionDisplay: "Visualización del bloque personalizado",
+      sharedExtension: "Bloque personalizado compartido",
+      perViewerSlot: "Espacio por usuario",
+      extension: "Bloque personalizado",
+      loadingExtensions: "Cargando bloques personalizados...",
+      selectExtension: "Selecciona un bloque personalizado",
+      noExtensions:
+        "No hay bloques personalizados visibles. Pide al agente que cree uno.",
+      sharedExtensionHelp:
+        "El bloque personalizado seleccionado se comparte con este panel y aparece en los informes programados. Los usuarios aún necesitan acceso.",
+      slotIdOptional: "ID del espacio (opcional)",
+      perViewerSlotHelp:
+        "Cada usuario instala su propia extensión. Los informes programados pueden mostrar un espacio vacío. Déjalo en blanco para generar un ID estable.",
       sectionColumns: "Columnas de sección",
       format: "Formato",
       filterInterpolation:
@@ -1800,6 +1994,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Télécharger le fichier",
+      googleSheetsExport: "Export Google Sheets",
+      googleSheetsExportDescription:
+        "Exportez les rapports du tableau de bord vers Google Sheets grâce à une connexion Google partagée.",
+      connected: "Connecté",
+      googleSheets: "Google Sheets",
       open: "Ouvrir",
       savedValueHint:
         "Une valeur est déjà enregistrée. Laissez vide pour le conserver ou saisissez une nouvelle valeur pour le remplacer.",
@@ -1817,6 +2016,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Les informations d'identification de l'application OAuth ne sont pas configurées sur ce déploiement. Utilisez le champ du jeton d'accès personnel ci-dessous.",
       sharedIntegration: "Intégration partagée",
+      workspaceAdminRequiredTitle:
+        "La connexion de l’organisation nécessite un administrateur",
+      workspaceAdminRequiredDescription:
+        "Demandez à un propriétaire ou administrateur de l’organisation de connecter {{name}} pour tous.",
       sharedReady:
         "Analytics peut utiliser ce fournisseur via une connexion à l'espace de travail accordée par Dispatch.",
       sharedNeedsGrant:
@@ -1853,6 +2056,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Identifiants partagés : {{credentials}}",
       ready: "Prêt",
       notConfigured: "Non configuré",
+      statusUnknown: "Impossible de vérifier l'état de la connexion",
+      statusUnknownDescription:
+        "L'état de la connexion n'a pas pu être lu ; cette source est peut-être déjà connectée. Rechargez la page pour vérifier avant d'ajouter des identifiants.",
       back: "Dos",
       continue: "Continuer",
       saveCredentials: "Enregistrer les informations d'identification",
@@ -1867,6 +2073,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "Analytics propriétaire",
       firstPartyDescription:
         "Recevez les événements produit, session et $ai_generation sur le même point de terminaison propriétaire pour les tableaux de bord et l'observabilité LLM.",
+      bigQueryRecommendationTitle: "BigQuery est recommandé pour ces données",
+      bigQueryRecommendationDescription:
+        "Neon reste la valeur par défaut. Connectez BigQuery avec plus d’un million d’événements observés ou des requêtes lentes/expirées répétées, puis utilisez-le pour les analyses historiques ou volumineuses.",
+      bigQueryConnectedTitle: "BigQuery est prêt pour les requêtes lourdes",
+      bigQueryConnectedDescription:
+        "Utilisez BigQuery pour les requêtes de suivi historiques ou volumineuses. Neon reste disponible pour les analyses opérationnelles récentes.",
+      bigQuerySetup: "Configurer BigQuery",
+      bigQueryMonitorDescription:
+        "Neon reste adapté pour le moment. Surveillez le volume et la latence ; cette carte recommandera BigQuery si la pression augmente.",
+      bigQueryHealthyDescription:
+        "Neon convient actuellement à ces données propriétaires. Nous vous préviendrons si le volume ou la latence augmente.",
+      bigQueryHealthUnavailable:
+        "Impossible de vérifier la pression Analytics propriétaire. Rechargez la page avant de changer de backend.",
+      analyticsEventCount: "Événements observés",
+      slowQueries24h: "Requêtes lentes (24 h)",
+      maxQueryDuration: "Durée maximale de requête",
       defaultKeyName: "Modèles hébergés",
       endpoint: "Point de terminaison",
       serverEnv: "Environnement du serveur",
@@ -1895,12 +2117,30 @@ const analyticsSliceTranslations: {
       chartTypePie: "Tarte",
       chartTypeMetric: "Métrique",
       chartTypeTable: "Tableau",
+      chartTypeFunnel: "Entonnoir",
+      chartTypeHeatmap: "Carte thermique",
+      chartTypeCallout: "Alerte",
+      chartTypeSection: "Section",
+      chartTypeExtension: "Visualisation personnalisée",
       failedToSavePanel: "Échec de l'enregistrement du panneau",
       failedToFormatSql: "Échec du formatage du SQL",
       title: "Titre",
       titlePlaceholder: "par ex. Inscriptions hebdomadaires",
       chartType: "Type de graphique",
       source: "Source de données",
+      extensionDisplay: "Affichage du bloc personnalisé",
+      sharedExtension: "Bloc personnalisé partagé",
+      perViewerSlot: "Emplacement par utilisateur",
+      extension: "Bloc personnalisé",
+      loadingExtensions: "Chargement des blocs personnalisés...",
+      selectExtension: "Sélectionner un bloc personnalisé",
+      noExtensions:
+        "Aucun bloc personnalisé visible. Demandez à l’agent d’en créer un.",
+      sharedExtensionHelp:
+        "Le bloc personnalisé sélectionné est partagé avec ce tableau de bord et apparaît dans les rapports planifiés. Les utilisateurs doivent toujours y avoir accès.",
+      slotIdOptional: "ID de l'emplacement (facultatif)",
+      perViewerSlotHelp:
+        "Chaque utilisateur installe sa propre extension. Les rapports planifiés peuvent afficher un emplacement vide. Laissez ce champ vide pour générer un ID stable.",
       sectionColumns: "Colonnes de section",
       format: "Mettre en forme",
       filterInterpolation:
@@ -2088,6 +2328,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Datei hochladen",
+      googleSheetsExport: "Google-Sheets-Export",
+      googleSheetsExportDescription:
+        "Exportieren Sie Dashboard-Berichte über eine gemeinsame Google-Verbindung nach Google Sheets.",
+      connected: "Verbunden",
+      googleSheets: "Google Sheets",
       open: "Offen",
       savedValueHint:
         "Ein Wert ist bereits gespeichert. Lassen Sie das Feld leer, um es beizubehalten, oder geben Sie einen neuen Wert ein, um es zu ersetzen.",
@@ -2106,6 +2351,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "Die Anmeldeinformationen für die OAuth-App sind in dieser Bereitstellung nicht konfiguriert. Verwenden Sie das Feld für das persönliche Zugriffstoken unten.",
       sharedIntegration: "Gemeinsame Integration",
+      workspaceAdminRequiredTitle:
+        "Für die Organisationsverbindung ist ein Administrator erforderlich",
+      workspaceAdminRequiredDescription:
+        "Bitte einen Organisationsinhaber oder Administrator, {{name}} für alle zu verbinden.",
       sharedReady:
         "Analytics kann diesen Anbieter über eine von Dispatch gewährte Workspace-Verbindung nutzen.",
       sharedNeedsGrant:
@@ -2142,6 +2391,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Gemeinsame Anmeldeinformationen: {{credentials}}",
       ready: "Bereit",
       notConfigured: "Nicht konfiguriert",
+      statusUnknown: "Verbindungsstatus konnte nicht geprüft werden",
+      statusUnknownDescription:
+        "Der Verbindungsstatus konnte nicht gelesen werden, diese Quelle ist möglicherweise bereits verbunden. Lade die Seite neu, um erneut zu prüfen, bevor du Zugangsdaten hinzufügst.",
       back: "Zurück",
       continue: "Weitermachen",
       saveCredentials: "Anmeldeinformationen speichern",
@@ -2156,6 +2408,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "First-Party-Analytics",
       firstPartyDescription:
         "Empfangen Sie Produkt-, Sitzungs- und $ai_generation-Ereignisse über denselben Erstanbieter-Endpunkt für Dashboards und LLM-Observability.",
+      bigQueryRecommendationTitle: "BigQuery wird für diese Daten empfohlen",
+      bigQueryRecommendationDescription:
+        "Neon bleibt die Standardeinstellung. Verbinde BigQuery ab 1 Million beobachteter Ereignisse oder wiederholt langsamen/abgebrochenen Abfragen und nutze es für umfangreiche oder historische Analysen.",
+      bigQueryConnectedTitle: "BigQuery ist für umfangreiche Abfragen bereit",
+      bigQueryConnectedDescription:
+        "Nutze BigQuery für umfangreiche oder historische Tracking-Abfragen. Neon bleibt für aktuelle operative Analysen verfügbar.",
+      bigQuerySetup: "BigQuery einrichten",
+      bigQueryMonitorDescription:
+        "Neon ist derzeit weiterhin geeignet. Beobachte Ereignismenge und Abfragelatenz; bei wachsendem Druck wird diese Karte BigQuery empfehlen.",
+      bigQueryHealthyDescription:
+        "Neon ist für diese First-Party-Daten derzeit gut geeignet. Wir melden uns erneut, wenn Menge oder Latenz steigen.",
+      bigQueryHealthUnavailable:
+        "Der Druck der First-Party-Analytics konnte nicht geprüft werden. Lade die Seite neu, bevor du das Backend wechselst.",
+      analyticsEventCount: "Beobachtete Ereignisse",
+      slowQueries24h: "Langsame Abfragen (24 h)",
+      maxQueryDuration: "Maximale Abfragezeit",
       defaultKeyName: "Gehostete Vorlagen",
       endpoint: "Endpunkt",
       serverEnv: "Serverumgebung",
@@ -2184,12 +2452,30 @@ const analyticsSliceTranslations: {
       chartTypePie: "Torte",
       chartTypeMetric: "Metrisch",
       chartTypeTable: "Tisch",
+      chartTypeFunnel: "Trichter",
+      chartTypeHeatmap: "Heatmap",
+      chartTypeCallout: "Hinweis",
+      chartTypeSection: "Abschnitt",
+      chartTypeExtension: "Benutzerdefinierte Visualisierung",
       failedToSavePanel: "Das Panel konnte nicht gespeichert werden",
       failedToFormatSql: "SQL konnte nicht formatiert werden",
       title: "Titel",
       titlePlaceholder: "z.B. Wöchentliche Anmeldungen",
       chartType: "Diagrammtyp",
       source: "Datenquelle",
+      extensionDisplay: "Anzeige des benutzerdefinierten Blocks",
+      sharedExtension: "Geteilter benutzerdefinierter Block",
+      perViewerSlot: "Slot pro Betrachter",
+      extension: "Benutzerdefinierter Block",
+      loadingExtensions: "Benutzerdefinierte Blöcke werden geladen...",
+      selectExtension: "Benutzerdefinierten Block auswählen",
+      noExtensions:
+        "Keine sichtbaren benutzerdefinierten Blöcke. Bitten Sie den Agenten, einen zu erstellen.",
+      sharedExtensionHelp:
+        "Der ausgewählte benutzerdefinierte Block wird mit diesem Dashboard geteilt und erscheint in geplanten Berichten. Betrachter benötigen weiterhin Zugriff darauf.",
+      slotIdOptional: "Slot-ID (optional)",
+      perViewerSlotHelp:
+        "Jeder Betrachter installiert eine eigene Erweiterung. Geplante Berichte können einen leeren Slot zeigen. Leer lassen, um eine stabile ID zu erzeugen.",
       sectionColumns: "Abschnittsspalten",
       format: "Formatieren",
       filterInterpolation:
@@ -2374,6 +2660,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "ファイルをアップロードする",
+      googleSheetsExport: "Google スプレッドシートへのエクスポート",
+      googleSheetsExportDescription:
+        "共有 Google 接続を使用してダッシュボードレポートを Google スプレッドシートにエクスポートします。",
+      connected: "接続済み",
+      googleSheets: "Google Sheets",
       open: "開ける",
       savedValueHint:
         "値はすでに保存されています。空白のままにして保持するか、新しい値を入力して置き換えます。",
@@ -2392,6 +2683,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "OAuth アプリの資格情報は、この展開では構成されていません。以下の個人アクセス トークン フィールドを使用してください。",
       sharedIntegration: "共有統合",
+      workspaceAdminRequiredTitle: "組織の接続には管理者が必要です",
+      workspaceAdminRequiredDescription:
+        "組織の所有者または管理者に、組織全体で {{name}} を接続するよう依頼してください。",
       sharedReady:
         "Analytics は、Dispatch から付与されたワークスペース接続を通じてこのプロバイダーを使用できます。",
       sharedNeedsGrant:
@@ -2427,6 +2721,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "共有資格情報: {{credentials}}",
       ready: "準備ができて",
       notConfigured: "未設定",
+      statusUnknown: "接続状態を確認できませんでした",
+      statusUnknownDescription:
+        "接続状態を読み取れなかったため、このソースはすでに接続されている可能性があります。認証情報を追加する前に、再読み込みして確認してください。",
       back: "戻る",
       continue: "続く",
       saveCredentials: "認証情報の保存",
@@ -2441,6 +2738,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "ファーストパーティ Analytics",
       firstPartyDescription:
         "同じファーストパーティエンドポイントで製品、セッション、$ai_generation イベントを受信し、ダッシュボードと LLM 可観測性に使用します。",
+      bigQueryRecommendationTitle: "このデータには BigQuery をおすすめします",
+      bigQueryRecommendationDescription:
+        "Neon は引き続き標準です。観測イベントが 100 万件を超える、または遅いクエリやタイムアウトが繰り返される場合は BigQuery に接続し、大量・履歴分析に使用してください。",
+      bigQueryConnectedTitle: "BigQuery は重いクエリに対応できます",
+      bigQueryConnectedDescription:
+        "大量または履歴のトラッキングクエリには BigQuery を使用してください。Neon は最近の運用分析に引き続き利用できます。",
+      bigQuerySetup: "BigQuery を設定",
+      bigQueryMonitorDescription:
+        "今のところ Neon が適しています。イベント量とクエリ遅延を確認してください。負荷が増えるとこのカードが BigQuery をおすすめします。",
+      bigQueryHealthyDescription:
+        "現在、このファーストパーティデータには Neon が適しています。量やクエリ遅延が増えたら再度お知らせします。",
+      bigQueryHealthUnavailable:
+        "ファーストパーティ Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
+      analyticsEventCount: "観測イベント",
+      slowQueries24h: "遅いクエリ（24 時間）",
+      maxQueryDuration: "最大クエリ時間",
       defaultKeyName: "ホストされたテンプレート",
       endpoint: "終点",
       serverEnv: "サーバー環境",
@@ -2469,12 +2782,30 @@ const analyticsSliceTranslations: {
       chartTypePie: "パイ",
       chartTypeMetric: "メトリック",
       chartTypeTable: "テーブル",
+      chartTypeFunnel: "ファネル",
+      chartTypeHeatmap: "ヒートマップ",
+      chartTypeCallout: "コールアウト",
+      chartTypeSection: "セクション",
+      chartTypeExtension: "カスタム可視化",
       failedToSavePanel: "パネルの保存に失敗しました",
       failedToFormatSql: "SQLのフォーマットに失敗しました",
       title: "タイトル",
       titlePlaceholder: "例えば毎週のサインアップ",
       chartType: "グラフの種類",
       source: "ソース",
+      extensionDisplay: "カスタムブロックの表示",
+      sharedExtension: "共有カスタムブロック",
+      perViewerSlot: "閲覧者ごとのスロット",
+      extension: "カスタムブロック",
+      loadingExtensions: "カスタムブロックを読み込んでいます...",
+      selectExtension: "カスタムブロックを選択",
+      noExtensions:
+        "表示できるカスタムブロックがありません。エージェントに作成を依頼してください。",
+      sharedExtensionHelp:
+        "選択したカスタムブロックはこのダッシュボードと共有され、スケジュール済みレポートにも表示されます。閲覧者にはアクセス権が必要です。",
+      slotIdOptional: "スロット ID（任意）",
+      perViewerSlotHelp:
+        "各閲覧者が自分の拡張機能をインストールします。スケジュール済みレポートでは空のスロットが表示される場合があります。空欄にすると安定した ID が生成されます。",
       sectionColumns: "セクション列",
       format: "形式",
       filterInterpolation:
@@ -2655,6 +2986,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "파일 업로드",
+      googleSheetsExport: "Google Sheets 내보내기",
+      googleSheetsExportDescription:
+        "공유 Google 연결을 통해 대시보드 보고서를 Google Sheets로 내보냅니다.",
+      connected: "연결됨",
+      googleSheets: "Google Sheets",
       open: "열려 있는",
       savedValueHint:
         "값이 이미 저장되어 있습니다. 유지하려면 비워두고, 바꾸려면 새 값을 입력하세요.",
@@ -2672,6 +3008,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "이 배포에서는 OAuth 앱 자격 증명이 구성되지 않습니다. 아래의 개인 액세스 토큰 필드를 사용하세요.",
       sharedIntegration: "공유 통합",
+      workspaceAdminRequiredTitle: "조직 연결에는 관리자가 필요합니다",
+      workspaceAdminRequiredDescription:
+        "조직 소유자 또는 관리자에게 조직의 모든 사용자를 위해 {{name}} 연결을 요청하세요.",
       sharedReady:
         "Analytics는 Dispatch에서 부여된 작업 공간 연결을 통해 이 공급자를 사용할 수 있습니다.",
       sharedNeedsGrant:
@@ -2707,6 +3046,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "공유 자격 증명: {{credentials}}",
       ready: "준비가 된",
       notConfigured: "구성되지 않음",
+      statusUnknown: "연결 상태를 확인할 수 없습니다",
+      statusUnknownDescription:
+        "연결 상태를 읽을 수 없어 이 소스가 이미 연결되어 있을 수 있습니다. 자격 증명을 추가하기 전에 새로 고쳐 다시 확인하세요.",
       back: "뒤쪽에",
       continue: "계속하다",
       saveCredentials: "자격 증명 저장",
@@ -2721,6 +3063,23 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "퍼스트파티 Analytics",
       firstPartyDescription:
         "동일한 퍼스트파티 엔드포인트에서 제품, 세션, $ai_generation 이벤트를 받아 대시보드와 LLM 관측성에 사용합니다.",
+      bigQueryRecommendationTitle: "이 데이터에는 BigQuery를 권장합니다",
+      bigQueryRecommendationDescription:
+        "Neon은 여전히 기본값입니다. 관측 이벤트가 100만 개 이상이거나 느린 쿼리/시간 초과가 반복되면 BigQuery를 연결하고 대용량 또는 과거 분석에 사용하세요.",
+      bigQueryConnectedTitle:
+        "BigQuery가 무거운 쿼리를 처리할 준비가 되었습니다",
+      bigQueryConnectedDescription:
+        "대용량 또는 과거 추적 쿼리에는 BigQuery를 사용하세요. Neon은 최근 운영 분석에 계속 사용할 수 있습니다.",
+      bigQuerySetup: "BigQuery 설정",
+      bigQueryMonitorDescription:
+        "현재는 Neon이 적합합니다. 이벤트 양과 쿼리 지연을 확인하세요. 부담이 커지면 이 카드에서 BigQuery를 권장합니다.",
+      bigQueryHealthyDescription:
+        "현재 이 퍼스트파티 데이터에는 Neon이 적합합니다. 양이나 쿼리 지연이 증가하면 다시 알려드립니다.",
+      bigQueryHealthUnavailable:
+        "퍼스트파티 Analytics 부담을 확인하지 못했습니다. 백엔드를 바꾸기 전에 다시 로드하세요.",
+      analyticsEventCount: "관측된 이벤트",
+      slowQueries24h: "느린 쿼리 (24시간)",
+      maxQueryDuration: "최대 쿼리 시간",
       defaultKeyName: "호스팅된 템플릿",
       endpoint: "엔드포인트",
       serverEnv: "서버 환경",
@@ -2748,12 +3107,30 @@ const analyticsSliceTranslations: {
       chartTypePie: "파이",
       chartTypeMetric: "미터법",
       chartTypeTable: "테이블",
+      chartTypeFunnel: "퍼널",
+      chartTypeHeatmap: "히트맵",
+      chartTypeCallout: "콜아웃",
+      chartTypeSection: "섹션",
+      chartTypeExtension: "사용자 지정 시각화",
       failedToSavePanel: "패널을 저장하지 못했습니다.",
       failedToFormatSql: "SQL 포맷 실패",
       title: "제목",
       titlePlaceholder: "예를 들어 주간 가입",
       chartType: "차트 종류",
       source: "소스",
+      extensionDisplay: "사용자 지정 블록 표시",
+      sharedExtension: "공유 사용자 지정 블록",
+      perViewerSlot: "사용자별 슬롯",
+      extension: "사용자 지정 블록",
+      loadingExtensions: "사용자 지정 블록을 불러오는 중...",
+      selectExtension: "사용자 지정 블록 선택",
+      noExtensions:
+        "표시할 사용자 지정 블록이 없습니다. 에이전트에게 생성을 요청하세요.",
+      sharedExtensionHelp:
+        "선택한 사용자 지정 블록은 이 대시보드와 공유되며 예약 보고서에 표시됩니다. 사용자는 해당 블록에 대한 액세스 권한이 필요합니다.",
+      slotIdOptional: "슬롯 ID(선택 사항)",
+      perViewerSlotHelp:
+        "각 사용자가 자신의 확장 프로그램을 설치합니다. 예약 보고서에는 빈 슬롯이 표시될 수 있습니다. 비워 두면 안정적인 ID가 생성됩니다.",
       sectionColumns: "섹션 열",
       format: "체재",
       filterInterpolation: "{{example}}를 사용하여 필터 값을 보간합니다.",
@@ -2932,6 +3309,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Carregar arquivo",
+      googleSheetsExport: "Exportação para o Google Sheets",
+      googleSheetsExportDescription:
+        "Exporte relatórios do painel para o Google Sheets por meio de uma conexão Google compartilhada.",
+      connected: "Conectado",
+      googleSheets: "Google Sheets",
       open: "Abrir",
       savedValueHint:
         "Um valor já está salvo. Deixe em branco para mantê-lo ou insira um novo valor para substituí-lo.",
@@ -2949,6 +3331,10 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "As credenciais do aplicativo OAuth não estão configuradas nesta implantação. Use o campo de token de acesso pessoal abaixo.",
       sharedIntegration: "Integração compartilhada",
+      workspaceAdminRequiredTitle:
+        "A conexão da organização requer um administrador",
+      workspaceAdminRequiredDescription:
+        "Peça a um proprietário ou administrador da organização para conectar {{name}} para todos.",
       sharedReady:
         "Analytics pode usar este provedor por meio de uma conexão de espaço de trabalho concedida pelo Dispatch.",
       sharedNeedsGrant:
@@ -2984,6 +3370,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "Credenciais compartilhadas: {{credentials}}",
       ready: "Preparar",
       notConfigured: "Não configurado",
+      statusUnknown: "Não foi possível verificar o status da conexão",
+      statusUnknownDescription:
+        "Não foi possível ler o status da conexão, então esta fonte pode já estar conectada. Recarregue a página para verificar antes de adicionar credenciais.",
       back: "Voltar",
       continue: "Continuar",
       saveCredentials: "Salvar credenciais",
@@ -2998,6 +3387,23 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "Analytics primário",
       firstPartyDescription:
         "Receba eventos de produto, sessão e $ai_generation pelo mesmo endpoint primário para dashboards e observabilidade de LLM.",
+      bigQueryRecommendationTitle: "BigQuery é recomendado para estes dados",
+      bigQueryRecommendationDescription:
+        "Neon continua sendo o padrão. Conecte o BigQuery ao observar mais de 1 milhão de eventos ou consultas lentas/expiradas repetidas e use-o para análises históricas ou de alto volume.",
+      bigQueryConnectedTitle:
+        "BigQuery está pronto para consultas mais pesadas",
+      bigQueryConnectedDescription:
+        "Use BigQuery para consultas históricas ou de rastreamento de alto volume. Neon continua disponível para análises operacionais recentes.",
+      bigQuerySetup: "Configurar BigQuery",
+      bigQueryMonitorDescription:
+        "Neon ainda é uma boa opção. Acompanhe o volume de eventos e a latência; este cartão recomendará BigQuery se a pressão aumentar.",
+      bigQueryHealthyDescription:
+        "Neon é uma boa opção para estes dados primários agora. Avisaremos novamente se o volume ou a latência crescer.",
+      bigQueryHealthUnavailable:
+        "Não foi possível verificar a pressão do Analytics primário. Recarregue antes de trocar o backend.",
+      analyticsEventCount: "Eventos observados",
+      slowQueries24h: "Consultas lentas (24 h)",
+      maxQueryDuration: "Tempo máximo da consulta",
       defaultKeyName: "Modelos hospedados",
       endpoint: "Ponto final",
       serverEnv: "Ambiente do servidor",
@@ -3026,12 +3432,30 @@ const analyticsSliceTranslations: {
       chartTypePie: "Torta",
       chartTypeMetric: "Métrica",
       chartTypeTable: "Mesa",
+      chartTypeFunnel: "Funil",
+      chartTypeHeatmap: "Mapa de calor",
+      chartTypeCallout: "Destaque",
+      chartTypeSection: "Seção",
+      chartTypeExtension: "Visualização personalizada",
       failedToSavePanel: "Falha ao salvar painel",
       failedToFormatSql: "Falha ao formatar SQL",
       title: "Título",
       titlePlaceholder: "por exemplo Inscrições semanais",
       chartType: "Tipo de gráfico",
       source: "Fonte",
+      extensionDisplay: "Exibição do bloco personalizado",
+      sharedExtension: "Bloco personalizado compartilhado",
+      perViewerSlot: "Slot por usuário",
+      extension: "Bloco personalizado",
+      loadingExtensions: "Carregando blocos personalizados...",
+      selectExtension: "Selecione um bloco personalizado",
+      noExtensions:
+        "Nenhum bloco personalizado visível. Peça ao agente para criar um.",
+      sharedExtensionHelp:
+        "O bloco personalizado selecionado é compartilhado com este painel e aparece nos relatórios agendados. Os usuários ainda precisam de acesso.",
+      slotIdOptional: "ID do slot (opcional)",
+      perViewerSlotHelp:
+        "Cada usuário instala sua própria extensão. Relatórios agendados podem mostrar um slot vazio. Deixe em branco para gerar um ID estável.",
       sectionColumns: "Colunas de seção",
       format: "Formatar",
       filterInterpolation: "Use {{example}} para interpolar valores de filtro.",
@@ -3214,6 +3638,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "फ़ाइल अपलोड करें",
+      googleSheetsExport: "Google Sheets निर्यात",
+      googleSheetsExportDescription:
+        "साझा Google कनेक्शन के माध्यम से डैशबोर्ड रिपोर्ट को Google Sheets में निर्यात करें।",
+      connected: "कनेक्टेड",
+      googleSheets: "Google Sheets",
       open: "खुला",
       savedValueHint:
         "एक मान पहले से ही सहेजा गया है. इसे रखने के लिए खाली छोड़ दें, या इसे बदलने के लिए एक नया मान दर्ज करें।",
@@ -3231,6 +3660,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "इस परिनियोजन पर OAuth ऐप क्रेडेंशियल कॉन्फ़िगर नहीं किए गए हैं। नीचे व्यक्तिगत एक्सेस टोकन फ़ील्ड का उपयोग करें।",
       sharedIntegration: "साझा एकीकरण",
+      workspaceAdminRequiredTitle: "संगठन कनेक्शन के लिए एडमिन आवश्यक है",
+      workspaceAdminRequiredDescription:
+        "संगठन के मालिक या एडमिन से सभी के लिए {{name}} कनेक्ट करने को कहें।",
       sharedReady:
         "Analytics इस प्रदाता का उपयोग Dispatch से दिए गए कार्यक्षेत्र कनेक्शन के माध्यम से कर सकता है।",
       sharedNeedsGrant:
@@ -3266,6 +3698,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "साझा क्रेडेंशियल: {{credentials}}",
       ready: "तैयार",
       notConfigured: "कॉन्फ़िगर नहीं किया गया",
+      statusUnknown: "कनेक्शन स्थिति जाँची नहीं जा सकी",
+      statusUnknownDescription:
+        "कनेक्शन स्थिति पढ़ी नहीं जा सकी, इसलिए हो सकता है कि यह स्रोत पहले से जुड़ा हो। क्रेडेंशियल जोड़ने से पहले पेज फिर से लोड करके जाँचें।",
       back: "पीछे",
       continue: "जारी रखना",
       saveCredentials: "क्रेडेंशियल सहेजें",
@@ -3280,6 +3715,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "प्रथम-पक्ष Analytics",
       firstPartyDescription:
         "डैशबोर्ड और LLM observability के लिए उसी प्रथम-पक्ष endpoint से product, session, और $ai_generation events प्राप्त करें।",
+      bigQueryRecommendationTitle: "इस डेटा के लिए BigQuery की सलाह है",
+      bigQueryRecommendationDescription:
+        "Neon अभी भी डिफ़ॉल्ट है। 10 लाख से अधिक देखे गए events या बार-बार धीमे queries/timeouts होने पर BigQuery जोड़ें और बड़े या पुराने डेटा के विश्लेषण के लिए इसका उपयोग करें।",
+      bigQueryConnectedTitle: "BigQuery भारी queries के लिए तैयार है",
+      bigQueryConnectedDescription:
+        "बड़े या पुराने tracking queries के लिए BigQuery का उपयोग करें। हाल के operational analytics के लिए Neon उपलब्ध रहेगा।",
+      bigQuerySetup: "BigQuery सेट अप करें",
+      bigQueryMonitorDescription:
+        "अभी Neon उपयुक्त है। event volume और query latency पर नज़र रखें; दबाव बढ़ने पर यह card BigQuery की सलाह देगा।",
+      bigQueryHealthyDescription:
+        "अभी इस first-party data के लिए Neon उपयुक्त है। volume या query latency बढ़ने पर हम फिर बताएँगे।",
+      bigQueryHealthUnavailable:
+        "First-party Analytics pressure की जाँच नहीं हो सकी। backend बदलने से पहले reload करके फिर प्रयास करें।",
+      analyticsEventCount: "देखे गए events",
+      slowQueries24h: "धीमे queries (24 घंटे)",
+      maxQueryDuration: "अधिकतम query समय",
       defaultKeyName: "होस्ट किए गए टेम्पलेट",
       endpoint: "endpoint",
       serverEnv: "सर्वर एन.वी",
@@ -3307,12 +3758,29 @@ const analyticsSliceTranslations: {
       chartTypePie: "पाई",
       chartTypeMetric: "मीट्रिक",
       chartTypeTable: "मेज़",
+      chartTypeFunnel: "फ़नल",
+      chartTypeHeatmap: "हीटमैप",
+      chartTypeCallout: "कॉलआउट",
+      chartTypeSection: "अनुभाग",
+      chartTypeExtension: "कस्टम विज़ुअलाइज़ेशन",
       failedToSavePanel: "पैनल सहेजने में विफल",
       failedToFormatSql: "SQL को फ़ॉर्मेट करने में विफल",
       title: "शीर्षक",
       titlePlaceholder: "जैसे साप्ताहिक साइनअप",
       chartType: "चार्ट प्रकार",
       source: "स्रोत",
+      extensionDisplay: "कस्टम ब्लॉक प्रदर्शन",
+      sharedExtension: "साझा कस्टम ब्लॉक",
+      perViewerSlot: "प्रति-दर्शक स्लॉट",
+      extension: "कस्टम ब्लॉक",
+      loadingExtensions: "कस्टम ब्लॉक लोड हो रहे हैं...",
+      selectExtension: "कस्टम ब्लॉक चुनें",
+      noExtensions: "कोई कस्टम ब्लॉक दिखाई नहीं दे रहा है। एजेंट से एक बनाने को कहें।",
+      sharedExtensionHelp:
+        "चुना गया कस्टम ब्लॉक इस डैशबोर्ड के साथ साझा होता है और निर्धारित रिपोर्ट में दिखाई देता है। दर्शकों को फिर भी इसकी पहुंच चाहिए।",
+      slotIdOptional: "स्लॉट ID (वैकल्पिक)",
+      perViewerSlotHelp:
+        "हर दर्शक अपना एक्सटेंशन इंस्टॉल करता है। निर्धारित रिपोर्ट में खाली स्लॉट दिख सकता है। स्थिर ID बनाने के लिए खाली छोड़ें।",
       sectionColumns: "अनुभाग स्तंभ",
       format: "प्रारूप",
       filterInterpolation:
@@ -3488,6 +3956,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "تحميل الملف",
+      googleSheetsExport: "تصدير Google Sheets",
+      googleSheetsExportDescription:
+        "صدّر تقارير لوحة المعلومات إلى Google Sheets من خلال اتصال Google مشترك.",
+      connected: "متصل",
+      googleSheets: "Google Sheets",
       open: "يفتح",
       savedValueHint:
         "تم حفظ القيمة بالفعل. اتركه فارغًا للاحتفاظ به، أو أدخل قيمة جديدة لاستبداله.",
@@ -3505,6 +3978,9 @@ const analyticsSliceTranslations: {
       githubOAuthUnavailable:
         "لم يتم تكوين بيانات اعتماد تطبيق OAuth في هذا النشر. استخدم حقل رمز الوصول الشخصي أدناه.",
       sharedIntegration: "التكامل المشترك",
+      workspaceAdminRequiredTitle: "يتطلب اتصال المؤسسة مشرفًا",
+      workspaceAdminRequiredDescription:
+        "اطلب من مالك المؤسسة أو أحد المشرفين ربط {{name}} لجميع أعضاء المؤسسة.",
       sharedReady:
         "يمكن لـ Analytics استخدام هذا الموفر من خلال اتصال مساحة العمل الممنوح من Dispatch.",
       sharedNeedsGrant:
@@ -3540,6 +4016,9 @@ const analyticsSliceTranslations: {
       sharedCredentials: "بيانات الاعتماد المشتركة: {{credentials}}",
       ready: "مستعد",
       notConfigured: "لم يتم تكوينه",
+      statusUnknown: "تعذّر التحقق من حالة الاتصال",
+      statusUnknownDescription:
+        "تعذّرت قراءة حالة الاتصال، لذا قد يكون هذا المصدر متصلاً بالفعل. أعد تحميل الصفحة للتحقق قبل إضافة بيانات الاعتماد.",
       back: "خلف",
       continue: "يكمل",
       saveCredentials: "حفظ بيانات الاعتماد",
@@ -3554,6 +4033,22 @@ const analyticsSliceTranslations: {
       firstPartyAnalytics: "تحليلات الطرف الأول",
       firstPartyDescription:
         "استقبل أحداث المنتج والجلسة و $ai_generation عبر نقطة نهاية الطرف الأول نفسها للوحات المعلومات ومراقبة LLM.",
+      bigQueryRecommendationTitle: "يُنصح باستخدام BigQuery لهذه البيانات",
+      bigQueryRecommendationDescription:
+        "يبقى Neon هو الخيار الافتراضي. وصّل BigQuery عند وجود أكثر من مليون حدث ملحوظ أو تكرار الاستعلامات البطيئة/المهلة، واستخدمه للتحليل التاريخي أو عالي الحجم.",
+      bigQueryConnectedTitle: "BigQuery جاهز للاستعلامات الأثقل",
+      bigQueryConnectedDescription:
+        "استخدم BigQuery لاستعلامات التتبع عالية الحجم أو التاريخية. يظل Neon متاحاً للتحليلات التشغيلية الحديثة.",
+      bigQuerySetup: "إعداد BigQuery",
+      bigQueryMonitorDescription:
+        "لا يزال Neon مناسباً حالياً. راقب حجم الأحداث وزمن الاستعلام؛ ستوصي هذه البطاقة بـ BigQuery إذا زاد الضغط.",
+      bigQueryHealthyDescription:
+        "Neon مناسب حالياً لبيانات الطرف الأول هذه. سننبهك مجدداً إذا زاد الحجم أو زمن الاستعلام.",
+      bigQueryHealthUnavailable:
+        "تعذّر التحقق من ضغط Analytics للطرف الأول. أعد التحميل وحاول مجدداً قبل تغيير الخلفية.",
+      analyticsEventCount: "الأحداث الملحوظة",
+      slowQueries24h: "الاستعلامات البطيئة (24 ساعة)",
+      maxQueryDuration: "أقصى زمن للاستعلام",
       defaultKeyName: "القوالب المستضافة",
       endpoint: "نقطة النهاية",
       serverEnv: "بيئة الخادم",
@@ -3582,12 +4077,29 @@ const analyticsSliceTranslations: {
       chartTypePie: "فطيرة",
       chartTypeMetric: "متري",
       chartTypeTable: "طاولة",
+      chartTypeFunnel: "مسار تحويل",
+      chartTypeHeatmap: "خريطة حرارية",
+      chartTypeCallout: "تنبيه",
+      chartTypeSection: "قسم",
+      chartTypeExtension: "عرض مرئي مخصص",
       failedToSavePanel: "فشل حفظ اللوحة",
       failedToFormatSql: "فشل تهيئة SQL",
       title: "عنوان",
       titlePlaceholder: "على سبيل المثال الاشتراكات الأسبوعية",
       chartType: "نوع الرسم البياني",
       source: "المصدر",
+      extensionDisplay: "عرض الكتلة المخصصة",
+      sharedExtension: "كتلة مخصصة مشتركة",
+      perViewerSlot: "فتحة لكل مشاهد",
+      extension: "كتلة مخصصة",
+      loadingExtensions: "جارٍ تحميل الكتل المخصصة...",
+      selectExtension: "اختر كتلة مخصصة",
+      noExtensions: "لا توجد كتل مخصصة ظاهرة. اطلب من الوكيل إنشاء واحدة.",
+      sharedExtensionHelp:
+        "تتم مشاركة الكتلة المخصصة المحددة مع لوحة المعلومات هذه وتظهر في التقارير المجدولة. لا يزال المشاهدون بحاجة إلى صلاحية الوصول إليها.",
+      slotIdOptional: "معرّف الفتحة (اختياري)",
+      perViewerSlotHelp:
+        "يثبّت كل مشاهد إضافته الخاصة. قد تعرض التقارير المجدولة فتحة فارغة. اتركه فارغاً لإنشاء معرّف ثابت.",
       sectionColumns: "أعمدة القسم",
       format: "شكل",
       filterInterpolation: "استخدم {{example}} لاستكمال قيم التصفية.",
@@ -3798,6 +4310,7 @@ export const messagesByLocale = {
       noAnalysesYet: "还没有分析",
       dashboardsLoadFailed: "无法加载仪表板。",
       analysesLoadFailed: "无法加载分析。",
+      favoritesUnavailable: "收藏功能目前不可用",
       retry: "重试",
       search: "搜索",
       searchShortcut: "搜索（{{shortcut}}）",
@@ -3897,10 +4410,9 @@ export const messagesByLocale = {
       untitledDashboard: "未命名仪表板",
     },
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       account: "账户",
       signedInAs: "登录身份",
       credentials: "数据源凭据",
@@ -3911,6 +4423,13 @@ export const messagesByLocale = {
       openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
+      errorEmailNotifications: "通过电子邮件接收新的错误提醒",
+      errorEmailNotificationsDescription:
+        "捕获新的 JavaScript 错误时发送电子邮件。默认关闭。",
+      errorEmailNotificationsSaveFailed: "无法保存电子邮件偏好设置。",
+      bellSound: "提示音",
+      bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
+      bellSoundSaveFailed: "无法保存提示音偏好设置。",
       about: "关于",
       aboutDescription:
         "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
@@ -4006,6 +4525,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Aún no hay análisis",
       dashboardsLoadFailed: "No se pudieron cargar los paneles.",
       analysesLoadFailed: "No se pudieron cargar los análisis.",
+      favoritesUnavailable: "Los favoritos no están disponibles ahora",
       retry: "Reintentar",
       search: "Buscar",
       searchShortcut: "Buscar ({{shortcut}})",
@@ -4112,10 +4632,10 @@ export const messagesByLocale = {
       untitledDashboard: "Panel sin título",
     },
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       account: "Cuenta",
       signedInAs: "Sesión iniciada como",
       credentials: "Credenciales de fuentes de datos",
@@ -4128,6 +4648,15 @@ export const messagesByLocale = {
       openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
+      errorEmailNotifications: "Recibir nuevas alertas de errores por email",
+      errorEmailNotificationsDescription:
+        "Envía un email cuando se capture un nuevo error de JavaScript. Desactivado de forma predeterminada.",
+      errorEmailNotificationsSaveFailed:
+        "No se pudo guardar la preferencia de email.",
+      bellSound: "Sonido de campana",
+      bellSoundDescription:
+        "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
+      bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
       about: "Acerca de",
       aboutDescription:
         "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
@@ -4225,6 +4754,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Aucune analyse pour le moment",
       dashboardsLoadFailed: "Impossible de charger les tableaux de bord.",
       analysesLoadFailed: "Impossible de charger les analyses.",
+      favoritesUnavailable: "Les favoris sont indisponibles pour le moment",
       retry: "Réessayer",
       search: "Rechercher",
       searchShortcut: "Rechercher ({{shortcut}})",
@@ -4333,10 +4863,10 @@ export const messagesByLocale = {
       untitledDashboard: "Tableau de bord sans titre",
     },
     settings: {
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
       account: "Compte",
       signedInAs: "Connecté en tant que",
       credentials: "Identifiants des sources de données",
@@ -4349,6 +4879,16 @@ export const messagesByLocale = {
       openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
+      errorEmailNotifications:
+        "Recevoir les nouvelles alertes d’erreur par e-mail",
+      errorEmailNotificationsDescription:
+        "Envoyer un e-mail lorsqu’une nouvelle erreur JavaScript est capturée. Désactivé par défaut.",
+      errorEmailNotificationsSaveFailed:
+        "Impossible d’enregistrer la préférence e-mail.",
+      bellSound: "Son de notification",
+      bellSoundDescription:
+        "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
+      bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
       about: "À propos",
       aboutDescription:
         "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
@@ -4450,6 +4990,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Noch keine Analysen",
       dashboardsLoadFailed: "Dashboards konnten nicht geladen werden.",
       analysesLoadFailed: "Analysen konnten nicht geladen werden.",
+      favoritesUnavailable: "Favoriten sind momentan nicht verfügbar",
       retry: "Erneut versuchen",
       search: "Suchen",
       searchShortcut: "Suchen ({{shortcut}})",
@@ -4561,10 +5102,10 @@ export const messagesByLocale = {
       untitledDashboard: "Unbenanntes Dashboard",
     },
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       account: "Konto",
       signedInAs: "Angemeldet als",
       credentials: "Datenquellen-Anmeldedaten",
@@ -4577,6 +5118,16 @@ export const messagesByLocale = {
       openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
+      errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
+      errorEmailNotificationsDescription:
+        "Eine E-Mail senden, wenn ein neuer JavaScript-Fehler erfasst wird. Standardmäßig deaktiviert.",
+      errorEmailNotificationsSaveFailed:
+        "Die E-Mail-Einstellung konnte nicht gespeichert werden.",
+      bellSound: "Signalton",
+      bellSoundDescription:
+        "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
+      bellSoundSaveFailed:
+        "Die Toneinstellung konnte nicht gespeichert werden.",
       about: "Info",
       aboutDescription:
         "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
@@ -4675,6 +5226,7 @@ export const messagesByLocale = {
       noAnalysesYet: "分析はまだありません",
       dashboardsLoadFailed: "ダッシュボードを読み込めませんでした。",
       analysesLoadFailed: "分析を読み込めませんでした。",
+      favoritesUnavailable: "お気に入りは現在利用できません",
       retry: "再試行",
       search: "検索",
       searchShortcut: "検索（{{shortcut}}）",
@@ -4780,10 +5332,10 @@ export const messagesByLocale = {
       untitledDashboard: "無題のダッシュボード",
     },
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       account: "アカウント",
       signedInAs: "サインイン中",
       credentials: "データソース認証情報",
@@ -4796,6 +5348,14 @@ export const messagesByLocale = {
       openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
+      errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
+      errorEmailNotificationsDescription:
+        "新しい JavaScript エラーが記録されたときにメールを送信します。デフォルトではオフです。",
+      errorEmailNotificationsSaveFailed: "メール設定を保存できませんでした。",
+      bellSound: "完了サウンド",
+      bellSoundDescription:
+        "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
+      bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
       about: "概要",
       aboutDescription:
         "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
@@ -4893,6 +5453,7 @@ export const messagesByLocale = {
       noAnalysesYet: "아직 분석이 없습니다",
       dashboardsLoadFailed: "대시보드를 불러오지 못했습니다.",
       analysesLoadFailed: "분석을 불러오지 못했습니다.",
+      favoritesUnavailable: "즐겨찾기를 지금 사용할 수 없습니다",
       retry: "다시 시도",
       search: "검색",
       searchShortcut: "검색({{shortcut}})",
@@ -4998,10 +5559,10 @@ export const messagesByLocale = {
       untitledDashboard: "제목 없는 대시보드",
     },
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       account: "계정",
       signedInAs: "로그인 계정",
       credentials: "데이터 소스 자격 증명",
@@ -5014,6 +5575,14 @@ export const messagesByLocale = {
       openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
+      errorEmailNotifications: "새 오류 알림을 이메일로 받기",
+      errorEmailNotificationsDescription:
+        "새 JavaScript 오류가 캡처되면 이메일을 보냅니다. 기본값은 꺼져 있습니다.",
+      errorEmailNotificationsSaveFailed: "이메일 설정을 저장하지 못했습니다.",
+      bellSound: "완료 소리",
+      bellSoundDescription:
+        "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
+      bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
       about: "정보",
       aboutDescription:
         "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
@@ -5111,6 +5680,7 @@ export const messagesByLocale = {
       noAnalysesYet: "Ainda não há análises",
       dashboardsLoadFailed: "Não foi possível carregar os painéis.",
       analysesLoadFailed: "Não foi possível carregar as análises.",
+      favoritesUnavailable: "Os favoritos não estão disponíveis no momento",
       retry: "Tentar novamente",
       search: "Pesquisar",
       searchShortcut: "Pesquisar ({{shortcut}})",
@@ -5220,10 +5790,10 @@ export const messagesByLocale = {
       untitledDashboard: "Dashboard sem título",
     },
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       account: "Conta",
       signedInAs: "Conectado como",
       credentials: "Credenciais de fontes de dados",
@@ -5236,6 +5806,15 @@ export const messagesByLocale = {
       openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
+      errorEmailNotifications: "Receber novos alertas de erro por e-mail",
+      errorEmailNotificationsDescription:
+        "Envie um e-mail quando um novo erro de JavaScript for capturado. Desativado por padrão.",
+      errorEmailNotificationsSaveFailed:
+        "Não foi possível salvar a preferência de e-mail.",
+      bellSound: "Som de conclusão",
+      bellSoundDescription:
+        "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
+      bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
       about: "Sobre",
       aboutDescription:
         "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
@@ -5336,6 +5915,7 @@ export const messagesByLocale = {
       noAnalysesYet: "अभी कोई विश्लेषण नहीं",
       dashboardsLoadFailed: "डैशबोर्ड लोड नहीं हो सके।",
       analysesLoadFailed: "विश्लेषण लोड नहीं हो सके।",
+      favoritesUnavailable: "पसंदीदा अभी उपलब्ध नहीं हैं",
       retry: "फिर से कोशिश करें",
       search: "खोजें",
       searchShortcut: "खोजें ({{shortcut}})",
@@ -5437,10 +6017,10 @@ export const messagesByLocale = {
       untitledDashboard: "शीर्षकहीन डैशबोर्ड",
     },
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       account: "खाता",
       signedInAs: "इस रूप में साइन इन",
       credentials: "डेटा स्रोत क्रेडेंशियल",
@@ -5453,6 +6033,13 @@ export const messagesByLocale = {
       openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
+      errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
+      errorEmailNotificationsDescription:
+        "नया JavaScript त्रुटि कैप्चर होने पर ईमेल भेजें। डिफ़ॉल्ट रूप से बंद।",
+      errorEmailNotificationsSaveFailed: "ईमेल प्राथमिकता सहेजी नहीं जा सकी।",
+      bellSound: "पूर्णता ध्वनि",
+      bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
+      bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
       about: "परिचय",
       aboutDescription:
         "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
@@ -5551,6 +6138,7 @@ export const messagesByLocale = {
       noAnalysesYet: "لا توجد تحليلات بعد",
       dashboardsLoadFailed: "تعذر تحميل لوحات المعلومات.",
       analysesLoadFailed: "تعذر تحميل التحليلات.",
+      favoritesUnavailable: "المفضلة غير متاحة الآن",
       retry: "إعادة المحاولة",
       search: "بحث",
       searchShortcut: "بحث ({{shortcut}})",
@@ -5653,10 +6241,10 @@ export const messagesByLocale = {
       untitledDashboard: "لوحة معلومات بلا عنوان",
     },
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       account: "الحساب",
       signedInAs: "تم تسجيل الدخول باسم",
       credentials: "بيانات اعتماد مصادر البيانات",
@@ -5669,6 +6257,14 @@ export const messagesByLocale = {
       openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
+      errorEmailNotifications:
+        "تلقي تنبيهات الأخطاء الجديدة عبر البريد الإلكتروني",
+      errorEmailNotificationsDescription:
+        "إرسال بريد إلكتروني عند التقاط خطأ JavaScript جديد. معطّل افتراضيًا.",
+      errorEmailNotificationsSaveFailed: "تعذّر حفظ تفضيل البريد الإلكتروني.",
+      bellSound: "صوت الجرس",
+      bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
+      bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
       about: "حول",
       aboutDescription:
         "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",
@@ -5903,6 +6499,11 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "放弃更改",
       dismissDemoIntro: "关闭演示介绍",
       downloadCsv: "下载CSV",
+      exportToGoogleSheets: "导出到 Google Sheets",
+      exportingToGoogleSheets: "正在导出到 Google Sheets...",
+      googleSheetsExported: "已导出到 Google Sheets",
+      openGoogleSheet: "打开表格",
+      googleSheetsExportFailed: "无法导出到 Google Sheets：{{message}}",
       dragToReorder: "拖动以重新排序",
       expandFilters: "展开过滤器",
       failedToFormatSql: "无法格式化 SQL",
@@ -5918,14 +6519,20 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "尚未保存视图。",
       panelOptions: "面板选项",
       chatWithPanel: "与面板聊天",
+      customBlock: "自定义块",
+      customBlockProvenance: "沙盒化仪表板块",
+      customBlockAgentProvenance: "代理编写的仪表板补丁",
+      promoteToAppCode: "提升为应用代码",
+      promoteCustomBlockMessage:
+        "将自定义块“{{title}}”提升为可复用的原生 Analytics 应用代码。",
       saveAsView: "另存为视图",
       saveCurrentView: "保存当前视图",
       saveFailed: "无法保存仪表板",
       saveView: "保存视图",
       savedViews: "已保存的视图",
       sectionOptions: "部分选项",
-      extensionMissingId: "此扩展面板未选择任何扩展。",
-      extensionUnavailable: "此扩展未与您共享，或已不存在。",
+      extensionMissingId: "此自定义块未选择来源。",
+      extensionUnavailable: "此自定义块未与您共享，或已不存在。",
       sharedWithOrg: "与组织共享",
       unhideFailed: "无法取消隐藏仪表板",
       untitledDashboard: "无标题仪表板",
@@ -6115,6 +6722,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar cambios",
       dismissDemoIntro: "Descartar la introducción de la demostración",
       downloadCsv: "Descargar CSV",
+      exportToGoogleSheets: "Exportar a Google Sheets",
+      exportingToGoogleSheets: "Exportando a Google Sheets...",
+      googleSheetsExported: "Exportado a Google Sheets",
+      openGoogleSheet: "Abrir hoja",
+      googleSheetsExportFailed:
+        "No se pudo exportar a Google Sheets: {{message}}",
       dragToReorder: "Arrastra para reordenar",
       expandFilters: "Ampliar filtros",
       failedToFormatSql: "No se pudo formatear SQL",
@@ -6131,6 +6744,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Aún no hay vistas guardadas.",
       panelOptions: "Opciones de paneles",
       chatWithPanel: "Chatear sobre el panel",
+      customBlock: "Bloque personalizado",
+      customBlockProvenance: "Bloque de panel en entorno aislado",
+      customBlockAgentProvenance: "Parche de panel creado por el agente",
+      promoteToAppCode: "Promover a código de la aplicación",
+      promoteCustomBlockMessage:
+        'Promueve el bloque personalizado "{{title}}" a código nativo y reutilizable de Analytics.',
       saveAsView: "Guardar como vista",
       saveCurrentView: "Guardar vista actual",
       saveFailed: "No se pudo guardar el panel",
@@ -6138,9 +6757,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Vistas guardadas",
       sectionOptions: "Opciones de sección",
       extensionMissingId:
-        "Este panel de extensión no tiene ninguna extensión seleccionada.",
+        "Este bloque personalizado no tiene una fuente seleccionada.",
       extensionUnavailable:
-        "Esta extensión no está compartida contigo o ya no existe.",
+        "Este bloque personalizado no está compartido contigo o ya no existe.",
       sharedWithOrg: "Compartido con la organización",
       unhideFailed: "No se pudo mostrar el panel",
       untitledDashboard: "Panel de control sin título",
@@ -6332,6 +6951,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Ignorer les modifications",
       dismissDemoIntro: "Ignorer l'intro de la démo",
       downloadCsv: "Télécharger CSV",
+      exportToGoogleSheets: "Exporter vers Google Sheets",
+      exportingToGoogleSheets: "Exportation vers Google Sheets...",
+      googleSheetsExported: "Exporté vers Google Sheets",
+      openGoogleSheet: "Ouvrir la feuille",
+      googleSheetsExportFailed:
+        "Impossible d’exporter vers Google Sheets : {{message}}",
       dragToReorder: "Faites glisser pour réorganiser",
       expandFilters: "Développer les filtres",
       failedToFormatSql: "Échec du formatage de SQL",
@@ -6348,6 +6973,13 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Aucune vue enregistrée pour l'instant.",
       panelOptions: "Options du panneau",
       chatWithPanel: "Discuter du panneau",
+      customBlock: "Bloc personnalisé",
+      customBlockProvenance: "Bloc de tableau de bord isolé",
+      customBlockAgentProvenance:
+        "Correctif de tableau de bord créé par l’agent",
+      promoteToAppCode: "Promouvoir en code d’application",
+      promoteCustomBlockMessage:
+        "Promouvoir le bloc personnalisé « {{title}} » en code Analytics natif et réutilisable.",
       saveAsView: "Enregistrer sous vue",
       saveCurrentView: "Enregistrer la vue actuelle",
       saveFailed: "Impossible d'enregistrer le tableau de bord",
@@ -6355,9 +6987,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Vues enregistrées",
       sectionOptions: "Options de sections",
       extensionMissingId:
-        "Ce panneau d'extension n'a aucune extension sélectionnée.",
+        "Ce bloc personnalisé n’a aucune source sélectionnée.",
       extensionUnavailable:
-        "Cette extension n'est pas partagée avec vous ou n'existe plus.",
+        "Ce bloc personnalisé n’est pas partagé avec vous ou n’existe plus.",
       sharedWithOrg: "Partagé avec l'organisation",
       unhideFailed: "Impossible d'afficher le tableau de bord",
       untitledDashboard: "Tableau de bord sans titre",
@@ -6550,6 +7182,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Änderungen verwerfen",
       dismissDemoIntro: "Demo-Intro schließen",
       downloadCsv: "Laden Sie CSV herunter",
+      exportToGoogleSheets: "Nach Google Sheets exportieren",
+      exportingToGoogleSheets: "Export nach Google Sheets...",
+      googleSheetsExported: "Nach Google Sheets exportiert",
+      openGoogleSheet: "Tabelle öffnen",
+      googleSheetsExportFailed:
+        "Export nach Google Sheets fehlgeschlagen: {{message}}",
       dragToReorder: "Zum Neuanordnen ziehen",
       expandFilters: "Filter erweitern",
       failedToFormatSql: "SQL konnte nicht formatiert werden",
@@ -6566,6 +7204,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Noch keine gespeicherten Ansichten.",
       panelOptions: "Panel-Optionen",
       chatWithPanel: "Mit Panel chatten",
+      customBlock: "Benutzerdefinierter Block",
+      customBlockProvenance: "Sandbox-Dashboard-Block",
+      customBlockAgentProvenance: "Vom Agenten erstellter Dashboard-Patch",
+      promoteToAppCode: "In App-Code überführen",
+      promoteCustomBlockMessage:
+        "Den benutzerdefinierten Block „{{title}}“ in wiederverwendbaren nativen Analytics-App-Code überführen.",
       saveAsView: "Als Ansicht speichern",
       saveCurrentView: "Aktuelle Ansicht speichern",
       saveFailed: "Das Dashboard konnte nicht gespeichert werden",
@@ -6573,9 +7217,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Gespeicherte Ansichten",
       sectionOptions: "Abschnittsoptionen",
       extensionMissingId:
-        "Für dieses Erweiterungs-Panel ist keine Erweiterung ausgewählt.",
+        "Für diesen benutzerdefinierten Block ist keine Quelle ausgewählt.",
       extensionUnavailable:
-        "Diese Erweiterung ist nicht für Sie freigegeben oder existiert nicht mehr.",
+        "Dieser benutzerdefinierte Block ist nicht für Sie freigegeben oder existiert nicht mehr.",
       sharedWithOrg: "Mit Org geteilt",
       unhideFailed: "Das Dashboard konnte nicht eingeblendet werden",
       untitledDashboard: "Unbenanntes Dashboard",
@@ -6763,6 +7407,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "変更を破棄する",
       dismissDemoIntro: "デモのイントロを閉じる",
       downloadCsv: "CSVをダウンロード",
+      exportToGoogleSheets: "Google スプレッドシートにエクスポート",
+      exportingToGoogleSheets: "Google スプレッドシートにエクスポート中...",
+      googleSheetsExported: "Google スプレッドシートにエクスポートしました",
+      openGoogleSheet: "シートを開く",
+      googleSheetsExportFailed:
+        "Google スプレッドシートへのエクスポートに失敗しました: {{message}}",
       dragToReorder: "ドラッグして並べ替えます",
       expandFilters: "フィルターを展開する",
       failedToFormatSql: "SQLのフォーマットに失敗しました",
@@ -6779,6 +7429,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "保存されたビューはまだありません。",
       panelOptions: "パネルオプション",
       chatWithPanel: "パネルについてチャット",
+      customBlock: "カスタムブロック",
+      customBlockProvenance: "サンドボックス化されたダッシュボードブロック",
+      customBlockAgentProvenance: "エージェントが作成したダッシュボードパッチ",
+      promoteToAppCode: "アプリコードに昇格",
+      promoteCustomBlockMessage:
+        "カスタムブロック「{{title}}」を再利用可能なネイティブ Analytics アプリコードに昇格します。",
       saveAsView: "ビューとして保存",
       saveCurrentView: "現在のビューを保存する",
       saveFailed: "ダッシュボードを保存できませんでした",
@@ -6786,9 +7442,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "保存されたビュー",
       sectionOptions: "セクションのオプション",
       extensionMissingId:
-        "この拡張機能パネルには拡張機能が選択されていません。",
+        "このカスタムブロックにはソースが選択されていません。",
       extensionUnavailable:
-        "この拡張機能はあなたと共有されていないか、存在しません。",
+        "このカスタムブロックはあなたと共有されていないか、存在しません。",
       sharedWithOrg: "組織と共有",
       unhideFailed: "ダッシュボードを再表示できませんでした",
       untitledDashboard: "無題のダッシュボード",
@@ -6975,6 +7631,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "변경사항 취소",
       dismissDemoIntro: "데모 소개 닫기",
       downloadCsv: "CSV 다운로드",
+      exportToGoogleSheets: "Google Sheets로 내보내기",
+      exportingToGoogleSheets: "Google Sheets로 내보내는 중...",
+      googleSheetsExported: "Google Sheets로 내보냈습니다",
+      openGoogleSheet: "시트 열기",
+      googleSheetsExportFailed:
+        "Google Sheets로 내보내지 못했습니다: {{message}}",
       dragToReorder: "드래그하여 재정렬하세요.",
       expandFilters: "필터 확장",
       failedToFormatSql: "SQL을 포맷하지 못했습니다.",
@@ -6991,16 +7653,21 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "아직 저장된 보기가 없습니다.",
       panelOptions: "패널 옵션",
       chatWithPanel: "패널에 대해 채팅",
+      customBlock: "사용자 지정 블록",
+      customBlockProvenance: "샌드박스 대시보드 블록",
+      customBlockAgentProvenance: "에이전트가 작성한 대시보드 패치",
+      promoteToAppCode: "앱 코드로 승격",
+      promoteCustomBlockMessage:
+        '사용자 지정 블록 "{{title}}"을 재사용 가능한 네이티브 Analytics 앱 코드로 승격합니다.',
       saveAsView: "보기로 저장",
       saveCurrentView: "현재 보기 저장",
       saveFailed: "대시보드를 저장할 수 없습니다.",
       saveView: "보기 저장",
       savedViews: "저장된 보기",
       sectionOptions: "섹션 옵션",
-      extensionMissingId:
-        "이 확장 프로그램 패널에 선택된 확장 프로그램이 없습니다.",
+      extensionMissingId: "이 사용자 지정 블록에 선택된 소스가 없습니다.",
       extensionUnavailable:
-        "이 확장 프로그램이 공유되지 않았거나 더 이상 존재하지 않습니다.",
+        "이 사용자 지정 블록이 공유되지 않았거나 더 이상 존재하지 않습니다.",
       sharedWithOrg: "조직과 공유됨",
       unhideFailed: "대시보드를 숨기기 해제할 수 없습니다.",
       untitledDashboard: "제목 없는 대시보드",
@@ -7191,6 +7858,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar alterações",
       dismissDemoIntro: "Ignorar introdução da demonstração",
       downloadCsv: "Baixar CSV",
+      exportToGoogleSheets: "Exportar para o Google Sheets",
+      exportingToGoogleSheets: "Exportando para o Google Sheets...",
+      googleSheetsExported: "Exportado para o Google Sheets",
+      openGoogleSheet: "Abrir planilha",
+      googleSheetsExportFailed:
+        "Não foi possível exportar para o Google Sheets: {{message}}",
       dragToReorder: "Arraste para reordenar",
       expandFilters: "Expandir filtros",
       failedToFormatSql: "Falha ao formatar SQL",
@@ -7207,6 +7880,12 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "Nenhuma visualização salva ainda.",
       panelOptions: "Opções do painel",
       chatWithPanel: "Conversar sobre o painel",
+      customBlock: "Bloco personalizado",
+      customBlockProvenance: "Bloco de painel em sandbox",
+      customBlockAgentProvenance: "Patch de painel criado pelo agente",
+      promoteToAppCode: "Promover para código do app",
+      promoteCustomBlockMessage:
+        'Promova o bloco personalizado "{{title}}" para código nativo e reutilizável do Analytics.',
       saveAsView: "Salvar como visualização",
       saveCurrentView: "Salvar visualização atual",
       saveFailed: "Não foi possível salvar o painel",
@@ -7214,9 +7893,9 @@ const translatedAnalyticsDebtTranslations = {
       savedViews: "Visualizações salvas",
       sectionOptions: "Opções de seção",
       extensionMissingId:
-        "Este painel de extensão não tem nenhuma extensão selecionada.",
+        "Este bloco personalizado não tem uma fonte selecionada.",
       extensionUnavailable:
-        "Esta extensão não foi compartilhada com você ou não existe mais.",
+        "Este bloco personalizado não foi compartilhado com você ou não existe mais.",
       sharedWithOrg: "Compartilhado com a organização",
       unhideFailed: "Não foi possível exibir o painel",
       untitledDashboard: "Painel sem título",
@@ -7403,6 +8082,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "परिवर्तन त्यागें",
       dismissDemoIntro: "डेमो परिचय ख़ारिज करें",
       downloadCsv: "CSV डाउनलोड करें",
+      exportToGoogleSheets: "Google Sheets में निर्यात करें",
+      exportingToGoogleSheets: "Google Sheets में निर्यात किया जा रहा है...",
+      googleSheetsExported: "Google Sheets में निर्यात किया गया",
+      openGoogleSheet: "शीट खोलें",
+      googleSheetsExportFailed:
+        "Google Sheets में निर्यात नहीं किया जा सका: {{message}}",
       dragToReorder: "पुनः व्यवस्थित करने के लिए खींचें",
       expandFilters: "फ़िल्टर का विस्तार करें",
       failedToFormatSql: "SQL को प्रारूपित करने में विफल",
@@ -7419,15 +8104,21 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "अभी तक कोई सहेजा गया दृश्य नहीं.",
       panelOptions: "पैनल विकल्प",
       chatWithPanel: "पैनल के बारे में चैट करें",
+      customBlock: "कस्टम ब्लॉक",
+      customBlockProvenance: "सैंडबॉक्स डैशबोर्ड ब्लॉक",
+      customBlockAgentProvenance: "एजेंट द्वारा बनाया गया डैशबोर्ड पैच",
+      promoteToAppCode: "ऐप कोड में प्रमोट करें",
+      promoteCustomBlockMessage:
+        'कस्टम ब्लॉक "{{title}}" को पुन: उपयोग योग्य नेटिव Analytics ऐप कोड में प्रमोट करें।',
       saveAsView: "दृश्य के रूप में सहेजें",
       saveCurrentView: "वर्तमान दृश्य सहेजें",
       saveFailed: "डैशबोर्ड सहेजा नहीं जा सका",
       saveView: "दृश्य सहेजें",
       savedViews: "सहेजे गए दृश्य",
       sectionOptions: "अनुभाग विकल्प",
-      extensionMissingId: "इस एक्सटेंशन पैनल में कोई एक्सटेंशन चयनित नहीं है।",
+      extensionMissingId: "इस कस्टम ब्लॉक में कोई स्रोत चयनित नहीं है।",
       extensionUnavailable:
-        "यह एक्सटेंशन आपके साथ साझा नहीं किया गया है, या अब मौजूद नहीं है।",
+        "यह कस्टम ब्लॉक आपके साथ साझा नहीं किया गया है, या अब मौजूद नहीं है।",
       sharedWithOrg: "संगठन के साथ साझा किया गया",
       unhideFailed: "डैशबोर्ड को उजागर नहीं किया जा सका",
       untitledDashboard: "शीर्षक रहित डैशबोर्ड",
@@ -7614,6 +8305,11 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "تجاهل التغييرات",
       dismissDemoIntro: "رفض المقدمة التجريبية",
       downloadCsv: "تحميل CSV",
+      exportToGoogleSheets: "تصدير إلى Google Sheets",
+      exportingToGoogleSheets: "جارٍ التصدير إلى Google Sheets...",
+      googleSheetsExported: "تم التصدير إلى Google Sheets",
+      openGoogleSheet: "فتح الورقة",
+      googleSheetsExportFailed: "تعذر التصدير إلى Google Sheets: {{message}}",
       dragToReorder: "اسحب لإعادة الترتيب",
       expandFilters: "قم بتوسيع عوامل التصفية",
       failedToFormatSql: "فشل تنسيق SQL",
@@ -7630,14 +8326,21 @@ const translatedAnalyticsDebtTranslations = {
       noSavedViews: "لا توجد طرق عرض محفوظة حتى الآن.",
       panelOptions: "خيارات اللوحة",
       chatWithPanel: "الدردشة حول اللوحة",
+      customBlock: "كتلة مخصصة",
+      customBlockProvenance: "كتلة لوحة معلومات معزولة",
+      customBlockAgentProvenance: "تصحيح لوحة معلومات أنشأه الوكيل",
+      promoteToAppCode: "ترقية إلى كود التطبيق",
+      promoteCustomBlockMessage:
+        'رقّ الكتلة المخصصة "{{title}}" إلى كود Analytics أصلي قابل لإعادة الاستخدام.',
       saveAsView: "حفظ كعرض",
       saveCurrentView: "حفظ العرض الحالي",
       saveFailed: "تعذر حفظ لوحة البيانات",
       saveView: "حفظ العرض",
       savedViews: "المشاهدات المحفوظة",
       sectionOptions: "خيارات القسم",
-      extensionMissingId: "لم يتم تحديد أي إضافة في لوحة الإضافة هذه.",
-      extensionUnavailable: "هذه الإضافة غير مشاركة معك، أو لم تعد موجودة.",
+      extensionMissingId: "لم يتم تحديد مصدر لهذه الكتلة المخصصة.",
+      extensionUnavailable:
+        "هذه الكتلة المخصصة غير مشتركة معك، أو لم تعد موجودة.",
       sharedWithOrg: "تمت المشاركة مع منظمة",
       unhideFailed: "تعذر إظهار لوحة البيانات",
       untitledDashboard: "لوحة تحكم بلا عنوان",
@@ -10799,6 +11502,224 @@ for (const [locale, overrides] of Object.entries(
   }
 }
 
+const translatedFeatureFlagAdminTranslations = {
+  "zh-CN": {
+    agents: {
+      featureFlags: "功能开关",
+      featureFlagsDescription: "查看已注册应用开关，并进行可逆的发布调整。",
+      reloadFlags: "重新加载开关",
+      flagsUnavailable: "功能开关不可用",
+      flagsUnreachable: "无法连接工作区目录。连接恢复后重试。",
+      flagsEmpty: "没有应用报告功能开关",
+      flagsEmptyDetail: "连接的应用准备就绪后，已注册开关会显示在这里。",
+      flagsNotReady: "此应用状态为 {{status}}，不会将其开关状态假定为关闭。",
+      noFlagDefinitions: "此应用没有注册功能开关定义。",
+      noFlagDescription: "未提供说明。",
+      selected: "已选择",
+      openFlag: "打开功能开关",
+      confirm: "确认",
+      name: "名称",
+      appId: "应用 ID",
+      flagKey: "功能开关",
+    },
+  },
+  "es-ES": {
+    agents: {
+      featureFlags: "Indicadores de funciones",
+      featureFlagsDescription:
+        "Revisa los indicadores de las aplicaciones registradas y aplica cambios de lanzamiento reversibles.",
+      reloadFlags: "Volver a cargar indicadores",
+      flagsUnavailable: "Los indicadores de funciones no están disponibles",
+      flagsUnreachable:
+        "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
+      flagsEmpty: "Ninguna aplicación informó indicadores",
+      flagsEmptyDetail:
+        "Los indicadores registrados aparecerán aquí cuando las aplicaciones conectadas estén listas.",
+      flagsNotReady:
+        "Esta aplicación está {{status}}; su estado no se supone desactivado.",
+      noFlagDefinitions:
+        "Esta aplicación lista no tiene definiciones de indicadores.",
+      noFlagDescription: "No se proporcionó descripción.",
+      selected: "Seleccionado",
+      openFlag: "Abrir indicador",
+      confirm: "Confirmar",
+      name: "Nombre",
+      appId: "ID de aplicación",
+      flagKey: "Indicador de función",
+    },
+  },
+  "fr-FR": {
+    agents: {
+      featureFlags: "Indicateurs de fonctionnalités",
+      featureFlagsDescription:
+        "Examinez les indicateurs d'applications enregistrées et appliquez des changements de déploiement réversibles.",
+      reloadFlags: "Recharger les indicateurs",
+      flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
+      flagsUnreachable:
+        "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
+      flagsEmpty: "Aucune application n'a signalé d'indicateur",
+      flagsEmptyDetail:
+        "Les indicateurs enregistrés apparaîtront ici lorsque les applications connectées seront prêtes.",
+      flagsNotReady:
+        "Cette application est {{status}} ; son état n'est pas supposé désactivé.",
+      noFlagDefinitions:
+        "Cette application prête n'a aucune définition d'indicateur.",
+      noFlagDescription: "Aucune description fournie.",
+      selected: "Sélectionné",
+      openFlag: "Ouvrir l'indicateur",
+      confirm: "Confirmer",
+      name: "Nom",
+      appId: "ID d'application",
+      flagKey: "Indicateur de fonctionnalité",
+    },
+  },
+  "de-DE": {
+    agents: {
+      featureFlags: "Funktionsschalter",
+      featureFlagsDescription:
+        "Prüfe registrierte App-Schalter und nimm bewusste, rückgängig machbare Rollout-Änderungen vor.",
+      reloadFlags: "Funktionsschalter neu laden",
+      flagsUnavailable: "Funktionsschalter sind nicht verfügbar",
+      flagsUnreachable:
+        "Das Arbeitsbereichsverzeichnis konnte nicht erreicht werden. Versuche es erneut, wenn die Verbindung verfügbar ist.",
+      flagsEmpty: "Keine Arbeitsbereichs-App meldet Funktionsschalter",
+      flagsEmptyDetail:
+        "Registrierte Schalter erscheinen hier, sobald verbundene Apps bereit sind.",
+      flagsNotReady:
+        "Diese App ist {{status}}; ihr Schalterzustand wird nicht als aus angenommen.",
+      noFlagDefinitions:
+        "Diese bereite App hat keine registrierten Schalterdefinitionen.",
+      noFlagDescription: "Keine Beschreibung vorhanden.",
+      selected: "Ausgewählt",
+      openFlag: "Funktionsschalter öffnen",
+      confirm: "Bestätigen",
+      name: "Name",
+      appId: "App-ID",
+      flagKey: "Funktionsschalter",
+    },
+  },
+  "pt-BR": {
+    agents: {
+      featureFlags: "Sinalizadores de recursos",
+      featureFlagsDescription:
+        "Revise sinalizadores de apps registrados e faça mudanças de lançamento reversíveis.",
+      reloadFlags: "Recarregar sinalizadores",
+      flagsUnavailable: "Sinalizadores de recursos indisponíveis",
+      flagsUnreachable:
+        "Não foi possível acessar o diretório do espaço de trabalho. Tente novamente quando estiver disponível.",
+      flagsEmpty: "Nenhum app informou sinalizadores",
+      flagsEmptyDetail:
+        "Sinalizadores registrados aparecerão aqui quando os apps conectados estiverem prontos.",
+      flagsNotReady:
+        "Este app está {{status}}; seu estado não é considerado desligado.",
+      noFlagDefinitions:
+        "Este app pronto não tem definições de sinalizador registradas.",
+      noFlagDescription: "Nenhuma descrição fornecida.",
+      selected: "Selecionado",
+      openFlag: "Abrir sinalizador",
+      confirm: "Confirmar",
+      name: "Nome",
+      appId: "ID do app",
+      flagKey: "Sinalizador de recurso",
+    },
+  },
+  "ja-JP": {
+    agents: {
+      featureFlags: "機能フラグ",
+      featureFlagsDescription:
+        "登録済みアプリのフラグを確認し、元に戻せるロールアウト変更を行います。",
+      reloadFlags: "機能フラグを再読み込み",
+      flagsUnavailable: "機能フラグを利用できません",
+      flagsUnreachable:
+        "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+      flagsEmpty: "フラグを報告したワークスペースアプリはありません",
+      flagsEmptyDetail:
+        "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",
+      flagsNotReady:
+        "このアプリは {{status}} です。フラグ状態をオフとは見なしません。",
+      noFlagDefinitions:
+        "この準備済みアプリには登録済みフラグ定義がありません。",
+      noFlagDescription: "説明はありません。",
+      selected: "選択済み",
+      openFlag: "機能フラグを開く",
+      confirm: "確認",
+      name: "名前",
+      appId: "アプリ ID",
+      flagKey: "機能フラグ",
+    },
+  },
+  "ko-KR": {
+    agents: {
+      featureFlags: "기능 플래그",
+      featureFlagsDescription:
+        "등록된 앱 플래그를 검토하고 되돌릴 수 있는 출시 변경을 적용합니다.",
+      reloadFlags: "기능 플래그 다시 불러오기",
+      flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
+      flagsUnreachable:
+        "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
+      flagsEmpty: "플래그를 보고한 작업 공간 앱이 없습니다",
+      flagsEmptyDetail:
+        "연결된 앱이 준비되면 등록된 플래그가 여기에 표시됩니다.",
+      flagsNotReady:
+        "이 앱은 {{status}} 상태이며 플래그가 꺼진 것으로 가정하지 않습니다.",
+      noFlagDefinitions: "준비된 이 앱에는 등록된 플래그 정의가 없습니다.",
+      noFlagDescription: "설명이 제공되지 않았습니다.",
+      selected: "선택됨",
+      openFlag: "기능 플래그 열기",
+      confirm: "확인",
+      name: "이름",
+      appId: "앱 ID",
+      flagKey: "기능 플래그",
+    },
+  },
+  "hi-IN": {
+    agents: {
+      featureFlags: "फ़ीचर फ़्लैग",
+      featureFlagsDescription:
+        "पंजीकृत ऐप फ़्लैग देखें और वापस किए जा सकने वाले रोलआउट बदलाव करें।",
+      reloadFlags: "फ़ीचर फ़्लैग फिर से लोड करें",
+      flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
+      flagsUnreachable:
+        "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
+      flagsEmpty: "किसी वर्कस्पेस ऐप ने फ़्लैग की सूचना नहीं दी",
+      flagsEmptyDetail: "कनेक्टेड ऐप तैयार होने पर पंजीकृत फ़्लैग यहाँ दिखाई देंगे।",
+      flagsNotReady: "यह ऐप {{status}} है; इसकी फ़्लैग स्थिति को बंद नहीं माना जाता।",
+      noFlagDefinitions: "इस तैयार ऐप में पंजीकृत फ़्लैग परिभाषाएँ नहीं हैं।",
+      noFlagDescription: "कोई विवरण नहीं दिया गया।",
+      selected: "चयनित",
+      openFlag: "फ़ीचर फ़्लैग खोलें",
+      confirm: "पुष्टि करें",
+      name: "नाम",
+      appId: "ऐप ID",
+      flagKey: "फ़ीचर फ़्लैग",
+    },
+  },
+  "ar-SA": {
+    agents: {
+      featureFlags: "علامات الميزات",
+      featureFlagsDescription:
+        "راجع علامات التطبيقات المسجلة ونفّذ تغييرات طرح قابلة للعكس.",
+      reloadFlags: "إعادة تحميل علامات الميزات",
+      flagsUnavailable: "علامات الميزات غير متاحة",
+      flagsUnreachable:
+        "تعذر الوصول إلى دليل مساحة العمل. أعد المحاولة عند توفر الاتصال.",
+      flagsEmpty: "لم يبلغ أي تطبيق في مساحة العمل عن علامات",
+      flagsEmptyDetail:
+        "ستظهر العلامات المسجلة هنا عندما تصبح التطبيقات المتصلة جاهزة.",
+      flagsNotReady:
+        "حالة هذا التطبيق هي {{status}}؛ ولا يُفترض أن علاماته متوقفة.",
+      noFlagDefinitions: "لا يحتوي هذا التطبيق الجاهز على تعريفات علامات مسجلة.",
+      noFlagDescription: "لم يُقدَّم وصف.",
+      selected: "محدد",
+      openFlag: "فتح علامة الميزة",
+      confirm: "تأكيد",
+      name: "الاسم",
+      appId: "معرّف التطبيق",
+      flagKey: "علامة ميزة",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
 const translatedDashboardAdminTranslations = {
   "zh-CN": {
     navigation: {
@@ -10812,6 +11733,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "仪表板",
       dashboardUsageActive: "{{count}} 个活跃",
       dashboardUsageViews: "浏览量",
+      dashboardUsageEdits: "编辑次数",
+      dashboardUsageSort: "排序仪表板",
+      dashboardUsageMostViewed: "浏览最多",
+      dashboardUsageMostEdited: "编辑最多",
       dashboardUsageTop: "最高：{{name}}",
       dashboardUsageEngagements: "互动",
       dashboardUsageEngagementsHint: "非页面浏览事件加已保存视图",
@@ -10822,6 +11747,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "用户",
       dashboardUsageModified: "修改时间",
       dashboardUsageCreated: "创建时间",
+      dashboardMetadataCreated: "创建时间",
+      dashboardMetadataCreatedBy: "创建者",
+      dashboardMetadataUpdated: "更新时间",
+      dashboardMetadataUpdatedBy: "更新者",
       dashboardUsageState: "状态",
       dashboardUsagePanels: "{{count}} 个面板",
       dashboardUsageSavedViews: "{{count}} 个已保存视图",
@@ -10851,6 +11780,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Paneles",
       dashboardUsageActive: "{{count}} activos",
       dashboardUsageViews: "Vistas",
+      dashboardUsageEdits: "Ediciones",
+      dashboardUsageSort: "Ordenar paneles",
+      dashboardUsageMostViewed: "Más vistas",
+      dashboardUsageMostEdited: "Más editados",
       dashboardUsageTop: "Principal: {{name}}",
       dashboardUsageEngagements: "Interacciones",
       dashboardUsageEngagementsHint:
@@ -10862,6 +11795,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Usuarios",
       dashboardUsageModified: "Modificado",
       dashboardUsageCreated: "Creado",
+      dashboardMetadataCreated: "Creado",
+      dashboardMetadataCreatedBy: "Creado por",
+      dashboardMetadataUpdated: "Modificado",
+      dashboardMetadataUpdatedBy: "Modificado por",
       dashboardUsageState: "Estado",
       dashboardUsagePanels: "{{count}} paneles",
       dashboardUsageSavedViews: "{{count}} vistas guardadas",
@@ -10891,6 +11828,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Tableaux de bord",
       dashboardUsageActive: "{{count}} actifs",
       dashboardUsageViews: "Vues",
+      dashboardUsageEdits: "Modifications",
+      dashboardUsageSort: "Trier les tableaux",
+      dashboardUsageMostViewed: "Les plus consultés",
+      dashboardUsageMostEdited: "Les plus modifiés",
       dashboardUsageTop: "Meilleur : {{name}}",
       dashboardUsageEngagements: "Engagements",
       dashboardUsageEngagementsHint:
@@ -10902,6 +11843,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Utilisateurs",
       dashboardUsageModified: "Modifié",
       dashboardUsageCreated: "Créé",
+      dashboardMetadataCreated: "Créé",
+      dashboardMetadataCreatedBy: "Créé par",
+      dashboardMetadataUpdated: "Modifié",
+      dashboardMetadataUpdatedBy: "Modifié par",
       dashboardUsageState: "État",
       dashboardUsagePanels: "{{count}} panneaux",
       dashboardUsageSavedViews: "{{count}} vues enregistrées",
@@ -10931,6 +11876,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Dashboards",
       dashboardUsageActive: "{{count}} aktiv",
       dashboardUsageViews: "Aufrufe",
+      dashboardUsageEdits: "Bearbeitungen",
+      dashboardUsageSort: "Dashboards sortieren",
+      dashboardUsageMostViewed: "Am häufigsten aufgerufen",
+      dashboardUsageMostEdited: "Am häufigsten bearbeitet",
       dashboardUsageTop: "Top: {{name}}",
       dashboardUsageEngagements: "Interaktionen",
       dashboardUsageEngagementsHint:
@@ -10942,6 +11891,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Benutzer",
       dashboardUsageModified: "Geändert",
       dashboardUsageCreated: "Erstellt",
+      dashboardMetadataCreated: "Erstellt",
+      dashboardMetadataCreatedBy: "Erstellt von",
+      dashboardMetadataUpdated: "Geändert",
+      dashboardMetadataUpdatedBy: "Geändert von",
       dashboardUsageState: "Status",
       dashboardUsagePanels: "{{count}} Panels",
       dashboardUsageSavedViews: "{{count}} gespeicherte Ansichten",
@@ -10971,6 +11924,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "ダッシュボード",
       dashboardUsageActive: "{{count}} 件がアクティブ",
       dashboardUsageViews: "閲覧数",
+      dashboardUsageEdits: "編集数",
+      dashboardUsageSort: "ダッシュボードを並べ替え",
+      dashboardUsageMostViewed: "閲覧数が多い順",
+      dashboardUsageMostEdited: "編集数が多い順",
       dashboardUsageTop: "トップ：{{name}}",
       dashboardUsageEngagements: "エンゲージメント",
       dashboardUsageEngagementsHint:
@@ -10982,6 +11939,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "ユーザー",
       dashboardUsageModified: "更新日",
       dashboardUsageCreated: "作成日",
+      dashboardMetadataCreated: "作成日",
+      dashboardMetadataCreatedBy: "作成者",
+      dashboardMetadataUpdated: "更新日",
+      dashboardMetadataUpdatedBy: "更新者",
       dashboardUsageState: "状態",
       dashboardUsagePanels: "{{count}} パネル",
       dashboardUsageSavedViews: "{{count}} 件の保存済みビュー",
@@ -11011,6 +11972,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "대시보드",
       dashboardUsageActive: "{{count}}개 활성",
       dashboardUsageViews: "조회수",
+      dashboardUsageEdits: "편집 횟수",
+      dashboardUsageSort: "대시보드 정렬",
+      dashboardUsageMostViewed: "조회수 많은 순",
+      dashboardUsageMostEdited: "편집 많은 순",
       dashboardUsageTop: "상위: {{name}}",
       dashboardUsageEngagements: "참여",
       dashboardUsageEngagementsHint: "페이지뷰 외 이벤트와 저장된 보기",
@@ -11021,6 +11986,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "사용자",
       dashboardUsageModified: "수정됨",
       dashboardUsageCreated: "생성됨",
+      dashboardMetadataCreated: "생성됨",
+      dashboardMetadataCreatedBy: "생성자",
+      dashboardMetadataUpdated: "수정됨",
+      dashboardMetadataUpdatedBy: "수정자",
       dashboardUsageState: "상태",
       dashboardUsagePanels: "{{count}}개 패널",
       dashboardUsageSavedViews: "{{count}}개 저장된 보기",
@@ -11050,6 +12019,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "Painéis",
       dashboardUsageActive: "{{count}} ativos",
       dashboardUsageViews: "Visualizações",
+      dashboardUsageEdits: "Edições",
+      dashboardUsageSort: "Ordenar painéis",
+      dashboardUsageMostViewed: "Mais visualizados",
+      dashboardUsageMostEdited: "Mais editados",
       dashboardUsageTop: "Principal: {{name}}",
       dashboardUsageEngagements: "Engajamentos",
       dashboardUsageEngagementsHint:
@@ -11061,6 +12034,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "Usuários",
       dashboardUsageModified: "Modificado",
       dashboardUsageCreated: "Criado",
+      dashboardMetadataCreated: "Criado",
+      dashboardMetadataCreatedBy: "Criado por",
+      dashboardMetadataUpdated: "Modificado",
+      dashboardMetadataUpdatedBy: "Modificado por",
       dashboardUsageState: "Estado",
       dashboardUsagePanels: "{{count}} painéis",
       dashboardUsageSavedViews: "{{count}} visualizações salvas",
@@ -11090,6 +12067,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "डैशबोर्ड",
       dashboardUsageActive: "{{count}} सक्रिय",
       dashboardUsageViews: "व्यू",
+      dashboardUsageEdits: "संपादन",
+      dashboardUsageSort: "डैशबोर्ड क्रमित करें",
+      dashboardUsageMostViewed: "सबसे अधिक देखे गए",
+      dashboardUsageMostEdited: "सबसे अधिक संपादित",
       dashboardUsageTop: "शीर्ष: {{name}}",
       dashboardUsageEngagements: "एंगेजमेंट",
       dashboardUsageEngagementsHint: "Non-pageview events और saved views",
@@ -11100,6 +12081,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "यूज़र",
       dashboardUsageModified: "संशोधित",
       dashboardUsageCreated: "बनाया गया",
+      dashboardMetadataCreated: "बनाया गया",
+      dashboardMetadataCreatedBy: "इसके द्वारा बनाया गया",
+      dashboardMetadataUpdated: "संशोधित",
+      dashboardMetadataUpdatedBy: "इसके द्वारा संशोधित",
       dashboardUsageState: "स्थिति",
       dashboardUsagePanels: "{{count}} पैनल",
       dashboardUsageSavedViews: "{{count}} saved views",
@@ -11129,6 +12114,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageTotal: "لوحات المعلومات",
       dashboardUsageActive: "{{count}} نشطة",
       dashboardUsageViews: "المشاهدات",
+      dashboardUsageEdits: "التعديلات",
+      dashboardUsageSort: "فرز لوحات المعلومات",
+      dashboardUsageMostViewed: "الأكثر مشاهدة",
+      dashboardUsageMostEdited: "الأكثر تعديلاً",
       dashboardUsageTop: "الأعلى: {{name}}",
       dashboardUsageEngagements: "التفاعلات",
       dashboardUsageEngagementsHint:
@@ -11140,6 +12129,10 @@ const translatedDashboardAdminTranslations = {
       dashboardUsageUsers: "المستخدمون",
       dashboardUsageModified: "عُدّلت",
       dashboardUsageCreated: "أُنشئت",
+      dashboardMetadataCreated: "أُنشئت",
+      dashboardMetadataCreatedBy: "أنشأها",
+      dashboardMetadataUpdated: "عُدّلت",
+      dashboardMetadataUpdatedBy: "عدّلها",
       dashboardUsageState: "الحالة",
       dashboardUsagePanels: "{{count}} لوحات",
       dashboardUsageSavedViews: "{{count}} طرق عرض محفوظة",
@@ -11158,6 +12151,18 @@ const translatedDashboardAdminTranslations = {
     },
   },
 } satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedFeatureFlagAdminTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
 
 for (const [locale, overrides] of Object.entries(
   translatedDashboardAdminTranslations,
@@ -11189,6 +12194,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要還原此儀表板版本嗎？",
       historyRestoreWarning:
         "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+      undo: "復原",
+      undoSuccess: "已復原儀表板變更",
+      undoFailed: "無法復原儀表板變更",
+      undoFailedWithMessage: "無法復原儀表板變更：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做儀表板變更",
+      redoFailed: "無法重做儀表板變更",
+      redoFailedWithMessage: "無法重做儀表板變更：{{message}}",
     },
     analyses: {
       historyTitle: "分析歷史記錄",
@@ -11218,6 +12231,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要还原此仪表板版本吗？",
       historyRestoreWarning:
         "这会替换当前仪表板布局，并把当前状态保存到历史记录。",
+      undo: "撤销",
+      undoSuccess: "已撤销仪表板更改",
+      undoFailed: "无法撤销仪表板更改",
+      undoFailedWithMessage: "无法撤销仪表板更改：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做仪表板更改",
+      redoFailed: "无法重做仪表板更改",
+      redoFailedWithMessage: "无法重做仪表板更改：{{message}}",
     },
     analyses: {
       historyTitle: "分析历史记录",
@@ -11249,6 +12270,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "¿Restaurar esta versión del panel?",
       historyRestoreWarning:
         "Esto reemplaza el diseño actual del panel y guarda el estado actual en el historial.",
+      undo: "Deshacer",
+      undoSuccess: "Cambio del panel deshecho",
+      undoFailed: "No se pudo deshacer el cambio del panel",
+      undoFailedWithMessage:
+        "No se pudo deshacer el cambio del panel: {{message}}",
+      redo: "Rehacer",
+      redoSuccess: "Cambio del panel rehecho",
+      redoFailed: "No se pudo rehacer el cambio del panel",
+      redoFailedWithMessage:
+        "No se pudo rehacer el cambio del panel: {{message}}",
     },
     analyses: {
       historyTitle: "Historial del análisis",
@@ -11282,6 +12313,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurer cette version du tableau de bord ?",
       historyRestoreWarning:
         "Cela remplace la mise en page actuelle du tableau de bord et enregistre l'état actuel dans l'historique.",
+      undo: "Annuler",
+      undoSuccess: "Modification du tableau de bord annulée",
+      undoFailed: "Impossible d'annuler la modification du tableau de bord",
+      undoFailedWithMessage:
+        "Impossible d'annuler la modification du tableau de bord : {{message}}",
+      redo: "Rétablir",
+      redoSuccess: "Modification du tableau de bord rétablie",
+      redoFailed: "Impossible de rétablir la modification du tableau de bord",
+      redoFailedWithMessage:
+        "Impossible de rétablir la modification du tableau de bord : {{message}}",
     },
     analyses: {
       historyTitle: "Historique de l'analyse",
@@ -11315,6 +12356,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Diese Dashboard-Version wiederherstellen?",
       historyRestoreWarning:
         "Dies ersetzt das aktuelle Dashboard-Layout und speichert den aktuellen Stand im Verlauf.",
+      undo: "Rückgängig",
+      undoSuccess: "Dashboard-Änderung rückgängig gemacht",
+      undoFailed: "Dashboard-Änderung konnte nicht rückgängig gemacht werden",
+      undoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht rückgängig gemacht werden: {{message}}",
+      redo: "Wiederholen",
+      redoSuccess: "Dashboard-Änderung wiederholt",
+      redoFailed: "Dashboard-Änderung konnte nicht wiederholt werden",
+      redoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht wiederholt werden: {{message}}",
     },
     analyses: {
       historyTitle: "Analyseverlauf",
@@ -11348,6 +12399,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "このダッシュボード版を復元しますか？",
       historyRestoreWarning:
         "現在のダッシュボードレイアウトを置き換え、現在の状態を履歴に保存します。",
+      undo: "元に戻す",
+      undoSuccess: "ダッシュボードの変更を元に戻しました",
+      undoFailed: "ダッシュボードの変更を元に戻せませんでした",
+      undoFailedWithMessage:
+        "ダッシュボードの変更を元に戻せませんでした：{{message}}",
+      redo: "やり直す",
+      redoSuccess: "ダッシュボードの変更をやり直しました",
+      redoFailed: "ダッシュボードの変更をやり直せませんでした",
+      redoFailedWithMessage:
+        "ダッシュボードの変更をやり直せませんでした：{{message}}",
     },
     analyses: {
       historyTitle: "分析履歴",
@@ -11381,6 +12442,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "이 대시보드 버전을 복원할까요?",
       historyRestoreWarning:
         "현재 대시보드 레이아웃을 대체하고 현재 상태를 기록에 저장합니다.",
+      undo: "실행 취소",
+      undoSuccess: "대시보드 변경을 실행 취소했습니다",
+      undoFailed: "대시보드 변경을 실행 취소할 수 없습니다",
+      undoFailedWithMessage:
+        "대시보드 변경을 실행 취소할 수 없습니다: {{message}}",
+      redo: "다시 실행",
+      redoSuccess: "대시보드 변경을 다시 실행했습니다",
+      redoFailed: "대시보드 변경을 다시 실행할 수 없습니다",
+      redoFailedWithMessage:
+        "대시보드 변경을 다시 실행할 수 없습니다: {{message}}",
     },
     analyses: {
       historyTitle: "분석 기록",
@@ -11414,6 +12485,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurar esta versão do painel?",
       historyRestoreWarning:
         "Isso substitui o layout atual do painel e salva o estado atual no histórico.",
+      undo: "Desfazer",
+      undoSuccess: "Alteração do painel desfeita",
+      undoFailed: "Não foi possível desfazer a alteração do painel",
+      undoFailedWithMessage:
+        "Não foi possível desfazer a alteração do painel: {{message}}",
+      redo: "Refazer",
+      redoSuccess: "Alteração do painel refeita",
+      redoFailed: "Não foi possível refazer a alteração do painel",
+      redoFailedWithMessage:
+        "Não foi possível refazer a alteração do painel: {{message}}",
     },
     analyses: {
       historyTitle: "Histórico da análise",
@@ -11447,6 +12528,14 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "इस डैशबोर्ड संस्करण को पुनर्स्थापित करें?",
       historyRestoreWarning:
         "यह वर्तमान डैशबोर्ड layout को बदल देगा और वर्तमान स्थिति को इतिहास में सहेजेगा।",
+      undo: "पूर्ववत करें",
+      undoSuccess: "डैशबोर्ड बदलाव पूर्ववत किया गया",
+      undoFailed: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका",
+      undoFailedWithMessage: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका: {{message}}",
+      redo: "फिर से करें",
+      redoSuccess: "डैशबोर्ड बदलाव फिर से किया गया",
+      redoFailed: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका",
+      redoFailedWithMessage: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका: {{message}}",
     },
     analyses: {
       historyTitle: "विश्लेषण इतिहास",
@@ -11480,6 +12569,16 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من لوحة المعلومات؟",
       historyRestoreWarning:
         "سيستبدل هذا تخطيط لوحة المعلومات الحالي ويحفظ الحالة الحالية في السجل.",
+      undo: "تراجع",
+      undoSuccess: "تم التراجع عن تغيير لوحة المعلومات",
+      undoFailed: "تعذر التراجع عن تغيير لوحة المعلومات",
+      undoFailedWithMessage:
+        "تعذر التراجع عن تغيير لوحة المعلومات: {{message}}",
+      redo: "إعادة",
+      redoSuccess: "تمت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailed: "تعذرت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailedWithMessage:
+        "تعذرت إعادة تطبيق تغيير لوحة المعلومات: {{message}}",
     },
     analyses: {
       historyTitle: "سجل التحليل",

@@ -1,9 +1,9 @@
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  appBasePath,
   isInAgentEmbed,
   postNavigate,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/navigation";
 import { IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -75,14 +75,11 @@ export default function SlideRoute() {
       return;
     }
 
-    fetch(`${appBasePath()}/api/decks/${deckId}`)
-      .then(async (res) => {
-        if (!res.ok) {
-          if (res.status === 404) throw new Error("Deck not found.");
-          throw new Error(`Failed to load deck (HTTP ${res.status}).`);
-        }
-        return res.json();
-      })
+    callAction<{ slides?: Slide[]; aspectRatio?: AspectRatio }>(
+      "get-deck",
+      { id: deckId },
+      { method: "GET" },
+    )
       .then((deck) => {
         const slides: Slide[] = deck.slides ?? [];
         if (slides.length === 0) {
@@ -94,9 +91,16 @@ export default function SlideRoute() {
         setLoading(false);
       })
       .catch((err: unknown) => {
-        setError(
-          err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
-        );
+        const status = (err as { status?: number } | undefined)?.status;
+        if (status === 404) {
+          setError("Deck not found.");
+        } else if (status !== undefined) {
+          setError(`Failed to load deck (HTTP ${status}).`);
+        } else {
+          setError(
+            err instanceof Error ? err.message : t("raw.couldNotLoadSlide"),
+          );
+        }
         setLoading(false);
       });
   }, [deckId, slideIndex, slideIndexParam, slideNumber, slideNumberParam, t]);

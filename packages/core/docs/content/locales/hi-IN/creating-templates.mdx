@@ -9,6 +9,14 @@ description: "अपने स्वयं के एजेंट-नेटि�
 
 `@agent-native/core` का उपयोग runtime contract के लिए करें: actions, server plugins, database helpers, app state, routing helpers, और agent chat. `@agent-native/toolkit` का उपयोग reusable app-building UI और helpers के लिए करें, जैसे shared primitives, toast/mobile hooks, date pickers, और simple app shell slots. जब variants product behavior या visual identity encode करते हैं, तो उन्हें template-local रखें.
 
+किसी capability का स्थान तय करते समय तीन layers ध्यान में रखें:
+
+- **Core - framework:** आवश्यक runtime और data contract जिसे हर app उपयोग कर सकता है।
+- **Toolkit - वैकल्पिक reusable pieces:** shared UI और product systems जिन्हें apps अपना, compose या fork कर सकते हैं।
+- **Templates - वैकल्पिक apps:** Core पर बने complete domain products, जो अक्सर Toolkit उपयोग करते हैं और starting point के रूप में fork किए जा सकते हैं।
+
+Toolkit और Templates वैकल्पिक हैं। Template स्वयं framework नहीं है और Toolkit, Core की जगह नहीं लेता।
+
 एक अच्छा टेम्पलेट:
 
 - उपयोगी बीज डेटा या खाली-अवस्था प्रवाह के साथ एक वर्कफ़्लो को शुरू से अंत तक हल करता है।
@@ -272,8 +280,10 @@ export default runMigrations(
 रूट `app/routes/` में रहते हैं और React राउटर v8 फ़ाइल रूटिंग का उपयोग करते हैं। actions या API हैंडलर के माध्यम से डेटा क्वेरी करें, और म्यूटेशन को डिफ़ॉल्ट रूप से आशावादी बनाएं।
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -289,7 +299,7 @@ export default function ProjectsPage() {
 ऐप शेल के पास एक बार वायर लाइव सिंक करें ताकि जब एजेंट, कोई अन्य टैब, या कोई एक्शन डेटा बदलता है तो React क्वेरी कैश रीफ्रेश हो जाता है:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -302,7 +312,7 @@ export function AppSync() {
 **एजेंट-नेटिव वादा: एजेंट लिखता है UI में बिना मैन्युअल रिफ्रेश के दिखाई देता है।** `useActionQuery` आसान रास्ता है - जब कोई परिवर्तनशील क्रिया `source: "action"` उत्सर्जित करती है तो प्रत्येक हुक रीफ़ेच हो जाता है। यदि आप एक कस्टम कुंजी (उदाहरण के लिए, एक निम्न-स्तरीय क्लाइंट सहायक जो एकीकरण स्थिति पढ़ता है) के साथ कच्चे `useQuery` तक पहुंचते हैं, तो लक्षित ताज़ा करने के लिए प्रति-स्रोत काउंटर को queryKey में मोड़ें:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -325,7 +335,7 @@ useQuery({
 UI हुक के लिए `useAgentRouteState` का उपयोग करें ताकि एप्लिकेशन-स्टेट लिखें, टैब-स्कोप्ड कमांड पढ़ें, डिलीट-आफ्टर-रीड, और डुप्लिकेट-कमांड सुरक्षा सुसंगत रहें:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -495,11 +505,23 @@ export default defineNitroPlugin(() => {
 4. दस्तावेज़ आवश्यक एनवी संस्करण और ऑनबोर्डिंग चरण।
 5. एडिटिव माइग्रेशन के माध्यम से उदाहरण या बीज पंक्तियाँ शामिल करें, ट्रैक किए गए रनटाइम डेटा फ़ाइलों के माध्यम से नहीं।
 
-सामुदायिक टेम्पलेट GitHub रेपो से बनाए जा सकते हैं:
+कम्युनिटी टेम्पलेट सीधे सार्वजनिक GitHub रिपॉज़िटरी से इंस्टॉल होते हैं। Agent Native ऐप को रिपॉज़िटरी के रूट पर रखें:
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+किसी खास संशोधन को पिन करने के लिए `#branch`, `#tag` या `#commit` जोड़ें:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI केवल स्रोत डाउनलोड करती है; यह डिपेंडेंसी इंस्टॉल या टेम्पलेट स्क्रिप्ट नहीं चलाती। कम्युनिटी टेम्पलेट तृतीय-पक्ष कोड हैं, इसलिए `pnpm install` चलाने से पहले रिपॉज़िटरी, लाइसेंस, डिपेंडेंसी और इंस्टॉल स्क्रिप्ट की समीक्षा करें।
+
+कैटलॉग में सूचीबद्ध होने के लिए रूट पर पूरा ऐप, लाइसेंस और सेटअप README वाला सार्वजनिक रिपॉज़िटरी, `@agent-native/core` डिपेंडेंसी, और सफल टाइपचेक व टेस्ट शामिल करें। होस्टेड डेमो और स्क्रीनशॉट वैकल्पिक हैं।
+
+रिपॉज़िटरी तैयार होने पर [कम्युनिटी टेम्पलेट सबमिट करें](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)। कम्युनिटी सूची पहले-पक्ष कैटलॉग से अलग रहती है और उसके लेखक उसका रखरखाव करते हैं।
 
 ## फ्रेमवर्क मोनोरेपो में योगदान देना {#contributing}
 

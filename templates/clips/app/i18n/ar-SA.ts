@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "الإجراءات",
     commandSearch: "بحث",
+    openAgent: "فتح الوكيل",
     commandAppearance: "المظهر",
     toggleTheme: "تبديل السمة",
     extensionSignedInTitle: "تم تسجيل الدخول",
@@ -54,6 +55,7 @@ const messages = {
     videoProjects: "مشاريع الفيديو",
     archive: "الأرشيف",
     trash: "المهملات",
+    agent: "الوكيل",
     settings: "الإعدادات",
     notifications: "الإشعارات",
     insights: "الرؤى",
@@ -216,6 +218,9 @@ const messages = {
     autoChapters: "فصول السيارات",
     removeFillerWords: "إزالة كلمات الحشو",
     removeSilences: "إزالة فترات الصمت (> 1.2 ثانية)",
+    silenceWorking: "جارٍ إزالة فترات الصمت…",
+    silenceCompleted: "اكتملت إزالة فترات الصمت",
+    silenceFailed: "فشلت إزالة فترات الصمت",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:
@@ -285,7 +290,6 @@ const messages = {
     storageConnectedChecking: "وحدة التخزين متصلة. التحقق من هذا المقطع...",
     signInToFinish: "قم بتسجيل الدخول للإنهاء",
     signInIfYours: "قم بتسجيل الدخول إذا كان هذا لك",
-    openDashboard: "فتح لوحة التحكم",
     checkAgain: "تحقق مجددًا",
     backToHome: "العودة إلى المنزل",
     generatingTitle: "توليد العنوان",
@@ -446,6 +450,7 @@ const messages = {
     invite: "دعوة",
     embed: "تضمين",
     shareLink: "رابط المشاركة",
+    shareWithHumans: "مشاركة مع الأشخاص",
     shareWithAgents: "شارك مع الوكلاء",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
@@ -456,6 +461,8 @@ const messages = {
     retryAgentLink: "إعادة المحاولة",
     gifPreview: "معاينة GIF",
     openPlayer: "مشغل مفتوح",
+    chooseFile: "اختيار ملف",
+    remove: "إزالة",
     downloadMp4: "تحميل MP4",
     embedsNeedPublic: "التضمينات تحتاج إلى مقطع عام",
     embedPublicDescription:
@@ -482,6 +489,7 @@ const messages = {
     makePublicAndCopy: "جعله عامًا ونسخه",
     copy: "نسخ",
     addPeopleByEmail: "إضافة أشخاص بالبريد الإلكتروني",
+    invite: "دعوة",
     notifyPeople: "إشعار الأشخاص",
     peopleWithAccess: "الأشخاص الذين لديهم وصول",
     ownerRole: "المالك",
@@ -539,11 +547,16 @@ const messages = {
     brandingUpdated: "تم تحديث العلامة التجارية",
     saveFailed: "فشل الحفظ",
     organizationName: "اسم المؤسسة",
+    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
+    defaultVisibilityDescription:
+      "تُطبّق على التسجيلات الجديدة ما لم تختر رؤية مختلفة.",
     brandColor: "لون العلامة التجارية",
     brandColorPicker: "منتقي لون العلامة التجارية",
     useColor: "استخدم {{color}}",
     logo: "الشعار",
     logoPreview: "معاينة الشعار",
+    logoUsage: "يظهر للمستلمين في رسائل المشاركة وعلى صفحات المقاطع العامة.",
+    emailHeaderPreview: "ترويسة بريد المشاركة",
     dropReplace: "أسقط صورة جديدة للاستبدال",
     dropHere: "أسقط PNG / JPG / SVG هنا",
     uploading: "جارٍ التحميل…",
@@ -605,17 +618,28 @@ const messages = {
     pageTitle: "انضم إلى الفريق · Clips",
   },
   settings: {
-    openAgentSettings: "فتح إعدادات الوكيل",
+    openAgentSettings: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    agentTitle: "إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إدارة الوكيل",
     title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
+    preferencesTitle: "التفضيلات",
     languageTitle: "اللغة",
     languageDescription:
       "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",
     languageLabel: "لغة الواجهة",
+    uploadWorkspaceTitle: "مساحة العمل النشطة",
+    uploadWorkspaceDescription:
+      "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
+    uploadWorkspaceLabel: "مساحة العمل الحالية",
+    uploadWorkspacePlaceholder: "اختر مساحة عمل",
+    uploadWorkspaceHint:
+      "يؤدي تغييرها أيضًا إلى تحديث عروض Clips المرتبطة بمساحة العمل.",
+    uploadWorkspaceSaving: "جارٍ حفظ مساحة العمل…",
+    uploadWorkspaceSaved: "تم تحديث مساحة العمل النشطة",
+    uploadWorkspaceSaveFailed: "تعذر تحديث مساحة العمل النشطة",
     whatsNew: "ما الجديد",
     changelogEmpty: "لا توجد تحديثات بعد.",
     viewAllUpdates: "عرض كل التحديثات",
@@ -630,10 +654,6 @@ const messages = {
 ### تمت الإضافة
 
 - يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
-    profile: "الملف الشخصي",
-    email: "البريد الإلكتروني",
-    displayName: "اسم العرض",
-    displayNamePlaceholder: "اسمك",
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -645,9 +665,16 @@ const messages = {
     backupTranscriptionDescription:
       "مفعّل افتراضيًا. إذا لم يُلتقط تفريغ محلي، يُرسل صوت التسجيل إلى مزوّد السحابة المتصل (أرصدة Builder.io أو Groq) لتفريغه. عطّله لإبقاء الصوت على هذا الجهاز فقط — تبقى هذه المقاطع حينها دون تفريغ.",
     notifications: "الإشعارات",
+    sharing: "المشاركة",
+    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
+    defaultVisibilityDescription:
+      "تُطبَّق على كل تسجيل تنشئه. لا يزال بإمكانك تغيير الرؤية لكل تسجيل.",
+    visibilityPrivate: "خاص - أنت فقط",
+    visibilityOrg: "المؤسسة - أي شخص في مساحة عملك",
+    visibilityPublic: "عام - أي شخص لديه الرابط",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص أو يتفاعل أو يشارك تسجيلًا معك.",
+      "احصل على بريد إلكتروني عندما يعلّق شخص على تسجيلك أو يتفاعل معه.",
     saved: "تم حفظ الإعدادات",
     saveFailed: "فشل الحفظ",
     builderConnectedToast: "تم اتصال Builder.io",
@@ -778,6 +805,7 @@ const messages = {
     noOrganization: "لا توجد مؤسسة بعد. أنشئ واحدة من مبدل المؤسسات للبدء.",
     description: "إدارة المؤسسة: العلامة التجارية، الأعضاء، الدعوات.",
     adminsOnlyBranding: "يمكن للمسؤولين فقط تعديل العلامة التجارية.",
+    brandingLoadFailed: "تعذّر تحميل هوية المؤسسة.",
     members: "الأعضاء",
     pendingInvites: "الدعوات المعلقة",
     noPendingInvites: "لا توجد دعوات معلقة.",
@@ -798,11 +826,32 @@ const messages = {
     recentViewers: "المشاهدون الأخيرون",
     noViewers: "لا يوجد مشاهدون بعد.",
     anonymous: "مجهول",
-    anon: "مجهول",
     moreViewers: "+{{count}} آخرين",
     viewedBy: "شاهده",
     someone: "شخص ما",
     noViewsYet: "لا توجد مشاهدات بعد.",
+    viewsCount_zero: "{{count}} مشاهدة",
+    viewsCount_one: "{{count}} مشاهدة",
+    viewsCount_two: "{{count}} مشاهدتان",
+    viewsCount_few: "{{count}} مشاهدات",
+    viewsCount_many: "{{count}} مشاهدة",
+    viewsCount_other: "{{count}} مشاهدة",
+    agentViewsCount_zero: "{{count}} مشاهدة من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_one: "{{count}} مشاهدة من وكيل ذكاء اصطناعي",
+    agentViewsCount_two: "{{count}} مشاهدتان من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_few: "{{count}} مشاهدات من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_many: "{{count}} مشاهدة من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_other: "{{count}} مشاهدة من وكلاء الذكاء الاصطناعي",
+    totalViewsSummary: "{{total}} مشاهدة إجمالية، {{unique}} مشاهدًا فريدًا",
+    viewsTab: "المشاهدات",
+    insightsTab: "الرؤى",
+    humanViews: "مشاهدات بشرية",
+    agentViews: "مشاهدات وكلاء الذكاء الاصطناعي",
+    noAgentViewsYet: "لا توجد مشاهدات من وكلاء الذكاء الاصطناعي بعد.",
+    unknownAgent: "وكيل غير معروف",
+    totalVideoViews: "إجمالي مشاهدات الفيديو",
+    averageCompletionRate: "متوسط معدل الإكمال",
+    moreInsights: "المزيد من الرؤى",
   },
   libraryGrid: {
     spaceRoot: "جذر المساحة",
@@ -825,6 +874,10 @@ const messages = {
     loadFailedBody:
       "حدث خطأ ما أثناء تحميل هذه القائمة. تسجيلاتك آمنة — يرجى المحاولة مرة أخرى.",
     retry: "إعادة المحاولة",
+    paginationRange: "{{start}}–{{end}} من {{total}}",
+    paginationPrevious: "السابق",
+    paginationNext: "التالي",
+    paginationPage: "صفحة {{page}} من {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",
@@ -892,14 +945,6 @@ const messages = {
       "سيفقد {{email}} الوصول إلى هذه المؤسسة. يمكنك دائمًا دعوته مرة أخرى.",
     remove: "إزالة",
   },
-  slackShareHint: {
-    playsInline: "يعمل داخل Slack",
-    connectedDescription:
-      "الصق هذا الرابط في أي مساحة عمل متصلة لتشغيله داخلها.",
-    makeInline: "اجعله يعمل داخل Slack",
-    connectDescription: "قم بتوصيل مساحة عمل حتى يظهر هذا الرابط كفيديو.",
-    connect: "اتصال",
-  },
   commentsPanel: {
     disabled: "تم تعطيل التعليقات لهذا التسجيل.",
     beFirst: "كن أول من يعلق",
@@ -911,6 +956,7 @@ const messages = {
     replyingTo: "الرد على",
     commentAt: "تعليق عند",
     writeReply: "اكتب ردًا...",
+    editComment: "تحرير التعليق",
     commentButton: "تعليق",
     composerPlaceholder: "أضف تعليقًا…",
     mentionSomeone: "أذكر شخصًا",
@@ -926,6 +972,17 @@ const messages = {
     summary: "الملخص",
     keyPoints: "النقاط الرئيسية",
     actionItems: "عناصر العمل",
+    sharedContent: "المحتوى المشترك",
+    summaryIncluded: "الملخص والنقاط الرئيسية وعناصر العمل",
+    includeTranscript: "تضمين النص الكامل",
+    includeTranscriptDescription:
+      "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
+    transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    transcript: "النص",
+    copyTranscript: "نسخ النص",
+    transcriptCopied: "تم نسخ النص",
+    copyTranscriptFailed: "تعذر نسخ النص",
+    updateTranscriptSharingFailed: "تعذر تحديث مشاركة النص",
   },
   deleteRecordingMenu: {
     movedToTrash: "تم نقل المقطع إلى المهملات",
@@ -1091,6 +1148,19 @@ const messages = {
     spaceCreated: "تم إنشاء المساحة",
     createFailed: "تعذر إنشاء المساحة",
   },
+  spaceDialog: {
+    deleteSpace: "حذف المساحة",
+    renameSpace: "إعادة تسمية المساحة",
+    deleteTitle: 'حذف "{{name}}"؟',
+    deleteDescription:
+      "سيؤدي ذلك إلى حذف المساحة وإزالتها من جميع التسجيلات. لا يمكن التراجع عن هذا الإجراء.",
+    renamed: "تمت إعادة تسمية المساحة",
+    deleted: 'تم حذف "{{name}}"',
+    renameFailed: "فشلت إعادة تسمية المساحة",
+    deleteFailed: "فشل حذف المساحة",
+    renaming: "جارٍ إعادة التسمية...",
+    deleting: "جارٍ الحذف...",
+  },
   signInPrompt: {
     title: "سجّل الدخول من أجل {{intent}}",
     description:
@@ -1138,6 +1208,7 @@ const messages = {
     desktopTitle: "Desktop app (مترجم)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (مترجم)",
+    openDesktopApp: "Open desktop app (مترجم)",
   },
   editableTitle: {
     untitled: "Untitled Clip (مترجم)",
@@ -1288,10 +1359,15 @@ const messages = {
     cameraOff: "Camera off (مترجم)",
     includeCameraAria: "Include camera in this recording (مترجم)",
     startRecording: "Start recording (مترجم)",
+    micOffConfirmTitle: "Record without a microphone? (مترجم)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (مترجم)",
+    startWithoutMic: "Start anyway (مترجم)",
     uploadVideo: "Upload video (مترجم)",
     importLoom: "Import Loom (مترجم)",
     importing: "Importing... (مترجم)",
     import: "Import (مترجم)",
+    recordNew: "تسجيل جديد",
   },
   playerSettings: {
     title: "Settings (مترجم)",
@@ -1301,9 +1377,10 @@ const messages = {
     visibilityOrg: "Organization (مترجم)",
     visibilityPublic: "Public (مترجم)",
     passwordProtection: "Password protection (مترجم)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (مترجم)",
+    passwordSetPlaceholder: "Password is set — type to replace (مترجم)",
     noPasswordPlaceholder: "No password (مترجم)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (مترجم)",
+    removePassword: "Remove (مترجم)",
     expiry: "Expiry (مترجم)",
     viewerOptions: "Viewer options (مترجم)",
     comments: "Comments (مترجم)",
@@ -1340,6 +1417,8 @@ const messages = {
     recordingReadyToUpload: "Recording is ready to upload (مترجم)",
     recordingSaved: "Recording saved (مترجم)",
     markerAdded: "{{kind}} added (مترجم)",
+    linkCopied: "تم نسخ الرابط",
+    copyLinkAction: "نسخ الرابط",
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",
@@ -1361,12 +1440,30 @@ const messages = {
     downloadDesktopApp: "Download desktop app (مترجم)",
     technicalDetails: "Technical details (مترجم)",
     whatToCheck: "What to check (مترجم)",
-    downloadRecording: "Download recording (مترجم)",
+    downloadRecording: "Download (مترجم)",
     openRecorderInTab: "Open recorder in tab (مترجم)",
     connectStorageToFinish:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
+  },
+  importRoute: {
+    pageTitle: "استيراد Loom — Clips",
+    title: "استيراد Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "استيراد",
+    helperText:
+      "يعمل بشكل رائع مع Loom. يمكنك أيضًا لصق رابط لأي تسجيل شاشة أو ملف فيديو آخر.",
+    stageFetching: "جارٍ سحب الفيديو…",
+    stageUploading: "جارٍ رفع اللقطات الأصلية…",
+    stageTranscript: "جعل الكلام والعناصر المرئية على الشاشة قابلة لفهم الوكيل…",
+    stageFinalizing: "جارٍ جعله أصيلًا للوكيل…",
+    importingSubtitle: "تحويل تسجيل عادي إلى عنصر أصيل للوكيل.",
+    doneHeading: "وانتهينا! الفيديو الآن:",
+    benefitTranscript: "الكلام والعناصر المرئية على الشاشة، قابلة للبحث بالكامل",
+    benefitQueryable: "مفهوم وقابل للاستعلام من وكيلك",
+    benefitSummaries: "ملخصات ومقاطع فورية عند الطلب",
+    benefitPrimitive: "عنصر أصيل للوكيل من الدرجة الأولى",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (مترجم)",
@@ -1427,6 +1524,8 @@ const messages = {
   clipsFinalRaw: {
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
+    selectAll: "تحديد الكل",
+    deselectAll: "إلغاء تحديد الكل",
     move: "نقل",
     moveSelected: "نقل {{count}} عناصر محددة",
     current: "الحالي",
@@ -1436,7 +1535,7 @@ const messages = {
     uploadFailed: "فشل الرفع",
     connectStorageToFinish: "افتح للاتصال بالتخزين وإنهاء الحفظ.",
     retryFromClipsMenu:
-      "أعد المحاولة من أيقونة Clips في شريط القوائم — بطاقة المقطع المحفوظ هناك تتضمن أيضًا زر مجلد يفتح الملف المحلي.",
+      "افتح Clips من شريط القائمة لإعادة محاولة هذا الرفع المحفوظ؛ لا حاجة لإعادة التسجيل.",
     removeFailedClip: "إزالة هذا المقطع الفاشل.",
     remove: "إزالة",
     viewsCount: "{{count}} مشاهدة",
@@ -1516,6 +1615,10 @@ const messages = {
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
+    googleMayShowWarning: "مراجعة صلاحيات Google",
+    googleNotVerifiedTitle: "تحقق من التطبيق قبل الاتصال",
+    googleWarningBeforeAdvanced:
+      "تأكد من أن اسم التطبيق وصلاحيات Calendar المطلوبة تتطابق مع بيئة Clips التي تثق بها. إذا عرض Google تحذيرًا بأن التطبيق غير موثّق أو بدت الهوية غير مألوفة، فتوقف وتواصل مع مسؤول مساحة العمل.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",
@@ -1590,6 +1693,21 @@ const messages = {
     loadFailed: "تعذر تحميل هذا المشروع. ربما تم حذفه أو ليس لديك حق الوصول.",
     renameProject: "إعادة تسمية المشروع",
   },
+  rewindExtension: {
+    title: "إضافة ما حدث قبل التسجيل",
+    description:
+      "اختر فترة محددة من Rewind المحلي وأضفها إلى بداية هذا المقطع. لن تتم إضافة أي شيء تلقائيًا.",
+    progressLabel: "تقدم معالجة سجل Rewind",
+    privateFirstTitle: "اجعل هذا المقطع خاصًا أولًا",
+    privateFirstDescription:
+      "قد يتضمن سجل Rewind المحلي سياقًا من قبل بدء التسجيل. سيؤدي هذا إلى جعل المقطع خاصًا. إذا كان لدى أي شخص وصول مباشر، فسيتوقف Clips لتتمكن من إزالته أولًا من المشاركة.",
+    makePrivateContinue: "اجعله خاصًا وتابع",
+    add30Seconds: "إضافة الثلاثين ثانية السابقة",
+    add5Minutes: "إضافة الدقائق الخمس السابقة",
+    add5MinutesDescription: "مفيد لاستعادة بداية شرح أطول.",
+    privateReady: "أصبح هذا المقطع خاصًا. يمكنك الآن إضافة سجل Rewind المحلي.",
+  },
+  timeline: { clipStartedHere: "بدأ المقطع هنا" },
 };
 
 export default messages;

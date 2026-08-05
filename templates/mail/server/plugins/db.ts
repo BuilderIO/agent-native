@@ -188,6 +188,26 @@ CREATE INDEX IF NOT EXISTS idx_snippets_owner_name ON snippets(owner_email, name
       sql: `ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claim_id TEXT;
 ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at ${intType()}`,
     },
+    {
+      version: 18,
+      name: "mail-inventory-cursors",
+      sql: `CREATE TABLE IF NOT EXISTS mail_inventory_cursors (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    query_fingerprint TEXT NOT NULL,
+    state TEXT NOT NULL,
+    version ${intType()} NOT NULL DEFAULT 1,
+    expires_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS idx_mail_inventory_cursors_owner_expiry ON mail_inventory_cursors(owner_email, expires_at);`,
+    },
+    {
+      version: 19,
+      name: "mail-inventory-cursor-leases",
+      sql: `ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claim_id TEXT;
+ALTER TABLE mail_inventory_cursors ADD COLUMN IF NOT EXISTS claimed_at ${intType()}`,
+    },
   ],
   { table: "mail_migrations" },
 );

@@ -1,11 +1,11 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   useActionQuery,
   useActionMutation,
-  sendToAgentChat,
-  openAgentSidebar,
-  appApiPath,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSidebar } from "@agent-native/core/client/navigation";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
   IconPalette,
@@ -18,6 +18,7 @@ import {
   IconPhoto,
   IconCheck,
   IconExternalLink,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
@@ -33,11 +34,17 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 import {
+  uploadAndIndexFigmaFiles,
+  pollDecodeJobStatus,
+  type DecodeJobStatus,
+} from "./builder-design-system-upload";
+import {
   MAX_BUILDER_INDEX_UPLOAD_BYTES,
-  readBuilderIndexResponse,
   formatFileSize,
   type BuilderIndexResult,
 } from "./builder-index-response";
@@ -61,6 +68,30 @@ interface UploadedFile {
   size: number;
   textContent?: string;
 }
+
+type BuilderSourceKind = "figma" | "code" | "github" | "mixed";
+
+interface BuilderSourceDetails {
+  builderDesignSystemId: string;
+  builderJobId: string;
+  builderUrl?: string;
+  builderStatus?: string;
+  sourceKind?: BuilderSourceKind;
+  docs?: Array<unknown>;
+  tokenValues?: Record<string, string>;
+  docCount?: number;
+  warning?: string;
+}
+
+interface ExistingDesignSystem {
+  title?: string;
+  description?: string;
+  data?: string | null;
+  customInstructions?: string;
+  builder?: BuilderSourceDetails | null;
+}
+
+type OtherSource = "brand" | "code" | "files" | "existing" | "context";
 
 function normalizeWebsiteUrlInput(input: string): string | null {
   const trimmed = input.trim();
@@ -116,6 +147,64 @@ export function DesignSystemSetup({
   const [builderIndexError, setBuilderIndexError] = useState<string | null>(
     null,
   );
+  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("figma");
+  const [otherSource, setOtherSource] = useState<OtherSource | null>(null);
+  const [decodeStatus, setDecodeStatus] = useState<DecodeJobStatus | null>(
+    null,
+  );
+  const decodePollRef = useRef<AbortController | null>(null);
+
+  const stopDecodePolling = useCallback(() => {
+    decodePollRef.current?.abort();
+    decodePollRef.current = null;
+  }, []);
+
+  const startDecodePolling = useCallback(
+    (jobId: string, indexResult: BuilderIndexResult) => {
+      decodePollRef.current?.abort();
+      const controller = new AbortController();
+      decodePollRef.current = controller;
+      setDecodeStatus({
+        status: "pending",
+        branchUrl: null,
+        error: null,
+        framesProcessed: 0,
+        totalFrames: 0,
+      });
+      pollDecodeJobStatus(jobId, {
+        signal: controller.signal,
+        onUpdate: (status) => {
+          if (!controller.signal.aborted) setDecodeStatus(status);
+        },
+      })
+        .then((status) => {
+          if (controller.signal.aborted) return;
+          setDecodeStatus(status);
+          setBuilderIndexResult(
+            status.branchUrl
+              ? { ...indexResult, builderUrl: status.branchUrl }
+              : indexResult,
+          );
+          setBuilderIndexing(false);
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setDecodeStatus((prev) => ({
+            status: "error",
+            branchUrl: prev?.branchUrl ?? null,
+            error: err instanceof Error ? err.message : String(err),
+            framesProcessed: prev?.framesProcessed ?? 0,
+            totalFrames: prev?.totalFrames ?? 0,
+          }));
+          setBuilderIndexResult(indexResult);
+          setBuilderIndexing(false);
+        });
+    },
+    [],
+  );
+
+  useEffect(() => stopDecodePolling, [stopDecodePolling]);
 
   const codeInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -123,14 +212,21 @@ export function DesignSystemSetup({
   const figInputRef = useRef<HTMLInputElement>(null);
   const updateSystemMutation = useActionMutation("update-design-system");
 
-  const { data: existingDs } = useActionQuery<{
-    title?: string;
-    description?: string;
-    data?: string | null;
-    customInstructions?: string;
-  }>("get-design-system", editingId ? { id: editingId } : undefined, {
-    enabled: !!editingId && open,
-  });
+  const {
+    data: existingDs,
+    isLoading: existingDsLoading,
+    isError: existingDsError,
+  } = useActionQuery<ExistingDesignSystem>(
+    "get-design-system",
+    editingId ? { id: editingId } : undefined,
+    {
+      enabled: !!editingId && open,
+      refetchInterval: (query) =>
+        query.state.data?.builder?.builderStatus === "in-progress"
+          ? 5_000
+          : false,
+    },
+  );
 
   const { data: designSystemsData } = useActionQuery<{
     designSystems: Array<{ id: string; title: string }>;
@@ -141,15 +237,27 @@ export function DesignSystemSetup({
 
   useEffect(() => {
     if (existingDs && editingId) {
+      const builder = existingDs.builder;
       setCompanyName(existingDs.title ?? "");
-      setBrandNotes(existingDs.description ?? "");
-      setCustomInstructions(existingDs.customInstructions ?? "");
-      try {
-        const parsed = existingDs.data ? JSON.parse(existingDs.data) : null;
-        if (parsed?.notes) setBrandNotes(parsed.notes);
-      } catch {
-        // ignore
-      }
+      const parsed = parseDesignSystemData(existingDs.data);
+      const generatedDescription = builder
+        ? `Builder indexed design system ${builder.builderDesignSystemId}`
+        : null;
+      setBrandNotes(
+        builder
+          ? existingDs.description !== generatedDescription
+            ? (existingDs.description ?? "")
+            : ""
+          : parsed.ok && typeof parsed.value.notes === "string"
+            ? parsed.value.notes
+            : (existingDs.description ?? ""),
+      );
+      setCustomInstructions(
+        builder &&
+          isGeneratedBuilderInstructions(existingDs.customInstructions, builder)
+          ? ""
+          : (existingDs.customInstructions ?? ""),
+      );
     }
   }, [existingDs, editingId]);
 
@@ -169,8 +277,10 @@ export function DesignSystemSetup({
       setBuilderIndexing(false);
       setBuilderIndexResult(null);
       setBuilderIndexError(null);
+      stopDecodePolling();
+      setDecodeStatus(null);
     }
-  }, [open]);
+  }, [open, stopDecodePolling]);
 
   const hasAnySources = useMemo(() => {
     return (
@@ -197,6 +307,11 @@ export function DesignSystemSetup({
     brandNotes,
     customInstructions,
   ]);
+
+  const selectOtherSource = useCallback((source: OtherSource) => {
+    setSourcePanel("other");
+    setOtherSource((current) => (current === source ? null : source));
+  }, []);
 
   const addWebsiteUrl = useCallback(() => {
     const url = normalizeWebsiteUrlInput(websiteUrl);
@@ -268,40 +383,44 @@ export function DesignSystemSetup({
 
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
+      stopDecodePolling();
+      setDecodeStatus(null);
       setBuilderIndexing(true);
       try {
-        const body = new FormData();
-        body.append("file", file);
-        const res = await fetch(
-          appApiPath("/api/index-design-system-with-builder"),
-          {
-            method: "POST",
-            body,
-          },
-        );
-        const parsed = await readBuilderIndexResponse(res);
-        setBuilderIndexResult(parsed);
+        const suggestedTitle =
+          file.name
+            .replace(/\.fig$/i, "")
+            .replace(/[-_]+/g, " ")
+            .trim() || "Imported brand";
+        const parsed = await uploadAndIndexFigmaFiles([file], {
+          projectName: companyName.trim() || suggestedTitle,
+        });
+        if (parsed.jobId) {
+          startDecodePolling(parsed.jobId, parsed);
+        } else {
+          setBuilderIndexResult(parsed);
+          setBuilderIndexing(false);
+        }
       } catch (err) {
         setBuilderIndexError(
           err instanceof Error
             ? err.message
             : t("designSystemSetup.figParseFailed"),
         );
-      } finally {
         setBuilderIndexing(false);
       }
     },
-    [t],
+    [companyName, t, startDecodePolling, stopDecodePolling],
   );
 
   const handleEditSave = async () => {
-    if (!editingId) return;
+    if (!editingId || !existingDs) return;
     setGenerating(true);
     try {
       await updateSystemMutation.mutateAsync({
         id: editingId,
         title: companyName || "My Brand",
-        description: brandNotes || undefined,
+        description: brandNotes,
         customInstructions,
       });
       onComplete();
@@ -313,10 +432,29 @@ export function DesignSystemSetup({
     }
   };
 
-  const handleGenerate = useCallback(() => {
+  const handleGenerate = useCallback(async () => {
     if (editingId) {
-      handleEditSave();
+      await handleEditSave();
       return;
+    }
+
+    const requestedTitle = companyName.trim();
+    const localDesignSystemId = builderIndexResult?.localDesignSystemId;
+    if (requestedTitle && localDesignSystemId) {
+      try {
+        await updateSystemMutation.mutateAsync({
+          id: localDesignSystemId,
+          title: requestedTitle,
+        });
+      } catch (error) {
+        toast.error(t("designSystemSetup.updateFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("designSystemSetup.updateFailed"),
+        });
+        return;
+      }
     }
 
     // Cap inlined file content so a giant pasted README doesn't blow the
@@ -334,7 +472,9 @@ export function DesignSystemSetup({
     );
 
     if (companyName.trim()) {
-      parts.push(`\n## Company / Brand\n${companyName.trim()}`);
+      parts.push(
+        `\n## Company / Brand\n${companyName.trim()}\n\nUse exactly this as the design system name. Never replace it with the uploaded Figma filename.`,
+      );
     }
 
     if (websiteUrls.length > 0) {
@@ -345,7 +485,7 @@ export function DesignSystemSetup({
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings.`,
       );
     }
 
@@ -462,14 +602,15 @@ export function DesignSystemSetup({
     customInstructions,
     onComplete,
     t,
+    updateSystemMutation,
+    existingDs,
   ]);
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] p-0 bg-card border-border">
         <DialogHeader className="px-6 pt-6 pb-0">
-          <DialogTitle className="text-foreground flex items-center gap-2">
-            <IconPalette className="w-5 h-5 text-[#609FF8]" />
+          <DialogTitle className="text-foreground">
             {editingId
               ? t("designSystemSetup.editTitle")
               : t("designSystemSetup.newTitle")}
@@ -482,336 +623,511 @@ export function DesignSystemSetup({
         </DialogHeader>
 
         <ScrollArea className="max-h-[calc(85vh-160px)] px-6">
-          <div className="space-y-5 py-4">
-            {/* Company Name */}
-            <div className="space-y-2">
-              <Label className="text-foreground/80">
-                {t("designSystemSetup.companyBrand")}
-              </Label>
-              <Input
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                placeholder={t("designSystemSetup.companyBrandPlaceholder")}
-                className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
+          {editingId &&
+          (existingDsLoading || (!existingDs && !existingDsError)) ? (
+            <DesignSystemEditSkeleton />
+          ) : editingId && existingDsError ? (
+            <DesignSystemEditError />
+          ) : (
+            <div className="space-y-5 py-4">
+              {/* Company Name */}
+              <div className={cn("space-y-2", !editingId && "hidden")}>
+                <Label className="text-foreground/80">
+                  {t("designSystemSetup.companyBrand")}
+                </Label>
+                <Input
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder={t("designSystemSetup.companyBrandPlaceholder")}
+                  className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                />
+              </div>
 
-            {!editingId && (
-              <>
-                {/* Figma .fig */}
-                <div className="space-y-2">
-                  <Label className="text-foreground/80 flex items-center gap-1.5">
-                    <IconBrandFigma className="w-3.5 h-3.5" />
-                    {t("designSystemSetup.figmaFile")}
-                  </Label>
-                  {!builderIndexResult ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => figInputRef.current?.click()}
-                        disabled={builderIndexing}
-                        className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
-                      >
-                        {builderIndexing ? (
-                          <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                            <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-                            {t("designSystemSetup.parsingFigmaFile")}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {t("designSystemSetup.uploadFigDescription")}
-                          </span>
-                        )}
-                      </button>
-                      <input
-                        ref={figInputRef}
-                        type="file"
-                        accept=".fig"
-                        onChange={handleBuilderIndexUpload}
-                        className="hidden"
-                      />
-                      {builderIndexError && (
-                        <div
-                          role="alert"
-                          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                        >
-                          {builderIndexError}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <BuilderIndexPreview
-                      result={builderIndexResult}
-                      onReset={() => {
-                        setBuilderIndexResult(null);
-                        setBuilderIndexError(null);
-                      }}
-                    />
-                  )}
-                </div>
+              {editingId && existingDs?.builder ? (
+                <BuilderSourceStatus builder={existingDs.builder} />
+              ) : null}
 
-                {/* Website URL */}
-                <div className="space-y-2">
-                  <Label className="text-foreground/80 flex items-center gap-1.5">
-                    <IconWorld className="w-3.5 h-3.5" />
-                    {t("designSystemSetup.websiteUrl")}
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={websiteUrl}
-                      onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder={t("designSystemSetup.websitePlaceholder")}
-                      className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-                      onBlur={() => {
-                        const normalized = normalizeWebsiteUrlInput(websiteUrl);
-                        if (normalized) setWebsiteUrl(normalized);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") addWebsiteUrl();
-                      }}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={addWebsiteUrl}
-                      className="shrink-0 cursor-pointer"
-                    >
-                      {t("designSystemSetup.add")}
-                    </Button>
-                  </div>
-                  <TagList
-                    items={websiteUrls}
-                    onRemove={(i) =>
-                      setWebsiteUrls((p) => p.filter((_, j) => j !== i))
-                    }
+              {!editingId && (
+                <>
+                  <SourceAccordionRow
+                    icon={IconBrandFigma}
+                    title={t("designSystemSetup.figmaFile")}
+                    description={t("designSystemSetup.uploadFigDescription")}
+                    expanded={sourcePanel === "figma"}
+                    onClick={() => setSourcePanel("figma")}
+                    panelId="slides-design-system-figma-source"
                   />
-                </div>
 
-                {/* GitHub */}
-                <div className="space-y-2">
-                  <Label className="text-foreground/80 flex items-center gap-1.5">
-                    <IconBrandGithub className="w-3.5 h-3.5" />
-                    {t("designSystemSetup.githubRepository")}
-                  </Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={githubUrl}
-                      onChange={(e) => setGithubUrl(e.target.value)}
-                      placeholder="https://github.com/org/repo"
-                      className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") addGithubLink();
-                      }}
-                    />
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={addGithubLink}
-                      className="shrink-0 cursor-pointer"
-                    >
-                      {t("designSystemSetup.add")}
-                    </Button>
-                  </div>
-                  <TagList
-                    items={githubLinks.map((l) => l.url)}
-                    onRemove={(i) =>
-                      setGithubLinks((p) => p.filter((_, j) => j !== i))
-                    }
-                  />
-                </div>
-
-                {/* Code Files */}
-                <div className="space-y-2">
-                  <Label className="text-foreground/80 flex items-center gap-1.5">
-                    <IconFolder className="w-3.5 h-3.5" />
-                    {t("designSystemSetup.codeFiles")}
-                  </Label>
-                  <button
-                    onClick={() => codeInputRef.current?.click()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (e.dataTransfer.files)
-                        readTextFiles(e.dataTransfer.files, setCodeFiles);
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
+                  {/* Figma .fig */}
+                  <div
+                    id="slides-design-system-figma-source"
+                    className={cn(
+                      "space-y-2 rounded-lg border border-border bg-card p-4",
+                      sourcePanel !== "figma" && "hidden",
+                    )}
                   >
-                    <p className="text-xs text-muted-foreground">
-                      {t("designSystemSetup.codeFilesDrop")}
-                    </p>
-                  </button>
-                  <input
-                    ref={codeInputRef}
-                    type="file"
-                    multiple
-                    accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
-                    onChange={(e) => {
-                      if (e.target.files)
-                        readTextFiles(e.target.files, setCodeFiles);
-                      e.target.value = "";
-                    }}
-                    className="hidden"
-                  />
-                  <FileList
-                    files={codeFiles}
-                    onRemove={(id) =>
-                      setCodeFiles((p) => p.filter((f) => f.id !== id))
-                    }
-                  />
-                </div>
-
-                {/* Documents */}
-                <div className="space-y-2">
-                  <Label className="text-foreground/80 flex items-center gap-1.5">
-                    <IconFileDescription className="w-3.5 h-3.5" />
-                    {t("designSystemSetup.documents")}
-                  </Label>
-                  <button
-                    onClick={() => docInputRef.current?.click()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (e.dataTransfer.files)
-                        readTextFiles(e.dataTransfer.files, setDocFiles);
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
-                  >
-                    <p className="text-xs text-muted-foreground">
-                      {t("designSystemSetup.documentsDrop")}
-                    </p>
-                  </button>
-                  <input
-                    ref={docInputRef}
-                    type="file"
-                    accept=".pptx,.ppt,.docx,.doc,.pdf,.xlsx,.xls,.md,.markdown,.mdx,.txt"
-                    multiple
-                    onChange={(e) => {
-                      if (e.target.files)
-                        readTextFiles(e.target.files, setDocFiles);
-                      e.target.value = "";
-                    }}
-                    className="hidden"
-                  />
-                  <FileList
-                    files={docFiles}
-                    onRemove={(id) =>
-                      setDocFiles((p) => p.filter((f) => f.id !== id))
-                    }
-                  />
-                </div>
-
-                {/* Images */}
-                <div className="space-y-2">
-                  <Label className="text-foreground/80 flex items-center gap-1.5">
-                    <IconPhoto className="w-3.5 h-3.5" />
-                    {t("designSystemSetup.visualReferences")}
-                  </Label>
-                  <button
-                    onClick={() => imageInputRef.current?.click()}
-                    className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
-                  >
-                    <p className="text-xs text-muted-foreground">
-                      {t("designSystemSetup.visualReferencesDrop")}
-                    </p>
-                  </button>
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*,.svg"
-                    multiple
-                    onChange={(e) => {
-                      if (!e.target.files) return;
-                      const newFiles = Array.from(e.target.files).map((f) => ({
-                        id: crypto.randomUUID(),
-                        name: f.name,
-                        type: f.type,
-                        size: f.size,
-                      }));
-                      setImageFiles((p) => [...p, ...newFiles]);
-                      e.target.value = "";
-                    }}
-                    className="hidden"
-                  />
-                  <FileList
-                    files={imageFiles}
-                    onRemove={(id) =>
-                      setImageFiles((p) => p.filter((f) => f.id !== id))
-                    }
-                  />
-                </div>
-
-                {/* Fork existing */}
-                {existingSystems.length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="text-foreground/80">
-                      {t("designSystemSetup.forkExisting")}
+                    <Label className="text-foreground/80 flex items-center gap-1.5">
+                      <IconBrandFigma className="w-3.5 h-3.5" />
+                      {t("designSystemSetup.figmaFile")}
                     </Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {existingSystems
-                        .filter((s) => s.id !== editingId)
-                        .map((ds) => (
-                          <button
-                            key={ds.id}
-                            onClick={() =>
-                              setSelectedSystemId((prev) =>
-                                prev === ds.id ? "" : ds.id,
-                              )
-                            }
-                            className={`text-left p-3 rounded-lg border cursor-pointer ${
-                              selectedSystemId === ds.id
-                                ? "border-[#609FF8]/40 bg-[#609FF8]/5"
-                                : "border-border bg-accent hover:border-foreground/20"
-                            }`}
+                    {!builderIndexResult ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => figInputRef.current?.click()}
+                          disabled={builderIndexing}
+                          className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
+                        >
+                          {builderIndexing ? (
+                            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                              <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+                              {t("designSystemSetup.parsingFigmaFile")}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {t("designSystemSetup.uploadFigDescription")}
+                            </span>
+                          )}
+                        </button>
+                        <input
+                          ref={figInputRef}
+                          type="file"
+                          accept=".fig"
+                          onChange={handleBuilderIndexUpload}
+                          className="hidden"
+                        />
+                        {builderIndexError && (
+                          <div
+                            role="alert"
+                            className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
                           >
-                            <div className="flex items-center gap-2">
-                              <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
-                              <span className="text-sm text-foreground/80 truncate">
-                                {ds.title}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
+                            {builderIndexError}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <BuilderIndexPreview
+                        result={builderIndexResult}
+                        decodeStatus={decodeStatus}
+                        displayTitle={companyName.trim()}
+                        onReset={() => {
+                          stopDecodePolling();
+                          setDecodeStatus(null);
+                          setBuilderIndexResult(null);
+                          setBuilderIndexError(null);
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  <SourceAccordionRow
+                    icon={IconPalette}
+                    title={t("designSystemSetup.otherSources")}
+                    description={t("designSystemSetup.otherSourcesDescription")}
+                    expanded={sourcePanel === "other"}
+                    onClick={() => setSourcePanel("other")}
+                    panelId="slides-design-system-other-sources"
+                  />
+                  {sourcePanel === "other" && (
+                    <div
+                      id="slides-design-system-other-sources"
+                      className="rounded-lg border border-border"
+                    >
+                      <div className="border-b border-border px-4 py-3">
+                        <p className="text-xs font-medium text-foreground/70">
+                          {t("designSystemSetup.chooseSourcePrompt")}
+                        </p>
+                      </div>
+                      <div className="divide-y divide-border">
+                        <SourceAccordionRow
+                          className="rounded-none border-0"
+                          icon={IconPalette}
+                          title={t("designSystemSetup.companyBrand")}
+                          description={t(
+                            "designSystemSetup.companyBrandPlaceholder",
+                          )}
+                          expanded={otherSource === "brand"}
+                          onClick={() => selectOtherSource("brand")}
+                          panelId="slides-design-system-brand-source"
+                        />
+                        <SourceAccordionRow
+                          className="rounded-none border-0"
+                          icon={IconBrandGithub}
+                          title={t("designSystemSetup.githubRepository")}
+                          description={t("designSystemSetup.codeFilesDrop")}
+                          expanded={otherSource === "code"}
+                          onClick={() => selectOtherSource("code")}
+                          panelId="slides-design-system-code-source"
+                        />
+                        <SourceAccordionRow
+                          className="rounded-none border-0"
+                          icon={IconFileDescription}
+                          title={t("designSystemSetup.documents")}
+                          description={t("designSystemSetup.documentsDrop")}
+                          expanded={otherSource === "files"}
+                          onClick={() => selectOtherSource("files")}
+                          panelId="slides-design-system-file-source"
+                        />
+                        {existingSystems.length > 0 && (
+                          <SourceAccordionRow
+                            className="rounded-none border-0"
+                            icon={IconPalette}
+                            title={t("designSystemSetup.forkExisting")}
+                            description={t(
+                              "designSystemSetup.customInstructionsDescription",
+                            )}
+                            expanded={otherSource === "existing"}
+                            onClick={() => selectOtherSource("existing")}
+                            panelId="slides-design-system-existing-source"
+                          />
+                        )}
+                        <SourceAccordionRow
+                          className="rounded-none border-0"
+                          icon={IconFileDescription}
+                          title={t("designSystemSetup.additionalNotes")}
+                          description={t(
+                            "designSystemSetup.customInstructionsDescription",
+                          )}
+                          expanded={otherSource === "context"}
+                          onClick={() => selectOtherSource("context")}
+                          panelId="slides-design-system-context-source"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Website URL */}
+                  <div
+                    id="slides-design-system-brand-source"
+                    className={cn(
+                      "space-y-4 rounded-lg border border-border bg-card p-4",
+                      otherSource !== "brand" && "hidden",
+                    )}
+                  >
+                    <div className="space-y-2">
+                      <Label className="text-foreground/80">
+                        {t("designSystemSetup.companyBrand")}
+                      </Label>
+                      <Input
+                        value={companyName}
+                        onChange={(e) => setCompanyName(e.target.value)}
+                        placeholder={t(
+                          "designSystemSetup.companyBrandPlaceholder",
+                        )}
+                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-foreground/80 flex items-center gap-1.5">
+                        <IconWorld className="w-3.5 h-3.5" />
+                        {t("designSystemSetup.websiteUrl")}
+                      </Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={websiteUrl}
+                          onChange={(e) => setWebsiteUrl(e.target.value)}
+                          placeholder={t(
+                            "designSystemSetup.websitePlaceholder",
+                          )}
+                          className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                          onBlur={() => {
+                            const normalized =
+                              normalizeWebsiteUrlInput(websiteUrl);
+                            if (normalized) setWebsiteUrl(normalized);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") addWebsiteUrl();
+                          }}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={addWebsiteUrl}
+                          className="shrink-0 cursor-pointer"
+                        >
+                          {t("designSystemSetup.add")}
+                        </Button>
+                      </div>
+                      <TagList
+                        items={websiteUrls}
+                        onRemove={(i) =>
+                          setWebsiteUrls((p) => p.filter((_, j) => j !== i))
+                        }
+                      />
                     </div>
                   </div>
-                )}
-              </>
-            )}
 
-            {/* Brand Notes */}
-            <div className="space-y-2">
-              <Label className="text-foreground/80">
-                {editingId
-                  ? t("designSystemSetup.brandNotes")
-                  : t("designSystemSetup.additionalNotes")}
-              </Label>
-              <Textarea
-                value={brandNotes}
-                onChange={(e) => setBrandNotes(e.target.value)}
-                placeholder={t("designSystemSetup.notesPlaceholder")}
-                rows={3}
-                className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
-              />
-            </div>
+                  {/* GitHub */}
+                  <div
+                    id="slides-design-system-code-source"
+                    className={cn(
+                      "space-y-2 rounded-lg border border-border bg-card p-4",
+                      otherSource !== "code" && "hidden",
+                    )}
+                  >
+                    <Label className="text-foreground/80 flex items-center gap-1.5">
+                      <IconBrandGithub className="w-3.5 h-3.5" />
+                      {t("designSystemSetup.githubRepository")}
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={githubUrl}
+                        onChange={(e) => setGithubUrl(e.target.value)}
+                        placeholder="https://github.com/org/repo"
+                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") addGithubLink();
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={addGithubLink}
+                        className="shrink-0 cursor-pointer"
+                      >
+                        {t("designSystemSetup.add")}
+                      </Button>
+                    </div>
+                    <TagList
+                      items={githubLinks.map((l) => l.url)}
+                      onRemove={(i) =>
+                        setGithubLinks((p) => p.filter((_, j) => j !== i))
+                      }
+                    />
+                  </div>
 
-            {/* Custom Instructions — durable, stored on the design system */}
-            <div className="space-y-2">
-              <Label className="text-foreground/80">
-                {t("designSystemSetup.customInstructions")}
-              </Label>
-              <Textarea
-                value={customInstructions}
-                onChange={(e) => setCustomInstructions(e.target.value)}
-                placeholder={t(
-                  "designSystemSetup.customInstructionsPlaceholder",
+                  {/* Code Files */}
+                  <div
+                    className={cn(
+                      "space-y-2 rounded-lg border border-border bg-card p-4",
+                      otherSource !== "code" && "hidden",
+                    )}
+                  >
+                    <Label className="text-foreground/80 flex items-center gap-1.5">
+                      <IconFolder className="w-3.5 h-3.5" />
+                      {t("designSystemSetup.codeFiles")}
+                    </Label>
+                    <button
+                      onClick={() => codeInputRef.current?.click()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer.files)
+                          readTextFiles(e.dataTransfer.files, setCodeFiles);
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
+                    >
+                      <p className="text-xs text-muted-foreground">
+                        {t("designSystemSetup.codeFilesDrop")}
+                      </p>
+                    </button>
+                    <input
+                      ref={codeInputRef}
+                      type="file"
+                      multiple
+                      accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
+                      onChange={(e) => {
+                        if (e.target.files)
+                          readTextFiles(e.target.files, setCodeFiles);
+                        e.target.value = "";
+                      }}
+                      className="hidden"
+                    />
+                    <FileList
+                      files={codeFiles}
+                      onRemove={(id) =>
+                        setCodeFiles((p) => p.filter((f) => f.id !== id))
+                      }
+                    />
+                  </div>
+
+                  {/* Documents */}
+                  <div
+                    id="slides-design-system-file-source"
+                    className={cn(
+                      "space-y-2 rounded-lg border border-border bg-card p-4",
+                      otherSource !== "files" && "hidden",
+                    )}
+                  >
+                    <Label className="text-foreground/80 flex items-center gap-1.5">
+                      <IconFileDescription className="w-3.5 h-3.5" />
+                      {t("designSystemSetup.documents")}
+                    </Label>
+                    <button
+                      onClick={() => docInputRef.current?.click()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (e.dataTransfer.files)
+                          readTextFiles(e.dataTransfer.files, setDocFiles);
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
+                    >
+                      <p className="text-xs text-muted-foreground">
+                        {t("designSystemSetup.documentsDrop")}
+                      </p>
+                    </button>
+                    <input
+                      ref={docInputRef}
+                      type="file"
+                      accept=".pptx,.ppt,.docx,.doc,.pdf,.xlsx,.xls,.md,.markdown,.mdx,.txt"
+                      multiple
+                      onChange={(e) => {
+                        if (e.target.files)
+                          readTextFiles(e.target.files, setDocFiles);
+                        e.target.value = "";
+                      }}
+                      className="hidden"
+                    />
+                    <FileList
+                      files={docFiles}
+                      onRemove={(id) =>
+                        setDocFiles((p) => p.filter((f) => f.id !== id))
+                      }
+                    />
+                  </div>
+
+                  {/* Images */}
+                  <div
+                    className={cn(
+                      "space-y-2 rounded-lg border border-border bg-card p-4",
+                      otherSource !== "files" && "hidden",
+                    )}
+                  >
+                    <Label className="text-foreground/80 flex items-center gap-1.5">
+                      <IconPhoto className="w-3.5 h-3.5" />
+                      {t("designSystemSetup.visualReferences")}
+                    </Label>
+                    <button
+                      onClick={() => imageInputRef.current?.click()}
+                      className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
+                    >
+                      <p className="text-xs text-muted-foreground">
+                        {t("designSystemSetup.visualReferencesDrop")}
+                      </p>
+                    </button>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*,.svg"
+                      multiple
+                      onChange={(e) => {
+                        if (!e.target.files) return;
+                        const newFiles = Array.from(e.target.files).map(
+                          (f) => ({
+                            id: crypto.randomUUID(),
+                            name: f.name,
+                            type: f.type,
+                            size: f.size,
+                          }),
+                        );
+                        setImageFiles((p) => [...p, ...newFiles]);
+                        e.target.value = "";
+                      }}
+                      className="hidden"
+                    />
+                    <FileList
+                      files={imageFiles}
+                      onRemove={(id) =>
+                        setImageFiles((p) => p.filter((f) => f.id !== id))
+                      }
+                    />
+                  </div>
+
+                  {/* Fork existing */}
+                  {existingSystems.length > 0 && (
+                    <div
+                      id="slides-design-system-existing-source"
+                      className={cn(
+                        "space-y-2 rounded-lg border border-border bg-card p-4",
+                        otherSource !== "existing" && "hidden",
+                      )}
+                    >
+                      <Label className="text-foreground/80">
+                        {t("designSystemSetup.forkExisting")}
+                      </Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {existingSystems
+                          .filter((s) => s.id !== editingId)
+                          .map((ds) => (
+                            <button
+                              key={ds.id}
+                              onClick={() =>
+                                setSelectedSystemId((prev) =>
+                                  prev === ds.id ? "" : ds.id,
+                                )
+                              }
+                              className={`text-left p-3 rounded-lg border cursor-pointer ${
+                                selectedSystemId === ds.id
+                                  ? "border-primary/40 bg-primary/5"
+                                  : "border-border bg-accent hover:border-foreground/20"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                                <span className="text-sm text-foreground/80 truncate">
+                                  {ds.title}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Brand Notes */}
+              <div
+                id="slides-design-system-context-source"
+                className={cn(
+                  "space-y-2 rounded-lg border border-border bg-card p-4",
+                  !editingId &&
+                    (sourcePanel !== "other" || otherSource !== "context") &&
+                    "hidden",
                 )}
-                rows={4}
-                className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
-              />
-              <p className="text-[11px] text-muted-foreground">
-                {t("designSystemSetup.customInstructionsDescription")}
-              </p>
+              >
+                <Label className="text-foreground/80">
+                  {editingId
+                    ? t("designSystemSetup.brandNotes")
+                    : t("designSystemSetup.additionalNotes")}
+                </Label>
+                <Textarea
+                  value={brandNotes}
+                  onChange={(e) => setBrandNotes(e.target.value)}
+                  placeholder={t("designSystemSetup.notesPlaceholder")}
+                  rows={3}
+                  className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
+                />
+              </div>
+
+              {/* Custom Instructions — durable, stored on the design system */}
+              <div
+                className={cn(
+                  "space-y-2 rounded-lg border border-border bg-card p-4",
+                  !editingId &&
+                    (sourcePanel !== "other" || otherSource !== "context") &&
+                    "hidden",
+                )}
+              >
+                <Label className="text-foreground/80">
+                  {t("designSystemSetup.customInstructions")}
+                </Label>
+                <Textarea
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                  placeholder={t(
+                    "designSystemSetup.customInstructionsPlaceholder",
+                  )}
+                  rows={4}
+                  className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {t("designSystemSetup.customInstructionsDescription")}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
         </ScrollArea>
 
         {/* Actions */}
@@ -826,7 +1142,11 @@ export function DesignSystemSetup({
           </Button>
           <Button
             onClick={handleGenerate}
-            disabled={editingId ? generating : !hasAnySources}
+            disabled={
+              editingId
+                ? generating || !existingDs || existingDsLoading
+                : !hasAnySources
+            }
             className="cursor-pointer"
           >
             {generating ? (
@@ -843,6 +1163,259 @@ export function DesignSystemSetup({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function parseDesignSystemData(
+  data?: string | null,
+): { ok: true; value: Record<string, unknown> } | { ok: false } {
+  if (!data) return { ok: false };
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false };
+    }
+    return { ok: true, value: parsed as Record<string, unknown> };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function isGeneratedBuilderInstructions(
+  value: string | undefined,
+  builder: BuilderSourceDetails,
+): boolean {
+  const instructions = value?.trim();
+  if (!instructions) return false;
+  return (
+    instructions.startsWith(
+      "This design system is indexed by Builder Design System Intelligence (DSI).",
+    ) &&
+    instructions.includes(
+      `Builder design system id: ${builder.builderDesignSystemId}`,
+    ) &&
+    instructions.includes("Call get-design-system for this local id")
+  );
+}
+
+function SourceAccordionRow({
+  icon: Icon,
+  title,
+  description,
+  expanded,
+  onClick,
+  panelId,
+  className,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  expanded: boolean;
+  onClick: () => void;
+  panelId: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-controls={panelId}
+      aria-expanded={expanded}
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-[background-color,border-color] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        expanded && "bg-accent/40",
+        className,
+      )}
+    >
+      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-foreground/90">
+          {title}
+        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {description}
+        </span>
+      </span>
+      <IconChevronDown
+        className={cn(
+          "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
+          expanded && "rotate-180",
+        )}
+      />
+    </button>
+  );
+}
+
+function BuilderSourceStatus({ builder }: { builder: BuilderSourceDetails }) {
+  const t = useT();
+  const docs = builder.docCount ?? builder.docs?.length ?? 0;
+  const tokens = Object.keys(builder.tokenValues ?? {}).length;
+  const normalizedStatus = builder.builderStatus?.toLowerCase();
+  const hasIndexedResults = docs > 0 || tokens > 0;
+  const isIndexed =
+    hasIndexedResults ||
+    normalizedStatus === "ready" ||
+    normalizedStatus === "complete" ||
+    normalizedStatus === "completed";
+  const isIndexing = ["in-progress", "pending", "processing"].includes(
+    normalizedStatus ?? "",
+  );
+  const state =
+    isIndexing && !isIndexed
+      ? "indexing"
+      : builder.warning
+        ? "unavailable"
+        : isIndexed
+          ? "indexed"
+          : "indexing";
+  const sourceKind = builder.sourceKind;
+  const SourceIcon =
+    sourceKind === "figma"
+      ? IconBrandFigma
+      : sourceKind === "github"
+        ? IconBrandGithub
+        : sourceKind === "code"
+          ? IconFolder
+          : IconPalette;
+  const sourceTitle =
+    sourceKind === "figma"
+      ? t("designSystemSetup.sourceFigma")
+      : sourceKind === "github"
+        ? t("designSystemSetup.sourceGitHub")
+        : sourceKind === "code"
+          ? t("designSystemSetup.sourceCode")
+          : sourceKind === "mixed"
+            ? t("designSystemSetup.sourceMixed")
+            : t("designSystemSetup.sourceBuilder");
+  const statusTitle =
+    state === "unavailable"
+      ? t("designSystemSetup.sourceUnavailable")
+      : state === "indexed"
+        ? t("designSystemSetup.sourceIndexed")
+        : t("designSystemSetup.sourceIndexing");
+  const statusDescription =
+    state === "unavailable"
+      ? t("designSystemSetup.sourceUnavailableDescription")
+      : state === "indexing"
+        ? t("designSystemSetup.sourceIndexingDescription")
+        : docs > 0 && tokens > 0
+          ? t("designSystemSetup.sourceIndexedDescription", { docs, tokens })
+          : docs > 0
+            ? t("designSystemSetup.sourceIndexedDocsOnly", { docs })
+            : tokens > 0
+              ? t("designSystemSetup.sourceIndexedTokensOnly", { tokens })
+              : t("designSystemSetup.sourceIndexedDescription", {
+                  docs,
+                  tokens,
+                });
+  const statusClassName =
+    state === "unavailable"
+      ? "text-destructive"
+      : state === "indexed"
+        ? "text-primary"
+        : "text-muted-foreground";
+
+  return (
+    <section
+      aria-label={t("designSystemSetup.sourceLabel")}
+      className="rounded-lg border border-border bg-accent/30 px-4 py-3"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+          <SourceIcon className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t("designSystemSetup.sourceLabel")}
+          </p>
+          <p className="mt-0.5 truncate text-sm font-medium text-foreground">
+            {sourceTitle}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {statusDescription}
+          </p>
+        </div>
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 text-xs font-medium",
+            statusClassName,
+          )}
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="size-1.5 rounded-full bg-current"
+            aria-hidden="true"
+          />
+          {statusTitle}
+        </div>
+      </div>
+      {builder.builderUrl ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <a
+            href={withBuilderUtmTrackingParams(builder.builderUrl, {
+              campaign: "product",
+              content: "design_system_intelligence",
+            })}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            {t("designSystemSetup.sourceOpenInBuilder")}
+            <IconExternalLink className="size-3.5" />
+          </a>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function DesignSystemEditSkeleton() {
+  const t = useT();
+  return (
+    <div
+      aria-busy="true"
+      aria-label={t("designSystemSetup.loading")}
+      className="space-y-5 py-4"
+    >
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-10 w-full rounded-md" />
+      </div>
+      <div className="space-y-3 rounded-lg border border-border bg-accent/30 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-9 rounded-md" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          <Skeleton className="h-4 w-24" />
+        </div>
+        <Skeleton className="h-3 w-4/5" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-24 w-full rounded-md" />
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-36" />
+        <Skeleton className="h-32 w-full rounded-md" />
+        <Skeleton className="h-3 w-64" />
+      </div>
+    </div>
+  );
+}
+
+function DesignSystemEditError() {
+  const t = useT();
+  return (
+    <div
+      role="alert"
+      className="flex min-h-64 items-center justify-center py-8 text-center text-sm text-destructive"
+    >
+      {t("designSystemSetup.loadFailed")}
+    </div>
   );
 }
 
@@ -879,12 +1452,24 @@ function TagList({
 
 function BuilderIndexPreview({
   result,
+  decodeStatus,
+  displayTitle,
   onReset,
 }: {
   result: BuilderIndexResult;
+  decodeStatus: DecodeJobStatus | null;
+  displayTitle?: string;
   onReset: () => void;
 }) {
   const t = useT();
+  const decodeDone =
+    decodeStatus == null ||
+    Boolean(decodeStatus.branchUrl) ||
+    decodeStatus.status === "complete";
+  const decodeFailed = decodeStatus?.status === "error";
+  const decodeText = decodeFailed
+    ? t("designSystemSetup.decodeFailed", { error: decodeStatus?.error ?? "" })
+    : null;
   return (
     <div className="space-y-4 rounded-lg border border-border bg-accent/40 p-4">
       <div className="flex items-start gap-3">
@@ -898,43 +1483,47 @@ function BuilderIndexPreview({
           <p className="text-xs text-muted-foreground">
             {t("designSystemSetup.builderIndexingDescription", {
               title:
-                result.suggestedTitle || t("designSystemSetup.importedBrand"),
+                displayTitle ||
+                result.suggestedTitle ||
+                t("designSystemSetup.importedBrand"),
             })}
           </p>
         </div>
       </div>
 
-      <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-md border border-border bg-card/50 p-3 text-xs">
-        <dt className="text-muted-foreground">
-          {t("designSystemSetup.builderDesignSystemId")}
-        </dt>
-        <dd className="truncate font-mono text-foreground/80">
-          {result.designSystemId}
-        </dd>
-        <dt className="text-muted-foreground">
-          {t("designSystemSetup.builderJobId")}
-        </dt>
-        <dd className="truncate font-mono text-foreground/80">
-          {result.jobId}
-        </dd>
-      </dl>
+      {decodeText && (
+        <div className="border-t border-border pt-3 text-xs text-destructive">
+          {decodeText}
+        </div>
+      )}
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <Button size="sm" asChild className="cursor-pointer">
-          <a href={result.builderUrl} target="_blank" rel="noreferrer">
-            <IconExternalLink className="w-3.5 h-3.5" />
-            {t("designSystemSetup.openInBuilder")}
-          </a>
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onReset}
-          className="cursor-pointer"
-        >
-          {t("designSystemSetup.chooseAnotherFile")}
-        </Button>
-      </div>
+      {(decodeDone || decodeFailed) && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          {decodeDone && !decodeFailed && (
+            <Button size="sm" asChild className="cursor-pointer">
+              <a
+                href={withBuilderUtmTrackingParams(result.builderUrl, {
+                  campaign: "product",
+                  content: "design_system_intelligence",
+                })}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <IconExternalLink className="w-3.5 h-3.5" />
+                {t("designSystemSetup.openInBuilder")}
+              </a>
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onReset}
+            className="cursor-pointer"
+          >
+            {t("designSystemSetup.chooseAnotherFile")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

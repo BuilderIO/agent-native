@@ -69,6 +69,15 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
   if (builderFileUploadProvider.isConfigured()) {
     return builderFileUploadProvider;
   }
+  try {
+    const { resolveHasBuilderPrivateKey } =
+      await import("../server/credential-provider.js");
+    if (await resolveHasBuilderPrivateKey()) {
+      return builderFileUploadProvider;
+    }
+  } catch {
+    // Treat failed scoped credential lookups as unavailable.
+  }
   return null;
 }
 
@@ -117,7 +126,7 @@ export async function uploadFile(
     warnedFallbackRef.value = true;
     console.warn(
       "[agent-native] No file upload provider configured. " +
-        "Connect or reconnect Builder.io in Settings → File uploads, " +
+        "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, " +
         "or register a custom provider (S3, R2, GCS, …) via registerFileUploadProvider().",
     );
   }

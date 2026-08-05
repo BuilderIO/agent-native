@@ -6,6 +6,35 @@ search: "ヘッドレス エージェント リッチ チャット フル アプ
 
 # エージェント サーフェス
 
+## フルページの Agent ワークスペース {#agent-page}
+
+完全なアプリケーションでエージェントを確認・設定する常設の場所が必要な
+場合は、`/agent` に `AgentTabsPage` をマウントします。アプリのナビゲーション
+にこのルートを追加し、`AgentSidebar` に `agentPageHref="/agent"` を渡すと、
+Resources と Settings から同じフローを重複させずにフルページへ移動できます。
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+共有ページには現在、5 つのタブがあります。
+
+- **Context** — スコープのプレビュー、トークン予算、provenance・governance・source で整理された順序付きシステムセクション、リスト/treemap 表示、最新の live thread スナップショット。
+- **Files** — 個人または組織のリソース用に既存の `ResourcesPanel` を再ホストします。
+- **Connections** — MCP サーバー管理と A2A リモートエージェント一覧。アプリのエージェントが呼び出せるものを示します。
+- **Automations** — 一時停止/再開、詳細、削除に対応した個人および組織の Scheduled/Event 自動化。互換 URL は `/agent#jobs` のままです。
+- **Access** — MCP URL、利用可能なら A2A エージェントカード、共通のクライアント設定ガイドを表示します。完全な接続フローとトークンのフォールバックは `/mcp/connect` にあります。
+
+ページは現在、個人スコープを使用し、ページ全体の
+**Personal / Organization** 切り替えは提供していません。基盤のアクションが
+対応する場合、タブは独自の組織セクションを表示できます。**Automations** は
+Scheduled と Event の個人および組織セクションを表示します。組織の Event 自動化は
+常に作成者として実行されます。このページは既存のコンポーネント、アクション、アクセスチェックを
+再利用する薄いシェルであり、新しい管理コンソールではありません。
+
 Agent-Native は意図的に構成可能です。 UI をあまり必要とせずにエージェントを使用できます。
 組み込みエージェント ランタイムなしで UI を使用するか、両方を完全なものとして一緒に使用します
 アプリケーション。
@@ -382,8 +411,7 @@ export default createAgentNativeEmbeddedPlugin({
 React サイドカーは、ページ コンテキストとホスト コマンドを渡します。
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

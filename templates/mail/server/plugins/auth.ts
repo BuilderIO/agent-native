@@ -26,7 +26,7 @@ export default createAuthPlugin({
     "https://www.googleapis.com/auth/calendar.events",
   ],
   marketing: {
-    appName: "Agent-Native Mail",
+    appName: "Mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",
@@ -51,5 +51,13 @@ export default createAuthPlugin({
   // GMAIL_PUSH_AUDIENCE is configured.
   // Cloud Scheduler POSTs to /api/gmail/watch/renew every 6h for watch
   // lifecycle; same OIDC-verification pattern.
-  publicPaths: ["/api/gmail/push", "/api/gmail/watch/renew", "/api/tracking"],
+  // Attachment upload capabilities carry their own short-lived, owner-bound
+  // bearer credential because a local MCP caller cannot attach the browser's
+  // session cookie to the subsequent raw-byte PUT.
+  publicPaths: [
+    "/api/gmail/push",
+    "/api/gmail/watch/renew",
+    "/api/tracking",
+    "/api/media/attachment-upload",
+  ],
 });

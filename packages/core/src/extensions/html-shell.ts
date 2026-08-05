@@ -1,3 +1,5 @@
+import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
+
 const EXTENSION_IFRAME_CSP_BASE =
   "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
 
@@ -424,7 +426,33 @@ export function buildExtensionHtml(
 	      return res.body;
 	    }
 
-	    async function appFetch(path, options) {
+    var mcp = {
+      listTools: function(serverId) {
+        var params = serverId ? { serverId: String(serverId) } : {};
+        return appAction('list-mcp-tools', params);
+      },
+      callTool: function(serverId, toolName, args) {
+        if (!serverId || !toolName) {
+          return Promise.reject(new Error('MCP serverId and toolName are required'));
+        }
+        return appAction('call-mcp-tool', {
+          serverId: String(serverId),
+          toolName: String(toolName),
+          arguments: args || {},
+        });
+      },
+    };
+
+    var providerApi = {
+      catalog: function(params) {
+        return appAction('provider-api-catalog', params || {});
+      },
+      docs: function(params) {
+        return appAction('provider-api-docs', params || {});
+      },
+    };
+
+    async function appFetch(path, options) {
 	      options = options || {};
 	      var res = await hostRequest(path, {
 	        ...options,
@@ -591,6 +619,12 @@ export function buildExtensionHtml(
 	      extensionFetch: extensionFetch,
 	      extensionData: extensionData,
 	      data: extensionData,
+	      mcp: mcp,
+	      providerApi: providerApi,
+	      connectors: Object.assign({}, (window.agentNative && window.agentNative.connectors) || {}, {
+	        mcp: mcp,
+	        providerApi: providerApi,
+	      }),
 	      sendToChat: sendToChat,
 	      chat: Object.assign({}, (window.agentNative && window.agentNative.chat) || {}, {
 	        send: sendToChat,
@@ -744,6 +778,7 @@ export function buildExtensionHtml(
 	      }
 	    });
 	  </script>
+	${buildSessionReplayIframeBootstrap()}
 	</head>
 	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="text-foreground">
 	${content}

@@ -1,8 +1,5 @@
-import {
-  useActionMutation,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconBrandFigma,
@@ -30,6 +27,7 @@ import {
 } from "@/lib/design-file-upload";
 import {
   importResultNotification,
+  isFigmaRateLimitImportError,
   looksLikeStandaloneHtml,
   VISUAL_EDIT_CONNECT_COMMAND,
   VISUAL_EDIT_INSTALL_COMMAND,
@@ -39,12 +37,14 @@ import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
+import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 import type { DesignExtensionSlotContext } from "./DesignExtensionsPanel";
 
 interface DesignImportPanelProps {
   context: Pick<DesignExtensionSlotContext, "designId" | "viewMode">;
+  onImport?: (result: ImportResult) => void;
 }
 
 type ImportMode =
@@ -54,7 +54,11 @@ type ImportMode =
   | "html"
   | "local-app";
 
-export function DesignImportPanel({ context }: DesignImportPanelProps) {
+export function DesignImportPanel(p: DesignImportPanelProps) {
+  const context = p.context;
+  const onImport = p.onImport;
+  const onImportRef = useRef(onImport);
+  onImportRef.current = onImport;
   const t = useT();
   const { formatNumber } = useFormatters();
   const navigate = useNavigate();
@@ -80,6 +84,8 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
   const [htmlText, setHtmlText] = useState("");
   const [activeMode, setActiveMode] = useState<ImportMode | null>(null);
   const [lastResult, setLastResult] = useState<ImportResult | null>(null);
+  const [figmaRateLimitError, setFigmaRateLimitError] =
+    useState<ImportResult | null>(null);
   const [figUploadName, setFigUploadName] = useState<string | null>(null);
   const [figUploadProgress, setFigUploadProgress] = useState<number | null>(
     null,
@@ -94,6 +100,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
         queryClient.invalidateQueries({ queryKey: ["action", "get-design"] }),
         queryClient.invalidateQueries({ queryKey: ["action"] }),
       ]);
+      if (result) onImportRef.current?.(result);
       const fidelityWarnings: string[] = [];
       const imageFallbackCount = result?.fidelityReport?.imageFallbacks.length;
       if (imageFallbackCount) {
@@ -193,6 +200,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
     figmaConnectionChecked && !figmaConnected && !figmaConnectionError;
 
   const handleFigmaUrlImport = useCallback(async () => {
+    setFigmaRateLimitError(null);
     const normalizedUrl = figmaUrl.trim();
     if (!normalizedUrl) {
       toast.error(t("designEditor.import.errors.figmaUrlRequired"));
@@ -221,9 +229,41 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
         asNewScreen: true,
       })) as ImportResult;
       await finishImport(result, t("designEditor.import.figmaUrlSuccess"));
+      setFigmaRateLimitError(null);
     } catch (error) {
       // A rejected credential should not linger in component state or the DOM.
       setFigmaAccessToken("");
+      const rateLimitDetails = error as Error & {
+        rateLimitRetryAfter?: number;
+        rateLimitPlanTier?: string;
+        figmaPlanTier?: string;
+        rateLimitType?: string;
+        figmaRateLimitType?: string;
+        rateLimitUpgradeUrl?: string;
+        figmaUpgradeUrl?: string;
+      };
+      const rateLimitResult: ImportResult = {
+        error:
+          typeof rateLimitDetails.message === "string"
+            ? rateLimitDetails.message
+            : t("common.genericError"),
+        rateLimitRetryAfter: rateLimitDetails.rateLimitRetryAfter,
+        rateLimitPlanTier:
+          rateLimitDetails.rateLimitPlanTier ?? rateLimitDetails.figmaPlanTier,
+        rateLimitType:
+          rateLimitDetails.rateLimitType ?? rateLimitDetails.figmaRateLimitType,
+        rateLimitUpgradeUrl:
+          rateLimitDetails.rateLimitUpgradeUrl ??
+          rateLimitDetails.figmaUpgradeUrl,
+      };
+      const isRateLimitError =
+        (error instanceof Error &&
+          /rate limit|429|quota/i.test(error.message)) ||
+        isFigmaRateLimitImportError(rateLimitResult);
+      if (isRateLimitError) {
+        setFigmaRateLimitError(rateLimitResult);
+        setActiveMode("fig-upload");
+      }
       toast.error(t("designEditor.import.errors.figmaImportFailed"), {
         description:
           error instanceof Error ? error.message : t("common.genericError"),
@@ -268,7 +308,9 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
       }
       if (validationError === "too-large") {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
-          description: t("designEditor.import.errors.figFileTooLarge"),
+          description: t("designEditor.import.errors.figFileTooLarge", {
+            max: MAX_UPLOAD_MB,
+          }),
         });
         if (figFileInputRef.current) figFileInputRef.current.value = "";
         return;
@@ -285,6 +327,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
           onProgress: ({ percent }) => setFigUploadProgress(percent),
         });
         await finishImport(result, t("designEditor.import.uploadSuccess"));
+        setFigmaRateLimitError(null);
       } catch (error) {
         toast.error(t("designEditor.import.errors.uploadFailed"), {
           description:
@@ -328,6 +371,64 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
 
       <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 pt-3">
         <div className="space-y-0.5">
+          {figmaRateLimitError ? (
+            <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-2.5 text-[11px] leading-snug">
+              <p className="font-medium text-destructive">
+                {t("designEditor.import.rateLimitTitle")}
+              </p>
+              <p className="text-muted-foreground">
+                {figmaRateLimitError.rateLimitType === "low"
+                  ? t("designEditor.import.rateLimitLowSeat")
+                  : t("designEditor.import.rateLimitGeneric")}
+              </p>
+              {figmaRateLimitError.rateLimitRetryAfter ? (
+                <p className="text-muted-foreground">
+                  {t("designEditor.import.rateLimitRetryIn", {
+                    time:
+                      figmaRateLimitError.rateLimitRetryAfter >= 60
+                        ? `${Math.ceil(figmaRateLimitError.rateLimitRetryAfter / 60)} min`
+                        : `${figmaRateLimitError.rateLimitRetryAfter}s`,
+                  })}
+                </p>
+              ) : null}
+              <div className="flex flex-col gap-1.5">
+                <p className="text-[10px] font-medium text-muted-foreground">
+                  {t("designEditor.import.rateLimitAlternatives")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 w-full px-2 text-[11px]"
+                  onClick={() => {
+                    setFigmaRateLimitError(null);
+                    setActiveMode("figma-paste");
+                  }}
+                >
+                  {t("designEditor.import.rateLimitUsePaste")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 w-full px-2 text-[11px]"
+                  onClick={() => {
+                    setActiveMode("fig-upload");
+                  }}
+                >
+                  {t("designEditor.import.rateLimitUseFig")}
+                </Button>
+              </div>
+              {figmaRateLimitError.rateLimitUpgradeUrl ? (
+                <a
+                  href={figmaRateLimitError.rateLimitUpgradeUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-[10px] text-foreground underline-offset-2 hover:underline"
+                >
+                  {t("designEditor.import.rateLimitUpgrade")}
+                </a>
+              ) : null}
+            </div>
+          ) : null}
           <ImportSourceRow
             id="figma-url-import"
             icon={<IconBrandFigma className="size-3.5" />}
@@ -440,9 +541,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
             id="figma-paste-import"
             icon={<IconBrandFigma className="size-3.5" />}
             title={t("designEditor.import.figmaPasteTitle")}
-            description={
-              "Copy a frame in Figma, then paste into the canvas." /* i18n-ignore */
-            }
+            description={t("designEditor.import.figmaPasteDescription")}
             isOpen={activeMode === "figma-paste"}
             onToggle={() =>
               setActiveMode((mode) =>
@@ -451,12 +550,8 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
             }
           >
             <div className="space-y-1.5 p-2 text-[11px] leading-snug text-muted-foreground">
-              <p>{t("designEditor.import.figmaPasteDescription")}</p>
-              <p>
-                {
-                  "Click the canvas first, then paste with the same shortcut you use for copied Design content." /* i18n-ignore */
-                }
-              </p>
+              <p>{t("designEditor.import.figmaPasteBodyUnlimited")}</p>
+              <p>{t("designEditor.import.figmaPasteBodyImages")}</p>
             </div>
           </ImportSourceRow>
 
@@ -464,7 +559,7 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
             id="fig-file-import"
             icon={<IconUpload className="size-3.5" />}
             title={t("designEditor.import.figUploadTitle")}
-            description={t("designEditor.import.figUploadDescription")}
+            description={t("designEditor.import.figUploadDescriptionShort")}
             isOpen={activeMode === "fig-upload"}
             onToggle={() =>
               setActiveMode((mode) =>
@@ -474,7 +569,9 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
           >
             <div className="space-y-2 p-2">
               <p className="text-[11px] leading-snug text-muted-foreground">
-                {t("designEditor.import.figUploadDescription")}
+                {t("designEditor.import.figUploadDescription", {
+                  max: MAX_UPLOAD_MB,
+                })}
               </p>
               <input
                 ref={figFileInputRef}

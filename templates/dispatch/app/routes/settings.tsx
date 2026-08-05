@@ -1,21 +1,15 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
-  ChangelogSettingsCard,
-  LanguagePicker,
+  AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
   type SettingsSearchEntry,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
 import { Button } from "@agent-native/dispatch/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/dispatch/components/ui/card";
-import { Label } from "@agent-native/dispatch/components/ui/label";
 import { useMemo } from "react";
 import { Link } from "react-router";
 
@@ -51,6 +45,7 @@ export default function SettingsRoute() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       extraTabs={agentSettingsTabs}
       generalSearchEntries={generalSearchEntries}
       general={
@@ -59,38 +54,30 @@ export default function SettingsRoute() {
             {t("settings.description")}
           </p>
 
-          <Card id="language" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.languageTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.languageDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
-
-          <Card id="workspace-resources" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.workspaceTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.workspaceDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" asChild>
-                <Link to="/workspace">
-                  {t("settings.openResourceSettings")}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+            <SettingsRow
+              id="workspace-resources"
+              label={t("settings.workspaceTitle")}
+              description={t("settings.workspaceDescription")}
+              control={
+                <Button variant="outline" asChild>
+                  <Link to="/workspace">
+                    {t("settings.openResourceSettings")}
+                  </Link>
+                </Button>
+              }
+            />
+          </SettingsGroup>
         </div>
       }
       team={

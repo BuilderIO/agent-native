@@ -6,6 +6,35 @@ search: "हेडलेस एजेंट रिच चैट पूर्ण 
 
 # एजेंट सतहें
 
+## पूरा Agent कार्यक्षेत्र {#agent-page}
+
+जब किसी पूर्ण ऐप को अपने एजेंट को देखने और कॉन्फ़िगर करने के लिए स्थायी स्थान
+चाहिए, तो `/agent` पर `AgentTabsPage` माउंट करें। ऐप नेविगेशन में यह रूट जोड़ें
+और `AgentSidebar` को `agentPageHref="/agent"` दें, ताकि Resources और Settings
+मोड इन प्रवाहों को दोहराए बिना पूरे पेज पर जा सकें।
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+साझा पेज में अभी पाँच टैब हैं:
+
+- **Context** — स्कोप प्रीव्यू, टोकन बजट, provenance और governance के साथ क्रमबद्ध सिस्टम सेक्शन, सूची/treemap दृश्य और नवीनतम live-thread snapshot।
+- **Files** — व्यक्तिगत या संगठन संसाधनों के लिए मौजूदा `ResourcesPanel` को फिर से उपयोग करता है।
+- **Connections** — MCP सर्वर प्रबंधन और A2A remote-agent सूची: यह ऐप का एजेंट क्या बुला सकता है।
+- **Automations** — pause/resume, विवरण और delete प्रवाहों के साथ व्यक्तिगत और संगठन Scheduled व Event ऑटोमेशन। संगतता URL `/agent#jobs` ही रहता है।
+- **Access** — MCP URL, उपलब्ध होने पर A2A agent card और साझा client setup guides; पूरा flow और token fallback `/mcp/connect` पर है।
+
+पेज अभी व्यक्तिगत scope का उपयोग करता है और पूरे पेज के लिए
+**Personal / Organization** टॉगल नहीं देता। underlying actions समर्थन करें तो
+कोई टैब अपने संगठन सेक्शन दिखा सकता है: **Automations** Scheduled और Event
+दोनों के व्यक्तिगत और संगठन सेक्शन दिखाता है। संगठन Event ऑटोमेशन हमेशा अपने
+निर्माता के रूप में चलते हैं। यह पेज मौजूदा
+components, actions और access checks की पतली shell है, नई admin console नहीं।
+
 Agent-Native जानबूझकर रचना योग्य है। आप एजेंट का उपयोग बहुत अधिक UI के बिना कर सकते हैं,
 अंतर्निहित एजेंट रनटाइम के बिना UI का उपयोग करें, या दोनों को पूर्ण रूप में एक साथ उपयोग करें
 आवेदन.
@@ -378,8 +407,7 @@ export default createAgentNativeEmbeddedPlugin({
 React साइडकार पेज संदर्भ और होस्ट कमांड पास करता है:
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

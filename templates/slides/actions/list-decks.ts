@@ -120,6 +120,7 @@ export default defineAction({
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
+          starred: data?.starred === true,
         };
       }
       return {
@@ -129,6 +130,7 @@ export default defineAction({
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
+        starred: data?.starred === true,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

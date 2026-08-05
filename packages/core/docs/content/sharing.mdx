@@ -95,11 +95,19 @@ Every template that stores user-authored work uses this model. Concretely:
 - **Clips** — screen recordings (Loom-style)
 - **Plan** — visual plans and PR recaps
 - **Forms** — form definitions
-- **Calendar** — events and booking links
+- **Calendar** — booking links
 - **Analytics** — dashboards, saved analyses, and tokenized session replays
+- **Assets** — asset libraries
+- **Brain** — sources, knowledge entries, proposals, and projects
 - **Extensions** — sandboxed mini-apps (see [Extensions](/docs/extensions#sharing))
 
 Every one of these uses the same `ownableColumns()` schema helper, the same `share-resource` action, and the same `<ShareButton>` UI. Move from one template to another and the share dialog looks identical.
+
+<Callout id="doc-block-sharing1" tone="info">
+
+Calendar **events** are not part of this system — they're fetched live from the Google Calendar API and have no `owner_email` row of their own, so access to an event follows Google Calendar's own sharing and invite model. Only booking links (the public scheduling pages you create) are framework-shareable resources.
+
+</Callout>
 
 ## What's not covered {#not-covered}
 
@@ -113,17 +121,26 @@ A few areas are intentionally outside the sharing system:
 
 Every shareable resource gets a share button in its header. Clicking it opens a popover anchored to the button (not a modal) with:
 
-- Visibility selector (`Private` / `Organization` / `Public link`).
-- "Add people or teams" autocomplete — search users in the org or paste an email.
+- "Add people or teams" autocomplete — search users in the org or paste an email, plus a role picker.
 - A Google Docs-style `Notify people` checkbox for individual email grants.
 - A list of current grants with role pickers and a remove control.
+- General access: visibility selector (`Private` / `Organization` / `Public link`).
 - A copy-link button that respects the current visibility.
+
+<WireframeBlock id="doc-block-sharing2">
+  <Screen
+    surface="popover"
+    caption="Share popover — anchored to the header button, not a modal"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:16px;padding:18px 20px;min-width:360px;box-sizing:border-box'><div style='display:flex;align-items:stretch;gap:8px'><input placeholder='Add people or teams' style='flex:1'/><span class='wf-pill'>Editor</span></div><label style='display:flex;align-items:center;gap:8px' class='wf-muted'><input type='checkbox' checked/> Notify people</label><div style='display:flex;flex-direction:column;gap:10px'><strong>People with access</strong><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill'>AL</span><span style='flex:1'>Ada Lovelace (you)</span><span class='wf-muted'>Owner</span></div><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill'>MT</span><span style='flex:1'>marketing@company.com</span><span class='wf-pill'>Editor</span><span class='wf-muted'>Remove</span></div></div><div style='display:flex;flex-direction:column;gap:8px;padding-top:14px;border-top:1.4px solid var(--wf-line)'><strong>General access</strong><div style='display:flex;align-items:center;gap:10px'><span class='wf-pill accent'>Organization</span><span class='wf-muted'>Anyone at the org can view</span></div></div><div style='display:flex;gap:8px'><input readonly value='https://app.example.com/share/8fq2k1' style='flex:1'/><button class='primary'>Copy link</button></div></div>"
+    }
+  />
+</WireframeBlock>
 
 The share button is a single import:
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import { ShareButton } from "@agent-native/core/client/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -345,3 +362,4 @@ Sharing rides on the framework's broader data-scoping model — list/read/write 
 - [**Authentication**](/docs/authentication) — sessions, organizations, and how identity flows into the request context
 - [**Extensions**](/docs/extensions#sharing) — sharing in the sandboxed mini-app surface
 - [**Creating Templates**](/docs/creating-templates) — wiring `ownableColumns` into a new template's schema
+- [**Toolkit piece: Sharing Kit**](/docs/toolkit-sharing) — the share button, share dialog, and visibility badge built on this model

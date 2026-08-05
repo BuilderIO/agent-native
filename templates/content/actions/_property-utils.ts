@@ -128,7 +128,31 @@ export async function getDatabaseMembershipForDocument(
 
 export async function resolvePropertyDatabaseForDocument(
   document: DocumentRow,
+  databaseId?: string,
+  role: "viewer" | "editor" | "admin" = "viewer",
 ): Promise<ContentDatabaseRow | null> {
+  if (databaseId) {
+    const database = await getDatabaseById(databaseId);
+    if (!database) throw new Error(`Database "${databaseId}" not found`);
+    await assertAccess("document", database.documentId, role);
+    if (database.documentId === document.id) return database;
+
+    const db = getDb();
+    const [membership] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, databaseId),
+          eq(schema.contentDatabaseItems.documentId, document.id),
+        ),
+      );
+    if (!membership) {
+      throw new Error("Document is not part of this database.");
+    }
+    return database;
+  }
+
   const ownedDatabase = await getDatabaseForDocument(document.id);
   if (ownedDatabase) return ownedDatabase;
   const membership = await getDatabaseMembershipForDocument(document.id);
@@ -151,11 +175,16 @@ export async function getDatabaseById(
   return database ?? null;
 }
 
-export function serializeDatabase(database: ContentDatabaseRow) {
+export function serializeDatabase(
+  database: ContentDatabaseRow,
+  description = "",
+) {
   return {
     id: database.id,
     documentId: database.documentId,
     title: database.title,
+    systemRole: database.systemRole,
+    description,
     viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
     createdAt: database.createdAt,
     updatedAt: database.updatedAt,
@@ -180,8 +209,10 @@ export function serializeDatabaseViewConfig(
   return JSON.stringify(normalizeDatabaseViewConfig(value));
 }
 
-function defaultDatabaseViewConfig(): ContentDatabaseViewConfig {
-  const view = defaultDatabaseView();
+export function defaultDatabaseViewConfig(
+  type: ContentDatabaseView["type"] = "table",
+): ContentDatabaseViewConfig {
+  const view = defaultDatabaseView({}, type);
   return {
     activeViewId: view.id,
     views: [view],
@@ -255,7 +286,7 @@ function defaultDatabaseView(
                 : type === "form"
                   ? "Form"
                   : "Table",
-    type,
+    type: type === "sidebar" ? "table" : type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeDatabaseFilterMode(values.filterMode),
@@ -279,6 +310,7 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
   if (!value || typeof value !== "object") return null;
   const view = value as Partial<ContentDatabaseView>;
   if (typeof view.id !== "string" || !view.id.trim()) return null;
+  const retiredSidebar = view.type === "sidebar";
   const type =
     view.type === "board" ||
     view.type === "list" ||
@@ -292,7 +324,9 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     id: view.id,
     name:
       typeof view.name === "string" && view.name.trim()
-        ? view.name.trim()
+        ? retiredSidebar && view.name.trim() === "Sidebar"
+          ? "Table"
+          : view.name.trim()
         : defaultDatabaseView({}, type).name,
     type,
     sorts: Array.isArray(view.sorts) ? view.sorts.filter(isDatabaseSort) : [],
@@ -446,8 +480,14 @@ function normalizeStringList(value: unknown) {
     : [];
 }
 
-export async function listPropertiesForDocument(document: DocumentRow) {
-  const database = await resolvePropertyDatabaseForDocument(document);
+export async function listPropertiesForDocument(
+  document: DocumentRow,
+  databaseId?: string,
+) {
+  const database = await resolvePropertyDatabaseForDocument(
+    document,
+    databaseId,
+  );
   if (!database) return [];
   // Read path: PURE read. Seeding the primary Blocks field happens at create
   // time and via the one-time startup repair (repairUnseededBlocksFields) —
@@ -498,8 +538,12 @@ export async function listPropertiesForDatabase(
       definition: {
         id: definition.id,
         databaseId: definition.databaseId,
+        systemRole: definition.systemRole as
+          | import("../shared/api.js").DocumentPropertySystemRole
+          | null,
         name: definition.name,
         type,
+        description: definition.description,
         visibility: normalizePropertyVisibility(definition.visibility),
         options,
         position: definition.position,
@@ -520,7 +564,7 @@ export async function listPropertiesForDatabase(
                 blockFieldContent: blockContentByPropertyId.get(definition.id),
               })
             : parsePropertyValue(storedValue?.valueJson),
-      editable: !isComputedPropertyType(type),
+      editable: !definition.systemRole && !isComputedPropertyType(type),
     };
   });
 
@@ -566,8 +610,12 @@ function serializePropertyDefinition(
   return {
     id: definition.id,
     databaseId: definition.databaseId,
+    systemRole: definition.systemRole as
+      | import("../shared/api.js").DocumentPropertySystemRole
+      | null,
     name: definition.name,
     type,
+    description: definition.description,
     visibility: normalizePropertyVisibility(definition.visibility),
     options: parsePropertyOptions(definition.optionsJson),
     position: definition.position,
@@ -689,7 +737,9 @@ export async function listPropertiesForDatabaseDocuments(
                   ),
                 })
               : parsePropertyValue(storedValue?.valueJson),
-        editable: !isComputedPropertyType(propertyDefinition.type),
+        editable:
+          !definition.systemRole &&
+          !isComputedPropertyType(propertyDefinition.type),
       };
     });
 

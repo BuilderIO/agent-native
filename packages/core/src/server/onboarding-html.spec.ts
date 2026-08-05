@@ -24,9 +24,7 @@ describe("getOnboardingHtml", () => {
   it("redirects signed-in visitors without a cache-buster query loop", () => {
     const html = getOnboardingHtml();
 
-    expect(html).toContain(
-      "window.location.replace(ret || __anGetSignedInReturnPath())",
-    );
+    expect(html).toContain("window.location.replace(ret || __anResumeHref())");
     expect(html).not.toContain("__anWithAuthCacheBypass");
     expect(html).not.toContain("__an_auth_redirect");
   });
@@ -55,7 +53,7 @@ describe("getOnboardingHtml", () => {
       expect(html).toContain('href="/_agent-native/identity/login"');
       expect(html).toContain("Sign in with Agent-Native");
       expect(html).toContain("function __anIdentitySsoUrl()");
-      expect(html).toContain("params.set('return', __anGetReturnPath())");
+      expect(html).toContain("params.set('return', __anResumeHref())");
       expect(html).toContain(
         "identity.addEventListener('click', __anStartIdentitySso)",
       );
@@ -143,6 +141,100 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("keeps the password flow unchanged by default", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).not.toContain('id="magic-link-form"');
+    expect(html).toContain('id="signup-form"');
+    expect(html).toContain('id="login-form"');
+    expect(html).toContain("/_agent-native/auth/login");
+  });
+
+  it("renders the email-only magic-link view with a progressive password fallback", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+
+    expect(html).toContain('id="magic-link-form"');
+    expect(html).toContain('id="m-email"');
+    expect(html).toContain('id="use-password-link"');
+    expect(html).toContain('id="back-to-magic-link"');
+    expect(html).toContain("/_agent-native/auth/magic-link");
+    expect(html).toContain(
+      "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
+    );
+    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm()");
+    expect(html).toContain('class="tabs" hidden');
+    expect(html).toContain("magicLinkTitle");
+    expect(html).toContain("magicLinkSubtitle");
+  });
+
+  it("localizes the magic-link copy through the existing auth catalogs", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+
+    expect(html).toContain("我们已向以下邮箱发送安全登录链接：");
+    expect(html).toContain("改用密码");
+    expect(html).toContain("我們已向以下電子郵件寄送安全登入連結：");
+  });
+
+  it("keeps the pending verification email across a redirect without storing its password", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      "var PENDING_SIGNUP_EMAIL_STORAGE_KEY = 'an.onboarding.pendingSignupEmail'",
+    );
+    expect(html).toContain(
+      "localStorage.setItem(pendingSignupEmailStorageKey(), email)",
+    );
+    expect(html).toContain("rememberPendingSignupEmail(pendingSignupEmail)");
+    expect(html).toContain(
+      "pendingSignupEmail || readRememberedPendingSignupEmail()",
+    );
+    expect(html).toContain(
+      "if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail",
+    );
+  });
+
+  it("normalizes and rehydrates the stored verification email at runtime", () => {
+    const html = getOnboardingHtml();
+    const start = html.indexOf(
+      "var PENDING_SIGNUP_EMAIL_STORAGE_KEY = 'an.onboarding.pendingSignupEmail'",
+    );
+    const end = html.indexOf("function setActiveTab", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    const runtime = new Function(
+      "localStorage",
+      "__anBasePath",
+      "__anIsValidAuthEmail",
+      "__anNormalizeAuthEmail",
+      `${html.slice(start, end)}
+return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
+    )(
+      storage,
+      () => "/design",
+      (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+      (value: string) => value.trim().toLowerCase(),
+    ) as {
+      rememberPendingSignupEmail: (email: string) => void;
+      readRememberedPendingSignupEmail: () => string;
+    };
+
+    runtime.rememberPendingSignupEmail("URVI28@OUTLOOK.COM");
+    expect(runtime.readRememberedPendingSignupEmail()).toBe(
+      "urvi28@outlook.com",
+    );
+    expect(values.has("an.onboarding.pendingSignupEmail:/design")).toBe(true);
+
+    runtime.rememberPendingSignupEmail("");
+    expect(runtime.readRememberedPendingSignupEmail()).toBe("");
+  });
+
   it("captures first-touch attribution on the standalone auth page", () => {
     const html = getOnboardingHtml();
 
@@ -150,8 +242,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("localStorage.getItem('an_attribution')");
     expect(html).toContain("document.cookie = 'an_ft='");
     expect(html).toContain("'utm_source'");
-    expect(html).toContain("var returnPath = __anNormalizeReturnPath");
+    expect(html).toContain("var returnPath = __anJourney.normalizeAppPath");
     expect(html).toContain("__anExternalReferrerHost(document.referrer || '')");
+    expect(html).toContain("function __anSyncAnalyticsAnonymousId()");
+    expect(html).toContain("localStorage.getItem('agent-native.anonymous_id')");
+    expect(html).toContain("document.cookie = 'an_aid='");
   });
 
   it("omits hosted terms and privacy links on unhosted email signup", () => {
@@ -252,20 +347,48 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("skills add visual-plan --mode local-files");
   });
 
-  it("normalizes sign-in return targets before redirect and preserves hashes", () => {
+  it("normalizes sign-in return targets through the one shared primitive", () => {
     const html = getOnboardingHtml();
 
-    expect(html).toContain("function __anNormalizeReturnPath(raw)");
+    // The document must not carry its own return-path validator: the whole
+    // point of the shared runtime is that there is nothing here to drift.
+    expect(html).toContain("var __anCreateSignInJourney =");
     expect(html).toContain(
-      "if (url.origin !== window.location.origin) return '';",
+      "var __anJourney = __anCreateSignInJourney(__anBasePath());",
     );
-    expect(html).toContain("return url.pathname + url.search + url.hash;");
-    expect(html).toContain(
-      "return window.location.pathname + window.location.search + window.location.hash;",
+    expect(html).toContain("function __anResumeHref()");
+    expect(html).not.toContain("function __anNormalizeReturnPath");
+    expect(html).not.toContain("function __anIsAuthEntryPath");
+    expect(html).not.toContain("function __anGetSignedInReturnPath");
+
+    // …and the embedded runtime really behaves, hashes and all.
+    const script = html.slice(
+      html.indexOf("var __anCreateSignInJourney ="),
+      html.indexOf("var __anJourney = __anCreateSignInJourney"),
     );
-    expect(html).toContain(
-      "if (value.charAt(0) === '/' && (value.charAt(1) === '/' || value.charAt(1) === '\\\\')) return '';",
-    );
+    const journey = new Function(
+      `${script} return __anCreateSignInJourney("");`,
+    )() as {
+      signInJourney: (input: {
+        at: string;
+        continuation?: string | null;
+        legacyReturn?: string | null;
+      }) => { signInHref: string | null; resumeHref: string };
+      normalizeAppPath: (raw: string) => string | null;
+    };
+    expect(journey.normalizeAppPath("/inbox?a=1#top")).toBe("/inbox?a=1#top");
+    expect(journey.normalizeAppPath("//evil.com")).toBeNull();
+    expect(journey.normalizeAppPath("https://evil.com/x")).toBeNull();
+    expect(journey.signInJourney({ at: "/login" })).toEqual({
+      signInHref: null,
+      resumeHref: "/",
+    });
+    expect(
+      journey.signInJourney({
+        at: "/_agent-native/sign-in",
+        legacyReturn: "/inbox#x",
+      }).resumeHref,
+    ).toBe("/inbox#x");
   });
 
   it("uses branded first-party marketing from the request host", () => {
@@ -406,7 +529,7 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("function __anMaybeRedirectSignedIn(ret)");
     expect(html).toContain("__anMaybeRedirectSignedIn();");
     expect(html).toContain(
-      "__anMaybeRedirectSignedIn(__anGetSignedInReturnPath()).then(function(redirected)",
+      "__anMaybeRedirectSignedIn(__anResumeHref()).then(function(redirected)",
     );
     expect(html).toContain(
       "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",

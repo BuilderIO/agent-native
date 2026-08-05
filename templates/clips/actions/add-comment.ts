@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -95,6 +96,9 @@ export default defineAction({
         videoTimestampMs = annotation.startMs ?? 0;
       }
     }
+    // Floor to the nearest second so nearby comments land on the same
+    // timestamp bucket for scrubber grouping and the playback overlay.
+    videoTimestampMs = Math.floor(videoTimestampMs / 1000) * 1000;
 
     await db.insert(schema.recordingComments).values({
       id,
@@ -111,12 +115,22 @@ export default defineAction({
       updatedAt: now,
     });
 
+    const notified = await notifyRecordingComment({
+      recordingId: args.recordingId,
+      threadId,
+      authorEmail,
+      authorName: args.authorName,
+      content: args.content,
+      videoTimestampMs: args.videoTimestampMs,
+      isReply: Boolean(parentId),
+    });
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
       `Added comment to recording ${args.recordingId} @ ${videoTimestampMs}ms (thread: ${threadId})`,
     );
 
-    return { id, threadId };
+    return { id, threadId, notified };
   },
 });

@@ -8,7 +8,7 @@ export default createAuthPlugin({
   googleOnly: true,
   mountGoogleOAuthRoutes: false,
   marketing: {
-    appName: "Agent-Native Calendar",
+    appName: "Calendar",
     tagline:
       "Your AI agent schedules, reschedules, and manages your calendar so you never have to.",
     features: [

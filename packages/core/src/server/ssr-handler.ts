@@ -18,9 +18,10 @@ import { defineEventHandler } from "h3";
  */
 import { createRequestHandler } from "react-router";
 
+import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -35,13 +36,21 @@ import {
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
+import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
-import { getSentryClientConfigScript } from "./sentry-config.js";
+import {
+  getRealtimeClientConfigScript,
+  getSentryClientConfigScript,
+} from "./sentry-config.js";
 
 export {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_HEADER,
   DEFAULT_SSR_CACHE_CONTROL,
+  DISABLED_SSR_CACHE_HEADERS,
+  isSsrCacheEnabled,
+  resolveSsrCacheHeaders,
+  SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
 function getAppBasePath(): string {
@@ -240,6 +249,13 @@ function isSsrHtmlOrDataResponse(
  * │ resolved CLIENT-SIDE after load. Keep it that way: if you need the SSR     │
  * │ output to differ per user, the fix is to move that work client-side, not   │
  * │ to disable caching here.                                                   │
+ * │                                                                            │
+ * │ HOW LONG the shell is cached is deployment-wide and configurable through   │
+ * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
+ * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
+ * │ PER-USER variation — no `private`, no `Vary: Cookie`, no per-route escape  │
+ * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
+ * │ for the whole deployment cannot.                                           │
  * └──────────────────────────────────────────────────────────────────────────┘
  */
 function applyDefaultSsrCacheHeader(
@@ -275,7 +291,7 @@ function applyDefaultSsrCacheHeader(
   // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
   // actually serves SSR HTML/.data from the edge instead of forwarding every
   // request to origin — for every visitor, authenticated or not.
-  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+  for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
 }
@@ -316,8 +332,31 @@ function removeDocumentCsp(headers: Headers): void {
   headers.delete("content-security-policy-report-only");
 }
 
+/**
+ * Render an error message safely as a `text/plain` body.
+ *
+ * Vite ids its virtual modules with a leading NUL (`\0virtual:react-router/…`),
+ * and those ids travel verbatim inside module-resolution error messages. One raw
+ * NUL is enough for curl to refuse to print the response as text, hiding the only
+ * line that says what broke. Escape the control bytes rather than deleting them:
+ * the NUL is part of the real resolved id, so a reader who greps for it or pastes
+ * it into a bug report must be able to see that it is there.
+ */
+function textSafeErrorMessage(err: unknown): string {
+  const message = String((err as { message?: unknown })?.message ?? err);
+  // C0 controls except tab, newline, and carriage return, which are real formatting.
+  return message.replace(
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,
+    (char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code === 0 ? "\\0" : `\\x${code.toString(16).padStart(2, "0")}`;
+    },
+  );
+}
+
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
+    isMcpPublicPath(pathname) ||
     pathname.startsWith("/.well-known/") ||
     pathname.startsWith("/_agent_native/") ||
     pathname.startsWith("/_agent-native/") ||
@@ -340,7 +379,14 @@ async function rewriteMountedResponse(
   pathname: string,
   requestUrl: string,
 ): Promise<Response> {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -375,7 +421,7 @@ async function rewriteMountedResponse(
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(requestUrl, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,
@@ -454,7 +500,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       const isProd = process.env.NODE_ENV === "production";
       const body = isProd
         ? "Internal Server Error"
-        : `Internal Server Error: ${(err as Error)?.message ?? err}`;
+        : `Internal Server Error: ${textSafeErrorMessage(err)}`;
       return new Response(body, {
         status: 500,
         headers: { "content-type": "text/plain" },

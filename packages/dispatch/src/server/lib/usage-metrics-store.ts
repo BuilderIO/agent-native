@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/agent/engine";
 import { getDbExec } from "@agent-native/core/db";
 import { getSetting } from "@agent-native/core/settings";
+import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   getUsageSummary,
   usageBillingForEngine,
@@ -395,7 +396,7 @@ async function assertCanViewMetrics(): Promise<{
   if (!orgId) {
     return { viewerEmail, orgId, role };
   }
-  throw new Error(
+  throw new ForbiddenError(
     "Only organization owners and admins can view workspace usage metrics.",
   );
 }

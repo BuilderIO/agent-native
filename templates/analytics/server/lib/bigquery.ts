@@ -239,6 +239,8 @@ export interface QueryResult {
   schema: { name: string; type: string }[];
   bytesProcessed: number;
   cached?: boolean;
+  /** True when BigQuery matched more rows than this first page returned. */
+  truncated?: boolean;
 }
 
 export interface RunQueryOptions {
@@ -516,11 +518,19 @@ export async function runQuery(
   const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
   const bytesProcessed = parseInt(data.totalBytesProcessed || "0", 10);
 
+  // BigQuery reports the full match count; `rows` only holds the first page. Reporting
+  // rows.length as the total made every partial result look complete to the agent.
+  const reportedTotal = Number.parseInt(data.totalRows || "", 10);
+  const totalRows = Number.isFinite(reportedTotal)
+    ? reportedTotal
+    : rows.length;
+
   const result: QueryResult = {
     rows,
-    totalRows: rows.length,
+    totalRows,
     schema,
     bytesProcessed,
+    ...(totalRows > rows.length ? { truncated: true } : {}),
   };
 
   setL1(cacheKey, result);

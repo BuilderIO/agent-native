@@ -9,6 +9,14 @@ description: "如何建立和發布您自己的 Agent-Native 應用範本。"
 
 將 `@agent-native/core` 用於執行階段合約：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。將 `@agent-native/toolkit` 用於可重用的應用程式建構 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和簡單 app shell slots。當變體承載產品行為或視覺識別時，請保留在範本本地。
 
+在決定某項能力應放在哪一層時，請記住這三個層次：
+
+- **Core - 框架：**每個應用程式都可使用的必要執行階段與資料合約。
+- **Toolkit - 可選的可重複使用部件：**應用程式可以採用、組合或分叉的共享 UI 與產品系統。
+- **Templates - 可選應用程式：**建構在 Core 上、通常使用 Toolkit 的完整領域產品，可分叉作為起點。
+
+Toolkit 與 Templates 都是可選的。範本不等於框架本身，Toolkit 也不會取代 Core。
+
 一個好的範本：
 
 - 使用有用的種子資料或空狀態流端對端地解決一個工作流。
@@ -270,8 +278,10 @@ export default runMigrations(
 路由位於 `app/routes/` 中並使用 React Router v8 檔案路由。透過actions或 API 處理常式查詢資料，並預設使突變樂觀。
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +297,7 @@ export default function ProjectsPage() {
 在應用程式 shell 附近連線一次即時同步，以便在代理、另一個分頁或操作更改資料時重新整理 React 查詢快取：
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +310,7 @@ export function AppSync() {
 **Agent-Native 承諾：代理寫入顯示在 UI 中，無需手動重新整理。** `useActionQuery` 是簡單路徑 - 當變異操作發出 `source: "action"` 時，每個鉤子都會重新取得。如果您使用自訂金鑰（例如，讀取整合狀態的低階用戶端幫助程式）取得原始 `useQuery`，請將每個來源計數器折疊到 queryKey 中以進行有針對性的重新整理：
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +333,7 @@ useQuery({
 使用 `useAgentRouteState` 作為 UI 掛鉤，以便應用程式狀態寫入、分頁範圍指令讀取、讀取後刪除和重複指令保護保持一致：
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -493,11 +503,23 @@ export default defineNitroPlugin(() => {
 4. 紀錄所需的環境變數和入門步驟。
 5. 透過附加遷移包含範例或種子行，而不是跟蹤的執行時資料檔案。
 
-可以從 GitHub 儲存庫建立社群範本：
+社群範本可直接從公開 GitHub 儲存庫安裝。請將 Agent Native 應用程式放在儲存庫根目錄：
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+如需固定特定版本，可加入 `#branch`、`#tag` 或 `#commit`：
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI 只下載原始碼，不會安裝相依套件或執行範本指令碼。社群範本屬於第三方程式碼；執行 `pnpm install` 前請檢查儲存庫、授權、相依套件和安裝指令碼。
+
+申請目錄收錄時，請確保儲存庫根目錄包含完整應用程式，公開儲存庫具有授權和設定 README，根 `package.json` 相依於 `@agent-native/core`，且型別檢查與測試均通過。託管示範和截圖為選填。
+
+儲存庫準備好後，[提交社群範本](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)。社群項目與較小的第一方目錄分開，並由作者維護。
 
 ## 為框架 monorepo 做出貢獻 {#contributing}
 

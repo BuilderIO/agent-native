@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { IconExternalLink, IconTrash } from "@tabler/icons-react";
 import { useRef, useState, type FormEvent } from "react";
 
@@ -160,7 +160,7 @@ export function AgentsPanel({
   };
 
   return (
-    <section className="rounded-2xl border bg-card p-5">
+    <section className="rounded-2xl bg-card p-5">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           <div>

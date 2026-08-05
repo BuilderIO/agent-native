@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
@@ -204,7 +204,7 @@ export default function DocsSidebar() {
                           </button>
                         ) : (
                           <Link
-                            data-an-prefetch={isOpen ? "render" : undefined}
+                            data-an-prefetch={isOpen ? "viewport" : undefined}
                             to={item.to!}
                             className={`sidebar-link${active ? " is-active" : ""}`}
                             tabIndex={isOpen ? undefined : -1}
@@ -229,7 +229,9 @@ export default function DocsSidebar() {
                                   <li key={child.id}>
                                     <Link
                                       data-an-prefetch={
-                                        childrenTabbable ? "render" : undefined
+                                        childrenTabbable
+                                          ? "viewport"
+                                          : undefined
                                       }
                                       to={child.to!}
                                       className={`sidebar-link sidebar-sublink${childActive ? " is-active" : ""}`}

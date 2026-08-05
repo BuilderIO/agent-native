@@ -1,4 +1,5 @@
 import type {
+  BuilderCmsModelFieldSummary,
   BuilderCmsPublicationTransitionIntent,
   BuilderCmsWriteEffect,
   ContentDatabaseSource,
@@ -8,7 +9,10 @@ import type {
   ContentDatabaseSourceWriteMode,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
-import { builderCmsSourceRowIdentityState } from "./_builder-cms-source-adapter.js";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  builderCmsSourceRowIdentityState,
+} from "./_builder-cms-source-adapter.js";
 import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
 
 export type { BuilderCmsWriteEffect };
@@ -70,6 +74,243 @@ export function builderCmsExecutionIdempotencyKey(args: {
   pushMode: ContentDatabaseSourcePushMode;
 }) {
   return `builder-cms:${args.sourceId}:${args.changeSetId}:${args.pushMode}`;
+}
+
+export const BUILDER_CMS_EXECUTION_MARKER_FIELD = "agentNativeTestNote";
+
+function builderFieldName(sourceFieldKey: string) {
+  return sourceFieldKey.replace(/^data\./, "").trim();
+}
+
+function builderModelFieldForOperation(args: {
+  source: ContentDatabaseSource;
+  sourceFieldKey: string;
+}) {
+  const name = builderFieldName(args.sourceFieldKey);
+  return (
+    args.source.metadata.builderModelFields?.find(
+      (field) => field.name.trim() === name,
+    ) ?? null
+  );
+}
+
+function normalizedBuilderFieldKind(field: BuilderCmsModelFieldSummary | null) {
+  return [field?.type, field?.inputType]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .trim()
+    .toLowerCase();
+}
+
+function optionIdFromLabel(label: string) {
+  return (
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "option"
+  );
+}
+
+function builderOptionLabels(field: BuilderCmsModelFieldSummary | null) {
+  const labels = [...(field?.options ?? []), ...(field?.enum ?? [])];
+  const seenLabels = new Set<string>();
+  const usedIds = new Set<string>();
+  const result: Array<{ id: string; label: string }> = [];
+  for (const rawLabel of labels) {
+    const label = rawLabel.trim();
+    const labelKey = label.toLowerCase();
+    if (!label || seenLabels.has(labelKey)) continue;
+    seenLabels.add(labelKey);
+    const baseId = optionIdFromLabel(label);
+    let id = baseId;
+    let suffix = 2;
+    while (usedIds.has(id)) id = `${baseId}-${suffix++}`;
+    usedIds.add(id);
+    result.push({ id, label });
+  }
+  return result;
+}
+
+function builderNativeFieldValue(args: {
+  source: ContentDatabaseSource;
+  sourceFieldKey: string;
+  value: unknown;
+}): { value?: unknown; blocker?: string } {
+  if (args.source.sourceTable !== SAFE_WRITE_MODEL) {
+    return { value: args.value };
+  }
+  const field = builderModelFieldForOperation(args);
+  const fieldLabel = field?.label?.trim() || field?.name || args.sourceFieldKey;
+  const kind = normalizedBuilderFieldKind(field);
+
+  if (/\b(date|datetime)\b/.test(kind)) {
+    const raw =
+      args.value && typeof args.value === "object" && !Array.isArray(args.value)
+        ? (args.value as { start?: unknown }).start
+        : args.value;
+    if (typeof raw !== "string" && typeof raw !== "number") {
+      return { blocker: `${fieldLabel} must be a valid Builder date.` };
+    }
+    const timestamp =
+      typeof raw === "number" ? raw : new Date(raw.trim()).getTime();
+    if (!Number.isFinite(timestamp)) {
+      return { blocker: `${fieldLabel} must be a valid Builder date.` };
+    }
+    return { value: timestamp };
+  }
+
+  if (/\b(file|image)\b/.test(kind)) {
+    const candidates = Array.isArray(args.value) ? args.value : [args.value];
+    if (candidates.length !== 1 || typeof candidates[0] !== "string") {
+      return { blocker: `${fieldLabel} must contain exactly one file URL.` };
+    }
+    try {
+      const url = new URL(candidates[0]);
+      if (url.protocol !== "https:" && url.protocol !== "http:") throw 0;
+      return { value: url.toString() };
+    } catch {
+      return { blocker: `${fieldLabel} must contain exactly one file URL.` };
+    }
+  }
+
+  if (/\b(reference|relation)\b/.test(kind)) {
+    if (
+      args.value &&
+      typeof args.value === "object" &&
+      !Array.isArray(args.value)
+    ) {
+      const reference = args.value as Record<string, unknown>;
+      if (
+        reference["@type"] === "@builder.io/core:Reference" &&
+        typeof reference.id === "string" &&
+        reference.id.trim() &&
+        typeof reference.model === "string" &&
+        reference.model.trim()
+      ) {
+        return {
+          value: {
+            "@type": "@builder.io/core:Reference",
+            id: reference.id.trim(),
+            model: reference.model.trim(),
+          },
+        };
+      }
+    }
+    const ids = Array.isArray(args.value) ? args.value : [args.value];
+    const id = ids.length === 1 ? ids[0] : null;
+    if (typeof id !== "string" || !id.trim() || !field?.model?.trim()) {
+      return {
+        blocker: `${fieldLabel} must contain one Builder reference with a model.`,
+      };
+    }
+    return {
+      value: {
+        "@type": "@builder.io/core:Reference",
+        id: id.trim(),
+        model: field.model.trim(),
+      },
+    };
+  }
+
+  const choices = builderOptionLabels(field);
+  const isList = /\b(list|array|tags?|multi[-_\s]?select)\b/.test(kind);
+  if (isList || choices.length > 0) {
+    const values = Array.isArray(args.value) ? args.value : [args.value];
+    const labels = values.map((value) => {
+      if (typeof value !== "string") return null;
+      const trimmed = value.trim();
+      // Builder Tags/list fields can be free-form: unlike enums and optioned
+      // selects, their model metadata has no finite label inventory. Preserve
+      // strict mapping whenever choices exist, but pass non-empty labels
+      // through when Builder explicitly exposes no choices to map against.
+      if (isList && choices.length === 0) return trimmed || null;
+      return (
+        choices.find(
+          (choice) =>
+            choice.label.toLowerCase() === trimmed.toLowerCase() ||
+            choice.id === trimmed,
+        )?.label ?? null
+      );
+    });
+    if (labels.some((label) => label === null)) {
+      return {
+        blocker: `${fieldLabel} contains an option that cannot be mapped to a Builder label.`,
+      };
+    }
+    return { value: isList ? labels : labels[0] };
+  }
+
+  return { value: args.value };
+}
+
+function hasBuilderRequiredValue(
+  value: unknown,
+  field: BuilderCmsModelFieldSummary,
+) {
+  if (value === null || value === undefined || value === "") return false;
+  if (Array.isArray(value) && value.length === 0) return false;
+  const kind = normalizedBuilderFieldKind(field);
+  if (/\b(date|datetime)\b/.test(kind)) {
+    return (
+      (typeof value === "number" && Number.isFinite(value)) ||
+      (typeof value === "string" && Number.isFinite(new Date(value).getTime()))
+    );
+  }
+  if (/\b(file|image)\b/.test(kind)) {
+    if (typeof value !== "string") return false;
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" || url.protocol === "http:";
+    } catch {
+      return false;
+    }
+  }
+  if (/\b(reference|relation)\b/.test(kind)) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return false;
+    const reference = value as Record<string, unknown>;
+    return (
+      reference["@type"] === "@builder.io/core:Reference" &&
+      typeof reference.id === "string" &&
+      reference.id.trim().length > 0 &&
+      typeof reference.model === "string" &&
+      reference.model.trim().length > 0
+    );
+  }
+  if (/\b(list|array|tags?|multi[-_\s]?select)\b/.test(kind)) {
+    return Array.isArray(value) && value.length > 0;
+  }
+  if (/\b(number)\b/.test(kind)) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+  if (/\b(boolean|checkbox)\b/.test(kind)) return typeof value === "boolean";
+  if (/\b(string|text|url|select)\b/.test(kind)) {
+    return typeof value === "string" && value.trim().length > 0;
+  }
+  return true;
+}
+
+function portableIntentHash(input: string) {
+  const hashPart = (seed: number) => {
+    let hash = (0x811c9dc5 ^ seed) >>> 0;
+    for (let index = 0; index < input.length; index += 1) {
+      hash = Math.imul(hash ^ input.charCodeAt(index), 0x01000193) >>> 0;
+    }
+    hash ^= hash >>> 16;
+    hash = Math.imul(hash, 0x85ebca6b) >>> 0;
+    hash ^= hash >>> 13;
+    hash = Math.imul(hash, 0xc2b2ae35) >>> 0;
+    hash ^= hash >>> 16;
+    return (hash >>> 0).toString(16).padStart(8, "0");
+  };
+
+  return [0, 0x9e3779b9, 0x7f4a7c15].map(hashPart).join("");
+}
+
+/** A compact, non-secret marker for recovering an ambiguous safe-model POST. */
+export function builderCmsExecutionIntentMarker(idempotencyKey: string) {
+  return `agent-native-execution:${portableIntentHash(idempotencyKey)}`;
 }
 
 function builderEffectForWrite(args: {
@@ -219,6 +460,42 @@ function mergeBuilderPatch(
   return merged;
 }
 
+function requiredBuilderReferencePatch(args: {
+  source: ContentDatabaseSource;
+  targetRow: ContentDatabaseSource["rows"][number] | null;
+  effect: BuilderCmsWriteEffect;
+}) {
+  if (
+    args.source.sourceTable !== SAFE_WRITE_MODEL ||
+    args.effect !== "publish" ||
+    !args.targetRow
+  ) {
+    return {};
+  }
+  const data: Record<string, unknown> = {};
+  for (const field of args.source.metadata.builderModelFields ?? []) {
+    if (
+      !field.required ||
+      !/\b(reference|relation)\b/.test(normalizedBuilderFieldKind(field)) ||
+      !field.model?.trim()
+    ) {
+      continue;
+    }
+    const sourceFieldKey = `data.${field.name.trim()}`;
+    const id =
+      args.targetRow.sourceValues?.[
+        `__agent_native_builder_reference_id:${sourceFieldKey}`
+      ];
+    if (typeof id !== "string" || !id.trim()) continue;
+    data[field.name] = {
+      "@type": "@builder.io/core:Reference",
+      id: id.trim(),
+      model: field.model.trim(),
+    };
+  }
+  return Object.keys(data).length > 0 ? { data } : {};
+}
+
 function builderBodyPatch(changeSet: ContentDatabaseSourceChangeSet) {
   const bodyChange = changeSet.bodyChange;
   const checks: string[] = [];
@@ -263,9 +540,22 @@ function builderRequestForEffect(args: {
   model: string;
   entryId: string | null;
   bodyPatch: Record<string, unknown>;
+  currentTitle?: string | null;
+  intentMarker?: string;
 }): BuilderCmsExecutionPayload["request"] {
   const entryPath = args.entryId ? `/${encodeURIComponent(args.entryId)}` : "";
   const basePath = `/api/v1/write/${encodeURIComponent(args.model)}${entryPath}`;
+  const patchedTitle =
+    args.bodyPatch.data &&
+    typeof args.bodyPatch.data === "object" &&
+    !Array.isArray(args.bodyPatch.data) &&
+    typeof (args.bodyPatch.data as Record<string, unknown>).title === "string"
+      ? (args.bodyPatch.data as Record<string, unknown>).title
+      : null;
+  const safeEntryName =
+    args.model === SAFE_WRITE_MODEL
+      ? patchedTitle || args.currentTitle?.trim() || null
+      : null;
   if (args.effect === "autosave") {
     return {
       method: "PATCH",
@@ -274,7 +564,10 @@ function builderRequestForEffect(args: {
         autoSaveOnly: "true",
         triggerWebhooks: "false",
       },
-      body: args.bodyPatch,
+      body: {
+        ...args.bodyPatch,
+        ...(safeEntryName ? { name: safeEntryName } : {}),
+      },
     };
   }
   if (args.effect === "update_in_place") {
@@ -284,7 +577,10 @@ function builderRequestForEffect(args: {
       query: {
         triggerWebhooks: "true",
       },
-      body: args.bodyPatch,
+      body: {
+        ...args.bodyPatch,
+        ...(safeEntryName ? { name: safeEntryName } : {}),
+      },
     };
   }
   if (args.effect === "publish") {
@@ -321,9 +617,68 @@ function builderRequestForEffect(args: {
     },
     body: {
       ...args.bodyPatch,
+      ...(safeEntryName ? { name: safeEntryName } : {}),
+      data: {
+        ...((args.bodyPatch.data && typeof args.bodyPatch.data === "object"
+          ? args.bodyPatch.data
+          : {}) as Record<string, unknown>),
+        ...(args.intentMarker
+          ? { [BUILDER_CMS_EXECUTION_MARKER_FIELD]: args.intentMarker }
+          : {}),
+      },
       published: "draft",
     },
   };
+}
+
+function builderRequiredFieldBlockers(args: {
+  source: ContentDatabaseSource;
+  effect: BuilderCmsWriteEffect;
+  targetRow: ContentDatabaseSource["rows"][number] | null;
+  request: BuilderCmsExecutionPayload["request"];
+}) {
+  if (
+    args.source.sourceTable !== SAFE_WRITE_MODEL ||
+    (args.effect !== "create_draft" && args.effect !== "publish")
+  ) {
+    return [];
+  }
+  const modelFields = args.source.metadata.builderModelFields;
+  // Legacy persisted execution gates predate model-schema snapshots. Preserve
+  // their exact behavior; newly prepared safe-model gates carry the schema and
+  // are validated below before they can become ready.
+  if (!modelFields?.length) return [];
+  const existingData = Object.fromEntries(
+    Object.entries(args.targetRow?.sourceValues ?? {}).flatMap(([key, value]) =>
+      key.startsWith("data.") ? [[key.slice("data.".length), value]] : [],
+    ),
+  );
+  const requestData =
+    args.request.body.data &&
+    typeof args.request.body.data === "object" &&
+    !Array.isArray(args.request.body.data)
+      ? (args.request.body.data as Record<string, unknown>)
+      : {};
+  const effectiveData = { ...existingData, ...requestData };
+  if (
+    effectiveData.blocks === undefined &&
+    typeof args.targetRow?.sourceValues?.[BUILDER_CMS_BODY_BLOCKS_HASH_KEY] ===
+      "string" &&
+    args.targetRow.sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY].trim()
+  ) {
+    // Body blocks are intentionally stored outside sourceValues. A reconciled
+    // body hash proves that the hydrated Builder body exists without copying a
+    // large blocks payload into SQL merely to satisfy this gate.
+    effectiveData.blocks = ["reconciled-builder-body"];
+  }
+  return modelFields.flatMap((field) => {
+    if (!field.required) return [];
+    const value = effectiveData[field.name];
+    if (hasBuilderRequiredValue(value, field)) return [];
+    return [
+      `Required Builder field ${field.label?.trim() || field.name} is missing or invalid.`,
+    ];
+  });
 }
 
 function builderSafetyChecks(args: {
@@ -339,13 +694,25 @@ function builderSafetyChecks(args: {
   hasBodyOperation: boolean;
   bodyChecks: string[];
   bodyBlockers: string[];
+  fieldBlockers: string[];
+  requiredFieldBlockers: string[];
 }) {
   const checks = [
     "Requires explicit approval before execution.",
     "Uses the stored execution idempotency key.",
     ...args.bodyChecks,
   ];
-  const blockers: string[] = [...args.bodyBlockers];
+  const blockers: string[] = [
+    ...args.bodyBlockers,
+    ...args.fieldBlockers,
+    ...args.requiredFieldBlockers,
+  ];
+
+  if (args.source.sourceTable !== SAFE_WRITE_MODEL) {
+    blockers.push(
+      `Live Builder writes are only allowed for ${SAFE_WRITE_MODEL}.`,
+    );
+  }
 
   if (args.operations.length === 0 && !args.hasBodyOperation) {
     blockers.push("No Builder operations are available for this change.");
@@ -395,14 +762,6 @@ function builderSafetyChecks(args: {
   const allowedModes = args.source.metadata.allowedWriteModes;
   if (allowedModes?.length && !allowedModes.includes(args.pushMode)) {
     blockers.push(`Push mode ${args.pushMode} is not allowed for this source.`);
-  }
-  if (
-    args.source.capabilities.liveWritesEnabled === true &&
-    args.source.sourceTable !== SAFE_WRITE_MODEL
-  ) {
-    blockers.push(
-      `Live Builder writes are only allowed for ${SAFE_WRITE_MODEL}.`,
-    );
   }
   if (args.source.capabilities.liveWritesEnabled !== true) {
     checks.push("Does not run while live Builder writes are disabled.");
@@ -465,6 +824,7 @@ export function buildBuilderCmsExecutionPlan(args: {
   }
 
   const {
+    targetRow,
     target,
     entryId: targetEntryId,
     sourceQualifiedId: targetSourceQualifiedId,
@@ -478,14 +838,44 @@ export function buildBuilderCmsExecutionPlan(args: {
     entryId: targetEntryId,
     publicationTransition: args.publicationTransition,
   });
-  const operations = args.changeSet.fieldChanges.map((field) => ({
-    sourceFieldKey: field.sourceFieldKey,
-    localFieldKey: field.localFieldKey,
-    value: field.proposedValue,
-  }));
+  const operations: BuilderCmsExecutionOperation[] = [];
+  const fieldBlockers: string[] = [];
+  for (const field of args.changeSet.fieldChanges) {
+    let candidateValue: unknown = field.proposedValue;
+    if (
+      args.source.sourceTable === SAFE_WRITE_MODEL &&
+      field.builderValueJson !== undefined
+    ) {
+      try {
+        candidateValue = JSON.parse(field.builderValueJson) as unknown;
+      } catch {
+        fieldBlockers.push(
+          `${field.propertyName ?? field.sourceFieldKey} has invalid Builder provider JSON.`,
+        );
+        continue;
+      }
+    }
+    const converted = builderNativeFieldValue({
+      source: args.source,
+      sourceFieldKey: field.sourceFieldKey,
+      value: candidateValue,
+    });
+    if (converted.blocker) {
+      fieldBlockers.push(converted.blocker);
+      continue;
+    }
+    operations.push({
+      sourceFieldKey: field.sourceFieldKey,
+      localFieldKey: field.localFieldKey,
+      value: converted.value,
+    });
+  }
   const bodyDiffPatch = builderBodyPatch(args.changeSet);
   const bodyPatch = mergeBuilderPatch(
-    nestedBuilderPatch(operations),
+    mergeBuilderPatch(
+      requiredBuilderReferencePatch({ source: args.source, targetRow, effect }),
+      nestedBuilderPatch(operations),
+    ),
     bodyDiffPatch.patch,
   );
   // State-preserving effects must not include `published` in the body. Builder
@@ -496,6 +886,23 @@ export function buildBuilderCmsExecutionPlan(args: {
     model: args.source.sourceTable,
     entryId: targetEntryId,
     bodyPatch,
+    currentTitle: targetRow?.sourceDisplayKey ?? null,
+    intentMarker:
+      effect === "create_draft" && args.source.sourceTable === SAFE_WRITE_MODEL
+        ? builderCmsExecutionIntentMarker(
+            builderCmsExecutionIdempotencyKey({
+              sourceId: args.source.id,
+              changeSetId: args.changeSet.id,
+              pushMode,
+            }),
+          )
+        : undefined,
+  });
+  const requiredFieldBlockers = builderRequiredFieldBlockers({
+    source: args.source,
+    effect,
+    targetRow,
+    request,
   });
   const safety = builderSafetyChecks({
     source: args.source,
@@ -513,6 +920,8 @@ export function buildBuilderCmsExecutionPlan(args: {
     hasBodyOperation: bodyDiffPatch.hasBodyOperation,
     bodyChecks: bodyDiffPatch.checks,
     bodyBlockers: bodyDiffPatch.blockers,
+    fieldBlockers,
+    requiredFieldBlockers,
   });
   const state: ContentDatabaseSourceExecutionState =
     safety.blockers.length > 0

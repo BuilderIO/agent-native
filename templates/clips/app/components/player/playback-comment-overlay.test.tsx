@@ -9,10 +9,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getActivePlaybackComments,
+  getPlaybackCommentVisibleMs,
   PlaybackCommentOverlay,
   PLAYBACK_COMMENT_VISIBLE_MS,
   type PlaybackComment,
 } from "./playback-comment-overlay";
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useAvatarUrl: () => null,
+}));
 
 const comment: PlaybackComment = {
   id: "comment-1",
@@ -25,7 +30,7 @@ const comment: PlaybackComment = {
 };
 
 describe("playback comment timing", () => {
-  it("shows a root comment from its timestamp for four seconds", () => {
+  it("shows a root comment from its timestamp for one second", () => {
     expect(getActivePlaybackComments([comment], 11_999)).toEqual([]);
     expect(getActivePlaybackComments([comment], 12_000)).toEqual([comment]);
     expect(
@@ -40,6 +45,16 @@ describe("playback comment timing", () => {
         12_000 + PLAYBACK_COMMENT_VISIBLE_MS,
       ),
     ).toEqual([]);
+  });
+
+  it("scales the media-time window with playback speed", () => {
+    expect(getPlaybackCommentVisibleMs(2.5)).toBe(2_500);
+    expect(getActivePlaybackComments([comment], 12_000 + 2_499, 2.5)).toEqual([
+      comment,
+    ]);
+    expect(getActivePlaybackComments([comment], 12_000 + 2_500, 2.5)).toEqual(
+      [],
+    );
   });
 
   it("does not surface replies or resolved comments over playback", () => {
@@ -63,7 +78,7 @@ describe("PlaybackCommentOverlay", () => {
 
     act(() => {
       root.render(
-        <PlaybackCommentOverlay comments={[comment]} currentMs={13_000} />,
+        <PlaybackCommentOverlay comments={[comment]} currentMs={12_500} />,
       );
     });
 

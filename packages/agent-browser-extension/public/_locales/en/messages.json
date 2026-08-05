@@ -1,0 +1,113 @@
+{
+  "extensionName": {
+    "message": "Agent Native for Chrome"
+  },
+  "extensionShortName": {
+    "message": "Agent Native"
+  },
+  "extensionDescription": {
+    "message": "Chat with the page you choose and let Agent Native work alongside you."
+  },
+  "actionTitle": {
+    "message": "Open Agent Native"
+  },
+  "panelTitle": {
+    "message": "Agent Native"
+  },
+  "currentPage": {
+    "message": "Current page"
+  },
+  "noPage": {
+    "message": "Open a regular webpage to share context."
+  },
+  "sharePage": {
+    "message": "Use page"
+  },
+  "capturingPage": {
+    "message": "Capturing…"
+  },
+  "captureReady": {
+    "message": "This page is now available to the chat."
+  },
+  "captureTruncated": {
+    "message": "This page is available with some content omitted."
+  },
+  "captureFailed": {
+    "message": "Could not capture this page."
+  },
+  "captureGrantNeeded": {
+    "message": "Allow access to this site to share the page with Agent Native."
+  },
+  "pageRestricted": {
+    "message": "Chrome does not allow access to this page"
+  },
+  "pageAccessNeeded": {
+    "message": "Access needed"
+  },
+  "pageAccessReady": {
+    "message": "Site access ready"
+  },
+  "pageShared": {
+    "message": "Shared with this chat"
+  },
+  "pageChanged": {
+    "message": "The captured page remains staged. Capture again to replace it."
+  },
+  "connectionSettings": {
+    "message": "Connection"
+  },
+  "dispatchBaseUrl": {
+    "message": "Dispatch URL"
+  },
+  "saveConnection": {
+    "message": "Save"
+  },
+  "connectionSaved": {
+    "message": "Dispatch connection updated."
+  },
+  "invalidDispatchUrl": {
+    "message": "Enter a credential-free HTTP or HTTPS Dispatch URL."
+  },
+  "dispatchLoading": {
+    "message": "Connecting to Dispatch…"
+  },
+  "connectDispatch": {
+    "message": "Connect Dispatch"
+  },
+  "reconnectDispatch": {
+    "message": "Reconnect"
+  },
+  "pairingOpened": {
+    "message": "Finish connecting in the Dispatch tab."
+  },
+  "pairingFailed": {
+    "message": "Dispatch pairing did not complete."
+  },
+  "dispatchReady": {
+    "message": "Dispatch is ready."
+  },
+  "dispatchWaiting": {
+    "message": "Captured. Waiting for Dispatch to become ready."
+  },
+  "controlUnavailable": {
+    "message": "Connect Agent Native to enable browser control."
+  },
+  "controlAvailable": {
+    "message": "Browser control is available through Agent Native Desktop."
+  },
+  "controlActive": {
+    "message": "Agent Native is controlling an assigned browser tab."
+  },
+  "controlAvailableRelay": {
+    "message": "Browser control is available through this extension."
+  },
+  "enableBrowserRelay": {
+    "message": "Enable browser relay"
+  },
+  "relayAccessNeeded": {
+    "message": "Allow the connected Agent Native relay to enable browser tools."
+  },
+  "relayAccessReady": {
+    "message": "Browser relay enabled."
+  }
+}

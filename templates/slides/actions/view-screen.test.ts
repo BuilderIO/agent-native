@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let mockRows: unknown[] = [];
 let navigationState: Record<string, unknown> | null = null;
+let slidesSelectionState: Record<string, unknown> | null = null;
 
 const limitFn = vi.fn(async () => mockRows);
 const orderByFn = vi.fn(async () => mockRows);
@@ -26,6 +27,7 @@ vi.mock("../server/db/index.js", () => ({
 vi.mock("./_tab-state.js", () => ({
   readAppStateForCurrentTab: vi.fn(async (key: string) => {
     if (key === "navigation") return navigationState;
+    if (key === "slides-selection") return slidesSelectionState;
     return null;
   }),
 }));
@@ -52,6 +54,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockRows = [];
   navigationState = null;
+  slidesSelectionState = null;
 });
 
 describe("view-screen", () => {
@@ -103,6 +106,48 @@ describe("view-screen", () => {
     expect(result).toContain("deckId: deck-1");
     expect(result).toContain("slideCount: 1");
     expect(result).toContain("<h1>Opening</h1>");
+  });
+
+  it("surfaces stable freeform object identity alongside the runtime selector", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          title: "Quarterly Review",
+          slides: [
+            {
+              id: "slide-a",
+              layout: "blank",
+              content:
+                '<div class="fmd-slide"><div data-slide-object-id="object-1">Text</div></div>',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      slideId: "slide-a",
+      mode: "box-selected",
+      activeTool: "select",
+      items: [
+        {
+          selector: '[data-slide-object-id="object-1"]',
+          runtimeSelector: '[data-builder-id="b-7"]',
+          objectId: "object-1",
+          kind: "element",
+          tagName: "div",
+        },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("mode: box-selected");
+    expect(result).toContain('selector=[data-slide-object-id="object-1"]');
+    expect(result).toContain("objectId: object-1");
+    expect(result).toContain('runtimeSelector: [data-builder-id="b-7"]');
   });
 
   it("filters the list to decks created by the current user without reading deck bodies", async () => {

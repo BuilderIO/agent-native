@@ -1,8 +1,8 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  agentNativePath,
   isInBuilderFrame,
   oauthRedirectUri,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
 import type { GoogleAuthStatus } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

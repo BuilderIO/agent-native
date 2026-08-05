@@ -440,10 +440,10 @@ const messages = {
     suggestionWidget: "أنشئ لي ويدجت مخصصا لصندوق الوارد",
   },
   settings: {
-    openAgentSettings: "فتح إعدادات الوكيل",
+    openAgentSettings: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    agentTitle: "إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    agentTitle: "إدارة الوكيل",
     aliasName: "اسم الاسم المستعار",
     aliasNamePlaceholder: "مثال: فريق التصميم",
     recipientsOnePerLine: "المستلمون (بريد إلكتروني واحد في كل سطر)",

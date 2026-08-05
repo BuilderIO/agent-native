@@ -26,9 +26,13 @@ import {
   runAgentLoop,
   appendAgentLoopContinuation,
   isResumableEngineError,
+  isTransientProviderRateLimitError,
   continuationReasonForResumableError,
   lastUnfinishedPreparingActionToolFromEvents,
+  resolveFinalResponseGuardRequestText,
+  SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
   type AgentLoopContinuationReason,
+  type AgentLoopOutcome,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
 import type { ResolveRunSoftTimeoutOptions } from "./run-manager.js";
@@ -110,7 +114,7 @@ function appendToolCallJournalNote(
 
 async function appendContinuationAndJournal(
   messages: EngineMessage[],
-  reason: AgentLoopContinuationReason,
+  reason: AgentLoopContinuationReason | "rate_limited",
   threadId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
 ): Promise<void> {
@@ -121,6 +125,18 @@ async function appendContinuationAndJournal(
     actionPreparationContinuationOptions(events),
   );
   appendToolCallJournalNote(messages, events);
+}
+
+/**
+ * Rebuild the same safe continuation context for a logical turn that resumes
+ * in a fresh hosted invocation.
+ */
+export async function appendDurableContinuationContext(
+  messages: EngineMessage[],
+  reason: AgentLoopContinuationReason,
+  threadId: string,
+): Promise<void> {
+  await appendContinuationAndJournal(messages, reason, threadId);
 }
 
 async function hasCompletedSideEffectToolCallInCurrentTurn(
@@ -171,6 +187,47 @@ function internalContinuationReasonForAttempt(
  */
 export const MAX_RUN_LOOP_CONTINUATIONS = 6;
 
+/**
+ * A delegated turn that is proven to be running inside a durable background
+ * function has the same 15-minute host budget as main chat, but this wrapper
+ * historically kept the foreground-sized six-continuation cap. A healthy
+ * child A2A call can consume several minutes and the receiving model may then
+ * need more than six recovery/model-stream boundaries to finish its own tool
+ * work. Keep a hard cap, but give the proven background path the same bounded
+ * continuation allowance as the durable main-chat runner. The cumulative
+ * soft-timeout below still prevents these rounds from exceeding the one real
+ * background-function wall-clock budget.
+ */
+export const MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS = 20;
+
+/**
+ * The engine already performs its own short provider retries. After those are
+ * exhausted, a proven durable background A2A/MCP run gets one cooled-down
+ * continuation for a transient 429/529. One extra round is enough to bridge a
+ * short provider bucket without multiplying a sustained rate limit into a
+ * request storm across the larger background continuation allowance.
+ */
+export const MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS = 1;
+export const BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS = 20_000;
+
+function waitForBackgroundRateLimitCooldown(
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timer = setTimeout(
+      finish,
+      BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
+    );
+    signal.addEventListener("abort", finish, { once: true });
+  });
+}
+
 /** Machine-readable code carried on the give-up terminal `error` event so the
  * client renders a loud "stopped before finishing" terminal instead of an
  * ambiguous silent stall. Deliberately NOT in the client's auto-recoverable
@@ -203,8 +260,78 @@ export async function runAgentLoopDirectWithSoftTimeout(
   softTimeoutMs?: number,
   timeoutOptions?: ResolveRunSoftTimeoutOptions,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const finalResponseGuardRequestText =
+    opts.finalResponseGuardRequestText ??
+    resolveFinalResponseGuardRequestText(opts.messages);
+  const stableOpts = { ...opts, finalResponseGuardRequestText };
   const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
-  if (timeoutMs <= 0) return runAgentLoop(opts);
+  let finalOutcomeReported = false;
+  const reportFinalOutcome = (outcome: AgentLoopOutcome) => {
+    if (finalOutcomeReported) return;
+    finalOutcomeReported = true;
+    try {
+      opts.onOutcome?.(outcome);
+    } catch {
+      // Outcome observers cannot alter recovery or completion.
+    }
+  };
+
+  // Disabling continuation recovery must not disable terminal classification.
+  // Keep the same outcome boundary around a direct loop so A2A/MCP callers
+  // never infer success from a rejected or canceled run.
+  if (timeoutMs <= 0) {
+    const directEvents: AgentChatEvent[] = [];
+    let directOutcome: AgentLoopOutcome | undefined;
+    try {
+      const result = await runAgentLoop({
+        ...stableOpts,
+        send: (event) => {
+          directEvents.push(event);
+          stableOpts.send(event);
+        },
+        onOutcome: (outcome) => {
+          directOutcome = outcome;
+        },
+      });
+      const unfinishedReason =
+        internalContinuationReasonForAttempt(directEvents);
+      if (opts.signal.aborted) {
+        reportFinalOutcome({
+          state: "canceled",
+          message: "Agent run was aborted.",
+        });
+      } else if (unfinishedReason) {
+        reportFinalOutcome({
+          state: "failed",
+          code: unfinishedReason,
+          retryable: false,
+          message: `Agent stopped before finishing (${unfinishedReason}).`,
+        });
+      } else {
+        reportFinalOutcome(directOutcome ?? { state: "completed" });
+      }
+      return result;
+    } catch (err) {
+      const candidate = err as { errorCode?: unknown; message?: unknown };
+      reportFinalOutcome(
+        opts.signal.aborted
+          ? { state: "canceled", message: "Agent run was aborted." }
+          : {
+              state: "failed",
+              code:
+                typeof candidate?.errorCode === "string" && candidate.errorCode
+                  ? candidate.errorCode
+                  : "internal_error",
+              retryable: isResumableEngineError(err),
+              message:
+                typeof candidate?.message === "string"
+                  ? candidate.message
+                  : String(err),
+            },
+      );
+      throw err;
+    }
+  }
 
   const upstreamSignal = opts.signal;
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
@@ -221,10 +348,32 @@ export async function runAgentLoopDirectWithSoftTimeout(
     usage.cacheReadTokens += next.cacheReadTokens;
     usage.cacheWriteTokens += next.cacheWriteTokens;
     usage.model = next.model;
+    // Without these, a retry that never got a usage report merges its zeros
+    // over an earlier attempt's real numbers, and telemetry reports an
+    // unmeasured run as a measured empty one.
+    if (next.usageReported) usage.usageReported = true;
+    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
   };
 
   const localTurnEvents: AgentChatEvent[] = [];
   let attempts = 0;
+  // Every current hosted caller of this function (A2A/MCP delegated turns)
+  // runs inside ONE serverless invocation whose real platform hard-kill is
+  // what `timeoutMs` was sized to survive ONCE — reusing that same fresh
+  // window for every one of up to `MAX_RUN_LOOP_CONTINUATIONS` in-process
+  // rounds ignores the wall-clock the earlier rounds already spent, so a 2nd+
+  // round can gamble past the host's real limit and die with a silent
+  // mid-stream kill instead of a clean give-up. Budget subsequent rounds
+  // against cumulative elapsed time since this call started (mirrors
+  // `resolveSelfChainContinuationBudget`'s "remaining = ceiling - elapsed"
+  // pattern, already proven for the analogous foreground self-chain case).
+  // The first round is unaffected — it always gets the full `timeoutMs`.
+  const loopEntryAt = Date.now();
+  const maxRunLoopContinuations =
+    timeoutOptions?.backgroundFunction === true
+      ? MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
+      : MAX_RUN_LOOP_CONTINUATIONS;
+  let backgroundRateLimitContinuations = 0;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
   // returning a finished turn. When the loop then exits because the budget is
@@ -232,7 +381,20 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // this is the silent give-up case: emit a loud terminal so the user sees an
   // unambiguous "stopped before finishing" instead of a bare done/"…".
   let lastAttemptWasUnfinishedContinuation = false;
-  while (!upstreamSignal.aborted && attempts < MAX_RUN_LOOP_CONTINUATIONS) {
+  while (!upstreamSignal.aborted && attempts < maxRunLoopContinuations) {
+    const roundTimeoutMs =
+      attempts === 0 ? timeoutMs : timeoutMs - (Date.now() - loopEntryAt);
+    if (
+      attempts > 0 &&
+      roundTimeoutMs < SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
+    ) {
+      // Not enough wall-clock left in this invocation to safely start
+      // another round — stop here (lastAttemptWasUnfinishedContinuation is
+      // already true from the prior round) so the loop exits through the
+      // existing RUN_BUDGET_EXHAUSTED_MESSAGE path below instead of risking
+      // a raw platform kill mid-stream.
+      break;
+    }
     attempts++;
     lastAttemptWasUnfinishedContinuation = false;
     const controller = new AbortController();
@@ -250,7 +412,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       if (controller.signal.aborted) return;
       softTimedOut = true;
       controller.abort();
-    }, timeoutMs);
+    }, roundTimeoutMs);
 
     const attemptStartIndex = localTurnEvents.length;
     const send = (event: AgentChatEvent) => {
@@ -259,10 +421,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
     };
 
     try {
+      let attemptOutcome: AgentLoopOutcome | undefined;
       const nextUsage = await runAgentLoop({
-        ...opts,
+        ...stableOpts,
         send,
         signal: controller.signal,
+        onOutcome: (outcome) => {
+          attemptOutcome = outcome;
+        },
       });
       addUsage(nextUsage);
       const attemptEvents = localTurnEvents.slice(attemptStartIndex);
@@ -297,6 +463,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         );
         continue;
       }
+      reportFinalOutcome(
+        upstreamSignal.aborted
+          ? { state: "canceled", message: "Agent run was aborted." }
+          : (attemptOutcome ?? { state: "completed" }),
+      );
       return usage;
     } catch (err) {
       if (softTimedOut && !upstreamSignal.aborted) {
@@ -317,6 +488,39 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.threadId,
           localTurnEvents,
         );
+        continue;
+      }
+      const transientRateLimit = isTransientProviderRateLimitError(err);
+      const rateLimitRetryFitsBudget =
+        timeoutOptions?.backgroundFunction === true &&
+        backgroundRateLimitContinuations <
+          MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS &&
+        timeoutMs -
+          (Date.now() - loopEntryAt) -
+          BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS >=
+          SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS;
+      if (
+        !upstreamSignal.aborted &&
+        transientRateLimit &&
+        rateLimitRetryFitsBudget
+      ) {
+        lastAttemptWasUnfinishedContinuation = true;
+        backgroundRateLimitContinuations++;
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
+        ) {
+          opts.send({ type: "clear" });
+        }
+        await appendContinuationAndJournal(
+          opts.messages,
+          "rate_limited",
+          opts.threadId,
+          localTurnEvents,
+        );
+        await waitForBackgroundRateLimitCooldown(upstreamSignal);
         continue;
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off
@@ -350,6 +554,26 @@ export async function runAgentLoopDirectWithSoftTimeout(
         );
         continue;
       }
+      if (upstreamSignal.aborted) {
+        reportFinalOutcome({
+          state: "canceled",
+          message: "Agent run was aborted.",
+        });
+        throw err;
+      }
+      const candidate = err as { errorCode?: unknown; message?: unknown };
+      reportFinalOutcome({
+        state: "failed",
+        code:
+          typeof candidate?.errorCode === "string" && candidate.errorCode
+            ? candidate.errorCode
+            : "internal_error",
+        retryable: false,
+        message:
+          typeof candidate?.message === "string"
+            ? candidate.message
+            : String(err),
+      });
       throw err;
     } finally {
       clearTimeout(timer);
@@ -381,7 +605,18 @@ export async function runAgentLoopDirectWithSoftTimeout(
       type: "error",
       error: RUN_BUDGET_EXHAUSTED_MESSAGE,
       errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
-      recoverable: true,
+      recoverable: false,
+    });
+    reportFinalOutcome({
+      state: "failed",
+      code: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      retryable: false,
+      message: RUN_BUDGET_EXHAUSTED_MESSAGE,
+    });
+  } else if (upstreamSignal.aborted) {
+    reportFinalOutcome({
+      state: "canceled",
+      message: "Agent run was aborted.",
     });
   }
 

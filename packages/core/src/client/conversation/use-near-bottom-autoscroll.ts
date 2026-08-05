@@ -243,6 +243,12 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     window.setTimeout(() => scrollToBottomIfFollowing(generation), 80);
   }, [scrollToBottomIfFollowing]);
 
+  const resumeFollowing = useCallback(() => {
+    const el = scrollRef.current;
+    setFollowingBottom(true, true, el ?? undefined);
+    scrollToBottomAfterPaint();
+  }, [scrollToBottomAfterPaint, setFollowingBottom]);
+
   const markNearBottom = useCallback(() => {
     setFollowingBottom(true, true, scrollRef.current ?? undefined);
   }, [setFollowingBottom]);
@@ -267,5 +273,6 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
     markNearBottom,
     scrollToBottom,
     scrollToBottomAfterPaint,
+    resumeFollowing,
   };
 }

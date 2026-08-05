@@ -1,4 +1,6 @@
-import { appApiPath, callAction, useT } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { archiveFailureToastMessage } from "@shared/archive-errors";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
@@ -1463,7 +1465,7 @@ export function useLabels() {
 export function useSettings() {
   return useQuery<UserSettings>({
     queryKey: ["settings"],
-    queryFn: () => apiFetch("/api/settings"),
+    queryFn: () => callAction("get-mail-preferences", {}, { method: "GET" }),
     staleTime: 60_000,
   });
 }
@@ -1472,10 +1474,11 @@ export function useUpdateSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<UserSettings>) =>
-      apiFetch("/api/settings", {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }),
+      callAction(
+        "update-mail-preferences",
+        { ...data, requestSource: TAB_ID },
+        { method: "PUT" },
+      ),
     onMutate: async (data) => {
       // Optimistic update: immediately merge into cached settings
       await qc.cancelQueries({ queryKey: ["settings"] });

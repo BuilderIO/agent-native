@@ -1,13 +1,111 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deviceViewportFloorForWidth,
+  getBreakpointFrameGeometry,
   getCanonicalScreenStack,
   getResponsiveInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
   getResponsiveScreenGroupSize,
   reorderCanonicalScreenStack,
   resolveFrameGeometrySync,
+  visibleBreakpointWidths,
 } from "./frame-geometry";
+
+describe("content-fit frame height", () => {
+  it("floors every device at one viewport tall (phone 844 / tablet 1024 / desktop 900)", () => {
+    expect(deviceViewportFloorForWidth(390)).toBe(844);
+    expect(deviceViewportFloorForWidth(768)).toBe(1024);
+    expect(deviceViewportFloorForWidth(1440)).toBe(900);
+    expect(deviceViewportFloorForWidth(0)).toBe(844);
+  });
+
+  it("uses measured content height over the primary-aspect projection", () => {
+    // Before measurement, the pure aspect projection is used (unchanged).
+    const projected = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 900 / 1440,
+      primaryScale: 1,
+    });
+    expect(projected.naturalHeight).toBe(Math.round(390 * (900 / 1440)));
+
+    // Once measured, the frame grows to its real content (floored at one device
+    // viewport) instead of the clipped primary-aspect projection.
+    const measured = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 900 / 1440,
+      primaryScale: 1,
+      contentHeightPx: 2600,
+    });
+    expect(measured.naturalHeight).toBe(2600);
+  });
+
+  it("never renders shorter than the device floor even when content is tiny", () => {
+    const geo = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 1,
+      primaryScale: 1,
+      contentHeightPx: 120,
+    });
+    expect(geo.naturalHeight).toBe(844);
+  });
+
+  it("feeds measured breakpoint heights into the group/cull bounds", () => {
+    const screen = {
+      id: "s1",
+      metadata: { width: 1440, height: 900 },
+      breakpointWidths: [390],
+    };
+    const primary = { x: 0, y: 0, width: 1440, height: 900 };
+    const withMeasure = getResponsiveScreenGroupSize(
+      screen,
+      primary,
+      () => 3000,
+    );
+    // Group must be tall enough to contain the 3000px-tall mobile frame
+    // (scaled by primary scale) so culling doesn't evict it while visible.
+    expect(withMeasure.height).toBeGreaterThanOrEqual(3000 * (1440 / 1440) - 1);
+  });
+
+  it("dedupes breakpoints against the device width, not the resized box width", () => {
+    // A desktop primary (device width 1440) resized down to a 390px box must
+    // NOT drop the distinct 390 mobile breakpoint as a "duplicate".
+    const screen = {
+      id: "s1",
+      metadata: { width: 1440, height: 900 },
+      breakpointWidths: [390],
+    };
+    const resizedBox = { x: 0, y: 0, width: 390, height: 900 };
+    // Width exceeds the base box only if the 390 breakpoint is still present.
+    expect(
+      getResponsiveScreenGroupSize(screen, resizedBox).width,
+    ).toBeGreaterThan(resizedBox.width);
+  });
+});
+
+describe("visibleBreakpointWidths", () => {
+  it("drops a breakpoint whose width equals the primary/base frame width", () => {
+    // Default generated design: desktop-1440 primary must not render a
+    // redundant desktop-1440 breakpoint frame next to itself.
+    expect(visibleBreakpointWidths([390, 1440], 1440)).toEqual([390]);
+  });
+
+  it("drops a tablet breakpoint that duplicates a tablet-primary screen", () => {
+    expect(visibleBreakpointWidths([390, 768], 768)).toEqual([390]);
+  });
+
+  it("dedupes and ignores non-positive widths", () => {
+    expect(visibleBreakpointWidths([390, 390, 0, -5, 768], 1440)).toEqual([
+      390, 768,
+    ]);
+  });
+
+  it("keeps every width when no primary width is known", () => {
+    expect(visibleBreakpointWidths([390, 768, 1440], undefined)).toEqual([
+      390, 768, 1440,
+    ]);
+  });
+});
 
 describe("responsive overview group layout", () => {
   const screens = Array.from({ length: 4 }, (_, index) => ({

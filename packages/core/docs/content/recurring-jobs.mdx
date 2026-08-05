@@ -1,15 +1,29 @@
 ---
 title: "Recurring Jobs"
-description: "Cron-scheduled prompts the agent runs on its own — daily digests, weekly reports, hourly polling."
+description: "Legacy compatibility reference for scheduled automations, cron execution, organization scope, and advanced job fields."
 ---
 
 # Recurring Jobs
 
-A **recurring job** is a prompt that runs on a cron schedule. It's how the agent does things on its own: "every morning at 7 summarize my overnight emails," "every Monday post last week's signup numbers to Slack," "every hour sweep for stale drafts and delete them."
+A **recurring job** is the legacy name for a **scheduled automation**: a prompt
+that runs on a cron schedule. New product guidance uses
+[Automations](/docs/automations) as the umbrella, with **Scheduled** and
+**Event** as trigger types.
 
-Recurring jobs fire on a clock. To react to _events_ (a booking created, an email received) — same `jobs/` file format plus conditions — see [Automations](/docs/automations).
+The Jobs name remains in file paths, APIs, and tools for compatibility.
+`manage-jobs` is schedule-only; new Scheduled and Event work uses
+`manage-automations`, including organization scope, model overrides, and MCP
+allowlists. This page remains the compatibility and scheduler reference.
 
-Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
+Jobs live in [Agent Resources](/docs/agent-resources) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
+
+<Callout id="doc-block-rj1" tone="info">
+
+**Creating new scheduled work?** Use the
+[Automations workflow](/docs/automations#creating). Continue here when you need
+the legacy `manage-jobs` API, delivery metadata, or scheduler internals.
+
+</Callout>
 
 ## A job file {#job-file}
 
@@ -40,12 +54,12 @@ Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Mar
     {
       lines: "7-12",
       label: "The prompt",
-      note: "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context.",
+      note: "The body is just a prompt — the agent runs it at each firing with all its normal tools and agent context.",
     },
   ]}
 />
 
-That's it. The body is a prompt the agent runs at each scheduled firing. The agent has access to all the same tools and workspace context it has in an interactive chat — actions, skills, memory, connected MCP servers, sub-agents.
+That's it. The body is a prompt the agent runs at each scheduled firing. The agent has access to all the same tools and agent context it has in an interactive chat — actions, skills, memory, connected MCP servers, sub-agents.
 
 ## Frontmatter {#frontmatter}
 
@@ -54,14 +68,44 @@ That's it. The body is a prompt the agent runs at each scheduled firing. The age
 | `schedule`   | cron expression               | _(required)_ | Standard 5-field cron. `"0 7 * * *"` = every day at 07:00; `"0 */4 * * *"` = every 4 hours.            |
 | `enabled`    | boolean                       | `true`       | Flip to `false` to pause without deleting the job.                                                     |
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` runs with the job owner's identity and `ANTHROPIC_API_KEY`. `"shared"` uses the org's key. |
-| `createdBy`  | email                         | _(auto)_     | Populated when the job is created through the workspace UI or by the agent.                            |
+| `createdBy`  | email                         | _(auto)_     | Populated when the job is created through the Agent Resources UI or by the agent.                      |
 | `orgId`      | string                        | _(auto)_     | Org scope; inherited from the creator's active org.                                                    |
 | `lastRun`    | ISO timestamp                 | _(managed)_  | Written by the scheduler after each run.                                                               |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(managed)_  | Latest outcome.                                                                                        |
 | `lastError`  | string                        | _(managed)_  | Error message if the last run failed.                                                                  |
 | `nextRun`    | ISO timestamp                 | _(managed)_  | Computed from `schedule`; used by the scheduler to decide when to fire next.                           |
+| `model`      | model id                      | _(default)_  | Optional model override for this automation.                                                           |
+| `mcpTools`   | array of MCP tool names       | _(none)_     | Optional explicit allowlist such as `mcp__server__tool`; credentials stay in the connected MCP grant.  |
 
 The `last*` and `nextRun` fields are written by the scheduler. You can read them to see the history, but don't edit them by hand — the next run will overwrite.
+
+## Connecting MCP tools to a job {#connected-mcps}
+
+Recurring jobs can use remote or local MCP tools that are already connected to
+the app. Ask the agent to discover the exact names with `tool-search`, then
+bind only the tools that job needs with `mcpTools`:
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Find new recordings since the last successful run. Extract only actionable
+follow-ups, then call the app's bounded import action once with stable source
+and external ids, a short citation, and the recording URL. Do not import the
+full transcript.
+```
+
+The automation stores tool names, not MCP URLs, access tokens, or OAuth refresh
+tokens. At run time, the shared background runner resolves the connected grant
+in the creator and organization request context and exposes only the
+allowlisted tools. A missing configured tool fails the run rather than widening
+access. Keep the list narrow, and use an idempotent app action for the final
+import so overlapping runs do not create duplicates. See
+[MCP Clients](/docs/mcp-clients) for connection and OAuth setup.
 
 ## Cron syntax {#cron}
 
@@ -81,9 +125,11 @@ The framework includes cron utilities (`isValidCron()` and `describeCron()`) for
 
 ## Creating a job {#creating}
 
-### From the Workspace tab
+### From the Automations UI
 
-`+` → **Scheduled Task** in the workspace panel. Fill in the prompt and schedule. Saves as `jobs/<slug>.md` and starts running on the next matching tick.
+Open **Automations** on the full-page Agent surface, then create a
+**Scheduled** automation. The stable compatibility URL is `/agent#jobs`; the
+hash does not change when the visible tab name changes.
 
 ### By asking the agent
 
@@ -113,7 +159,7 @@ Summarize overnight emails.`,
 
 The scheduler is a framework plugin (the internal `processRecurringJobs()` routine) that runs in-process: a `setInterval` fires every 60 seconds (with a 10-second startup delay) inside the agent chat plugin, wherever the server is running.
 
-<Diagram id="doc-block-14nqnkx" title="One scheduler tick" summary="Every 60s the scheduler finds due jobs, runs each as a fresh agent thread, and writes the outcome back to the job file.">
+<Diagram id="doc-block-14nqnkx" title="One scheduler tick" summary="Every 60s the scheduler finds due jobs, then sends them through the same background execution lifecycle as event automations.">
 
 ```html
 <div class="sched">
@@ -136,8 +182,8 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >shared runner validates identity and resolves the model, MCP allowlist,
+      continuation, delivery, and usage</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -181,39 +227,57 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 </Callout>
 
+<Callout id="doc-block-rj2" tone="warning">
+
+**Disabled by default in local dev.** The scheduler's `setInterval` loop never starts when `NODE_ENV` is `development` or `test`, or when the app URL points at `localhost` / `127.0.0.1` / `*.localhost` — which covers most local dev setups. Set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` to run the scheduler locally anyway. On a hosted deployment that runs its own dedicated sweep instead of this in-process scheduler, set `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1` as the matching kill switch.
+
+</Callout>
+
 ## Debugging a job {#debugging}
 
-- Open `jobs/<name>.md` in the workspace — the frontmatter shows `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron).
+- Open the automation's details in **Automations**, or inspect
+  `jobs/<name>.md` in Agent Resources — the frontmatter shows `lastRun`,
+  `lastStatus`, `lastError`, and `nextRun`.
+- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron). This only works if the scheduler is actually running — see the local-dev caveat above; set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` first if you're testing on localhost.
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
 ## Agent tool {#agent-tool}
 
-A single `manage-jobs` tool is registered in every template. The `action` parameter selects the operation:
+`manage-jobs` is the compatibility tool for existing schedule-only
+integrations. New Scheduled and Event automations—including organization
+scope, model overrides, and MCP allowlists—use `manage-automations`. The
+`action` parameter selects the legacy operation:
 
-| Action   | Parameters                                                                 | Purpose                                                      |
-| -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`, `model`   | Create a new recurring job                                   |
-| `list`   | `scope` (`personal`, `shared`, or all)                                     | List all jobs with status (schedule, enabled, last/next run) |
-| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs`, `model` | Edit an existing job                                         |
-| `delete` | `name` (required)                                                          | Delete a job — always confirm with the user first            |
+| Action   | Parameters                                                                             | Purpose                                                      |
+| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`, `model`, `mcpTools`   | Create a new recurring job                                   |
+| `list`   | `scope` (`personal`, `shared`, or all)                                                 | List all jobs with status (schedule, enabled, last/next run) |
+| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs`, `model`, `mcpTools` | Edit an existing job                                         |
+| `delete` | `name` (required)                                                                      | Delete a job — always confirm with the user first            |
 
 `model` is optional on both `create` and `update` — pass a model id to override the channel/app/engine default for that one routine.
 
-**Personal vs shared scope.** Each job lives in either personal scope (runs as and is visible only to the creator) or shared/org scope (runs on behalf of the creator but is visible to org members). The `scope` and `runAs` parameters control this at create time. Org admins can update or delete any shared job; non-admin members can only manage their own.
+**Personal vs shared scope.** Each automation lives in either personal scope
+(runs as and is visible only to the creator) or organization scope (visible to
+org members, but runs as the creator). Organization administrators can update
+or delete shared definitions but cannot change the creator identity. Before
+each organization run, the framework verifies that the creator still exists
+and remains a member; otherwise it does not execute.
 
 ## Different from the scheduling package {#vs-scheduling-package}
 
 Don't confuse recurring jobs with `@agent-native/scheduling`:
 
-- **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in the workspace. Runs on any agent-native app.
+- **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in Agent Resources. Runs on any agent-native app.
 - **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` template and custom scheduling surfaces.
 
 Recurring jobs are "how do I make the agent act on its own?" The scheduling package is "how do I build a calendar app?" Different concerns.
 
 ## What's next
 
-- [**Automations**](/docs/automations) — add event triggers and conditions to the same `jobs/` format
-- [**Workspace**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
+- [**Automations**](/docs/automations) — the primary Scheduled/Event product model and management workflow
+- [**Agent Resources**](/docs/agent-resources) — where jobs live alongside skills, memory, and custom agents
 - [**Actions**](/docs/actions) — the tools a job calls
+- [**MCP Clients**](/docs/mcp-clients) — connect remote or local MCP tools and OAuth grants
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work
+- [**Toolkit piece: Toolkit Capability Modules**](/docs/toolkit-capability-packages) — how this differs from the installable Scheduling package

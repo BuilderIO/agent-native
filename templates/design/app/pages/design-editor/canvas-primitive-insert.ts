@@ -13,6 +13,7 @@ import {
 } from "./canvas-primitives";
 import { BOARD_TEXT_AUTO_COLOR_MARKER } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
+import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
 
 export function nextDuplicatedFilename(
@@ -62,6 +63,9 @@ export function nextBlankScreenFilename(files: DesignFile[]): string {
 export function blankScreenHtml(title: string): string {
   const safeTitle = escapeHtmlText(title);
   const safeTitleAttribute = escapeHtmlAttributeValue(title);
+  // Blank screen = free canvas: <body> is the positioned root and drawn shapes
+  // are absolute children (x,y in the HTML). A centering grid / <main> wrapper
+  // trapped shapes at center and got auto-layout-converted on drop.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -77,17 +81,9 @@ export function blankScreenHtml(title: string): string {
       color: var(--color-text, #111827);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 48px;
-    }
   </style>
 </head>
-<body>
-  <main data-agent-native-layer-name="${safeTitleAttribute}">
-  </main>
+<body data-agent-native-layer-name="${safeTitleAttribute}">
 </body>
 </html>`;
 }
@@ -193,6 +189,11 @@ export function appendCanvasPrimitiveToHtml(
   options?: { preserveNegativePosition?: boolean; isBoardTarget?: boolean },
 ): string | null {
   if (typeof window === "undefined") return null;
+  // A live/localhost screen stores its route URL here, not a document.
+  // Appending to it parses the URL as body text and returns a whole HTML file,
+  // which the caller then persists OVER the URL — the screen stops being live
+  // and the route is gone. There is no correct append for this shape.
+  if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     if (!doc.body) return null;
@@ -478,6 +479,29 @@ export function appendCanvasPrimitiveToHtml(
 
     doc.body.appendChild(element);
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract one newly-created primitive from a temporary document as markup the
+ * live iframe bridge can insert. URL-backed screens keep their route URL in the
+ * Design file, so their creation path must serialize a node without ever
+ * rewriting that file content.
+ */
+export function extractCanvasPrimitiveHtml(
+  content: string,
+  nodeId: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
+    return (
+      doc.querySelector(`[data-agent-native-node-id="${safeNodeId}"]`)
+        ?.outerHTML ?? null
+    );
   } catch {
     return null;
   }

@@ -3,7 +3,7 @@ import { emit } from "@agent-native/core/event-bus";
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getAppProductionUrl } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { getUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -20,6 +20,11 @@ import {
   invalidateListCacheForOwner,
   setAccountDisplayName,
 } from "../server/lib/google-auth.js";
+import {
+  readLocalEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails,
+} from "../server/lib/local-email-store.js";
 import {
   bodyToHtml,
   buildRawEmail,
@@ -154,73 +159,73 @@ export default defineAction({
 
     const accounts = await getAccessTokens();
     if (accounts.length === 0) {
-      const data = await getUserSetting(ownerEmail, "local-emails");
-      const emails =
-        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
-      const newEmail = {
-        id: `msg-${nanoid(8)}`,
-        threadId: args.replyToId
-          ? (emails.find((e: any) => e.id === args.replyToId)?.threadId ??
-            `thread-${nanoid(8)}`)
-          : `thread-${nanoid(8)}`,
-        from: { name: settings.name, email: settings.email },
-        to: args.to.split(",").map((value) => {
-          const trimmed = value.trim();
-          return { name: trimmed, email: trimmed };
-        }),
-        ...(args.cc
-          ? {
-              cc: args.cc.split(",").map((value) => {
-                const trimmed = value.trim();
-                return { name: trimmed, email: trimmed };
-              }),
-            }
-          : {}),
-        ...(args.bcc
-          ? {
-              bcc: args.bcc.split(",").map((value) => {
-                const trimmed = value.trim();
-                return { name: trimmed, email: trimmed };
-              }),
-            }
-          : {}),
-        subject: args.subject,
-        snippet: markdownPreviewSnippet(args.body),
-        body: args.body,
-        bodyHtml: bodyToHtml(args.body),
-        date: new Date().toISOString(),
-        isRead: true,
-        isStarred: false,
-        isSent: true,
-        isArchived: false,
-        isTrashed: false,
-        labelIds: ["sent"],
-        ...(resolvedAttachments.length > 0
-          ? {
-              attachments: resolvedAttachments.map((att) => ({
-                id: att.filename,
-                filename: att.originalName,
-                mimeType: att.mimeType,
-                size: att.size,
-                url: att.url,
-              })),
-            }
-          : {}),
-      };
-      emails.push(newEmail);
-      await putUserSetting(ownerEmail, "local-emails", { emails });
-      try {
-        emit(
-          "mail.message.sent",
-          {
-            messageId: newEmail.id,
-            to: args.to,
-            subject: args.subject,
-          },
-          { owner: ownerEmail },
-        );
-      } catch {}
-      return JSON.stringify(newEmail, null, 2);
+      return withLocalEmailMutationLock(ownerEmail, async () => {
+        const emails = await readLocalEmails(ownerEmail);
+        const newEmail = {
+          id: `msg-${nanoid(8)}`,
+          threadId: args.replyToId
+            ? (emails.find((e: any) => e.id === args.replyToId)?.threadId ??
+              `thread-${nanoid(8)}`)
+            : `thread-${nanoid(8)}`,
+          from: { name: settings.name, email: settings.email },
+          to: args.to.split(",").map((value) => {
+            const trimmed = value.trim();
+            return { name: trimmed, email: trimmed };
+          }),
+          ...(args.cc
+            ? {
+                cc: args.cc.split(",").map((value) => {
+                  const trimmed = value.trim();
+                  return { name: trimmed, email: trimmed };
+                }),
+              }
+            : {}),
+          ...(args.bcc
+            ? {
+                bcc: args.bcc.split(",").map((value) => {
+                  const trimmed = value.trim();
+                  return { name: trimmed, email: trimmed };
+                }),
+              }
+            : {}),
+          subject: args.subject,
+          snippet: markdownPreviewSnippet(args.body),
+          body: args.body,
+          bodyHtml: bodyToHtml(args.body),
+          date: new Date().toISOString(),
+          isRead: true,
+          isStarred: false,
+          isSent: true,
+          isArchived: false,
+          isTrashed: false,
+          labelIds: ["sent"],
+          ...(resolvedAttachments.length > 0
+            ? {
+                attachments: resolvedAttachments.map((att) => ({
+                  id: att.filename,
+                  filename: att.originalName,
+                  mimeType: att.mimeType,
+                  size: att.size,
+                  url: att.url,
+                })),
+              }
+            : {}),
+        };
+        emails.push(newEmail);
+        await writeLocalEmails(ownerEmail, emails);
+        try {
+          emit(
+            "mail.message.sent",
+            {
+              messageId: newEmail.id,
+              to: args.to,
+              subject: args.subject,
+            },
+            { owner: ownerEmail },
+          );
+        } catch {}
+        return JSON.stringify(newEmail, null, 2);
+      });
     }
 
     let selectedToken = accounts[0].accessToken;

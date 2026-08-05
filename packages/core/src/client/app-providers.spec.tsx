@@ -9,7 +9,17 @@ const useSessionMock = vi.fn();
 vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
+vi.mock("@agent-native/toolkit/ui/sonner", () => ({
+  Toaster: (props: { richColors?: boolean; position?: string }) => (
+    <div
+      data-testid="toolkit-toaster"
+      data-rich-colors={String(Boolean(props.richColors))}
+      data-position={props.position}
+    />
+  ),
+}));
 
+import { encodeContinuation } from "../shared/sign-in-journey.js";
 import { AppProviders } from "./app-providers.js";
 
 let container: HTMLDivElement;
@@ -64,9 +74,34 @@ function renderProviders(props: {
   });
 }
 
+// `RequireSession` branches on `useSession().status`, not just `isLoading` —
+// every mock here must supply a status or the gate can neither redirect nor
+// hold the fallback consistently with the real hook.
+const SIGNED_OUT_SESSION = {
+  session: null,
+  isLoading: false,
+  status: "unauthenticated" as const,
+};
+
 describe("AppProviders session gate", () => {
+  it("uses Toolkit's theme-aware toaster by default", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+
+    const toaster = container.querySelector('[data-testid="toolkit-toaster"]');
+    expect(toaster?.getAttribute("data-rich-colors")).toBe("true");
+    expect(toaster?.getAttribute("data-position")).toBe("bottom-left");
+  });
+
   it("renders public paths directly without resolving or redirecting a session", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ isPublicPath: true });
 
@@ -78,25 +113,26 @@ describe("AppProviders session gate", () => {
   });
 
   it("gates private paths and redirects signed-out visitors after hydration", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({});
 
     expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
     expect(useSessionMock).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
-      "/_agent-native/sign-in?return=%2Finbox",
+      `/_agent-native/sign-in?c=${encodeContinuation("/inbox")}`,
     );
   });
 
   it("allows token-authenticated private surfaces to bypass the session gate", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ sessionBypass: true });
 
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
+    expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
   });
 });

@@ -6,10 +6,11 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
 import { THEME_VAR_NAMES } from "../../extensions/theme.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import { useAppearance } from "../appearance.js";
@@ -176,6 +177,7 @@ export function EmbeddedExtension({
   // originates inside the same sandboxed realm as user code) and must be
   // ignored so a viewer cannot self-escalate to owner.
   const bindingLatchedRef = useRef(false);
+  const extensionRef = useRef(null as null | Extension);
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
@@ -215,6 +217,7 @@ export function EmbeddedExtension({
     retry: shouldRetryExtensionLoad,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
+  extensionRef.current = extension ?? null;
 
   // Notify the host once when the extension can't be loaded for this viewer so
   // it can show a fallback instead of a blank panel.
@@ -337,6 +340,92 @@ export function EmbeddedExtension({
         return;
       }
 
+      if (message.type === "agent-native-extension-error-fix") {
+        const name = extensionRef.current?.name ?? extensionId;
+        const errors: string[] = Array.isArray((message as any).errors)
+          ? (message as any).errors
+          : [];
+        const errorDetails: Array<{ message: string; stack: string }> =
+          Array.isArray((message as any).errorDetails)
+            ? (message as any).errorDetails
+            : [];
+        const consoleLogs: Array<{ level: string; message: string }> =
+          Array.isArray((message as any).consoleLogs)
+            ? (message as any).consoleLogs
+            : [];
+        const networkLogs: Array<{
+          path: string;
+          method: string;
+          ok?: boolean;
+          status?: number;
+          error?: string;
+        }> = Array.isArray((message as any).networkLogs)
+          ? (message as any).networkLogs
+          : [];
+
+        const detailedTrace = errorDetails
+          .filter((e) => e && typeof e === "object")
+          .map((e) => {
+            const msg =
+              typeof e.message === "string" ? e.message : String(e.message);
+            return typeof e.stack === "string" ? `${msg}\n${e.stack}` : msg;
+          })
+          .join("\n\n");
+
+        // Force a fresh read from the server, same as ExtensionViewer's fix
+        // flow — the query cache may hold the agent's previous (broken) turn.
+        let freshContent: string | undefined;
+        try {
+          const res = await fetch(
+            agentNativePath(`/_agent-native/extensions/${extensionId}`),
+            { cache: "no-store" },
+          );
+          if (res.ok) {
+            const fresh = (await res.json()) as Extension;
+            freshContent =
+              typeof fresh?.content === "string" ? fresh.content : undefined;
+          }
+        } catch {
+          // Fall through with no snapshot — agent can still re-read via get-extension.
+        }
+
+        const contextParts = [
+          `The user is viewing a dashboard panel embedding extension "${name}" (id: ${extensionId}, slot: ${slotId}) and there are runtime errors that need fixing.`,
+          `\nFull error details:\n${detailedTrace}`,
+        ];
+
+        if (consoleLogs.length > 0) {
+          const consoleStr = consoleLogs
+            .map((l) => `[${l.level}] ${l.message}`)
+            .join("\n");
+          contextParts.push(`\nRecent console output:\n${consoleStr}`);
+        }
+
+        if (networkLogs.length > 0) {
+          const netStr = networkLogs
+            .map(
+              (l) =>
+                `${l.method} ${l.path} → ${l.ok ? l.status : "FAILED: " + (l.error || l.status)}`,
+            )
+            .join("\n");
+          contextParts.push(`\nRecent network requests:\n${netStr}`);
+        }
+
+        if (freshContent) {
+          contextParts.push(
+            `\nCurrent extension content (just re-read from the database — this is the authoritative source, not anything you may have written in a previous turn):\n\`\`\`html\n${freshContent}\n\`\`\``,
+          );
+        }
+
+        sendToAgentChat({
+          message: `Fix runtime errors in extension "${name}" (id: ${extensionId}), embedded as a dashboard panel. The content snapshot below was just re-read from the database — treat it as authoritative and ignore any prior version you may have generated in this chat. If in doubt, call get-extension first.\n\nErrors:\n${errors.join("\n")}`,
+          context: contextParts.join("\n"),
+          submit: true,
+          openSidebar: true,
+        });
+        return;
+      }
+
       if (message.type !== "agent-native-extension-request") return;
 
       const requestId = String(message.requestId ?? "");
@@ -409,7 +498,7 @@ export function EmbeddedExtension({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extensionId]);
+  }, [extensionId, slotId]);
 
   if (!extension) {
     if (!isLoading && !isFetching) return null;
@@ -425,6 +514,7 @@ export function EmbeddedExtension({
   return (
     <div className={`relative group/embedded-extension ${className ?? ""}`}>
       <iframe
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
         key={`${extensionId}-${extension.updatedAt ?? ""}`}
         src={iframeSrc}
@@ -480,7 +570,6 @@ function EmbeddedToolMenu({
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
 
   const closeMenu = () => {
     setOpen(false);
@@ -543,17 +632,14 @@ function EmbeddedToolMenu({
       <PopoverContent align="end" sideOffset={4} className="w-56 p-1">
         {!confirmingDelete ? (
           <div className="flex flex-col">
-            <button
-              type="button"
-              onClick={() => {
-                closeMenu();
-                navigate(extensionPath(extensionId, toolName));
-              }}
+            <Link
+              to={extensionPath(extensionId, toolName)}
+              onClick={closeMenu}
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] hover:bg-accent cursor-pointer text-left"
             >
               <IconExternalLink className="h-3.5 w-3.5" />
               <span>{t("extensions.openFullView")}</span>
-            </button>
+            </Link>
             <button
               type="button"
               onClick={removeFromSlot}

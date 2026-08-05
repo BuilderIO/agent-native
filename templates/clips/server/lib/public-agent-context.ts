@@ -15,6 +15,7 @@ import {
 import {
   buildAgentApiUrls,
   buildRecommendedFrames,
+  getAgentClipReadiness,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
   CLIPS_AGENT_ACCESS_PARAM,
   CLIP_AGENT_CONTEXT_VERSION,
@@ -34,6 +35,7 @@ import {
 } from "../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
+import { recordAgentView } from "./agent-views.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
@@ -293,6 +295,14 @@ export async function loadPublicAgentAccess(
     }
   }
 
+  // Every agent API route funnels through here, so this is the one place that
+  // sees an outside agent read a clip. Owner requests are previews, not views.
+  if (!viewerIsOwner) {
+    await recordAgentView(event, recording.id, {
+      agentLabel: tokenAccess?.ok ? tokenAccess.agentLabel : null,
+    });
+  }
+
   return {
     ok: true,
     access: {
@@ -545,13 +555,13 @@ export function transcriptStatusInstructions(
 
   if (status === "failed" && lowerReason.includes("credits exhausted")) {
     return [
-      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits, or configure a Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not transcribe Clips recordings.",
+      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits (free tier available). Clips uses the browser/macOS native transcript first and Builder transcription on the original recording when native capture is unavailable.",
     ];
   }
 
   if (status === "failed" && failureReason) {
     return [
-      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying transcription or configuring the supported Builder.io/Groq transcription fallback.`,
+      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying native capture or the Builder transcription fallback.`,
     ];
   }
 
@@ -589,22 +599,28 @@ export function buildPublicAgentContext({
   const publicPageUrl = `${requestUrl.origin}${getServerAppBasePath()}/share/${encodeURIComponent(recording.id)}`;
   const isLoomSource = isLoomRecordingSource(recording);
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
-  const suggestedFrames = isLoomEmbedBacked
-    ? []
-    : buildRecommendedFrames({
-        durationMs: recording.durationMs,
-        chapters,
-        segments: agentSegments,
-      })
-        // Duration-spread candidates can land inside owner-excluded ranges;
-        // drop those so agents are never pointed at cut footage.
-        .filter((frame) => !isInsideExcludedRange(frame.atMs, excludedRanges))
-        .map((frame) => ({
+  const agentReadiness = getAgentClipReadiness(recording.status);
+  const clipIsReady = agentReadiness.state === "ready";
+  const suggestedFrames =
+    !clipIsReady || isLoomEmbedBacked
+      ? []
+      : buildRecommendedFrames({
+          durationMs: recording.durationMs,
+          chapters,
+          segments: agentSegments,
+        })
+          // Duration-spread candidates can land inside owner-excluded ranges;
+          // drop those so agents are never pointed at cut footage.
+          .filter((frame) => !isInsideExcludedRange(frame.atMs, excludedRanges))
+          .map((frame) => ({
           ...frame,
           url: api.frameUrl(frame.atMs),
         }));
   const instructions = [
-    "Use transcript.segments for timestamped spoken context.",
+    ...(agentReadiness.instruction ? [agentReadiness.instruction] : []),
+    ...(clipIsReady
+      ? ["Use transcript.segments for timestamped spoken context."]
+      : []),
     ...transcriptStatusInstructions(transcript),
     ...(bugReport
       ? [
@@ -616,15 +632,17 @@ export function buildPublicAgentContext({
           "Use browserDiagnostics.consoleLogs for the redacted console stream (all levels: debug/log/info/warn/error) and browserDiagnostics.networkRequests for the fetch/XHR requests (method, sanitized URL, status, duration) captured during the recording. browserDiagnostics.consoleIssues highlights just the warnings/errors, and browserDiagnostics.failedNetworkRequests highlights failed requests.",
         ]
       : []),
-    ...(isLoomEmbedBacked
-      ? [
-          "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
-        ]
-      : [
-          "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
-          "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
-          "If you cannot load an image from a URL, you will only have the transcript — tell the user to open the clip in an image-capable agent (ChatGPT, Claude Code, Cursor, Codex) or to upload a frame image directly so you can see it.",
-        ]),
+    ...(!clipIsReady
+      ? []
+      : isLoomEmbedBacked
+        ? [
+            "This clip is a legacy Loom embed import; frame extraction is not available through Clips until it is reimported as a Clips-hosted video.",
+          ]
+        : [
+            "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
+            "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task.",
+            "If you cannot load an image from a URL, you will only have the transcript — tell the user to open the clip in an image-capable agent (ChatGPT, Claude Code, Cursor, Codex) or to upload a frame image directly so you can see it.",
+          ]),
   ];
 
   return {
@@ -648,13 +666,14 @@ export function buildPublicAgentContext({
       hasAudio: Boolean(recording.hasAudio),
       hasCamera: Boolean(recording.hasCamera),
       status: recording.status,
+      agentReadiness,
       createdAt: recording.createdAt,
       updatedAt: recording.updatedAt,
     },
     apis: {
       context: { method: "GET", url: api.contextUrl },
       transcript: { method: "GET", url: api.transcriptUrl },
-      ...(isLoomEmbedBacked
+      ...(!clipIsReady || isLoomEmbedBacked
         ? {}
         : {
             frame: {

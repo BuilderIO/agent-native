@@ -4,16 +4,21 @@ import {
   getH3App,
   awaitBootstrap,
   markDefaultPluginProvided,
+  trackPluginInit,
 } from "./framework-request-handler.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
-  return async (nitroApp: any) => {
+  return (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "auth");
-    // Wait for any other default plugins to finish mounting first.
-    await awaitBootstrap(nitroApp);
-    await autoMountAuth(getH3App(nitroApp), options);
+    const initPromise = (async () => {
+      await awaitBootstrap(nitroApp);
+      await autoMountAuth(getH3App(nitroApp), options);
+    })();
+    trackPluginInit(nitroApp, initPromise, {
+      paths: ["/_agent-native/auth"],
+    });
   };
 }
 

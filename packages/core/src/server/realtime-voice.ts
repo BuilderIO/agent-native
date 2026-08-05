@@ -201,7 +201,10 @@ export function resolveRealtimeVoiceReasoningEffort(
 ): "minimal" | "low" | "medium" {
   const normalized = value?.trim().toLowerCase();
   return normalized &&
-    Object.hasOwn(REALTIME_VOICE_REASONING_EFFORT, normalized)
+    Object.prototype.hasOwnProperty.call(
+      REALTIME_VOICE_REASONING_EFFORT,
+      normalized,
+    )
     ? REALTIME_VOICE_REASONING_EFFORT[
         normalized as keyof typeof REALTIME_VOICE_REASONING_EFFORT
       ]
@@ -614,7 +617,7 @@ function createSessionHandler(
           setResponseStatus(event, 409);
           return {
             error:
-              "Connect Builder or configure an OpenAI API key to use realtime voice.",
+              "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
             code: "realtime_voice_setup_required",
           };
         }
@@ -646,7 +649,7 @@ function createSessionHandler(
               },
               turn_detection: {
                 type: "semantic_vad",
-                create_response: true,
+                create_response: false,
                 interrupt_response: true,
                 eagerness: "auto",
               },

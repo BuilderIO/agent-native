@@ -14,6 +14,9 @@ import {
 import { resolveAnalyticsGongCredentials } from "./provider-credentials";
 
 const DEFAULT_API_BASE = "https://api.gong.io/v2";
+const MAX_GONG_SEARCH_PAGES = 50;
+const MAX_GONG_CALL_LIST_PAGES = 50;
+const MAX_GONG_EXHAUSTIVE_RECORDS = 500;
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -160,7 +163,7 @@ export async function getCalls(filters?: {
   fromDateTime?: string;
   toDateTime?: string;
   cursor?: string;
-}): Promise<{ calls: GongCall[]; cursor?: string }> {
+}): Promise<{ calls: GongCall[]; cursor?: string; totalRecords?: number }> {
   const params = new URLSearchParams();
   if (filters?.fromDateTime) params.set("fromDateTime", filters.fromDateTime);
   if (filters?.toDateTime) params.set("toDateTime", filters.toDateTime);
@@ -170,12 +173,60 @@ export async function getCalls(filters?: {
   const path = `/calls${query ? `?${query}` : ""}`;
   const data = await apiGet<{
     calls?: GongCall[];
-    records?: { cursor?: string };
+    records?: { cursor?: string; totalRecords?: number };
   }>(path);
   return {
     calls: data.calls ?? [],
     cursor: data.records?.cursor,
+    ...(typeof data.records?.totalRecords === "number"
+      ? { totalRecords: data.records.totalRecords }
+      : {}),
   };
+}
+
+export async function getAllCalls(filters?: {
+  fromDateTime?: string;
+  toDateTime?: string;
+}): Promise<{
+  calls: GongCall[];
+  cursor?: string;
+  pages: number;
+  totalRecords?: number;
+}> {
+  const calls: GongCall[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  let totalRecords: number | undefined;
+
+  do {
+    const page = await getCalls({
+      ...filters,
+      ...(cursor ? { cursor } : {}),
+    });
+    pages += 1;
+    if (typeof page.totalRecords === "number") {
+      totalRecords = page.totalRecords;
+    }
+    if (
+      typeof totalRecords === "number" &&
+      totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive call listing found ${totalRecords.toLocaleString()} records in the requested window. ` +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program, instead of returning the full cohort through gong-calls.",
+      );
+    }
+    calls.push(...page.calls);
+
+    const nextCursor = page.cursor;
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (cursor && pages < MAX_GONG_CALL_LIST_PAGES);
+
+  return { calls, cursor, pages, totalRecords };
 }
 
 export async function getCall(callId: string): Promise<GongCall | null> {
@@ -404,7 +455,7 @@ export function matchesGongCallQuery(call: GongCall, query: string): boolean {
 
 function isExternalCall(call: GongCall): boolean {
   const scope = (call as Record<string, unknown>).scope;
-  return typeof scope !== "string" || scope === "External";
+  return typeof scope !== "string" || scope.toLowerCase() === "external";
 }
 
 function partyMatchesQuery(
@@ -436,11 +487,6 @@ function partyMatchesQuery(
     emailVariants.some((variant) => externalEmails.includes(variant))
   );
 }
-
-const extensivePartyCache = new Map<
-  string,
-  { name: string; emailAddress?: string; affiliation?: string }[]
->();
 
 export interface GongCallSearchResult {
   calls: Array<GongCall & { matchedQueries?: string[] }>;
@@ -487,6 +533,38 @@ function addMatchedQuery(
   });
 }
 
+function normalizeExtensiveCall(value: unknown): GongCall | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const metadata =
+    record.metaData && typeof record.metaData === "object"
+      ? (record.metaData as Record<string, unknown>)
+      : record;
+  const id = typeof metadata.id === "string" ? metadata.id : "";
+  const started = typeof metadata.started === "string" ? metadata.started : "";
+  if (!id || !started) return null;
+  const parties = Array.isArray(record.parties)
+    ? record.parties.map((party) => {
+        const item = party as Record<string, unknown>;
+        return {
+          name: typeof item.name === "string" ? item.name : "",
+          ...(typeof item.emailAddress === "string"
+            ? { emailAddress: item.emailAddress }
+            : {}),
+          ...(typeof item.affiliation === "string"
+            ? { affiliation: item.affiliation }
+            : {}),
+        };
+      })
+    : [];
+  return {
+    ...metadata,
+    id,
+    started,
+    parties,
+  };
+}
+
 export async function searchCallsForQueries(
   queries: string[],
   days = 90,
@@ -514,78 +592,60 @@ export async function searchCallsForQueries(
   const matches = new Map<string, GongCall & { matchedQueries?: string[] }>();
   let searchedCallCount = 0;
   let cursor: string | undefined;
+  let pages = 0;
   do {
-    const params = new URLSearchParams({ fromDateTime });
-    if (options.toDateTime) params.set("toDateTime", options.toDateTime);
-    if (cursor) params.set("cursor", cursor);
-    const data = await apiGet<{
-      calls?: GongCall[];
+    const data = await apiPost<{
+      calls?: unknown[];
       records?: { cursor?: string; totalRecords?: number };
-    }>(`/calls?${params.toString()}`);
-    const calls = (data.calls ?? []).filter(isExternalCall);
-    searchedCallCount += calls.length;
-    cursor = data.records?.cursor;
-
-    const remainingForExtensive: GongCall[] = [];
-    for (const call of calls) {
-      let matched = false;
-      for (const query of normalizedQueries) {
-        if (matchesGongCallQuery(call, query)) {
-          addMatchedQuery(matches, call, query, call.parties);
-          matched = true;
-        }
-      }
-      if (!matched) {
-        remainingForExtensive.push(call);
-      }
-    }
-
-    for (let i = 0; i < remainingForExtensive.length; i += 100) {
-      if (!options.exhaustive && matches.size >= normalizedLimit) break;
-      const batch = remainingForExtensive.slice(i, i + 100);
-      const uncached = batch.filter(
-        (call) => !extensivePartyCache.has(call.id),
+    }>("/calls/extensive", {
+      filter: {
+        fromDateTime,
+        ...(options.toDateTime ? { toDateTime: options.toDateTime } : {}),
+      },
+      contentSelector: { exposedFields: { parties: true } },
+      ...(cursor ? { cursor } : {}),
+    });
+    pages += 1;
+    if (
+      options.exhaustive &&
+      typeof data.records?.totalRecords === "number" &&
+      data.records.totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+    ) {
+      throw new Error(
+        `Gong exhaustive search found ${data.records.totalRecords.toLocaleString()} records in the requested window. ` +
+          "Use provider-corpus-job with staged call IDs for searches larger than 500 records so progress is checkpointed between batches.",
       );
-      if (uncached.length) {
-        try {
-          const data = await apiPost<{ calls?: any[] }>(
-            "/calls/extensive",
-            {
-              filter: { callIds: uncached.map((call) => call.id) },
-              contentSelector: { exposedFields: { parties: true } },
-            },
-            `extensive-parties-batch:${uncached.map((call) => call.id).join(",")}`,
-          );
-          for (const call of data.calls ?? []) {
-            const id = call.metaData?.id;
-            if (!id) continue;
-            extensivePartyCache.set(
-              id,
-              (call.parties ?? []).map((party: any) => ({
-                name: party.name ?? "",
-                emailAddress: party.emailAddress ?? undefined,
-                affiliation: party.affiliation ?? undefined,
-              })),
-            );
-          }
-        } catch {
-          // Title matches already cover the obvious path. If extensive lookup
-          // fails, return those instead of failing the entire account search.
-        }
-      }
-
-      for (const call of batch) {
-        if (!options.exhaustive && matches.size >= normalizedLimit) break;
-        const parties = extensivePartyCache.get(call.id) ?? [];
-        if (!parties.length) continue;
-        for (const query of normalizedQueries) {
-          if (partyMatchesQuery(parties, query)) {
-            addMatchedQuery(matches, call, query, parties);
-          }
-        }
-      }
     }
-  } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
+    const calls = (data.calls ?? [])
+      .map(normalizeExtensiveCall)
+      .filter((call): call is GongCall => Boolean(call))
+      .filter(isExternalCall);
+    searchedCallCount += calls.length;
+    const nextCursor = data.records?.cursor;
+
+    for (const call of calls) {
+      const parties = call.parties ?? [];
+      for (const query of normalizedQueries) {
+        const titleMatches = matchesGongCallQuery(
+          { ...call, parties: [] },
+          query,
+        );
+        if (titleMatches || partyMatchesQuery(parties, query)) {
+          addMatchedQuery(matches, call, query, parties);
+        }
+      }
+      if (!options.exhaustive && matches.size >= normalizedLimit) break;
+    }
+    if (!nextCursor || nextCursor === cursor) {
+      cursor = nextCursor;
+      break;
+    }
+    cursor = nextCursor;
+  } while (
+    cursor &&
+    pages < MAX_GONG_SEARCH_PAGES &&
+    (options.exhaustive || matches.size < normalizedLimit)
+  );
 
   const matchedCalls = Array.from(matches.values());
   return buildGongSearchResult(matchedCalls, normalizedLimit, {
@@ -623,11 +683,11 @@ export function buildGongSearchResult(
     return {
       calls: sorted,
       limit: sorted.length,
-      truncated: false,
+      truncated: Boolean(meta.cursor),
       searchedCallCount: meta.searchedCallCount,
       matchedCallCount: matchedCalls.length,
       queryCount: meta.queryCount,
-      coverageTruncated: false,
+      coverageTruncated: Boolean(meta.cursor),
     };
   }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);

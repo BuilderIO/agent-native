@@ -7,13 +7,23 @@ description: "에이전트 네이티브 앱 작동 방식: actions 우선, SQL �
 
 에이전트 네이티브 앱이 내부적으로 작동하는 방식 — 원칙 및 아키텍처. 이 페이지는 계약서입니다. 이러한 방식으로 구축하는 비전과 사례는 [What Is Agent-Native?](/docs/what-is-agent-native)를 참조하세요.
 
+## 세 가지 레이어 {#three-layers}
+
+Agent Native는 하나의 템플릿이 아니라 프레임워크입니다.
+
+- **Core - 프레임워크:** 모든 앱이 사용할 수 있는 기본 런타임 및 데이터 계약입니다.
+- **Toolkit - 선택적 재사용 pieces:** 앱이 채택, 조합 또는 fork할 수 있는 공유 UI 및 제품 시스템입니다.
+- **Templates - 선택적 앱:** Core를 기반으로 만든 완전한 도메인 앱으로, 대개 Toolkit을 사용하며 시작점으로 fork해 사용할 수 있습니다.
+
+Core가 기반입니다. Toolkit과 Templates는 선택 사항입니다.
+
 ## 아키텍처 {#the-architecture}
 
 모든 에이전트 기반 앱은 세 가지가 함께 작동합니다.
 
-- **에이전트** — 데이터를 읽고, 쓰고, actions를 실행하고, 코드를 수정하는 자율 AI입니다. skills 및 지침으로 사용자 정의할 수 있습니다.
+- **에이전트** — 데이터를 읽고, 쓰고, actions를 실행하고, 구성된 도구를 사용하는 자율 AI입니다. skills 및 지침으로 사용자 정의할 수 있습니다.
 - **적용** — 에이전트 주변의 제품 표면. 처음에는 작업만 수행할 수도 있고, 풍부한 채팅, 작은 제어 영역 또는 대시보드, 흐름, 시각화가 포함된 전체 React UI 화면일 수도 있습니다.
-- **컴퓨터** — 데이터베이스, 브라우저, 코드 실행. 에이전트는 SQL 및 내장 도구를 사용하여 직접 작업합니다. MCP 서버는 기본이 아닌 선택적인 추가 기능입니다.
+- **컴퓨터** — 데이터베이스, 브라우저, 코드 실행. 에이전트는 앱의 액션 및 데이터 표면을 통해 작업하며, 앱은 동일한 액션 표면을 MCP로 노출할 수 있습니다. 외부 MCP 서버는 선택적 추가 기능이며 기반이 아닙니다.
 
 <Diagram id="doc-block-nxqkcw" title={"에이전트, 애플리케이션 및 컴퓨터"} summary={"하나의 공유 SQL 저장소에서 세 개의 레이어가 함께 작동합니다. 에이전트와 애플리케이션은 모두 동일한 데이터를 읽고 씁니다."}>
 
@@ -23,7 +33,7 @@ description: "에이전트 네이티브 앱 작동 방식: actions 우선, SQL �
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >데이터를 읽고 쓰고, actions를 실행하고, 코드를 수정</small
+        >데이터를 읽고 쓰고, actions를 실행하고, 구성된 도구를 사용</small
       >
     </div>
     <div class="diagram-card">
@@ -114,14 +124,13 @@ Skills와 actions는 함께 작동합니다. 기술은 상담원에게 다음과
 `search-crm` 및 `create-brief` actions를 가져오는 동안 증거를 요약하는 방법
 실제 데이터를 씁니다.
 
-아키텍처를 관리하는 6가지 규칙:
+아키텍처를 관리하는 5가지 규칙:
 
 1. **데이터는 SQL에 있습니다** — 모든 앱 상태는 Drizzle ORM를 통해 데이터베이스에 있습니다.
 2. **모든 AI는 에이전트를 통과합니다** — 인라인 LLM 호출 없음
 3. **에이전트 작업용 Actions** — 복잡한 작업은 actions로 실행됩니다.
 4. **라이브 동기화는 UI의 동기화를 유지합니다** — 폴링을 범용 폴백으로 사용하여 SSE를 통한 데이터베이스 변경 스트림
-5. **에이전트는 코드를 수정할 수 있습니다** — 앱은 사용함에 따라 발전합니다.
-6. **SQL의 애플리케이션 상태** — 임시 UI 상태는 데이터베이스에 있으며 에이전트와 UI 모두에서 읽을 수 있습니다.
+5. **애플리케이션 상태는 SQL에 있습니다** — 임시 UI 상태는 데이터베이스에 저장되며 에이전트와 UI가 모두 읽을 수 있습니다.
 
 ## 4개 영역 체크리스트 {#four-area-checklist}
 
@@ -256,8 +265,7 @@ UI는 LLM를 직접 호출하지 않습니다. 사용자가 "차트 생성" 또�
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -269,7 +277,7 @@ LLM를 인라인으로 호출하면 어떨까요?
 
 - **AI는 비결정적입니다.** 피드백을 제공하고 반복하려면 일회성 버튼이 아닌 대화 흐름이 필요합니다.
 - **컨텍스트가 중요합니다.** 에이전트에는 전체 코드베이스, 지침, skills 및 기록이 있습니다. 인라인 호출에는 그런 것이 없습니다.
-- **에이전트는 더 많은 일을 할 수 있습니다.** actions를 실행하고, 웹을 검색하고, 코드를 수정하고, 여러 단계를 함께 연결할 수 있습니다.
+- **에이전트는 더 많은 일을 할 수 있습니다.** actions를 실행하고, 웹을 검색하고, 여러 단계를 함께 연결할 수 있습니다.
 - **헤드리스 실행.** 모든 것이 에이전트를 통과하므로 Slack, Telegram 또는 [A2A](/docs/a2a-protocol)를 통해 다른 에이전트에서 모든 앱을 전적으로 구동할 수 있습니다.
 
 ## Actions 시스템 {#actions-system}
@@ -308,8 +316,7 @@ export default defineAction({
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -401,17 +408,13 @@ UI는 경로 변경 시 이를 기록합니다. 상담원은 조치를 취하기
 
 전체 프로토콜/표면 매트릭스(MCP 서버 및 OAuth, MCP 앱, A2A, 딥 링크, 기본 채팅 위젯, AgentChatRuntime 커넥터, 에이전트 웹 및 ACP 및 A2UI의 어댑터 지평선) 및 제품 형태 선택(헤드리스, 리치 채팅, 임베디드 사이드카 또는 전체 앱)에 대해서는 다음을 참조하세요. [Agent Surfaces](/docs/agent-surfaces).
 
-## 에이전트가 코드를 수정합니다 {#agent-modifies-code}
+## 앱 코드와 사용자 지정 {#agent-modifies-code}
 
-이것은 버그가 아닌 기능입니다. 에이전트는 구성 요소, 경로, 스타일, actions 등 앱의 소스 코드를 안전하게 편집할 수 있습니다.
-
-깨뜨릴 수 있는 공유 코드베이스가 없습니다. 귀하는 앱을 소유하고 있으며 상담원은 시간이 지남에 따라 앱을 발전시킵니다.
-
-1. 템플릿 포크(예: 분석 템플릿)
-2. 에이전트에게 요청하여 맞춤설정
-3. "코호트 분석을 위한 새 차트 유형 추가" — 에이전트가 작성
-4. "Stripe 계정에 연결" - 에이전트가 통합을 작성합니다.
-5. 수동 개발 없이 앱이 계속 개선됩니다
+임베디드 에이전트는 기본적으로 앱의 소스 코드를 편집하지 않습니다.
+호스트가 repository/workspace 쓰기 도구를 의도적으로 부여한 경우에만
+편집할 수 있습니다. 일반적인 배포 앱에서 에이전트는 actions, SQL 기반
+상태 및 구성된 통합을 통해 작업합니다. Templates는 자체 저장소와 개발
+워크플로에서 fork하고 사용자 지정할 수 있는 완전한 앱입니다.
 
 ## 기본적으로 휴대 가능 {#hosting-agnostic}
 
@@ -422,7 +425,7 @@ UI는 경로 변경 시 이를 기록합니다. 상담원은 조치를 취하기
 
 ## 작업 공간 {#workspace}
 
-모든 사용자는 개인 **작업 공간**(지침, skills, 메모리, 사용자 정의 하위 에이전트, 예약된 작업 및 연결된 MCP 서버)을 갖게 되며 모두 파일이 아닌 SQL에 저장됩니다. 이를 통해 사용자당 컨테이너를 가동하지 않고도 다중 테넌트 SaaS 내에서 Claude 코드 수준 사용자 정의가 가능해졌습니다. [Workspace](/docs/workspace)를 참조하세요.
+모든 사용자는 개인 **작업 공간**(지침, skills, 메모리, 사용자 정의 하위 에이전트, 예약된 작업 및 연결된 MCP 서버)을 갖게 되며 모두 파일이 아닌 SQL에 저장됩니다. 이를 통해 사용자당 컨테이너를 가동하지 않고도 다중 테넌트 SaaS 내에서 Claude 코드 수준 사용자 정의가 가능해졌습니다. [에이전트 리소스](/docs/agent-resources)를 참조하세요.
 
 ## 관련 빌딩 블록 {#building-blocks}
 
@@ -435,10 +438,10 @@ UI는 경로 변경 시 이를 기록합니다. 상담원은 조치를 취하기
 
 ## 무료로 얻는 것 {#what-you-get-for-free}
 
-프레임워크를 채택하는 것은 무엇보다도 더 이상 구축할 필요가 없기 때문에 가치가 있습니다. 앱이 6가지 규칙을 따르는 순간 다음이 상속됩니다.
+프레임워크를 채택하는 것은 무엇보다도 더 이상 구축할 필요가 없기 때문에 가치가 있습니다. 앱이 5가지 규칙을 따르는 순간 다음이 상속됩니다.
 
 - **하나의 작업 = 모든 표면.** `defineAction()`로 정의된 모든 작업은 동시에 에이전트 도구, 유형 안전 프런트엔드 후크(`useActionQuery` / `useActionMutation`), 프레임워크 소유 HTTP 전송, CLI 명령, 외부 클라이언트용 MCP 도구 및 기타 에이전트 기본 앱용 A2A 도구입니다. 선택적 `link` 및 `mcpApp` 메타데이터는 두 번째 구현 없이 딥 링크와 MCP 앱 UI를 추가합니다.
-- **사용자당 전체 작업 공간.** Skills, 공유 `LEARNINGS.md`, 개인 `memory/MEMORY.md`, `AGENTS.md`, 사용자 정의 하위 에이전트, 예약된 작업, 연결된 MCP 서버 — 모두 SQL 지원, dev-box가 필요하지 않습니다. [Workspace](/docs/workspace)를 참조하세요.
+- **사용자당 전체 작업 공간.** Skills, 공유 `LEARNINGS.md`, 개인 `memory/MEMORY.md`, `AGENTS.md`, 사용자 정의 하위 에이전트, 예약된 작업, 연결된 MCP 서버 — 모두 SQL 지원, dev-box가 필요하지 않습니다. [에이전트 리소스](/docs/agent-resources)를 참조하세요.
 - **드롭인 React 구성 요소.** `<AgentPanel />` 및 `<AgentSidebar />`는 앱의 어느 곳에서나 채팅과 작업 공간을 렌더링합니다. [Drop-in Agent](/docs/drop-in-agent)를 참조하세요.
 - **BYO 에이전트 채팅 런타임.** 동일한 채팅 UI는 OpenAI 에이전트, OpenAI 응답, Claude 에이전트 SDK, Vercel AI SDK, AG-UI 또는 자체 정규화된 HTTP 스트림 위에 위치할 수 있습니다. [Native 채팅 UI](/docs/native-chat-ui#byo-agent-runtimes)를 참조하세요.
 - **에이전트와 UI 간의 실시간 동기화.** 동일한 프로세스는 `/_agent-native/events`를 통해 즉시 스트림을 씁니다. 경량 폴링은 서버리스, cron 및 크로스 프로세스 쓰기를 수렴하도록 유지합니다. actions를 변형하면 작업 지원 쿼리가 자동으로 무효화되므로 에이전트가 생성한 레코드는 수동으로 새로 고치지 않고도 표시됩니다. 아래 [Live Sync](#polling-sync)를 참조하세요.

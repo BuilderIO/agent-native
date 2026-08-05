@@ -45,7 +45,11 @@ export interface ListInboxEmailsParams {
   pageTokens?: Record<string, string>;
   threadFormat?: "full" | "metadata" | "minimal";
   threadCandidateLimit?: number;
+  /** Disable the extra recent-message candidate pass for bounded inventory. */
+  includeRecentMessageCandidates?: boolean;
   accountTokens: ListInboxEmailsAccountToken[];
+  /** Selected account ids are forwarded to Gmail before token refresh. */
+  accountEmails?: string[];
   labelMap: Map<string, string>;
 }
 
@@ -108,7 +112,9 @@ export async function listInboxEmails(
     pageTokens,
     threadFormat,
     threadCandidateLimit,
+    includeRecentMessageCandidates = true,
     accountTokens,
+    accountEmails,
     labelMap,
   } = params;
 
@@ -123,12 +129,25 @@ export async function listInboxEmails(
       threadFormat,
       threadCandidateLimit,
       threadRecentMessageCandidateLimit:
-        !q && (view === "inbox" || view === "unread")
+        includeRecentMessageCandidates &&
+        !q &&
+        (view === "inbox" || view === "unread")
           ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
           : undefined,
+      accountEmails,
     });
 
-  if (messages.length === 0 && errors.length > 0) {
+  const failedAccounts = new Set(
+    errors.map((error) => error.email.toLowerCase()),
+  );
+  const everySelectedAccountFailed = [...connectedEmails].every((email) =>
+    failedAccounts.has(email),
+  );
+  if (
+    messages.length === 0 &&
+    errors.length > 0 &&
+    everySelectedAccountFailed
+  ) {
     const isQuotaError = errors.every((e) => isGmailQuotaError(e.error));
     return {
       ok: false,

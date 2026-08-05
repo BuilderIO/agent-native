@@ -56,6 +56,8 @@ export interface AgentTeamRunPayload {
   agentRef?: string;
   /** Parent thread to post a completion recap to. */
   parentThreadId?: string;
+  /** Parent run that launched this durable background task. */
+  parentRunId?: string;
   /** Display name for the sub-agent tab. */
   name?: string;
   /** Logical-turn id, stable across continuation chunks so durable assistant

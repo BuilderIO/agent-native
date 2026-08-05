@@ -1,12 +1,3 @@
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type {
   ContentDatabaseItem,
   ContentDatabaseView,
@@ -23,6 +14,15 @@ import {
 } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 import { AddProperty, TYPE_ICONS, displayValue } from "../DocumentProperties";
@@ -46,11 +46,13 @@ import {
 } from "./DatabaseView";
 
 export function DatabaseTimelineView({
+  databaseId,
   activeView,
   properties,
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -66,11 +68,13 @@ export function DatabaseTimelineView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -119,6 +123,7 @@ export function DatabaseTimelineView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const rangeLabel = databaseTimelineRangeLabel(timelineDays);
@@ -284,7 +289,12 @@ export function DatabaseTimelineView({
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addADatePropertyToUseTimelineView")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+            />
+          ) : null}
         </div>
       ) : (
         <>

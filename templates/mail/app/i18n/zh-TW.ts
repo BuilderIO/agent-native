@@ -429,10 +429,9 @@ const messages = {
     suggestionWidget: "為我的收件箱建立自訂小元件",
   },
   settings: {
-    openAgentSettings: "開啟代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    agentTitle: "代理設定",
+    openAgentSettings: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    agentTitle: "管理代理",
     aliasName: "別名名稱",
     aliasNamePlaceholder: "例如：設計團隊",
     recipientsOnePerLine: "收件人（每行一個信箱）",

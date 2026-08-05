@@ -1,6 +1,11 @@
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
-import { dataWidgetResultSchema } from "../../data-widgets/index.js";
+import {
+  clampDataWidgetRows,
+  DATA_WIDGET_MAX_CHART_POINTS,
+  DATA_WIDGET_MAX_ROWS,
+  dataWidgetResultSchema,
+} from "../../data-widgets/index.js";
 import { getRequestRunContext } from "../request-context.js";
 
 // ---------------------------------------------------------------------------
@@ -49,8 +54,8 @@ When the user asks to find a previous conversation, use \`chat-history\` with ac
 
   "agent-teams": `### Agent Teams — Orchestration
 
-You can delegate to background sub-agents with the \`agent-teams\` tool:
-- \`agent-teams\` (action: "spawn") — Launch a sub-agent on a task. It runs in its own thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
+You can delegate to background tasks with the \`agent-teams\` tool. Call them background tasks or sub-agent tasks, never branches; reserve "branch" for source-control or Builder code handoffs:
+- \`agent-teams\` (action: "spawn") — Launch a background task on a self-contained job. It runs in its own task thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
 - \`agent-teams\` (action: "status") — Check a running sub-agent's progress.
 - \`agent-teams\` (action: "read-result") — Read a finished sub-agent's output.
 - \`agent-teams\` (action: "send") — Message a running sub-agent.
@@ -97,6 +102,15 @@ Convert natural language to 5-field cron format:
 - "every hour" → \`0 * * * *\`
 - "every monday at 9am" → \`0 9 * * 1\`
 
+When a recurring job needs a connected MCP, discover the exact MCP tool names
+available in the current user/org context and pass them in the create call's
+\`mcpTools\` array. Bind only the tools the job needs; do not put an MCP URL,
+OAuth token, or arbitrary endpoint in the instructions. The scheduler resolves
+the selected tools with the job owner's existing connector grant and fails
+clearly if a connector is revoked or a selected tool disappears. For imports,
+normalize the provider response and call the app's bounded idempotent import
+action once with the full batch rather than issuing one write per item.
+
 #### Suggesting "Save as automation"
 
 When you finish a task that has obvious recurring value — daily inbox triage, weekly metrics summaries, archive sweeps, status digests, anything the user would plausibly want re-run on a fresh cadence — close the response with ONE short line offering to save it. Examples:
@@ -137,6 +151,8 @@ Prefer \`web-request\` for simple API calls and static pages. Use browser automa
   "call-agent": `### call-agent — External Apps Only
 
 The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
+
+Use a natural-language \`message\` by default. The receiving app owns interpretation and runs with its own instructions, skills, connected sources, data dictionary, and tools. Do not choose its provider, schema, query, joins, or SQL for it. A direct \`action\` + \`input\` call is only for an exact bounded read whose complete contract is already known; it is never a workaround for unreliable delegation.
 
 **NEVER use \`call-agent\` to:**
 - Call your own app by name
@@ -241,6 +257,10 @@ export function createRefreshScreenEntry(): Record<string, ActionEntry> {
       // distinct `screen-refresh` poll event. Don't double-emit a generic
       // `action` event on top of that.
       readOnly: true,
+      // Refetching volatile on-screen state is the entire point of this
+      // tool — an identical repeat call (even with the same scope) is a
+      // legitimate re-refresh, not a redundant read to skip.
+      dedupe: false,
       tool: {
         description:
           "Manually refresh the user's current screen. The framework ALREADY auto-refreshes after any successful mutating action tool call (template actions and any enabled raw DB write tools) — you do NOT need to call this after a normal action. Use it only when (a) you mutated data via a path the framework can't detect (e.g. a direct write to an external system the app mirrors), or (b) you want to pass a `scope` hint so the UI narrows which queries to refetch. The UI re-fetches its queries without a full page reload.",
@@ -546,8 +566,7 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
         description: "Render a validated native data table or chart in chat.",
       },
       tool: {
-        description:
-          "Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart.",
+        description: `Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart. Rows travel as tool arguments you type out one token at a time, so this is only for already-summarized data: at most ${DATA_WIDGET_MAX_ROWS} table rows and ${DATA_WIDGET_MAX_CHART_POINTS} chart points (anything beyond that is dropped). For a larger result set, aggregate it first, or state the total and show only the top rows — never re-serialize a full query result here.`,
         parameters: {
           type: "object",
           properties: {
@@ -589,7 +608,8 @@ export function createDataWidgetActionEntries(): Record<string, ActionEntry> {
           required: ["widget"],
         },
       },
-      run: async (args) => dataWidgetResultSchema.parse(args),
+      run: async (args) =>
+        clampDataWidgetRows(dataWidgetResultSchema.parse(args)),
     },
   };
 }

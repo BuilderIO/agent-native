@@ -253,7 +253,7 @@ POST por defecto; `http: { method: "GET" }` lo convierte en GET. Los hooks de Re
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: valor predeterminado `POST`. `GET` actions se marcan automáticamente como `readOnly`, por lo que las llamadas exitosas no activan una actualización de encuesta de UI.
 - **`http: { path: "..." }`**: anula el URL montado en `/_agent-native/actions/`. El valor predeterminado es el nombre del archivo. **Las anulaciones de ruta cambian el URL solo para llamantes directos de HTTP**: `useActionQuery`, `useActionMutation` y `callAction` siempre llaman a `/_agent-native/actions/<name>` independientemente de esta anulación, por lo que anular la ruta hace que esos enlaces sean 404. Use anulaciones de ruta solo para llamantes externos de HTTP. Tenga en cuenta también que los segmentos de ruta `:param` en la ruta de anulación **no** se analizan en argumentos `run()`; solo se analizan los parámetros de cadena de consulta y los campos del cuerpo de JSON.
 - **`http: false`**: deshabilita completamente el punto final HTTP. Agente + CLI únicamente.
-- **`readOnly: true`**: omite explícitamente la actualización de la encuesta incluso para POST actions que no mutan.
+- **`readOnly: true`**: omite explícitamente la actualización de la encuesta incluso para POST actions que no mutan. **No** es control de acceso: no restringe quién puede llamar a la action y no afecta a `useActionQuery`, `useActionMutation` ni a ningún hook de cliente. Sus únicos efectos son suprimir el evento de refresco posterior a la llamada y excluir la action de la auditoría de escrituras. Para ocultar una action al modelo usa `agentTool: false`; para restringir a quienes la llaman usa las opciones de auth/acceso anteriores.
 - **`parallelSafe: true`**: permite que una acción de mutación se ejecute simultáneamente con otras llamadas a herramientas del mismo turno. Establezca esto solo cuando la acción sea internamente segura para la concurrencia y sea independiente del orden; mutar actions serializar de forma predeterminada.
 
 ### Mantén la superficie de acción pequeña {#small-surface}
@@ -269,7 +269,7 @@ Un asistente de asesoramiento a nivel de repositorio, `node scripts/audit-templa
 
 ### Indicadores de exposición {#exposure-flags}
 
-Cuatro banderas controlan quién puede invocar una acción. Todos tienen por defecto el valor permisivo, por lo que solo configura uno para apretar una superficie específica. Esta tabla es el resumen visible; las subsecciones añaden el detalle que cada una necesita.
+Cinco banderas controlan quién puede invocar una acción. Todos tienen por defecto el valor permisivo, por lo que solo configura uno para apretar una superficie específica. Esta tabla es el resumen visible; las subsecciones añaden el detalle que cada una necesita.
 
 | Bandera         | Predeterminado    | Valor restrictivo → quién aún puede llamar                                           | Uso típico                                                                                              |
 | --------------- | ----------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
@@ -277,8 +277,9 @@ Cuatro banderas controlan quién puede invocar una acción. Todos tienen por def
 | `toolCallable`  | `true`            | `false` → todo **excepto** el puente iframe de extensión de espacio aislado (403)    | Operaciones adyacentes a la autenticación (eliminar cuenta, cambiar membresía/roles de la organización) |
 | `publicAgent`   | apagado (privado) | `{ expose: true }` → agrega la acción a las superficies **públicas** MCP/A2A/OpenAPI | Herramientas de lectura/ingesta seguras accesibles sin autenticación                                    |
 | `needsApproval` | `false`           | `true` → el agente **hace una pausa**; un humano debe aprobar la llamada específica  | Efectos secundarios consecuentes (enviar correo electrónico, cargar una tarjeta, eliminar)              |
+| `authorize`     | ninguno           | una función de guarda → solo los llamadores que acepta, en **todas** las superficies | Operaciones restringidas a un rol (RBAC por aplicación, operaciones solo para administradores)          |
 
-Estos son independientes: `agentTool` controla la vista del modelo, `toolCallable` controla solo el iframe de extensión, `publicAgent` agrega una superficie pública de participación voluntaria (las rutas web públicas nunca implican exposición de herramientas públicas) y `needsApproval` controla la ejecución después de realizar la llamada; consulte [Human-in-the-loop approval](#needs-approval) a continuación.
+Estos son independientes: `agentTool` controla la vista del modelo, `toolCallable` controla solo el iframe de extensión, `publicAgent` agrega una superficie pública de participación voluntaria (las rutas web públicas nunca implican exposición de herramientas públicas), `needsApproval` controla la ejecución después de realizar la llamada (consulte [Human-in-the-loop approval](#needs-approval) a continuación) y `authorize` decide si quien llama puede ejecutar la acción, en cada ruta de despacho, antes de entrar en `run`; consulte [Authorization](#authorize).
 
 #### `agentTool` — esconderse del modelo {#agent-tool}
 
@@ -392,6 +393,47 @@ export default defineAction({
 
 Para enumerar y leer actions, utilice `accessFilter` para limitar la consulta al usuario y la organización actuales. Para actions que actualiza o elimina una fila específica, use `assertAccess` para confirmar que la persona que llama tiene permiso antes de escribir. Consulte [Security](/docs/security#access-guards) y [Sharing](/docs/sharing) para obtener la ayuda completa API.
 
+### Autorización {#authorize}
+
+`accessFilter` / `assertAccess` delimitan _qué filas_ puede tocar quien llama con permiso. `authorize` responde a la pregunta anterior: **¿puede quien llama ejecutar esta operación siquiera?** Dele una función de guarda y se ejecuta antes de `run()` para todos los llamadores: herramienta de agente, HTTP, frontend, MCP, A2A y CLI:
+
+```ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+La guarda envuelve el propio `run` en lugar de colgar de la entrada de la acción, porque `run` es lo único por lo que pasan los seis sitios de despacho: no hay ninguna persona que llame que pueda alcanzar el cuerpo sin superar la comprobación. Una guarda que lanza deniega con su propio mensaje; una que devuelve `false` deniega con un 403 genérico; cualquier otra cosa, incluido `undefined`, permite. Como la barrera necesita una identidad de quien llama, una invocación desatendida desde CLI o cron sin correo electrónico de usuario se deniega en lugar de dejarse pasar.
+
+Las envolturas se componen en este orden:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+La autorización se sitúa _dentro_ de la validación de entrada: así, una guarda que inspecciona `args` recibe el valor ya analizado y convertido que promete su tipo, y no la forma que envió quien llama. La auditoría es la capa más externa, de modo que una denegación también queda registrada.
+
+`requireAny` falla en tiempo de definición, no en tiempo de solicitud: llamarlo sin roles, o con un rol ajeno al vocabulario declarado, lanza al cargar el módulo. `authorize: coachAccess.requireAny()` es un argumento olvidado, y debe romperse donde está el error en lugar de aparecer después como un 403 inexplicable.
+
+Los tres mecanismos no son intercambiables:
+
+| Mecanismo                     | Pregunta que responde                                    | Se aplica a                        |
+| ----------------------------- | -------------------------------------------------------- | ---------------------------------- |
+| `authorize`                   | ¿Puede quien llama realizar la operación?                | Los seis sitios de despacho        |
+| `needsApproval`               | ¿Debe un humano aprobar esta llamada permitida concreta? | Solo el bucle del agente           |
+| `accessFilter`/`assertAccess` | ¿Qué filas puede ver o escribir quien llama con permiso? | Dentro de `run`, por consulta/fila |
+
+Una action de escritura restringida suele necesitar tanto `authorize` como `assertAccess`: el primero mantiene fuera de la operación a quienes no son coaches, el segundo impide que un coach toque el plan de otra organización. `needsApproval` es otro eje distinto: nunca restringe _quién_ puede llamar, solo si el agente puede continuar sin supervisión.
+
+`coachAccess` arriba proviene de `defineAppRoles`, la capa de roles por aplicación sobre la membresía de la organización. Consulte [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) para conocer el modelo de roles y sus garantías.
+
 ### Aprobación humana en el circuito {#needs-approval}
 
 Un puñado de actions son demasiado importantes para permitir que el agente se ejecute de forma autónoma: enviar un correo electrónico, cargar una tarjeta, eliminar una cuenta. Para estos, configure `needsApproval` para pausar el bucle y requiera que un humano apruebe la llamada específica antes de que se ejecute `run()`:
@@ -443,8 +485,7 @@ Dos ganchos, ambos en `@agent-native/core/client`. Los tipos se infieren a parti
 Para actions que cambia de estado:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -462,8 +503,7 @@ En caso de éxito, el marco emite un evento de cambio con `source: "action"` par
 Para GET actions de solo lectura:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -540,7 +580,7 @@ Si su aplicación es del mismo nivel [A2A](/docs/a2a-protocol), otras aplicacion
 
 ## Exponiéndolo sobre MCP {#mcp}
 
-Con MCP habilitado, su actions aparece en el servidor MCP del marco en `/_agent-native/mcp`. Cada persona que llama recibe un catálogo compacto de forma predeterminada (integraciones orientadas a la aplicación más la aplicación declarada con plantilla actions) y `tool-search` siempre está presente para que cualquier otra herramienta permanezca accesible bajo demanda. La superficie de acción completa se ofrece solo mediante suscripción explícita (token `--full-catalog` o `AGENT_NATIVE_MCP_FULL_CATALOG=1`), y `publicAgent.expose` opta por una herramienta de lectura/ingesta segura en la superficie pública. Consulte [MCP Protocol](/docs/mcp-protocol) para conocer los niveles del catálogo, la autenticación y los detalles del recurso `mcpApp`.
+Con MCP habilitado, su actions aparece en el servidor MCP del marco en `/mcp`. Cada persona que llama recibe un catálogo compacto de forma predeterminada (integraciones orientadas a la aplicación más la aplicación declarada con plantilla actions) y `tool-search` siempre está presente para que cualquier otra herramienta permanezca accesible bajo demanda. La superficie de acción completa se ofrece solo mediante suscripción explícita (token `--full-catalog` o `AGENT_NATIVE_MCP_FULL_CATALOG=1`), y `publicAgent.expose` opta por una herramienta de lectura/ingesta segura en la superficie pública. Consulte [MCP Protocol](/docs/mcp-protocol) para conocer los niveles del catálogo, la autenticación y los detalles del recurso `mcpApp`.
 
 Para los hosts MCP compatibles con UI, una acción puede declarar un recurso de aplicaciones MCP opcional a través del campo `mcpApp` (más un `link` coincidente) para que los hosts compatibles representen el resultado en línea. Cuando `link` y `mcpApp` deben apuntar a la misma ruta, `embedRoute()` construye ambos a partir de un generador de rutas puro:
 
@@ -617,6 +657,44 @@ export default defineAction({
   },
 });
 ```
+
++## Proteger funciones por etapas {#feature-flags}
+
+Usa indicadores de funciones de Core cuando una acción sea segura para desplegar, pero deba llegar gradualmente a producción. Declara una vez el indicador desactivado por defecto, regístralo desde un plugin de Nitro y evalúalo dentro de cada acción protegida. Ocultar el botón correspondiente es presentación; la comprobación de la acción es la aplicación de la regla.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Usa `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar o mostrar la superficie del cliente. Core proporciona `get-feature-flags`, `list-feature-flags` y `set-feature-flag`. La administración comprueba permisos y queda auditada; las interfaces de flota llaman las mismas actions locales de la app mediante delegación A2A restringida. Nunca canalices escrituras de indicadores mediante endpoints genéricos de configuración o SQL sin procesar, ni coloques autenticación, autorización, auditoría, secretos o caché SSR detrás de un indicador de tiempo de ejecución.
 
 ## actions estilo CLI heredado {#legacy-cli-actions}
 

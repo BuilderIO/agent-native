@@ -1,12 +1,26 @@
+import { designSourceTypeFromData } from "../../shared/source-mode";
+
 const EDITOR_ROLES = new Set(["owner", "admin", "editor"]);
 
-/**
- * Public visibility is read-only. Ownership and explicit share grants are
- * resolved separately by the framework, so they can still upgrade the caller
- * to owner/admin/editor without making an anonymous public link writable.
- */
-export function publicDesignAccessRole(): "viewer" {
-  return "viewer";
+const VISUAL_EDIT_CAPABILITY_PREFIX = "capability:visual-edit:design:";
+
+export function publicDesignAccessRole(
+  resource?: { id?: unknown; data?: unknown } | null,
+  ctx: {
+    userEmail?: string;
+    orgId?: string;
+    authCapability?: string;
+  } = {},
+): "viewer" | "editor" {
+  const designId =
+    typeof resource?.id === "string" ? resource.id.trim() : undefined;
+  if (!designId || designSourceTypeFromData(resource?.data) !== "localhost") {
+    return "viewer";
+  }
+  return ctx.authCapability ===
+    `${VISUAL_EDIT_CAPABILITY_PREFIX}${encodeURIComponent(designId)}`
+    ? "editor"
+    : "viewer";
 }
 
 function removeLocalhostCredentials(

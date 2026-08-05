@@ -1,14 +1,10 @@
-/**
- * Renders markdown content as HTML with:
- * - Syntax-highlighted code blocks (via Shiki)
- * - Heading anchor links (clickable # on h2/h3)
- * - Tailwind Typography styling via .docs-content
- *
- * Uses the 'marked' library for markdown→HTML conversion.
- */
-
-import { useT } from "@agent-native/core/client";
-import { marked, type RendererThis, type Tokens } from "marked";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  marked,
+  type MarkedExtension,
+  type RendererThis,
+  type Tokens,
+} from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
@@ -26,7 +22,7 @@ interface ImageDimensions {
   height: number;
 }
 
-const DEFAULT_CODE_MAX_LINES = 30;
+const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
@@ -274,6 +270,30 @@ function isSafeUrl(rawUrl: string, kind: "link" | "image"): boolean {
 function imageDimensionsForHref(href: string): ImageDimensions | undefined {
   return DOCS_IMAGE_DIMENSIONS[decodeHtmlEntities(href).trim()];
 }
+
+/**
+ * Marked tokenizer extension: `[[Ctrl+K]]` → `<kbd>Ctrl+K</kbd>`
+ * Lets authors write keyboard shortcuts inline without raw HTML.
+ */
+const kbdExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: "kbd",
+      level: "inline",
+      start: (src: string) => src.indexOf("[["),
+      tokenizer(src: string) {
+        const match = /^\[\[([^\]]+?)\]\]/.exec(src);
+        if (!match) return;
+        return { type: "kbd", raw: match[0], text: match[1] };
+      },
+      renderer(token: Tokens.Generic) {
+        return `<kbd class="docs-kbd">${escapeHtml(token.text as string)}</kbd>`;
+      },
+    },
+  ],
+};
+
+marked.use(kbdExtension);
 
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
 function createRenderer() {

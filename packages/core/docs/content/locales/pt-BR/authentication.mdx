@@ -11,7 +11,7 @@ Os aplicativos nativos do agente usam [Better Auth](https://better-auth.com) par
 
 A autenticação é configurada automaticamente via `autoMountAuth(app)` no plugin do servidor de autenticação. Existem três modos:
 
-- **Padrão:** Melhor autenticação com e-mail/senha + provedores sociais. Página de integração exibida na primeira visita.
+- **Padrão:** Magic link como fluxo principal do Better Auth quando o e-mail de saída está pronto, com e-mail/senha como fallback e provedores sociais. Defina `AUTH_MAGIC_LINK=0` para forçar o fallback.
 - **MCP remoto OAuth:** OAuth 2.1 padrão para hosts MCP, como código Claude e conectores ChatGPT.
 - **Personalizado:** Traga sua própria autenticação por meio do retorno de chamada `getSession`.
 
@@ -106,7 +106,7 @@ Algumas bandeiras ajustam isso; detalhes completos estão na tabela [Environment
 
 Por padrão, o Better Auth possibilita a autenticação. Ele fornece:
 
-- Registro e login de e-mail/senha
+- Registro e login por magic link, com e-mail/senha como fallback
 - Provedores sociais (Google, GitHub e mais de 35 outros)
 - Organizações com funções e convites
 - Tokens JWT para acesso API e A2A
@@ -115,6 +115,7 @@ Por padrão, o Better Auth possibilita a autenticação. Ele fornece:
 Rotas Better Auth são montadas em `/_agent-native/auth/ba/*`. A estrutura também fornece endpoints compatíveis com versões anteriores:
 
 - `GET /_agent-native/auth/session` — obtém a sessão atual
+- `POST /_agent-native/auth/magic-link` — solicitar um e-mail com magic link
 - `POST /_agent-native/auth/login` — login por e-mail/senha
 - `POST /_agent-native/auth/register` — criar conta
 - `POST /_agent-native/auth/logout` — sair
@@ -219,7 +220,7 @@ A configuração dessas variáveis ​​nunca renderiza uma página de login de
 O endpoint MCP de cada aplicativo pode atuar como um recurso MCP protegido padrão. Clientes compatíveis com OAuth podem ser configurados apenas com o MCP remoto URL:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 Solicitações MCP não autenticadas retornam um desafio `WWW-Authenticate` apontando para `/.well-known/oauth-protected-resource`. O cliente então descobre os metadados OAuth do aplicativo, registra dinamicamente um cliente público, abre a página de autorização do aplicativo e troca um código de autorização com PKCE para tokens de acesso e atualização.
@@ -363,8 +364,9 @@ interface AuthSession {
 No cliente, use o gancho `useSession()`:
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;
@@ -403,6 +405,8 @@ function SignInCta() {
 ### Caminhos privados marcados
 
 As páginas normais do aplicativo usam um único shell SSR impessoal e armazenável em cache público para todos os visitantes. O `AppProviders` verifica a sessão no cliente; em um caminho privado como `/dashboard`, ele redireciona o visitante anônimo para `/_agent-native/sign-in?return=%2Fdashboard` antes de montar a interface privada. Após o login, o visitante retorna a `/dashboard`. Use `isPublicPath` para rotas públicas/SEO ou `sessionBypass` para uma superfície autenticada por outro mecanismo limitado, como um token de incorporação MCP.
+
+Por quanto tempo esse shell é armazenado em cache é uma configuração de toda a implantação — consulte [SSR Caching](/docs/deployment#ssr-caching) para `AGENT_NATIVE_SSR_CACHE`. Encurtar ou desativar o cache altera apenas a duração; o SSR continua renderizando o branch anônimo com os cookies removidos.
 
 ### Nos bastidores: Google OAuth
 

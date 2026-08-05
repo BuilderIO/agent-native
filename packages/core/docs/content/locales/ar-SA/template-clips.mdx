@@ -247,7 +247,7 @@ pnpm dev
 
 Clips عبارة عن قالب أكبر حجمًا يحتوي على مسجل أصلي (وهو يأتي مصحوبًا بسطح المكتب لالتقاط الصور المحلية). هناك ثلاث خطوات إعداد مطلوبة قبل أن تتمكن من تحميل التسجيلات:
 
-1. **وحدة تخزين الفيديو (مطلوبة).** قم بتوصيل واجهة التخزين الخلفية من خلال معالج الإعداد. أسهل مسار هو Builder.io (مجاني خلال النسخة التجريبية، بنقرة واحدة). بالنسبة للتخزين المستضاف ذاتيًا، قم بتعيين `S3_ENDPOINT` و`S3_BUCKET` و`S3_ACCESS_KEY_ID` و`S3_SECRET_ACCESS_KEY` واختياريًا `S3_REGION` و`S3_PUBLIC_BASE_URL`. يستخدم Cloudflare R2 وDigitalOcean Spaces نفس متغيرات env مع البادئة `R2_*`.
+1. **وحدة تخزين الفيديو (مطلوبة).** قم بتوصيل واجهة التخزين الخلفية من خلال معالج الإعداد. أسهل مسار هو Builder.io (free tier includes video storage and AI credits، بنقرة واحدة). بالنسبة للتخزين المستضاف ذاتيًا، قم بتعيين `S3_ENDPOINT` و`S3_BUCKET` و`S3_ACCESS_KEY_ID` و`S3_SECRET_ACCESS_KEY` واختياريًا `S3_REGION` و`S3_PUBLIC_BASE_URL`. يستخدم Cloudflare R2 وDigitalOcean Spaces نفس متغيرات env مع البادئة `R2_*`.
 2. **Google Calendar (اختياري).** لمزامنة الاجتماعات القادمة، قم بتوصيل حساب Google Calendar من الإعدادات. رد الاتصال OAuth URL في المطور هو `http://localhost:8094/_agent-native/google/callback`. قم بإعداد عميل Google OAuth في [Google Cloud Console](https://console.cloud.google.com/) مع تمكين Gmail وGoogle Calendar API.
 3. **أذونات التقاط الشاشة.** على نظام التشغيل macOS، امنح إذن تسجيل الشاشة للمتصفح (أو التطبيق المصاحب لسطح المكتب) في إعدادات النظام ← الخصوصية والأمان ← تسجيل الشاشة. يمكن لتسجيلات المتصفح حفظ وحدة التحكم المنقحة وجلب تشخيصات/XHR من صفحة المسجل. بمجرد توفر قائمة ملحقات Chrome، قم بتمكين `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` حتى يتمكن المستخدمون من اختيار الامتداد لسجلات متصفح علامة التبويب النشطة أو تطبيق سطح المكتب للحصول على مسار الالتقاط الأصلي الأكثر سلاسة.
 4. **معاينات Slack (اختيارية).** أنشئ تطبيق Slack باستخدام `links:read` و`links:write` و`links.embed:write`؛ الاشتراك في `link_shared`. أضف نطاق مشاركة Clips الخاص بك ضمن **App Unfurl Domains**؛ اضبط طلب URL على `https://your-clips.example.com/api/slack/unfurl`؛ وأضف إعادة توجيه OAuth URL `https://your-clips.example.com/api/slack/oauth/callback`. قم بتكوين `SLACK_CLIENT_ID`، و`SLACK_CLIENT_SECRET`، و`SLACK_SIGNING_SECRET`، ثم قم بتوصيل مساحات العمل من إعدادات Clips.
@@ -269,7 +269,7 @@ Clips عبارة عن قالب أكبر حجمًا يحتوي على مسجل أ
 
 2. **تكوين حالة الإنتاج.** تعيين `DATABASE_URL` المستمر، العادي
    متغيرات مصادقة/أسرار الإنتاج من [Deployment](/docs/deployment)، و
-   موفر تخزين الفيديو. Builder.io Connect هو أسهل مسار للتخزين؛ ل
+   موفر تخزين الفيديو. Builder.io Connect (free tier includes video storage and AI credits) هو أسهل مسار للتخزين؛ ل
    وحدة تخزين ذاتية الاستضافة، استخدم متغيرات `S3_*` أو `R2_*` لوحدة تخزين متوافقة مع S3
    دلو.
 
@@ -300,7 +300,7 @@ Clips عبارة عن قالب أكبر حجمًا يحتوي على مسجل أ
    قائمة ملحقات مختلفة.
 
 6. **الاتصال بعمليات التكامل الاختيارية.** تعمل Google Calendar على تشغيل علامة التبويب "الاجتماعات"،
-   يعمل `GEMINI_API_KEY` أو Builder.io Connect على تشغيل تنظيف النص والعناوين،
+   يعمل `GEMINI_API_KEY` أو Builder.io Connect (free tier includes AI credits) على تشغيل تنظيف النص والعناوين،
    يمكن أن يوفر `GROQ_API_KEY` خاصية تحويل الكلام إلى نص، وSlack OAuth
    يتيح الاتصال في الإعدادات إمكانية فتح Slack القابلة للتشغيل.
 

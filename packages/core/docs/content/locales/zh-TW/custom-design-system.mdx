@@ -1,0 +1,325 @@
+---
+title: "自訂設計系統"
+description: "在 Agent Native 應用程式和共用 Toolkit 體驗中使用公司的 React 設計系統，而不取代 Agent Native 行為。"
+---
+
+# 自訂設計系統
+
+Agent Native 可以使用公司的 React 元件呈現應用程式擁有的畫面和共用 Toolkit 體驗。只需註冊一次明確、具型別的介面卡；相同的功能控制器仍會負責 actions、狀態、可存取性要求和代理可見的行為。
+
+介面卡契約不要求 Tailwind、shadcn、Radix、`className` 或任何特定的樣式執行階段。元件可以使用主題提供者、CSS-in-JS、CSS Modules、React Aria 或一般 CSS。`className` 和 `style` 是可選的互操作掛鉤，不是樣式要求。
+
+請參閱可執行的 [Material UI Chat 範例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 和 [Ant Design Chat 範例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd)，瞭解完整介面卡、主題提供者連線、深色模式以及已記錄的 v1 差距。
+
+## 選擇最小的自訂層級
+
+| 層級           | 適用情況                                           | 保持共用的部分                                   |
+| -------------- | -------------------------------------------------- | ------------------------------------------------ |
+| **主題 token** | 快速統一預設及尚未介面卡化介面的品牌樣式           | Toolkit 元件、控制器和行為                       |
+| **語意元件**   | 公司按鈕、欄位、選擇器、對話框、選單和介面等控制項 | 功能控制器和產品契約                             |
+| **產品插槽**   | 某項功能的公司專用版面，例如連線卡或聊天記錄列     | 功能控制器和 actions                             |
+| **Eject**      | 支援的插槽無法表達的產品行為或結構                 | Core 執行階段契約；被 eject 的功能歸應用程式所有 |
+
+從 token 開始，在系統有對應物的地方加入語意元件，使用產品插槽進行功能層級的組合，只有仍需要由你擁有的最小單位才執行 eject。
+
+## 註冊介面卡
+
+客戶介面卡是一般的 npm 套件。在 `app/design-system.ts` 中明確匯入一個；Agent Native 絕不會掃描相依套件、自動偵測函式庫或從 JSON 載入元件。
+
+將建置時主題放在相依性精簡的模組中，讓 Vite 載入設定時不必評估客戶的 React 套件：
+
+```ts filename="app/design-system-theme.ts"
+import { defineTheme } from "@agent-native/toolkit/design-system";
+
+export const acmeTheme = defineTheme({
+  colors: {
+    light: {
+      background: "#ffffff",
+      foreground: "oklch(24% 0.03 255)",
+      primary: "rgb(33 82 255)",
+      "primary-foreground": "white",
+      border: "hsl(218 20% 88%)",
+    },
+    dark: {
+      background: "#11131a",
+      foreground: "#f7f8fb",
+      primary: "oklch(72% 0.17 259)",
+      "primary-foreground": "#07102f",
+    },
+  },
+  radius: "0.625rem",
+  typography: { fontFamily: "Acme Sans, sans-serif" },
+});
+```
+
+```tsx filename="app/design-system.ts"
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+import { acmeTheme } from "@/design-system-theme";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  theme: acmeTheme,
+  components: acmeComponents,
+});
+```
+
+透過應用程式的提供者接縫接上定義：
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { designSystem } from "@/design-system";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ToolkitProvider designSystem={designSystem}>{children}</ToolkitProvider>
+  );
+}
+```
+
+支援部分介面卡。省略的任何元件都會使用 Agent Native 的預設介面卡。如果某個自訂元件在呈現時擲出錯誤，元件層級的錯誤邊界會記錄失敗，並為該控制項呈現預設元件；其餘自訂系統仍會保持啟用。
+
+兩個完整的 Chat 應用程式以真實設計系統驗證此契約：[Material UI 範例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 使用 Emotion、`ThemeProvider` 和 MUI 的覆蓋層堆疊，而 [Ant Design 範例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 使用 `ConfigProvider` 以及 Ant Design 的表單和覆蓋層原語。它們的 `app/design-system.tsx` 檔案是主要的整合參考；上面的 Acme fixture 刻意保持精簡，並用於單元測試。
+
+較舊的 `components={{ Button }}` 提供者 API 仍保持相容，並視為優先順序最低的 `ActionButton` 介面卡。如果同時提供兩者，`designSystem.components.ActionButton` 會勝出，開發建置會記錄警告。
+
+## 建置時主題 token
+
+`defineTheme` 接受標準 CSS 色彩，包括 hex、`rgb()`、`hsl()` 和 OKLCH。Core Vite 外掛會驗證並正規化它們，轉換成 Agent Native 現有的語意變數。深色會逐一 token 回退到淺色調色盤；Agent Native 不會自動推導深色調色盤。
+
+將主題傳給 Vite 外掛：
+
+```tsx filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+import { acmeTheme } from "./app/design-system-theme";
+
+export default defineConfig({
+  plugins: [...agentNative({ designSystemTheme: acmeTheme })],
+});
+```
+
+從應用程式根目錄匯入一次虛擬樣式表，讓開發環境和 React Router 正式環境建置都包含它：
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+外掛會在建置時產生該虛擬主題 CSS。其語意 token 會覆寫 scaffold 的 fallback 值，但不會移除僅作為 fallback 的 token。版本 1 不會根據每個請求或組織選擇主題。
+
+## 17 個語意契約
+
+此契約刻意關注意義和行為，而不是 DOM 形狀或視覺實作。在產品狀態必須保持可攜性的地方，值和開啟狀態都由外部控制。
+
+### 葉節點契約
+
+| 元件           | 必要契約                           | 重要的可選語意                                                         |
+| -------------- | ---------------------------------- | ---------------------------------------------------------------------- |
+| `ActionButton` | 需要時提供 `children` 和 `onPress` | `intent`、`emphasis`、`size`、`pending`、圖示、停用狀態、按鈕類型、ref |
+| `IconButton`   | 可存取的 `label`、`icon`           | 與 `ActionButton` 相符的按鈕語意                                       |
+| `TextField`    | 受控字串 `value`、`onChange`       | 標籤、說明、錯誤、輸入類型/模式、驗證、裝飾、事件、ref                 |
+| `TextArea`     | 受控字串 `value`、`onChange`       | 標籤、說明、錯誤、列數、驗證、事件、ref                                |
+| `Spinner`      | 進度指示器                         | 可存取標籤和語意尺寸                                                   |
+| `Skeleton`     | 不可互動的佔位符                   | 寬度、高度、線條/矩形/圓形形狀                                         |
+| `Status`       | `children`                         | 中性/資訊/成功/警告/危險色調、圖示、尺寸                               |
+| `Surface`      | `children`                         | 語意元素、仰角、內距、互動按壓行為                                     |
+| `Avatar`       | 可存取的 `name`                    | 圖片來源、fallback、尺寸、存在狀態、圖片 ref                           |
+
+### 行為契約
+
+| 元件       | 必要契約                                  | 由介面卡負責的行為                                       |
+| ---------- | ----------------------------------------- | -------------------------------------------------------- |
+| `Tooltip`  | 觸發器和內容                              | 受控/非受控開啟狀態、延遲、位置、portal 行為             |
+| `Menu`     | 觸發器、項目/區段、`onAction`             | 鍵盤導覽、巢狀項目、選取、關閉、portal 行為              |
+| `Popover`  | 觸發器和子項目                            | 受控/非受控開啟狀態、關閉、焦點、模態、portal 行為       |
+| `Dialog`   | 受控 `open`、`onOpenChange`、標題、子項目 | 對話框語意、關閉、初始/還原焦點、portal 和堆疊行為       |
+| `Picker`   | `mode`、選項、受控 `value`、`onChange`    | select/combobox 語意、搜尋/開啟狀態、驗證、載入/空白狀態 |
+| `Checkbox` | 受控 `checked`、`onChange`                | checkbox 語意、indeterminate/required/invalid 狀態       |
+| `Switch`   | 受控 `checked`、`onChange`                | switch 語意和停用狀態                                    |
+| `Tabs`     | 項目、受控 `value`、`onChange`            | 分頁語意、方向、自動/手動啟用                            |
+
+`intent` 是 `primary`、`neutral` 或 `danger`；`emphasis` 是 `solid`、`outline` 或 `ghost`；尺寸是 `compact`、`default` 或 `large`。這些值描述用途，而不是預設 UI 中的 class 或 variant 名稱。
+
+預設介面卡除了語意屬性外，也讓這些視覺 props 具備可觀察的行為：button、spinner、status、skeleton、avatar 和 dialog 的尺寸會選取具體變體；skeleton 形狀和 avatar 存在狀態會改變呈現；選單選取和 `closeOnAction` 會影響行為。自訂介面卡仍負責將相同的意義對映到自己的視覺詞彙。
+
+`Picker` 只涵蓋 select 和 combobox 行為。日期選擇不屬於版本 1 的語意契約。
+
+## 覆蓋層、portal 和焦點
+
+行為元件可以完整使用設計系統的覆蓋層和焦點實作。不需要包裝 Radix，但必須遵守語意契約，包括受控狀態、可存取角色，以及提供的 `portalContainer`、`initialFocusRef` 和 `restoreFocusRef` 接縫。
+
+當原生設計系統對話框從 Radix 託管的 Toolkit 介面開啟時，這一點很重要。介面卡擁有自己的覆蓋層堆疊，而接縫讓兩個系統能對 portal 層、z-index 順序、初始焦點和焦點還原達成一致。在真實應用程式中測試巢狀及相鄰覆蓋層，不要只在隔離的元件瀏覽器中測試。
+
+## 無頭功能控制器和產品插槽
+
+語意元件是共用詞彙。功能控制器是行為邊界。控制器擁有狀態轉換、actions、追蹤和檢視模型；預設檢視和產品插槽都使用同一個控制器。
+
+```tsx
+<BuilderConnectCard
+  className="connection-card"
+  render={({ viewModel, className }) => (
+    <AcmeConnectionPanel
+      className={className}
+      title={viewModel.title}
+      status={viewModel.status}
+      pending={viewModel.action?.pending ?? false}
+      onConnect={viewModel.action?.onPress}
+    />
+  )}
+/>
+```
+
+這是功能層級的無頭 UI，不是為每個 widget 提供另一套低階 hook。`BuilderConnectCard` 和 `ChatHistoryRail` 是第一批驗證切片；設定和分享遵循相同的控制器/預設檢視/自訂檢視不變式。
+
+`ChatHistoryRail` 在 v1 保留一個刻意不透明的 `renderRail` 插槽。插槽會完整取代記錄列檢視，並接收共用控制器和清單 props；標頭、頁尾和列的離散插槽會延後到第二個產品需要時再提供。這能限制 API，同時讓記錄狀態和 actions 留在共用控制器上。
+
+如果插槽無法表達需要的產品變更，請檢查並 eject 最小的已發佈單位：
+
+```bash
+agent-native eject --list
+agent-native eject inspect toolkit/design-system
+agent-native eject toolkit/design-system --app my-app --apply
+```
+
+Eject 會轉移擁有權；不會 fork Core 的驗證、actions、持久性、存取檢查、聊天傳輸或代理執行。
+
+## 執行一致性套件
+
+從客戶套件匯出完整的元件對映，並在類瀏覽器測試環境中執行隨附的測試套件：
+
+```tsx filename="design-system.conformance.spec.tsx"
+import { describe, it } from "vitest";
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+describe("Acme Agent Native adapter", () => {
+  it("conforms", async () => {
+    await assertDesignSystemConformance({
+      adapterName: "Acme",
+      components: acmeComponents,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+  });
+});
+```
+
+套件會檢查全部 17 個匯出、受控值和開啟狀態、可存取角色、鍵盤互動、選取、portal 目標、z-index 互操作性、初始焦點和焦點還原。在介面卡套件的 CI 中執行它，並保留一個小型應用程式層級覆蓋層測試，以驗證提供者專用的組合。
+
+契約演進遵循語意版本控制：
+
+- 新元件和可選 props 是相容的次要變更。
+- 新的必要 props、移除元件/props 或行為契約變更需要新的契約主版本。
+- 當介面卡的契約主版本與 Toolkit 的契約主版本不同時，一致性套件會失敗。
+
+## 介面卡配方
+
+### MUI 風格的主題提供者系統
+
+[Chat + Material UI 範例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 是主要的實作參考。它唯一的 `app/design-system.tsx` 模組會匯出語意介面卡、MUI 淺色和深色的 `createTheme` 值以及 `defineTheme` token 來源。應用程式的 `AppToolkitProvider` 將 MUI `ThemeProvider` 保持在共用 Toolkit 介面上方，而 `vite.config.ts` 匯入相同的 `theme` 值以產生建置時 CSS。如此一來，Emotion 樣式、MUI portal 和 Agent Native token 就以單一真實來源保持一致。
+
+讓公司的主題提供者位於 `AppToolkitProvider` 上方，並在套件邊界調整語意 props。在介面卡內將 `intent`、`emphasis` 和 `size` 對映到系統自己的詞彙，而不是在 Agent Native 功能程式碼中對映。對於覆蓋層，將 `portalContainer` 傳遞給設計系統的容器或 portal prop，並使用其焦點管理器實作 `initialFocusRef`/`restoreFocusRef`。
+
+```tsx
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  onPress,
+  children,
+  ...props
+}) => (
+  <CompanyButton
+    {...props}
+    color={intent === "danger" ? "error" : intent}
+    variant={emphasis === "solid" ? "contained" : emphasis}
+    loading={pending}
+    onClick={onPress}
+  >
+    {children}
+  </CompanyButton>
+);
+```
+
+不要將功能的主題提供者複製到每個介面卡元件中。在應用程式邊界安裝一次，讓 portal 和覆蓋層繼承相同的內容。
+
+[Chat MUI 介面卡](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) 是實作範例：它匯出單一 `defineTheme` 值，將該值匯入 `defineDesignSystem`，並從 `vite.config.ts` 匯入相同的模組。這個單一真實來源能讓 MUI 淺色/深色提供者 token 和建置時語意 CSS token 保持一致，無須執行階段主題產生。
+
+### 以 React Aria 為基礎的系統
+
+使用 React Aria 元件或 hooks 直接實作語意。保留受控的 `value`/`open` props，並傳遞其變更回呼，而不是建立第二個狀態儲存。對於行為契約，使用覆蓋層提供者和焦點範圍，從 `portalContainer` 設定 portal 根，並將初始/還原 ref 連線到焦點管理 API。一致性套件是最低限度的行為檢查；設計系統仍負責完整的鍵盤和螢幕閱讀器測試矩陣。
+
+```tsx
+export const Checkbox: DesignSystemComponents["Checkbox"] = ({
+  checked,
+  onChange,
+  label,
+  ...props
+}) => (
+  <AriaCheckbox {...props} isSelected={checked} onChange={onChange}>
+    {label}
+  </AriaCheckbox>
+);
+```
+
+### CSS Modules 和一般 React
+
+介面卡可以是一般 React 和 CSS Modules。當 `className` 會繞過元件的樣式契約時，完全忽略它；它是可選的。明確保留 DOM 角色、可存取名稱、鍵盤行為和受控狀態。
+
+```tsx
+import styles from "./action-button.module.css";
+
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  disabled,
+  onPress,
+  children,
+  elementRef,
+}) => (
+  <button
+    ref={elementRef}
+    className={styles[`${intent}-${emphasis}`]}
+    disabled={disabled || pending}
+    aria-busy={pending || undefined}
+    onClick={onPress}
+  >
+    {children}
+  </button>
+);
+```
+
+## 版本 1 的界線
+
+語意橋接不會在版本
+
+1 取代每個第三方 UI 生態系。這些介面在可用時會接收主題 token 和功能插槽，但其內部 widget 尚未成為語意介面卡契約：
+
+- `@assistant-ui/react` 的聊天和 composer 內部元件
+- Tiptap 編輯器套件
+- `cmdk`、`vaul`、Recharts 和 `react-day-picker`
+- 日期選擇器元件（`Picker` 契約僅限 select/combobox）
+- Dispatch 獨立的原語分支
+- Pinpoint 的 Solid.js 和 Shadow DOM UI
+
+這些界線是明確的，讓介面卡套件可以準確聲明支援範圍。只有當相同的意義和行為可用於多個功能時，才提出新的語意元件；單一功能的差異請使用產品插槽或 eject。
+
+## 接下來
+
+- [**Toolkit UI 原語**](/docs/toolkit-ui) — 本地介面卡、提供者連線和共用原語匯入。
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — 可重複使用的功能擁有權和套件邊界。
+- [**設定套件**](/docs/toolkit-settings) 和 [**分享套件**](/docs/toolkit-sharing) — 保留應用程式 actions 和存取契約的共用功能控制器。
+
+## Chat 範例涵蓋範圍
+
+可執行的 [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 和 [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 範例註冊全部 17 個契約元件，並透過介面卡呈現 16/17 個。`Menu` 仍是明確的缺口，因為 agent-panel 標頭包含一個即時的複合子選單，v1 僅資料契約無法表達它。assistant-ui composer/訊息呈現器、cmdk 內部元件和 Tiptap 編輯器仍是 v1 的非目標。
+
+日常的 Chat 分享按鈕仍使用舊版 popover。隨應用程式提供的 `/design-system-proof` 路由讓完整的 Core `ShareDialog` 可存取，同時不會把該 popover 誤稱為設計系統 dialog。

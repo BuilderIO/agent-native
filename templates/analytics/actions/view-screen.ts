@@ -438,7 +438,7 @@ export default defineAction({
           includes: [
             "dashboard created and modified dates",
             "last tracked modifier",
-            "view and engagement counts",
+            "view, edit, and engagement counts",
             "saved view counts",
             "hidden and archived state",
           ],
@@ -454,6 +454,19 @@ export default defineAction({
             "table browser",
             "row editor",
             "SQL editor",
+          ],
+        },
+        {
+          id: "flags",
+          label: "Feature flags",
+          path: "/agents?view=flags",
+          adminOnly: true,
+          action: "list-workspace-feature-flags",
+          includes: [
+            "workspace app flag definitions",
+            "rollout state",
+            "exact user and organization targeting",
+            "deterministic percentage rollout",
           ],
         },
       ];

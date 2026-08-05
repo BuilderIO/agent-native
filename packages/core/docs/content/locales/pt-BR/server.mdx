@@ -269,7 +269,7 @@ A estrutura monta suas próprias rotas em `/_agent-native/`. Trate esse namespac
 | `/_agent-native/extensions/*`    | Extensões de tempo de execução e proxy de extensão (alias legado: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Integrações de mensagens/webhook                                                            |
 | `/_agent-native/a2a`             | Agente para agente JSON-RPC                                                                 |
-| `/_agent-native/mcp`             | Ponto final MCP                                                                             |
+| `/mcp`                           | Ponto final MCP                                                                             |
 | `/_agent-native/onboarding/*`    | Lista de verificação de configuração                                                        |
 | `/_agent-native/observability/*` | Traces, feedback, avaliações, experimentos                                                  |
 | `/_agent-native/file-upload`     | Endpoint do provedor de upload de arquivos                                                  |
@@ -465,4 +465,4 @@ const handler = createProductionAgentHandler({
 - [**Banco de dados**](/docs/database) — o padrão `getDb()`/`schema` importado por rotas personalizadas e actions
 - [**Segurança**](/docs/security#access-guards) — `accessFilter`/`assertAccess` e o modelo completo de escopo de dados
 - [**Mensagens**](/docs/messaging) — o padrão canônico de fila de integração para webhooks recebidos
-- [**Protocolo MCP**](/docs/mcp-protocol) — o endpoint `/_agent-native/mcp` que este servidor monta automaticamente
+- [**Protocolo MCP**](/docs/mcp-protocol) — o endpoint `/mcp` que este servidor monta automaticamente

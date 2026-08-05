@@ -16,7 +16,11 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { DEFAULT_EDITS, serializeEdits } from "../app/lib/timestamp-mapping.js";
+import {
+  DEFAULT_EDITS,
+  parseEdits,
+  serializeEdits,
+} from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
@@ -44,11 +48,20 @@ export default defineAction({
       assertNativeRecordingMedia(existing);
 
       const previousEditsJson = existing.editsJson;
+      const existingEdits = parseEdits(previousEditsJson);
 
       const result = await db
         .update(schema.recordings)
         .set({
-          editsJson: serializeEdits({ ...DEFAULT_EDITS }),
+          editsJson: serializeEdits({
+            ...DEFAULT_EDITS,
+            ...(existingEdits.stitchedFrom
+              ? { stitchedFrom: existingEdits.stitchedFrom }
+              : {}),
+            ...(existingEdits.mediaStorageLayout
+              ? { mediaStorageLayout: existingEdits.mediaStorageLayout }
+              : {}),
+          }),
           updatedAt: new Date().toISOString(),
         })
         .where(

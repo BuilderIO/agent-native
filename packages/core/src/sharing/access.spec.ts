@@ -57,6 +57,16 @@ async function insertDoc(values: {
   });
 }
 
+let memberSeq = 0;
+function addOrgMember(memberOrgId: string, email: string) {
+  sqlite
+    .prepare(
+      `INSERT INTO org_members (id, org_id, email, role, joined_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(`member-${++memberSeq}`, memberOrgId, email, "member", Date.now());
+}
+
 async function listVisible(
   ctx: { userEmail?: string; orgId?: string },
   minRole: ShareRole = "viewer",
@@ -95,6 +105,13 @@ beforeEach(() => {
       name TEXT NOT NULL,
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
     );
   `);
   db = drizzle(sqlite);
@@ -287,6 +304,7 @@ describe("shareable resource access helpers", () => {
       createdBy: ownerEmail,
       createdAt: "2026-04-30T00:00:00.000Z",
     });
+    addOrgMember(orgId, viewerEmail);
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       await expect(
@@ -356,6 +374,52 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("grants org-visibility access to a real org member even when a different org is active", async () => {
+    // Regression test: `org` visibility must key off actual `org_members`
+    // rows, not equality with the caller's currently active org. A caller
+    // can be a genuine member of both `orgId` and `otherOrgId` while only
+    // one of them is their active selection at any given moment.
+    await insertDoc({
+      id: "doc-org-cross-active",
+      ownerEmail: outsiderEmail,
+      orgId: otherOrgId,
+      visibility: "org",
+    });
+    addOrgMember(otherOrgId, viewerEmail);
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-cross-active"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(resourceType, "doc-org-cross-active", "viewer"),
+      ).resolves.toMatchObject({ role: "viewer" });
+      await expect(
+        assertAccess(resourceType, "doc-org-cross-active", "editor"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("denies org-visibility access when the caller has an active org but no real membership in the resource's org", async () => {
+    await insertDoc({
+      id: "doc-org-no-membership",
+      ownerEmail: outsiderEmail,
+      orgId: otherOrgId,
+      visibility: "org",
+    });
+    // viewerEmail has an active org, but is never added to `org_members` for
+    // `otherOrgId` — access must fail rather than fall back to any equality
+    // check.
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(resourceType, "doc-org-no-membership"),
+      ).resolves.toBe(null);
+      await expect(
+        assertAccess(resourceType, "doc-org-no-membership", "viewer"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
   it("allows a resource registration to explicitly upgrade public-by-link access", async () => {
     const publicEditType = "qa-doc-public-editor";
     registerShareableResource({
@@ -391,6 +455,42 @@ describe("shareable resource access helpers", () => {
         assertAccess(publicEditType, "doc-public-edit", "editor"),
       ).resolves.toMatchObject({ role: "editor" });
     });
+  });
+
+  it("passes a capability principal to a dynamic public access resolver", async () => {
+    const capabilityType = "qa-doc-capability-editor";
+    const capability = "capability:qa-doc:edit:doc-public-edit";
+    registerShareableResource({
+      type: capabilityType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Capability Editable Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource, ctx) =>
+        resource.id === "doc-public-edit" && ctx.authCapability === capability
+          ? "editor"
+          : "viewer",
+    });
+    await insertDoc({
+      id: "doc-public-edit",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ authCapability: capability }, async () => {
+      await expect(
+        resolveAccess(capabilityType, "doc-public-edit"),
+      ).resolves.toMatchObject({ role: "editor" });
+    });
+    await runWithRequestContext(
+      { authCapability: "capability:qa-doc:edit:wrong-doc" },
+      async () => {
+        await expect(
+          resolveAccess(capabilityType, "doc-public-edit"),
+        ).resolves.toMatchObject({ role: "viewer" });
+      },
+    );
   });
 
   it("resolves access when the Drizzle table has additive columns missing from the database", async () => {
@@ -894,6 +994,7 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
         createdAt: "2026-04-30T00:00:00.000Z",
       },
     ]);
+    addOrgMember(orgId, viewerEmail);
 
     const cases: Array<{
       ctx: { userEmail?: string; orgId?: string };

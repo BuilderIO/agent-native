@@ -7,7 +7,7 @@ export default createAuthPlugin({
   // callback can handle both normal sign-in and the Calendar connect flow.
   mountGoogleOAuthRoutes: false,
   marketing: {
-    appName: "Agent-Native Clips",
+    appName: "Clips",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
@@ -30,6 +30,7 @@ export default createAuthPlugin({
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
+    "/api/public-meeting",
     "/api/slack",
     "/api/agent-context.json",
     "/api/agent-transcript.json",
@@ -37,20 +38,22 @@ export default createAuthPlugin({
     "/api/media",
     "/api/clips-latest.json",
     "/api/clips-updater.json",
-    // Blob-serving for the dev-fallback (no provider) path.
-    // The route itself enforces resolveAccess + password/expiry checks;
-    // we add it to publicPaths so anonymous viewers on /share/:id can
-    // actually fetch the <video> bytes for public recordings. The chunk
-    // upload POSTs stay behind auth under /api/uploads/*.
+    // Public media-serving routes enforce resolveAccess + password/expiry
+    // checks themselves. They need to bypass the app auth shell so anonymous
+    // viewers and crawlers can fetch public share media. Chunk upload POSTs
+    // stay behind auth under /api/uploads/*.
     "/api/video",
+    "/api/thumbnail",
     "/api/auth/google-calendar",
-    // Server→server dispatch for durable post-finalize jobs (transcript
-    // fallback, seekable remux). The fetch carries no session cookie, so the
-    // auth gate must let it through; the route rejects anything without a
-    // valid scoped `clips-post-finalize-job` token, so it stays
-    // self-authorizing. Without this entry every dispatch 401s and failed
-    // native transcripts never fall back to cloud transcription.
-    "/api/_agent-native-background",
+    // Internal post-finalize worker (media verification, seekable remux,
+    // transcript, brain-export, loom-import retries). It's a server-to-server
+    // self-dispatch with no session cookie — its own scoped, short-lived
+    // signed token (verifyScopedAgentAccessToken) is the real auth check, so
+    // it must bypass the session gate to ever reach that check. Exact path
+    // only, not the whole `_agent-native-background` namespace — a future
+    // route added under that prefix without its own auth check must not
+    // become silently public by inheriting this bypass.
+    "/api/_agent-native-background/post-finalize-worker",
     "/_agent-native/google/auth-url",
     "/_agent-native/google/callback",
   ],

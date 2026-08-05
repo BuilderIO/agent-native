@@ -1,13 +1,13 @@
 ---
 title: "ドロップインエージェント"
-description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して、エージェント チャット + ワークスペースを React アプリにマウントします。"
+description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して、エージェント チャット + エージェント リソースを React アプリにマウントします。"
 ---
 
 # ドロップインエージェント
 
 > **開発者ページ。** このページは、React アプリにエージェントを埋め込む開発者向けです。エージェントを使用したエンドユーザー エクスペリエンスについては、[Using Your Agent](/docs/using-your-agent) を参照してください。
 
-エージェントネイティブを最初から構築する必要はありません。エージェント チャット、ワークスペース タブ、CLI ターミナル、音声入力、およびすべての関連インフラストラクチャは、任意のアプリにドロップできる少数の React コンポーネントとして出荷されます。
+エージェントネイティブを最初から構築する必要はありません。エージェント チャット、エージェント リソース タブ、CLI ターミナル、音声入力、およびすべての関連インフラストラクチャは、任意のアプリにドロップできる少数の React コンポーネントとして出荷されます。
 
 > **前提条件:** サーバーは `agent-chat-plugin` を実行している必要があります (すべてのテンプレートで自動マウントされます)。最初から始める場合は、[Server](/docs/server) を参照してください。
 >
@@ -19,7 +19,7 @@ description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して�
 | --------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `<AgentSidebar>`      | ルート アプリのレイアウトをラップし、完全なエージェントを含む切り替え可能なサイド パネルを追加します | すべての画面でアプリの横にエージェントを使用できるようにしたい           |
 | `<AgentToggleButton>` | `<AgentSidebar>` を開く/閉じる (ヘッダーに入れます)                                                  | `<AgentSidebar>` とペアリング                                            |
-| `<AgentPanel>`        | 生のパネル自体 — チャット + CLI + ワークスペース タブ                                                | レイアウトを完全に制御したい、または専用のエージェント ページが必要      |
+| `<AgentPanel>`        | 生のパネル自体 — チャット + CLI + エージェント リソース タブ                                         | レイアウトを完全に制御したい、または専用のエージェント ページが必要      |
 | `<AgentChatSurface>`  | 配線済みのパネル/ページ チャット サーフェス                                                          | サイドバー ラッパーなしでチャットしたい                                  |
 | `<AssistantChat>`     | コンポーザー/履歴フックを備えた下位レベルのチャット レンダラー                                       | 標準会話 UI の周囲にカスタム クロムが必要です                            |
 | `sendToAgentChat()`   | プログラムによってメッセージをチャットに送信します                                                   | インラインで実行する代わりにエージェントに作業を渡すボタン               |
@@ -41,7 +41,7 @@ description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して�
       </div>
       <div class="diagram-node panel">
         エージェントパネル<br /><small class="diagram-muted"
-          >chat &middot; CLI &middot; workspace</small
+          >chat &middot; CLI &middot; resources</small
         >
       </div>
     </div>
@@ -105,7 +105,7 @@ description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して�
   filename="app/root.tsx"
   language="tsx"
   code={
-    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="何をお手伝いできますか？"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client/agent-chat";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="何をお手伝いできますか？"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
   annotations={[
     {
@@ -136,7 +136,7 @@ description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して�
   ]}
 />
 
-それだけです。ユーザーは、チャット履歴、ワークスペース タブ、CLI ターミナル、音声入力、全画面モードを備えた、すべてのページに切り替え可能なエージェントを表示できるようになりました。状態は `localStorage` 経由でリロードしても維持されます。
+それだけです。ユーザーは、チャット履歴、エージェント リソース タブ、CLI ターミナル、音声入力、全画面モードを備えた、すべてのページに切り替え可能なエージェントを表示できるようになりました。状態は `localStorage` 経由でリロードしても維持されます。
 
 ### 小道具
 
@@ -154,8 +154,7 @@ description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して�
 
 ```tsx
 // app/routes/agent.tsx
-import { AgentPanel } from "@agent-native/core/client";
-
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -165,7 +164,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>` は、サイドバー ラッパー、折りたたみボタン、または状態の永続性のない生のタブ (チャット / CLI / ワークスペース) を提供します。好きな場所に置いてください。レイアウトを扱うのはあなたです。
+`<AgentPanel>` は、サイドバー ラッパー、折りたたみボタン、または状態の永続性のない生のタブ (チャット / CLI / エージェント リソース) を提供します。好きな場所に置いてください。レイアウトを扱うのはあなたです。
 
 ### 選択された小道具
 
@@ -182,8 +181,7 @@ export default function AgentRoute() {
 エージェントに作業を引き渡すボタン (インライン `llm()` 呼び出しを実行する代わりに - [ladder](/docs/what-is-agent-native#the-ladder) からのアンチパターン):
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -205,7 +203,7 @@ import { sendToAgentChat } from "@agent-native/core/client";
 - **`newTab`** — このプロンプトに対して別のチャット スレッドを作成します。
 - **`background`** — `newTab` では、新しいスレッドをフォーカスせずに実行します。非表示の実行は `RunsTray` で追跡されます。
 - **`openSidebar`** — バックグラウンド/サイレント送信の場合は `false` に設定します。デフォルトではサイドバーが開き、ユーザーに応答が表示されます。
-- **`type`** — `"content"` (デフォルト) は、組み込みアプリ エージェントで作業を保持します。 `"code"` はコード編集フレームにルーティングされます (エージェントが作成したコードの変更については、[Frames](/docs/frames) を参照してください)。
+- **`type`** — `"content"` (デフォルト) は、アプリツールを使う埋め込みエージェントで作業を保持します。`"code"` はリポジトリのソース変更用の別のコード対応フレームにルーティングします。書き込みは、ホストが repository/workspace ツールを意図的に付与した場合に限り利用できます。[Frames](/docs/frames) を参照してください。
 
 `sendToAgentChat` は、チャットの実行を追跡するために使用できる安定した `tabId` を返します。
 
@@ -232,8 +230,7 @@ MCP アプリ ブリッジ動作の [Client](/docs/client#sendtoagentchat)。
 読み込み状態が必要な場合は、`useSendToAgentChat()` フックを使用します。これは、`send` と `isGenerating` の両方を返します。
 
 ```ts
-import { useSendToAgentChat } from "@agent-native/core/client";
-
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -267,8 +264,7 @@ const { send, isGenerating } = useSendToAgentChat();
 UI がエージェント ツールが実行するのと同じ操作を実行する必要がある場合 ([ladder](/docs/what-is-agent-native#rung-three) の行 3)、`useActionMutation` を使用します。
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -298,8 +294,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>
@@ -336,5 +331,5 @@ export default function Root() {
 
 - [**Actions**](/docs/actions) — `defineAction()` および `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 選択、ナビゲーション、画面表示
-- [**Workspace**](/docs/workspace) — [ワークスペース] タブに含まれるもの (skills、メモリ、MCP サーバー、スケジュールされたジョブ)
+- [**エージェント リソース**](/docs/agent-resources) — [エージェント リソース] タブに含まれるもの (skills、メモリ、MCP サーバー、スケジュールされたジョブ)
 - [**Voice Input**](/docs/voice-input) — チャット コンポーザーのマイク

@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";

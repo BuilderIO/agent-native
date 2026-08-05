@@ -53,6 +53,10 @@ export interface EditsJson {
   thumbnail?: ThumbnailSpec | null;
   /** Provenance: source recording IDs when this recording was created via stitch-recordings. */
   stitchedFrom?: string[];
+  /** Marks media URLs supplied outside the trusted recording upload pipeline. */
+  mediaStorageLayout?: "external";
+  /** Original countdown-complete boundary after an explicit Rewind pre-roll was prepended. */
+  rewindOriginalStartMs?: number;
 }
 
 export const DEFAULT_EDITS: EditsJson = {
@@ -80,6 +84,14 @@ export function parseEdits(raw: string | null | undefined): EditsJson {
       thumbnail: j.thumbnail ?? null,
       ...(Array.isArray(j.stitchedFrom)
         ? { stitchedFrom: j.stitchedFrom as string[] }
+        : {}),
+      ...(j.mediaStorageLayout === "external"
+        ? { mediaStorageLayout: "external" as const }
+        : {}),
+      ...(typeof j.rewindOriginalStartMs === "number" &&
+      Number.isFinite(j.rewindOriginalStartMs) &&
+      j.rewindOriginalStartMs > 0
+        ? { rewindOriginalStartMs: Math.round(j.rewindOriginalStartMs) }
         : {}),
     };
   } catch {
@@ -226,6 +238,20 @@ export function getKeptRanges(
   }
   if (cursor < durationMs) out.push({ startMs: cursor, endMs: durationMs });
   return out;
+}
+
+/** Move a source timestamp to the first visible timestamp after a cut. */
+export function skipExcludedRange(
+  ms: number,
+  excludedRanges: Pick<TrimRange, "startMs" | "endMs">[],
+  durationMs: number,
+): number {
+  const range = excludedRanges.find(
+    (candidate) => ms >= candidate.startMs && ms < candidate.endMs,
+  );
+  if (!range) return ms;
+  const next = Math.max(ms, range.endMs);
+  return durationMs > 0 ? Math.min(next, durationMs) : next;
 }
 
 /**

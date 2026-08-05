@@ -6,6 +6,34 @@ search: "التطبيق الكامل للدردشة الغنية للوكيل م
 
 # أسطح الوكيل
 
+## مساحة عمل Agent الكاملة {#agent-page}
+
+عندما يحتاج التطبيق الكامل إلى مكان دائم لفحص وكيله وتهيئته، اربط
+`AgentTabsPage` بالمسار `/agent`. أضف المسار إلى تنقل التطبيق ومرر
+`agentPageHref="/agent"` إلى `AgentSidebar` كي تصل وضعيّتا Resources وSettings
+إلى الصفحة الكاملة من دون تكرار التدفقات.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+تحتوي الصفحة المشتركة حاليًا على خمس علامات تبويب:
+
+- **Context** — معاينة النطاق، وميزانية الرموز، وأقسام النظام المرتبة مع مصدرها وحوكمتها، وعرض القائمة أو الخريطة، وأحدث لقطة للمحادثة الحية.
+- **Files** — يعيد استخدام `ResourcesPanel` للموارد الشخصية أو الخاصة بالمؤسسة.
+- **Connections** — إدارة خوادم MCP وقائمة الوكلاء البعيدين عبر A2A؛ أي ما يستطيع وكيل التطبيق استدعاءه.
+- **Automations** — أتمتة Scheduled وEvent الشخصية وأتمتة المؤسسة مع الإيقاف والاستئناف والتفاصيل والحذف. يبقى عنوان التوافق `/agent#jobs`.
+- **Access** — عنوان MCP وبطاقة وكيل A2A عند توفرها وتعليمات إعداد العملاء الخارجيين؛ ويربط بالمسار `/mcp/connect` للتدفق الكامل والرمز الاحتياطي.
+
+تعمل الصفحة حاليًا بالنطاق الشخصي ولا تعرض مفتاح **Personal / Organization**
+على مستوى الصفحة. قد تعرض علامة تبويب قدرات محددة بالمؤسسة عندما تدعمها
+الإجراءات الأساسية؛ تعرض **Automations** أقسامًا شخصية وأقسام المؤسسة لكل من
+Scheduled وEvent. تعمل أتمتة أحداث المؤسسة دائمًا بهوية منشئها. الصفحة غلاف رقيق للمكونات والإجراءات
+وفحوصات الوصول الموجودة، وليست لوحة إدارة جديدة.
+
 Agent-Native قابل للتأليف بشكل متعمد. يمكنك استخدام الوكيل بدون الكثير من UI،
 استخدم UI بدون وقت تشغيل الوكيل المضمن، أو استخدمهما معًا بشكل كامل
 التطبيق.
@@ -380,8 +408,7 @@ export default createAgentNativeEmbeddedPlugin({
 يقوم الجانب React بتمرير سياق الصفحة وأوامر المضيف:
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded

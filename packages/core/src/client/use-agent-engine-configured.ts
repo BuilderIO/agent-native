@@ -1,12 +1,28 @@
 import { useEffect, useState } from "react";
 
 import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
-import { agentNativePath } from "./api-path.js";
+import {
+  fetchAgentEngineStatus,
+  fetchBuilderStatus,
+  fetchEnvironmentStatus,
+  invalidateClientStatusRequest,
+  type ClientStatusResult,
+} from "./client-status-requests.js";
 
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
-/** `unknown` until the first check resolves, so callers don't flash the gate. */
-export type AgentEngineConfiguredState = "unknown" | "configured" | "missing";
+/**
+ * Three distinct situations, never collapsed:
+ * - `configured` / `missing` are authoritative answers from the status routes.
+ * - `unknown` (first check in flight) and `unavailable` (the check failed, a
+ *   retry is scheduled) both mean *we do not know*. Neither is evidence that
+ *   no provider is configured, so neither may gate the composer.
+ */
+export type AgentEngineConfiguredState =
+  | "unknown"
+  | "configured"
+  | "missing"
+  | "unavailable";
 
 export interface UseAgentEngineConfiguredResult {
   /** True once we know nothing can run the agent (no key / Builder / BYOK). */
@@ -29,37 +45,32 @@ export interface UseAgentEngineConfiguredOptions {
   threadId?: string | null;
 }
 
-const DEFAULT_STATUS_CHECK_TIMEOUT_MS = 2500;
-const UNKNOWN_STATUS_RETRY_MS = 2000;
+const RETRY_BASE_MS = 2000;
+const RETRY_MAX_MS = 30000;
 
-async function fetchStatusJson(
+async function waitForStatus<T>(
+  request: Promise<ClientStatusResult<T>>,
   path: string,
-  timeoutMs: number,
-): Promise<unknown | null> {
-  const controller =
-    typeof AbortController !== "undefined" ? new AbortController() : null;
+  timeoutMs: number | undefined,
+): Promise<ClientStatusResult<T>> {
+  if (timeoutMs === undefined) return request;
+
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
+  const timeout = new Promise<ClientStatusResult<T>>((resolve) => {
     timeoutId = setTimeout(() => {
-      controller?.abort();
-      resolve(null);
+      // A request that loses this race may never settle. Evict and abort the
+      // shared probe so the scheduled retry starts a genuinely new request.
+      invalidateClientStatusRequest(path);
+      resolve({ state: "unavailable" });
     }, timeoutMs);
   });
-
-  // Never serve a stale status from the HTTP cache: this is re-fetched right
-  // after a provider connects, and a cached "missing" would keep the composer
-  // gate and error banner pinned even though a provider is now configured.
-  const request = fetch(agentNativePath(path), {
-    cache: "no-store",
-    ...(controller ? { signal: controller.signal } : {}),
-  })
-    .then((r) => (r.ok ? r.json() : null))
-    .catch(() => null)
-    .finally(() => {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-    });
-
-  return Promise.race([request, timeout]);
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 function hasConfiguredFlag(value: unknown): value is { configured: boolean } {
@@ -101,23 +112,38 @@ export async function fetchAgentEngineConfiguredState(
   const timeoutMs =
     typeof options?.timeoutMs === "number" && options.timeoutMs > 0
       ? options.timeoutMs
-      : DEFAULT_STATUS_CHECK_TIMEOUT_MS;
-  const [envKeys, builderStatus, engineStatus] = await Promise.all([
-    fetchStatusJson("/_agent-native/env-status", timeoutMs),
-    fetchStatusJson("/_agent-native/builder/status", timeoutMs),
-    fetchStatusJson("/_agent-native/agent-engine/status", timeoutMs),
-  ]);
-
-  // All three failed — likely a flaky network; keep the caller in unknown.
-  // Even an explicit missing-key stream event should not pin the composer into
-  // setup without a fresh authoritative status response.
-  if (envKeys == null && builderStatus == null && engineStatus == null) {
-    return "unknown";
+      : undefined;
+  const engineResult = await waitForStatus(
+    fetchAgentEngineStatus(),
+    "/_agent-native/agent-engine/status",
+    timeoutMs,
+  );
+  if (
+    engineResult.state === "available" &&
+    hasConfiguredFlag(engineResult.value)
+  ) {
+    return engineResult.value.configured ? "configured" : "missing";
   }
 
+  // Older hosts may not expose the canonical route. Only then pay for the two
+  // legacy probes; current hosts answer readiness with one request.
+  const [envResult, builderResult] = await Promise.all([
+    waitForStatus(
+      fetchEnvironmentStatus(),
+      "/_agent-native/env-status",
+      timeoutMs,
+    ),
+    waitForStatus(
+      fetchBuilderStatus(),
+      "/_agent-native/builder/status",
+      timeoutMs,
+    ),
+  ]);
+  const envKeys = envResult.state === "available" ? envResult.value : undefined;
+  const builderStatus =
+    builderResult.state === "available" ? builderResult.value : undefined;
   const envKeysKnown = Array.isArray(envKeys);
   const builderStatusKnown = hasConfiguredFlag(builderStatus);
-  const engineStatusKnown = hasConfiguredFlag(engineStatus);
   const keys = envKeysKnown
     ? (envKeys as Array<{
         key: string;
@@ -127,18 +153,11 @@ export async function fetchAgentEngineConfiguredState(
   const llmKeys = keys.filter((k) => PROVIDER_ENV_VAR_SET.has(k.key));
   const anyConfigured =
     llmKeys.some((k) => k.configured) ||
-    (builderStatusKnown && builderStatus.configured) ||
-    (engineStatusKnown && engineStatus.configured);
+    (builderStatusKnown && builderStatus.configured);
   if (anyConfigured) return "configured";
 
-  // The engine status route is the canonical readiness check: it resolves
-  // Builder, scoped BYOK secrets, deployment credentials, and custom engines.
-  // Once it has answered `configured: false`, a slow legacy env/Builder status
-  // request must not leave the composer permissively stuck in `unknown`.
-  if (engineStatusKnown) return "missing";
-
   // Compatibility fallback for older hosts without the canonical route.
-  return envKeysKnown && builderStatusKnown ? "missing" : "unknown";
+  return envKeysKnown && builderStatusKnown ? "missing" : "unavailable";
 }
 
 /**
@@ -146,7 +165,8 @@ export async function fetchAgentEngineConfiguredState(
  * composer and app prompt boxes. Checks the env-key / Builder / BYOK status
  * endpoints on mount, re-checks on `agent-engine:configured-changed`, and folds
  * in the adapter's `agent-chat:missing-api-key` signal. Pass `enabled = false`
- * to short-circuit to configured; flaky requests stay `unknown`.
+ * to short-circuit to configured. A check that cannot reach an authoritative
+ * answer retries on a backoff until it does, so the gate can never latch.
  */
 export function useAgentEngineConfigured(
   enabled = true,
@@ -156,25 +176,34 @@ export function useAgentEngineConfigured(
 
   useEffect(() => {
     let cancelled = false;
-    let retryId: ReturnType<typeof setTimeout> | undefined;
     // Monotonic call counter: overlapping checks (mount + a
     // `agent-engine:configured-changed` fired right after a key is saved) can
     // resolve out of order; only the latest call may write state, or a slow
     // stale "missing" response would overwrite the fresh "configured" one.
     let requestSeq = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
     const check = async (options?: { missingFallback?: boolean }) => {
-      if (retryId !== undefined) {
-        clearTimeout(retryId);
-        retryId = undefined;
-      }
       const seq = ++requestSeq;
+      if (retryTimer !== undefined) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
       if (cancelled || seq !== requestSeq) return;
-      if (nextState === "unknown") {
-        retryId = setTimeout(() => void check(), UNKNOWN_STATUS_RETRY_MS);
+      setState(nextState === "unknown" ? "unavailable" : nextState);
+      if (nextState === "configured" || nextState === "missing") {
+        retryAttempt = 0;
         return;
       }
-      setState(nextState);
+      // No authoritative answer yet. Keep asking: a failed probe that latched
+      // permanently is what left users staring at a dead composer with no way
+      // back short of a reload.
+      const delay = Math.min(RETRY_BASE_MS * 2 ** retryAttempt, RETRY_MAX_MS);
+      retryAttempt += 1;
+      retryTimer = setTimeout(() => {
+        void check();
+      }, delay);
     };
     const onConfiguredChanged = () => {
       void check();
@@ -198,7 +227,7 @@ export function useAgentEngineConfigured(
     window.addEventListener("agent-chat:missing-api-key", onMissing);
     return () => {
       cancelled = true;
-      if (retryId !== undefined) clearTimeout(retryId);
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
       window.removeEventListener(
         "agent-engine:configured-changed",
         onConfiguredChanged,

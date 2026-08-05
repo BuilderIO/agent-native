@@ -1360,7 +1360,10 @@ function mapAgentNativeEvent(
         type: "approval-request",
         ...base,
         approvalId: ev.approvalKey ?? ev.id ?? createRuntimeId("approval"),
-        toolCallId: ev.id,
+        // `approval_required` carries the model-side call id as `toolCallId`,
+        // not `id`. Without this the request falls back to matching by tool
+        // name, which picks the wrong call when two are pending at once.
+        toolCallId: ev.toolCallId ?? ev.id,
         toolName: ev.tool,
         message: ev.label ?? "Approve this tool call?",
         input: ev.input,
@@ -1632,20 +1635,34 @@ function applyRuntimeEventToContent(
     return { content: [...content] } as ChatModelRunResult;
   }
   if (typed.type === "approval-request") {
-    const part = [...content]
-      .reverse()
-      .find(
-        (candidate): candidate is Extract<ContentPart, { type: "tool-call" }> =>
-          candidate.type === "tool-call" &&
-          (candidate.toolCallId === typed.toolCallId ||
-            candidate.toolName === typed.toolName),
-      );
-    if (part) {
+    const reversed = [...content].reverse();
+    const isToolCall = (
+      candidate: ContentPart,
+    ): candidate is Extract<ContentPart, { type: "tool-call" }> =>
+      candidate.type === "tool-call";
+    // Match on the exact call id whenever the server supplied one. Falling back
+    // to "newest call with this name" would hand this call's approvalKey to a
+    // different parallel call of the same action, so name matching is reserved
+    // for events that carry no id at all.
+    const part = typed.toolCallId
+      ? reversed.find(
+          (candidate) =>
+            isToolCall(candidate) && candidate.toolCallId === typed.toolCallId,
+        )
+      : reversed.find(
+          (candidate) =>
+            isToolCall(candidate) && candidate.toolName === typed.toolName,
+        );
+    if (part && part.type === "tool-call") {
       part.approval = { approvalKey: typed.approvalId };
-    } else {
+    } else if (!typed.toolCallId) {
+      // Only runtimes that never announced the call (no id) get a synthesized
+      // card. An id that matches nothing means the call was never observed or
+      // is already resolved, and inventing an Approve/Deny card for it would
+      // gate something the user cannot see.
       content.push({
         type: "tool-call",
-        toolCallId: typed.toolCallId ?? typed.approvalId,
+        toolCallId: typed.approvalId,
         toolName: typed.toolName ?? "approval",
         argsText: typed.input ? JSON.stringify(typed.input) : "",
         args: toContentPartInput(typed.input),
@@ -1656,7 +1673,7 @@ function applyRuntimeEventToContent(
   }
   if (typed.type === "error") {
     const normalized = normalizeChatError(typed.error, typed.code);
-    settleInterruptedToolCalls(content);
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
       text: formatChatErrorText(typed.error, undefined, typed.code),
@@ -1677,6 +1694,7 @@ function applyRuntimeEventToContent(
     } as ChatModelRunResult;
   }
   if (typed.type === "done") {
+    settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     return {
       content: [...content],
       status:

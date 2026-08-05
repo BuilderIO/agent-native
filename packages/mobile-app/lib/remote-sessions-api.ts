@@ -1,7 +1,12 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export const SESSION_TOKEN_KEY = "agent-native:session-token";
+import {
+  clearSessionToken,
+  getSessionToken,
+  SESSION_TOKEN_KEY,
+} from "./session-token-store";
+
+export { SESSION_TOKEN_KEY };
 export const REMOTE_AUTH_MESSAGE =
   "Connect this phone to Dispatch to use remote sessions.";
 
@@ -242,7 +247,7 @@ export function getRemoteRelayBaseUrl(): string {
 }
 
 export async function clearRemoteSessionToken(): Promise<void> {
-  await AsyncStorage.removeItem(SESSION_TOKEN_KEY);
+  await clearSessionToken();
 }
 
 export function isRemoteAuthError(result: RemoteApiResult<unknown>): boolean {
@@ -253,7 +258,7 @@ async function remoteFetch<T>(
   path: string,
   options: FetchOptions = {},
 ): Promise<RemoteApiResult<T>> {
-  const token = await AsyncStorage.getItem(SESSION_TOKEN_KEY);
+  const token = await getSessionToken();
   if (!token) {
     return {
       ok: false,

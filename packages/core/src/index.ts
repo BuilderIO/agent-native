@@ -1,6 +1,8 @@
 // Framework for agent-native apps.
 // Import everything from "@agent-native/core".
 
+export * from "./config.js";
+
 // Agent (production mode)
 export {
   createProductionAgentHandler,
@@ -41,6 +43,7 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export * from "./user-profile/index.js";
 export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
@@ -59,6 +62,7 @@ export {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
   type ActionChatUIConfig,
 } from "./action-ui.js";
 export {
@@ -142,6 +146,21 @@ export {
   type AutomationWorkflowDefinition,
   type JsonSchema,
 } from "./automation/index.js";
+export {
+  createFeatureFlagsPlugin,
+  defineFeatureFlag,
+  defineFeatureFlags,
+  evaluateFeatureFlag,
+  getFeatureFlagDefinition,
+  getFeatureFlagRules,
+  isFeatureFlagEnabled,
+  listFeatureFlags,
+  registerFeatureFlags,
+  type FeatureFlagDefinition,
+  type FeatureFlagMode,
+  type FeatureFlagRules,
+  type FeatureFlagScope,
+} from "./feature-flags/index.js";
 
 // Server
 export {
@@ -299,6 +318,9 @@ export {
   type WorkspaceConnectionPublicCredentialRef,
   type WorkspaceConnectionStatus,
   workspaceConnectionIsAvailableToApp,
+  registerWorkspaceConnectionLifecycleListener,
+  type WorkspaceConnectionLifecycleEvent,
+  type WorkspaceConnectionLifecycleListener,
 } from "./workspace-connections/index.js";
 
 // Reusable workspace connection provider catalog
@@ -317,6 +339,7 @@ export {
   listWorkspaceConnectionProviders,
   listWorkspaceConnectionProvidersForCapability,
   listWorkspaceConnectionProvidersForTemplate,
+  mergeWorkspaceConnectionProviders,
   providerReaderSupports,
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,
@@ -381,6 +404,8 @@ export * from "./review/index.js";
 export * from "./org-team/index.js";
 export * from "./navigation/index.js";
 export * from "./command-navigation/index.js";
+export * from "./search/index.js";
+export * from "./embeddings/index.js";
 export {
   registerWorkspaceConnectionOnboardingStep,
   type RegisterWorkspaceConnectionOnboardingStepOptions,

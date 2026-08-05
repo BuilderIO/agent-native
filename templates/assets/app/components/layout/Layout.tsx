@@ -1,18 +1,20 @@
 import {
   AgentSidebar,
   focusAgentChat,
-  getBrowserTabId,
-  isEmbedAuthActive,
+  isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
@@ -64,9 +66,15 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isCreateRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive(
+    ASSETS_CHAT_STORAGE_KEY,
+  );
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
+    // Only preserve the transition when chat activity has recorded an active
+    // handoff; an empty home chat should keep the destination sidebar closed.
+    requireActiveHandoff: true,
   });
 
   useEffect(() => {
@@ -151,11 +159,13 @@ export function Layout({ children }: LayoutProps) {
       <AgentSidebar
         position="right"
         chatViewTransition
+        chatViewTransitionHandoff={chatHomeHandoffPending}
         storageKey={ASSETS_CHAT_STORAGE_KEY}
         browserTabId={getBrowserTabId()}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}
         emptyStateText={t("chat.emptyState")}
+        agentPageHref="/agent"
         suggestions={[
           t("chat.suggestionBlogHeroes"),
           t("chat.suggestionProductVideo"),
@@ -165,6 +175,7 @@ export function Layout({ children }: LayoutProps) {
           <GenerationResults threadId={threadId} />
         )}
         imageModelMenu={imageModelMenu}
+        composerSlot={<CreativeContextComposerChip />}
       >
         {appFrame}
       </AgentSidebar>

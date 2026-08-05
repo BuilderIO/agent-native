@@ -1,11 +1,86 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const execute = vi.fn();
+const rollupMocks = vi.hoisted(() => ({
+  upsert: vi.fn(),
+}));
+const healthMocks = vi.hoisted(() => ({
+  classify: vi.fn(() => "other"),
+  outcome: vi.fn(() => "error"),
+  record: vi.fn(),
+}));
+const analyticsDbMocks = vi.hoisted(() => {
+  const selectLimit = vi.fn();
+  const insertValues = vi.fn();
+  const updateWhere = vi.fn();
+  const db: Record<string, any> = {};
+  db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
+    callback(db),
+  );
+  db.select = vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({ limit: selectLimit })),
+    })),
+  }));
+  db.insert = vi.fn(() => ({ values: insertValues }));
+  db.update = vi.fn(() => ({
+    set: vi.fn(() => ({ where: updateWhere })),
+  }));
+  return {
+    selectLimit,
+    insertValues,
+    updateWhere,
+    db,
+  };
+});
+
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
+  getDbExec: () => ({ execute }),
+}));
+vi.mock("../db/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/index.js")>()),
+  getDb: () => analyticsDbMocks.db,
+}));
+vi.mock("./first-party-analytics-rollups.js", () => ({
+  upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
+}));
+vi.mock("./first-party-analytics-health.js", () => ({
+  classifyFirstPartyAnalyticsQuery: healthMocks.classify,
+  queryOutcomeFromError: healthMocks.outcome,
+  recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
+}));
 
 import {
+  isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
+  queryFirstPartyAnalytics,
+  recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
+
+beforeEach(() => {
+  execute.mockReset();
+  analyticsDbMocks.selectLimit.mockReset();
+  analyticsDbMocks.insertValues.mockReset();
+  analyticsDbMocks.updateWhere.mockReset();
+  analyticsDbMocks.selectLimit.mockResolvedValue([
+    { id: "apk_123", ownerEmail: "owner@example.com", orgId: null },
+  ]);
+  analyticsDbMocks.insertValues.mockResolvedValue(undefined);
+  analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
+  rollupMocks.upsert.mockResolvedValue({
+    eventCount: 1,
+    dailyRollupCount: 1,
+    userDayCount: 1,
+  });
+  healthMocks.classify.mockClear();
+  healthMocks.outcome.mockClear();
+  healthMocks.record.mockReset();
+  healthMocks.record.mockResolvedValue(undefined);
+});
 
 describe("resolveAnalyticsEventDimensions", () => {
   it("promotes signup tracking attribution into queryable app/template columns", () => {
@@ -37,6 +112,115 @@ describe("resolveAnalyticsEventDimensions", () => {
   });
 });
 
+describe("isMarketingWebsiteSessionEvent", () => {
+  it("keeps www.agent-native.com out of signed-in session cohorts", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: "www.agent-native.com",
+        app: "www",
+        template: "www",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps legacy host-derived www events out when hostname was omitted", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: null,
+        app: " WWW ",
+        template: "WWW",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not suppress product-template session events", () => {
+    expect(
+      isMarketingWebsiteSessionEvent({
+        eventName: "session status",
+        hostname: "plan.agent-native.com",
+        app: "plan",
+        template: "plan",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("recordAnalyticsEvents", () => {
+  it("updates compact rollups after persisting raw events", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        userId: "user_1",
+        properties: { app: "analytics", template: "analytics" },
+      },
+    ]);
+
+    expect(rollupMocks.upsert).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          eventName: "pageview",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          userKey: "user_1",
+        }),
+      ],
+      analyticsDbMocks.db,
+    );
+    expect(
+      analyticsDbMocks.insertValues.mock.invocationCallOrder[0],
+    ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
+  });
+
+  it("rejects the ingest when a rollup update fails", async () => {
+    rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("rollup unavailable");
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalled();
+  });
+
+  it("persists both sides of a signup identity bridge", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "signup",
+        userId: "new@example.com",
+        anonymousId: "anon_signup_1",
+      }),
+    ]);
+  });
+
+  it("persists www session status as signed out", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "session status",
+        properties: {
+          url: "https://www.agent-native.com/docs",
+          signed_in: true,
+        },
+      },
+    ]);
+
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        app: "www",
+        template: "www",
+        signedIn: "false",
+      }),
+    ]);
+  });
+});
+
 describe("validateFirstPartyAnalyticsSql", () => {
   it("rejects PostgreSQL-style bind placeholders outside string literals", () => {
     expect(() =>
@@ -58,6 +242,19 @@ describe("validateFirstPartyAnalyticsSql", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT app, COUNT(*) AS recordings FROM session_recordings WHERE owner_email = 'alice@example.com' GROUP BY app",
+      ),
+    ).not.toThrow();
+  });
+
+  it("allows compact event and user-day rollup queries", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
       ),
     ).not.toThrow();
   });
@@ -107,14 +304,24 @@ describe("scopedAnalyticsSql", () => {
       "2026-07-01",
     );
 
-    expect(scoped.sql).toContain("FROM analytics_events WHERE");
     expect(scoped.sql).toContain(
-      "(org_id = ? OR (org_id IS NULL AND owner_email = ?))",
+      "FROM (SELECT * FROM analytics_events WHERE org_id = ?",
     );
     expect(scoped.sql).toContain(
-      "COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= ?",
+      "UNION ALL SELECT * FROM analytics_events WHERE org_id IS NULL AND owner_email = ?",
     );
-    expect(scoped.args).toEqual(["org_123", "alice@example.com", "2026-07-01"]);
+    expect(
+      scoped.sql.match(
+        /COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= \?/g,
+      ),
+    ).toHaveLength(2);
+    expect(scoped.sql).not.toContain("org_id = ? OR");
+    expect(scoped.args).toEqual([
+      "org_123",
+      "2026-07-01",
+      "alice@example.com",
+      "2026-07-01",
+    ]);
   });
 
   it("adds freshness guards around session recording reads", () => {
@@ -126,5 +333,177 @@ describe("scopedAnalyticsSql", () => {
 
     expect(scoped.sql).toContain("substr(started_at, 1, 10) <= ?");
     expect(scoped.args).toEqual(["alice@example.com", "2026-07-01"]);
+  });
+
+  it("scopes rollups by tenant key without changing all-time lower bounds", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM (SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ? UNION ALL SELECT * FROM analytics_event_daily_rollups WHERE tenant_key = ? AND event_date <= ?)",
+    );
+    expect(scoped.sql).not.toContain("event_date >= ?");
+    expect(scoped.args).toEqual([
+      "org:org_123",
+      "2026-07-01",
+      "user:alice@example.com",
+      "2026-07-01",
+    ]);
+  });
+
+  it("uses the personal tenant key for user-day rollups without an org", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = ? AND event_date <= ?)",
+    );
+    expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
+  });
+});
+
+describe("queryFirstPartyAnalytics", () => {
+  it("keeps ad-hoc first-party reads uncached", async () => {
+    execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
+
+    await queryFirstPartyAnalytics(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutMs: 45_000,
+        maxAttempts: 1,
+      }),
+    );
+  });
+
+  it("caches dashboard-panel reads only when explicitly requested", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(1);
+    execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("first_party_analytics_cache")
+        ? { rows: [], rowsAffected: 0 }
+        : { rows: [{ count: "1" }], rowsAffected: 0 },
+    );
+
+    try {
+      const query = "SELECT COUNT(*) AS count FROM analytics_events";
+      const scope = { userEmail: "cached@example.com", orgId: null };
+      await queryFirstPartyAnalytics(query, scope, { cache: true });
+      await queryFirstPartyAnalytics(query, scope, { cache: true });
+    } finally {
+      random.mockRestore();
+    }
+
+    expect(execute).toHaveBeenCalledTimes(3);
+    expect(execute.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("first_party_analytics_cache"),
+        maxAttempts: 1,
+      }),
+    );
+    expect(execute.mock.calls[0][0].timeoutMs).toBeLessThanOrEqual(1_000);
+    expect(execute.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        timeoutMs: expect.any(Number),
+        maxAttempts: 1,
+      }),
+    );
+    expect(execute.mock.calls[2][0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("ON CONFLICT(key) DO UPDATE"),
+        maxAttempts: 1,
+      }),
+    );
+    expect(execute.mock.calls[2][0].timeoutMs).toBeLessThanOrEqual(1_000);
+  });
+
+  it("shares one deadline between the cache read and panel query", async () => {
+    let now = 1_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        now += 125;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      await queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "deadline@example.com", orgId: null },
+        { cache: true, timeoutMs: 500 },
+      );
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(execute.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 500, maxAttempts: 1 }),
+    );
+    expect(execute.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 375, maxAttempts: 1 }),
+    );
+    expect(execute.mock.calls[2][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 375, maxAttempts: 1 }),
+    );
+  });
+
+  it("does not start the panel query after the shared deadline expires", async () => {
+    let now = 2_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        now += 500;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      await expect(
+        queryFirstPartyAnalytics(
+          "SELECT COUNT(*) AS count FROM analytics_events",
+          { userEmail: "expired-deadline@example.com", orgId: null },
+          { cache: true, timeoutMs: 500 },
+        ),
+      ).rejects.toThrow("First-party analytics query timed out after 500ms");
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hold a successful panel response on the cache write", async () => {
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (sql.includes("ON CONFLICT(key) DO UPDATE")) {
+        return await new Promise(() => {});
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "nonblocking-cache@example.com", orgId: null },
+        { cache: true },
+      ),
+    ).resolves.toEqual({
+      rows: [{ count: "1" }],
+      schema: [{ name: "count", type: "string" }],
+    });
   });
 });

@@ -1,16 +1,15 @@
 // Owns: image/document/text attachment adapters and attachment serialization helpers.
 
+import {
+  CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
+  IMAGE_ATTACHMENT_ACCEPT,
+} from "@agent-native/toolkit/composer/attachment-accept";
 import type {
   AttachmentAdapter,
   CompleteAttachment,
   PendingAttachment,
   Attachment,
 } from "@assistant-ui/react";
-
-import {
-  CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
-  IMAGE_ATTACHMENT_ACCEPT,
-} from "../composer/attachment-accept.js";
 
 // Maximum PDF/document size (4 MB). Larger PDFs would bloat the JSON POST
 // body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
+import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { getCallbackOrigin } from "../frame.js";
@@ -53,10 +54,14 @@ export interface BuilderStatus {
 }
 
 /**
- * Fetches Builder connection status from /_agent-native/builder/status.
+ * Fetches Builder connection status from the neutral connection-status route.
+ * The legacy /_agent-native/builder/status route remains available for older
+ * clients.
  * Re-fetches on window focus to detect post-redirect state changes.
  */
-export function useBuilderStatus() {
+export function useBuilderStatus({
+  enabled = true,
+}: { enabled?: boolean } = {}) {
   const [status, setStatus] = useState<BuilderStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +69,7 @@ export function useBuilderStatus() {
   const lastGoodStatusRef = useRef<BuilderStatus | null>(null);
 
   const fetchStatus = useCallback(async () => {
+    if (!enabled) return;
     const keepLastGoodStatus = (message: string) => {
       const lastGoodStatus = lastGoodStatusRef.current;
       setStatus(lastGoodStatus);
@@ -72,7 +78,9 @@ export function useBuilderStatus() {
     };
 
     try {
-      const res = await fetch(agentNativePath("/_agent-native/builder/status"));
+      const res = await fetch(
+        agentNativePath("/_agent-native/connection-status/builder"),
+      );
       if (!res.ok) {
         keepLastGoodStatus(`Builder status unavailable (${res.status})`);
         return;
@@ -91,9 +99,18 @@ export function useBuilderStatus() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus(null);
+      setLoading(false);
+      setError(null);
+      setStale(false);
+      lastGoodStatusRef.current = null;
+      return;
+    }
+    setLoading(true);
     fetchStatus();
 
     function onFocus() {
@@ -115,7 +132,7 @@ export function useBuilderStatus() {
         fetchStatus,
       );
     };
-  }, [fetchStatus]);
+  }, [enabled, fetchStatus]);
 
   return { status, loading, error, stale, refetch: fetchStatus };
 }
@@ -123,7 +140,7 @@ export function useBuilderStatus() {
 // ─── useBuilderConnectFlow ──────────────────────────────────────────────────
 //
 // Shared state machine for the "open Builder CLI-auth popup + poll
-// /builder/status until credentials land" interaction. Replaces three
+// /connection-status/builder until credentials land" interaction. Replaces three
 // near-duplicate inline implementations: `BuilderCliAuthMethod` in
 // OnboardingPanel, `ConnectBuilderCard`, and `BuilderConnectCta` in
 // AssistantChat. Each consumer supplies its own popup URL / completion
@@ -158,7 +175,7 @@ export interface BuilderConnectStartOptions {
 
 export interface BuilderConnectFlow {
   configured: boolean;
-  /** True after at least one successful `/builder/status` response. */
+  /** True after at least one successful Builder connection-status response. */
   statusResolved: boolean;
   /**
    * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
@@ -176,7 +193,7 @@ export interface BuilderConnectFlow {
   connecting: boolean;
   error: string | null;
   /**
-   * True once the first `/builder/status` fetch has completed (successfully
+   * True once the first Builder connection-status fetch has completed (successfully
    * or not). Consumers that accept an `initialConfigured` prop (e.g. agent
    * tool-call results rendered with server-side state) should treat
    * `configured`/`orgName` as authoritative only once this flips true —
@@ -326,6 +343,8 @@ export function withBuilderConnectTrackingParams(
       });
       parsed.searchParams.set("redirect_url", parsedRedirect.toString());
     }
+
+    applyBuilderUtmTrackingParams(parsed.searchParams, { content: source });
 
     return parsed.toString();
   } catch {
@@ -579,7 +598,10 @@ export function useBuilderConnectFlow(
     const origin = getCallbackOrigin() || window.location.origin;
     try {
       const r = await fetch(
-        new URL(agentNativePath("/_agent-native/builder/status"), origin).href,
+        new URL(
+          agentNativePath("/_agent-native/connection-status/builder"),
+          origin,
+        ).href,
       );
       if (!r.ok) return null;
       return (await r.json()) as {
@@ -771,7 +793,7 @@ export function useBuilderConnectFlow(
             connectStartedAtRef.current = null;
             setConnecting(false);
             setError(
-              "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
+              "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder (free tier available) again.",
             );
           })();
         } else {

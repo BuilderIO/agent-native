@@ -17,7 +17,7 @@ export interface TrimHandlesProps {
   /** Visual tone: segment selections use the brand color, free ranges the
    * Descript-style violet so the two selection kinds read differently. */
   tone?: "segment" | "range";
-  /** Scroll offset of the parent container so handles track with zoom. */
+  splitPoints?: number[];
   className?: string;
 }
 
@@ -50,6 +50,7 @@ export function TrimHandles({
   onCommit,
   durationMs,
   tone = "range",
+  splitPoints = [],
   className,
 }: TrimHandlesProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -127,6 +128,9 @@ export function TrimHandles({
 
   const startX = (value.startMs / Math.max(durationMs, 1)) * width;
   const endX = (value.endMs / Math.max(durationMs, 1)) * width;
+  const visibleSplitPoints = splitPoints.filter(
+    (ms) => ms > value.startMs && ms < value.endMs, // i18n-ignore numeric range predicate, not visible UI copy
+  );
 
   return (
     <div
@@ -153,6 +157,16 @@ export function TrimHandles({
             a static highlight — Descript shows the same cue on its
             selection range. */}
         <IconGripHorizontal className="absolute top-1 left-1/2 -translate-x-1/2 h-3 w-3 text-white/70" />
+        {visibleSplitPoints.map((splitMs) => (
+          <div
+            key={splitMs}
+            className="absolute top-0 h-full w-0.5 -translate-x-1/2 bg-rose-500/95"
+            style={{
+              left: `${((splitMs - value.startMs) / Math.max(value.endMs - value.startMs, 1)) * 100}%`,
+            }}
+            aria-hidden="true"
+          />
+        ))}
       </div>
 
       {/* Left handle */}

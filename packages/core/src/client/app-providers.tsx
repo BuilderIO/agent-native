@@ -48,11 +48,12 @@
  *                              intentionally animates theme changes (e.g. content).
  */
 
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute } from "next-themes";
 import React from "react";
-import { Toaster } from "sonner";
+import { useInRouterContext } from "react-router";
 
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
@@ -61,6 +62,8 @@ import {
   type AgentNativeI18nProviderProps,
 } from "./i18n.js";
 import { RequireSession } from "./require-session.js";
+import { AgentNativeRouteWarmup } from "./route-warmup.js";
+import { RouteTransitionIndicator } from "./RouteTransitionIndicator.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -134,6 +137,18 @@ export interface AppProvidersProps {
 
 const DEFAULT_TOASTER = <Toaster richColors position="bottom-left" />;
 
+function RoutedAppEnhancements() {
+  const isInRouter = useInRouterContext();
+  if (!isInRouter) return null;
+
+  return (
+    <>
+      <AgentNativeRouteWarmup />
+      <RouteTransitionIndicator />
+    </>
+  );
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -172,6 +187,7 @@ function ProvidersInner({
       >
         <TooltipProvider delayDuration={tooltipDelayDuration}>
           {localizedChildren}
+          <RoutedAppEnhancements />
           {toaster}
         </TooltipProvider>
       </ThemeProvider>

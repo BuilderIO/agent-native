@@ -1,14 +1,14 @@
 import {
-  ShareButton,
-  VisibilityBadge,
   useActionQuery,
   useActionMutation,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,
   IconChecks,
@@ -220,7 +220,7 @@ export default function DesignSystems() {
   }, []);
 
   const handleSetDefault = useCallback(
-    (id: string) => {
+    (id: string, isDefault: boolean) => {
       // Optimistic update
       queryClient.setQueryData(
         ["action", "list-design-systems", undefined],
@@ -230,13 +230,17 @@ export default function DesignSystems() {
             ...old,
             designSystems: old.designSystems.map((ds: DesignSystem) => ({
               ...ds,
-              isDefault: ds.id === id,
+              isDefault: isDefault
+                ? ds.id === id
+                : ds.id === id
+                  ? false
+                  : ds.isDefault,
             })),
           };
         },
       );
 
-      setDefaultMutation.mutate({ id } as any, {
+      setDefaultMutation.mutate({ id, isDefault } as any, {
         onError: () => {
           queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
@@ -412,13 +416,11 @@ export default function DesignSystems() {
             : t("designSystems.actions.select")}
         </Button>
       ) : null}
-      <Button
-        size="sm"
-        onClick={() => navigate("/design-systems/setup")}
-        className="cursor-pointer"
-      >
-        <IconPlus className="w-3.5 h-3.5" />
-        {t("designSystems.actions.new")}
+      <Button asChild size="sm" className="cursor-pointer">
+        <Link to="/design-systems/setup">
+          <IconPlus className="w-3.5 h-3.5" />
+          {t("designSystems.actions.new")}
+        </Link>
       </Button>
     </div>,
   );
@@ -509,8 +511,8 @@ export default function DesignSystems() {
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {/* New design system card */}
-                  <button
-                    onClick={() => navigate("/design-systems/setup")}
+                  <Link
+                    to="/design-systems/setup"
                     className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
                   >
                     <div className="aspect-video flex items-center justify-center bg-muted/30">
@@ -526,7 +528,7 @@ export default function DesignSystems() {
                         {t("designSystems.newCardDescription")}
                       </div>
                     </div>
-                  </button>
+                  </Link>
 
                   {/* Design system cards */}
                   {designSystems.map((ds) => {
@@ -647,7 +649,9 @@ export default function DesignSystems() {
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
-                                    onClick={() => handleSetDefault(ds.id)}
+                                    onClick={() =>
+                                      handleSetDefault(ds.id, !ds.isDefault)
+                                    }
                                     className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
                                   >
                                     {ds.isDefault ? (

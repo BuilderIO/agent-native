@@ -21,20 +21,20 @@ vi.mock("@agent-native/core", () => ({
       .join(" "),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
-  // `@/lib/utils` re-exports `cn` from `@agent-native/core/client`, so the
-  // client mock must provide it or DropdownMenu crashes on first render.
-  cn: (...args: unknown[]) =>
-    args
-      .flat(Infinity)
-      .filter((v) => typeof v === "string" && v.length > 0)
-      .join(" "),
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/agent${path}`,
   appBasePath: () => "/slides",
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
       ({
-        "editorExport.downloadGoogleSlides": "Download for Google Slides",
+        "editorExport.connectGoogle": "Connect Google",
+        "editorExport.openInGoogleSlides": "Open in Google Slides",
+        "editorExport.googleSlidesCreated": "Opened in Google Slides",
+        "editorExport.googleSlidesCreatedHint":
+          "A copy of this deck was created in your Google Drive.",
         "editorExport.downloadHtml": "Download as HTML",
         "editorExport.duplicateDeck": "Duplicate deck",
         "editorExport.export": "Export",
@@ -72,6 +72,9 @@ function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
       onDuplicate={vi.fn()}
       onExportPdf={vi.fn()}
       onExportPptx={vi.fn()}
+      onExportGoogleSlides={vi.fn().mockResolvedValue({
+        url: "https://docs.google.com/presentation/d/new-deck/edit",
+      })}
       {...overrides}
     />,
   );
@@ -116,17 +119,103 @@ describe("<ExportMenu>", () => {
     expect(window.open).not.toHaveBeenCalled();
   });
 
-  it("downloads Google Slides exports as PPTX without navigating away first", async () => {
-    const onExportPptx = vi.fn().mockResolvedValue(undefined);
-    renderMenu({ onExportPptx });
+  it("opens the converted deck in Google Slides", async () => {
+    const openedTab = { location: { href: "" }, close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
+    const onExportGoogleSlides = vi.fn().mockResolvedValue({
+      url: "https://docs.google.com/presentation/d/new-deck/edit",
+    });
+    renderMenu({ onExportGoogleSlides });
 
     const trigger = screen.getByRole("button", { name: /export/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Download for Google Slides"));
+    fireEvent.click(await screen.findByText("Open in Google Slides"));
 
-    await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onExportGoogleSlides).toHaveBeenCalledTimes(1));
+    expect(openedTab.location.href).toBe(
+      "https://docs.google.com/presentation/d/new-deck/edit",
+    );
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "Opened in Google Slides",
+      expect.objectContaining({
+        description: "A copy of this deck was created in your Google Drive.",
+      }),
+    );
+  });
+
+  it("opens the Google OAuth flow from the export menu", async () => {
+    const openedTab = { location: { href: "" }, close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          url: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    renderMenu();
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Connect Google"));
+
+    expect(window.open).toHaveBeenCalledWith(
+      "",
+      "google-docs-oauth",
+      "popup,width=520,height=720",
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/agent/_agent-native/google-docs/auth-url?return=",
+        ),
+        { credentials: "same-origin" },
+      ),
+    );
+    expect(openedTab.location.href).toBe(
+      "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+    );
+  });
+
+  it("does not navigate the editor when the OAuth popup is blocked", async () => {
+    renderMenu();
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Connect Google"));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Export failed",
+        expect.objectContaining({
+          description: "Could not export Google Slides.",
+        }),
+      ),
+    );
     expect(fetch).not.toHaveBeenCalled();
-    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the import dialog when Drive is unavailable", async () => {
+    const openedTab = { location: { href: "" }, close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
+    renderMenu({
+      onExportGoogleSlides: vi.fn().mockResolvedValue({
+        url: null,
+        downloaded: true,
+        reason: "No connected Google account.",
+      }),
+    });
+
+    const trigger = screen.getByRole("button", { name: /export/i });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByText("Open in Google Slides"));
+
+    await waitFor(() =>
+      expect(openedTab.location.href).toBe(
+        "https://docs.google.com/presentation/u/0/?usp=import",
+      ),
+    );
     expect(toastSuccessMock).toHaveBeenCalledWith(
       "Downloaded for Google Slides",
       expect.objectContaining({
@@ -135,15 +224,17 @@ describe("<ExportMenu>", () => {
     );
   });
 
-  it("does not open Google Slides when Google export fails", async () => {
+  it("does not open Google Slides when the export itself fails", async () => {
+    const openedTab = { location: { href: "" }, close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
     renderMenu({
-      onExportPptx: vi.fn().mockRejectedValue(new Error("Could not render")),
+      onExportGoogleSlides: vi
+        .fn()
+        .mockRejectedValue(new Error("Could not render")),
     });
     const trigger = screen.getByRole("button", { name: /export/i });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Download for Google Slides"));
-
-    expect(window.open).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByText("Open in Google Slides"));
 
     await waitFor(() => {
       expect(toastErrorMock).toHaveBeenCalledWith(
@@ -151,7 +242,8 @@ describe("<ExportMenu>", () => {
         expect.objectContaining({ description: "Could not render" }),
       );
     });
-    expect(window.open).not.toHaveBeenCalled();
+    expect(openedTab.location.href).toBe("");
+    expect(openedTab.close).toHaveBeenCalled();
   });
 
   it("downloads HTML via the streamed POST endpoint, not the broken filename GET", async () => {

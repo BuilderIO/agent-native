@@ -42,7 +42,7 @@ button[title="Open agent sidebar"] {
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 93%;
 
-  --destructive: 0 72% 51%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 100%;
 
   --border: 0 0% 24%;
@@ -61,6 +61,8 @@ button[title="Open agent sidebar"] {
   --sidebar-accent-foreground: 0 0% 93%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 50%;
+
+  --accent-cyan: 187 100% 50%;
 }
 
 .light {
@@ -102,6 +104,83 @@ button[title="Open agent sidebar"] {
   --sidebar-accent-foreground: 0 0% 10%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 65%;
+
+  /* Darker than the dark-theme #00E5FF so text stays >= 4.5:1 against a white popover. */
+  --accent-cyan: 193 82% 31%;
+}
+
+/* Slides keeps the shared visual inspector behavior, but the dock and context toolbar need the
+   flatter, filled-control treatment used by the slide editor. */
+.slide-style-inspector,
+.slide-context-toolbar {
+  --slides-inspector-control-background: hsl(var(--muted) / 0.82);
+  --slides-inspector-divider: hsl(var(--border) / 0.7);
+  --design-editor-control-bg: var(--slides-inspector-control-background);
+  --design-editor-control-border: transparent;
+  --design-editor-accent-color: #609ff8;
+}
+
+.slide-style-inspector > div:first-child {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.slide-style-inspector > div:first-child > div > div:first-child {
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.slide-style-inspector > div:last-child {
+  max-height: none;
+  padding: 0;
+}
+
+.slide-style-inspector .slides-inspector-section {
+  border-bottom: 1px solid var(--slides-inspector-divider);
+  border-radius: 0;
+  padding: 0.625rem 0.75rem;
+}
+
+.slide-style-inspector .slides-inspector-section > div:first-child {
+  margin-bottom: 0.5rem;
+  padding: 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.slide-style-inspector label[for] {
+  border: 0;
+  background: transparent;
+}
+
+.slide-style-inspector input {
+  border: 0;
+  border-radius: 0.125rem;
+  background: var(--slides-inspector-control-background);
+  box-shadow: none;
+}
+
+/* The toolbar sits on a muted surface, so its inputs need the opposite
+   treatment to stay readable: a light box rather than a darker fill. */
+.slide-context-toolbar input {
+  border: 1px solid var(--slides-inspector-divider);
+  border-radius: 0.25rem;
+  background: hsl(var(--background));
+  box-shadow: none;
+}
+
+.slide-style-inspector input:focus {
+  border: 0;
+}
+
+.slide-style-inspector .slides-inspector-segment,
+.slide-context-toolbar .slides-inspector-segment {
+  min-height: 1.5rem;
+  border: 0;
+  border-radius: 0.125rem;
+  background: var(--slides-inspector-control-background);
 }
 
 @layer base {
@@ -1080,6 +1159,103 @@ button[title="Open agent sidebar"] {
 /* Selection highlight */
 .slide-tiptap-editor .tiptap ::selection {
   background: rgba(96, 159, 248, 0.35);
+}
+
+/* Google Slides-style object selection chrome. The edge hit targets are wider
+   than their visible bars, but both centers sit on the 1px outline rather than
+   drifting into the selected object through the outline's border box. */
+[data-slide-selection-chrome="true"] [data-slide-resize-handle] {
+  box-sizing: border-box;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle-bar="true"] {
+  border: 1px solid #609ff8;
+  background: #fff;
+  box-shadow: none;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
+  width: 7px;
+  height: 7px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"] {
+  top: -4px;
+  left: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"] {
+  top: -4px;
+  right: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"] {
+  bottom: -4px;
+  left: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
+  right: -4px;
+  bottom: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="n"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
+  width: 22px;
+  height: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="n"] {
+  top: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
+  bottom: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="e"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
+  width: 12px;
+  height: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="e"] {
+  right: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
+  left: -6.5px;
+}
+
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="n"]
+  [data-slide-resize-handle-bar="true"],
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="s"]
+  [data-slide-resize-handle-bar="true"] {
+  width: 14px;
+  height: 4px;
+}
+
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="e"]
+  [data-slide-resize-handle-bar="true"],
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="w"]
+  [data-slide-resize-handle-bar="true"] {
+  width: 4px;
+  height: 14px;
 }
 
 /* ─── Slide Transition Keyframes ─── */

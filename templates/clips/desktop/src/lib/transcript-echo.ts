@@ -35,7 +35,8 @@ interface TimedToken {
 function eventTimeRange(
   event: FinalTranscriptEvent,
 ): { startMs: number; endMs: number } | null {
-  const parts = event.words.length > 0 ? event.words : event.segments;
+  const parts =
+    event.words && event.words.length > 0 ? event.words : event.segments;
   if (parts.length === 0) return null;
   return {
     startMs: Math.min(...parts.map((part) => part.startMs)),
@@ -53,7 +54,8 @@ export function dropMicEchoFinals(
   const systemTokens: TimedToken[] = [];
   for (const event of finals) {
     if (event.source !== "system") continue;
-    const parts = event.words.length > 0 ? event.words : event.segments;
+    const parts =
+      event.words && event.words.length > 0 ? event.words : event.segments;
     for (const part of parts) {
       for (const token of normalizeTokens(part.text)) {
         systemTokens.push({ token, ms: part.startMs });

@@ -157,6 +157,11 @@ export function startAgentHarnessRun(
     {
       ...(opts.runOptions ?? {}),
       turnId: opts.turnId ?? opts.runOptions?.turnId,
+      // A harness adapter (e.g. Claude Code, Codex) owns its own model
+      // selection internally and does not expose it here, so `model` is
+      // left for the caller to supply via `runOptions` if it knows one.
+      // `ownerEmail` is PII and is never passed as `userId`.
+      engineName: opts.runOptions?.engineName ?? opts.adapter.name,
     },
   );
 }

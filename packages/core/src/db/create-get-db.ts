@@ -21,6 +21,9 @@ import {
   withDbTimeout,
   retryOnConnectionError,
   dbOpTimeoutMs,
+  sharedDbPool,
+  onSharedDbPoolsClosed,
+  onSharedDbPoolReplaced,
 } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
@@ -84,23 +87,28 @@ export function isSqlRead(sql: string): boolean {
  * connection the transaction needs. The pool-level error logger still fires
  * on idle-client drops inside transactions.
  */
-export function buildResilientNeonPool(pool: {
-  connect(): Promise<any>;
-  query(
-    sql: string,
-    args?: any[],
-  ): Promise<{ rows: unknown[]; rowCount?: number }>;
-  end(): Promise<void>;
-  on(event: string, listener: (...args: any[]) => void): unknown;
-}): typeof pool {
+export function buildResilientNeonPool<
+  T extends {
+    connect(): Promise<any>;
+    query(...args: any[]): Promise<any>;
+    end(): Promise<void>;
+    on(event: string, listener: (...args: any[]) => void): unknown;
+  },
+>(pool: T): T {
   // Preserve all original pool methods and properties; only override `connect`
   // and `query` at the Pool level (used by drizzle's neon-serverless adapter
   // when it calls pool.query() directly, e.g. outside a transaction).
   const resilientQuery = async (
-    sql: string,
+    sql: string | { text?: unknown },
     args?: any[],
   ): Promise<{ rows: unknown[]; rowCount?: number }> => {
-    const isRead = isSqlRead(sql);
+    const sqlText =
+      typeof sql === "string"
+        ? sql
+        : typeof sql?.text === "string"
+          ? sql.text
+          : "";
+    const isRead = isSqlRead(sqlText);
 
     const runAttempt = async (): Promise<{
       rows: unknown[];
@@ -135,7 +143,9 @@ export function buildResilientNeonPool(pool: {
         const result = await withDbTimeout(
           "query",
           () =>
-            client.query(sql, args ?? []) as Promise<{
+            (args === undefined
+              ? client.query(sql)
+              : client.query(sql, args)) as Promise<{
               rows: unknown[];
               rowCount?: number;
             }>,
@@ -180,7 +190,7 @@ export function buildResilientNeonPool(pool: {
       const val = (target as any)[prop];
       return typeof val === "function" ? val.bind(target) : val;
     },
-  });
+  }) as T;
 }
 
 /**
@@ -437,6 +447,27 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
 
+  // The Drizzle instance is bound to a shared pool, so a `closeDbExec()` (test
+  // teardown, script cleanup) must invalidate it rather than leave this store
+  // issuing queries on a closed pool. Registered lazily from the pooled
+  // branches only — `createGetDb` is called at module scope by every store, and
+  // core's specs widely mock `db/client.js`.
+  let _closeHookRegistered = false;
+  function resetOnPoolClose(driver?: string, url?: string): void {
+    if (_closeHookRegistered) return;
+    _closeHookRegistered = true;
+    onSharedDbPoolsClosed(() => {
+      _db = undefined;
+      _dbReady = undefined;
+    });
+    if (driver && url) {
+      onSharedDbPoolReplaced(driver, url, () => {
+        _db = undefined;
+        _dbReady = undefined;
+      });
+    }
+  }
+
   function startInit(): Promise<any> {
     if (_dbReady) return _dbReady;
 
@@ -466,10 +497,15 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     if (dialect === "postgres") {
       if (isNeonUrl(url)) {
         _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
-          const rawPool = new Pool({
-            connectionString: url,
-            max: neonPoolMax(),
-          });
+          // Shared with the DbExec singleton, Better Auth, and every other
+          // `createGetDb` store: one connect per process instead of one per
+          // schema module. See `sharedDbPool` in client.ts.
+          resetOnPoolClose("neon", url);
+          const rawPool = sharedDbPool(
+            "neon",
+            url,
+            () => new Pool({ connectionString: url, max: neonPoolMax() }),
+          );
           attachNeonPoolErrorLogger(rawPool);
           // Wrap the pool with the resilience layer so Drizzle queries get the
           // same withDbTimeout + retryOnConnectionError protection as the raw
@@ -482,8 +518,12 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
           // pgPoolOptions caps the pool to a small size on serverless so
           // concurrent frozen instances don't exhaust Neon/Postgres'
-          // connection limit ("Max client connections reached").
-          const client = postgres(url, pgPoolOptions(url));
+          // connection limit ("Max client connections reached"). Shared across
+          // consumers — see `sharedDbPool` in client.ts.
+          resetOnPoolClose("postgres-js", url);
+          const client = sharedDbPool("postgres-js", url, () =>
+            postgres(url, pgPoolOptions(url)),
+          );
           _db = drizzle(buildResilientPostgresJsClient(client), { schema });
         });
       }

@@ -11,7 +11,8 @@
  * regex stays narrow; the gateway may emit URLs containing `(`
  * (e.g. `?ref=Acme%20(staging)`) and we don't want to reject them.
  */
-export const BUILDER_SPACE_SETTINGS_URL = "https://builder.io/account/space";
+export const BUILDER_SPACE_SETTINGS_URL =
+  "https://builder.io/account/space?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=space_settings";
 
 // Pseudo-href used to mark an in-app "Start new chat" CTA inside the markdown
 // error message. The chat renderer intercepts this href and renders a button
@@ -94,11 +95,24 @@ function isProviderAuthenticationError(
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
       text,
     ) ||
+    lower.includes("missing authentication header") ||
     lower.includes("invalid x-api-key") ||
     lower.includes("invalid api key") ||
     lower.includes("incorrect api key") ||
     lower.includes("api key is invalid") ||
     (lower.includes("authentication_error") && lower.includes("api"))
+  );
+}
+
+function isConnectionError(text: string, errorCode?: string): boolean {
+  const code = normalizeErrorCode(errorCode);
+  return (
+    code === "provider_network_error" ||
+    code === "connection_error" ||
+    code === "network_error" ||
+    /^(?:provider_network_error|connection_error|network_error)$/i.test(
+      text.trim(),
+    )
   );
 }
 
@@ -109,6 +123,35 @@ export function normalizeChatError(
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
+
+  const code = normalizeErrorCode(errorCode);
+
+  if (code === "builder_model_unauthorized") {
+    return {
+      message:
+        "The provider behind this model rejected the request. Pick a different model, then retry.",
+      details: text,
+    };
+  }
+
+  if (code === "builder_auth_error") {
+    return {
+      message:
+        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+      details: text,
+    };
+  }
+
+  // A model/parameter combination this provider will never accept. Retrying is
+  // pointless and the raw sentence names an API surface the reader has no way
+  // to act on, so say what they can actually change.
+  if (code === "provider_config_error") {
+    return {
+      message:
+        "This model can't use tools with the current settings. Switch models in Settings, then retry.",
+      details: text,
+    };
+  }
 
   if (isProviderRateLimit(text, errorCode)) {
     return {
@@ -121,7 +164,19 @@ export function normalizeChatError(
   if (isProviderAuthenticationError(text, errorCode)) {
     return {
       message:
-        "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+        "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+      details: text,
+    };
+  }
+
+  if (isConnectionError(text, errorCode)) {
+    const providerNetworkError =
+      normalizeErrorCode(errorCode) === "provider_network_error" ||
+      /provider_network_error/i.test(text);
+    return {
+      message: providerNetworkError
+        ? "The model provider could not be reached. Check your connection and retry."
+        : "The agent connection was interrupted. Check your connection and retry.",
       details: text,
     };
   }

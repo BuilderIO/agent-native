@@ -11,6 +11,23 @@ let mockFitCheckResult:
 let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
 
 let mockDeckRow: Record<string, unknown> | undefined;
+const mockGetGenerationCreativeContext = vi.fn(async () => null);
+const mockRecordGenerationCreativeContext = vi.fn(async () => undefined);
+const mockValidateGenerationCreativeContext = vi.fn(
+  async (input: {
+    contextPackId?: string;
+    contextModeOverride?: "off";
+    reuseLabels?: Array<Record<string, unknown>>;
+  }) => ({
+    contextMode: input.contextModeOverride === "off" ? "off" : "auto",
+    contextPackId:
+      input.contextModeOverride === "off"
+        ? null
+        : (input.contextPackId ?? null),
+    reuseLabels: input.reuseLabels ?? [],
+    results: [],
+  }),
+);
 
 // Minimal Drizzle query-builder stub. The action only uses:
 //   db.select({...}).from(decks).where(...).limit(1)  -> [row]
@@ -29,6 +46,8 @@ const mockDb = {
       return { where: async () => ({ rowsAffected: 1 }) };
     },
   }),
+  transaction: async (callback: (tx: any) => Promise<unknown>) =>
+    callback(mockDb),
 };
 
 vi.mock("../server/db/index.js", () => ({
@@ -56,6 +75,29 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+}));
+
+vi.mock("@agent-native/creative-context/server", () => ({
+  getGenerationCreativeContext: (...args: unknown[]) =>
+    mockGetGenerationCreativeContext(...args),
+  recordGenerationCreativeContext: (...args: unknown[]) =>
+    mockRecordGenerationCreativeContext(...args),
+  validateGenerationCreativeContext: (...args: unknown[]) =>
+    mockValidateGenerationCreativeContext(...args),
+  mergeCreativeContextReuseLabels: (
+    previous: Array<Record<string, unknown>>,
+    next: Array<Record<string, unknown>>,
+  ) => [...previous, ...next],
+  replaceCreativeContextElementProvenance: (
+    previous: Array<{ elementId: string }>,
+    next: Array<{ elementId: string }>,
+  ) => {
+    const replaced = new Set(next.map((entry) => entry.elementId));
+    return [
+      ...previous.filter((entry) => !replaced.has(entry.elementId)),
+      ...next,
+    ];
+  },
 }));
 
 vi.mock("../server/handlers/decks.js", () => ({
@@ -131,6 +173,20 @@ describe("update-slide", () => {
       slideId: "slide-1",
       actor: "agent",
     });
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactId: "deck-1",
+        contextMode: "auto",
+        contextPackId: null,
+        elementProvenance: [
+          expect.objectContaining({
+            elementId: "slide-1",
+            influence: "generated",
+          }),
+        ],
+      }),
+      expect.objectContaining({ db: mockDb }),
+    );
     // The agent's presence is recorded on the DECK presence doc for this slide.
     expect(mockAgentTouchDocument).toHaveBeenCalledWith(
       "deck-deck-1",
@@ -154,6 +210,99 @@ describe("update-slide", () => {
     expect(result.ok).toBe(true);
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>Fresh</div>");
+  });
+
+  it("inherits and replaces exact slide provenance without losing other slides", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      creativeContext: {
+        contextMode: "auto",
+        contextPackId: "pack-1",
+        reuseLabels: [],
+      },
+      slides: [
+        { id: "slide-1", content: "<div>Old</div>" },
+        { id: "slide-2", content: "<div>Keep</div>" },
+      ],
+    });
+    mockGetGenerationCreativeContext.mockResolvedValueOnce({
+      contextMode: "auto",
+      contextPackId: "pack-1",
+      elementProvenance: [{ elementId: "slide-2", influence: "generated" }],
+    });
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "slide",
+      label: "Metrics layout",
+      dataRole: "untrusted-reference" as const,
+      influence: "adapted" as const,
+    };
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: "<div>Adapted</div>",
+      reuseLabels: [evidence],
+    });
+
+    expect(mockValidateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextPackId: "pack-1",
+        contextPackSource: "inherited",
+        reuseLabels: [evidence],
+        reuseLabelsSource: "explicit",
+      }),
+    );
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextPackId: "pack-1",
+        elementProvenance: [
+          { elementId: "slide-2", influence: "generated" },
+          expect.objectContaining({
+            elementId: "slide-1",
+            influence: "adapted",
+            itemId: "item-1",
+            itemVersionId: "version-1",
+          }),
+        ],
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("does not read prior provenance for a one-slide off override", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      creativeContext: {
+        contextMode: "auto",
+        contextPackId: "pack-1",
+        reuseLabels: [],
+      },
+      slides: [{ id: "slide-1", content: "<div>Old</div>" }],
+    });
+
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: "<div>Unbranded edit</div>",
+      contextModeOverride: "off",
+    });
+
+    expect(mockGetGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        elementProvenance: [
+          expect.objectContaining({
+            elementId: "slide-1",
+            influence: "generated",
+          }),
+        ],
+      }),
+      expect.any(Object),
+    );
   });
 
   it("returns ok:false without writing when the find text is missing", async () => {

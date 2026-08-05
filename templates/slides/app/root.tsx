@@ -1,21 +1,23 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
+  useDbSync,
+} from "@agent-native/core/client/hooks";
+import {
   enterStyleEditing as coreEnterStyleEditing,
   enterTextEditing as coreEnterTextEditing,
   exitSelectionMode as coreExitSelectionMode,
-  useCommandMenuShortcut,
-  useDbSync,
-  useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import {
-  getLocaleInitScript,
-  getThemeInitScript,
-} from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -26,6 +28,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
@@ -184,6 +187,7 @@ function AppContent() {
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
+  const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
 
@@ -211,6 +215,13 @@ function AppContent() {
         <CommandMenu.Group heading={t("root.commandPresentations")}>
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.searchDecks")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={["agent", "context", "connections", "jobs", "access"]}
+          >
+            <IconHierarchy2 size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
@@ -253,4 +264,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

@@ -1,8 +1,8 @@
+import { emailToColor } from "@agent-native/core/client/collab";
 import {
-  emailToColor,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 
 export interface SlideComment {
   id: string;

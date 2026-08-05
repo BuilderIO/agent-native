@@ -85,8 +85,9 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/plan-content.js", () => ({
-  normalizePlanContent: vi.fn(),
-  serializePlanContent: vi.fn(),
+  normalizePlanContent: vi.fn((content: unknown) => content),
+  sanitizeStoredPlanHtml: vi.fn((html: string) => html),
+  serializePlanContent: vi.fn((content: unknown) => content),
 }));
 
 vi.mock("../server/plan-mdx.js", () => ({
@@ -165,6 +166,100 @@ const commentOnlyArgs = {
   ],
   consumedCommentIds: [],
 };
+
+const baseUpdatedAt = "2026-06-05T00:00:00.000Z";
+const newerUpdatedAt = "2026-06-05T00:01:00.000Z";
+const structuredContent = {
+  version: 2 as const,
+  title: "Plan",
+  brief: "",
+  blocks: [
+    {
+      id: "intro",
+      type: "rich-text" as const,
+      title: "Intro",
+      data: { markdown: "Original intro." },
+    },
+  ],
+  canvas: {
+    title: "Design",
+    frames: [
+      {
+        id: "frame_1",
+        x: 0,
+        y: 0,
+        width: 320,
+        height: 240,
+      },
+    ],
+  },
+  prototype: {
+    title: "Prototype",
+    screens: [
+      {
+        id: "screen_1",
+        title: "Home",
+        html: "<main>Home</main>",
+      },
+    ],
+  },
+};
+
+function planBundle(input?: {
+  content?: typeof structuredContent | null;
+  updatedAt?: string;
+}) {
+  return {
+    plan: {
+      id: "plan_public",
+      title: "Plan",
+      brief: "",
+      kind: "plan",
+      status: "review",
+      updatedAt: input?.updatedAt ?? baseUpdatedAt,
+      content: input && "content" in input ? input.content : structuredContent,
+    },
+    access: {
+      role: "owner",
+      ownerEmail: "editor@example.com",
+      orgId: null,
+      visibility: "private",
+    },
+    sections: [],
+    comments: [],
+    events: [],
+  };
+}
+
+function useSuccessfulDb() {
+  const returningMock = vi.fn(async () => [{ id: "plan_public" }]);
+  const updateWhereMock = vi.fn(() => ({ returning: returningMock }));
+  const updateSetMock = vi.fn(() => ({ where: updateWhereMock }));
+  const updateMock = vi.fn(() => ({ set: updateSetMock }));
+  const insertValuesMock = vi.fn(async () => undefined);
+  const insertMock = vi.fn(() => ({ values: insertValuesMock }));
+  const selectMock = vi.fn();
+  const transactionMock = vi.fn(async (callback) =>
+    callback({
+      update: updateMock,
+      insert: insertMock,
+      select: selectMock,
+    }),
+  );
+  getDbMock.mockReturnValue({
+    transaction: transactionMock,
+    update: updateMock,
+    insert: insertMock,
+    select: selectMock,
+  });
+  return {
+    insertValuesMock,
+    returningMock,
+    transactionMock,
+    updateSetMock,
+    updateWhereMock,
+  };
+}
 
 describe("update-visual-plan comments", () => {
   beforeEach(() => {
@@ -590,6 +685,106 @@ describe("update-visual-plan comments", () => {
     );
   });
 
+  it("returns a compact write acknowledgement to agent callers", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    const result = await (
+      updateVisualPlan as {
+        run: (args: unknown, ctx?: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).run(
+      {
+        planId: "plan_public",
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({
+      planId: "plan_public",
+      plan: { updatedAt: baseUpdatedAt },
+      changed: {
+        contentPatchOps: [],
+        commentCount: 0,
+      },
+    });
+    expect(result).not.toHaveProperty("html");
+    expect(JSON.stringify(result)).not.toContain("Original intro.");
+  });
+
+  it("handles a 13-task amendment as three incremental writes", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    const thirteenTaskContent = {
+      ...structuredContent,
+      blocks: Array.from({ length: 13 }, (_, index) => ({
+        id: `task-${index + 1}`,
+        type: "rich-text" as const,
+        title: `Task ${index + 1}`,
+        data: { markdown: `- [ ] Original task ${index + 1}` },
+      })),
+    };
+    loadPlanBundleMock.mockResolvedValue(
+      planBundle({ content: thirteenTaskContent }),
+    );
+
+    const result = await (
+      updateVisualPlan as {
+        run: (args: unknown, ctx?: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).run(
+      {
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "append-block",
+            block: {
+              id: "task-14",
+              type: "rich-text",
+              title: "Task 14",
+              data: { markdown: "- [ ] Add payment intent tracking" },
+            },
+          },
+          {
+            op: "append-block",
+            block: {
+              id: "task-15",
+              type: "rich-text",
+              title: "Task 15",
+              data: { markdown: "- [ ] Update refund handling" },
+            },
+          },
+          {
+            op: "append-block",
+            block: {
+              id: "task-16",
+              type: "rich-text",
+              title: "Task 16",
+              data: { markdown: "- [ ] Add registration coverage" },
+            },
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      },
+      { caller: "tool" },
+    );
+
+    expect(result).toMatchObject({
+      planId: "plan_public",
+      changed: {
+        contentPatchOps: ["append-block", "append-block", "append-block"],
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain("Original task 1");
+  });
+
   it("records compact before/after details for targeted content patches", async () => {
     request.email = "editor@example.com";
     const txUpdateMock = vi.fn(() => ({
@@ -665,7 +860,6 @@ describe("update-visual-plan comments", () => {
             edits: [{ find: "Old CTA", replace: "New CTA" }],
           },
         ],
-        markdown: "",
         sections: [],
         comments: [],
         consumedCommentIds: [],
@@ -702,5 +896,327 @@ describe("update-visual-plan comments", () => {
         patch: expect.objectContaining({ editCount: 1 }),
       }),
     ]);
+  });
+
+  it.each([
+    {
+      name: "full content replacement",
+      input: {
+        content: structuredContent,
+        contentPatches: [],
+      },
+    },
+    {
+      name: "replace-blocks",
+      input: {
+        contentPatches: [
+          { op: "replace-blocks" as const, blocks: structuredContent.blocks },
+        ],
+      },
+    },
+  ])("requires expectedUpdatedAt for $name", async ({ input }) => {
+    request.email = "editor@example.com";
+    getDbMock.mockReturnValue({});
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        ...input,
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toThrow(
+      "expectedUpdatedAt is required for full content replacement and replace-blocks",
+    );
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "full content replacement",
+      input: {
+        content: structuredContent,
+        contentPatches: [],
+      },
+    },
+    {
+      name: "replace-blocks",
+      input: {
+        contentPatches: [
+          { op: "replace-blocks" as const, blocks: structuredContent.blocks },
+        ],
+      },
+    },
+  ])(
+    "rejects stale $name before snapshotting or writing",
+    async ({ input }) => {
+      request.email = "editor@example.com";
+      getDbMock.mockReturnValue({});
+      loadPlanBundleMock.mockResolvedValue(
+        planBundle({ updatedAt: newerUpdatedAt }),
+      );
+
+      await expect(
+        (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+          planId: "plan_public",
+          expectedUpdatedAt: baseUpdatedAt,
+          ...input,
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ).rejects.toThrow("prepared from an outdated plan revision");
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    {
+      name: "full content replacement",
+      input: { content: structuredContent, contentPatches: [] },
+    },
+    {
+      name: "replace-blocks",
+      input: {
+        contentPatches: [
+          { op: "replace-blocks" as const, blocks: structuredContent.blocks },
+        ],
+      },
+    },
+  ])(
+    "uses expectedUpdatedAt as the transaction CAS for $name",
+    async ({ input }) => {
+      request.email = "editor@example.com";
+      const { updateWhereMock } = useSuccessfulDb();
+      loadPlanBundleMock.mockResolvedValue(planBundle());
+
+      await expect(
+        (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+          planId: "plan_public",
+          expectedUpdatedAt: baseUpdatedAt,
+          ...input,
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ).resolves.toMatchObject({ planId: "plan_public" });
+
+      expect(updateWhereMock).toHaveBeenCalledWith({
+        op: "and",
+        args: [
+          { op: "eq", args: ["plans.id", "plan_public"] },
+          { op: "eq", args: ["plans.updatedAt", baseUpdatedAt] },
+        ],
+      });
+    },
+  );
+
+  it("allows a granular structured patch without expectedUpdatedAt and CASes the loaded revision", async () => {
+    request.email = "editor@example.com";
+    const { updateWhereMock } = useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: "intro",
+            markdown: "Updated intro.",
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+
+    expect(updateWhereMock).toHaveBeenCalledWith({
+      op: "and",
+      args: [
+        { op: "eq", args: ["plans.id", "plan_public"] },
+        { op: "eq", args: ["plans.updatedAt", baseUpdatedAt] },
+      ],
+    });
+  });
+
+  it.each([
+    { name: "html", input: { html: "<main>Legacy</main>" } },
+    { name: "markdown", input: { markdown: "# Legacy" } },
+    {
+      name: "contentPatches mixed with markdown",
+      input: {
+        markdown: "# Stale shadow",
+        contentPatches: [
+          {
+            op: "update-rich-text" as const,
+            blockId: "intro",
+            markdown: "Updated intro.",
+          },
+        ],
+      },
+    },
+  ])(
+    "rejects explicit legacy $name writes on structured plans",
+    async ({ input }) => {
+      request.email = "editor@example.com";
+      getDbMock.mockReturnValue({});
+      loadPlanBundleMock.mockResolvedValue(planBundle());
+
+      await expect(
+        (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+          planId: "plan_public",
+          contentPatches: [],
+          ...input,
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ).rejects.toThrow("Structured plans do not accept explicit legacy");
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { name: "html", input: { html: "<main>Legacy</main>" } },
+    { name: "markdown", input: { markdown: "# Legacy" } },
+  ])("preserves explicit $name updates for legacy plans", async ({ input }) => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle({ content: null }));
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        contentPatches: [],
+        ...input,
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+    expect(createPlanVersionSnapshotMock).toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "existing block IDs",
+      content: {
+        ...structuredContent,
+        blocks: [],
+      },
+      message: "remove 1 existing block ID (intro)",
+    },
+    {
+      name: "all canvas frames",
+      content: {
+        ...structuredContent,
+        canvas: { ...structuredContent.canvas, frames: [] },
+      },
+      message: "collapse a nonempty canvas to zero frames",
+    },
+    {
+      name: "all prototype screens",
+      content: {
+        ...structuredContent,
+        prototype: { ...structuredContent.prototype, screens: [] },
+      },
+      message: "collapse a nonempty prototype to zero screens",
+    },
+  ])(
+    "rejects replacement that drops $name without allowDestructive",
+    async ({ content, message }) => {
+      request.email = "editor@example.com";
+      getDbMock.mockReturnValue({});
+      loadPlanBundleMock.mockResolvedValue(planBundle());
+
+      await expect(
+        (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+          planId: "plan_public",
+          expectedUpdatedAt: baseUpdatedAt,
+          content,
+          contentPatches: [],
+          sections: [],
+          comments: [],
+          consumedCommentIds: [],
+        }),
+      ).rejects.toThrow(message);
+      expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows an intentional destructive replacement with a fresh revision and allowDestructive", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        allowDestructive: true,
+        content: {
+          ...structuredContent,
+          blocks: [],
+          canvas: { ...structuredContent.canvas, frames: [] },
+          prototype: { ...structuredContent.prototype, screens: [] },
+        },
+        contentPatches: [],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+  });
+
+  it("rejects replace-blocks that removes an existing block ID without allowDestructive", async () => {
+    request.email = "editor@example.com";
+    getDbMock.mockReturnValue({});
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        contentPatches: [{ op: "replace-blocks", blocks: [] }],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toThrow("remove 1 existing block ID (intro)");
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("allows a replace-blocks superset that preserves every existing block ID", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        planId: "plan_public",
+        expectedUpdatedAt: baseUpdatedAt,
+        contentPatches: [
+          {
+            op: "replace-blocks",
+            blocks: [
+              ...structuredContent.blocks,
+              {
+                id: "details",
+                type: "rich-text",
+                title: "Details",
+                data: { markdown: "Additional details." },
+              },
+            ],
+          },
+        ],
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
   });
 });

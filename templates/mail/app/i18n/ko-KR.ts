@@ -440,10 +440,10 @@ const messages = {
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",
   },
   settings: {
-    openAgentSettings: "에이전트 설정 열기",
+    openAgentSettings: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    agentTitle: "에이전트 설정",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 관리",
     aliasName: "별칭 이름",
     aliasNamePlaceholder: "예: 디자인 팀",
     recipientsOnePerLine: "수신자(한 줄에 이메일 하나)",

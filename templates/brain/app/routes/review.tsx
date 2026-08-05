@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   type Icon,
   IconChartBar,
@@ -65,7 +65,7 @@ import { cn } from "@/lib/utils";
 
 type BrainT = ReturnType<typeof useT>;
 
-type ProposalStatus = "pending" | "approved" | "rejected";
+type ProposalStatus = "pending" | "approved" | "rejected" | "quarantine";
 
 interface ProposalDraft {
   title?: string;
@@ -337,6 +337,9 @@ export default function ReviewRoute() {
                 <SelectItem value="pending">{t("review.pending")}</SelectItem>
                 <SelectItem value="approved">{t("review.approved")}</SelectItem>
                 <SelectItem value="rejected">{t("review.rejected")}</SelectItem>
+                <SelectItem value="quarantine">
+                  {t("review.quarantine")}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -349,6 +352,11 @@ export default function ReviewRoute() {
         ) : proposals.length ? (
           <div className="grid gap-4">
             {proposals.map((proposal) => {
+              if (status === "quarantine") {
+                return (
+                  <QuarantineMetadataCard key={proposal.id} item={proposal} />
+                );
+              }
               const evidence = proposal.evidence ?? [];
               const sourceUrl = firstSourceUrl(proposal);
               const canReview = proposal.status === "pending";
@@ -641,8 +649,39 @@ export default function ReviewRoute() {
 }
 
 function proposalStatus(value: string | null): ProposalStatus {
-  if (value === "approved" || value === "rejected") return value;
+  if (value === "approved" || value === "rejected" || value === "quarantine")
+    return value;
   return "pending";
+}
+
+function QuarantineMetadataCard({ item }: { item: ReviewItem }) {
+  const t = useT();
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="text-base">
+              {t("review.quarantineEvent")}
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {item.reason ?? t("review.quarantineNoReason")}
+            </p>
+          </div>
+          <Badge variant="outline">{t("review.metadataOnly")}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
+        <span>{t("review.quarantineId", { id: item.id })}</span>
+        <span>
+          {t("review.quarantineSource", {
+            source: item.sourceName ?? item.sourceId ?? t("review.notRecorded"),
+          })}
+        </span>
+        <span>{formatDate(item.createdAt, t)}</span>
+      </CardContent>
+    </Card>
+  );
 }
 
 function cleanNote(value: string | undefined) {

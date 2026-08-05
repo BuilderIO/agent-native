@@ -1,11 +1,12 @@
 import {
   AgentSidebar,
   focusAgentChat,
+  isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
@@ -57,9 +58,11 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isChatRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("chat");
   useAgentChatHomeHandoffLinks({
     storageKey: "chat",
     isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
+    requireActiveHandoff: true,
   });
 
   useEffect(() => {
@@ -163,11 +166,13 @@ export function Layout({ children }: LayoutProps) {
           <AgentSidebar
             position="right"
             chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="chat"
             browserTabId={TAB_ID}
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.inspectEmptyState")}
+            agentPageHref="/settings#agent"
             suggestions={[
               t("chat.inspectSuggestionCapabilities"),
               t("chat.inspectSuggestionHello"),

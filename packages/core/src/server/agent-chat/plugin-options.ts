@@ -5,6 +5,7 @@ import type {
   AgentChatReference,
   MentionProvider,
 } from "../../agent/types.js";
+import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
 
@@ -41,7 +42,9 @@ export interface AgentChatPluginOptions {
   /**
    * Opt this app into Netlify durable background-function agent-chat runs. This
    * gives hosted agent turns the 15-minute async-function budget when the app's
-   * Netlify build also emits the background function.
+   * Netlify build also emits the background function. Set this to `false` to
+   * explicitly disable a stale deploy-wide `AGENT_CHAT_DURABLE_BACKGROUND`
+   * flag for this app.
    */
   durableBackgroundRuns?: boolean;
   /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
@@ -106,6 +109,22 @@ export interface AgentChatPluginOptions {
    * agent mutations.
    */
   anonymousReadOnly?: boolean;
+  /**
+   * Optional auth adapter for the HTTP action route
+   * (`/_agent-native/actions/*`). Its `resolveCaller` runs before the
+   * cookie/bearer `getSession` chain, letting an app accept caller identities
+   * `getSession` doesn't understand (e.g. an A2A JWT verified with
+   * `verifyA2AToken`) declaratively, instead of pre-seeding request context
+   * from a Nitro `request` hook.
+   *
+   * Returning `null` defers to the normal chain; THROWING hard-rejects with a
+   * 401 (an invalid/forged credential must not fall through to a same-origin
+   * session cookie). A resolved caller's org comes exclusively from the
+   * verified credential — the returned `orgId` or the owner-email membership
+   * lookup — never from the request's session cookie.
+   * See {@link import("../action-routes.js").ActionRouteAuthAdapter}.
+   */
+  actionRouteAuth?: import("../action-routes.js").ActionRouteAuthAdapter;
   /**
    * Optional callback to append template-specific context to the system
    * prompt on each request. Runs after AGENTS.md / skills / memory are
@@ -198,6 +217,15 @@ export interface AgentChatPluginOptions {
    */
   initialToolNames?: string[];
   /**
+   * Controls whether broad provider/corpus tools and their workflow prompt are
+   * loaded into the first model request. Use `"lazy"` for apps that can answer
+   * ordinary lookups from a compact curated tool set; corpus tools remain
+   * discoverable through tool-search and the full retry surface.
+   *
+   * @default "initial"
+   */
+  corpusTools?: "initial" | "lazy";
+  /**
    * Use a compact system prompt with on-demand context loading. The system
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and
@@ -245,9 +273,9 @@ export interface AgentChatPluginOptions {
   /**
    * Expose framework extension management actions (`create-extension`,
    * `update-extension`, `list-extensions`, etc.) to the app agent. Defaults to
-   * true. Set to false for apps that do not want the LLM to create or manage
-   * sandboxed extension mini-apps, even though the core extension routes may
-   * still be mounted for other surfaces.
+   * false. Set to true for apps that intentionally let the LLM create or
+   * manage sandboxed extension mini-apps. Core extension routes may still be
+   * mounted for compatibility and app-owned surfaces.
    */
   extensionTools?: boolean;
   /**
@@ -293,7 +321,9 @@ export interface AgentChatPluginOptions {
    * browser-session tools) from connectors. It is no longer gated behind an
    * environment variable, and the catalog is never inferred from the client.
    *
-   * `tool-search` stays available so any trimmed tool is reachable on demand.
+   * `tool-search` stays available for discovery; a trimmed action still needs
+   * the connector catalog, authenticated-read policy, or full-catalog opt-in
+   * before an external caller can execute it.
    * Callers who need the full surface up front opt in explicitly with
    * `agent-native connect --full-catalog` (embeds a `catalog_scope: "full"`
    * claim in their connect-minted JWT) or the deployment-wide
@@ -302,6 +332,35 @@ export interface AgentChatPluginOptions {
    * Declare here rather than in MCPConfig directly; the plugin copies it through.
    */
   connectorCatalog?: string[];
+
+  /**
+   * Default authenticated external-agent policy. In `auto` read mode, every
+   * action explicitly marked as GET + readOnly + publicAgent.requiresAuth is
+   * added to the connector surface automatically. Writes remain ask_app-only
+   * unless `writes: "allowlisted"` is explicitly selected.
+   */
+  externalAgents?: ExternalAgentPolicy;
+
+  /**
+   * Allow this app's A2A agent to delegate to a different app through the
+   * built-in `call-agent` tool. Enabled by default so a receiver keeps the
+   * same cross-app capability as its interactive agent. Set false only for an
+   * intentionally isolated app. Core enforces a bounded delegation path so
+   * cycle safety does not depend on removing the tool.
+   */
+  a2aAgentDelegation?: boolean;
+
+  /**
+   * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter
+   * than interactive chat because every retained tool result is re-sent on
+   * later iterations and delegated callers need a compact answer, not a raw
+   * transcript. Apps may raise one limit deliberately for proven workloads.
+   */
+  delegatedRunPolicy?: {
+    maxIterations?: number;
+    maxRunInputTokens?: number;
+    maxToolResultChars?: number;
+  };
 
   /**
    * Skip mounting the remote MCP protocol route.
@@ -346,5 +405,17 @@ export interface AgentChatPluginOptions {
    * App-level default tool-call limits. Individual actions override these with
    * their own `timeoutMs` / `maxResultChars` declarations.
    */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  toolLimits?: {
+    timeoutMs?: number;
+    maxResultChars?: number;
+    /** Absolute cap applied even when an individual action declares more. */
+    hardMaxResultChars?: number;
+  };
+}
+
+/** Cross-app agent delegation is a workspace default; false is an isolation opt-out. */
+export function resolveA2AAgentDelegationEnabled(
+  options?: Pick<AgentChatPluginOptions, "a2aAgentDelegation">,
+): boolean {
+  return options?.a2aAgentDelegation !== false;
 }

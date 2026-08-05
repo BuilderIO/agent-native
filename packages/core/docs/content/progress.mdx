@@ -191,6 +191,17 @@ export function HeaderBar() {
 
 Inline header widget — mount it next to the notifications bell. Shows a spinner icon + count badge when runs are active; click opens a dropdown with one live percent bar per run. Hides the trigger entirely when no active runs. Polls `/_agent-native/runs?active=true` every `pollMs` (default 3 s). Uses shadcn semantic tokens, adapts to light and dark themes.
 
+<WireframeBlock id="doc-block-progresswf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:220px;box-sizing:border-box'><div style='display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:10px 14px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>&#9696; 2</span></div><div style='display:flex;flex-direction:column;gap:10px;padding:14px 16px'><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong>Triage 128 unread emails</strong><span class='wf-muted'>Classifying 84/128</span><div style='height:6px;border-radius:4px;background:var(--wf-line);overflow:hidden'><div style='width:66%;height:100%;background:hsl(var(--primary))'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong>Ingest 1M rows</strong><span class='wf-muted'>Writing to target DB</span><div style='height:6px;border-radius:4px;background:var(--wf-line);overflow:hidden'><div style='width:40%;height:100%;background:hsl(var(--primary))'></div></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+The badge in the header is the collapsed trigger; clicking it opens the dropdown shown here, with one row per active run — a title, the current `step` text, and a percent bar.
+
 ## Agent tool {#agent-tool}
 
 A single `manage-progress` tool is registered in every template. The `action` parameter selects the operation:

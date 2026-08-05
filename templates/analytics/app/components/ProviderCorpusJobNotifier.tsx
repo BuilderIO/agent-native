@@ -1,4 +1,5 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";

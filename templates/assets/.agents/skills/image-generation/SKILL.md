@@ -62,8 +62,32 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
   `generate-image-batch` / `refine-image`. The design team uses the audit log
   to review quality by app, library, model, prompt, and lineage.
 
+## Composer Mentions And Tagged Presets
+
+- Composer `@` mentions are the source of generation inputs. Map `brand-kit`
+  references to `libraryId`, `preset` references to `presetId`, and `media-type`
+  references to choosing image (`generate-image` / `generate-image-batch`) or
+  video (`generate-video`) generation.
+- The current library view auto-tags its brand kit as a visible removable chip,
+  and the generation preset editor auto-tags both its brand kit and preset.
+- The image model is the only remaining composer-side default; the image-model
+  picker writes `imageGenerationModel`, which image generation actions may use
+  when `model` is omitted.
+- When a `preset` is tagged, the server embeds that preset's aesthetics and
+  creative philosophy (brand style brief, prompt template, text/logo policy,
+  output format) into your message inside a `<tagged-generation-presets>` block.
+  Study and internalize that brief before you generate — let it drive
+  composition, mood, lighting, and subject — then pass the `presetId` to
+  `generate-image` / `generate-image-batch` so the saved format/model/tier/logo
+  apply automatically. Do not restate those as ad-hoc args.
+
 ## Preset-first Generation
 
+- Image requests without a tagged preset are preset-first: the user may not know
+  presets exist. Compare the request against each preset's title, description,
+  and category, and if one matches the use case (e.g. "livestream poster" -> a
+  Livestream Announcement preset), generate with its `presetId` instead of
+  ad-hoc settings. Only generate presetless when nothing plausibly matches.
 - Before any ad-hoc generation for a brand kit, call
   `list-generation-presets` and scan titles/descriptions/categories for a
   use-case match. A preset encodes the designer's format, model, layout, and
@@ -79,6 +103,10 @@ Use this skill before calling `generate-image`, `generate-image-batch`, or
 - Route exact visible copy such as event titles, dates, and times to
   `embeddedText` per the existing text rules; keep the creative direction in
   `prompt`.
+- For exact visible copy inside a generated image, pass `embeddedText` and
+  optional `textPlacement` to `generate-image` or each `generate-image-batch`
+  slot. Keep the general `prompt` for creative direction; the structured text
+  fields are what allow the pipeline to render copy instead of suppressing it.
 - If nothing matches: generate ad-hoc, say that no preset fit, and mention a
   preset could be created for this recurring use case.
 

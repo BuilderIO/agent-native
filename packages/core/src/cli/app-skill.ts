@@ -681,7 +681,7 @@ export function exportedSkillContentHash(
     `mcp:${mcpServerNames(manifest).join(",")}:${manifest.hosted.mcpUrl}`,
   );
   return createHash("sha256")
-    .update(parts.join("\n \n"))
+    .update(parts.join("\n\u0000\n"))
     .digest("hex")
     .slice(0, 12);
 }

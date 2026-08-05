@@ -1,6 +1,8 @@
 import {
   ensureAdditiveColumns,
+  getDialect,
   getDbExec,
+  isPostgres,
   runMigrations,
 } from "@agent-native/core/db";
 
@@ -8,6 +10,7 @@ import {
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -26,6 +29,169 @@ function isDrizzleTable(value: unknown): value is object {
 }
 
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+const ANALYTICS_ROLLUP_BACKFILL_STATEMENTS = {
+  postgres: [
+    `
+      INSERT INTO analytics_event_daily_rollups (
+        id, tenant_key, owner_email, org_id, event_date, event_name,
+        app, template, event_count
+      )
+      SELECT
+        md5(random()::text || clock_timestamp()::text), tenant_key,
+        MIN(owner_email), MIN(org_id), event_date, event_name, app, template,
+        COUNT(*)::INTEGER
+      FROM (
+        SELECT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          event_name,
+          COALESCE(app, '') AS app,
+          COALESCE(template, '') AS template
+        FROM analytics_events
+      ) AS historical_events
+      WHERE event_date <> ''
+      GROUP BY tenant_key, event_date, event_name, app, template
+      ON CONFLICT (tenant_key, event_date, event_name, app, template)
+      DO UPDATE SET event_count = GREATEST(
+        analytics_event_daily_rollups.event_count,
+        EXCLUDED.event_count
+      )
+    `,
+    `
+      INSERT INTO analytics_user_days (
+        id, tenant_key, owner_email, org_id, event_date, user_key
+      )
+      SELECT
+        md5(random()::text || clock_timestamp()::text), tenant_key,
+        owner_email, org_id, event_date, user_key
+      FROM (
+        SELECT DISTINCT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          user_key
+        FROM analytics_events
+        WHERE user_key IS NOT NULL AND TRIM(user_key) <> ''
+      ) AS historical_user_days
+      WHERE event_date <> ''
+      ON CONFLICT (tenant_key, event_date, user_key) DO NOTHING
+    `,
+  ],
+  sqlite: [
+    `
+      INSERT INTO analytics_event_daily_rollups (
+        id, tenant_key, owner_email, org_id, event_date, event_name,
+        app, template, event_count
+      )
+      SELECT
+        lower(hex(randomblob(16))), tenant_key, MIN(owner_email), MIN(org_id),
+        event_date, event_name, app, template, COUNT(*)
+      FROM (
+        SELECT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          event_name,
+          COALESCE(app, '') AS app,
+          COALESCE(template, '') AS template
+        FROM analytics_events
+      ) AS historical_events
+      WHERE event_date <> ''
+      GROUP BY tenant_key, event_date, event_name, app, template
+      ON CONFLICT (tenant_key, event_date, event_name, app, template)
+      DO UPDATE SET event_count = excluded.event_count
+    `,
+    `
+      INSERT INTO analytics_user_days (
+        id, tenant_key, owner_email, org_id, event_date, user_key
+      )
+      SELECT
+        lower(hex(randomblob(16))), tenant_key, owner_email, org_id,
+        event_date, user_key
+      FROM (
+        SELECT DISTINCT
+          CASE
+            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
+            ELSE 'user:' || owner_email
+          END AS tenant_key,
+          owner_email,
+          org_id,
+          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
+          user_key
+        FROM analytics_events
+        WHERE user_key IS NOT NULL AND TRIM(user_key) <> ''
+      ) AS historical_user_days
+      WHERE event_date <> ''
+      ON CONFLICT (tenant_key, event_date, user_key) DO NOTHING
+    `,
+  ],
+} as const;
+
+async function runHistoricalAnalyticsRollupBackfill(): Promise<void> {
+  const db = getDbExec();
+
+  if (isPostgres()) {
+    if (!db.transaction) {
+      throw new Error(
+        "Analytics rollup backfill requires a Postgres transaction",
+      );
+    }
+
+    await db.transaction(async (tx) => {
+      // Only one serverless instance should perform the expensive scan. A
+      // try-lock is intentional: competing cold starts fail fast instead of
+      // holding pooled Neon connections while waiting for the winner. The
+      // monotonic rollup upsert below keeps a live increment from being
+      // overwritten if ingest commits during the historical snapshot.
+      const lockResult = await tx.execute({
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        args: ["agent-native:analytics-rollup-backfill"],
+      });
+      const acquired = lockResult.rows[0]?.acquired;
+      if (acquired !== true && acquired !== "t") {
+        throw new Error(
+          "Analytics rollup backfill is already running on another instance",
+        );
+      }
+      for (const statement of ANALYTICS_ROLLUP_BACKFILL_STATEMENTS.postgres) {
+        await tx.execute(statement);
+      }
+    });
+    return;
+  }
+
+  const statements = ANALYTICS_ROLLUP_BACKFILL_STATEMENTS.sqlite;
+  if (getDialect() === "d1") {
+    if (!db.atomicBatch) {
+      throw new Error("D1 analytics rollup backfill requires an atomic batch");
+    }
+    await db.atomicBatch(statements);
+    return;
+  }
+
+  if (!db.transaction) {
+    throw new Error(
+      "Analytics rollup backfill requires a database transaction",
+    );
+  }
+  await db.transaction(async (tx) => {
+    for (const statement of statements) await tx.execute(statement);
+  });
+}
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -1249,6 +1415,132 @@ const runAnalyticsMigrations = runMigrations(
         sqlite: `ALTER TABLE monitor_incidents ADD COLUMN IF NOT EXISTS notification_delivered INTEGER NOT NULL DEFAULT 0`,
       },
     },
+    {
+      version: 118,
+      name: "error-events-session-recording-filter-idx",
+      sql: `CREATE INDEX IF NOT EXISTS error_events_session_recording_filter_idx ON error_events (session_recording_id, owner_email, org_id, issue_id)`,
+    },
+    {
+      version: 119,
+      name: "error-events-user-id-filter-idx",
+      sql: `CREATE INDEX IF NOT EXISTS error_events_user_id_filter_idx ON error_events (user_id, owner_email, org_id, issue_id)`,
+    },
+    {
+      version: 120,
+      name: "error-events-user-key-filter-idx",
+      sql: `CREATE INDEX IF NOT EXISTS error_events_user_key_filter_idx ON error_events (user_key, owner_email, org_id, issue_id)`,
+    },
+    {
+      version: 121,
+      name: "analytics-events-org-path-event-idx",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_events_org_path_event_idx ON analytics_events (org_id, path, event_name)`,
+    },
+    {
+      version: 122,
+      name: "dashboard-revisions-org-dashboard-idx",
+      sql: `CREATE INDEX IF NOT EXISTS dashboard_revisions_org_dashboard_idx ON dashboard_revisions (org_id, dashboard_id)`,
+    },
+    {
+      version: 123,
+      name: "dashboard-report-capture-diagnostics",
+      sql: `
+        ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_at TEXT;
+        ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_mode TEXT;
+        ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_error TEXT;
+      `,
+    },
+    // First-party dashboard panel result cache. Same shape/pattern as
+    // bigquery_cache above, short TTL (set in first-party-analytics-cache.ts)
+    // since this is the app's own live data, not an immutable warehouse
+    // result. See first-party-analytics-cache.ts for why this exists: panel
+    // queries had no cache at all, so every dashboard render and every daily
+    // report screenshot recomputed from scratch and stacked concurrent load
+    // on the same rows, which is what was blowing report/panel timeouts.
+    {
+      version: 124,
+      name: "first-party-analytics-cache-table",
+      sql: `CREATE TABLE IF NOT EXISTS first_party_analytics_cache (
+      key TEXT PRIMARY KEY,
+      sql TEXT NOT NULL,
+      result TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 125,
+      name: "first-party-analytics-cache-expires-idx",
+      sql: `CREATE INDEX IF NOT EXISTS first_party_analytics_cache_expires_at_idx ON first_party_analytics_cache (expires_at)`,
+    },
+    {
+      version: 126,
+      name: "analytics-event-daily-rollups-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_event_daily_rollups (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      template TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 0
+    )`,
+    },
+    {
+      version: 127,
+      name: "analytics-event-daily-rollups-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_daily_rollups_key_idx ON analytics_event_daily_rollups (tenant_key, event_date, event_name, app, template)`,
+    },
+    {
+      version: 128,
+      name: "analytics-user-days-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_user_days (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      user_key TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 129,
+      name: "analytics-user-days-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_user_days_key_idx ON analytics_user_days (tenant_key, event_date, user_key)`,
+    },
+    {
+      version: 130,
+      name: "analytics-query-pressure-daily-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_query_pressure_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      query_class TEXT NOT NULL,
+      slow_query_count INTEGER NOT NULL DEFAULT 0,
+      timeout_count INTEGER NOT NULL DEFAULT 0,
+      error_count INTEGER NOT NULL DEFAULT 0,
+      total_duration_ms INTEGER NOT NULL DEFAULT 0,
+      max_duration_ms INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 131,
+      name: "analytics-query-pressure-daily-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_query_pressure_daily_key_idx ON analytics_query_pressure_daily (tenant_key, event_date, query_class)`,
+    },
+    // Rebuild the compact analytics rollups from raw history once when the
+    // tables first ship. The run-only migration takes the same write lock as
+    // ingest so a live increment cannot be overwritten by its snapshot.
+    {
+      version: 132,
+      name: "analytics-rollups-historical-backfill",
+      sql: {},
+      run: runHistoricalAnalyticsRollupBackfill,
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1265,6 +1557,18 @@ const runAnalyticsMigrations = runMigrations(
  */
 export default async (nitroApp: any): Promise<void> => {
   await runAnalyticsMigrations(nitroApp);
+  try {
+    if (await repairPersistedFirstPartyDashboardQueries()) {
+      console.info(
+        "[db] Repaired bounded recurring-user queries on the canonical first-party dashboard.",
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

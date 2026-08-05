@@ -1,4 +1,5 @@
-import { AgentToggleButton, useT } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import {
   useHeaderTitle,
@@ -11,6 +12,7 @@ import { useDecks } from "@/context/DeckContext";
 const pageTitleKeys: Record<string, string> = {
   "/": "header.decks",
   "/design-systems": "header.designSystems",
+  "/agent": "settings.agentTitle",
   "/settings": "header.settings",
   "/extensions": "header.extensions",
 };

@@ -1,25 +1,22 @@
-//! Whisper model resolution + download for the local transcription engine
-//! (`whisper_speech.rs`): meetings, native-recording transcripts, and
-//! whisper-mode dictation all share one loaded model.
-//!
-//! Supports a small set of pinned models the user picks from in desktop
-//! settings (`FeatureConfig::whisper_model_choice`). Each download is
-//! verified against a pinned SHA-256 + byte size so a corrupted, truncated,
-//! or tampered file is rejected rather than loaded.
+//! Local Whisper model catalog, download, and integrity verification.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// A pinned, downloadable whisper.cpp model.
-pub struct WhisperModelSpec {
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhisperModel {
     pub id: &'static str,
-    pub filename: &'static str,
+    pub title: &'static str,
+    pub description: &'static str,
     pub url: &'static str,
+    pub filename: &'static str,
     pub sha256: &'static str,
-    pub size: u64,
+    pub size_bytes: u64,
+    pub size_mb: u64,
     /// Whether to load the model into RAM at tray startup. Small models stay
     /// warm so dictation and meeting starts are instant; large models load on
     /// first use instead, trading a few seconds of first-use latency for not
@@ -27,71 +24,106 @@ pub struct WhisperModelSpec {
     pub prewarm: bool,
 }
 
-impl WhisperModelSpec {
-    pub fn size_mb(&self) -> u64 {
-        self.size / (1024 * 1024)
-    }
-}
+const TINY_MODEL: WhisperModel = WhisperModel {
+    id: "tiny",
+    title: "Tiny",
+    description: "Transcribes instantly and uses very little space. May miss some words or struggle with accents, but great if speed is all that matters.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+    filename: "ggml-tiny.bin",
+    sha256: "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+    size_bytes: 77_691_713,
+    size_mb: 74,
+    prewarm: true,
+};
 
-/// Pinned metadata from https://huggingface.co/ggerganov/whisper.cpp.
-pub const WHISPER_MODELS: &[WhisperModelSpec] = &[
-    WhisperModelSpec {
-        id: "base",
-        filename: "ggml-base.bin",
-        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-        sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
-        size: 147_951_465,
-        prewarm: true,
-    },
-    WhisperModelSpec {
-        id: "large-v3-turbo-q8_0",
-        filename: "ggml-large-v3-turbo-q8_0.bin",
-        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
-        sha256: "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
-        size: 874_188_075,
-        prewarm: false,
-    },
-    WhisperModelSpec {
-        id: "large-v3-turbo",
-        filename: "ggml-large-v3-turbo.bin",
-        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-        sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
-        size: 1_624_555_275,
-        prewarm: false,
-    },
+const BASE_MODEL: WhisperModel = WhisperModel {
+    id: "base",
+    title: "Base",
+    description: "A great everyday choice. Transcribes quickly and gets most things right for dictation and meetings.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+    filename: "ggml-base.bin",
+    sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+    size_bytes: 147_951_465,
+    size_mb: 141,
+    prewarm: true,
+};
+
+const SMALL_MODEL: WhisperModel = WhisperModel {
+    id: "small",
+    title: "Small",
+    description: "More accurate than Base, especially with accents or background noise. Takes a bit longer and uses more space.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+    filename: "ggml-small.bin",
+    sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+    size_bytes: 487_601_967,
+    size_mb: 488,
+    prewarm: false,
+};
+
+const LARGE_V3_TURBO_Q8_MODEL: WhisperModel = WhisperModel {
+    id: "large-v3-turbo-q8_0",
+    title: "Large v3 Turbo (Quantized)",
+    description: "Nearly Large v3 Turbo accuracy at roughly half the size, thanks to quantization. A strong pick when you want top-tier results with a smaller download.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin",
+    filename: "ggml-large-v3-turbo-q8_0.bin",
+    sha256: "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1",
+    size_bytes: 874_188_075,
+    size_mb: 834,
+    prewarm: false,
+};
+
+const LARGE_V3_TURBO_MODEL: WhisperModel = WhisperModel {
+    id: "large-v3-turbo",
+    title: "Large v3 Turbo",
+    description: "The most accurate option. Catches subtle speech and complex vocabulary well. Best on newer Macs; requires a larger one-time download.",
+    url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+    filename: "ggml-large-v3-turbo.bin",
+    sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+    size_bytes: 1_624_555_275,
+    size_mb: 1549,
+    prewarm: false,
+};
+
+const SUPPORTED_MODELS: &[WhisperModel] = &[
+    TINY_MODEL,
+    BASE_MODEL,
+    SMALL_MODEL,
+    LARGE_V3_TURBO_Q8_MODEL,
+    LARGE_V3_TURBO_MODEL,
 ];
 
-pub const DEFAULT_WHISPER_MODEL_ID: &str = "base";
-
-/// Resolve a spec by id, falling back to the default for unknown ids (e.g. a
-/// config written by a newer build).
-pub fn spec_by_id(id: &str) -> &'static WhisperModelSpec {
-    WHISPER_MODELS
-        .iter()
-        .find(|m| m.id == id)
-        .unwrap_or(&WHISPER_MODELS[0])
-}
-
-/// The user's chosen model per desktop settings.
-pub fn current_spec(app: &AppHandle) -> &'static WhisperModelSpec {
-    let choice = crate::config::feature_config(app).whisper_model_choice;
-    spec_by_id(&choice)
-}
-
-// Global download-in-flight state so the status command and concurrent callers
-// can inspect without re-checking the filesystem.
 static DOWNLOADING: AtomicBool = AtomicBool::new(false);
 static DOWNLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 
-/// Whether the model path is overridden via `CLIPS_WHISPER_MODEL`. A custom
-/// model is exempt from checksum verification (it may legitimately be a
-/// different model, e.g. multilingual).
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
 pub(crate) fn custom_model_override() -> bool {
     std::env::var("CLIPS_WHISPER_MODEL")
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false)
 }
 
+pub(crate) fn is_supported_model_id(id: &str) -> bool {
+    SUPPORTED_MODELS.iter().any(|m| m.id == id)
+}
+
+fn find_model(id: &str) -> Result<&'static WhisperModel, String> {
+    SUPPORTED_MODELS
+        .iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| format!("unsupported Whisper model: {id}"))
+}
+
+/// The user's chosen model per desktop settings, falling back to Base for
+/// unknown ids (e.g. a config written by a newer build).
+pub(crate) fn current_spec(app: &AppHandle) -> &'static WhisperModel {
+    let id = crate::config::feature_config(app).whisper_model_id;
+    find_model(&id).unwrap_or(&BASE_MODEL)
+}
+
+/// Returns the directory where model files are stored, creating it if needed.
 fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -102,142 +134,105 @@ fn models_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Resolve the active model path. Honors `CLIPS_WHISPER_MODEL`, otherwise
-/// `<app_data_dir>/models/<chosen model filename>` (creating the dir).
+/// Resolve the full path for a catalog model on disk.
+fn model_path(dir: &Path, model: &WhisperModel) -> PathBuf {
+    dir.join(model.filename)
+}
+
+fn is_complete_on_disk(path: &Path, model: &WhisperModel) -> bool {
+    std::fs::metadata(path)
+        .map(|m| m.len() == model.size_bytes)
+        .unwrap_or(false)
+}
+
+fn downloaded_mb(bytes: u64, model: &WhisperModel) -> u64 {
+    bytes.saturating_mul(model.size_mb) / model.size_bytes
+}
+
+// ---------------------------------------------------------------------------
+// Public: resolve model file path (honors CLIPS_WHISPER_MODEL env override)
+// ---------------------------------------------------------------------------
+
 pub fn model_file(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("CLIPS_WHISPER_MODEL") {
         if !path.trim().is_empty() {
             return Ok(PathBuf::from(path));
         }
     }
-    Ok(models_dir(app)?.join(current_spec(app).filename))
+    let config = crate::config::feature_config(app);
+    let model = find_model(&config.whisper_model_id)?;
+    Ok(model_path(&models_dir(app)?, model))
 }
 
-fn spec_downloaded(app: &AppHandle, spec: &WhisperModelSpec) -> bool {
-    models_dir(app)
-        .ok()
-        .and_then(|dir| std::fs::metadata(dir.join(spec.filename)).ok())
-        .map(|m| m.len() == spec.size)
-        .unwrap_or(false)
+// ---------------------------------------------------------------------------
+// Tauri commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn whisper_models() -> Vec<WhisperModel> {
+    SUPPORTED_MODELS.to_vec()
 }
 
-/// Model status returned to the frontend settings UI.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelStatus {
-    /// One of: "disabled" | "missing" | "downloading" | "ready"
     pub state: String,
-    /// The chosen model's id ("base", "large-v3-turbo-q8_0", ...).
-    pub model: String,
-    /// Absolute path where the model file lives (or will live).
     pub path: String,
-    /// How many MB have been downloaded so far (only meaningful during "downloading").
     pub downloaded_mb: u64,
-    /// Total model size in MB.
     pub total_mb: u64,
 }
 
-/// One selectable model for the settings UI, with its on-disk state.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelListEntry {
-    pub id: String,
-    pub size_mb: u64,
-    /// Kept warm in RAM from tray startup (small models only).
-    pub prewarm: bool,
-    pub downloaded: bool,
-    pub selected: bool,
-}
-
-/// List the selectable models with their download state.
-#[tauri::command]
-pub async fn whisper_model_list(app: AppHandle) -> Result<Vec<ModelListEntry>, String> {
-    let selected = current_spec(&app).id;
-    Ok(WHISPER_MODELS
-        .iter()
-        .map(|spec| ModelListEntry {
-            id: spec.id.to_string(),
-            size_mb: spec.size_mb(),
-            prewarm: spec.prewarm,
-            downloaded: spec_downloaded(&app, spec),
-            selected: spec.id == selected,
-        })
-        .collect())
-}
-
-/// Delete a downloaded model file to free disk space. Refuses to delete the
-/// currently selected model.
-#[tauri::command]
-pub async fn whisper_model_delete(app: AppHandle, id: String) -> Result<(), String> {
-    let spec = spec_by_id(&id);
-    if spec.id != id {
-        return Err(format!("unknown whisper model: {id}"));
-    }
-    if spec.id == current_spec(&app).id {
-        return Err("cannot delete the selected model — switch models first".into());
-    }
-    let path = models_dir(&app)?.join(spec.filename);
-    match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("delete model: {e}")),
-    }
-}
-
-/// Return the current model state without triggering a download.
 #[tauri::command]
 pub async fn whisper_model_status(app: AppHandle) -> Result<ModelStatus, String> {
-    let spec = current_spec(&app);
-    let path = model_file(&app)?;
-    let path_str = path.to_string_lossy().to_string();
+    if custom_model_override() {
+        let path = model_file(&app)?;
+        let ready = path.exists();
+        return Ok(ModelStatus {
+            state: if ready { "ready" } else { "missing" }.into(),
+            path: path.to_string_lossy().into(),
+            downloaded_mb: 0,
+            total_mb: 0,
+        });
+    }
+
     let config = crate::config::feature_config(&app);
+    let model = find_model(&config.whisper_model_id)?;
+    let dir = models_dir(&app)?;
+    let path = model_path(&dir, model);
+    let path_str = path.to_string_lossy().into_owned();
 
     if !config.whisper_model_enabled {
         return Ok(ModelStatus {
             state: "disabled".into(),
-            model: spec.id.into(),
             path: path_str,
             downloaded_mb: 0,
-            total_mb: spec.size_mb(),
+            total_mb: model.size_mb,
         });
     }
     if DOWNLOADING.load(Ordering::Relaxed) {
-        let downloaded_mb = DOWNLOADED_BYTES.load(Ordering::Relaxed) / (1024 * 1024);
         return Ok(ModelStatus {
             state: "downloading".into(),
-            model: spec.id.into(),
             path: path_str,
-            downloaded_mb,
-            total_mb: spec.size_mb(),
+            downloaded_mb: downloaded_mb(DOWNLOADED_BYTES.load(Ordering::Relaxed), model),
+            total_mb: model.size_mb,
         });
     }
-    let state = match std::fs::metadata(&path) {
-        Ok(m) if m.len() == spec.size || custom_model_override() => "ready",
-        _ => "missing",
-    };
+    let ready = is_complete_on_disk(&path, model);
     Ok(ModelStatus {
-        state: state.into(),
-        model: spec.id.into(),
+        state: if ready { "ready" } else { "missing" }.into(),
         path: path_str,
-        downloaded_mb: if state == "ready" { spec.size_mb() } else { 0 },
-        total_mb: spec.size_mb(),
+        downloaded_mb: if ready { model.size_mb } else { 0 },
+        total_mb: model.size_mb,
     })
 }
 
-/// Spawn a background download of the currently selected model. Idempotent —
-/// no-ops if already downloading or already present. Emits
-/// `whisper:model-progress`, `whisper:model-ready`, or `whisper:model-error`
-/// as the download progresses.
 #[tauri::command]
 pub async fn whisper_model_download(app: AppHandle) -> Result<(), String> {
-    if DOWNLOADING.load(Ordering::Acquire) {
-        return Ok(());
-    }
-    let spec = current_spec(&app);
-    // Quick check: if model is already present, just emit ready and return.
-    if let Ok(path) = model_file(&app) {
-        if let Ok(m) = std::fs::metadata(&path) {
-            if m.len() == spec.size || custom_model_override() {
+    let path = model_file(&app)?;
+    if let Ok(meta) = std::fs::metadata(&path) {
+        let config = crate::config::feature_config(&app);
+        if let Ok(model) = find_model(&config.whisper_model_id) {
+            if meta.len() == model.size_bytes || custom_model_override() {
                 let _ = app.emit("whisper:model-ready", ());
                 return Ok(());
             }
@@ -257,177 +252,196 @@ pub async fn whisper_model_download(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Ensure the selected model file exists, downloading it on first use.
-///
-/// Downloads are verified against the spec's pinned SHA-256 / size. A custom
-/// model supplied via `CLIPS_WHISPER_MODEL` is exempt (it may legitimately be
-/// a different model) — we only require it to exist.
-///
-/// Emits `whisper:model-progress { downloadedMb, totalMb }` every ~16 MB.
-pub async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
-    let spec = current_spec(app);
+#[tauri::command]
+pub async fn whisper_downloaded_models(app: AppHandle) -> Vec<String> {
+    let Ok(dir) = models_dir(&app) else {
+        return vec![];
+    };
+    SUPPORTED_MODELS
+        .iter()
+        .filter(|m| is_complete_on_disk(&model_path(&dir, m), m))
+        .map(|m| m.id.to_string())
+        .collect()
+}
+
+#[tauri::command]
+pub async fn whisper_model_delete(app: AppHandle, model_id: String) -> Result<(), String> {
+    if custom_model_override() {
+        return Err("Cannot manage models while CLIPS_WHISPER_MODEL is set.".to_string());
+    }
+    if crate::config::feature_config(&app).whisper_model_id == model_id {
+        return Err("Cannot delete the model that is currently selected.".to_string());
+    }
+    let model = find_model(&model_id)?;
+    let path = model_path(&models_dir(&app)?, model);
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| format!("delete model: {e}"))?;
+    }
+    let _ = app.emit(
+        "whisper:model-deleted",
+        serde_json::json!({ "modelId": model_id }),
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Download logic (called by whisper_model_download and lib.rs startup prewarm)
+// ---------------------------------------------------------------------------
+
+pub(crate) async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
     let path = model_file(app)?;
     let custom = custom_model_override();
 
-    if custom && !path.exists() {
+    if custom {
+        if path.exists() {
+            eprintln!("[whisper] using custom model at {}", path.display());
+            return Ok(path);
+        }
         return Err(format!(
-            "CLIPS_WHISPER_MODEL is set to '{}' but the file does not exist.",
+            "CLIPS_WHISPER_MODEL points to '{}' but the file does not exist.",
             path.display()
         ));
     }
 
+    let config = crate::config::feature_config(app);
+    let model = find_model(&config.whisper_model_id)?;
+
+    if is_complete_on_disk(&path, model) {
+        eprintln!("[whisper] model found at {}", path.display());
+        return Ok(path);
+    }
     if path.exists() {
-        if custom {
-            eprintln!("[whisper] using custom model at {}", path.display());
-            return Ok(path);
-        }
-        match std::fs::metadata(&path) {
-            Ok(m) if m.len() == spec.size => {
-                eprintln!("[whisper] model '{}' found at {}", spec.id, path.display());
-                return Ok(path);
-            }
-            Ok(m) => {
-                eprintln!(
-                    "[whisper] cached model size {} != expected {} — re-downloading",
-                    m.len(),
-                    spec.size
-                );
-            }
-            Err(e) => return Err(format!("stat model: {e}")),
-        }
+        eprintln!(
+            "[whisper] cached model has wrong size — re-downloading {}",
+            path.display()
+        );
     }
 
-    // If a download is already in progress, wait for it rather than failing —
-    // the caller (meeting start) should succeed once the model lands.
-    if DOWNLOADING.load(Ordering::SeqCst) {
-        eprintln!("[whisper] waiting for in-progress model download…");
-        loop {
+    loop {
+        if DOWNLOADING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            break;
+        }
+
+        eprintln!("[whisper] waiting for in-progress download…");
+        while DOWNLOADING.load(Ordering::SeqCst) {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            if !DOWNLOADING.load(Ordering::SeqCst) {
-                break;
-            }
         }
-        // Re-check: the download that just finished may have placed the model.
-        if path.exists() {
-            if custom {
-                return Ok(path);
-            }
-            if let Ok(m) = std::fs::metadata(&path) {
-                if m.len() == spec.size {
-                    return Ok(path);
-                }
-            }
+        if is_complete_on_disk(&path, model) {
+            return Ok(path);
         }
-    }
-    // Guard against concurrent downloads.
-    if DOWNLOADING
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Err("Whisper model download already in progress — please wait.".to_string());
     }
     DOWNLOADED_BYTES.store(0, Ordering::Relaxed);
 
-    let result = do_download(app, spec, &path, custom).await;
+    let result = do_download(app, &path, model).await;
     DOWNLOADING.store(false, Ordering::SeqCst);
     result
 }
 
 async fn do_download(
     app: &AppHandle,
-    spec: &WhisperModelSpec,
-    path: &PathBuf,
-    custom: bool,
+    path: &Path,
+    model: &WhisperModel,
 ) -> Result<PathBuf, String> {
-    let total_mb = spec.size_mb();
     eprintln!(
-        "[whisper] model not found at {} — downloading {} (~{} MB, one time)",
-        path.display(),
-        spec.url,
-        total_mb
+        "[whisper] downloading {} (~{} MB)",
+        model.url, model.size_mb
     );
-    let mut resp = reqwest::get(spec.url).await.map_err(|e| {
-        let msg = format!("model download request failed: {e}");
-        eprintln!("[whisper] {msg}");
-        msg
-    })?;
-    if !resp.status().is_success() {
-        let msg = format!("model download HTTP {}", resp.status());
-        eprintln!("[whisper] {msg}");
-        return Err(msg);
+    let mut response = reqwest::get(model.url)
+        .await
+        .map_err(|e| format!("model download failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("model download HTTP {}", response.status()));
     }
 
-    // Stream body to a temp file, hashing as we go. Keeps memory flat
-    // (no full-model heap spike) and lets us verify before the rename.
     use sha2::{Digest, Sha256};
     use std::io::Write as _;
 
     let tmp = path.with_extension("bin.tmp");
-    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create model tmp: {e}"))?;
+    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
     let mut hasher = Sha256::new();
-    let mut total: u64 = 0;
-    let mut last_progress: u64 = 0;
+    let mut total = 0_u64;
+    let mut last_progress = 0_u64;
 
-    while let Some(chunk) = resp
+    while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|e| format!("model download body failed: {e}"))?
+        .map_err(|e| format!("download body: {e}"))?
     {
-        if !custom {
-            hasher.update(&chunk);
-        }
+        hasher.update(&chunk);
         total += chunk.len() as u64;
         DOWNLOADED_BYTES.store(total, Ordering::Relaxed);
 
         if let Err(e) = file.write_all(&chunk) {
             let _ = std::fs::remove_file(&tmp);
-            let msg = format!("write model tmp: {e}");
-            eprintln!("[whisper] {msg}");
-            return Err(msg);
+            return Err(format!("write tmp: {e}"));
         }
 
-        // Emit progress + log every ~16 MB.
         if total - last_progress >= 16 * 1024 * 1024 {
             last_progress = total;
-            let downloaded_mb = total / (1024 * 1024);
-            eprintln!("[whisper] downloading model… {downloaded_mb} / {total_mb} MB");
+            let mb = downloaded_mb(total, model);
+            eprintln!("[whisper] {mb} / {} MB", model.size_mb);
             let _ = app.emit(
                 "whisper:model-progress",
-                serde_json::json!({ "downloadedMb": downloaded_mb, "totalMb": total_mb }),
+                serde_json::json!({ "downloadedMb": mb, "totalMb": model.size_mb }),
             );
         }
     }
-    file.flush().map_err(|e| format!("flush model tmp: {e}"))?;
+    file.flush().map_err(|e| format!("flush tmp: {e}"))?;
     drop(file);
 
-    if !custom {
-        if total != spec.size {
-            let _ = std::fs::remove_file(&tmp);
-            let msg = format!(
-                "model size mismatch: got {total} bytes, expected {}",
-                spec.size
-            );
-            eprintln!("[whisper] {msg}");
-            return Err(msg);
-        }
-        let digest: String = hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        if digest != spec.sha256 {
-            let _ = std::fs::remove_file(&tmp);
-            let msg = format!(
-                "model checksum mismatch: got {digest}, expected {}",
-                spec.sha256
-            );
-            eprintln!("[whisper] {msg}");
-            return Err(msg);
-        }
-        eprintln!("[whisper] model checksum verified (sha256 {})", spec.sha256);
+    if total != model.size_bytes {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
+            "size mismatch: got {total} bytes, expected {}",
+            model.size_bytes
+        ));
+    }
+    let digest: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if digest != model.sha256 {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
+            "checksum mismatch: got {digest}, expected {}",
+            model.sha256
+        ));
     }
 
     std::fs::rename(&tmp, path).map_err(|e| format!("rename model: {e}"))?;
-    eprintln!("[whisper] model saved → {}", path.display());
-    Ok(path.clone())
+    eprintln!("[whisper] saved → {}", path.display());
+    Ok(path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn supported_models_have_unique_ids_and_filenames() {
+        for (i, model) in SUPPORTED_MODELS.iter().enumerate() {
+            assert!(model.size_bytes > 0);
+            assert_eq!(model.sha256.len(), 64, "bad sha256 for {}", model.id);
+            assert!(!model.title.is_empty());
+            assert!(!model.description.is_empty());
+            for other in SUPPORTED_MODELS.iter().skip(i + 1) {
+                assert_ne!(model.id, other.id);
+                assert_ne!(model.filename, other.filename);
+            }
+        }
+    }
+
+    #[test]
+    fn base_model_is_default() {
+        assert!(is_supported_model_id("base"));
+    }
+
+    #[test]
+    fn unknown_model_id_is_rejected() {
+        assert!(find_model("does-not-exist").is_err());
+    }
 }

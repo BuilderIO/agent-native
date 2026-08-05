@@ -1,13 +1,13 @@
 ---
 title: "临时代理"
-description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代理聊天 + 工作区安装到任何 React 应用中。"
+description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代理聊天 + 代理资源安装到任何 React 应用中。"
 ---
 
 # 临时代理
 
 > **开发人员页面。** 此页面供开发人员将代理嵌入到 React 应用程序中。有关使用代理的最终用户体验，请参阅 [Using Your Agent](/docs/using-your-agent)。
 
-您不需要从头开始构建原生代理。代理聊天、工作区选项卡、CLI 终端、语音输入和所有相关基础设施都作为少数 React 组件提供给您放入任何应用程序中。
+您不需要从头开始构建原生代理。代理聊天、代理资源选项卡、CLI 终端、语音输入和所有相关基础设施都作为少数 React 组件提供给您放入任何应用程序中。
 
 > **先决条件：** 服务器必须运行 `agent-chat-plugin`（它会自动安装在每个模板中）。如果您是从头开始，请参阅 [Server](/docs/server)。
 >
@@ -19,7 +19,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
 | --------------------- | -------------------------------------------------- | ---------------------------------------- |
 | `<AgentSidebar>`      | 包装您的根应用布局并添加包含完整代理的可切换侧面板 | 您希望代理在每个屏幕上与您的应用一起使用 |
 | `<AgentToggleButton>` | 打开/关闭 `<AgentSidebar>`（将其放入标头中）       | 与 `<AgentSidebar>` 配对                 |
-| `<AgentPanel>`        | 原始面板本身 - 聊天 + CLI + 工作区选项卡           | 您想要完全控制布局或专用代理页面         |
+| `<AgentPanel>`        | 原始面板本身 - 聊天 + CLI + 代理资源选项卡         | 您想要完全控制布局或专用代理页面         |
 | `<AgentChatSurface>`  | 预接线面板/页面聊天界面                            | 您想要在没有侧边栏包装器的情况下进行聊天 |
 | `<AssistantChat>`     | 具有作曲家/历史挂钩的低级聊天渲染器                | 您需要围绕标准对话 UI 进行自定义镶边     |
 | `sendToAgentChat()`   | 以编程方式向聊天发送消息                           | 将工作交给代理而不是内联运行的按钮       |
@@ -41,7 +41,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
       </div>
       <div class="diagram-node panel">
         代理面板<br /><small class="diagram-muted"
-          >chat &middot; CLI &middot; workspace</small
+          >chat &middot; CLI &middot; resources</small
         >
       </div>
     </div>
@@ -105,7 +105,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
   filename="app/root.tsx"
   language="tsx"
   code={
-    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="我能帮什么？"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client/agent-chat";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="我能帮什么？"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
   annotations={[
     {
@@ -136,7 +136,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
   ]}
 />
 
-就是这样。用户现在在每个页面上都有一个可切换代理 - 具有聊天历史记录、工作区选项卡、CLI 终端、语音输入和全屏模式。通过 `localStorage` 重新加载，状态仍然存在。
+就是这样。用户现在在每个页面上都有一个可切换代理 - 具有聊天历史记录、代理资源选项卡、CLI 终端、语音输入和全屏模式。通过 `localStorage` 重新加载，状态仍然存在。
 
 ### 道具
 
@@ -154,8 +154,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
 
 ```tsx
 // app/routes/agent.tsx
-import { AgentPanel } from "@agent-native/core/client";
-
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -165,7 +164,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>` 为您提供原始选项卡（聊天/CLI/工作区），无需侧边栏包装、折叠按钮或任何状态持久性。把它放在你想要的任何地方；您负责布局。
+`<AgentPanel>` 为您提供原始选项卡（聊天/CLI/代理资源），无需侧边栏包装、折叠按钮或任何状态持久性。把它放在你想要的任何地方；您负责布局。
 
 ### 选定的道具
 
@@ -182,8 +181,7 @@ export default function AgentRoute() {
 将工作交给代理的按钮（而不是运行内联 `llm()` 调用 - [ladder](/docs/what-is-agent-native#the-ladder) 的反模式）：
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -205,7 +203,7 @@ import { sendToAgentChat } from "@agent-native/core/client";
 - **`newTab`** — 为此提示创建一个单独的聊天线程。
 - **`background`** — 使用 `newTab`，运行时无需聚焦新线程。隐藏运行在 `RunsTray` 中进行跟踪。
 - **`openSidebar`** — 设置为 `false` 以进行后台/静默发送。默认打开侧边栏，以便用户看到响应。
-- **`type`** — `"content"`（默认）将工作保留在嵌入式应用程序代理中。 `"code"` 路由到代码编辑框架（对于代理编写的代码更改，请参阅 [Frames](/docs/frames)）。
+- **`type`** — `"content"`（默认）将工作保留在使用应用工具的嵌入式代理中。`"code"` 会路由到单独的代码能力 frame 以更改代码库源文件；只有当主机有意授予 repository/workspace 工具时才提供写入权限。参见 [Frames](/docs/frames)。
 
 `sendToAgentChat` 返回一个稳定的 `tabId`，您可以使用它来跟踪聊天运行。
 
@@ -232,8 +230,7 @@ sendToAgentChat({
 如果您想要加载状态，请使用 `useSendToAgentChat()` 钩子 - 它返回 `send` 和 `isGenerating`：
 
 ```ts
-import { useSendToAgentChat } from "@agent-native/core/client";
-
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -267,8 +264,7 @@ const { send, isGenerating } = useSendToAgentChat();
 当 UI 需要运行代理工具将运行的相同操作（[ladder](/docs/what-is-agent-native#rung-three) 的梯级 3）时，请使用 `useActionMutation`：
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -298,8 +294,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>
@@ -336,5 +331,5 @@ export default function Root() {
 
 - [**Actions**](/docs/actions) — `defineAction()` 和 `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 选择、导航、查看屏幕
-- [**Workspace**](/docs/workspace) —“工作空间”选项卡包含的内容（skills、内存、MCP 服务器、计划作业）
+- [**代理资源**](/docs/agent-resources) —“代理资源”选项卡包含的内容（skills、内存、MCP 服务器、计划作业）
 - [**Voice Input**](/docs/voice-input) — 聊天编辑器中的麦克风

@@ -83,6 +83,10 @@ export {
   IDENTITY_SSO_SCOPE,
 } from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
+export {
+  assertCurrentRequestUserIsOrgAdmin,
+  currentRequestUserIsOrgAdmin,
+} from "./org-admin.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
   getLocaleInitScript,
@@ -176,6 +180,7 @@ export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can
 // resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
+export { createFeatureFlagsPlugin } from "../feature-flags/plugin.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,
@@ -241,6 +246,7 @@ export {
   renderAgentNativeOgImageSvg,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
+export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,
   type CreateBrowserSessionActionEntriesOptions,
@@ -281,7 +287,9 @@ export {
 } from "../terminal/terminal-plugin.js";
 export {
   createCollabPlugin,
+  type CollabAccess,
   type CollabPluginOptions,
+  type CollabResourceIdResolver,
 } from "./collab-plugin.js";
 
 export {
@@ -297,11 +305,17 @@ export {
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export {
   hasGoogleSignInCredentials,
+  GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PROVIDER_CREDENTIAL_KEY_PAIRS,
   resolveGoogleLegacyProviderCredentials,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveGoogleProviderCredentialCandidates,
   resolveGoogleProviderCredentials,
   resolveGoogleSignInCredentials,
+  type GoogleOAuthCredentialKeyPair,
   type GoogleOAuthCredentials,
+  type ReadGoogleOAuthCredential,
 } from "./google-oauth-credentials.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {
@@ -311,6 +325,15 @@ export {
   type H3AppShim,
 } from "./framework-request-handler.js";
 export {
+  fireInternalDispatch,
+  resolveSelfDispatchBaseUrl,
+  type FireInternalDispatchOptions,
+} from "./self-dispatch.js";
+export {
+  extractBearerToken as extractInternalBearerToken,
+  verifyInternalToken,
+} from "../integrations/internal-token.js";
+export {
   autoDiscoverActions,
   autoDiscoverScripts,
   loadActionsFromStaticRegistry,
@@ -318,16 +341,32 @@ export {
   registerPackageActions,
 } from "./action-discovery.js";
 export {
+  registerPromptContextProvider,
+  type PromptContextProvider,
+  type PromptContextProviderContext,
+  type PromptContextProviderContribution,
+} from "./agent-chat/prompt-resources.js";
+export {
   mountActionRoutes,
   type MountActionRoutesOptions,
+  type ActionRouteAuthAdapter,
+  type ActionRouteResolvedCaller,
 } from "./action-routes.js";
+export {
+  AGENT_RUN_OWNER_CONTEXT_KEY,
+  seedAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
 export {
   runWithRequestContext,
   hasRequestContext,
+  hasRequestBoundary,
   getRequestContext,
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,
+  getAmbientUserEmail,
+  getAmbientOrgId,
   getRequestTimezone,
   getRequestRunContext,
   getCredentialContext,
@@ -410,6 +449,20 @@ export {
 } from "./google-oauth.js";
 
 export {
+  buildWorkspaceProviderAuthorizationUrl,
+  createWorkspaceProviderOAuthHandler,
+  exchangeWorkspaceProviderOAuthCode,
+  handleWorkspaceProviderOAuthCallback,
+  handleWorkspaceProviderOAuthStart,
+  isWorkspaceProviderOAuthFlowValid,
+  mergeWorkspaceOAuthValues,
+  resolveWorkspaceProviderIdentity,
+  workspaceProviderOAuthPath,
+  type GenericWorkspaceOAuthProvider,
+  type WorkspaceProviderOAuthFlow,
+} from "./workspace-provider-oauth.js";
+
+export {
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -422,38 +475,51 @@ export {
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
+  resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
   builderDesignSystemUrl,
+  builderProjectBranchUrl,
   buildBuilderDesignSystemIndexFiles,
   createBuilderDesignSystemProxyFields,
+  fetchBuilderDesignSystemDecodeJobStatus,
   fetchBuilderDesignSystemDocs,
   getBuilderDesignSystemsBaseUrl,
   hydrateBuilderDesignSystemReference,
+  indexBuilderDesignSystem,
   localBuilderDesignSystemId,
   mimeTypeForBuilderDesignSystemFilename,
   parseBuilderDesignSystemProxyReference,
   startBuilderDesignSystemIndex,
+  startBuilderDesignSystemUpload,
   type BuildBuilderDesignSystemIndexFilesOptions,
   type BuilderDesignSystemCodeFileInput,
+  type BuilderDesignSystemDecodeJobStatus,
   type BuilderDesignSystemDocsOptions,
   type BuilderDesignSystemDocument,
   type BuilderDesignSystemHydratedReference,
   type BuilderDesignSystemIndexFile,
+  type BuilderDesignSystemIndexFromSourcesOptions,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemUploadAttachment,
+  type BuilderDesignSystemUploadSlot,
   type BuilderDesignSystemProxyFields,
   type BuilderDesignSystemProxyFieldsOptions,
   type BuilderDesignSystemProxyReference,
+  type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,
@@ -481,6 +547,16 @@ export {
   type EmailProvider,
   type SendEmailArgs,
 } from "./email.js";
+export {
+  notifyActivity,
+  runActivityNotification,
+  resolveActivityRecipients,
+  type ActivityDeliveryFailure,
+  type ActivityNotificationResult,
+  type ActivityNotificationStatus,
+  type NotifyActivityInput,
+  type ResolveActivityRecipientsInput,
+} from "./activity-notifications.js";
 export {
   renderEmail,
   emailStrong,

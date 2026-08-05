@@ -1,6 +1,6 @@
 {
-  "name": "Agent Native App",
-  "short_name": "App",
+  "name": "{{APP_TITLE}}",
+  "short_name": "{{APP_TITLE}}",
   "description": "Agent-native application",
   "start_url": "/",
   "display": "standalone",

@@ -1,14 +1,11 @@
 import crypto from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
   makeLocalhostRouteId,
@@ -156,9 +153,7 @@ export default defineAction({
       .default("connected"),
   }),
   run: async (args) => {
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
 
     const now = new Date().toISOString();
     const db = getDb();
@@ -231,8 +226,9 @@ export default defineAction({
       );
     }
 
-    // Token for a new row: explicit, else existing, else mint. The authenticated
-    // action owning the mint is what lets the CLI skip its own auth (the 401 gap).
+    // Token for a new row: explicit, else existing, else mint. The account or
+    // trusted local-CLI principal owning the row is what lets the bridge skip a
+    // separate browser sign-in without making the token ambient.
     const explicitToken = args.bridgeToken?.trim() || undefined;
     const nextBridgeToken =
       explicitToken ||

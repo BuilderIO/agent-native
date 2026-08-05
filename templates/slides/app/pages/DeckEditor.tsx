@@ -1,15 +1,13 @@
+import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
-  useSession,
   emailToColor,
   emailToName,
-  appBasePath,
-  callAction,
-  useGuidedQuestionFlow,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { useSession, callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
-import type { PinpointProps } from "@agent-native/pinpoint/react";
 import {
   DndContext,
   closestCenter,
@@ -25,24 +23,19 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  lazy,
-  Suspense,
-} from "react";
-import type { ComponentType } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
+import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
+import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
 import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
+import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
@@ -57,29 +50,36 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
+import { useGeneratingSlidePreview } from "@/hooks/use-generating-slide-preview";
 import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import type { AspectRatio } from "@/lib/aspect-ratios";
+import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import {
+  deckAccessCheckKey,
+  shouldShowDeckEditorSkeleton,
+} from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
+import { exportDeckToGoogleSlides } from "@/lib/export-google-slides-client";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
+  shouldShowNewDeckGeneratingProgress,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
-import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
+import {
+  insertImageIntoSlideHtml,
+  replaceImageTargetInSlideHtml,
+} from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
+import { shouldActivateTextTool } from "@/lib/text-tool-shortcut";
 import { shortcutLabel } from "@/lib/utils";
 
-const Pinpoint = lazy<ComponentType<PinpointProps>>(() =>
-  import("@agent-native/pinpoint/react").then((m) => ({
-    default: m.Pinpoint as ComponentType<PinpointProps>,
-  })),
-);
+type EditorSidePanel = "comments" | null;
 
 function MissingDeckAccessPane({
   hasTeamJoinOption,
@@ -155,6 +155,7 @@ export default function DeckEditor() {
   const {
     getDeck,
     reloadDecks,
+    reloadDecksWithStatus,
     updateDeck,
     updateSlide,
     deleteSlide,
@@ -164,20 +165,32 @@ export default function DeckEditor() {
     reorderSlides,
     markDeckDirty,
     undo,
-    redo,
-    canUndo,
-    canRedo,
     loading,
+    loadError,
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [addSlideGenerating, setAddSlideGenerating] = useState(false);
+  const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { generating } = useAgentGenerating();
-  // Track new-deck-creation intent: set once on mount if ?generating=1.
-  // The editor reveals partial slides as soon as the first one lands.
+  // Generation intent can arrive after this route mounts because the user
+  // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
+  const newDeckGenerationStarted = useRef(false);
+  if (searchParams.get("generating") === "1") {
+    wasNewDeckCreation.current = true;
+  }
+  if (wasNewDeckCreation.current && generating) {
+    newDeckGenerationStarted.current = true;
+  }
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  const [contextToolbarSlot, setContextToolbarSlot] =
+    useState<HTMLDivElement | null>(null);
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
+  const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
+    string | null
+  >(null);
   const {
     data: org,
     isLoading: orgLoading,
@@ -192,11 +205,36 @@ export default function DeckEditor() {
   const [logoSearchOpen, setLogoSearchOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyButtonRef = useRef<HTMLButtonElement>(null);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [sidePanel, setSidePanel] = useState<EditorSidePanel>(null);
   const [animationsOpen, setAnimationsOpen] = useState(false);
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
+  const [textBoxMode, setTextBoxMode] = useState(false);
+  const toggleDrawMode = useCallback(() => {
+    const next = !drawMode;
+    if (next) {
+      setPinMode(false);
+      setTextBoxMode(false);
+    }
+    setDrawMode(next);
+  }, [drawMode]);
+  const togglePinMode = useCallback(() => {
+    const next = !pinMode;
+    if (next) {
+      setDrawMode(false);
+      setTextBoxMode(false);
+    }
+    setPinMode(next);
+  }, [pinMode]);
+  const toggleTextBoxMode = useCallback(() => {
+    const next = !textBoxMode;
+    if (next) {
+      setDrawMode(false);
+      setPinMode(false);
+    }
+    setTextBoxMode(next);
+  }, [textBoxMode]);
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
@@ -223,23 +261,35 @@ export default function DeckEditor() {
   }, []);
 
   const deck = getDeck(id || "");
+  const fitDims = getAspectRatioDims(deck?.aspectRatio);
+  const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
   const hasTeamJoinOption =
     !org?.orgId &&
     ((org?.pendingInvitations?.length ?? 0) > 0 ||
       (org?.domainMatches?.length ?? 0) > 0);
   const slideCount = deck?.slides.length ?? 0;
+  const streamedGeneratingSlideContent = useGeneratingSlidePreview({
+    deckId: id ?? "",
+    slideCount,
+    generating,
+  });
   // Mirror Google Slides: viewers see the editor shell with edit affordances
   // disabled (rather than a separate "viewer" route). Owners/Editors/Admins
   // get the full editor.
   const { canEdit } = useDeckRole(id);
-  const isNewDeckGenerating = shouldShowNewDeckGeneratingOverlay({
+  const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
+    generating,
+    isNewDeckCreation: wasNewDeckCreation.current,
+  });
+  const showNewDeckGeneratingOverlay = shouldShowNewDeckGeneratingOverlay({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
   });
-  const { designSystem, designSystemTitle } = useDeckDesignSystem(
+  const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
     deck?.designSystemId,
   );
+  const commentsOpen = sidePanel === "comments";
 
   const {
     questions: questionFlowQuestions,
@@ -250,6 +300,9 @@ export default function DeckEditor() {
     handleSubmit: handleQuestionSubmit,
     handleSkip: handleQuestionSkip,
   } = useGuidedQuestionFlow({
+    stateKey: "guided-questions",
+    browserTabId: TAB_ID,
+    queryKey: ["guided-questions"],
     submitMessage: "Here are my answers — go ahead and create the slides.",
     skipMessage:
       "Skip the questions — just go ahead and create the slides with your best judgment.",
@@ -261,20 +314,78 @@ export default function DeckEditor() {
         "Answers:",
         formattedAnswers,
         "",
-        "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+        `Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.`,
         "",
         `Now generate the slides based on these preferences. Start a manage-progress run, add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in. Use add-slide with --deckId=${id} to add slides sequentially. Wait for each add-slide result before calling it again.`,
       ].join("\n"),
     buildSkipContext: () =>
-      `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels); keep each slide within the density limits in AGENTS.md and split dense source material across more slides instead of packing it tightly. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
+      `The user skipped the pre-generation questions for deck ${id}. Proceed with reasonable defaults. Every slide is rendered into a fixed native canvas (${fitDims.width}x${fitDims.height} CSS pixels; standard padding leaves ${Math.max(0, fitDims.width - 220)}x${Math.max(0, fitDims.height - 160)}px for main content); keep each slide within that fit budget and split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px. Start a manage-progress run, add the first slide as soon as it is ready, then continue sequentially using add-slide with --deckId=${id}. Wait for each add-slide result before calling it again.`,
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const generatingSlideVisible =
+    canEdit && !showQuestionFlow && (isNewDeckGenerating || addSlideGenerating);
+  const showCurrentSlideEditor =
+    !generatingSlideSelected &&
+    !showNewDeckGeneratingOverlay &&
+    !showQuestionFlow;
 
   useEffect(() => {
-    if (loading || deck || !id || !org?.orgId) return;
-    void reloadDecks();
-  }, [deck, id, loading, org?.orgId, reloadDecks]);
+    if (!generatingSlideVisible) setGeneratingSlideSelected(false);
+  }, [generatingSlideVisible]);
+
+  // The add-slide request is finished once the agent stops generating, so the
+  // rail's placeholder must not outlive it.
+  useEffect(() => {
+    if (!generating) setAddSlideGenerating(false);
+  }, [generating]);
+
+  const previousSlideCountRef = useRef(slideCount);
+  useEffect(() => {
+    if (previousSlideCountRef.current === slideCount) return;
+    previousSlideCountRef.current = slideCount;
+    setGeneratingSlideSelected(false);
+  }, [slideCount]);
+
+  useEffect(() => {
+    if (
+      loading ||
+      deck ||
+      !id ||
+      !currentDeckAccessKey ||
+      orgLoading ||
+      checkedDeckAccessKey === currentDeckAccessKey
+    ) {
+      return;
+    }
+
+    if (!org?.orgId) {
+      setCheckedDeckAccessKey(currentDeckAccessKey);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      let status = await reloadDecksWithStatus();
+      while (!cancelled && status === "stale") {
+        status = await reloadDecksWithStatus();
+      }
+      if (!cancelled) setCheckedDeckAccessKey(currentDeckAccessKey);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    checkedDeckAccessKey,
+    currentDeckAccessKey,
+    deck,
+    id,
+    loading,
+    org?.orgId,
+    orgLoading,
+    reloadDecksWithStatus,
+  ]);
 
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
@@ -289,7 +400,12 @@ export default function DeckEditor() {
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
   useEffect(() => {
-    if (!shouldClearNewDeckGeneratingState({ generating, slideCount })) {
+    if (
+      !shouldClearNewDeckGeneratingState({
+        generating,
+        generationStarted: newDeckGenerationStarted.current,
+      })
+    ) {
       return;
     }
     wasNewDeckCreation.current = false;
@@ -303,7 +419,7 @@ export default function DeckEditor() {
         { replace: true },
       );
     }
-  }, [generating, searchParams, setSearchParams, slideCount]);
+  }, [generating, searchParams, setSearchParams]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -410,6 +526,35 @@ export default function DeckEditor() {
     [id, updateSlide, uploadImageAsset],
   );
 
+  // Drag an already-hosted image (e.g. dragged out of a generated-image
+  // preview in the agent chat panel) onto the slide canvas. Unlike
+  // uploadAndApplyImage there's nothing to upload — the URL is already a
+  // live asset — so this just swaps it into the target image/placeholder.
+  const dropImageUrlOnSlide = useCallback(
+    (replaceSrc: string | null, url: string) => {
+      if (!id || !currentSlideRef.current) return;
+      if (!replaceSrc) {
+        // No existing image/placeholder under the drop point (e.g. an empty
+        // slide) — the URL is already a known, hosted asset (unlike an
+        // arbitrary local file), so just add it to the slide directly
+        // instead of routing through the agent-prompt popover.
+        const targetSlide = currentSlideRef.current;
+        const updatedContent = insertImageIntoSlideHtml(
+          targetSlide.content,
+          url,
+        );
+        if (updatedContent !== targetSlide.content) {
+          updateSlide(id, targetSlide.id, { content: updatedContent });
+        }
+        toast.success(t("deckEditor.imageAdded"));
+        return;
+      }
+      replaceImageInSlide(replaceSrc, url);
+      toast.success(t("deckEditor.imageAdded"));
+    },
+    [id, replaceImageInSlide, t, updateSlide],
+  );
+
   // Toggle object-fit on an image in the current slide
   const toggleObjectFit = useCallback(
     (imgSrc: string, newFit: string) => {
@@ -489,6 +634,33 @@ export default function DeckEditor() {
     },
     [deck, deleteSlide, undo],
   );
+
+  useEffect(() => {
+    const handleTextToolShortcut = (event: KeyboardEvent) => {
+      if (
+        !shouldActivateTextTool(event, {
+          canEdit,
+          activeElement: document.activeElement,
+          blockingSurfaceOpen: Boolean(
+            document.querySelector(
+              "[role='dialog'], [role='menu'], [role='listbox']",
+            ),
+          ),
+        })
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      setDrawMode(false);
+      setPinMode(false);
+      setTextBoxMode(true);
+    };
+
+    document.addEventListener("keydown", handleTextToolShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleTextToolShortcut);
+  }, [canEdit]);
 
   // Delete key deletes the current slide
   useEffect(() => {
@@ -711,8 +883,8 @@ export default function DeckEditor() {
   // The agent is "present"/"active" if EITHER the deck presence doc (action
   // edits) or the slide-content doc (Yjs edits) says so — a single unified
   // signal for the toolbar/slide chips.
-  const agentPresent = deckAgentPresent || slideAgentPresent;
-  const agentActive = deckAgentActive || slideAgentActive;
+  const agentPresent = generating || deckAgentPresent || slideAgentPresent;
+  const agentActive = generating || deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
   const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
@@ -722,13 +894,24 @@ export default function DeckEditor() {
     (t) => !t.resolved,
   ).length;
 
-  if (loading) return <div className="h-screen bg-background" />;
+  if (
+    shouldShowDeckEditorSkeleton({
+      deckFound: Boolean(deck),
+      decksLoading: loading,
+      orgLoading,
+      accessCheckKey: currentDeckAccessKey,
+      checkedAccessKey: checkedDeckAccessKey,
+      retrying: retryingMissingDeck,
+    })
+  ) {
+    return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
+  }
   if (!deck || !id) {
     return (
       <MissingDeckAccessPane
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
-        orgError={orgError}
+        orgError={orgError || loadError}
         refreshing={retryingMissingDeck}
         onRetry={() => void retryOpenDeck()}
         onBack={() => navigate("/")}
@@ -768,6 +951,13 @@ export default function DeckEditor() {
     ? `Current slide: ${currentSlide.id} (index ${currentIndex >= 0 ? currentIndex : 0}). Deck: ${id}.`
     : `Deck: ${id}.`;
 
+  const handleAddEmptySlide = () => {
+    const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
+    setActiveSlideId(
+      addSlide(id, "blank", activeIdx >= 0 ? activeIdx : undefined),
+    );
+  };
+
   return (
     <div
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
@@ -794,10 +984,6 @@ export default function DeckEditor() {
         historyOpen={historyOpen}
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
-        onUndo={undo}
-        onRedo={redo}
-        canUndo={canUndo}
-        canRedo={canRedo}
         currentSlide={currentSlide}
         onUpdateSlide={(updates) =>
           currentSlide && updateSlide(id, currentSlide.id, updates)
@@ -806,7 +992,9 @@ export default function DeckEditor() {
         agentPresent={agentPresent}
         agentActive={agentActive}
         commentsOpen={commentsOpen}
-        onToggleComments={() => setCommentsOpen((o) => !o)}
+        onToggleComments={() =>
+          setSidePanel((panel) => (panel === "comments" ? null : "comments"))
+        }
         unresolvedCommentCount={unresolvedCommentCount}
         currentUserEmail={session?.email}
         animationsOpen={animationsOpen}
@@ -814,9 +1002,11 @@ export default function DeckEditor() {
         tweaksOpen={tweaksOpen}
         onToggleTweaks={() => setTweaksOpen((o) => !o)}
         drawMode={drawMode}
-        onToggleDrawMode={() => setDrawMode((v) => !v)}
+        onToggleDrawMode={toggleDrawMode}
         pinMode={pinMode}
-        onTogglePinMode={() => setPinMode((v) => !v)}
+        onTogglePinMode={togglePinMode}
+        textBoxMode={textBoxMode}
+        onToggleTextBoxMode={toggleTextBoxMode}
         onDuplicateDeck={() => {
           const newId = `deck-${nanoid()}`;
           const optimistic = duplicateDeck(id, newId);
@@ -852,8 +1042,17 @@ export default function DeckEditor() {
           }
           await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
         }}
+        onExportGoogleSlides={async () => {
+          const slides = deck.slides.map((s) => ({
+            id: s.id,
+            notes: s.notes,
+          }));
+          if (slides.length === 0) {
+            throw new Error(t("deckEditor.deckHasNoSlides"));
+          }
+          return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
+        }}
         aspectRatio={deck.aspectRatio}
-        designSystemTitle={designSystemTitle}
         onSetAspectRatio={(ratio: AspectRatio) => {
           const previous = deck.aspectRatio;
           // Optimistic UI: update local cache immediately so canvas resizes.
@@ -866,7 +1065,18 @@ export default function DeckEditor() {
             updateDeck(id, { aspectRatio: previous });
           });
         }}
+        currentSlideId={currentSlide?.id}
+        addSlideGenerating={addSlideGenerating}
+        onAddSlideGeneratingChange={setAddSlideGenerating}
+        onAddEmptySlide={handleAddEmptySlide}
+        onDuplicateCurrentSlide={
+          currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
+        }
       />
+
+      {/* Full-width host for the slide's contextual style toolbar: it spans the
+       * slide rail as well as the canvas, matching the deck toolbar above it. */}
+      <div ref={setContextToolbarSlot} className="shrink-0" />
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && (
@@ -875,7 +1085,7 @@ export default function DeckEditor() {
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute z-40 h-full min-h-0 md:relative">
+            <div className="absolute z-[70] h-full min-h-0 md:relative">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -885,23 +1095,12 @@ export default function DeckEditor() {
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
                   deckId={id}
-                  deckTitle={deck.title}
                   onSelectSlide={(slideId) => {
+                    setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
                   onDuplicateSlide={(slideId) => duplicateSlide(id, slideId)}
-                  onAddEmptySlide={() => {
-                    const activeIdx = deck.slides.findIndex(
-                      (s) => s.id === activeSlideId,
-                    );
-                    const newId = addSlide(
-                      id,
-                      "blank",
-                      activeIdx >= 0 ? activeIdx : undefined,
-                    );
-                    setActiveSlideId(newId);
-                  }}
                   onDeleteSlide={(slideId) => {
                     const idx = deck.slides.findIndex((s) => s.id === slideId);
                     const nextSlide =
@@ -909,9 +1108,23 @@ export default function DeckEditor() {
                     deleteSlideWithUndo(id, slideId);
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
+                  readOnly={!canEdit}
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
+                  generatingSlide={
+                    generatingSlideVisible
+                      ? {
+                          index: deck.slides.length,
+                          content: streamedGeneratingSlideContent,
+                        }
+                      : undefined
+                  }
+                  generatingSlideSelected={generatingSlideSelected}
+                  onSelectGeneratingSlide={() => {
+                    setGeneratingSlideSelected(true);
+                    if (window.innerWidth < 768) setSidebarOpen(false);
+                  }}
                 />
               </DndContext>
             </div>
@@ -931,7 +1144,20 @@ export default function DeckEditor() {
           />
         )}
 
-        {isNewDeckGenerating &&
+        {generatingSlideSelected && generatingSlideVisible && (
+          <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+            <div className="m-auto w-full max-w-6xl">
+              <GeneratingSlidePreview
+                content={streamedGeneratingSlideContent}
+                aspectRatio={deck.aspectRatio}
+                thumbnail={false}
+              />
+            </div>
+          </div>
+        )}
+
+        {!generatingSlideSelected &&
+          showNewDeckGeneratingOverlay &&
           deck.slides.length === 0 &&
           !showQuestionFlow && <GeneratingOverlay />}
 
@@ -944,68 +1170,99 @@ export default function DeckEditor() {
           </div>
         )}
 
-        {!(isNewDeckGenerating && deck.slides.length === 0) &&
-          !showQuestionFlow &&
-          currentSlide && (
-            <SlideEditor
-              slide={currentSlide}
-              deckId={id}
-              readOnly={!canEdit}
-              onUpdateSlide={(updates, slideIdOverride) =>
-                updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
-              }
-              onInlineEditStart={() => markDeckDirty(id)}
-              onGenerateImage={() => setImageGenOpen(true)}
-              onOpenAssetLibrary={(src) => {
-                setReplaceImageSrc(src);
-                setAssetLibraryOpen(true);
-              }}
-              onUploadImage={(src) => {
-                setReplaceImageSrc(src);
-                uploadInputRef.current?.click();
-              }}
-              onSearchImage={(src) => {
-                setReplaceImageSrc(src);
-                setImageSearchOpen(true);
-              }}
-              onLogoSearch={(src) => {
-                setReplaceImageSrc(src);
-                setLogoSearchOpen(true);
-              }}
-              onDropImage={uploadAndApplyImage}
-              onToggleObjectFit={toggleObjectFit}
-              slideIndex={currentIndex >= 0 ? currentIndex : 0}
-              slideCount={deck.slides.length}
-              designSystem={designSystem}
-              aspectRatio={deck.aspectRatio}
-              collabUser={
-                currentUser
-                  ? { name: currentUser.name, color: currentUser.color }
-                  : undefined
-              }
-              agentActive={agentActive}
-              recentEdits={deckRecentEdits}
-              onComment={(quotedText) => {
-                setPendingComment({ quotedText });
-                setCommentsOpen(true);
-              }}
-              drawMode={drawMode}
-              onExitDrawMode={() => setDrawMode(false)}
-              pinMode={pinMode}
-              onExitPinMode={() => setPinMode(false)}
-              slideId={currentSlide.id}
-              slideTitle={(() => {
-                const m = currentSlide.content?.match(
-                  /<h[12][^>]*>([^<]+)<\/h[12]>/i,
-                );
-                return (
-                  m?.[1]?.trim() ||
-                  `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
-                );
-              })()}
-              presentUsers={slidePresence.get(currentSlide.id) ?? []}
-            />
-          )}
+        {showCurrentSlideEditor && currentSlide && (
+          <SlideEditor
+            slide={currentSlide}
+            deckId={id}
+            readOnly={!canEdit}
+            contextToolbarSlot={contextToolbarSlot}
+            contextToolbarLeading={
+              canEdit ? (
+                <EditorActionCluster
+                  deckId={id}
+                  deckTitle={deck.title}
+                  currentSlideId={currentSlide.id}
+                  slideCount={deck.slides.length}
+                  currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
+                  addSlideGenerating={addSlideGenerating}
+                  onAddSlideGeneratingChange={setAddSlideGenerating}
+                  onAddEmptySlide={handleAddEmptySlide}
+                  onDuplicateCurrentSlide={() =>
+                    duplicateSlide(id, currentSlide.id)
+                  }
+                  textBoxMode={textBoxMode}
+                  onToggleTextBoxMode={toggleTextBoxMode}
+                />
+              ) : undefined
+            }
+            onUpdateSlide={(updates, slideIdOverride, options) =>
+              updateSlide(
+                id,
+                slideIdOverride ?? currentSlide.id,
+                updates,
+                options,
+              )
+            }
+            onInlineEditStart={() => markDeckDirty(id)}
+            onGenerateImage={() => setImageGenOpen(true)}
+            onOpenAssetLibrary={(src) => {
+              setReplaceImageSrc(src);
+              setAssetLibraryOpen(true);
+            }}
+            onUploadImage={(src) => {
+              setReplaceImageSrc(src);
+              uploadInputRef.current?.click();
+            }}
+            onSearchImage={(src) => {
+              setReplaceImageSrc(src);
+              setImageSearchOpen(true);
+            }}
+            onLogoSearch={(src) => {
+              setReplaceImageSrc(src);
+              setLogoSearchOpen(true);
+            }}
+            onDropImage={uploadAndApplyImage}
+            onDropImageUrl={dropImageUrlOnSlide}
+            onToggleObjectFit={toggleObjectFit}
+            slideIndex={currentIndex >= 0 ? currentIndex : 0}
+            slideCount={deck.slides.length}
+            designSystem={designSystem}
+            aspectRatio={deck.aspectRatio}
+            collabUser={
+              currentUser
+                ? { name: currentUser.name, color: currentUser.color }
+                : undefined
+            }
+            agentActive={
+              slideAgentActive ||
+              (deckAgentActive && agentSlideId === currentSlide.id) ||
+              (isNewDeckGenerating &&
+                currentSlide.id === deck.slides.at(-1)?.id)
+            }
+            recentEdits={deckRecentEdits}
+            onComment={(quotedText) => {
+              setPendingComment({ quotedText });
+              setSidePanel("comments");
+            }}
+            drawMode={drawMode}
+            onExitDrawMode={() => setDrawMode(false)}
+            pinMode={pinMode}
+            onExitPinMode={() => setPinMode(false)}
+            textBoxMode={textBoxMode}
+            onExitTextBoxMode={() => setTextBoxMode(false)}
+            slideId={currentSlide.id}
+            slideTitle={(() => {
+              const m = currentSlide.content?.match(
+                /<h[12][^>]*>([^<]+)<\/h[12]>/i,
+              );
+              return (
+                m?.[1]?.trim() ||
+                `Slide ${(currentIndex >= 0 ? currentIndex : 0) + 1}`
+              );
+            })()}
+            presentUsers={slidePresence.get(currentSlide.id) ?? []}
+          />
+        )}
 
         {commentsOpen && (
           <SlideCommentsPanel
@@ -1014,7 +1271,7 @@ export default function DeckEditor() {
             pendingComment={pendingComment}
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
-              setCommentsOpen(false);
+              setSidePanel(null);
               setPendingComment(null);
             }}
           />
@@ -1042,14 +1299,6 @@ export default function DeckEditor() {
             onClose={() => setTweaksOpen(false)}
           />
         )}
-
-        <Suspense>
-          <Pinpoint
-            author={session?.email || "anonymous"}
-            colorScheme="dark"
-            compactPopup
-          />
-        </Suspense>
       </div>
 
       {/* Hidden upload input */}
@@ -1066,6 +1315,7 @@ export default function DeckEditor() {
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
         anchorRef={imageGenButtonRef}
+        referenceImageUrls={imageStyleReferenceUrls}
         slideContext={
           currentSlide
             ? {

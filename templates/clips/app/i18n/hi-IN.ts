@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "कार्रवाइयाँ",
     commandSearch: "खोजें",
+    openAgent: "एजेंट खोलें",
     commandAppearance: "दिखावट",
     toggleTheme: "थीम बदलें",
     extensionSignedInTitle: "साइन इन हो गया",
@@ -55,6 +56,7 @@ const messages = {
     videoProjects: "वीडियो प्रोजेक्ट",
     archive: "आर्काइव",
     trash: "ट्रैश",
+    agent: "एजेंट",
     settings: "सेटिंग्स",
     notifications: "सूचनाएँ",
     insights: "इनसाइट्स",
@@ -216,6 +218,9 @@ const messages = {
     autoChapters: "ऑटो अध्याय",
     removeFillerWords: "पूरक शब्द हटाएँ",
     removeSilences: "मौन हटाएँ (>1.2s)",
+    silenceWorking: "मौन हटाए जा रहे हैं…",
+    silenceCompleted: "मौन हटाना पूरा हुआ",
+    silenceFailed: "मौन हटाना विफल रहा",
     generatePrSummary: "पीआर सारांश तैयार करें",
     generateSop: "SOP उत्पन्न करें",
     generateSopTooltip:
@@ -285,7 +290,6 @@ const messages = {
     storageConnectedChecking: "भंडारण जुड़ा हुआ है. इस क्लिप की जाँच कर रहा हूँ...",
     signInToFinish: "समाप्त करने के लिए साइन इन करें",
     signInIfYours: "यदि यह आपका है तो साइन इन करें",
-    openDashboard: "डैशबोर्ड खोलें",
     checkAgain: "फिर जाँचें",
     backToHome: "घर वापिस जा रहा हूँ",
     generatingTitle: "शीर्षक उत्पन्न करना",
@@ -439,6 +443,7 @@ const messages = {
     invite: "आमंत्रित करें",
     embed: "एम्बेड",
     shareLink: "शेयर लिंक",
+    shareWithHumans: "लोगों के साथ साझा करें",
     shareWithAgents: "एजेंटों के साथ साझा करें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
@@ -449,6 +454,8 @@ const messages = {
     retryAgentLink: "फिर से प्रयास करें",
     gifPreview: "GIF पूर्वावलोकन",
     openPlayer: "खुला खिलाड़ी",
+    chooseFile: "फ़ाइल चुनें",
+    remove: "हटाएं",
     downloadMp4: "MP4 डाउनलोड करें",
     embedsNeedPublic: "एंबेड को एक सार्वजनिक क्लिप की आवश्यकता है",
     embedPublicDescription:
@@ -475,6 +482,7 @@ const messages = {
     makePublicAndCopy: "सार्वजनिक करें और कॉपी करें",
     copy: "कॉपी करें",
     addPeopleByEmail: "ईमेल से लोगों को जोड़ें",
+    invite: "आमंत्रित करें",
     notifyPeople: "लोगों को सूचित करें",
     peopleWithAccess: "पहुंच वाले लोग",
     ownerRole: "स्वामी",
@@ -531,11 +539,16 @@ const messages = {
     brandingUpdated: "ब्रांडिंग अपडेट हुई",
     saveFailed: "सहेजने में विफल",
     organizationName: "संगठन का नाम",
+    defaultVisibility: "नई रिकॉर्डिंग की डिफ़ॉल्ट दृश्यता",
+    defaultVisibilityDescription:
+      "जब तक आप कोई अलग दृश्यता न चुनें, यह नई रिकॉर्डिंग पर लागू होगी।",
     brandColor: "ब्रांड रंग",
     brandColorPicker: "ब्रांड रंग चयनकर्ता",
     useColor: "{{color}} उपयोग करें",
     logo: "लोगो",
     logoPreview: "लोगो पूर्वावलोकन",
+    logoUsage: "साझा ईमेल और सार्वजनिक क्लिप पेजों पर प्राप्तकर्ताओं को दिखाया जाता है।",
+    emailHeaderPreview: "साझा ईमेल हेडर",
     dropReplace: "बदलने के लिए नई छवि छोड़ें",
     dropHere: "यहां PNG / JPG / SVG छोड़ें",
     uploading: "अपलोड हो रहा है…",
@@ -598,17 +611,27 @@ const messages = {
     pageTitle: "टीम में शामिल हों · Clips",
   },
   settings: {
-    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+    openAgentSettings: "एजेंट प्रबंधित करें",
     agentDescription:
-      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-    agentTitle: "एजेंट सेटिंग्स",
+      "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+    agentTitle: "एजेंट प्रबंधित करें",
     title: "सेटिंग्स",
     pageTitle: "सेटिंग्स · Clips",
     intro: "इस Clips वर्कस्पेस के लिए प्राथमिकताएँ और कनेक्टेड सेवाएँ।",
+    preferencesTitle: "प्राथमिकताएँ",
     languageTitle: "भाषा",
     languageDescription:
       "इस खाते के लिए इंटरफ़ेस भाषा चुनें। Clips इसे आपके डिवाइसों पर याद रखेगा।",
     languageLabel: "इंटरफ़ेस भाषा",
+    uploadWorkspaceTitle: "सक्रिय वर्कस्पेस",
+    uploadWorkspaceDescription:
+      "वह वर्कस्पेस चुनें जिसका उपयोग Clips डेस्कटॉप अपलोड सहित नई रिकॉर्डिंग के लिए करेगा।",
+    uploadWorkspaceLabel: "वर्तमान वर्कस्पेस",
+    uploadWorkspacePlaceholder: "वर्कस्पेस चुनें",
+    uploadWorkspaceHint: "इसे बदलने पर वर्कस्पेस से जुड़ी Clips दृश्य भी अपडेट होती हैं।",
+    uploadWorkspaceSaving: "वर्कस्पेस सहेजा जा रहा है…",
+    uploadWorkspaceSaved: "सक्रिय वर्कस्पेस अपडेट किया गया",
+    uploadWorkspaceSaveFailed: "सक्रिय वर्कस्पेस अपडेट नहीं किया जा सका",
     whatsNew: "नया क्या है",
     changelogEmpty: "अभी कोई अपडेट नहीं है।",
     viewAllUpdates: "सभी अपडेट देखें",
@@ -623,10 +646,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
 ### जोड़ा गया
 
 - अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd+K) और सेटिंग्स में उपलब्ध है।`,
-    profile: "प्रोफ़ाइल",
-    email: "ईमेल",
-    displayName: "दिखने वाला नाम",
-    displayNamePlaceholder: "आपका नाम",
     playback: "प्लेबैक",
     defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
     playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
@@ -638,9 +657,16 @@ Clips में उपयोगकर्ताओं को दिखने व�
     backupTranscriptionDescription:
       "डिफ़ॉल्ट रूप से चालू। यदि कोई स्थानीय ट्रांसक्रिप्ट कैप्चर नहीं हुआ, तो रिकॉर्डिंग का ऑडियो ट्रांसक्रिप्शन के लिए कनेक्टेड क्लाउड प्रदाता (Builder.io क्रेडिट या Groq) को भेजा जाता है। बंद करने पर ऑडियो केवल इसी डिवाइस पर रहता है — ऐसे क्लिप बिना ट्रांसक्रिप्ट रहेंगे।",
     notifications: "सूचनाएँ",
+    sharing: "साझा करना",
+    defaultVisibility: "नई रिकॉर्डिंग की डिफ़ॉल्ट दृश्यता",
+    defaultVisibilityDescription:
+      "आपकी बनाई हर रिकॉर्डिंग पर लागू होती है। आप हर रिकॉर्डिंग की दृश्यता बदल सकते हैं।",
+    visibilityPrivate: "निजी - केवल आप",
+    visibilityOrg: "संगठन - आपके वर्कस्पेस में कोई भी",
+    visibilityPublic: "सार्वजनिक - लिंक वाला कोई भी",
     emailNotifications: "ईमेल सूचनाएँ",
     emailNotificationsDescription:
-      "जब कोई टिप्पणी करे, प्रतिक्रिया दे या आपके साथ रिकॉर्डिंग शेयर करे तो ईमेल पाएँ।",
+      "जब कोई आपकी रिकॉर्डिंग पर टिप्पणी करे या प्रतिक्रिया दे तो ईमेल पाएँ।",
     saved: "सेटिंग्स सहेजी गईं",
     saveFailed: "सहेजने में विफल",
     builderConnectedToast: "Builder.io कनेक्टेड",
@@ -767,6 +793,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     noOrganization: "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
     description: "संगठन व्यवस्थापन: ब्रांडिंग, सदस्य, आमंत्रण।",
     adminsOnlyBranding: "केवल व्यवस्थापक ब्रांडिंग संपादित कर सकते हैं।",
+    brandingLoadFailed: "संगठन ब्रांडिंग लोड नहीं हो सकी।",
     members: "सदस्य",
     pendingInvites: "लंबित आमंत्रण",
     noPendingInvites: "कोई लंबित आमंत्रण नहीं।",
@@ -787,11 +814,24 @@ Clips में उपयोगकर्ताओं को दिखने व�
     recentViewers: "हाल के दर्शक",
     noViewers: "अभी कोई दर्शक नहीं।",
     anonymous: "अनाम",
-    anon: "अनाम",
     moreViewers: "+{{count}} और",
     viewedBy: "देखा गया",
     someone: "किसी ने",
     noViewsYet: "अभी तक कोई दृश्य नहीं।",
+    viewsCount_one: "{{count}} व्यू",
+    viewsCount_other: "{{count}} व्यू",
+    agentViewsCount_one: "{{count}} AI एजेंट व्यू",
+    agentViewsCount_other: "{{count}} AI एजेंट व्यू",
+    totalViewsSummary: "कुल {{total}} व्यू, {{unique}} अद्वितीय दर्शक",
+    viewsTab: "व्यू",
+    insightsTab: "इनसाइट्स",
+    humanViews: "मानव व्यू",
+    agentViews: "AI एजेंट व्यू",
+    noAgentViewsYet: "अभी तक कोई AI एजेंट व्यू नहीं।",
+    unknownAgent: "अज्ञात एजेंट",
+    totalVideoViews: "कुल वीडियो व्यू",
+    averageCompletionRate: "औसत पूर्णता दर",
+    moreInsights: "और इनसाइट्स",
   },
   libraryGrid: {
     spaceRoot: "स्पेस रूट",
@@ -814,6 +854,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     loadFailedBody:
       "यह सूची लोड करते समय कुछ गड़बड़ हो गई। आपकी रिकॉर्डिंग सुरक्षित हैं — फिर से प्रयास करें।",
     retry: "फिर से प्रयास करें",
+    paginationRange: "{{total}} में से {{start}}–{{end}}",
+    paginationPrevious: "पिछला",
+    paginationNext: "अगला",
+    paginationPage: "पृष्ठ {{page}} / {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "सूचनाएं · Clips",
@@ -881,14 +925,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "{{email}} इस संगठन तक पहुंच खो देगा। आप उन्हें हमेशा वापस आमंत्रित कर सकते हैं।",
     remove: "हटाएं",
   },
-  slackShareHint: {
-    playsInline: "Slack में इनलाइन चलता है",
-    connectedDescription:
-      "इसे इनलाइन चलाने के लिए यह लिंक किसी भी जुड़े हुए वर्कस्पेस में पेस्ट करें।",
-    makeInline: "इसे Slack में इनलाइन चलाएं",
-    connectDescription: "एक वर्कस्पेस कनेक्ट करें ताकि यह लिंक वीडियो के रूप में खुले।",
-    connect: "कनेक्ट करें",
-  },
   commentsPanel: {
     disabled: "इस रिकॉर्डिंग के लिए टिप्पणियां बंद हैं।",
     beFirst: "पहली टिप्पणी करें",
@@ -900,6 +936,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     replyingTo: "जवाब दे रहे हैं",
     commentAt: "टिप्पणी करें",
     writeReply: "जवाब लिखें...",
+    editComment: "टिप्पणी संपादित करें",
     commentButton: "टिप्पणी",
     composerPlaceholder: "टिप्पणी जोड़ें…",
     mentionSomeone: "किसी का उल्लेख करें",
@@ -915,6 +952,17 @@ Clips में उपयोगकर्ताओं को दिखने व�
     summary: "सारांश",
     keyPoints: "मुख्य बिंदु",
     actionItems: "कार्य आइटम",
+    sharedContent: "साझा की गई सामग्री",
+    summaryIncluded: "सारांश, मुख्य बिंदु और कार्य आइटम",
+    includeTranscript: "पूरी ट्रांसक्रिप्ट शामिल करें",
+    includeTranscriptDescription:
+      "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
+    transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
+    transcript: "ट्रांसक्रिप्ट",
+    copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
+    transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
+    copyTranscriptFailed: "ट्रांसक्रिप्ट कॉपी नहीं हो सकी",
+    updateTranscriptSharingFailed: "ट्रांसक्रिप्ट शेयरिंग अपडेट नहीं हो सकी",
   },
   deleteRecordingMenu: {
     movedToTrash: "क्लिप ट्रैश में ले जाया गया",
@@ -1077,6 +1125,19 @@ Clips में उपयोगकर्ताओं को दिखने व�
     spaceCreated: "स्पेस बनाई गई",
     createFailed: "स्पेस नहीं बनाई जा सकी",
   },
+  spaceDialog: {
+    deleteSpace: "स्पेस हटाएं",
+    renameSpace: "स्पेस का नाम बदलें",
+    deleteTitle: '"{{name}}" हटाएं?',
+    deleteDescription:
+      "यह स्पेस को हटा देगा और सभी रिकॉर्डिंग से निकाल देगा। इस कार्रवाई को पूर्ववत नहीं किया जा सकता।",
+    renamed: "स्पेस का नाम बदल दिया गया",
+    deleted: '"{{name}}" हटा दिया गया',
+    renameFailed: "स्पेस का नाम बदलना विफल",
+    deleteFailed: "स्पेस हटाना विफल",
+    renaming: "नाम बदला जा रहा है...",
+    deleting: "हटाया जा रहा है...",
+  },
   signInPrompt: {
     title: "{{intent}} के लिए साइन इन करें",
     description:
@@ -1124,6 +1185,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     desktopTitle: "Desktop app (स्थानीयकृत)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (स्थानीयकृत)",
+    openDesktopApp: "Open desktop app (स्थानीयकृत)",
   },
   editableTitle: {
     untitled: "Untitled Clip (स्थानीयकृत)",
@@ -1274,10 +1336,15 @@ Clips में उपयोगकर्ताओं को दिखने व�
     cameraOff: "Camera off (स्थानीयकृत)",
     includeCameraAria: "Include camera in this recording (स्थानीयकृत)",
     startRecording: "Start recording (स्थानीयकृत)",
+    micOffConfirmTitle: "Record without a microphone? (स्थानीयकृत)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (स्थानीयकृत)",
+    startWithoutMic: "Start anyway (स्थानीयकृत)",
     uploadVideo: "Upload video (स्थानीयकृत)",
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",
     import: "Import (स्थानीयकृत)",
+    recordNew: "नई रिकॉर्डिंग",
   },
   playerSettings: {
     title: "Settings (स्थानीयकृत)",
@@ -1287,9 +1354,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     visibilityOrg: "Organization (स्थानीयकृत)",
     visibilityPublic: "Public (स्थानीयकृत)",
     passwordProtection: "Password protection (स्थानीयकृत)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (स्थानीयकृत)",
+    passwordSetPlaceholder: "Password is set — type to replace (स्थानीयकृत)",
     noPasswordPlaceholder: "No password (स्थानीयकृत)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (स्थानीयकृत)",
+    removePassword: "Remove (स्थानीयकृत)",
     expiry: "Expiry (स्थानीयकृत)",
     viewerOptions: "Viewer options (स्थानीयकृत)",
     comments: "Comments (स्थानीयकृत)",
@@ -1326,6 +1394,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
     recordingReadyToUpload: "Recording is ready to upload (स्थानीयकृत)",
     recordingSaved: "Recording saved (स्थानीयकृत)",
     markerAdded: "{{kind}} added (स्थानीयकृत)",
+    linkCopied: "लिंक कॉपी हो गया",
+    copyLinkAction: "लिंक कॉपी करें",
     noLocalRecordingData:
       "No local recording data is available to download. (स्थानीयकृत)",
     recordingDownloadStarted: "Recording download started (स्थानीयकृत)",
@@ -1347,12 +1417,31 @@ Clips में उपयोगकर्ताओं को दिखने व�
     downloadDesktopApp: "Download desktop app (स्थानीयकृत)",
     technicalDetails: "Technical details (स्थानीयकृत)",
     whatToCheck: "What to check (स्थानीयकृत)",
-    downloadRecording: "Download recording (स्थानीयकृत)",
+    downloadRecording: "Download (स्थानीयकृत)",
     openRecorderInTab: "Open recorder in tab (स्थानीयकृत)",
     connectStorageToFinish:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
+  },
+  importRoute: {
+    pageTitle: "Loom आयात करें — Clips",
+    title: "Loom आयात करें",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "आयात करें",
+    helperText:
+      "यह Loom के साथ बहुत अच्छे से काम करता है। आप किसी भी अन्य स्क्रीन रिकॉर्डिंग या वीडियो फ़ाइल का लिंक भी पेस्ट कर सकते हैं।",
+    stageFetching: "आपका वीडियो लाया जा रहा है…",
+    stageUploading: "मूल फ़ुटेज अपलोड हो रहा है…",
+    stageTranscript: "बोली और स्क्रीन के दृश्य को एजेंट-पठनीय बनाया जा रहा है…",
+    stageFinalizing: "इसे Agent-Native बनाया जा रहा है…",
+    importingSubtitle:
+      "एक सामान्य रिकॉर्डिंग को Agent-Native प्रिमिटिव में बदला जा रहा है।",
+    doneHeading: "और हो गया! आपका वीडियो अब है:",
+    benefitTranscript: "बोली और स्क्रीन के दृश्य, पूरी तरह खोजने योग्य",
+    benefitQueryable: "आपके एजेंट द्वारा समझा और क्वेरी किया जा सकने योग्य",
+    benefitSummaries: "मांग पर तुरंत सारांश और क्लिप",
+    benefitPrimitive: "प्रथम-श्रेणी का Agent-Native प्रिमिटिव",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (स्थानीयकृत)",
@@ -1413,6 +1502,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
   clipsFinalRaw: {
     splitAtPlayhead: "प्लेहेड पर विभाजित करें (S)",
     selectedCount: "{{count}} चुने गए",
+    selectAll: "सभी चुनें",
+    deselectAll: "सभी अचयनित करें",
     move: "ले जाएं",
     moveSelected: "चुने गए {{count}} ले जाएं",
     current: "वर्तमान",
@@ -1422,7 +1513,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     uploadFailed: "अपलोड विफल",
     connectStorageToFinish: "स्टोरेज कनेक्ट करके सेव पूरा करने के लिए खोलें।",
     retryFromClipsMenu:
-      "मेन्यू बार के Clips आइकन से रीट्राई करें — वहाँ सेव किए गए क्लिप के कार्ड में लोकल फ़ाइल खोलने वाला फ़ोल्डर बटन भी है।",
+      "इस सहेजे गए अपलोड को फिर आज़माने के लिए मेनू बार से Clips खोलें; दोबारा रिकॉर्ड करने की ज़रूरत नहीं।",
     removeFailedClip: "यह विफल क्लिप हटाएं।",
     remove: "हटाएं",
     viewsCount: "{{count}} बार देखा गया",
@@ -1503,6 +1594,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
+    googleMayShowWarning: "Google एक्सेस की समीक्षा करें",
+    googleNotVerifiedTitle: "कनेक्ट करने से पहले ऐप सत्यापित करें",
+    googleWarningBeforeAdvanced:
+      "पुष्टि करें कि ऐप का नाम और मांगा गया Calendar एक्सेस उस Clips डिप्लॉयमेंट से मेल खाते हैं जिस पर आप भरोसा करते हैं। यदि Google असत्यापित ऐप की चेतावनी दिखाए या पहचान अपरिचित लगे, तो रुकें और अपने वर्कस्पेस एडमिन से संपर्क करें।",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (स्थानीयकृत)",
     getDesktopApp: "Get desktop app (स्थानीयकृत)",
@@ -1575,6 +1670,21 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "यह प्रोजेक्ट लोड नहीं हो सका। हो सकता है इसे हटा दिया गया हो या आपके पास एक्सेस न हो।",
     renameProject: "प्रोजेक्ट का नाम बदलें",
   },
+  rewindExtension: {
+    title: "पहले हुई गतिविधि जोड़ें",
+    description:
+      "स्थानीय Rewind से कोई निश्चित समय चुनकर इस क्लिप की शुरुआत में जोड़ें। कुछ भी अपने-आप नहीं जोड़ा जाता।",
+    progressLabel: "Rewind इतिहास प्रोसेस होने की प्रगति",
+    privateFirstTitle: "पहले इस क्लिप को निजी बनाएँ",
+    privateFirstDescription:
+      "स्थानीय Rewind इतिहास में रिकॉर्डिंग शुरू करने से पहले का संदर्भ हो सकता है। इससे क्लिप निजी हो जाएगी। अगर किसी के पास अब भी सीधी पहुँच है, तो Clips रुक जाएगा ताकि आप पहले शेयर में उनकी पहुँच हटा सकें।",
+    makePrivateContinue: "निजी बनाएँ और जारी रखें",
+    add30Seconds: "पिछले 30 सेकंड जोड़ें",
+    add5Minutes: "पिछले 5 मिनट जोड़ें",
+    add5MinutesDescription: "लंबी व्याख्या की शुरुआत वापस पाने के लिए उपयोगी।",
+    privateReady: "यह क्लिप निजी है। अब आप स्थानीय Rewind इतिहास जोड़ सकते हैं।",
+  },
+  timeline: { clipStartedHere: "क्लिप यहाँ शुरू हुई" },
 };
 
 export default messages;

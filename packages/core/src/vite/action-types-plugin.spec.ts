@@ -25,6 +25,10 @@ describe("generateActionRegistryForProject", () => {
         path.join(actionsDir, "other.test.ts"),
         `const text = "defineAction";\nexport default {};\n`,
       );
+      fs.writeFileSync(
+        path.join(actionsDir, "factory-action.ts"),
+        `import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";\nexport default createProviderApiCatalogAction({} as any, {} as any);\n`,
+      );
 
       generateActionRegistryForProject(root);
 
@@ -33,6 +37,7 @@ describe("generateActionRegistryForProject", () => {
         "utf-8",
       );
       expect(registry).toContain('"real-action": a_real_action');
+      expect(registry).toContain('"factory-action": a_factory_action');
       expect(registry).toContain('"get-localization-preference"');
       expect(registry).toContain('"set-localization-preference"');
       expect(registry).toContain('"list-resource-history"');

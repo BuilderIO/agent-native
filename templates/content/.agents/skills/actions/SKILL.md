@@ -18,6 +18,8 @@ Actions in `actions/` are the **single source of truth** for app operations. The
 
 Before creating any custom REST/API route for app data, inspect `actions/` and the action table in `AGENTS.md`. If an action already exists, call it directly from the agent or with `useActionQuery` / `useActionMutation` from the UI. If the capability is missing, create or update a `defineAction`. Do not add `/api/*`, `server/routes/*`, or other pass-through endpoints whose main job is to call, repackage, or re-export an action.
 
+**Stop trigger:** the moment you are about to create a file under `server/routes/api/` — or add server middleware to guard one — stop and check it against the exception list in *When You Still Need Custom `/api/` Routes* below. If it is not on that list, write a `defineAction` instead. This applies even when you already started the route; abandoning a half-written action to hand-roll routes is the exact failure this rule exists to prevent.
+
 ## Why
 
 Actions give the agent callable tools with structured input/output, AND they give the frontend a typed client contract through hooks. One implementation serves both the agent and the UI. They keep the agent's chat context clean, they're reusable, and they can be tested independently.
@@ -121,18 +123,38 @@ action trio instead:
   provider host, injects configured credentials, blocks private/internal URLs,
   and redacts secrets.
 
-Use `@agent-native/core/provider-api` as the shared substrate. A template should
-only add a thin credential adapter when it has app-specific credential lookup
-rules. If the app stores a built-in provider's OAuth grant under a narrower
-local provider id, use the runtime's `oauthProviderOverrides` instead of
-duplicating the provider config. If credentials are stored on shareable/resource
-rows rather than in the shared credential or OAuth-token stores, build a resolver
-that enforces those access checks before exposing raw provider requests. Keep
-`provider-api-request` `http: false` unless you have a separate UI permission
-model for arbitrary provider writes. Specific actions such as `search-records`,
-`search-emails`, or `sync-source` are convenience shortcuts, not capability
-limits; agents should fall back to the provider API trio when a question
-requires an endpoint or filter that the shortcut does not model.
+Use `@agent-native/core/provider-api` as the shared substrate, and build these
+actions as thin factory imports rather than copying `defineAction` schemas and
+handlers into each template:
+
+```ts
+import {
+  createProviderApiCatalogAction,
+  createProviderApiDocsAction,
+  createProviderApiRequestAction,
+} from "@agent-native/core/provider-api/actions/provider-api";
+import {
+  createDeleteStagedDatasetAction,
+  createListStagedDatasetsAction,
+  createQueryStagedDatasetAction,
+} from "@agent-native/core/provider-api/actions/staged-datasets";
+```
+
+Pass the app's existing provider runtime to the provider factories, and pass
+its app id to the staged-dataset factories. Keep app-specific descriptions,
+provider allow-lists, HTTP/tool-callability settings, and credential adapters
+as factory options. Only add a thin credential adapter when the app has
+app-specific credential lookup rules. If the app stores a built-in provider's
+OAuth grant under a narrower local provider id, use the runtime's
+`oauthProviderOverrides` instead of duplicating provider config. If credentials
+are stored on shareable/resource rows rather than in the shared credential or
+OAuth-token stores, build a resolver that enforces those access checks before
+exposing raw provider requests. Keep `provider-api-request` `http: false`
+unless a separate UI permission model authorizes arbitrary provider writes.
+Specific actions such as `search-records`, `search-emails`, or `sync-source`
+are convenience shortcuts, not capability limits; agents should fall back to
+the provider API trio when a question requires an endpoint or filter that the
+shortcut does not model.
 
 This is a framework tenet. The safety boundary should be provider host
 allow-listing, credential scoping, auth injection, private-network blocking,
@@ -283,6 +305,38 @@ export default defineAction({
 
 On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
 
+### Authorization (`authorize`)
+
+`authorize` decides whether the caller may run the action at all. It wraps
+`run`, so it holds at **all six dispatch sites** — agent tool, HTTP, frontend
+hook, MCP, A2A, CLI — unlike `needsApproval`, which is honoured only in the
+agent loop. Use `authorize` for "not everyone may do this"; use `needsApproval`
+to ask a human to bless one call a permitted caller is already allowed to make.
+
+```ts
+import { coachAccess } from "../lib/access.js"; // defineAppRoles(...)
+
+export default defineAction({
+  description: "Archive a client roster.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async (args) => {
+    /* ... */
+  },
+});
+```
+
+The wrappers compose as `validate input -> authorize -> run -> validate output
+-> audit`: the gate sits inside input validation, so a guard reading `args` gets
+the parsed, coerced value, and auditing is outermost, so denials are recorded.
+
+A guard that throws denies with its own message; returning `false` denies
+generically; anything else (including `undefined`) allows. A guarded action
+needs a user identity, so an unattended CLI/cron caller with no user email is
+denied. `authorize` gates the operation; `accessFilter` / `assertAccess` still
+scope which rows a permitted caller may touch. See the `authentication` skill
+for `defineAppRoles` and the `sharing` skill for row scoping.
+
 ### Human-in-the-Loop Approval (`needsApproval`)
 
 For high-consequence, outward-facing, hard-to-undo actions (sending an email, charging a card, deleting an account), set `needsApproval` so the agent **cannot** run the action without a human approving the specific call:
@@ -309,7 +363,7 @@ The frontend calls actions using React Query hooks from `@agent-native/core/clie
 ### `useActionQuery` — for GET actions
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 function MealList() {
   // Types are auto-inferred from the action's schema + return type — no manual generic needed
@@ -323,7 +377,7 @@ function MealList() {
 ### `useActionMutation` — for POST/PUT/DELETE actions
 
 ```ts
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
 
 function AddMealButton() {
   // Types are auto-inferred — no manual generic needed
@@ -343,7 +397,7 @@ Mutations automatically invalidate all `["action"]` query keys on success, so GE
 ### `callAction` — for imperative client code
 
 ```ts
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 
 const people = await callAction("search-people", { query }, { method: "GET" });
 ```
@@ -370,12 +424,28 @@ This is the canonical approach for new apps. Action names must be lowercase with
 
 ## When You Still Need Custom `/api/` Routes
 
-Most operations should be actions. You only need custom routes in `server/routes/api/` for:
+This is the complete exception list. A route in `server/routes/api/` is only
+justified when the caller is not your own UI or agent, or when the payload is
+not JSON:
 
 - **File uploads** — actions receive JSON params, not multipart form data
 - **Streaming responses** — SSE or chunked responses that need direct H3 control
 - **Webhooks** — external services POST to a specific URL
 - **OAuth callbacks** — redirect-based flows that need specific URL patterns
+- **Public unauthenticated endpoints** — SEO/OG images, share links, and other
+  URLs opened directly by a browser or crawler
+- **Binary or non-JSON responses** — media, exports, generated assets
+
+Everything else is an action: CRUD, settings, search, list/detail reads, auth
+state, and anything the UI fetches as JSON. If a route needs new middleware to
+scope it to the current user, that is a signal it should be an action — actions
+already run inside request context with access checks.
+
+Existing first-party templates still contain a shrinking, explicitly
+grandfathered set of older `/api/*` CRUD routes for app data. The repository's
+`guard:no-action-twin-routes` CI check ratchets that baseline down across the
+first-party template route trees (with the separately owned Plan template
+fenced out); it is not a substitute for keeping generated apps action-first.
 
 When the agent needs a durable image or file URL, call the core `upload-image`
 action or use `uploadFile()` in server code. Do not write base64 into SQL,

@@ -11,7 +11,7 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 
 인증은 인증 서버 플러그인의 `autoMountAuth(app)`를 통해 자동으로 구성됩니다. 세 가지 모드가 있습니다:
 
-- **기본값:** 이메일/비밀번호 + 소셜 서비스 제공자를 통한 더 나은 인증. 첫 방문 시 온보딩 페이지가 표시됩니다.
+- **기본값:** 발신 이메일을 사용할 수 있으면 Better Auth에서 magic link를 우선 사용하고, 이메일/비밀번호를 대체 흐름으로 사용하며 소셜 제공자를 지원합니다. 대체 흐름을 강제하려면 `AUTH_MAGIC_LINK=0`을 설정하세요.
 - **원격 MCP OAuth:** Claude 코드 및 ChatGPT 커넥터와 같은 MCP 호스트용 표준 OAuth 2.1.
 - **사용자 정의:** `getSession` 콜백을 통해 자신만의 인증을 가져옵니다.
 
@@ -106,7 +106,7 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 
 기본적으로 Better Auth는 인증을 강화합니다. 다음을 제공합니다:
 
-- 이메일/비밀번호 등록 및 로그인
+- magic link 등록 및 로그인, 이메일/비밀번호 대체 흐름 지원
 - 소셜 제공자(Google, GitHub 및 기타 35개 이상)
 - 역할과 초대가 있는 조직
 - API 및 A2A 액세스를 위한 JWT 토큰
@@ -115,6 +115,7 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 `/_agent-native/auth/ba/*`에 더 나은 인증 경로가 마운트되었습니다. 프레임워크는 이전 버전과 호환되는 엔드포인트도 제공합니다.
 
 - `GET /_agent-native/auth/session` — 현재 세션 가져오기
+- `POST /_agent-native/auth/magic-link` — magic link 이메일 요청
 - `POST /_agent-native/auth/login` — 이메일/비밀번호 로그인
 - `POST /_agent-native/auth/register` — 계정 생성
 - `POST /_agent-native/auth/logout` — 로그아웃
@@ -219,7 +220,7 @@ ACCESS_TOKENS=token1,token2,token3
 모든 앱의 MCP 엔드포인트는 표준 보호 MCP 리소스 역할을 할 수 있습니다. OAuth 가능 클라이언트는 원격 MCP URL로만 구성할 수 있습니다:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 인증되지 않은 MCP 요청은 `/.well-known/oauth-protected-resource`를 가리키는 `WWW-Authenticate` 챌린지를 반환합니다. 그런 다음 클라이언트는 앱의 OAuth 메타데이터를 검색하고, 공개 클라이언트를 동적으로 등록하고, 앱의 인증 페이지를 열고, 액세스 및 새로 고침 토큰을 위해 PKCE와 인증 코드를 교환합니다.
@@ -363,8 +364,9 @@ interface AuthSession {
 클라이언트에서는 `useSession()` 후크를 사용합니다.
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;
@@ -403,6 +405,8 @@ function SignInCta() {
 ### 북마크된 비공개 경로
 
 일반 앱 페이지는 모든 방문자에게 동일한 비개인화 공개 캐시 가능 SSR 셸을 사용합니다. `AppProviders`가 클라이언트에서 세션을 확인하며, `/dashboard` 같은 비공개 경로에서는 비공개 UI를 마운트하기 전에 익명 방문자를 `/_agent-native/sign-in?return=%2Fdashboard`로 리디렉션합니다. 로그인 후에는 `/dashboard`로 돌아옵니다. 공개/SEO 경로에는 `isPublicPath`를, MCP 임베드 토큰처럼 별도의 제한된 인증 방식을 사용하는 화면에는 `sessionBypass`를 지정하세요.
+
+셸이 캐시되는 기간은 배포 전체 설정입니다 — `AGENT_NATIVE_SSR_CACHE`에 대해서는 [SSR Caching](/docs/deployment#ssr-caching)을 참조하세요. 캐시를 단축하거나 비활성화해도 기간만 바뀔 뿐, SSR은 여전히 쿠키가 제거된 익명 분기를 렌더링합니다.
 
 ### 비하인드 스토리: 구글 OAuth
 

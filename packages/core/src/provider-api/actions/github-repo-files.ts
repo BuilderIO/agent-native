@@ -168,6 +168,17 @@ export function createGitHubRepoFilesAction(
       "List, search, read, create/update, and delete GitHub repository files through the configured GitHub connector or GITHUB_TOKEN. Uses GitHub REST APIs directly; it does not clone repositories or use a filesystem sandbox.",
     schema: GitHubRepoFilesActionSchema,
     http: false,
+    planMode: {
+      effect: (args) =>
+        args.operation === "list" ||
+        args.operation === "search" ||
+        args.operation === "read"
+          ? "read"
+          : "write",
+      allowedValues: { operation: ["list", "search", "read"] },
+      description:
+        "Plan mode allows listing, searching, and reading repository files.",
+    },
     needsApproval: requireApprovalForWrites
       ? (args: GitHubRepoFilesActionArgs) =>
           args.operation === "write" || args.operation === "delete"

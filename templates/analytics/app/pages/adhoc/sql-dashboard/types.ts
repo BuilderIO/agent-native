@@ -15,6 +15,7 @@ export type ChartType =
   | "table"
   | "pie"
   | "section"
+  | "funnel"
   | "heatmap"
   | "callout"
   | "extension";
@@ -63,17 +64,40 @@ export interface PivotConfig {
   valueKey: string;
 }
 
+/**
+ * Declares how a query's time coverage relates to the dashboard filter.
+ * `dashboard` is the default for ordinary event metrics; the other values are
+ * explicit exceptions that make intentional history scans visible to agents
+ * and reviewers.
+ */
+export type DashboardTimeScope =
+  | "dashboard"
+  | "fixed-window"
+  | "cohort-history"
+  | "all-time";
+
 export interface SqlPanelConfig {
+  /** Time coverage contract for first-party SQL panels. */
+  timeScope?: DashboardTimeScope;
   xKey?: string;
   yKey?: string;
   yKeys?: string[];
   color?: string;
   colors?: string[];
   yFormatter?: "number" | "currency" | "percent";
+  /**
+   * Series names (a subset of the plotted `yKeys`) to plot against a second,
+   * right-hand y-axis. Line, area, and bar panels render dual axes only when
+   * at least one series stays on the left axis.
+   */
+  rightYKeys?: string[];
+  /** Value formatter for the right axis. Falls back to `yFormatter`. */
+  rightYFormatter?: "number" | "currency" | "percent";
   description?: string;
   pivot?: PivotConfig;
   /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
   stacked?: boolean;
+  /** Fixed bar width in pixels for bar charts. Values are clamped by the renderer. */
   /** Show the chart legend. Defaults to true for chart renderers. */
   legend?: boolean;
   /** Optional display labels for exact metric values, e.g. {"0":"normal"}. */
@@ -84,8 +108,30 @@ export interface SqlPanelConfig {
   /**
    * Extension panels only (`chartType: "extension"`): id of the extension to
    * render inline as a sandboxed iframe instead of running the SQL pipeline.
+   * This is the default for author-selected dashboard content because the
+   * selection is shared with the dashboard and available to report captures.
    */
   extensionId?: string;
+  /**
+   * Extension panels only: an opt-in named extension-point slot. Each viewer's
+   * personal installs render in the box and receive dashboard context.
+   */
+  extensionSlotId?: string;
+  /**
+   * Provenance for a deliberately one-off Custom Block. New agent-authored
+   * blocks set this so the UI and telemetry can distinguish a runtime patch
+   * from legacy extension-backed panels without exposing prompt text.
+   */
+  customBlock?: {
+    authoredBy: "agent" | "user";
+    intent: "one-off";
+    scope: "dashboard";
+    nativeGapReason:
+      | "custom-visualization"
+      | "custom-interaction"
+      | "custom-layout"
+      | "other";
+  };
 }
 
 export interface SqlPanel {

@@ -5,7 +5,7 @@ description: "How to create and publish your own agent-native app templates."
 
 # Creating Templates
 
-Templates are complete, forkable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, Drizzle SQL for data, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
+Templates are complete, cloneable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, Drizzle SQL for data, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
 
 Use `@agent-native/core` for the runtime contract: actions, server plugins,
 database helpers, app state, routing helpers, and agent chat. Use
@@ -13,6 +13,15 @@ database helpers, app state, routing helpers, and agent chat. Use
 shadcn-style primitives, toast/mobile hooks, date pickers, and simple app shell
 slots. Keep template-specific variants local when they encode product behavior
 or visual identity.
+
+Keep the three layers in mind when deciding where a capability belongs:
+
+- **Core - the framework:** the required runtime and data contract every app can use.
+- **Toolkit - optional reusable pieces:** shared UI and product systems that apps can adopt, compose, or fork.
+- **Templates - optional apps:** complete domain products built on Core, commonly using Toolkit, that people can fork and use as starting points.
+
+Toolkit and Templates are optional. A template is not the framework itself, and
+Toolkit does not replace Core.
 
 A good template:
 
@@ -40,7 +49,7 @@ npx @agent-native/core@latest create my-platform
 
 Chat gives you auth, durable chat threads, SQL-backed resources, tools, application state, actions, and polling sync. You add the domain model and product UI.
 
-If you are not building a reusable UI template yet, use the headless on-ramp in [Getting Started](/docs/getting-started#1-create-your-app): define one action, run it with `pnpm agent`, and add UI later when the workflow needs a durable surface.
+If you are not building a reusable UI template yet, use the headless on-ramp in [Getting Started](/docs/getting-started#create-your-app): define one action, run it with `pnpm agent`, and add UI later when the workflow needs a durable surface.
 
 ## Project Structure {#project-structure}
 
@@ -273,8 +282,10 @@ Use `http: { method: "GET" }` or `readOnly: true` for read-only actions. Use `pa
 Routes live in `app/routes/` and use React Router v8 file routing. Query data through actions or API handlers, and make mutations optimistic by default.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -290,7 +301,7 @@ export default function ProjectsPage() {
 Wire live sync once near the app shell so React Query caches refresh when the agent, another tab, or an action changes data:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -303,7 +314,7 @@ export function AppSync() {
 **The agent-native promise: agent writes show up in the UI without a manual refresh.** `useActionQuery` is the easy path — every hook refetches when a mutating action emits `source: "action"`. If you reach for raw `useQuery` with a custom key (for example, a low-level client helper that reads integration status), fold the per-source counter into the queryKey for targeted refreshes:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -314,6 +325,10 @@ useQuery({
 ```
 
 Common sources: `"action"` (every successful agent action — the reliable fallback), `"app-state"`, `"settings"`, plus any custom resource source your store emits via `recordChange`. See the `real-time-sync` skill for the full pattern.
+
+Templates render with the default shadcn-style UI. If your company already has
+its own React design system, see [Custom Design Systems](/docs/custom-design-system)
+to register it as a typed adapter instead of adopting the default primitives.
 
 ## Add Application State {#application-state}
 
@@ -326,7 +341,7 @@ Application state is how the agent knows what the user is seeing. At minimum, ad
 Use `useAgentRouteState` for the UI hook so application-state writes, tab-scoped command reads, delete-after-read, and duplicate-command protection stay consistent:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -495,11 +510,37 @@ Before sharing:
 4. Document required env vars and onboarding steps.
 5. Include examples or seed rows through additive migrations, not tracked runtime data files.
 
-Community templates can be created from a GitHub repo:
+Community templates install directly from a public GitHub repository. Put the
+Agent Native app at the repository root:
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+Add `#branch`, `#tag`, or `#commit` when you want people to install a specific
+revision:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+The CLI downloads the source only. It does not install dependencies or run the
+template's scripts. Community templates are third-party code, so review the
+repository, license, dependencies, and install scripts before running
+`pnpm install`.
+
+To be listed in the community catalog, include:
+
+- A focused, complete Agent Native app at the repository root.
+- A public repository with a license and a README that covers setup, required
+  environment variables, and what the template does.
+- A root `package.json` that depends on `@agent-native/core`.
+- Passing typechecks and tests.
+- Optionally, a hosted version people can try and a representative screenshot.
+
+[Submit a community template](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)
+when the repository is ready. Community listings stay separate from the
+smaller first-party catalog and remain maintained by their authors.
 
 ## Contributing to the framework monorepo {#contributing}
 
@@ -525,7 +566,11 @@ workspace pointed at current build output.
   keep `AGENTS.md` and skills skimmable as the template grows.
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — reusable sharing,
   settings, history, and review surfaces instead of rebuilding them per app.
+- [**Custom Design Systems**](/docs/custom-design-system) — render the UI with
+  your company's own React components instead of the default shadcn-style UI.
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — make the template fit
   naturally alongside sibling apps and Dispatch.
+- [**Syncing Template Changes**](/docs/syncing-template-changes) — pull later
+  upstream template fixes into an app that was already created from it.
 - [**Templates**](/docs/cloneable-saas) — turn a template into a
   publishable product you can share and deploy.

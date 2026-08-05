@@ -17,8 +17,24 @@ import {
   readDeployCredentialEnv,
   recordProviderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
-import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import {
+  anthropicManualThinkingBudget,
+  normalizeReasoningEffortForModel,
+  supportsClaudeAdaptiveThinking,
+} from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
+import {
+  classifyProviderError,
+  describeErrorWithCauses,
+} from "./error-detail.js";
+import {
+  createFirstEventAbortController,
+  FIRST_STREAM_EVENT_TIMEOUT_MS,
+} from "./first-event-timeout.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -29,6 +45,11 @@ import {
   aiSdkPartToEngineEvents,
   aiSdkStepToAssistantContent,
 } from "./translate-ai-sdk.js";
+import {
+  createStreamedToolInputState,
+  finalizeStreamedToolInputs,
+  observeStreamedToolInput,
+} from "./translate-anthropic.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -211,6 +232,8 @@ class AISDKEngine implements AgentEngine {
   private readonly provider: AISDKProvider;
   private readonly apiKey?: string;
   private readonly baseUrl?: string;
+  /** Empty for providers that need no key (ollama). */
+  private readonly requiredEnvVars: readonly string[];
   private readonly appName?: string;
   private readonly appUrl?: string;
 
@@ -226,12 +249,34 @@ class AISDKEngine implements AgentEngine {
     this.apiKey =
       config.apiKey ??
       (config.allowEnvFallback === false ? "" : getProviderApiKey(provider));
+    this.requiredEnvVars = PROVIDER_ENV_VARS[provider];
     this.baseUrl = config.baseUrl;
     this.appName = config.appName;
     this.appUrl = config.appUrl;
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    // An absent key is not an anonymous request. Without this the provider
+    // factory is constructed with no `apiKey`, the SDK omits the Authorization
+    // header entirely, and the gateway's 401 comes back as
+    // "Missing Authentication header" — which `classifyProviderError` codes
+    // `http_401`, a transport failure naming the wrong cause. A scheduled job
+    // then repeats that doomed unauthenticated request on every tick forever.
+    // `builder-engine` and `anthropic-engine` already fail closed here; this
+    // engine was the only one that did not.
+    //
+    // A configured `baseUrl` is exempt: a self-hosted or local gateway may
+    // legitimately accept unauthenticated requests.
+    if (!this.apiKey && !this.baseUrl && this.requiredEnvVars.length > 0) {
+      yield {
+        type: "stop",
+        reason: "error",
+        error: `${LLM_MISSING_CREDENTIALS_MESSAGE} (engine "${this.name}" has no ${this.requiredEnvVars.join(" or ")})`,
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      };
+      return;
+    }
+
     let aiModule: any;
     try {
       aiModule = await import("ai");
@@ -316,17 +361,51 @@ class AISDKEngine implements AgentEngine {
         const explicitThinking = (
           providerOpts.anthropic as { thinking?: unknown } | undefined
         )?.thinking;
-        providerOpts.anthropic = {
-          ...((providerOpts.anthropic as object) ?? {}),
-          thinking: explicitThinking ?? { type: "adaptive" },
-          ...(explicitThinking
-            ? {}
-            : { outputConfig: { effort: reasoningEffort } }),
-        };
+        if (explicitThinking || supportsClaudeAdaptiveThinking(opts.model)) {
+          providerOpts.anthropic = {
+            ...((providerOpts.anthropic as object) ?? {}),
+            thinking: explicitThinking ?? { type: "adaptive" },
+            ...(explicitThinking
+              ? {}
+              : { outputConfig: { effort: reasoningEffort } }),
+          };
+        } else {
+          const budgetTokens = clampThinkingBudgetTokens(
+            anthropicManualThinkingBudget(reasoningEffort),
+            resolvedMaxOutputTokens,
+          );
+          providerOpts.anthropic = {
+            ...((providerOpts.anthropic as object) ?? {}),
+            ...(budgetTokens === undefined
+              ? {}
+              : { thinking: { type: "enabled", budgetTokens } }),
+          };
+        }
       } else if (this.provider === "openai") {
+        // OpenAI rejects `reasoning_effort` together with function tools on
+        // the legacy Chat Completions surface for some reasoning models
+        // ("Function tools with reasoning_effort are not supported for
+        // <model> in /v1/chat/completions. To use function tools, use
+        // /v1/responses or set reasoning_effort to 'none'.") — a real prod
+        // incident, e.g. Sentry AGENT-NATIVE-BROWSER-94 on gpt-5.6-terra.
+        // `createProviderModel` forces Chat Completions specifically when
+        // `this.baseUrl` is set (many OpenAI-compatible gateways/proxies
+        // don't implement Responses — see that comment). In that exact
+        // combination — forced Chat Completions AND tools present — send
+        // `"none"` rather than our resolved effort; Responses-API calls (no
+        // baseUrl) are unaffected and keep full effort control.
+        //
+        // Omitting the field does NOT work: OpenAI then applies the model's
+        // own default effort, which is not "none", and rejects the request
+        // exactly the same way. Only the explicit "none" clears it — the
+        // error text spells this out ("or set reasoning_effort to 'none'").
+        const forcedChatCompletionsWithTools =
+          Boolean(this.baseUrl) && aiSdkTools !== undefined;
         providerOpts.openai = {
           ...((providerOpts.openai as object) ?? {}),
-          reasoningEffort,
+          reasoningEffort: forcedChatCompletionsWithTools
+            ? "none"
+            : reasoningEffort,
         };
       } else if (this.provider === "openrouter") {
         providerOpts.openrouter = {
@@ -362,6 +441,8 @@ class AISDKEngine implements AgentEngine {
     }
 
     let assistantContent: EngineContentPart[] = [];
+    const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
+    const toolInputs = createStreamedToolInputState();
 
     try {
       const result = streamText({
@@ -370,10 +451,14 @@ class AISDKEngine implements AgentEngine {
         messages,
         tools: aiSdkTools,
         maxOutputTokens: resolvedMaxOutputTokens,
+        // Explicit: the agent loop already retries a failed model call with
+        // backoff. Leaving the SDK on its default (2) multiplies the two retry
+        // layers into ~12 HTTP requests per failed run.
+        maxRetries: 1,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
-        abortSignal: opts.abortSignal,
+        abortSignal: firstEventAbort.signal,
         onStepFinish: (step: any) => {
           assistantContent = aiSdkStepToAssistantContent(step);
         },
@@ -385,9 +470,36 @@ class AISDKEngine implements AgentEngine {
       // Buffer the terminal stop so assistant-content can be emitted just
       // before it, regardless of where `finish` arrives in the stream.
       let bufferedStop: EngineEvent | undefined;
+      let sawFirstEvent = false;
+      let credentialFailureRecorded = false;
 
       for await (const part of result.fullStream) {
+        // "start" is a synthetic lifecycle marker the AI SDK enqueues
+        // synchronously when the stream begins — before any provider bytes
+        // arrive — so it does not count as real progress. Every other part
+        // (including "start-step", only enqueued on the step's first real
+        // chunk) proves the provider is actually responding.
+        if (!sawFirstEvent && part?.type !== "start") {
+          sawFirstEvent = true;
+          firstEventAbort.markFirstEvent();
+        }
         for (const event of aiSdkPartToEngineEvents(part)) {
+          observeStreamedToolInput(toolInputs, event);
+          if (
+            event.type === "stop" &&
+            event.reason === "error" &&
+            event.statusCode === 401
+          ) {
+            await recordProviderCredentialAuthFailure({
+              key: PROVIDER_ENV_VARS[this.provider][0],
+              value: this.apiKey,
+              status: event.statusCode,
+              code: event.errorCode ?? "http_401",
+              message:
+                event.error || "The model provider rejected the saved API key.",
+            });
+            credentialFailureRecorded = true;
+          }
           if (event.type === "stop") {
             bufferedStop = event;
           } else {
@@ -396,33 +508,55 @@ class AISDKEngine implements AgentEngine {
         }
       }
 
+      // AI SDK surfaces an aborted stream as a graceful `{type: "abort"}`
+      // part rather than a thrown error, so a first-event timeout would
+      // otherwise fall through to the normal end_turn completion below.
+      if (!sawFirstEvent && firstEventAbort.didTimeout()) {
+        throw new Error(
+          `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`,
+        );
+      }
+
+      // A step can finish having announced a tool call it never delivered.
+      // Assemble it from its deltas, or report it in-band, rather than ending
+      // the turn as if the model never asked for it.
+      for (const recovered of finalizeStreamedToolInputs(
+        toolInputs,
+        assistantContent.flatMap((part) =>
+          part.type === "tool-call" ? [part.id] : [],
+        ),
+      )) {
+        if (recovered.type === "tool-call") {
+          assistantContent.push({
+            type: "tool-call",
+            id: recovered.id,
+            name: recovered.name,
+            input: recovered.input,
+          });
+        }
+        yield recovered;
+      }
+
       yield { type: "assistant-content", parts: assistantContent };
-      await clearProviderCredentialAuthFailure({
-        key: PROVIDER_ENV_VARS[this.provider][0],
-        value: this.apiKey,
-      });
+      if (!credentialFailureRecorded) {
+        await clearProviderCredentialAuthFailure({
+          key: PROVIDER_ENV_VARS[this.provider][0],
+          value: this.apiKey,
+        });
+      }
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
-      // Surface structured fields from AI SDK's APICallError so
-      // isRetryableError can check statusCode/providerRetryable directly
-      // rather than keyword-matching the message string.
-      const statusCode: number | undefined =
-        typeof err?.statusCode === "number" ? err.statusCode : undefined;
-      const errorMessage = err?.message ?? String(err);
-      const isConnectionError =
-        statusCode === undefined &&
-        String(errorMessage).trim().toLowerCase() === "connection error.";
-      const providerRetryable: boolean | undefined =
-        typeof err?.isRetryable === "boolean"
-          ? err.isRetryable
-          : isConnectionError
-            ? true
-            : undefined;
-      if (statusCode === 401) {
+      const timedOut = firstEventAbort.didTimeout();
+      const errorMessage = describeErrorWithCauses(err);
+      // Same classifier the stream-part path uses (translate-ai-sdk.ts) — a
+      // provider failure must not be classifiable only when it happens to
+      // throw.
+      const classification = classifyProviderError(err, timedOut);
+      if (classification.statusCode === 401) {
         await recordProviderCredentialAuthFailure({
           key: PROVIDER_ENV_VARS[this.provider][0],
           value: this.apiKey,
-          status: statusCode,
+          status: classification.statusCode,
           code: "http_401",
           message: errorMessage,
         });
@@ -431,19 +565,11 @@ class AISDKEngine implements AgentEngine {
         type: "stop",
         reason: "error",
         error: errorMessage,
-        // Tag every known status with `http_<status>` (not just 401) so a
-        // rate limit surfaces as `http_429`. The structured statusCode
-        // already drives turn-level retries, but the run-level continuation
-        // logic keys off the errorCode, so this lets a rate-limited turn
-        // auto-resume too — matching the Builder gateway path.
-        ...(statusCode !== undefined
-          ? { errorCode: `http_${statusCode}`, statusCode }
-          : isConnectionError
-            ? { errorCode: "provider_network_error" }
-            : {}),
-        ...(providerRetryable !== undefined ? { providerRetryable } : {}),
+        ...classification,
       };
       throw err;
+    } finally {
+      firstEventAbort.cleanup();
     }
   }
 

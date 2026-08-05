@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPlayerPlay,
   IconPlayerPause,
@@ -341,11 +341,8 @@ function IconBtn({
 
 function SkipIcon({ direction }: { direction: "back" | "forward" }) {
   return (
-    <span className="relative flex h-5 w-5 items-center justify-center">
-      <IconPlayerSkipForward
-        className={cn("h-5 w-5", direction === "back" && "rotate-180")}
-      />
-      <span className="absolute text-[7px] font-bold leading-none">5</span>
-    </span>
+    <IconPlayerSkipForward
+      className={cn("h-5 w-5", direction === "back" && "rotate-180")}
+    />
   );
 }

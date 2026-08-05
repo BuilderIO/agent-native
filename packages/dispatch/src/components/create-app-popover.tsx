@@ -1,13 +1,15 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useDevMode } from "@agent-native/core/client/agent-chat";
 import {
-  PromptComposer,
   agentNativePath,
   appBasePath,
-  isInBuilderFrame,
-  sendToAgentChat,
-  useDevMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { isInBuilderFrame } from "@agent-native/core/client/host";
+import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconArrowUpRight,
   IconBook,
@@ -115,8 +117,8 @@ function buildAppCreationPrompt(input: {
     `Use relative workspace links like /${input.appId}. Do not hardcode localhost, 127.0.0.1, 8080, 8100, or any dev port; the active workspace gateway/browser origin owns the port.`,
     `Use the framework/template UI stack: shadcn/ui components and @tabler/icons-react. Do not add lucide-react or another icon library for standard UI.`,
     `Existing first-party apps are neighbors, not implementation details for this app. If the user's prompt mentions Mail, Calendar, Analytics, Brain, Assets, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, Analytics, Brain, and Assets already exist at https://mail.agent-native.com, https://calendar.agent-native.com, https://analytics.agent-native.com, https://brain.agent-native.com, and https://assets.agent-native.com.`,
-    `Do not clone first-party templates, create wrapper apps, or scaffold child apps/routes for Mail, Calendar, Analytics, Brain, Assets, etc. inside apps/${input.appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
-    `Only create another first-party app copy when the user explicitly asks for a customized fork/copy of that app; otherwise keep using the hosted/shared app so improvements to the base template keep flowing to users.`,
+    `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, Brain, Assets, etc. inside apps/${input.appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
+    `Only create another first-party app when the user explicitly asks for a customized app from that template; otherwise keep using the hosted/shared app so improvements to the base app keep flowing to users.`,
     `Do not satisfy this by adding a route, page, component, or file inside apps/chat or another existing app unless the user explicitly asks to modify that existing app.`,
     input.vaultAccessMode === "all-apps"
       ? `Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants.`
@@ -160,6 +162,16 @@ function actionUrl(basePath: string | null, action: string): string {
   return `${normalized}${path}`;
 }
 
+const ERROR_FAILURE_REASONS = new Set([
+  "builder-error",
+  "builder-not-connected",
+  "credential-store-unavailable",
+]);
+
+function isErrorFailureReason(reason: string | null): boolean {
+  return !!reason && ERROR_FAILURE_REASONS.has(reason);
+}
+
 /**
  * Inline two-step app-creation flow: prompt → optional access picker → submit.
  * Used both in the popover form and in the dedicated `/new-app` page so the
@@ -184,10 +196,24 @@ export function CreateAppFlow({
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isDevMode } = useDevMode();
 
   const basePath = useMemo(() => defaultDispatchBasePath(), []);
+
+  // Enabled only while the connect CTA is on screen. Left always-on, the hook
+  // would poll Builder status on every popover mount and fire onConnected on
+  // its first status read for anyone already connected.
+  const connectFlow = useBuilderConnectFlow({
+    enabled: failureReason === "builder-not-connected",
+    trackingSource: "dispatch_create_app",
+    trackingFlow: "create_app",
+    onConnected: () => {
+      setFailureReason(null);
+      setStatusMessage("Builder connected. Press Create app to try again.");
+    },
+  });
 
   // Fetch access options eagerly so step 2 has them ready immediately.
   useEffect(() => {
@@ -285,6 +311,7 @@ export function CreateAppFlow({
     setIsSubmitting(true);
     setStatusMessage(null);
     setBranchUrl(null);
+    setFailureReason(null);
 
     try {
       if (isInBuilderFrame()) {
@@ -321,16 +348,69 @@ export function CreateAppFlow({
             result?.message ||
               "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
           );
+          setFailureReason(
+            result?.mode === "builder-unavailable" ? result.reason : null,
+          );
         }
       }
     } catch (err: any) {
       setStatusMessage(err?.message || "Could not start the new app flow.");
+      setFailureReason(null);
     } finally {
       setIsSubmitting(false);
     }
   }
 
   const submitWithSelectedAccess = () => submit(prompt);
+  const isCreatingBuilderBranch =
+    isSubmitting && !isInBuilderFrame() && !isDevMode;
+
+  if (branchUrl) {
+    return (
+      <div
+        className={`flex min-h-[260px] flex-col items-center justify-center gap-5 px-6 py-8 text-center ${className}`}
+      >
+        <span className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <IconCheck className="size-5" aria-hidden="true" />
+        </span>
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold text-foreground">
+            Your Builder branch is ready
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Continue building and editing your app in Builder.
+          </p>
+        </div>
+        <Button asChild className="w-full sm:w-auto">
+          <a href={branchUrl} target="_blank" rel="noreferrer">
+            Open Builder branch <IconArrowUpRight aria-hidden="true" />
+          </a>
+        </Button>
+      </div>
+    );
+  }
+
+  if (isCreatingBuilderBranch) {
+    return (
+      <div
+        className={`flex min-h-[260px] flex-col items-center justify-center gap-4 px-6 py-8 text-center ${className}`}
+        aria-live="polite"
+      >
+        <IconLoader2
+          className="size-7 animate-spin text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold text-foreground">
+            Creating your Builder branch
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            This usually takes a few seconds.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col gap-3 ${className}`}>
@@ -548,17 +628,53 @@ export function CreateAppFlow({
       )}
 
       {statusMessage ? (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          {statusMessage}
-          {branchUrl ? (
-            <a
-              href={branchUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="ml-2 inline-flex items-center gap-1 font-medium text-foreground underline"
+        <div
+          className={`flex flex-col gap-2 rounded-md border px-3 py-2 text-xs ${
+            isErrorFailureReason(failureReason)
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : "border-border bg-muted/40 text-muted-foreground"
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            {isErrorFailureReason(failureReason) ? (
+              <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            ) : null}
+            <span>{statusMessage}</span>
+            {branchUrl ? (
+              <a
+                href={branchUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-foreground underline"
+              >
+                Open branch <IconArrowUpRight className="h-3 w-3" />
+              </a>
+            ) : null}
+          </div>
+          {failureReason === "builder-not-connected" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => connectFlow.start()}
+              disabled={connectFlow.connecting}
+              className="w-fit"
             >
-              Open branch <IconArrowUpRight className="h-3 w-3" />
-            </a>
+              {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+            </Button>
+          ) : null}
+          {failureReason === "credential-store-unavailable" ||
+          failureReason === "builder-error" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={submitWithSelectedAccess}
+              disabled={isSubmitting}
+              className="w-fit"
+            >
+              Try again
+            </Button>
           ) : null}
         </div>
       ) : null}

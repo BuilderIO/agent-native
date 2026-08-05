@@ -267,7 +267,7 @@ Das Framework mountet seine eigenen Routen unter `/_agent-native/`. Behandeln Si
 | `/_agent-native/extensions/*`    | Laufzeiterweiterungen und Erweiterungs-Proxy (Legacy-Alias: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Messaging-/Webhook-Integrationen                                                      |
 | `/_agent-native/a2a`             | Agent-zu-Agent JSON-RPC                                                               |
-| `/_agent-native/mcp`             | MCP-Endpunkt                                                                          |
+| `/mcp`                           | MCP-Endpunkt                                                                          |
 | `/_agent-native/onboarding/*`    | Setup-Checkliste                                                                      |
 | `/_agent-native/observability/*` | Spuren, Feedback, Bewertungen, Experimente                                            |
 | `/_agent-native/file-upload`     | Endpunkt des Datei-Upload-Anbieters                                                   |
@@ -464,4 +464,4 @@ const handler = createProductionAgentHandler({
 - [**Datenbank**](/docs/database) – das `getDb()`/`schema`-Muster, das benutzerdefinierte Routen und Actions importieren
 - [**Sicherheit**](/docs/security#access-guards) – `accessFilter`/`assertAccess` und das vollständige Datenscoping-Modell
 - [**Messaging**](/docs/messaging) – das kanonische Muster für die Integrationswarteschlange eingehender Webhooks
-- [**MCP-Protokoll**](/docs/mcp-protocol) – der `/_agent-native/mcp`-Endpunkt, den dieser Server automatisch einbindet
+- [**MCP-Protokoll**](/docs/mcp-protocol) – der `/mcp`-Endpunkt, den dieser Server automatisch einbindet

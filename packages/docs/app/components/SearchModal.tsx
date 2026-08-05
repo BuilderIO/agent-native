@@ -1,10 +1,14 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { submitToAgent } from "@agent-native/core/client/navigation";
+import { IconMessage, IconMoon, IconSun } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router";
 
 import { buildSearchIndexAsync, type SearchEntry } from "./docs-content";
 import { docsPathForSlug } from "./docs-locale";
+import { useDocsTheme } from "./ThemeToggle";
 
 // Lazily built on first open — not at module scope — so the index and the full
 // docs corpus are not included in the initial page bundle.
@@ -116,12 +120,40 @@ export function SearchModal({
   const [index, setIndex] = useState<SearchEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
-  const activeResultRef = useRef<HTMLButtonElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
   const navigate = useNavigate();
   const { locale } = useLocale();
   const t = useT();
+  const { theme, toggleTheme } = useDocsTheme();
   const results = search(query, index);
+  const themeSearchTerms = [
+    t("theme.toggle"),
+    t("theme.light"),
+    t("theme.dark"),
+    "theme",
+    "light",
+    "dark",
+    "mode",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const queryWords = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const showThemeAction =
+    queryWords.length === 0 ||
+    queryWords.every((word) => themeSearchTerms.includes(word));
+  const resultIndexOffset = showThemeAction ? 1 : 0;
+  const askAiIndex = resultIndexOffset + results.length;
+
+  const submitAskAi = useCallback(() => {
+    onClose();
+    const message = query.trim();
+    if (!message) {
+      focusAgentChat();
+      return;
+    }
+    submitToAgent(message);
+  }, [onClose, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -158,8 +190,8 @@ export function SearchModal({
   }, [query]);
 
   useEffect(() => {
-    activeResultRef.current?.scrollIntoView({ block: "nearest" });
-  }, [activeIdx, results]);
+    activeItemRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx, results, showThemeAction]);
 
   const go = useCallback(
     (entry: SearchEntry) => {
@@ -179,12 +211,24 @@ export function SearchModal({
         onClose();
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        setActiveIdx((i) => Math.min(i + 1, results.length - 1));
+        const maxIndex = askAiIndex;
+        setActiveIdx((i) => Math.min(i + 1, maxIndex));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setActiveIdx((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter" && results[activeIdx]) {
-        go(results[activeIdx]);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (showThemeAction && activeIdx === 0) {
+          toggleTheme();
+          onClose();
+          return;
+        }
+        if (activeIdx === askAiIndex) {
+          submitAskAi();
+          return;
+        }
+        const result = results[activeIdx - resultIndexOffset];
+        if (result) go(result);
       } else if (e.key === "Tab") {
         // Focus trap: cycle focus within the modal
         const modal = modalRef.current;
@@ -212,7 +256,18 @@ export function SearchModal({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, results, activeIdx, go, onClose]);
+  }, [
+    open,
+    results,
+    activeIdx,
+    askAiIndex,
+    go,
+    onClose,
+    resultIndexOffset,
+    showThemeAction,
+    submitAskAi,
+    toggleTheme,
+  ]);
 
   if (!open) return null;
 
@@ -266,11 +321,48 @@ export function SearchModal({
 
         {/* results */}
         <div className="max-h-[400px] overflow-y-auto">
+          {showThemeAction && (
+            <div className="py-2">
+              <button
+                ref={activeIdx === 0 ? activeItemRef : undefined}
+                type="button"
+                onClick={() => {
+                  toggleTheme();
+                  onClose();
+                }}
+                onMouseEnter={() => setActiveIdx(0)}
+                className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+                  activeIdx === 0
+                    ? "bg-[var(--docs-accent)]/10"
+                    : "hover:bg-[var(--bg-secondary)]"
+                }`}
+              >
+                {theme === "dark" ? (
+                  <IconSun
+                    size={16}
+                    stroke={1.5}
+                    className="shrink-0 text-[var(--docs-accent)]"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <IconMoon
+                    size={16}
+                    stroke={1.5}
+                    className="shrink-0 text-[var(--docs-accent)]"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="font-medium text-[var(--fg)]">
+                  {t("theme.toggle")}
+                </span>
+              </button>
+            </div>
+          )}
           {query.trim() === "" ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               {t("search.empty")}
             </div>
-          ) : results.length === 0 ? (
+          ) : results.length === 0 && !showThemeAction ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               <p className="mb-3">{t("search.noResults", { query })}</p>
               <Link
@@ -286,11 +378,15 @@ export function SearchModal({
               {results.map((entry, i) => (
                 <button
                   key={`${entry.path}-${entry.sectionId}`}
-                  ref={i === activeIdx ? activeResultRef : undefined}
+                  ref={
+                    i + resultIndexOffset === activeIdx
+                      ? activeItemRef
+                      : undefined
+                  }
                   onClick={() => go(entry)}
-                  onMouseEnter={() => setActiveIdx(i)}
+                  onMouseEnter={() => setActiveIdx(i + resultIndexOffset)}
                   className={`flex w-full flex-col gap-1 px-4 py-3 text-start transition ${
-                    i === activeIdx
+                    i + resultIndexOffset === activeIdx
                       ? "bg-[var(--docs-accent)]/10"
                       : "hover:bg-[var(--bg-secondary)]"
                   }`}
@@ -302,7 +398,7 @@ export function SearchModal({
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke={
-                        i === activeIdx
+                        i + resultIndexOffset === activeIdx
                           ? "var(--docs-accent)"
                           : "var(--fg-secondary)"
                       }
@@ -326,11 +422,11 @@ export function SearchModal({
                       </>
                     )}
                     <span
-                      className={`text-sm font-medium ${i === activeIdx ? "text-[var(--docs-accent)]" : "text-[var(--fg)]"}`}
+                      className={`text-sm font-medium ${i + resultIndexOffset === activeIdx ? "text-[var(--docs-accent)]" : "text-[var(--fg)]"}`}
                     >
                       {entry.section}
                     </span>
-                    {i === activeIdx && (
+                    {i + resultIndexOffset === activeIdx && (
                       <svg
                         width="14"
                         height="14"
@@ -357,32 +453,39 @@ export function SearchModal({
           )}
         </div>
 
-        {/* footer */}
-        {results.length > 0 && (
-          <div className="flex items-center gap-4 border-t border-[var(--docs-border)] px-4 py-2 text-[10px] text-[var(--fg-secondary)]">
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
-                ↑
-              </kbd>
-              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
-                ↓
-              </kbd>
-              {t("search.navigate")}
+        <div className="border-t border-[var(--docs-border)] py-2">
+          <button
+            ref={activeIdx === askAiIndex ? activeItemRef : undefined}
+            type="button"
+            onClick={submitAskAi}
+            onMouseEnter={() => setActiveIdx(askAiIndex)}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+              activeIdx === askAiIndex
+                ? "bg-[var(--docs-accent)]/10"
+                : "hover:bg-[var(--bg-secondary)]"
+            }`}
+          >
+            <IconMessage
+              size={16}
+              stroke={1.5}
+              className="shrink-0 text-[var(--docs-accent)]"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 truncate font-medium text-[var(--fg)]">
+              {t("header.askAssistant")}
+              {query.trim() ? (
+                <span className="font-normal text-[var(--fg-secondary)]">
+                  : "{query}"
+                </span>
+              ) : null}
             </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
+            {query.trim() ? (
+              <kbd className="ms-auto shrink-0 text-[10px] text-[var(--fg-secondary)]">
                 ↵
               </kbd>
-              {t("search.open")}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-[var(--docs-border)] px-1 py-0.5">
-                esc
-              </kbd>
-              {t("search.close")}
-            </span>
-          </div>
-        )}
+            ) : null}
+          </button>
+        </div>
       </div>
     </div>,
     document.body,

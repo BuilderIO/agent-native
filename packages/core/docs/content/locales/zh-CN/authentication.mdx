@@ -11,7 +11,7 @@ description: "与电子邮件/密码、社交提供商、组织和 MCP 持有者
 
 Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的。共有三种模式：
 
-- **默认：**使用电子邮件/密码+社交提供商进行更好的身份验证。首次访问时显示的入门页面。
+- **默认：**当外发电子邮件已准备就绪时，Better Auth 优先使用 magic link，并以电子邮件/密码作为备用方式，同时支持社交提供商。设置 `AUTH_MAGIC_LINK=0` 可强制使用备用方式。
 - **远程 MCP OAuth：** 适用于 MCP 主机的标准 OAuth 2.1，例如 Claude 代码和 ChatGPT 连接器。
 - **自定义：**通过 `getSession` 回调带来您自己的身份验证。
 
@@ -106,7 +106,7 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 
 默认情况下，Better Auth 支持身份验证。它提供：
 
-- 电子邮件/密码注册和登录
+- 使用 magic link 注册和登录，并以电子邮件/密码作为备用方式
 - 社交提供商（Google、GitHub 和 35 多个其他提供商）
 - 具有角色和邀请的组织
 - 用于 API 和 A2A 访问的 JWT 令牌
@@ -115,6 +115,7 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 Better Auth 路由安装在 `/_agent-native/auth/ba/*`。该框架还提供向后兼容的端点：
 
 - `GET /_agent-native/auth/session` — 获取当前会话
+- `POST /_agent-native/auth/magic-link` — 请求 magic link 电子邮件
 - `POST /_agent-native/auth/login` — 电子邮件/密码登录
 - `POST /_agent-native/auth/register` — 创建帐户
 - `POST /_agent-native/auth/logout` — 退出
@@ -219,7 +220,7 @@ ACCESS_TOKENS=token1,token2,token3
 每个应用程序的 MCP 端点都可以充当标准受保护的 MCP 资源。支持 OAuth 的客户端只能配置远程 MCP URL：
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 未经身份验证的 MCP 请求返回指向 `/.well-known/oauth-protected-resource` 的 `WWW-Authenticate` 质询。然后，客户端发现应用程序的 OAuth 元数据，动态注册公共客户端，打开应用程序的授权页面，并与 PKCE 交换授权代码以获取访问和刷新令牌。
@@ -363,8 +364,9 @@ interface AuthSession {
 在客户端上，使用 `useSession()` 挂钩：
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;
@@ -403,6 +405,8 @@ function SignInCta() {
 ### 已添加书签的私有路径
 
 普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/_agent-native/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
+
+该外壳的缓存时长是一个部署范围的设置——关于 `AGENT_NATIVE_SSR_CACHE`，参见 [SSR Caching](/docs/deployment#ssr-caching)。缩短或禁用缓存只会改变时长；SSR 仍会在剥离 cookie 后渲染匿名分支。
 
 ### 幕后花絮：谷歌OAuth
 

@@ -17,6 +17,20 @@
  *   });
  */
 
+import type { EmailCta, EmailLinkBlock } from "../server/email-template.js";
+import type { UserProfile } from "../user-profile/shared.js";
+
+export interface ShareEmailExtras {
+  /**
+   * Replaces the default body paragraphs between the heading and the preview.
+   * Pass `[]` to send none. Omit to keep the default copy.
+   */
+  paragraphs?: string[];
+  secondaryCta?: EmailCta;
+  linkBlock?: EmailLinkBlock;
+  closingParagraphs?: string[];
+}
+
 export interface ShareableResourceRegistration {
   /** Stable identifier used across actions, UI, and analytics. e.g. "document". */
   type: string;
@@ -36,6 +50,64 @@ export interface ShareableResourceRegistration {
    * when the caller does not pass a more specific resourceUrl.
    */
   getResourcePath?: (resource: any) => string | undefined;
+  /**
+   * Optional resolver for the share-notification email's brand logo. Return an
+   * absolute `https://` URL to override the default embedded Agent Native logo
+   * (e.g. the sharing org's own logo), or undefined to fall back. Receives the
+   * resource row being shared so the template can scope the logo to its org.
+   */
+  getLogoUrl?: (
+    resource: any,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
+   * Optional resolver for the brand name shown beside the logo in the
+   * share-notification email header. Return a display name (e.g. the sharing
+   * org's name) to override the app name, or undefined to keep the default.
+   * Receives the resource row being shared.
+   */
+  getBrandName?: (
+    resource: any,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
+   * Optional resolver for who the share-notification email appears to come
+   * from. `fromName` changes only the display name and keeps the configured,
+   * domain-verified sending address (e.g. "Alice via Clips"); `replyTo` routes
+   * replies to the sharer. `ctx.sender` is the account doing the sharing, so the
+   * template decides how to present them (name, email, avatar).
+   *
+   * Do not put a user's address in the sending address itself — SPF/DKIM sign
+   * the app's domain, so recipients would bounce or spam-filter it.
+   */
+  getSender?: (
+    resource: any,
+    ctx: { sender: UserProfile },
+  ) =>
+    | { fromName?: string; replyTo?: string }
+    | undefined
+    | Promise<{ fromName?: string; replyTo?: string } | undefined>;
+  /**
+   * Optional resolver for a preview block shown above the CTA in the
+   * share-notification email — e.g. a recording thumbnail with a play badge.
+   * Return trusted HTML (built by template code, dynamic values escaped) that
+   * is injected verbatim, or undefined to omit it. `ctx.href` is the resolved
+   * link to the resource; `ctx.alt` is its title. The template owns the entire
+   * preview markup so the generic share action stays app-agnostic.
+   */
+  getHeroHtml?: (
+    resource: any,
+    ctx: { href: string; alt?: string },
+  ) => string | undefined | Promise<string | undefined>;
+  /**
+   * Optional resolver for app-specific content in the share-notification
+   * email: a second button beside the primary CTA, a treated copyable link,
+   * and closing paragraphs beneath it. Closing paragraphs are injected
+   * verbatim (use `emailLink` / `emailStrong` for inline markup), so escape
+   * any dynamic values.
+   */
+  getShareEmailExtras?: (
+    resource: any,
+    ctx: { href: string; sender: UserProfile; recipientEmail: string },
+  ) => ShareEmailExtras | undefined | Promise<ShareEmailExtras | undefined>;
   /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
@@ -75,7 +147,11 @@ export interface ShareableResourceRegistration {
     | "admin"
     | ((
         resource: any,
-        ctx: { userEmail?: string; orgId?: string },
+        ctx: {
+          userEmail?: string;
+          orgId?: string;
+          authCapability?: string;
+        },
       ) =>
         | "viewer"
         | "editor"
@@ -99,9 +175,14 @@ export interface ShareableResourceRegistration {
    * identity can normalize here so the generic framework sharing actions and
    * access helpers stay in sync with template-owned actions.
    */
-  resolveAccessContext?: (ctx: { userEmail?: string; orgId?: string }) => {
+  resolveAccessContext?: (ctx: {
     userEmail?: string;
     orgId?: string;
+    authCapability?: string;
+  }) => {
+    userEmail?: string;
+    orgId?: string;
+    authCapability?: string;
   };
   /**
    * When true, direct ownership is recognized by owner_email regardless of the

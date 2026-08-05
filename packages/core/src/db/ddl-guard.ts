@@ -46,8 +46,14 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export async function pgTableExists(
   table: string,
   injectedClient?: DbExec,
+  dialectIsPostgres?: boolean,
 ): Promise<boolean> {
-  if (!isPostgres() || !PLAIN_IDENTIFIER.test(table)) return false;
+  // The dialect override travels with an injected client: a multi-app process
+  // (the hosted Realtime Gateway) probes a per-app Postgres DB even when its
+  // own process-global DB is absent or SQLite.
+  if (!(dialectIsPostgres ?? isPostgres()) || !PLAIN_IDENTIFIER.test(table)) {
+    return false;
+  }
   const client = injectedClient ?? getDbExec();
   try {
     const { rows } = await client.execute({
@@ -106,8 +112,14 @@ export async function pgColumnExists(
 export async function pgIndexExists(
   indexName: string,
   injectedClient?: DbExec,
+  dialectIsPostgres?: boolean,
 ): Promise<boolean> {
-  if (!isPostgres() || !PLAIN_IDENTIFIER.test(indexName)) return false;
+  if (
+    !(dialectIsPostgres ?? isPostgres()) ||
+    !PLAIN_IDENTIFIER.test(indexName)
+  ) {
+    return false;
+  }
   const client = injectedClient ?? getDbExec();
   try {
     const { rows } = await client.execute({
@@ -158,10 +170,17 @@ export async function ensureSchemaObject(options: {
   lockTimeout?: string;
   /** Injectable client for tests. */
   injectedClient?: DbExec;
+  /** Dialect override for injected per-app clients; defaults to the global. */
+  dialectIsPostgres?: boolean;
 }): Promise<boolean> {
-  const { probe, ddl, label, lockTimeout, injectedClient } = options;
+  const { probe, ddl, label, lockTimeout, injectedClient, dialectIsPostgres } =
+    options;
   if (await probe()) return false;
-  const ran = await runGuardedDdl(ddl, { lockTimeout, injectedClient });
+  const ran = await runGuardedDdl(ddl, {
+    lockTimeout,
+    injectedClient,
+    dialectIsPostgres,
+  });
   if (ran) return true;
   // The DDL was swallowed by a lock-timeout. The object is virtually always
   // already correct by the time a contended boot retries (a concurrent
@@ -185,14 +204,20 @@ export async function ensureSchemaObject(options: {
 export async function ensureTableExists(
   table: string,
   createSql: string,
-  options: { lockTimeout?: string; injectedClient?: DbExec } = {},
+  options: {
+    lockTimeout?: string;
+    injectedClient?: DbExec;
+    dialectIsPostgres?: boolean;
+  } = {},
 ): Promise<boolean> {
   return ensureSchemaObject({
-    probe: () => pgTableExists(table, options.injectedClient),
+    probe: () =>
+      pgTableExists(table, options.injectedClient, options.dialectIsPostgres),
     ddl: createSql,
     label: `table ${table}`,
     lockTimeout: options.lockTimeout,
     injectedClient: options.injectedClient,
+    dialectIsPostgres: options.dialectIsPostgres,
   });
 }
 
@@ -222,14 +247,24 @@ export async function ensureColumnExists(
 export async function ensureIndexExists(
   indexName: string,
   createIndexSql: string,
-  options: { lockTimeout?: string; injectedClient?: DbExec } = {},
+  options: {
+    lockTimeout?: string;
+    injectedClient?: DbExec;
+    dialectIsPostgres?: boolean;
+  } = {},
 ): Promise<boolean> {
   return ensureSchemaObject({
-    probe: () => pgIndexExists(indexName, options.injectedClient),
+    probe: () =>
+      pgIndexExists(
+        indexName,
+        options.injectedClient,
+        options.dialectIsPostgres,
+      ),
     ddl: createIndexSql,
     label: `index ${indexName}`,
     lockTimeout: options.lockTimeout,
     injectedClient: options.injectedClient,
+    dialectIsPostgres: options.dialectIsPostgres,
   });
 }
 
@@ -263,10 +298,14 @@ export function isLockTimeoutError(err: unknown): boolean {
  */
 export async function runGuardedDdl(
   ddl: string,
-  options: { lockTimeout?: string; injectedClient?: DbExec } = {},
+  options: {
+    lockTimeout?: string;
+    injectedClient?: DbExec;
+    dialectIsPostgres?: boolean;
+  } = {},
 ): Promise<boolean> {
   const client = options.injectedClient ?? getDbExec();
-  if (!isPostgres()) {
+  if (!(options.dialectIsPostgres ?? isPostgres())) {
     await client.execute(ddl);
     return true;
   }

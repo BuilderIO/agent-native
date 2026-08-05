@@ -57,6 +57,17 @@ export const deckShareLinks = table("deck_share_links", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
+export const uploadedAssets = table("uploaded_assets", {
+  id: text("id").primaryKey(),
+  filename: text("filename").notNull(),
+  url: text("url").notNull(),
+  type: text("type").notNull(),
+  size: integer("size").notNull(),
+  provider: text("provider"),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const slideComments = table("slide_comments", {
   id: text("id").primaryKey(),
   deckId: text("deck_id").notNull(),

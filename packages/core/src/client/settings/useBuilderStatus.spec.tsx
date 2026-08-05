@@ -133,6 +133,21 @@ describe("useBuilderStatus", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the neutral Builder connection-status route", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(connectedBuilderStatus));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/connection-status/builder",
+    );
+  });
+
   it("keeps the last good Builder status when a refresh fails", async () => {
     vi.stubGlobal(
       "fetch",
@@ -202,6 +217,18 @@ describe("useBuilderConnectFlow", () => {
     container.remove();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("polls the neutral Builder connection-status route", async () => {
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:3000/_agent-native/connection-status/builder",
+    );
   });
 
   it("opens a blank web popup and navigates to a freshly fetched cli-auth URL", async () => {

@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBookmark,
   IconPlayerPause,
@@ -17,7 +17,11 @@ import {
 import { clampRectToViewport, type BubblePosition } from "./camera-positioner";
 
 export interface RecordingToolbarProps {
-  elapsedMs: number;
+  /** Whether the elapsed-time ticker should run — true only while actively
+   * recording (not during upload/compress, which freeze the last value). */
+  active: boolean;
+  /** Reads the current elapsed time from the recorder engine on each tick. */
+  getElapsedMs: () => number;
   isPaused: boolean;
   markerCount: number;
   onAddMarker: () => void;
@@ -41,7 +45,8 @@ function formatElapsed(ms: number): string {
 }
 
 export function RecordingToolbar({
-  elapsedMs,
+  active,
+  getElapsedMs,
   isPaused,
   markerCount,
   onAddMarker,
@@ -65,6 +70,18 @@ export function RecordingToolbar({
     prevMarkerCountRef.current = markerCount;
   });
   const rootRef = useRef<HTMLDivElement>(null);
+  // Own the elapsed-time poll here instead of in the route component, so the
+  // 4x/sec tick only re-renders this toolbar rather than the whole record page.
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const getElapsedMsRef = useRef(getElapsedMs);
+  getElapsedMsRef.current = getElapsedMs;
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => {
+      setElapsedMs(getElapsedMsRef.current());
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [active]);
   const [pos, setPos] = useState<BubblePosition>(() =>
     typeof window === "undefined"
       ? { left: 16, top: 16, corner: "tl" }

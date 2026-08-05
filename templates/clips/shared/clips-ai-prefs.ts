@@ -27,8 +27,8 @@ export type ClipsAiPrefs = {
 
 export type ClipsUserPrefs = ClipsAiPrefs & {
   defaultPlaybackSpeed?: string;
+  /** Activity emails (comments, replies, reactions) only — never share invites. */
   emailNotifications?: boolean;
-  displayName?: string;
   transcriptCleanupEnabled?: boolean;
   /**
    * Cloud backup transcription (Builder credits / Groq) when the local
@@ -37,7 +37,12 @@ export type ClipsUserPrefs = ClipsAiPrefs & {
    * then stay untranscribed.
    */
   backupTranscriptionEnabled?: boolean;
+  /** Overrides the organization default visibility for new recordings. */
+  defaultRecordingVisibility?: ClipsDefaultVisibility;
 };
+
+/** Visibility applied to new recordings unless the creator picks another. */
+export type ClipsDefaultVisibility = "private" | "org" | "public";
 
 export function isIncludeFullVideoInAiEnabled(
   prefs: ClipsAiPrefs | Record<string, unknown> | null | undefined,

@@ -89,7 +89,7 @@ search: "Claude ChatGPT Claude 코드 Codex 커서 Claude Cowork MCP 앱 에이�
 - **Agent-Native 채팅 뒤에 숨은 자체 런타임:** 다른 프레임워크로 구축된 에이전트가 `<AssistantChat runtime={...}>`를 구동해야 하는 경우 [Agent Surfaces](/docs/agent-surfaces#byo-agent) 및 [Native 채팅 UI](/docs/native-chat-ui#byo-agent-runtimes)를 참조하세요.
 - **MCP 도구를 사용하는 앱:** 에이전트 네이티브 앱이 다른 MCP 서버에 의해 노출된 도구를 호출해야 하는 경우 [MCP Clients](/docs/mcp-clients)를 참조하세요.
 - **A2A를 통한 다른 앱 또는 에이전트:** 에이전트 기본 앱이 서로를 검색하고 위임해야 하는 경우 [Agent Mentions](/docs/agent-mentions) 및 [A2A](/docs/a2a-protocol)를 사용합니다.
-- **로컬 사용자 지정 하위 에이전트:** 에이전트 기본 작업 영역 자체 내에서 사용자 지정 에이전트 프로필을 원할 경우 [Workspace](/docs/workspace)를 사용하세요.
+- **로컬 사용자 지정 하위 에이전트:** 에이전트 기본 작업 영역 자체 내에서 사용자 지정 에이전트 프로필을 원할 경우 [에이전트 리소스](/docs/agent-resources)를 사용하세요.
 
 ## 간편한 설정 {#easy-setup}
 
@@ -98,7 +98,7 @@ Agent-Native를 사용하려는 호스트에 하나의 원격 MCP 커넥터를 �
 작업공간 또는 교차 앱 작업의 경우 Dispatch를 사용하세요.
 
 ```text
-https://dispatch.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/mcp
 ```
 
 Dispatch는 메일, 캘린더, 분석, Brain 및 귀하의
@@ -109,13 +109,22 @@ Dispatch는 메일, 캘린더, 분석, Brain 및 귀하의
 의도적으로 격리된 앱의 경우 해당 앱을 직접 사용하세요.
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
-https://<your-app>.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
+https://<your-app>.agent-native.com/mcp
 ```
 
 호스팅된 모든 앱에는 다음 위치에 도우미 페이지도 있습니다.
-복사 가능한 URL가 있는 `https://&lt;app&gt;/_agent-native/mcp/connect` 및
+복사 가능한 URL가 있는 `https://&lt;app&gt;/mcp/connect` 및
 Claude, ChatGPT, 커서, Claude 코드, Codex 및 기타에 대한 호스트별 탭.
+
+### 앱 내 Access 탭 {#access-tab}
+
+`AgentTabsPage`를 마운트하는 앱은 **Access** 탭에서 동일한 연결 흐름을
+제공합니다. MCP URL, 가능한 경우 A2A 에이전트 카드, Claude, ChatGPT, Cursor,
+Claude Code, Codex 및 기타 클라이언트를 위한 공통 설정 가이드를 보여줍니다.
+앱 안에서 시작점으로 사용하고 전체 흐름과 토큰 대체 경로는 `/mcp/connect`에서
+여세요. 이 탭은 연결 설정 UI이지 일반 접근 제어 콘솔이 아니며, grants, 범위
+편집, 취소는 아직 관리하지 않습니다.
 
 ### Claude 및 ChatGPT OAuth {#oauth}
 
@@ -237,7 +246,7 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
-`reconnect`는 지정된 호스트 및 선택한 클라이언트(커넥터 이름에 관계없이 URL와 일치)에 대해 URL가 `/_agent-native/mcp`로 끝나는 MCP 구성 항목을 찾은 다음 설치된 skills를 건드리거나 전체 설치 흐름을 다시 실행하지 않고 인증 자료를 새로 고치거나 교체합니다. 기본 앱 URL(예: `https://plan.agent-native.com`)를 전달하면 `/_agent-native/mcp` 접미사가 유추됩니다. 인증 및 도구 로드는 클라이언트별로 이루어지므로 나중에 해당 클라이언트를 다시 시작하거나 다시 로드하세요. 새로 로드된 도구가 나타나려면 Codex에 새 세션이 필요합니다.
+`reconnect`는 지정된 호스트 및 선택한 클라이언트(커넥터 이름에 관계없이 URL와 일치)에 대해 URL가 `/mcp`로 끝나는 MCP 구성 항목을 찾은 다음 설치된 skills를 건드리거나 전체 설치 흐름을 다시 실행하지 않고 인증 자료를 새로 고치거나 교체합니다. 기본 앱 URL(예: `https://plan.agent-native.com`)를 전달하면 `/mcp` 접미사가 유추됩니다. 인증 및 도구 로드는 클라이언트별로 이루어지므로 나중에 해당 클라이언트를 다시 시작하거나 다시 로드하세요. 새로 로드된 도구가 나타나려면 Codex에 새 세션이 필요합니다.
 
 Claude 코드에서 동등한 UI 경로는 다음과 같습니다. `/mcp`를 실행하고 관련 커넥터에 대해 **인증**(또는 **다시 연결**)을 선택합니다.
 
@@ -245,7 +254,7 @@ Claude 코드에서 동등한 UI 경로는 다음과 같습니다. `/mcp`를 실
 
 ### 연결 페이지 대체 {#connect-page-fallback}
 
-원격 OAuth URL를 직접 추가할 수 없는 MCP 클라이언트의 경우 브라우저에서 앱을 열고 **Connect** 어포던스(`https://&lt;app&gt;/_agent-native/mcp/connect`에서 제공)를 사용하세요. 로그인한 상태에서 **연결 / 승인**을 클릭하세요. 페이지에서는 감지된 에이전트를 구성하는 원클릭 딥 링크 또는 바로 붙여넣을 수 있는 `.mcp.json` 블록을 제공합니다.
+원격 OAuth URL를 직접 추가할 수 없는 MCP 클라이언트의 경우 브라우저에서 앱을 열고 **Connect** 어포던스(`https://&lt;app&gt;/mcp/connect`에서 제공)를 사용하세요. 로그인한 상태에서 **연결 / 승인**을 클릭하세요. 페이지에서는 감지된 에이전트를 구성하는 원클릭 딥 링크 또는 바로 붙여넣을 수 있는 `.mcp.json` 블록을 제공합니다.
 
 ```jsonc
 // .mcp.json
@@ -253,7 +262,7 @@ Claude 코드에서 동등한 UI 경로는 다음과 같습니다. `/mcp`를 실
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.agent-native.com/_agent-native/mcp",
+      "url": "https://mail.agent-native.com/mcp",
       "headers": { "Authorization": "Bearer <minted-token>" },
     },
   },
@@ -270,13 +279,13 @@ Claude 코드에서 동등한 UI 경로는 다음과 같습니다. `/mcp`를 실
 
 ```bash
 claude mcp add --transport http agent-native \
-  https://dispatch.agent-native.com/_agent-native/mcp
+  https://dispatch.agent-native.com/mcp
 ```
 
 이는 `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code`가 귀하를 위해 작성하는 것과 동일한 URL 전용 항목입니다. 그런 다음 Claude 코드에서 `/mcp`를 실행하고 **인증**을 선택합니다. 클라이언트는 MCP 서버의 `401 WWW-Authenticate` 챌린지에서 인증을 검색하고, `/.well-known/oauth-protected-resource` 및 `/.well-known/oauth-authorization-server`를 가져오고, 공개 OAuth 클라이언트를 동적으로 등록하고, 앱의 인증 페이지를 열고, 결과 토큰을 안전하게 저장합니다. ChatGPT 개발자 모드 커넥터는 동일한 서버 URL를 사용합니다.
 
 ```text
-https://dispatch.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/mcp
 ```
 
 OAuth 흐름은 새로 고침 토큰 순환이 포함된 인증 코드 + PKCE입니다. 액세스 토큰은 정확한 MCP 리소스 URL에 대상 그룹으로 묶여 있으며 서명된 사용자/조직 ID를 전달하므로 도구 호출, `resources/read` 및 MCP 앱 iframe 시작 `tools/call`는 모두 기존 연결 생성 JWT 경로와 동일한 `runWithRequestContext` 테넌트 범위를 통해 실행됩니다. iframe은 원시 OAuth 토큰을 수신하지 않습니다. 호스트는 인증된 MCP 연결을 통해 통화를 중재합니다.
@@ -324,8 +333,9 @@ MCP 서버는 호스팅된 커넥터(ChatGPT, Claude), 코드 클라이언트(Cl
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
-  compact default keeps context small without hiding capability.
+  <code>tool-search</code>는 필요할 때 전체 계층 도구를 검색하지만, 명시적으로
+  전체 계층을 선택하지 않는 한 실행에는 커넥터 카탈로그 또는 인증된 읽기 정책의
+  허용이 필요합니다.
 </p>
 ```
 
@@ -363,15 +373,51 @@ MCP 서버는 호스팅된 커넥터(ChatGPT, Claude), 코드 클라이언트(Cl
 
 ### 컴팩트/커넥터 계층(기본값) {#connector-tier}
 
-기본적으로 연결된 모든 에이전트는 작고 선별된 카탈로그를 봅니다(최대 20~30개의 도구 대 전체 표면의 경우 최대 105개).
+기본적으로 연결된 모든 에이전트는 작고 선별된 카탈로그를 봅니다(약 20~30개의 도구 대 전체 표면의 약 105개). 앱은 명시적인 `connectorCatalog`를 관리하거나 인증된 읽기 정책을 선택할 수 있습니다.
 
 - **템플릿에서 선언된 앱 actions** — 안전한 앱 수준 허용 목록입니다. `create-visual-plan`, `get-visual-plan`, `share-resource`, `navigate`, `tool-search` 및 유사한 계획의 경우
 - **내장된 교차 앱 도구** — `list_apps`, `open_app`, `ask_app`, `create_embed_session`.
-- **`tool-search`**는 항상 존재하므로 목록 외부의 항목은 요청 시 계속 연결할 수 있습니다(아래 참조).
+- **`tool-search`**는 검색을 위해 항상 제공됩니다. 검색된 action을 `tools/call`로 실행하려면 커넥터 카탈로그, 인증된 읽기 정책 또는 명시적인 전체 카탈로그 선택에서 허용되어야 합니다.
 
-목록 외부의 도구(예: `db-exec`, `seed-*`, 확장 제품군, 브라우저 세션 도구 및 context-xray 도구)는 광고되지 않으며 호출자가 전체 카탈로그를 선택하지 않는 한 "알 수 없는 도구"와 함께 해당 호출이 거부됩니다. 이렇게 하면 연결된 각 에이전트의 컨텍스트 창을 작게 유지하고 단일 테넌트 로컬 개발에만 안전한 풋건을 제거합니다. 커넥터 계층은 **템플릿이 `connectorCatalog`를 선언할 때마다** 활성화되며 환경 변수 뒤에 제어되지 않습니다.
+목록 외부의 도구(예: `db-exec`, `seed-*`, 확장 제품군, 브라우저 세션 도구 및 context-xray 도구)는 광고되지 않으며 호출자가 전체 카탈로그를 선택하지 않는 한 "알 수 없는 도구"와 함께 해당 호출이 거부됩니다. 이렇게 하면 연결된 각 에이전트의 컨텍스트 창을 작게 유지하고 단일 테넌트 로컬 개발에만 안전한 위험한 도구를 제거합니다.
 
-`tool-search`는 두 가지 방식으로 작동합니다. 도구 이름의 전체 메뉴와 한 줄 설명(저렴함, 스키마 없음)에 대한 **쿼리 없음**을 사용하여 호출하거나 매개변수 요약이 있는 순위 일치에 대한 쿼리를 사용하여 호출합니다. 이것이 압축된 클라이언트가 필요할 때 전체 표면 도구를 검색하고 로드하는 방법입니다.
+`tool-search`는 두 가지 방식으로 작동합니다. 도구 이름의 전체 메뉴와 한 줄 설명(저렴함, 스키마 없음)은 **쿼리 없이** 호출하고, 매개변수 요약이 포함된 순위 결과는 쿼리와 함께 호출합니다. 이는 압축된 클라이언트가 기능을 찾도록 돕습니다. 앱 에이전트의 더 폭넓은 추론이나 쓰기가 필요한 작업에는 `ask_app`을 사용하세요.
+
+#### 인증된 읽기를 기본으로 활성화
+
+긴 허용 목록을 관리하지 않고 직접 도구가 바로 작동하도록 하려는 앱은 자동 인증 읽기를 선택할 수 있습니다.
+
+```ts
+export default createAgentChatPlugin({
+  appId: "example-app",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // 특히 민감한 읽기를 거부하기 위한 선택적 심층 방어입니다.
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+이는 일반적인 정책 예시입니다. Analytics는 의도적으로 `authenticatedReads: "off"`를 설정하고 검토된 `connectorCatalog` action만 노출합니다.
+
+`authenticatedReads: "auto"`는 다음을 모두 명시적으로 선언한 action만 추가합니다.
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+정책은 이러한 action을 명시적인 `connectorCatalog` 항목과 결합한 다음 `denyActions`를 적용합니다. `writes: "ask_app_only"`(자동 읽기가 활성화된 경우 기본값)를 사용하면 변경 도구를 직접 호출할 수 없습니다. 여러 단계의 작업과 변경은 `ask_app`을 통해 처리하세요. `writes: "allowlisted"`는 명시적인 쓰기 허용 목록을 의도적으로 관리하는 앱에만 사용합니다.
+
+이 정책은 인증된 액세스를 위한 것이며 익명 액세스를 위한 것이 아닙니다. MCP OAuth/연결 ID는 계속 `runWithRequestContext`를 통해 전달되므로 action 수준 액세스 검사, 소유자/조직 범위 지정 및 OAuth 읽기 범위가 그대로 적용됩니다. 공개/미인증 action은 자동 읽기에 포함되지 않습니다.
+
+Core `db-schema`와 `db-query`는 자동 외부 읽기로 공개되지 않습니다. 일반적인 범위 지정 SQL 경로를 통해 앱 내부 에이전트에서는 사용할 수 있지만, 광범위한 스키마/SQL 접근은 읽기 전용 메타데이터만으로 추론하기에는 너무 강력합니다. 외부 쿼리가 필요하면 접근 검사와 제한을 갖춘 앱 소유 GET action 또는 행·바이트·시간 제한과 감사를 포함한 명시적 테이블/열 허용 목록을 제공하세요. `db-exec`와 `db-patch`는 자동 표면에 포함되지 않습니다.
+
+이는 이름 기반의 강력한 제외이며 단순한 메타데이터 누락이 아닙니다. 일반 데이터베이스, seed, 브라우저 세션, 확장, context-xray 도구는 향후 변경으로 인해 실수로 전체 인증된 읽기 플래그 집합이 지정되더라도 절대 자동으로 노출되지 않습니다 — 이러한 도구는 항상 명시적인 `connectorCatalog` 항목이 필요합니다.
+
+`resolveExecutionContext`를 제공하는 앱은 이 기본 ID 확인 절차를 명시적으로 대체합니다. 해당 resolver는 principal을 반환하기 전에 검증되지 않은 호출자, 게스트, 외부 구성원, 연결되지 않은 workspace를 독립적으로 거부해야 합니다.
+
+검증된 Slack DM은 에이전트가 실행되기 전에 기존 Agent Native 조직 구성원과 연결되고 workspace/user ID 링크로 저장됩니다. 그 결과 생성된 사용자/조직 컨텍스트에는 해당 사용자의 리소스, 지침 및 skills가 로드됩니다. 기본적으로 프로필을 정상적으로 가져왔지만 이메일이 없거나 아직 조직 구성원이 아닌 workspace 구성원은 거부됩니다. 앱은 `allowAnonymousOrgScopedSlackDm: true`를 명시적으로 설정해 이러한 구성원을 조직 범위의 익명 service principal로 실행할 수 있습니다. 이는 공유 채널과 동일한 조직 전체 공개 수준이지만 사용자 비공개 데이터에는 절대 접근하지 않습니다. 에이전트에 표시되는 메모와 개인 액세스를 얻는 방법을 설명하는 일회성 Slack 안내가 함께 제공됩니다. 이 opt-in은 프로필 가져오기 실패, 검증되지 않은 호출자, 게스트, 외부(Slack Connect) 구성원 또는 조직에 연결되지 않은 workspace를 허용하지 않으며, 이들에게는 정중한 거절 응답을 보냅니다. Slack 공유 채널은 service principal을 사용하며 참여자의 개인 권한을 빌리지 않습니다. 관리형 OAuth와 생성된 Slack 앱 매니페스트는 모두 bot scope `users:read.email`을 요청합니다. 새로 추가된 scope를 부여하려면 기존 설치를 다시 연결/설치해야 하며, 이전 bot-token 설치는 Slack에서 scope를 수동으로 추가해야 합니다. 이 scope가 없으면 앱이 `allowAnonymousOrgScopedSlackDm`을 명시적으로 활성화하지 않는 한 DM은 거부됩니다.
 
 ### 전체 등급(명시적 선택만 해당) {#full-tier}
 
@@ -465,19 +511,44 @@ ChatGPT/Claude 스타일 OAuth 앱 호스트의 경우 검색 표면은 기본�
 
 액션별 도구 외에도 MCP 서버는 안정적인 동사 세트를 노출하므로 외부 에이전트는 앱별 액션 이름을 추측하지 않고도 예측 가능한 표면을 갖습니다.
 
-| 도구                                               | 부작용        | 반품                                                                                          |
-| -------------------------------------------------- | ------------- | --------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | 없음          | 작업 공간 앱 + 해당 URL / 실행 상태                                                           |
-| `open_app({ app, view?, path?, params?, embed? })` | 없음          | 딥 링크 또는 동일 출처 경로; `embed: true`는 지원되는 경우 전체 앱을 인라인으로 렌더링합니다. |
-| `ask_app({ app, message })`                        | 에이전트 루프 | 자연어 작업을 해당 앱의 인앱 에이전트로 라우팅합니다(`ask-agent`에 위임)                      |
-| `create_workspace_app({ name, template })`         | 비계          | 작업공간 경로를 통해 부팅된 새 앱과 실행 중인 URL + 딥 링크                                   |
-| `list_templates`                                   | 없음          | 허용 목록에 있는 템플릿만                                                                     |
+| 도구                                               | 부작용        | 반품                                                                                                                                                        |
+| -------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | 없음          | 작업 공간 앱 + 해당 URL / 실행 상태                                                                                                                         |
+| `open_app({ app, view?, path?, params?, embed? })` | 없음          | 딥 링크 또는 동일 출처 경로; `embed: true`는 지원되는 경우 전체 앱을 인라인으로 렌더링합니다.                                                               |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | 에이전트 루프 | 자연어 작업을 해당 앱의 인앱 에이전트로 라우팅합니다. 오래 걸리는 작업은 `ask_app_status` 폴링을 위한 내구성 있는 `taskHandle`과 기존 `taskId`를 반환합니다 |
+| `create_workspace_app({ name, template })`         | 비계          | 작업공간 경로를 통해 부팅된 새 앱과 실행 중인 URL + 딥 링크                                                                                                 |
+| `list_templates`                                   | 없음          | 허용 목록에 있는 템플릿만                                                                                                                                   |
 
 `create_workspace_app`는 허용 목록에 없는 템플릿을 거부합니다. `packages/shared-app-config/templates.ts`의 공개 템플릿 허용 목록은 신뢰할 수 있고 CI로 보호됩니다. 외부 에이전트는 이를 확장할 수 없습니다. 동일한 이름의 템플릿 작업은 기본 제공(코어보다 템플릿 우선 순위)을 재정의합니다. `MCPConfig.builtinCrossAppTools: false`로 전체 세트를 비활성화하세요.
 
-앱 호스트용 도구 및 리소스 카탈로그는 기본적으로 컴팩트합니다. [Catalog tiers](#catalog-tiers)를 참조하세요. `publicAgent.expose`는 컴팩트 카탈로그 외부의 안전한 읽기/수집 도구에 대한 선택 사항으로 남아 있습니다. `mcpApp.compactCatalog: true`를 채팅 호스트 검색에 나타나야 하는 actions에 대한 드문 예외로만 설정하세요.
+앱 호스트의 도구 및 리소스 카탈로그는 기본적으로 컴팩트합니다. [카탈로그 계층](#catalog-tiers)을 참조하세요. `publicAgent.expose`는 컴팩트 카탈로그 외부의 안전한 읽기/수집 도구를 action 단위로 선택하는 설정입니다. 앱은 `externalAgents.authenticatedReads: "auto"`를 설정하여 수동 카탈로그 없이 인증된 읽기를 노출할 수 있습니다. `mcpApp.compactCatalog: true`는 채팅 호스트 검색에 반드시 표시되어야 하는 action의 드문 예외에만 설정하세요.
 
 빠른 ChatGPT/Claude 핸드오프를 위해 이상적인 경로는 직접입니다. 아티팩트를 생성하거나 여는 작업을 호출한 다음 MCP 앱이 경로를 시작하도록 합니다. 메일 요청은 `manage_draft`를 호출하고 실제 작성 경로를 렌더링해야 합니다. 대시보드 요청은 `open_app({ path, embed: true })` 또는 `mcpApp`를 사용한 대시보드 작업을 호출하고 전체 Analytics 경로를 렌더링해야 합니다. 달력, 양식, 콘텐츠, 슬라이드, 디자인 및 클립은 초안/생성/검색 actions와 동일한 패턴을 따라야 합니다. `list_apps`는 모델이 부여된 앱 중에서 선택해야 할 때 유용합니다. 광범위한 `resources/list`, 전체 카탈로그 검색 또는 `ask_app` 위임은 명백한 UI 핸드오프를 위한 일반적인 경로가 되어서는 안 됩니다.
+
+### 장기 실행 에이전트 요청
+
+`ask_app`이 `taskHandle`을 반환하면 해당 불투명 값을 변경하지 말고
+`ask_app_status`에 전달하세요. 호출 사이에 앱 검색 결과가 바뀌어도 원래 작업 경로가
+유지됩니다. 마이그레이션 중에는 기존 `app` 및 `taskId` 인수도 계속 허용됩니다.
+
+MCP 호스트와 게이트웨이는 하나의 긴 도구 호출 제한 시간을 공유하지 않습니다. 일부는
+5분 상한을 강제하고 다른 일부는 설정 가능합니다. 10분간 차단되는 `tools/call`을
+중심으로 외부 에이전트 통합을 설계하지 마세요. `ask-agent`와 `ask_app`은 호스팅된
+작업의 접수를 빠르게 확인한 뒤, 인라인 대기 시간이 만료되면 내구성 있는 `taskHandle`과
+기존 `taskId`를 반환합니다. 반환된 `poll.arguments`, 특히 `taskHandle`을 변경하지 않고
+재사용해 `ask_app_status`로 폴링하세요. 결과에는
+호스트 친화적인 간격인 `pollAfterMs`가 포함됩니다. 첫 번째 응답이 시간 초과되기
+전에 작업이 생성되어야 하므로, 오랜 호출이 끝난 후에만 반환되는 폴링 URL은 신뢰할
+수 있는 복구 계약이 아닙니다.
+
+제한된 일시적 상태 읽기를 사용할 수 없으면 `ask_app_status`는
+`status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, 원래의
+`app`과 `taskId`, 그리고 `pollAfterMs` / `poll`을 반환할 수 있습니다. 이는 상태
+읽기를 사용할 수 없다는 뜻이지 내구성 있는 작업이 실패했다는 뜻은 아닙니다. 정확히 같은
+반환된 동일한 `poll.arguments`로 `ask_app_status`를 재시도하고, 있는 경우 `taskHandle`을
+포함하세요. 핸들이 없는 기존 결과는 동일한 `app`과 `taskId`를 재사용해야 합니다. 제출하면 작업이 중복될 수 있으므로
+복구를 위해 `ask_app`을 다시 제출하지 마세요. 영구적인 인증, 찾을 수 없음, 프로토콜
+오류는 계속 오류로 남습니다.
 
 ### 앱별 둘러보기 {#tour}
 
@@ -642,7 +713,7 @@ npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|c
 - **동료** — `~/.cowork/mcp.json`의 동일한 Claude 코드 JSON 모양.
 - **codex** — `~/.codex/config.toml`의 `[mcp_servers.<name>]` 블록.
 
-항목은 기본적으로 실행 중인 로컬 앱의 `/_agent-native/mcp`에 대한 **얇은 stdio 프록시**인 `npx @agent-native/core@latest mcp serve --app <id>`를 실행합니다. 따라서 라이브 액션 레지스트리, HMR 및 올바른 딥 링크는 단일 정보 소스로 유지됩니다. 대신 프로세스 내에서 레지스트리를 빌드하려면 `--standalone`를 전달하세요. `npx @agent-native/core@latest mcp install`가 호스팅된 원본(작업 공간 `.env`의 로컬 호스트가 아닌 `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL`)을 감지하면 stdio 항목 대신 `Bearer` JWT를 사용하여 `<origin>/_agent-native/mcp`를 가리키는 `http` 클라이언트 항목을 작성합니다.
+항목은 기본적으로 실행 중인 로컬 앱의 `/mcp`에 대한 **얇은 stdio 프록시**인 `npx @agent-native/core@latest mcp serve --app <id>`를 실행합니다. 따라서 라이브 액션 레지스트리, HMR 및 올바른 딥 링크는 단일 정보 소스로 유지됩니다. 대신 프로세스 내에서 레지스트리를 빌드하려면 `--standalone`를 전달하세요. `npx @agent-native/core@latest mcp install`가 호스팅된 원본(작업 공간 `.env`의 로컬 호스트가 아닌 `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL`)을 감지하면 stdio 항목 대신 `Bearer` JWT를 사용하여 `<origin>/mcp`를 가리키는 `http` 클라이언트 항목을 작성합니다.
 
 동반 하위 명령:
 
@@ -666,7 +737,7 @@ npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|c
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.agent-native.com/_agent-native/mcp",
+      "url": "https://analytics.agent-native.com/mcp",
       "headers": { "Authorization": "Bearer <ACCESS_TOKEN-or-JWT>" },
     },
   },
@@ -708,7 +779,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 대체 호스팅 `connect` 흐름은 배포의 공유 비밀을 복사하지 않습니다. 대신:
 
 - 로그인된 브라우저 세션은 호출자의 `sub` + `org_domain` 및 고유한 `jti`를 전달하는 `A2A_SECRET` 서명 JWT인 **사용자별, 범위가 지정되고 취소 가능한** 토큰을 생성하므로 모든 도구 실행은 `runWithRequestContext`를 통해 테넌트 범위를 유지합니다.
-- 기존 `/_agent-native/mcp` 엔드포인트는 다른 전달자와 마찬가지로 해당 토큰을 허용합니다([MCP Protocol](/docs/mcp-protocol) 참조). 새 엔드포인트나 새 전송이 없습니다.
+- 기존 `/mcp` 엔드포인트는 다른 전달자와 마찬가지로 해당 토큰을 허용합니다([MCP Protocol](/docs/mcp-protocol) 참조). 새 엔드포인트나 새 전송이 없습니다.
 - 동일한 연결 페이지에는 귀하가 발행한 모든 토큰이 나열되어 있으며 `jti`를 통해 해당 토큰을 **취소**할 수 있습니다. 개인 액세스 토큰처럼 취급합니다. 에이전트 클라이언트당 하나씩, 머신이 폐기되면 취소됩니다.
 - 에이전트가 전달한 딥 링크에는 특권 상태가 없습니다. 기록 중심의 `navigate` 쓰기 범위는 항상 **브라우저** 세션으로 지정되며 상담원의 토큰은 아닙니다. 따라서 링크를 터미널이나 채팅 내용에 붙여넣어도 안전합니다.
 

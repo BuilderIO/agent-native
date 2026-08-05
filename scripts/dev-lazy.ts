@@ -277,11 +277,18 @@ const prewarmEnabled = (() => {
   if (hasFlag("--prewarm")) return true;
   return readBooleanEnv(process.env.WORKSPACE_PREWARM) === true;
 })();
+// Reading another app for two minutes is normal navigation, not abandonment,
+// and evicting on that timescale charged a full Vite/Nitro cold start (10-20s)
+// for going back. Eviction exists to bound memory across a long session, so the
+// window only needs to be longer than a person's attention span, not shorter.
+// `agent-native dev` never evicts at all; this stays as the framework repo's
+// concession to running every template at once. 0 disables it.
+const DEFAULT_TEMPLATE_IDLE_MS = 1_800_000;
 const templateIdleMs = (() => {
   const raw = process.env.WORKSPACE_TEMPLATE_IDLE_MS;
-  if (raw === undefined) return 120_000;
+  if (raw === undefined) return DEFAULT_TEMPLATE_IDLE_MS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 120_000;
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_TEMPLATE_IDLE_MS;
   return Math.floor(parsed);
 })();
 const prewarmConcurrency = (() => {
@@ -781,7 +788,7 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
-function probeHttpReady(
+export function probeHttpReady(
   app: Pick<TemplateApp, "id" | "port">,
   timeoutMs = 1_000,
 ): Promise<boolean> {
@@ -807,11 +814,14 @@ function probeHttpReady(
       },
       (res) => {
         res.resume();
-        // A 5xx here is Nitro's transient cold-start 503 ("Vite environment
-        // ... is unavailable") — the SSR entry is still importing, so the app
-        // is not ready. Only a non-5xx response means it can actually serve;
-        // otherwise we'd flip app.ready and proxy real traffic into a cold
-        // dev server (and the prewarm would "warm" nothing).
+        // A booting app is not a ready app. Nitro answers early in cold start
+        // with a transient 503 (`Vite environment "nitro" is unavailable`);
+        // accepting it here handed the user's own request that same 503, which
+        // reads as a broken page with a retry button seconds before the app
+        // would have served it. Keep probing until it answers non-5xx — the
+        // caller's deadline (`proxyReadyTimeoutMs`) still bounds the wait, and
+        // the persistent-5xx self-heal is driven by `lastNon5xxAt`, not by
+        // this probe, so a genuinely wedged app is still restarted.
         finish((res.statusCode ?? 500) < 500);
       },
     );
@@ -837,16 +847,20 @@ async function waitForHttpReady(
 ): Promise<boolean> {
   let retryDelay = PROXY_READY_RETRY_DELAY_MS;
   while (Date.now() < deadline) {
-    // Nitro's dev SSR runner waits ~3.1s for the entry import before returning
-    // 503, so give each probe long enough to receive that real response rather
-    // than abandoning it at 1s — an abandoned request still completes (and
-    // logs) server-side. Backing off between polls keeps the warm-up quiet.
-    const timeoutMs = Math.min(4_000, Math.max(1, deadline - Date.now()));
+    // Keep one cold-start request alive for the remaining startup window.
+    // Aborting it after a short per-attempt timeout can make Nitro restart its
+    // environment import, so repeated probes prevent a slow app from ever
+    // becoming ready and can multiply its startup memory use.
+    const timeoutMs = readinessProbeTimeoutMs(deadline, Date.now());
     if (await probeHttpReady(app, timeoutMs)) return true;
     await new Promise((resolve) => setTimeout(resolve, retryDelay));
     retryDelay = Math.min(retryDelay * 2, 2_000);
   }
   return false;
+}
+
+export function readinessProbeTimeoutMs(deadline: number, now: number): number {
+  return Math.max(1, deadline - now);
 }
 
 /**
@@ -894,10 +908,14 @@ export function shouldRestartPersistent5xx(input: {
 
 function ensureReadinessProbe(app: TemplateApp): void {
   if (app.ready || app.readinessProbe) return;
-  app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
-    .then((ready) => {
-      if (ready) {
-        markAppReady(app);
+  app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
+    .then((listening) => {
+      if (listening) {
+        // The loading page only needs to know when it is safe to let the next
+        // browser navigation reach Vite. The proxied response below owns HTTP
+        // health and persistent-5xx recovery; probing SSR first can deadlock a
+        // Nitro cold start that needs another request to finish initializing.
+        app.ready = true;
         return;
       }
       void failAppStartupTimeout(app);
@@ -917,9 +935,15 @@ export function shouldEvict(input: {
   openSockets: number;
   now: number;
   idleTimeoutMs: number;
+  ready?: boolean;
 }): boolean {
   if (input.idleTimeoutMs <= 0) return false;
   if (input.openSockets > 0) return false;
+  // An app that has never served a response is booting, not idle. Vite can
+  // compile well past the readiness deadline, and once that probe gives up
+  // nothing else marks the app busy — so the sweep would kill it mid-compile
+  // and the next request would start the same slow boot over, forever.
+  if (input.ready === false) return false;
   return input.now - input.lastActivityAt > input.idleTimeoutMs;
 }
 
@@ -948,6 +972,7 @@ function sweepIdleApps(): void {
         openSockets: app.openSockets ?? 0,
         now,
         idleTimeoutMs: templateIdleMs,
+        ready: app.ready ?? false,
       })
     ) {
       evictApp(app);

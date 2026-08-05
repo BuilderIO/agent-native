@@ -13,7 +13,7 @@ Agent-Native 附帶了完整的側邊欄，但側邊欄不是合同。
 從聚焦的用戶端子路徑匯入瀏覽器 UI：
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -173,8 +173,9 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## 聊天欄位和撰寫器 {#composer}
 
-當您需要進行相同的聊天時，請使用`@agent-native/core/client/composer`
-自訂 UI 內的側邊欄使用的欄位。
+當您需要在自訂 UI 中使用與側邊欄相同的聊天欄位時，請使用 `@agent-native/core/client/composer`。
+`@agent-native/toolkit/composer` 提供可攜式、純粹的 Tiptap 與 UI 實作；若要使用框架服務，
+請以 `ComposerRuntimeAdaptersProvider` 包裝它並提供這些服務。Core 是已連接附件、提及、技能、語音和模型選擇的包裝器。
 
 | API                               | 何時使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |

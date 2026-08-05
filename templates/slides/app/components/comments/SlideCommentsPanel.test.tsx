@@ -7,7 +7,7 @@ import { SlideCommentsPanel } from "./SlideCommentsPanel";
 
 const refetch = vi.fn();
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     const messages: Record<string, string> = {
       "comments.title": "Comments",

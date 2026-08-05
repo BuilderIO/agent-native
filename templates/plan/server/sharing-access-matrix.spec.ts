@@ -43,6 +43,9 @@ import {
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
 
+// Real libSQL access matrices run alongside every workspace suite in CI.
+vi.setConfig({ testTimeout: 60_000 });
+
 // ---------------------------------------------------------------------------
 // Test DB wiring. A single libSQL :memory: db is shared across the file; rows
 // are reset between tests. The plan resource is registered against it so the
@@ -88,7 +91,10 @@ const VIEWER = "viewer@example.com";
 const EDITOR = "editor@example.com";
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
-const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 30_000;
+// The full CI matrix imports every action package concurrently with the other
+// template suites. The setup is normally a few seconds, but can exceed the
+// Vitest default under a saturated runner without indicating a product fault.
+const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 60_000;
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
@@ -100,6 +106,7 @@ async function resetTables() {
     DELETE FROM plan_shares;
     DELETE FROM plans;
     DELETE FROM organizations;
+    DELETE FROM org_members;
   `);
 }
 
@@ -134,6 +141,14 @@ async function seedOrg(id: string, name: string) {
   await client.execute({
     sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
     args: [id, name, OWNER, Date.now()],
+  });
+}
+
+/** Real `org_members` row — `org`-visibility access checks real membership. */
+async function seedOrgMember(orgId: string, email: string) {
+  await client.execute({
+    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+    args: [`${orgId}:${email}`, orgId, email, "member", Date.now()],
   });
 }
 
@@ -309,6 +324,13 @@ beforeAll(async () => {
       created_at INTEGER NOT NULL,
       allowed_domain TEXT,
       a2a_secret TEXT
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
     );
   `);
 
@@ -788,6 +810,7 @@ describe("org visibility", () => {
   it("an org-visible plan is readable by same-org members, not other orgs", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
+    await seedOrgMember(ORG, VIEWER);
 
     // same org member reads
     const got = await asUser({ userEmail: VIEWER, orgId: ORG }, () =>
@@ -806,6 +829,7 @@ describe("org visibility", () => {
   it("org visibility grants read but not edit to a non-owner org member", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
+    await seedOrgMember(ORG, VIEWER);
 
     await expect(
       asUser({ userEmail: VIEWER, orgId: ORG }, () =>

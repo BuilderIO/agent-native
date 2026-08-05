@@ -1,6 +1,6 @@
 ---
 title: "Apps"
-description: "Bifurque un producto SaaS que funcione y hágalo suyo, incluido el agente."
+description: "Empiece con un producto SaaS funcional y hágalo suyo, incluido el agente."
 ---
 
 # Apps
@@ -33,6 +33,131 @@ Cada una es una aplicación real que puedes usar hoy y la plataforma de lanzamie
 
 Vea el catálogo completo en [Apps](/apps) o vaya directamente a uno; por ejemplo, [Dispatch](/docs/template-dispatch) es un excelente lugar para comenzar si desea una aplicación estilo espacio de trabajo.
 
+## Plantillas de la comunidad {#community-templates}
+
+Las plantillas con nombre del selector de CLI son **oficiales**: Agent Native
+las mantiene, prueba, documenta y publica junto con el framework. Una
+**plantilla de la comunidad** es mantenida y versionada por el propietario de
+su repositorio. Puede usar la misma superficie del framework, pero aparecer en
+la lista de la comunidad no supone una recomendación ni una promesa de soporte
+por parte de Agent Native.
+
+Ejecute `create`, elija **Plantilla de la comunidad** y pegue una URL sencilla
+de un repositorio público de GitHub:
+
+```bash
+https://github.com/owner/repo
+```
+
+Si la raíz del repositorio contiene una sola app Agent Native, la CLI la instala
+directamente sin otro selector. Si es un espacio de trabajo Agent Native, la CLI
+descubre los hijos directos válidos de `apps/*`, excluye `dispatch` y pregunta
+qué app quiere instalar.
+
+Un marcador `agent-native.workspaceCore` no vacío convierte el repositorio en
+un espacio de trabajo aunque el paquete raíz también dependa de
+`@agent-native/core`; se rechaza un marcador malformado.
+
+Pase la misma URL sencilla a `--template` para usarla en scripts, o use la forma
+corta `community:`. Fije una rama, etiqueta o commit después de `#` para obtener
+un punto de partida reproducible. Sin una referencia, la CLI prueba primero
+`main` y después `master`:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+Para elegir la app de origen de un repositorio de espacio de trabajo sin
+interacción, use `?app=<app-name>`. El selector va antes del `#ref` opcional.
+Mantenga todo el valor entre comillas porque shells como zsh interpretan `?`
+como un glob:
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+Fuera de un espacio de trabajo, `create` convierte la app de origen seleccionada
+en una app independiente. Para añadirla a un espacio de trabajo existente, pase
+el repositorio de la comunidad explícitamente porque el selector de `add-app`
+solo muestra plantillas oficiales. Omita `?app` para elegir de forma interactiva
+en el espacio de trabajo de origen, o inclúyalo para una instalación
+automatizable:
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+Solo se admiten repositorios públicos de GitHub. No se admiten repositorios
+privados, hosts que no sean GitHub, URLs de árboles o subdirectorios de GitHub
+ni rutas de app anidadas. Una app en la raíz debe tener un `package.json`
+legible que incluya `@agent-native/core` en `dependencies`, `devDependencies` o
+`peerDependencies`. En un repositorio de espacio de trabajo, cada app de origen
+seleccionable debe cumplir el mismo requisito directamente en
+`apps/<app-name>/`; `dispatch` nunca se puede seleccionar.
+
+Las apps de un espacio de trabajo comunitario deben ser unidades portátiles, no
+fragmentos arbitrarios de un monorepo:
+
+- las referencias de dependencia `catalog:` predeterminadas se resuelven desde
+  el `pnpm-workspace.yaml` de la raíz del repositorio de origen; no se admiten
+  referencias de catálogo con nombre;
+- las referencias `workspace:*` a `@agent-native/core`,
+  `@agent-native/dispatch` y `@agent-native/toolkit` se reescriben a versiones
+  publicadas. Los demás paquetes hermanos del espacio de trabajo no se copian;
+  publíquelos y use una versión concreta;
+- se elimina la dependencia del paquete `workspaceCore` de origen. Los plugins
+  canónicos heredados de autenticación y agent chat del espacio de trabajo se
+  separan para una instalación independiente o se vinculan al espacio de
+  trabajo de destino. Cualquier otra importación del paquete `workspaceCore` de
+  origen falla con un mensaje claro; mueva ese código a la app o publíquelo
+  como dependencia concreta.
+
+Mantenga el resto de cada app completa junto a su `package.json`:
+`agent-native.json` cuando se use, código fuente, actions, instrucciones del
+agente y configuración de base de datos. Un repositorio listo para el catálogo
+también debe incluir:
+
+- una licencia y un enlace al mantenedor o al soporte;
+- un README con los pasos de configuración, las variables de entorno
+  requeridas y el comando CLI exacto;
+- un `.env.example` que solo contenga marcadores de posición, sin secretos,
+  datos de clientes, bases de datos de ejecución ni resultados de compilación;
+- una instalación funcional, un comando de desarrollo, typecheck y pruebas
+  apropiadas para la plantilla.
+
+El instalador registra los valores `source` y `ref` resueltos en
+`agent-native.communityTemplate` dentro del `package.json` de la app instalada.
+Las apps seleccionadas de un repositorio de espacio de trabajo también registran
+la app de origen como `agent-native.communityTemplate.app`. `agent-native
+template sync` sigue siendo exclusivo de las plantillas oficiales; para
+actualizar una plantilla de la comunidad, revise una referencia upstream más
+reciente y combine los cambios usted mismo.
+
+Consulte [Creating Templates](/docs/creating-templates) para ver la lista
+completa de requisitos de la app, actions, estado, seguridad y publicación.
+
+> **Revise el código de la comunidad antes de instalar dependencias o
+> ejecutarlo.** Las plantillas de la comunidad se descargan desde repositorios
+> de terceros; Agent Native no las aísla, audita ni mantiene. La CLI solo
+> descarga el código fuente; no instala dependencias ni ejecuta scripts de la
+> plantilla. Revise el código fuente, la licencia, las dependencias y los
+> scripts de instalación de paquetes, y prefiera una referencia confiable
+> fijada.
+
+Una demo alojada es opcional. Si proporciona una, conviértala en un enlace
+público de prueba y documente los requisitos de inicio de sesión, datos de
+ejemplo o proveedores. El repositorio sigue siendo la fuente de verdad para la
+instalación, y su propietario sigue siendo responsable de la plantilla y la
+demo.
+
+¿Quiere aparecer en la lista? [Envíe una plantilla de la comunidad](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)
+con la URL del repositorio, una descripción de una frase, los detalles del
+mantenedor y la licencia, el comando CLI probado y una URL opcional de la demo
+alojada.
+
 ## Lo que obtienes de la caja {#what-you-get}
 
 Cada app de ejemplo se envía con las piezas que normalmente tardan meses en construirse:
@@ -50,7 +175,7 @@ Esta no es una afirmación teórica. El autor del marco ejecuta su bandeja de en
 
 El camino desde "Quiero mi propio SaaS" hasta "Tengo mi propio SaaS" es corto:
 
-<Diagram id="doc-block-mroml5" title="Bifurca y personaliza" summary={"Elija un producto terminado, póngale una marca, evolucione en un lenguaje sencillo y envíelo a su propio dominio."}>
+<Diagram id="doc-block-mroml5" title="Empieza con una app funcional" summary={"Elija un producto terminado, póngale una marca, evolucione en un lenguaje sencillo y envíelo a su propio dominio."}>
 
 ```html
 <div class="diagram-fork">
@@ -100,28 +225,30 @@ El camino desde "Quiero mi propio SaaS" hasta "Tengo mi propio SaaS" es corto:
 
 1. **Elija una app de ejemplo.** Utilice el selector CLI o explore los documentos y elija una para comenzar.
 2. **Marca.** Cambia el nombre, los colores, el logotipo y el texto. La mayoría de las apps de ejemplo exponen esto en un único archivo de configuración.
-3. **Personalízalo.** Pídele al agente que agregue la columna que necesitas, cambia la forma en que se agrupa la bandeja de entrada, conéctate a tu API interno, agrega una nueva vista. El agente edita el código; revisas la diferencia.
+3. **Personalízalo.** Haz cambios de código fuente en tu repositorio y flujo de desarrollo. Un agente puede ayudar cuando su frame recibe intencionalmente herramientas de workspace y escritura; de lo contrario, el agente integrado opera la app mediante actions, datos e integraciones configuradas.
 4. **Envíelo.** Ejecute el comando de implementación. Ahora tienes tu propio SaaS de producción en tu propio dominio.
 
-Los pasos 2 a 4 suelen tardar días, no meses. El paso 3 es abierto: su SaaS bifurcado evoluciona con el tiempo, en términos sencillos, al hablar con el agente.
+Los pasos 2 a 4 suelen tardar días, no meses. El paso 3 es abierto porque la app es tuya para evolucionarla, mientras el agente integrado sigue disponible para operar el producto desplegado y puede ayudar con cambios de código fuente cuando se habilita explícitamente el acceso al código.
 
 ## Por qué esto es práctico {#why}
 
 Un modelo tradicional de bifurcación del código base se desmorona a escala: cada usuario que mantiene su propia bandeja de entrada suena como una pesadilla de mantenimiento. Dos decisiones marco lo hacen funcionar:
 
-1. **El agente realiza el mantenimiento.** No escribe código para agregar una columna ni conectar una nueva integración: se lo pregunta al agente. Así que "tu propia bandeja de entrada bifurcada" es una característica, no una carga.
+1. **La app mantiene el contrato del framework.** Tu código fuente posee el comportamiento del dominio, mientras Core mantiene coherentes actions, SQL, estado y sincronización a medida que la app evoluciona.
 2. **Personalización por usuario sin código por usuario.** Skills, memoria, instrucciones, servidores MCP conectados y subagentes, todos viven en SQL. Cada usuario obtiene su propia capa de personalización; el código base compartido los aloja todos a la vez.
 
 El resultado: Claude: flexibilidad a nivel de código para cada usuario, con una economía de implementación normal de SaaS.
 
-<Diagram id="doc-block-18s9hur" title={"Por qué escalan las bifurcaciones por usuario"} summary={"Dos ideas mantienen práctico el modelo de bifurcación y personalización: el agente realiza el mantenimiento y la personalización por usuario reside en SQL, no en el código por usuario."}>
+<Diagram id="doc-block-18s9hur" title={"Por qué escala la personalización por usuario"} summary={"Dos ideas mantienen práctico el modelo de empezar con una app funcional: la app mantiene el contrato del framework y la personalización por usuario reside en SQL, no en el código por usuario."}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>Compartird codebase</strong
     ><small class="diagram-muted">una app, desplegada una vez</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">
+      la app mantiene el contrato del framework
+    </div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>
@@ -157,9 +284,9 @@ El resultado: Claude: flexibilidad a nivel de código para cada usuario, con una
 
 </Diagram>
 
-## ¿No quieres bifurcar? {#hosted}
+## ¿No quieres personalizar? {#hosted}
 
-No es necesario. Cada app de ejemplo también está disponible como una aplicación alojada en `agent-native.com`: `mail.agent-native.com`, `calendar.agent-native.com`, etc. Utilice la versión alojada de forma gratuita o de pago; bifurca solo cuando quieras cambiar algo que la versión alojada no expone.
+No es necesario. Cada app de ejemplo también está disponible como una aplicación alojada en `agent-native.com`: `mail.agent-native.com`, `calendar.agent-native.com`, etc. Utilice la versión alojada de forma gratuita o de pago; cree su propia app desde una plantilla cuando quiera cambiar algo que la versión alojada no expone.
 
 ## Pruébalo con una habilidad {#try-with-a-skill}
 

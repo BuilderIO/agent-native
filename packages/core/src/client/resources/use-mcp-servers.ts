@@ -20,6 +20,7 @@ export interface McpServer {
   name: string;
   url: string;
   headers?: Record<string, { set: true }>;
+  authMode: "none" | "headers" | "oauth";
   description?: string;
   firstParty?: boolean;
   createdAt: number;
@@ -117,7 +118,7 @@ export interface TestMcpUrlResult {
 
 export function getMcpUrlValidationError(rawUrl: string): string | null {
   const trimmed = rawUrl.trim();
-  if (!trimmed) return "Enter the Streamable HTTP MCP server URL.";
+  if (!trimmed) return "Enter the Streamable HTTP agent integration URL.";
   let url: URL;
   try {
     url = new URL(trimmed);
@@ -125,13 +126,13 @@ export function getMcpUrlValidationError(rawUrl: string): string | null {
     return "Enter a full URL, including https://.";
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    return "MCP server URLs must start with https://.";
+    return "Agent integration URLs must start with https://.";
   }
   if (
     url.protocol === "http:" &&
     !["localhost", "127.0.0.1"].includes(url.hostname)
   ) {
-    return "Use https:// for remote MCP servers. Plain http:// is only allowed for localhost.";
+    return "Use https:// for remote agent integrations. Plain http:// is only allowed for localhost.";
   }
   return null;
 }
@@ -144,7 +145,7 @@ export function formatMcpServerError(error: unknown): string {
         ? error.message
         : String(error ?? "");
   const text = raw.trim();
-  if (!text) return "Could not connect to that MCP server.";
+  if (!text) return "Could not connect to that agent integration.";
   if (
     /<!doctype|<html[\s>]|<\/html>|unexpected token '<'|is not valid json/i.test(
       text,
@@ -163,10 +164,10 @@ export function formatMcpServerError(error: unknown): string {
       text,
     )
   ) {
-    return "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.";
+    return "Could not reach that agent integration. Check the URL and make sure it is publicly reachable from this app.";
   }
   if (/401|403|unauthorized|forbidden/i.test(text)) {
-    return "The MCP server rejected the request. Add or update the required Authorization header.";
+    return "The agent integration rejected the request. Add or update the required Authorization header.";
   }
   if (/404|not found|405|method not allowed/i.test(text)) {
     return "That URL is reachable, but it does not look like the MCP endpoint. Check the server's Streamable HTTP path.";

@@ -7,7 +7,7 @@ description: >-
 
 # Dashboard Management
 
-Dashboards are SQL-backed resources. New dashboards and analyses live in the template tables, not in settings KV rows.
+Dashboards are the canonical SQL-backed Analytics resources. New dashboards, saved analyses, reports, and bespoke extensions are represented as dashboard artifacts—not as separate user-facing Analytics objects. Legacy analysis tables and actions remain available only for compatibility.
 
 ## Storage
 
@@ -24,6 +24,15 @@ Current storage:
 | `analysis_shares`  | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
+
+For organization-wide consolidation, use `migrate-analytics-artifacts` first
+with `dryRun: true`. The write requires an organization owner/admin and the
+exact confirmation token `MIGRATE_ANALYTICS_ARTIFACTS`. It materializes
+organization-scoped legacy settings, creates dashboard blocks for saved
+analyses and standalone extensions, archives exact duplicates, copies shares,
+and removes legacy settings keys only after SQL rows are materialized. Source
+rows remain recoverable. Private member-only rows are intentionally outside
+this organization-scoped operation.
 
 Use `mutate-dashboard` for existing dashboard edits. It resolves the current
 user/org context, validates the resulting config, writes the SQL-backed record,
@@ -58,6 +67,38 @@ once — do not switch to db-patch or raw SQL.
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
 
+AI-generated first-party panels are dashboard-time-bound by default. Set
+`config.timeScope` to `"dashboard"` and include the matching dashboard time
+filter in the SQL. The allowed values are:
+
+- `dashboard`: use the dashboard-selected time range; the default for ordinary metrics.
+- `fixed-window`: use an explicit bounded window independent of the dashboard filter.
+- `cohort-history`: use the bounded history of an explicitly defined cohort.
+- `all-time`: scan all available history; use only when the user requests it and
+  put `all-time`, `lifetime`, or `historical` in the title or description.
+
+`{{timeRange}}` requires an explicit matching `filters` entry with
+`id: "timeRange"` and `type: "select"`. `{{<id>Start}}` and `{{<id>End}}`
+require a matching `filters` entry with that id and `type: "date-range"`.
+Do not rely on undeclared time variables. Server validation rejects unbound
+first-party SQL, so declare the filter or choose an explicit non-dashboard
+scope before saving.
+
+**A bound anywhere in the SQL is not the same as every CTE having its own
+bound.** If a panel has multiple top-level CTEs (`WITH a AS (...), b AS
+(...)`) and more than one of them reads `analytics_events`, EVERY one of
+those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
+reference or literal date bound — not just the final `SELECT` or one sibling
+CTE. A CTE that computes something like "this user's first-ever active day"
+by scanning `analytics_events` with no bound at all will full-table-scan on
+every render even though the panel *looks* time-bound overall (root cause of
+a 2026-07-25 production incident: several dashboards had exactly this shape).
+Server validation checks each top-level CTE independently now, so this fails
+at save time — but write it right the first time: bound every CTE, or use
+`config.timeScope: "cohort-history"` only for a CTE that is genuinely
+defining a cohort (e.g. a first-seen date), never as a way to skip bounding
+an ordinary activity scan.
+
 ## Creating A Dashboard
 
 When the user asks for a dashboard:
@@ -66,9 +107,16 @@ When the user asks for a dashboard:
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
-5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; instead they require `config.extensionId` (see "Embedding An Extension As A Panel").
+5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
 6. Persist with `update-dashboard`, not raw SQL or settings writes.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
+
+An explicit dashboard request authorizes the complete non-destructive build in
+the same turn. After querying or scaffolding, continue through extension-data
+seeding/refresh, dashboard save/embed, and navigation; do not ask whether to
+proceed or leave an empty Custom Block shell. Ask only when metric scope/grain
+is materially ambiguous, the change is destructive, or it has an external side
+effect such as sending email or outreach.
 
 Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
 
@@ -79,32 +127,105 @@ pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 
 The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
 
+## Dual-Axis Charts
+
+`line`, `area`, and `bar` panels can plot series against two y-axes. Reach for
+this whenever series share an x-axis but not a unit — a count next to a rate, or
+revenue next to a conversion percent. On a single axis the smaller series
+flattens into the baseline and reads as "no data."
+
+```json
+{
+  "id": "signups-vs-conversion",
+  "title": "Signups vs conversion rate",
+  "source": "first-party",
+  "chartType": "line",
+  "width": 1,
+  "sql": "SELECT day, signups, conversion_rate FROM ...",
+  "config": {
+    "timeScope": "dashboard",
+    "xKey": "day",
+    "yKeys": ["signups", "conversion_rate"],
+    "yFormatter": "number",
+    "rightYKeys": ["conversion_rate"],
+    "rightYFormatter": "percent"
+  }
+}
+```
+
+- `rightYKeys` names series from `yKeys`; everything unnamed stays on the left.
+- `rightYFormatter` defaults to `yFormatter` when omitted.
+- Each axis is labelled with its series names (up to two per side), and tooltip
+  values use the formatter of the axis the series belongs to.
+- At least one series must remain on the left. If `rightYKeys` names every
+  series, or names a column the query never returned, the panel falls back to a
+  single axis and shows a config warning rather than dropping the series.
+- Scheduled email reports render the same two scales, so a dual-axis panel is
+  safe to put on a subscribed dashboard.
+
+## Reusable Native Dashboard Patterns
+
+The recent extension-backed dashboards in Builder Analytics cluster into a few
+repeatable compositions. Prefer these native panels, with a real SQL or Data
+Program result behind each one, when creating a replacement or a new dashboard:
+
+| Pattern | Native composition |
+| --- | --- |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
+| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
+| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
+| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+
+Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
+non-negative count or value. The renderer preserves the SQL row order, shows
+each stage's share of the first stage, and shows the change from the previous
+stage. Keep the intended stage order in SQL with `ORDER BY`.
+
+When a dashboard is being migrated from an extension, create a new v2 copy,
+bind its panels to the real provider schema or Data Programs, and compare it
+with the original before retiring the extension-backed version. Do not invent
+customer-specific SQL, provider joins, cached rows, or extension ids in a
+catalog template. Existing dashboards remain readable while the native
+replacement is validated. Bespoke interaction flows, arbitrary layouts, and
+visualizations outside these contracts may remain Custom Blocks.
+
+The source tree ships four provider-free v2 manifests in
+`server/lib/native-v2-dashboards.ts`: Customer ROI, Account Engagement,
+Cross-sell, and Win / Loss. They intentionally contain no customer names,
+provider ids, SQL, cached rows, or guessed joins. After deployment, an
+organization owner or admin provisions them with `ensure-native-v2-dashboards`
+by supplying one real Data Program per binding key. The action validates the
+stored program output contract, shares the programs with the organization,
+creates deterministic `native-*-v2-*` dashboard copies, and preserves the
+extension-backed originals and any existing v2 edits. Do not add these to the
+root demo bootstrap or silently auto-bind them to guessed provider schemas.
+
 ## When To Use An Extension Instead
 
 Native Analytics dashboards are JSON configs rendered by the built-in dashboard
 components. Use native dashboard actions only when the request fits that model:
 standard panels, supported chart types, filters, variables, sections, and grid
-layout.
+layout. Dual-axis charts are part of that model — build one with
+`config.rightYKeys`, never as an extension.
 
 If the user asks for a dashboard or analytical surface that needs bespoke UI or
-code beyond the dashboard JSON/component model, create an extension instead.
-Examples include custom interaction flows, non-standard visualizations, complex
-multi-step workflows, highly custom layouts, custom client-side state, or a
-dashboard-like app that needs behavior the built-in renderer cannot express. In
-production mode, call `create-extension` automatically and then tell the user
-that the request needed a bespoke surface, so you built it as an extension
-rather than forcing it into a native dashboard config.
+code beyond the dashboard JSON/component model, create an extension and embed it
+in the dashboard. Examples include custom interaction flows, non-standard
+visualizations, complex multi-step workflows, highly custom layouts, custom
+client-side state, or a dashboard-like app that needs behavior the built-in
+renderer cannot express. In production mode, call `create-extension`
+automatically, then call `update-dashboard` with one or more
+`chartType: "extension"` panels using `config.extensionId`. Never leave the
+extension as a standalone Analytics result or direct the user to the Extensions
+page.
 
 ## Embedding An Extension As A Panel
 
-Use `chartType: "extension"` to embed an existing extension as a dashboard
-panel. This is different from the section above: there you replace the whole
-dashboard with an extension; here you drop a single extension widget into one
-panel slot alongside normal SQL charts. The panel renders the extension's
-sandboxed iframe instead of running a query, so it skips `source` and `sql` and
-instead requires `config.extensionId` (the id of an extension that already
-exists — create it first with `create-extension`). Validation rejects an
-extension panel without a non-empty `config.extensionId`.
+Use `chartType: "extension"` to add an extension box alongside normal SQL
+charts. The panel skips `source` and `sql`. For ordinary requests such as "put
+X in this dashboard," save the author-selected extension id in
+`config.extensionId`. This makes the selection part of the shared dashboard and
+keeps the widget present in scheduled report captures:
 
 ```jsonc
 {
@@ -112,19 +233,122 @@ extension panel without a non-empty `config.extensionId`.
   "title": "Pipeline Widget",
   "chartType": "extension",
   "width": 3,
-  "config": { "extensionId": "<existing-extension-id>" },
+  "config": { "extensionId": "extension-123" },
+}
+```
+
+Direct embeds receive the dashboard id, name, description, current filters,
+and panel context. Embedding does not grant extension access, so share the
+extension with the dashboard audience.
+
+Use a stable `config.extensionSlotId` only when the user explicitly wants each
+viewer to choose or install their own widget:
+
+```text
+analytics.dashboard.<dashboard-id>.panel.<panel-id>
+```
+
+Create or choose the extension, call `add-extension-slot-target` with the
+extension id and slot id, then call `install-extension` with the same values.
+The dashboard panel is shared, while the installed extension is per-user.
+Empty slots show the normal install affordance instead of a broken iframe.
+
+```jsonc
+{
+  "id": "pipeline-widget",
+  "title": "Pipeline Widget",
+  "chartType": "extension",
+  "width": 3,
+  "config": {
+    "extensionSlotId": "analytics.dashboard.weekly-metrics.panel.pipeline-widget",
+  },
 }
 ```
 
 Notes:
 
-- The panel renders full-bleed (no card chrome/title) and does not receive the
-  dashboard's filters/variables/date range — it's a standalone widget for now.
-- Access is scoped per viewer: embedding does NOT grant access to the extension
-  (same model as ExtensionSlots). If you share a dashboard more broadly than the
-  embedded extension, viewers without access to that extension see an
-  "extension unavailable" message instead of the content. Share the extension to
-  the same audience as the dashboard so all viewers can see it.
+- Both direct and slot-backed extensions receive dashboard and panel context.
+- Installs and extension access are per viewer. Sharing the dashboard does not
+  automatically install or grant access to its extension for other viewers.
+- Slot installs are per-user preferences. Different viewers can see different
+  widgets, and scheduled reports running as a service identity may show an
+  empty slot. This is why slots are opt-in rather than the default.
+
+## Cloning A Direct-Extension Dashboard (e.g. per-customer copies)
+
+When the user asks for a copy of an existing extension-backed dashboard for a
+different customer/org (for example "make an Intuit version of the Roku usage
+dashboard"), follow this playbook. Extension bodies are frequently tens of
+thousands of characters. The reliable path is to read+transform+write the body
+INSIDE `run-code` (where `workspaceRead` returns the full file) and then create
+from that written file — never by pulling the body into chat context first or
+re-typing it as a `content` argument.
+
+1. `get-sql-dashboard` with `includeConfig: true` on the source dashboard and
+   confirm the target panel is a `chartType: "extension"` panel with
+   `config.extensionId`; grab that extension id. For a slot-backed panel, clone
+   the dashboard panel with a new stable `extensionSlotId`, then target and
+   install the desired extension into that slot instead of using this body-copy
+   playbook.
+2. `get-extension` for that id with `forceContent: true` **exactly once**. Reuse
+   that body for the rest of the turn — a second same-run read intentionally
+   omits `content` and returns `contentOmitted` instead. That is not the content
+   disappearing; use the copy you already have. Do NOT try to re-fetch the body
+   with `run-code` (`appAction('get-extension')`) to page past a display
+   truncation — the same-run omit makes it return empty `content`, wasting turns.
+   If you need the full body again, read the workspace resource file (step 5) or
+   set `forceContent: true` on a single native `get-extension`.
+3. Change ONLY the small customer-specific static config (e.g. the
+   `ACCOUNT_USAGE_STATIC` block: company name, title, org-discovery filters,
+   messaging). Prefer a focused `update-extension` edit/patch over regenerating
+   the entire HTML.
+4. **Call `create-extension` / `update-extension` as native tools.** They are
+   mutating actions and are NOT callable from `run-code` / `appAction` (the
+   sandbox bridge only exposes read-only actions). Do not try to create or update
+   an extension from inside `run-code`.
+5. **If the source body already exists as a workspace/shared resource file**
+   (e.g. a pre-built `intuit-analytics-extension.html`), do the read AND the
+   customer swap in ONE `run-code` call, then create from the written file:
+   - Inside `run-code`: `const src = await workspaceRead('<source>.html')`
+     returns the WHOLE file (it auto-pages; there is no 50k cap here), do the
+     small string-replace on the static config block, then
+     `await workspaceWrite('<target>.html', modified)`.
+   - Then call `create-extension` (native) with
+     `contentFromWorkspaceFile: '<target>.html'` and leave `content` empty — the
+     server reads the full file verbatim.
+   Do NOT read the source body with the `resources` read tool (or `get-extension`)
+   first just to transform it: that display is capped and wastes a turn. And do
+   NOT re-emit an 80k+ char body as the `content` argument — it gets cut off
+   mid-stream. `contentFromAttachment` only sees files the user pasted into chat,
+   not workspace resources. `create-extension`/`update-extension` are mutating and
+   cannot run from `run-code`, so only the read+write+transform happens there.
+6. Finally `update-dashboard` to save a new dashboard embedding the new
+   extension panel (`chartType: "extension"`, `config.extensionId`), then
+   `navigate` to it.
+
+## Repairing An Existing Extension-Backed Dashboard
+
+When the user asks to fix data loading in an existing or migrated
+extension-backed dashboard, treat the current extension body as user-authored
+design. Read the dashboard config and extension once, identify the smallest
+data-loading seam, and call `update-extension` with focused `patches` or
+`edits`. Preserve the existing layout, CSS, copy, and interactions. Do not
+send a reconstructed full `content` body for a data-only repair;
+`update-extension` blocks full-body replacement unless
+`allowFullReplacement: true` is explicitly supplied. Use that flag only for a
+user-requested broad visual rewrite or a complete replacement body supplied by
+the user. If a focused edit fails, inspect the current body and change the
+target rather than retrying the same arguments.
+
+### Display truncation is cosmetic — do not chase the "missing" tail
+
+A tool result ending in `...[truncated — full result was N chars; only first
+50,000 shown]` (from the `resources` read tool or `get-extension`) means only the
+DISPLAYED text was capped. The file is intact. `run-code`'s `workspaceRead`
+returns the full N chars, and `contentFromWorkspaceFile` hosts the full file.
+Never read the same file twice or try to "page the rest" to recover the tail —
+that is the single biggest source of wasted turns on clone requests. Decide to
+clone, then go straight to the `run-code` read+transform+write path in step 5.
 
 ## Config Shape
 
@@ -154,7 +378,8 @@ Notes:
       "source": "first-party",
       "chartType": "metric",
       "width": 1,
-      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click'",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click' AND event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
     },
     {
       "id": "kpi-signups",
@@ -162,7 +387,8 @@ Notes:
       "source": "first-party",
       "chartType": "metric",
       "width": 1,
-      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup'",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup' AND event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
     },
     {
       "id": "kpi-active",
@@ -170,7 +396,8 @@ Notes:
       "source": "first-party",
       "chartType": "metric",
       "width": 1,
-      "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
     },
     // Section header switches the grid to 2 columns for the panels below it.
     {
@@ -186,7 +413,8 @@ Notes:
       "source": "first-party",
       "chartType": "line",
       "width": 2,
-      "sql": "SELECT DATE(timestamp) AS date, COUNT(*) AS value FROM analytics_events WHERE timestamp >= '{{dateStart}}' AND timestamp < '{{dateEnd}}' GROUP BY 1 ORDER BY 1",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY 1 ORDER BY 1",
     },
   ],
 }
@@ -195,6 +423,13 @@ Notes:
 ## Filters And Variables
 
 `filters[]` defines dashboard-wide controls. Filter values are available in panel SQL through `{{var}}` interpolation. Date ranges emit `{{<id>Start}}` and `{{<id>End}}`.
+
+For dashboard-time-bound first-party SQL, use `config.timeScope: "dashboard"`
+and a predicate that consumes the declared filter, such as
+`event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'`. A
+`{{timeRange}}` token must have a matching select filter and SQL branches for
+its options; date variables must have a matching date-range filter. The server
+rejects unbound first-party SQL during dashboard validation.
 
 **Filter ids must be unique.** Two filters with the same `id` collide on the same URL param, so changing one visibly updates the other in the UI. The dashboard save endpoint rejects duplicates with a 400.
 
@@ -228,6 +463,10 @@ calling other actions from the script are not available.
 type DashboardMutationApi = {
   dashboard: {
     set(patch: DashboardPatch): void;
+    setFilterDefault(
+      filterId: string,
+      value: string | number | boolean | null,
+    ): void;
     panel(id: string): PanelSelection;
     section(id: string): SectionSelection;
     panels(ids: string[]): PanelSelection;
@@ -242,6 +481,22 @@ type DashboardPatch = {
   columns?: number;
   filters?: unknown[];
   variables?: Record<string, string>;
+  parentId?: string;
+};
+
+type PanelTimeScope =
+  | "dashboard"
+  | "fixed-window"
+  | "cohort-history"
+  | "all-time";
+
+type PanelConfig = Record<string, unknown> & {
+  // Use "dashboard" for AI-generated first-party panels by default.
+  timeScope?: PanelTimeScope;
+  // Fixed bar width in pixels for bar charts.
+  // Series to plot against a second, right-hand y-axis. See "Dual-Axis Charts".
+  rightYKeys?: string[];
+  rightYFormatter?: "number" | "currency" | "percent";
 };
 
 type PanelPatch = {
@@ -253,7 +508,8 @@ type PanelPatch = {
     | "amplitude"
     | "first-party"
     | "demo"
-    | "prometheus";
+    | "prometheus"
+    | "program";
   chartType?:
     | "line"
     | "area"
@@ -262,13 +518,14 @@ type PanelPatch = {
     | "table"
     | "pie"
     | "section"
+    | "funnel"
     | "heatmap"
     | "callout"
     | "extension";
   width?: number;
   columns?: number;
   tab?: string;
-  config?: Record<string, unknown>;
+  config?: PanelConfig;
   description?: string;
 };
 
@@ -278,7 +535,7 @@ type PanelInput = PanelPatch & {
   chartType: NonNullable<PanelPatch["chartType"]>;
   source?: PanelPatch["source"]; // required for non-section / non-extension panels
   sql?: string; // required for non-section / non-extension panels
-  // For chartType "extension": config.extensionId is required (the extension to embed).
+  // For chartType "extension": use config.extensionId by default; extensionSlotId is opt-in per-viewer content.
 };
 
 type PanelFilter = {
@@ -299,6 +556,14 @@ type PanelSelection = {
   moveBefore(panelId: string): void;
   moveAfter(panelId: string): void;
   moveToIndex(index: number): void;
+  moveNextTo(panelId: string): void;
+  nextTo(panelId: string): void;
+  moveToRow(rowNumber: number): void;
+  moveToRowStart(rowNumber: number): void;
+  moveToRowEnd(rowNumber: number): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
   remove(): void;
   set(patch: PanelPatch): void;
   setTitle(title: string): void;
@@ -306,26 +571,40 @@ type PanelSelection = {
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void;
-  duplicate(newPanelId: string, patch?: PanelPatch): void;
+  duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
 type SectionSelection = PanelSelection & {
   append(panelIds: string[]): void;
 };
 
-type InsertedPanel = {
+type PanelPlacement = {
   atTop(): void;
   atBottom(): void;
   before(panelId: string): void;
   after(panelId: string): void;
   atIndex(index: number): void;
+  nextTo(panelId: string): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
 };
+
+type InsertedPanel = PanelPlacement;
 ```
 
 Examples:
 
 ```ts
 dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
+dashboard
+  .panel("recurring-users-by-template")
+  .duplicate("recurring-users-by-template-bar", {
+    title: "Recurring Signed-In Users by Template (Bar)",
+    chartType: "bar",
+  })
+  .nextTo("recurring-users-by-template");
+dashboard.setFilterDefault("emailFilter", "exclude_builder");
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
   width: 2,
@@ -346,7 +625,9 @@ dashboard
     source: "first-party",
     chartType: "metric",
     width: 1,
-    sql: "SELECT COUNT(*) AS value FROM analytics_events",
+    config: { timeScope: "dashboard" },
+    // Assumes filters includes { id: "date", type: "date-range", default: "30d" }.
+    sql: "SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
   })
   .atTop();
 ```
@@ -434,6 +715,16 @@ state or tracker context, but docs traffic is not app usage and should not appea
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
 
+## Template Catalog And Demo Dashboards
+
+`list-dashboard-templates` / `install-dashboard-template` install shipped
+dashboard templates (Node Exporter, the canonical Agent Native observability
+dashboard, etc.), and `ensure-demo-dashboards` auto-installs a per-user demo
+on first app open. See
+`references/template-catalog-and-demo.md` for the canonical-dashboard panel
+rule, Node Exporter template specifics, and the full demo-dashboard lifecycle
+(source routing, env var overrides, tombstoning, reset).
+
 ## Building Large First-Party Dashboards (compose-dashboard)
 
 For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-authoring a big `update-dashboard` config. You name the metrics; the SERVER expands each into a full, validated panel (SQL + chart config) from the shipped metric catalog and saves them in ONE atomic call. This avoids the failure mode where the agent must stream a giant multi-panel `update-dashboard` argument inside the ~40s budget — that big tool-call can't be resumed mid-stream and is all-or-nothing on validation, so the agent thrashes (repeated update-dashboard + tool-search, never landing).
@@ -441,7 +732,7 @@ For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-
 - **Never hand-author large first-party configs panel-by-panel.** Call `compose-dashboard` with the metric keys instead.
 - Unknown metric keys are skipped and reported in `unknownMetrics` (not fatal). Each panel's SQL is validated independently — valid panels save, invalid ones are reported in `invalidMetrics`.
 - By default (no `overwrite`), composing into an existing dashboard APPENDS the new panels and skips ids already present. `overwrite: true` replaces the whole config.
-- Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides.
+- Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides. Request `'all'` only when the user asks for all-time coverage, and describe it as full available history.
 - Returns `{ dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, skippedExistingIds }` — report `panelCount` as proof-of-done.
 
 Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `replay-sessions`, `replay-chunks-over-time`, `recent-replay-sessions`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.

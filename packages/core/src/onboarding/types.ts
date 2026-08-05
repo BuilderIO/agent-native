@@ -94,3 +94,24 @@ export interface OnboardingStepStatus {
   complete: boolean;
   methods: OnboardingMethod[];
 }
+
+export interface OnboardingCapability {
+  /** Stable capability id used by the profile and analytics. */
+  id: string;
+  /** Short label shown in the setup choice and BYOK list. */
+  label: string;
+  /** Whether this capability blocks the app's normal setup. */
+  required: boolean;
+  /** Whether Builder's managed connection covers this capability. */
+  builderIncluded: boolean;
+  /** Compact description of the key or connection the BYOK path needs. */
+  keySummary: string;
+  /** Hover/focus explanation for why the capability exists. */
+  why: string;
+}
+
+export interface OnboardingAppProfile {
+  appId: string;
+  appName: string;
+  capabilities: OnboardingCapability[];
+}

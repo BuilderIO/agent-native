@@ -372,9 +372,7 @@ describe("Plans skills install — materialized output", () => {
       await materializeViaAlias("visual-plans");
     expect(result.id).toBe("visual-plans");
     expect(result.skillNames).toEqual(PLANS_INSTALL_SKILL_NAMES);
-    expect(result.mcpUrl).toBe(
-      "https://plan.agent-native.com/_agent-native/mcp",
-    );
+    expect(result.mcpUrl).toBe("https://plan.agent-native.com/mcp");
     expect(codexConfigExists).toBe(false);
     expect(result.commands).toContain(
       "npx @agent-native/core@latest connect https://plan.agent-native.com --client codex --scope project",

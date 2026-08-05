@@ -2,31 +2,49 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
+import {
+  AGENT_CHAT_PROCESS_RUN_PATH,
+  isAgentChatDurableBackgroundEnabled,
+} from "../agent/durable-background.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  assertEmittedBackgroundFunctionOnDisk,
+  assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
+  bundleYjsRuntimeForServerlessOutput,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
+  CLOUDFLARE_MODULE_STUB_MODULES,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_MODULES,
+  CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
+  cloudflareWorkerStubAliasArgs,
+  configureCloudflareModuleWorkerOutput,
   copyDir,
+  createCloudflareModuleStubPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
+  emitSingleTemplateNetlifyIntegrationRecoveryFunction,
+  emitSingleTemplateNetlifyKeepWarmFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
+  isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
+  generateCloudflareModuleWorkerEntry,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
+  isIntegrationDurableDispatchDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
-  rewriteBareYjsImportsForServerlessOutput,
+  patchCloudflareModuleNitroEntry,
+  resolveNitroBundledYjsEntry,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
@@ -34,24 +52,168 @@ import {
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 
-const DEFAULT_SSR_CACHE_CONTROL = "public, max-age=0, must-revalidate";
-const DEFAULT_SSR_CDN_CACHE_CONTROL =
-  "public, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600";
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
-  "public, durable, s-maxage=600, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SSR_CACHE_CONTROL =
+  "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
+const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("bundles Yjs in Node/serverless output", () => {
-    expect(nitroNoExternalsForPreset("netlify")).toEqual(["yjs"]);
-    expect(nitroNoExternalsForPreset("vercel")).toEqual(["yjs"]);
-    expect(nitroNoExternalsForPreset("aws-lambda")).toEqual(["yjs"]);
+  it("leaves Yjs external for the controlled serverless bundling pass", () => {
+    expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
+    expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual(["yjs"]);
   });
 
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
+    expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("isCloudflareModulePreset", () => {
+  it("recognizes Nitro's module preset and its CLI spelling", () => {
+    expect(isCloudflareModulePreset("cloudflare_module")).toBe(true);
+    expect(isCloudflareModulePreset("cloudflare-module")).toBe(true);
+    expect(isCloudflareModulePreset("cloudflare_pages")).toBe(false);
+  });
+});
+
+describe("Cloudflare module Worker entry", () => {
+  it("defers Nitro's handler and lifecycle initialization", () => {
+    const source =
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
+
+    const patched = patchCloudflareModuleNitroEntry(source);
+
+    expect(patched).toContain("let t,n;");
+    expect(patched).toContain("t??=Ei();");
+    expect(patched).toContain('(n??=Di()).callHook("scheduled",e)');
+    expect(patched).not.toContain("let t=Ei(),n=Di();");
+  });
+
+  it("defers Nitro initialization until bindings are available", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).not.toContain("globalThis.__cf_ctx");
+    expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
+    expect(entry).toContain("function initializeBindings(env)");
+    expect(entry).toContain('export * from "./index.mjs";');
+    expect(entry).toContain(
+      "initializeBindings(env);\n    return (await loadHandler())",
+    );
+    expect(entry).toContain('await import("./index.mjs")');
+    expect(entry).toContain(
+      "return (await loadHandler()).fetch(request, env, ctx);",
+    );
+    expect(entry).toContain("async scheduled(controller, env, ctx)");
+    expect(entry).toContain("async queue(batch, env, ctx)");
+    expect(entry).toContain("async email(message, env, ctx)");
+    expect(entry).toContain("async tail(traces, env, ctx)");
+    expect(entry).toContain("async trace(traces, env, ctx)");
+  });
+
+  it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ main: "index.mjs", assets: { binding: "ASSETS" } }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}',
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir);
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      main: "worker.mjs",
+      assets: { binding: "ASSETS" },
+    });
+    expect(
+      fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
+    ).toContain('await import("./index.mjs")');
+    expect(
+      fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
+    ).toContain("t??=Ei();");
+  });
+});
+
+describe("Cloudflare module preset stubs", () => {
+  it("intercepts only the edge-incompatible package roots", async () => {
+    const plugin = createCloudflareModuleStubPlugin();
+    const sentryStub = plugin.resolveId("@sentry/node");
+
+    expect(CLOUDFLARE_MODULE_STUB_MODULES).toContain("@sentry/node");
+    expect(sentryStub).toMatch(/^\0agent-native-cloudflare-module-stub:/);
+    expect(plugin.load(sentryStub as string)).toContain("captureException");
+    expect(plugin.resolveId("@sentry/node/internals")).toBeNull();
+    expect(plugin.resolveId("@anthropic-ai/sdk")).toBeNull();
+  });
+});
+
+describe("cloudflareWorkerStubAliasArgs", () => {
+  it("routes known package subpaths to exact stubs before package aliases", () => {
+    const stubDir = path.join("tmp", "worker-stubs");
+    const aliases = cloudflareWorkerStubAliasArgs(stubDir);
+    const workerAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdf-parse/worker="),
+    );
+    const packageAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdf-parse="),
+    );
+    const playwrightAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:playwright="),
+    );
+
+    expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
+      "pdf-parse/worker",
+    );
+    expect(workerAlias).toBe(
+      `--alias:pdf-parse/worker=${path.join(stubDir, "pdf-parse__worker.js")}`,
+    );
+    expect(packageAlias).toBe(
+      `--alias:pdf-parse=${path.join(stubDir, "pdf-parse", "index.js")}`,
+    );
+    expect(CLOUDFLARE_WORKER_STUB_MODULES).toHaveProperty("playwright");
+    expect(playwrightAlias).toBe(
+      `--alias:playwright=${path.join(stubDir, "playwright", "index.js")}`,
+    );
+    expect(aliases.indexOf(workerAlias!)).toBeLessThan(
+      aliases.indexOf(packageAlias!),
+    );
+  });
+
+  it("rejects dynamic imports that bypass fail-closed package stubs", () => {
+    expect(() =>
+      assertNoCloudflareWorkerStubDynamicImports(
+        'const moduleName = "playwright"; import("playwright");',
+        "worker.js",
+      ),
+    ).toThrow(/stubbed module "playwright"/);
+    expect(() =>
+      assertNoCloudflareWorkerStubDynamicImports(
+        "throw new Error('playwright unavailable in Cloudflare Pages worker')",
+        "worker.js",
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe("resolveNitroBundledYjsEntry", () => {
+  it("resolves the complete core-owned ESM export surface", () => {
+    const entry = resolveNitroBundledYjsEntry();
+    expect(entry).toMatch(/[/\\]yjs[/\\]dist[/\\]yjs\.mjs$/);
+    expect(fs.readFileSync(entry, "utf-8")).toMatch(
+      /YText as Text[\s\S]*UndoManager[\s\S]*YXmlElement as XmlElement/,
+    );
   });
 });
 
@@ -140,8 +302,14 @@ export function createRequestHandler() {
     .default;
 }
 
-describe("generateWorkerEntry", () => {
+// These tests dynamically import generated workers. Under the full workspace
+// prep run, module startup shares CPU with many package suites and can exceed
+// Vitest's generic 5s default even though the worker responds correctly. Keep
+// a bounded suite-local allowance so local prep tests behavior, not scheduler
+// contention; focused runs normally complete well below this limit.
+describe("generateWorkerEntry", { timeout: 15_000 }, () => {
   afterEach(() => {
+    vi.unstubAllEnvs();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -457,6 +625,56 @@ export default (event) =>
     expectDefaultWorkerSsrCacheHeaders(response);
   });
 
+  it("inlines the default SSR cache policy when AGENT_NATIVE_SSR_CACHE is unset", () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", undefined);
+
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain(
+      `const SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};`,
+    );
+    expect(source).toContain(
+      `const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};`,
+    );
+    expect(source).toContain(
+      `const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};`,
+    );
+  });
+
+  it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
+
+    const source = generateWorkerEntry([], []);
+    expect(source).toContain('const SSR_CACHE_CONTROL = "no-store";');
+    expect(source).toContain('const SSR_CDN_CACHE_CONTROL = "no-store";');
+    expect(source).toContain(
+      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "no-store";',
+    );
+    expect(source).not.toContain(DEFAULT_SSR_CACHE_CONTROL);
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "30s");
+
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain(
+      'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+    );
+  });
+
   it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {
     const worker = await importGeneratedWorker(
       generateWorkerEntry([], [], [], [], null, [
@@ -636,6 +854,8 @@ export default (event) =>
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("streamController.enqueue");
+    expect(html).not.toContain("dev server");
+    expect(html).not.toContain("browser console");
     expect(html).toContain("loaderData");
     expect(html).not.toContain("en-US");
   });
@@ -750,6 +970,90 @@ export default {
     });
   });
 
+  it("accepts frontend mutation RPCs without widening direct HTTP action methods", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "delete-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  run: async (params, context) => ({
+    ok: true,
+    echo: params,
+    caller: context?.caller,
+  }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "delete-item", absPath: actionPath, method: "delete" }],
+      ),
+    );
+
+    const frontendPost = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-agent-native-frontend": "1",
+        },
+        body: JSON.stringify({ id: "item-1" }),
+      }),
+      {},
+      {},
+    );
+    expect(frontendPost.status).toBe(200);
+    await expect(frontendPost.json()).resolves.toEqual({
+      ok: true,
+      echo: { id: "item-1" },
+      caller: "frontend",
+    });
+
+    const directPost = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "item-2" }),
+      }),
+      {},
+      {},
+    );
+    expect(directPost.status).toBe(405);
+    await expect(directPost.json()).resolves.toEqual({
+      error: "Method not allowed. Use DELETE.",
+    });
+
+    const directDelete = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/delete-item", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "item-3" }),
+      }),
+      {},
+      {},
+    );
+    expect(directDelete.status).toBe(200);
+    await expect(directDelete.json()).resolves.toEqual({
+      ok: true,
+      echo: { id: "item-3" },
+      caller: "http",
+    });
+
+    const strictSource = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [{ name: "head-item", absPath: actionPath, method: "head" }],
+    );
+    expect(strictSource).not.toContain(
+      'app.on("POST", "/_agent-native/actions/head-item"',
+    );
+  });
+
   it("allows browser action-client headers in generated worker preflight responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -764,6 +1068,8 @@ export default {
     expect(response.status).toBe(204);
     const allowHeaders = response.headers.get("Access-Control-Allow-Headers");
     expect(allowHeaders).toContain("X-Agent-Native-Frontend");
+    expect(allowHeaders).toContain("X-Agent-Native-Client-Compatibility");
+    expect(allowHeaders).toContain("X-Agent-Native-Build-Id");
     expect(allowHeaders).toContain("X-User-Timezone");
   });
 
@@ -1081,6 +1387,41 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
   });
 });
 
+describe("isServerlessNativePlatformPackage", () => {
+  it("keeps only the 64-bit Linux prebuilds a serverless function can run", () => {
+    const kept = [
+      "linux-x64-gnu",
+      "linux-x64-musl",
+      "linux-arm64-gnu",
+      "linux-arm64-musl",
+      "resvg-js-linux-x64-gnu",
+      "resvg-js-linux-arm64-musl",
+    ];
+    const dropped = [
+      "darwin-arm64",
+      "darwin-x64",
+      "win32-x64-msvc",
+      "linux-arm-gnueabihf",
+      "linux-arm-musleabihf",
+      "resvg-js-darwin-x64",
+      "resvg-js-win32-ia32-msvc",
+      "resvg-js-android-arm64",
+      "resvg-js-linux-arm-gnueabihf",
+    ];
+
+    for (const name of kept) {
+      expect(isServerlessNativePlatformPackage(name)).toBe(true);
+    }
+    for (const name of dropped) {
+      expect(isServerlessNativePlatformPackage(name)).toBe(false);
+    }
+  });
+
+  it("does not classify the resvg JS wrapper as a platform prebuild", () => {
+    expect(isServerlessNativePlatformPackage("resvg-js")).toBe(false);
+  });
+});
+
 describe("findInstalledResvgPackages", () => {
   const dirs: string[] = [];
 
@@ -1256,6 +1597,35 @@ describe("runNitroBuildPipeline", () => {
     ).toBe(true);
   });
 
+  it("does not mirror again when the preset already mounted publicDir at the base path", async () => {
+    const { cwd, clientDir } = setupFixture();
+    // Nitro's netlify preset resolves publicDir to `dist{{ baseURL }}`, so the
+    // public dir IS the mount path. Mirroring again wrote a whole second client
+    // build at dist/docs/docs that only the workspace deploy ever deleted.
+    const publicOutputDir = path.join(cwd, "dist", "docs");
+    fs.mkdirSync(publicOutputDir, { recursive: true });
+
+    await runNitroBuildPipeline({
+      nitro: { options: { output: { publicDir: publicOutputDir } } },
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "/docs",
+      cwd,
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(publicOutputDir, "assets", "entry.client-abc.js"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(publicOutputDir, "docs"))).toBe(false);
+  });
+
   it("adds exact immutable route rules for copied hashed client assets", async () => {
     const { cwd, clientDir, publicOutputDir } = setupFixture();
     const nitro: any = {
@@ -1341,7 +1711,7 @@ describe("runNitroBuildPipeline", () => {
   });
 });
 
-describe("durable-background Netlify function emit (single-template, flag-gated)", () => {
+describe("durable-background Netlify function emit (single-template, default-on)", () => {
   const dirs: string[] = [];
   let previousFlag: string | undefined;
   let previousWorkspaceFlag: string | undefined;
@@ -1438,11 +1808,102 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   }
 
-  it("is OFF BY DEFAULT (flag unset) so the -background function is NOT emitted", () => {
-    // Default-off (opt-in) matches the runtime gate (isFlagEnabled) — durable is
-    // opt-in until the async worker path is proven live, so the 15-min
-    // `-background` function is emitted only when an app explicitly opts in.
-    expect(isDurableBackgroundDeployEnabled()).toBe(false);
+  it("keeps integration recovery default-off and recognizes explicit opt-in", () => {
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    expect(isIntegrationDurableDispatchDeployEnabled()).toBe(false);
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    expect(isIntegrationDurableDispatchDeployEnabled()).toBe(true);
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  });
+
+  it("emits a bounded one-minute integration recovery function", async () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyIntegrationRecoveryFunction(cwd);
+
+    const dest = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server-integration-recovery",
+    );
+    expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
+    const entry = fs.readFileSync(
+      path.join(dest, "server-integration-recovery.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain(
+      'const SWEEP_PATH = "/_agent-native/integrations/retry-stuck-tasks"',
+    );
+    expect(entry).toContain(
+      "globalThis.__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__ = true",
+    );
+    expect(entry).toContain('createHmac("sha256", secret)');
+    expect(entry).toContain(
+      "if (!enabled()) return new Response(null, { status: 204 })",
+    );
+    expect(entry).not.toMatch(/^\s*path:/m);
+    const generated = await import(
+      `${pathToFileURL(path.join(dest, "server-integration-recovery.mjs")).href}?t=${Date.now()}`
+    );
+    expect(generated.config.schedule).toBe("* * * * *");
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    delete process.env.A2A_SECRET;
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await generated.default(
+        new Request("https://app.test/.netlify/functions/recovery"),
+        {},
+      );
+      expect(response.status).toBe(204);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "[integration-recovery] A2A_SECRET is required; sweep skipped",
+      );
+    } finally {
+      consoleSpy.mockRestore();
+      delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    }
+  });
+
+  function keepWarmDir(cwd: string): string {
+    return path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "agent-native-keep-warm",
+    );
+  }
+
+  it("emits a site-local scheduled function that warms the real server route", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    const entryPath = path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs");
+    expect(fs.existsSync(entryPath)).toBe(true);
+    const entry = fs.readFileSync(entryPath, "utf8");
+    expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
+    expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain('nodeBundler: "none"');
+    expect(entry).not.toContain("includedFiles");
+    expect(entry).toContain("await fetch(url");
+    expect(entry).toContain("agent-native-netlify-keep-warm");
+    expect(entry).not.toMatch(/^\s*path:/m);
+  });
+
+  it("does not emit a keep-warm function without Nitro's server bundle", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(cwd);
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+  });
+
+  it("is ON BY DEFAULT so the -background function is emitted", () => {
+    expect(isDurableBackgroundDeployEnabled()).toBe(true);
   });
 
   it("is ON only when explicitly opted in via a truthy flag", () => {
@@ -1452,19 +1913,17 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     }
   });
 
-  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
-    for (const value of [
-      "0",
-      "false",
-      "no",
-      "off",
-      "FALSE",
-      " Off ",
-      "",
-      "maybe",
-    ]) {
+  it("is OFF for explicit falsy flag values", () => {
+    for (const value of ["0", "false", "no", "off", "FALSE", " Off "]) {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
       expect(isDurableBackgroundDeployEnabled()).toBe(false);
+    }
+  });
+
+  it("stays ON for empty or unrecognized flag values", () => {
+    for (const value of ["", "maybe"]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+      expect(isDurableBackgroundDeployEnabled()).toBe(true);
     }
   });
 
@@ -1546,6 +2005,26 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain("wrapper failed before reaching the route");
   });
 
+  it("hard-links the handler bundle instead of writing a second copy of it", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    const source = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_libs",
+      "yjs.mjs",
+    );
+    const clone = path.join(backgroundDir(cwd), "_libs", "yjs.mjs");
+    // Same inode: the extra function costs its entry file, not another whole
+    // server bundle. Netlify still zips each function separately, so this is
+    // invisible to the deploy — a hard link IS a regular file to every reader.
+    expect(fs.statSync(clone).ino).toBe(fs.statSync(source).ino);
+  });
+
   it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {
     const cwd = setupNetlifyOutput();
 
@@ -1580,6 +2059,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
     // No .netlify/functions-internal/server/main.mjs present.
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
 
     expect(() =>
       emitSingleTemplateNetlifyBackgroundFunction(cwd),
@@ -1587,7 +2067,98 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(fs.existsSync(backgroundDir(cwd))).toBe(false);
   });
 
-  function prepareSingleTemplateNetlifyOutput(cwd: string): void {
+  it("FAILS the build instead of warning when the opted-in emit cannot run", () => {
+    // agent-native-plan shipped for its whole history without this function:
+    // the emit warned, the build stayed green, and every chat turn silently ran
+    // on the ~60s synchronous wall.
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(cwd);
+
+    expect(() => emitSingleTemplateNetlifyBackgroundFunction(cwd)).toThrow(
+      /Durable-background emit skipped/,
+    );
+    expect(fs.existsSync(backgroundDir(cwd))).toBe(false);
+  });
+
+  it("rejects a partially emitted background function", () => {
+    const dest = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(dest);
+    fs.writeFileSync(
+      path.join(dest, "server-agent-background.mjs"),
+      "export default () => {};\n",
+    );
+
+    expect(() =>
+      assertEmittedBackgroundFunctionOnDisk(dest, "server-agent-background"),
+    ).toThrow(/missing main\.mjs/);
+
+    fs.writeFileSync(path.join(dest, "main.mjs"), "export default {};\n");
+    expect(() =>
+      assertEmittedBackgroundFunctionOnDisk(dest, "server-agent-background"),
+    ).not.toThrow();
+  });
+
+  it("parses the deploy gate exactly like the runtime gate", () => {
+    // Three copies of this flag parse existed; one of them was inverted.
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "shhh";
+    try {
+      for (const value of [undefined, "", "true", "1", "false", "off", "?"]) {
+        if (value === undefined)
+          delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+        else process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+        expect(isDurableBackgroundDeployEnabled()).toBe(
+          isAgentChatDurableBackgroundEnabled(),
+        );
+      }
+    } finally {
+      delete process.env.NETLIFY;
+      delete process.env.A2A_SECRET;
+    }
+  });
+
+  it("keeps the background function warm too when durable background is on", () => {
+    // The background Lambda is a separate container; warming only the health
+    // route left it cold-starting on essentially every dispatch.
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    const entry = fs.readFileSync(
+      path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain(
+      'const BACKGROUND_WARM_PATH = "/.netlify/functions/server-agent-background"',
+    );
+    // A body with no runId is rejected by the _process-run route before any DB
+    // work, so the ping only keeps the container alive.
+    expect(entry).toContain('body: "{}"');
+    expect(entry).toContain('method: "POST"');
+  });
+
+  it("does not ping a background function that was never emitted", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    const entry = fs.readFileSync(
+      path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain("const BACKGROUND_WARM_PATH = null");
+  });
+
+  function prepareSingleTemplateNetlifyOutput(
+    cwd: string,
+    options: { emitBackground?: boolean } = {},
+  ): void {
+    if (options.emitBackground !== false) {
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    }
     writeSingleTemplateNetlifyRedirects(cwd);
   }
 
@@ -1692,7 +2263,117 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   });
 
-  it("rewrites bare Yjs imports to the bundled server copy", () => {
+  it("fails deploy output with bare ingestion runtime imports", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const ingestionChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "pptx.mjs",
+    );
+    fs.mkdirSync(path.dirname(ingestionChunk), { recursive: true });
+    fs.writeFileSync(
+      ingestionChunk,
+      "export const dependencies = Promise.all([import(`jszip`), import(`fast-xml-parser`)]);\n",
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /leaves ingestion dependencies as runtime imports: jszip .*fast-xml-parser|leaves ingestion dependencies as runtime imports: fast-xml-parser .*jszip/,
+    );
+  });
+
+  it("fails deploy output with bare PDF runtime subpath imports", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const ingestionChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "pdf.mjs",
+    );
+    fs.mkdirSync(path.dirname(ingestionChunk), { recursive: true });
+    fs.writeFileSync(
+      ingestionChunk,
+      'export const dependencies = Promise.all([import("pdf-parse/worker"), import("pdfjs-dist/legacy/build/pdf.mjs")]);\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /leaves ingestion dependencies as runtime imports: pdf-parse .*pdfjs-dist|leaves ingestion dependencies as runtime imports: pdfjs-dist .*pdf-parse/,
+    );
+  });
+
+  it("fails deploy output with bare Office parser runtime imports", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const ingestionChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "office.mjs",
+    );
+    fs.mkdirSync(path.dirname(ingestionChunk), { recursive: true });
+    fs.writeFileSync(
+      ingestionChunk,
+      'export const dependency = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /leaves ingestion dependencies as runtime imports: officeparser/,
+    );
+  });
+
+  it("fails deploy output wired to Nitro's private tree-shaken Yjs chunk", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "server3.mjs",
+    );
+    fs.mkdirSync(path.dirname(serverChunk), { recursive: true });
+    fs.writeFileSync(
+      serverChunk,
+      'import { Text } from "../_libs/yjs.mjs";\nexport { Text };\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /internal tree-shaken _libs\/yjs\.mjs/,
+    );
+  });
+
+  it("fails deploy output containing the Vitest test runtime", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "server.mjs",
+    );
+    fs.mkdirSync(path.dirname(serverChunk), { recursive: true });
+    fs.writeFileSync(
+      serverChunk,
+      'const runtime = "@vitest/runner"; export { runtime };\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /contains Vitest test runtime code/,
+    );
+  });
+
+  it("bundles one complete Yjs runtime for every serverless consumer", async () => {
     const cwd = setupNetlifyOutput();
     const serverDir = path.join(
       cwd,
@@ -1701,18 +2382,47 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       "server",
     );
     const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    const editorChunk = path.join(serverDir, "_chunks", "editor.mjs");
+    const nitroChunk = path.join(serverDir, "_chunks", "nitro-yjs.mjs");
     fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
     fs.writeFileSync(
       collabChunk,
-      'import * as Y from "yjs";\nconst dynamic = import("yjs");\nexport { Y, dynamic };\n',
+      'import * as Y from "yjs";\nexport { Y };\nexport const doc = new Y.Doc();\n',
+    );
+    fs.writeFileSync(
+      editorChunk,
+      'import { Text, UndoManager } from "yjs";\nexport { Text, UndoManager };\n',
+    );
+    fs.writeFileSync(
+      nitroChunk,
+      'import { Text } from "../_libs/yjs.mjs";\nexport { Text };\n',
     );
 
-    expect(rewriteBareYjsImportsForServerlessOutput(serverDir)).toEqual([
+    expect(bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toEqual([
       collabChunk,
+      editorChunk,
     ]);
-    const rewritten = fs.readFileSync(collabChunk, "utf-8");
-    expect(rewritten).toContain('from "../_libs/yjs.mjs"');
-    expect(rewritten).toContain('import("../_libs/yjs.mjs")');
+    const runtime = fs.readFileSync(
+      path.join(serverDir, "_libs", "yjs-runtime.mjs"),
+      "utf-8",
+    );
+    expect(runtime).toMatch(/Text/);
+    expect(runtime).toMatch(/UndoManager/);
+    expect(fs.readFileSync(collabChunk, "utf-8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    expect(fs.readFileSync(editorChunk, "utf-8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    expect(fs.readFileSync(nitroChunk, "utf-8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    const [collab, editor] = await Promise.all([
+      import(`${pathToFileURL(collabChunk).href}?t=${Date.now()}`),
+      import(`${pathToFileURL(editorChunk).href}?t=${Date.now()}`),
+    ]);
+    expect(collab.Y.Text).toBe(editor.Text);
+    expect(collab.doc.getText("x")).toBeInstanceOf(editor.Text);
     prepareSingleTemplateNetlifyOutput(cwd);
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
@@ -1732,7 +2442,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       'import * as Y from "yjs/src/index.js";\nexport { Y };\n',
     );
 
-    expect(() => rewriteBareYjsImportsForServerlessOutput(serverDir)).toThrow(
+    expect(() => bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toThrow(
       /unsupported yjs subpath imports/,
     );
   });
@@ -1767,7 +2477,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   it("fails when durable background is enabled but the Netlify background function is missing", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
-    prepareSingleTemplateNetlifyOutput(cwd);
+    prepareSingleTemplateNetlifyOutput(cwd, { emitBackground: false });
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /durable background is enabled/,

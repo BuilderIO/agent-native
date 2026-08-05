@@ -58,10 +58,10 @@ pnpm action get-deck --id=<deckId>
 pnpm action view-screen
 ```
 
-**From the API:**
+**From actions:**
 
-- `GET /api/decks` -- list all decks (returns id, title, slide count, timestamps)
-- `GET /api/decks/:id` -- get a single deck with full data
+- `list-decks` -- list all decks (returns id, title, slide count, timestamps)
+- `get-deck` -- get a single deck with full data
 
 ## Writing Decks
 
@@ -72,11 +72,11 @@ pnpm action view-screen
 pnpm action db-exec --sql "INSERT INTO decks (id, title, data) VALUES (?, ?, ?)" --params '["new-id", "Title", "{...}"]'
 ```
 
-**From the API:**
+**From actions:**
 
-- `POST /api/decks` -- create a new deck
-- `PUT /api/decks/:id` -- update an existing deck
-- `DELETE /api/decks/:id` -- delete a deck
+- `add-deck` -- create a new deck
+- `save-deck` -- replace an authoritative full deck payload
+- `delete-deck` -- delete a deck
 
 ## Important Rules
 

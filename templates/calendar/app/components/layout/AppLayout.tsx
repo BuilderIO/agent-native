@@ -1,10 +1,10 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  useAppearanceSync,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { useAppearanceSync } from "@agent-native/core/client/ui";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { IconMenu } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -386,12 +386,13 @@ export function AppLayout({ children }: AppLayoutProps) {
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
               collapsed={!isMobile && sidebarCollapsed}
-              onCollapsedChange={setSidebarCollapsed}
+              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
             />
             <AgentSidebar
               position="right"
-              defaultOpen
+              defaultOpen={false}
               emptyStateText={t("agentSidebar.emptyState")}
+              agentPageHref="/agent"
               suggestions={[
                 t("agentSidebar.suggestions.today"),
                 t("agentSidebar.suggestions.findSlot"),

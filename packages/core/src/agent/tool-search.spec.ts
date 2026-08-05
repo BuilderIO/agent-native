@@ -69,6 +69,48 @@ describe("tool-search", () => {
     });
   });
 
+  it("labels Plan availability and current callability without hiding schemas", () => {
+    const read = action("Inspect records");
+    const conditional = {
+      ...action("Query or persist provider records"),
+      planMode: {
+        effect: (args: any): "read" | "write" =>
+          args.persist ? "write" : "read",
+      },
+    };
+    const blocked = {
+      ...action("Delete provider records"),
+      readOnly: false,
+      allowInPlanMode: false,
+    };
+
+    const result = searchToolRegistry(
+      {
+        inspect: read,
+        provider: conditional,
+        delete: blocked,
+      },
+      { query: "provider records", includeSchemas: true },
+    );
+
+    expect(result.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "provider",
+          callable: true,
+          planAvailability: "conditional",
+          inputSchema: expect.any(Object),
+        }),
+        expect.objectContaining({
+          name: "delete",
+          callable: false,
+          planAvailability: "act-only",
+          inputSchema: expect.any(Object),
+        }),
+      ]),
+    );
+  });
+
   it("includes connected MCP tools and reports their source server", async () => {
     const registry = attachToolSearch({
       mcp__zapier__send_slack_message: action(

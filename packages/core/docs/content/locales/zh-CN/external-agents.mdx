@@ -89,7 +89,7 @@ search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程�
 - **Agent-Native 聊天背后您自己的运行时：**当使用另一个框架构建的代理应该为 `<AssistantChat runtime={...}>` 提供支持时，请参阅 [Agent Surfaces](/docs/agent-surfaces#byo-agent) 和 [Native 聊天界面](/docs/native-chat-ui#byo-agent-runtimes)。
 - **您的应用使用 MCP 工具：**当代理本机应用需要调用另一个 MCP 服务器公开的工具时，请参阅 [MCP Clients](/docs/mcp-clients)。
 - **通过 A2A 的另一个应用程序或代理：**当代理本机应用程序应发现并委托给彼此时，使用 [Agent Mentions](/docs/agent-mentions) 和 [A2A](/docs/a2a-protocol)。
-- **本地自定义子代理：**当您希望在代理本机工作区本身内部自定义代理配置文件时，请使用 [Workspace](/docs/workspace)。
+- **本地自定义子代理：**当您希望在代理本机工作区本身内部自定义代理配置文件时，请使用 [代理资源](/docs/agent-resources)。
 
 ## 轻松设置 {#easy-setup}
 
@@ -98,7 +98,7 @@ search: "Claude ChatGPT Claude 代码 Codex 光标 Claude Cowork MCP 应用程�
 对于工作区或跨应用程序工作，请使用 Dispatch：
 
 ```text
-https://dispatch.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/mcp
 ```
 
 Dispatch 是邮件、日历、分析、Brain 和您的单一网关
@@ -109,13 +109,21 @@ Dispatch 是邮件、日历、分析、Brain 和您的单一网关
 对于一个有意隔离的应用，请直接使用该应用：
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
-https://<your-app>.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
+https://<your-app>.agent-native.com/mcp
 ```
 
 每个托管应用程序还有一个帮助页面
-`https://&lt;app&gt;/_agent-native/mcp/connect` 与可复制的 URL 和
+`https://&lt;app&gt;/mcp/connect` 与可复制的 URL 和
 Claude、ChatGPT、光标、Claude 代码、Codex 和其他的主机特定选项卡。
+
+### 应用内的 Access 选项卡 {#access-tab}
+
+挂载 `AgentTabsPage` 的应用也会在 **Access** 选项卡中提供相同的连接流程。
+它显示 MCP URL、可用时的 A2A 代理卡片，以及 Claude、ChatGPT、Cursor、Claude
+Code、Codex 和其他客户端的共享设置指南。可将它作为应用内的起点，并打开
+`/mcp/connect` 查看完整流程和令牌回退。这是连接设置界面，不是通用访问控制
+台；该选项卡目前还不管理 grants、范围编辑或撤销。
 
 ### Claude 和 ChatGPT OAuth {#oauth}
 
@@ -237,7 +245,7 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
-`reconnect` 查找给定主机和选定客户端的 URL 以 `/_agent-native/mcp` 结尾的任何 MCP 配置条目（通过 URL 进行匹配，无论连接器名称如何），然后刷新或替换身份验证材料，而无需触及已安装的 skills 或重新运行完整安装流程。传递基本应用程序 URL（例如 `https://plan.agent-native.com`） - 推断出 `/_agent-native/mcp` 后缀。身份验证和工具加载是针对每个客户端的，因此之后重新启动/重新加载该客户端； Codex 在新加载的工具出现之前需要一个新会话。
+`reconnect` 查找给定主机和选定客户端的 URL 以 `/mcp` 结尾的任何 MCP 配置条目（通过 URL 进行匹配，无论连接器名称如何），然后刷新或替换身份验证材料，而无需触及已安装的 skills 或重新运行完整安装流程。传递基本应用程序 URL（例如 `https://plan.agent-native.com`） - 推断出 `/mcp` 后缀。身份验证和工具加载是针对每个客户端的，因此之后重新启动/重新加载该客户端； Codex 在新加载的工具出现之前需要一个新会话。
 
 在Claude代码中，等效的UI路径是：运行`/mcp`并为相关连接器选择**身份验证**（或**重新连接**）。
 
@@ -245,7 +253,7 @@ npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --clien
 
 ### 连接页面后备 {#connect-page-fallback}
 
-对于无法直接添加远程 OAuth URL 的 MCP 客户端，请在浏览器中打开应用程序并使用其 **Connect** 功能（在 `https://&lt;app&gt;/_agent-native/mcp/connect` 上提供）。登录后，单击“**连接/授权**”。该页面为您提供一个配置检测到的代理的一键深层链接，或一个可立即粘贴的 `.mcp.json` 块：
+对于无法直接添加远程 OAuth URL 的 MCP 客户端，请在浏览器中打开应用程序并使用其 **Connect** 功能（在 `https://&lt;app&gt;/mcp/connect` 上提供）。登录后，单击“**连接/授权**”。该页面为您提供一个配置检测到的代理的一键深层链接，或一个可立即粘贴的 `.mcp.json` 块：
 
 ```jsonc
 // .mcp.json
@@ -253,7 +261,7 @@ npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --clien
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.agent-native.com/_agent-native/mcp",
+      "url": "https://mail.agent-native.com/mcp",
       "headers": { "Authorization": "Bearer <minted-token>" },
     },
   },
@@ -270,13 +278,13 @@ npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --clien
 
 ```bash
 claude mcp add --transport http agent-native \
-  https://dispatch.agent-native.com/_agent-native/mcp
+  https://dispatch.agent-native.com/mcp
 ```
 
 这与 `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code` 为您编写的仅 URL 条目相同。然后在Claude代码中运行`/mcp`并选择**验证**。客户端从 MCP 服务器的 `401 WWW-Authenticate` 挑战中发现身份验证，获取 `/.well-known/oauth-protected-resource` 和 `/.well-known/oauth-authorization-server`，动态注册公共 OAuth 客户端，打开应用程序的授权页面，并安全地存储生成的令牌。 ChatGPT 开发者模式连接器使用相同的服务器 URL：
 
 ```text
-https://dispatch.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/mcp
 ```
 
 OAuth 流程是授权代码 + PKCE 和刷新令牌轮换。访问令牌是受众绑定到确切的 MCP 资源 URL 并携带签名的用户/组织身份，因此工具调用、`resources/read` 和 MCP 应用程序 iframe 启动的 `tools/call` 都通过与现有连接铸造的 JWT 路径相同的 `runWithRequestContext` 租户范围运行。 iframe 从不接收原始 OAuth 令牌；主机通过经过身份验证的 MCP 连接来调解呼叫。
@@ -324,8 +332,8 @@ MCP 服务器默认为每个调用者提供一个**紧凑的目录** — 托管�
   </div>
 </div>
 <p class="diagram-muted note">
-  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
-  compact default keeps context small without hiding capability.
+  <code>tool-search</code> 可按需发现完整层工具；除非调用方明确选择完整层，
+  否则连接器目录或已认证读取策略仍须允许执行。
 </p>
 ```
 
@@ -363,15 +371,51 @@ MCP 服务器默认为每个调用者提供一个**紧凑的目录** — 托管�
 
 ### 紧凑/连接器层（默认） {#connector-tier}
 
-默认情况下，每个连接的代理都会看到一个小型的、精心策划的目录（约 20–30 个工具，而整个表面上约 105 个工具）：
+默认情况下，每个连接的代理都会看到一个小型的、精心策划的目录（约 20–30 个工具，而完整界面约有 105 个工具）。应用可以维护明确的 `connectorCatalog`，也可以选择已认证读取策略：
 
 - **模板声明的应用程序 actions** — 安全应用程序级别允许列表。对于 `create-visual-plan`、`get-visual-plan`、`share-resource`、`navigate`、`tool-search` 等类似计划。
 - **内置跨应用工具** - `list_apps`、`open_app`、`ask_app`、`create_embed_session`。
-- **`tool-search`** 始终存在，因此列表之外的任何内容都可以按需访问（见下文）。
+- **`tool-search`** 始终用于发现。发现的 action 必须获得连接器目录、已认证读取策略或明确的完整目录选择允许，`tools/call` 才能执行它。
 
-列表之外的工具（例如 `db-exec`、`seed-*`、扩展套件、浏览器会话工具和上下文 X 射线工具）不会公布，并且对它们的调用将被拒绝并显示“未知工具”，除非调用者选择加入完整目录。这使每个连接的代理的上下文窗口保持较小，并消除了仅对单租户本地开发安全的脚枪。 **每当模板声明 `connectorCatalog`** 时，连接器层就会处于活动状态 - 它不会受到环境变量的限制。
+列表之外的工具（例如 `db-exec`、`seed-*`、扩展套件、浏览器会话工具和上下文 X 射线工具）不会公布，并且对它们的调用将被拒绝并显示“未知工具”，除非调用者选择加入完整目录。这使每个连接的代理的上下文窗口保持较小，并消除了仅对单租户本地开发安全的危险工具。
 
-`tool-search` 有两种工作方式：使用**无查询**来调用它，以获取工具名称的完整菜单加上一行描述（便宜，无模式），或者使用参数摘要来查询排名匹配。这就是压缩客户端在需要时发现并加载任何全表面工具的方式。
+`tool-search` 有两种工作方式：使用**无查询**调用它，以获取工具名称的完整菜单及单行描述（开销低、无 schema），或使用查询获取带参数摘要的排序匹配项。它帮助精简客户端发现功能；需要应用代理进行更广泛推理或写入时，请使用 `ask_app`。
+
+#### 默认启用已认证读取
+
+希望直接工具无需维护长允许列表即可使用的应用，可以选择自动已认证读取：
+
+```ts
+export default createAgentChatPlugin({
+  appId: "example-app",
+  externalAgents: {
+    authenticatedReads: "auto",
+    writes: "ask_app_only",
+    // 可选的纵深防御：拒绝特别敏感的读取。
+    denyActions: ["get-sensitive-export"],
+  },
+});
+```
+
+这是一个通用政策示例。Analytics 会有意设置 `authenticatedReads: "off"`，并且只公开经过审核的 `connectorCatalog` action。
+
+`authenticatedReads: "auto"` 只会添加明确声明了以下全部内容的 action：
+
+- `http: { method: "GET" }`
+- `readOnly: true`
+- `publicAgent: { expose: true, readOnly: true, requiresAuth: true }`
+
+该策略会将这些 action 与任何明确的 `connectorCatalog` 条目合并，然后应用 `denyActions`。使用 `writes: "ask_app_only"`（启用自动读取时的默认值）时，变更类工具不能直接调用；多步骤工作和变更应通过 `ask_app` 完成。`writes: "allowlisted"` 仅适用于有意维护明确写入允许列表的应用。
+
+该策略面向已认证访问，而非匿名访问。MCP OAuth/连接身份仍通过 `runWithRequestContext` 传递，因此 action 级访问检查、所有者/组织作用域和 OAuth 读取作用域继续生效。公开/未认证 action 不会包含在自动读取中。
+
+Core `db-schema` 和 `db-query` 不会自动作为外部读取公开。它们仍可通过正常的作用域 SQL 路径供应用内代理使用，但广泛的架构/SQL 访问过于强大，不能仅凭只读元数据推断。如果应用需要直接外部查询，应提供带访问检查和边界的应用自有 GET action，或明确的表/列允许列表，并限制行数、字节数、超时和审计。`db-exec` 和 `db-patch` 仍不属于自动公开范围。
+
+这是一种基于名称的硬性排除，而不仅仅是元数据遗漏：通用的数据库、seed、浏览器会话、扩展和上下文 X 射线工具永远不会被自动公开，即使未来的更改意外地为其中某个工具标注了完整的已认证读取标志组合也是如此 — 它们始终需要在 `connectorCatalog` 中显式声明。
+
+提供 `resolveExecutionContext` 的应用会明确替换此默认身份判定流程。其解析器必须在返回主体前自行拒绝未经验证的调用者、访客、外部成员以及未关联的工作区。
+
+经过验证的 Slack 私信会在代理运行前匹配现有的 Agent Native 组织成员，并保存工作区/用户身份关联；由此生成的用户/组织上下文会加载该用户的资源、指令和技能。默认情况下，已成功获取资料但缺少电子邮件或尚未成为组织成员的工作区成员会被拒绝。应用可以明确设置 `allowAnonymousOrgScopedSlackDm: true`，让这些成员改用组织范围的匿名服务主体运行——其组织级可见性与共享频道相同，但绝不包含用户私有访问——同时向代理显示说明，并通过 Slack 一次性提示如何获得个人访问权限。此选择加入绝不会允许资料获取失败、未经验证的调用者、访客、外部（Slack Connect）成员或尚未连接组织的工作区；这些情况会收到礼貌的拒绝回复。Slack 共享频道使用服务主体，不会借用任何参与者的私人权限。托管 OAuth 和生成的 Slack 应用 manifest 都会请求 bot scope `users:read.email`。已有安装必须重新连接/安装才能授予新增的 scope；旧版 bot token 安装则必须在 Slack 中手动添加该 scope。没有此 scope 时，私信会被拒绝，除非应用明确启用 `allowAnonymousOrgScopedSlackDm`。
 
 ### 完整层（仅限明确选择加入） {#full-tier}
 
@@ -463,19 +507,34 @@ CSP 和沙箱权限等安全元数据存在于资源中
 
 在每个操作工具之上，MCP 服务器公开了一个稳定的动词集，因此外部代理具有可预测的表面，而无需猜测每个应用操作名称：
 
-| 工具                                               | 副作用   | 退货                                                                    |
-| -------------------------------------------------- | -------- | ----------------------------------------------------------------------- |
-| `list_apps`                                        | 无       | 工作区应用+其 URL/运行状态                                              |
-| `open_app({ app, view?, path?, params?, embed? })` | 无       | 深层链接或同源路由； `embed: true` 在支持的情况下内联渲染完整的应用程序 |
-| `ask_app({ app, message })`                        | 代理循环 | 将自然语言任务路由到该应用的应用内代理（委托给 `ask-agent`）            |
-| `create_workspace_app({ name, template })`         | 脚手架   | 通过工作区路径启动的新应用程序，及其正在运行的 URL + 深层链接           |
-| `list_templates`                                   | 无       | 仅限允许列出的模板                                                      |
+| 工具                                               | 副作用   | 退货                                                                                                                            |
+| -------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | 无       | 工作区应用+其 URL/运行状态                                                                                                      |
+| `open_app({ app, view?, path?, params?, embed? })` | 无       | 深层链接或同源路由； `embed: true` 在支持的情况下内联渲染完整的应用程序                                                         |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | 代理循环 | 将自然语言任务路由到该应用的应用内代理；长时间运行的任务会返回一个持久的 `taskHandle` 和旧版 `taskId`，供 `ask_app_status` 轮询 |
+| `create_workspace_app({ name, template })`         | 脚手架   | 通过工作区路径启动的新应用程序，及其正在运行的 URL + 深层链接                                                                   |
+| `list_templates`                                   | 无       | 仅限允许列出的模板                                                                                                              |
 
 `create_workspace_app` 拒绝任何非允许列表模板 - `packages/shared-app-config/templates.ts` 中的公共模板允许列表是权威且受 CI 保护的；外部代理无法扩大它。同名的模板操作会覆盖内置操作（模板优先于核心优先级）。使用 `MCPConfig.builtinCrossAppTools: false` 禁用整个设置。
 
-应用程序主机的工具和资源目录默认是紧凑的 - 请参阅 [Catalog tiers](#catalog-tiers)。 `publicAgent.expose` 仍然是该紧凑目录之外安全读取/摄取工具的选择；仅将 `mcpApp.compactCatalog: true` 设置为 actions 的罕见例外，必须出现在聊天主机发现中。
+应用程序主机的工具和资源目录默认是紧凑的，请参阅[目录层级](#catalog-tiers)。`publicAgent.expose` 仍是紧凑目录之外安全读取/摄取工具的 action 级选择。应用可以设置 `externalAgents.authenticatedReads: "auto"`，无需手写目录即可公布这些已认证读取。仅将 `mcpApp.compactCatalog: true` 用作必须出现在聊天主机发现中的 action 的罕见例外。
 
 对于快速 ChatGPT/Claude 切换，理想的路径是直接的：调用创建或打开工件的操作，然后让 MCP 应用程序启动路线。邮件请求应调用 `manage_draft` 并呈现真实的撰写路由。仪表板请求应调用 `open_app({ path, embed: true })` 或使用 `mcpApp` 的仪表板操作并呈现完整的 Analytics 路径。日历、表单、内容、幻灯片、设计和剪辑的草稿/创建/搜索 actions 应遵循相同的模式。当模型必须在授予的应用程序中进行选择时，`list_apps` 非常有用；广泛的 `resources/list`、全目录发现或 `ask_app` 委派不应该是明显的 UI 切换的正常途径。
+
+### 长时间运行的代理请求
+
+当 `ask_app` 返回 `taskHandle` 时，请将这个不透明值原样传给
+`ask_app_status`；即使两次调用之间的应用发现结果发生变化，它也会保留原始任务路由。
+迁移期间仍接受旧的 `app` 和 `taskId` 参数。
+
+MCP 主机和网关并不共享同一个较长的工具调用超时时间；有些强制执行五分钟的上限，有些则可配置。不要围绕一个阻塞十分钟的 `tools/call` 来设计外部代理集成。`ask-agent` 和 `ask_app` 会快速确认托管工作已开始，然后在内联等待到期时返回一个持久的 `taskHandle` 和旧版 `taskId`。请原样重用返回的 `poll.arguments`（尤其是 `taskHandle`）通过 `ask_app_status` 进行轮询；结果中包含 `pollAfterMs`，作为对主机友好的轮询间隔。任务必须在第一次响应超时之前就已创建，因此仅在长时间调用之后才返回的轮询 URL 并不是可靠的恢复约定。
+
+当有界的暂态状态读取不可用时，`ask_app_status` 可以返回
+`status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、原始的
+`app` 和 `taskId`，以及 `pollAfterMs` / `poll`。这表示状态读取不可用，并不表示
+持久任务失败。请使用完全相同的返回 `poll.arguments`（存在时包括 `taskHandle`）重试
+`ask_app_status`；没有句柄的旧版结果必须重用相同的 `app` 和 `taskId`。切勿为恢复而
+重新提交 `ask_app`，因为提交可能会重复工作。永久性的身份验证、未找到和协议错误仍然是错误。
 
 ### 每应用游览 {#tour}
 
@@ -640,7 +699,7 @@ npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|c
 - **cowork** — `~/.cowork/mcp.json` 中相同的 Claude 代码 JSON 形状。
 - **codex** — `~/.codex/config.toml` 中的 `[mcp_servers.<name>]` 区块。
 
-该条目运行 `npx @agent-native/core@latest mcp serve --app <id>`，默认情况下，它是正在运行的本地应用程序的 `/_agent-native/mcp` 的 **瘦 stdio 代理** - 因此，实时操作注册表、HMR 和正确的深层链接仍然是单一事实来源。通过 `--standalone` 来在进程中构建注册表。当 `npx @agent-native/core@latest mcp install` 检测到托管源（工作区 `.env` 中的非本地主机 `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL`）时，它会写入指向 `<origin>/_agent-native/mcp` 的 `http` 客户端条目，并使用 `Bearer` JWT 而不是 stdio 条目。
+该条目运行 `npx @agent-native/core@latest mcp serve --app <id>`，默认情况下，它是正在运行的本地应用程序的 `/mcp` 的 **瘦 stdio 代理** - 因此，实时操作注册表、HMR 和正确的深层链接仍然是单一事实来源。通过 `--standalone` 来在进程中构建注册表。当 `npx @agent-native/core@latest mcp install` 检测到托管源（工作区 `.env` 中的非本地主机 `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL`）时，它会写入指向 `<origin>/mcp` 的 `http` 客户端条目，并使用 `Bearer` JWT 而不是 stdio 条目。
 
 配套子命令：
 
@@ -664,7 +723,7 @@ npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|c
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.agent-native.com/_agent-native/mcp",
+      "url": "https://analytics.agent-native.com/mcp",
       "headers": { "Authorization": "Bearer <ACCESS_TOKEN-or-JWT>" },
     },
   },
@@ -706,7 +765,7 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 后备托管的 `connect` 流永远不会复制部署的共享密钥。相反：
 
 - 登录的浏览器会话会铸造一个**每用户、范围内、可撤销**令牌 - 一个 `A2A_SECRET` 签名的 JWT，携带调用者的 `sub` + `org_domain` 和一个唯一的 `jti`，因此每个工具运行都通过 `runWithRequestContext` 保持租户范围。
-- 现有的 `/_agent-native/mcp` 端点像任何其他承载一样接受该令牌（请参阅 [MCP Protocol](/docs/mcp-protocol)） - 没有新端点，没有新传输。
+- 现有的 `/mcp` 端点像任何其他承载一样接受该令牌（请参阅 [MCP Protocol](/docs/mcp-protocol)） - 没有新端点，没有新传输。
 - 同一个 Connect 页面列出了您铸造的每个代币，并允许您通过 `jti` **撤销**其中任何代币。将它们视为个人访问令牌：每个代理客户端一个，在机器退役时撤销。
 - 代理返还的深层链接不带有特权状态。以记录为中心的 `navigate` 写入始终限于 **浏览器** 会话，而不是代理的令牌 - 因此可以安全地将链接粘贴到终端或聊天记录中。
 

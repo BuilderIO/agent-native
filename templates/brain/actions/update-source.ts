@@ -11,16 +11,27 @@ import {
   stableJson,
 } from "../server/lib/brain.js";
 import { assertSourceWorkspaceConnectionAvailable } from "../server/lib/source-credentials.js";
-import { optionalJsonRecordSchema } from "./_schemas.js";
+import { withSourceAnswerPolicy } from "../server/lib/source-policy.js";
+import { normalizeSlackChannelConfig } from "../shared/slack-source-config.js";
+import {
+  optionalJsonRecordSchema,
+  sourceAnswerPolicySchema,
+} from "./_schemas.js";
 
 export default defineAction({
-  description: "Update a Brain source's title, status, config, or cursor.",
+  description:
+    "Update a Brain source's title, status, config, cursor, or trusted-answer policy.",
   schema: z.object({
     id: z.string().min(1),
     title: z.string().min(1).optional(),
     status: z.enum(["active", "paused", "archived", "error"]).optional(),
     config: optionalJsonRecordSchema,
     cursor: optionalJsonRecordSchema,
+    policy: sourceAnswerPolicySchema
+      .optional()
+      .describe(
+        "Merge trust, answer eligibility, authority, freshness, review, or conflict behavior into the source answer policy",
+      ),
   }),
   run: async (args) => {
     const access = await assertAccess("brain-source", args.id, "editor");
@@ -28,11 +39,24 @@ export default defineAction({
     const updates: Record<string, unknown> = { updatedAt: nowIso() };
     if (args.title !== undefined) updates.title = args.title;
     if (args.status !== undefined) updates.status = args.status;
-    if (args.config !== undefined) {
-      const nextConfig: Record<string, unknown> = {
+    if (args.config !== undefined || args.policy !== undefined) {
+      let nextConfig: Record<string, unknown> = {
         ...parseJson<Record<string, unknown>>(existing.configJson, {}),
-        ...args.config,
+        ...(args.config ?? {}),
       };
+      if (
+        args.policy !== undefined ||
+        (args.config &&
+          Object.prototype.hasOwnProperty.call(args.config, "answerPolicy"))
+      ) {
+        nextConfig = withSourceAnswerPolicy(
+          nextConfig,
+          args.policy ?? nextConfig.answerPolicy,
+        );
+      }
+      if (existing.provider === "slack") {
+        nextConfig = normalizeSlackChannelConfig(nextConfig, args.config ?? {});
+      }
       const workspaceConnectionId =
         typeof nextConfig.workspaceConnectionId === "string"
           ? nextConfig.workspaceConnectionId.trim()

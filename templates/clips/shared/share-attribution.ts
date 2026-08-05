@@ -21,6 +21,10 @@ export const CLIP_SHARE_REF = "clip_share";
 export const REF_PARAM = "ref";
 export const VIA_PARAM = "via";
 
+/** Marker used only when `/r/:id` falls back to the public share route. */
+export const DASHBOARD_REDIRECT_PARAM = "dashboard_redirect";
+export const DASHBOARD_REDIRECT_VALUE = "1";
+
 /**
  * Append `ref=clip_share` (and `via=<ownerId>` when a non-PII owner id is
  * known) to an absolute share/embed URL, preserving any existing query params.

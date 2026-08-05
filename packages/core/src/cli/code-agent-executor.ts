@@ -50,7 +50,11 @@ import {
   readAgentsBundleFromFs,
   generateDevelopmentSkillsPromptBlock,
 } from "../server/agents-bundle.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getAmbientOrgId,
+  getAmbientUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -87,6 +91,11 @@ interface PendingCodeAgentApproval {
   reason: string;
   requestedAt: string;
   permissionMode: CodeAgentPermissionMode;
+}
+
+interface CodeAgentApprovalExecutionOptions {
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
 }
 
 interface CodexCliProcessResult {
@@ -612,36 +621,44 @@ async function executeCodexCliRun(options: {
     });
 
     if (result.exitCode !== 0) {
+      const interrupted = options.signal?.aborted === true;
       const message =
         result.error ??
         result.stderr.trim() ??
         `Codex CLI exited with ${result.exitSignal ?? result.exitCode}.`;
-      options.stdout?.write(`\nCodex CLI run failed: ${message}\n`);
+      const summary = interrupted
+        ? "Codex CLI run paused."
+        : `Codex CLI run failed: ${message}`;
+      options.stdout?.write(`\n${summary}\n`);
       appendCodeAgentTranscriptEvent({
         runId: options.run.id,
         kind: "status",
-        message: `Codex CLI run failed: ${message}`,
+        message: summary,
         metadata: {
-          status: "errored",
-          phase: "error",
+          status: interrupted ? "paused" : "errored",
+          phase: interrupted ? "paused" : "error",
           engine: CODEX_CLI_ENGINE_NAME,
           exitCode: result.exitCode,
           exitSignal: result.exitSignal,
         },
       });
       return updateCodeAgentRunRecord(options.run.id, {
-        status: options.signal?.aborted ? "paused" : "errored",
-        phase: options.signal?.aborted ? "paused" : "error",
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
         progress: {
-          label: options.signal?.aborted ? "Paused" : "Error",
+          label: interrupted ? "Paused" : "Error",
           completed: 0,
           total: 1,
-          failed: options.signal?.aborted ? 0 : 1,
+          failed: interrupted ? 0 : 1,
           percent: 0,
         },
         metadata: {
-          executionError: message,
-          executionErroredAt: new Date().toISOString(),
+          ...(interrupted
+            ? { executionPausedAt: new Date().toISOString() }
+            : {
+                executionError: message,
+                executionErroredAt: new Date().toISOString(),
+              }),
           engine: CODEX_CLI_ENGINE_NAME,
           model: model ?? "codex-default",
         },
@@ -858,7 +875,7 @@ export async function executeExistingCodeAgentRun(
  */
 export async function executeApproveAlwaysCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const approval = getPendingApproval(runId);
   if (approval?.command) {
@@ -875,7 +892,7 @@ export async function executeApproveAlwaysCodeAgentApproval(
 
 export async function executePendingCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -921,6 +938,7 @@ export async function executePendingCodeAgentApproval(
     approval.command,
     record.cwd || process.cwd(),
     DEFAULT_COMMAND_TIMEOUT_MS,
+    { signal: options.signal },
   );
   const summary = truncateCodingOutput(
     [
@@ -967,7 +985,10 @@ export async function executePendingCodeAgentApproval(
     message: "Resuming run after approval.",
     metadata: { status: "running", phase: "approval-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 /**
@@ -977,7 +998,7 @@ export async function executePendingCodeAgentApproval(
  */
 export async function executeDenyCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -1019,7 +1040,10 @@ export async function executeDenyCodeAgentApproval(
     message: "Resuming run after denial — model will adapt its plan.",
     metadata: { status: "running", phase: "approval-denied-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 function latestUserPrompt(runId: string): string {
@@ -1137,8 +1161,8 @@ function runWithOptionalCodeAgentRequestContext<T>(
   const userEmail =
     metadataString(run, "ownerEmail") ??
     metadataString(run, "userEmail") ??
-    process.env.AGENT_USER_EMAIL;
-  const orgId = metadataString(run, "orgId") ?? process.env.AGENT_ORG_ID;
+    getAmbientUserEmail();
+  const orgId = metadataString(run, "orgId") ?? getAmbientOrgId();
   if (!userEmail && !orgId) return fn();
   return runWithRequestContext({ userEmail, orgId }, fn);
 }
@@ -1647,7 +1671,8 @@ Current run mode: ${mode} mode (${permissionMode}).
 # Autonomy and verification
 
 - Stay with the work until the task is handled end to end within this turn whenever feasible. Don't stop at analysis or a proposal — implement the fix, and work through blockers yourself before handing them back. The exception is Plan mode, where you propose only.
-- Done means verified, not generated. After code changes (not docs-only), run the repo's checks before reporting success: \`pnpm run prep\` (format + typecheck + test + guards), or a focused subset like \`pnpm typecheck\` or a single package's tests for a small change. Fix all errors before you call it done.
+- Done means verified, not generated. Match the check to the change: use the narrowest relevant test, typecheck, formatter, or direct invocation for a localized edit; use \`pnpm run prep\` for shared or cross-cutting changes. Do not restart a dev server or run broad checks as a generic post-edit ritual. Fix failures before you call it done, and keep any repository-required guards or doctor checks that apply.
+- In an Agent-Native app or workspace, also run \`pnpm agent-native:doctor\` (or \`pnpm doctor\`) after source changes. Treat every finding as a fix-required security issue; do not disable a guard without a reviewer-readable reason.
 - Do not claim a change works, tests pass, or a build succeeds unless you actually ran it and saw the result. If you could not verify something, say exactly what is unverified and why.
 
 # Tools beyond the basics

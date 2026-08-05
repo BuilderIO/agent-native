@@ -47,6 +47,7 @@ export interface PriorTurnToolResultSummary {
  */
 export async function loadPriorTurnToolCallJournal(
   threadId: string | undefined,
+  turnId?: string,
 ): Promise<{
   toolCallJournal: ToolCallJournal | null;
   priorToolCalls: PriorTurnToolCallSummary[];
@@ -59,7 +60,7 @@ export async function loadPriorTurnToolCallJournal(
     return { toolCallJournal, priorToolCalls, priorToolResults };
   }
   try {
-    const priorEvents = await getCurrentTurnEventsForThread(threadId);
+    const priorEvents = await getCurrentTurnEventsForThread(threadId, turnId);
     if (priorEvents.length > 0) {
       for (const event of priorEvents) {
         if (event.type === "tool_start") {

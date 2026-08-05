@@ -7,13 +7,23 @@ description: "Cómo funcionan las aplicaciones nativas del agente: primero actio
 
 Cómo funcionan internamente las aplicaciones nativas del agente: los principios y la arquitectura. Esta página es el contrato; para conocer la visión y los argumentos para construir de esta manera, consulte [What Is Agent-Native?](/docs/what-is-agent-native).
 
+## Las tres capas {#three-layers}
+
+Agent Native es un framework, no una sola plantilla:
+
+- **Core - el framework:** el contrato fundamental de ejecución y datos para cualquier aplicación.
+- **Toolkit - piezas reutilizables opcionales:** UI y sistemas de producto compartidos que las aplicaciones pueden adoptar, combinar o bifurcar.
+- **Plantillas - aplicaciones opcionales:** aplicaciones completas de dominio construidas sobre Core, que suelen usar Toolkit y se pueden bifurcar y usar como punto de partida.
+
+Core es la base. Toolkit y las plantillas son opcionales.
+
 ## La arquitectura {#the-architecture}
 
 Cada aplicación nativa del agente consta de tres cosas que funcionan juntas:
 
-- **Agente**: IA autónoma que lee y escribe datos, ejecuta actions y modifica código. Personalizable con skills e instrucciones.
+- **Agente**: IA autónoma que lee y escribe datos, ejecuta actions y usa herramientas configuradas. Personalizable con skills e instrucciones.
 - **Aplicación**: la superficie del producto alrededor del agente. Esto puede ser solo acción al principio, chat enriquecido, un pequeño plano de control o un UI React completo con paneles, flujos y visualizaciones.
-- **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan directamente con SQL y herramientas integradas; Los servidores MCP son complementos opcionales, no la base.
+- **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan mediante la superficie de acciones y datos de la aplicación; la aplicación puede exponer esa misma superficie mediante MCP. Los servidores MCP externos son complementos opcionales, no la base.
 
 <Diagram id="doc-block-b13lfv" title={"Agente, aplicación y computadora."} summary={"Tres capas trabajando juntas en una tienda SQL compartida. Tanto el agente como la aplicación leen y escriben los mismos datos."}>
 
@@ -23,7 +33,8 @@ Cada aplicación nativa del agente consta de tres cosas que funcionan juntas:
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >lee y escribe datos, ejecuta acciones, modifica código</small
+        >lee y escribe datos, ejecuta acciones y usa herramientas
+        configuradas</small
       >
     </div>
     <div class="diagram-card">
@@ -114,14 +125,13 @@ una habilidad `customer-research` podría indicarle al agente qué fuentes inspe
 cómo resumir la evidencia, mientras que `search-crm` y `create-brief` actions recuperan
 y escribe los datos reales.
 
-Seis reglas gobiernan la arquitectura:
+Cinco reglas gobiernan la arquitectura:
 
 1. **Los datos se encuentran en SQL**: todo el estado de la aplicación se encuentra en la base de datos a través de Drizzle ORM
 2. **Toda la IA pasa por el agente**: no hay llamadas LLM en línea
 3. **Actions para operaciones de agente**: el trabajo complejo se ejecuta como actions
 4. **La sincronización en vivo mantiene el UI sincronizado**: los cambios de la base de datos se transmiten a través del SSE con el sondeo como respaldo universal
-5. **El agente puede modificar el código**: la aplicación evoluciona a medida que la usa
-6. **Estado de la aplicación en SQL**: el estado efímero de UI se encuentra en la base de datos y es legible tanto por el agente como por UI
+5. **El estado de la aplicación está en SQL**: el estado efímero de la UI vive en la base de datos y es legible para el agente y la UI
 
 ## La lista de verificación de cuatro áreas {#four-area-checklist}
 
@@ -256,8 +266,7 @@ El UI nunca llama directamente a un LLM. Cuando un usuario hace clic en "Generar
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -269,7 +278,7 @@ sendToAgentChat({
 
 - **La IA no es determinista.** Necesitas un flujo de conversación para dar retroalimentación e iterar, no botones de un solo uso.
 - **El contexto importa.** El agente tiene su código base completo, instrucciones, skills e historial. Una llamada en línea no tiene nada de eso.
-- **El agente puede hacer más.** Puede ejecutar actions, navegar por la web, modificar código y encadenar varios pasos.
+- **El agente puede hacer más.** Puede ejecutar actions, navegar por la web y encadenar varios pasos.
 - **Ejecución sin cabeza.** Debido a que todo pasa por el agente, cualquier aplicación se puede controlar completamente desde Slack, Telegram u otro agente a través de [A2A](/docs/a2a-protocol).
 
 ## Sistema Actions {#actions-system}
@@ -308,8 +317,7 @@ Los cambios en la base de datos se sincronizan con el UI a través del `useDbSyn
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -401,17 +409,14 @@ Implementar una operación de dominio una vez como acción; el marco lo expone a
 
 Para obtener la matriz completa de protocolo/superficie (servidor MCP y aplicaciones OAuth, MCP, A2A, enlaces profundos, widgets de chat nativos, conectores AgentChatRuntime, Agent Web y el horizonte adaptador para ACP y A2UI) y para elegir la forma del producto (sin cabeza, chat enriquecido, sidecar integrado o aplicación completa), consulte [Agent Surfaces](/docs/agent-surfaces).
 
-## El agente modifica el código {#agent-modifies-code}
+## Código de la aplicación y personalización {#agent-modifies-code}
 
-Esta es una característica, no un error. El agente puede editar de forma segura el código fuente de la aplicación: componentes, rutas, estilos, actions.
-
-No hay ningún código base compartido que pueda romperse. Eres el propietario de la aplicación y el agente la evoluciona con el tiempo:
-
-1. Bifurcar una plantilla (por ejemplo, la plantilla de análisis)
-2. Personalízalo preguntándole al agente
-3. "Agregar un nuevo tipo de gráfico para el análisis de cohortes": el agente lo crea
-4. "Conectarse a nuestra cuenta de Stripe": el agente escribe la integración
-5. Tu aplicación sigue mejorando sin desarrollo manual
+El agente integrado no edita el código fuente de forma predeterminada. Solo
+puede hacerlo cuando el host le concede intencionalmente herramientas de
+escritura de repository/workspace. En una aplicación desplegada normal, el
+agente trabaja mediante actions, estado respaldado por SQL e integraciones
+configuradas. Las plantillas son aplicaciones completas que puedes bifurcar y
+personalizar en tu propio repositorio y flujo de desarrollo.
 
 ## Portátil por defecto {#hosting-agnostic}
 
@@ -422,7 +427,7 @@ Dos reglas arquitectónicas mantienen las aplicaciones portátiles entre bases d
 
 ## Espacio de trabajo {#workspace}
 
-Cada usuario obtiene un **espacio de trabajo** personal: instrucciones, skills, memoria, subagentes personalizados, trabajos programados y servidores MCP conectados, todo almacenado en SQL en lugar de archivos. Eso hace que la personalización a nivel de código Claude sea viable dentro de SaaS multiinquilino sin necesidad de activar un contenedor por usuario. Ver [Workspace](/docs/workspace).
+Cada usuario obtiene un **espacio de trabajo** personal: instrucciones, skills, memoria, subagentes personalizados, trabajos programados y servidores MCP conectados, todo almacenado en SQL en lugar de archivos. Eso hace que la personalización a nivel de código Claude sea viable dentro de SaaS multiinquilino sin necesidad de activar un contenedor por usuario. Ver [Recursos del Agente](/docs/agent-resources).
 
 ## Bloques de construcción relacionados {#building-blocks}
 
@@ -435,10 +440,10 @@ Estos se encuentran en la parte superior del mismo contrato y tienen sus propios
 
 ## Lo que obtienes gratis {#what-you-get-for-free}
 
-Adoptar el marco es valioso principalmente por lo que deja de tener que construir. En el momento en que tu aplicación sigue las seis reglas, heredas:
+Adoptar el marco es valioso principalmente por lo que deja de tener que construir. En el momento en que tu aplicación sigue las cinco reglas, heredas:
 
 - **Una acción = cada superficie.** Cada acción definida con `defineAction()` es simultáneamente una herramienta de agente, un enlace frontal con seguridad de tipos (`useActionQuery` / `useActionMutation`), un transporte HTTP propiedad del marco, un comando CLI, una herramienta MCP para clientes externos y una herramienta A2A para otras aplicaciones nativas del agente. Los metadatos opcionales de `link` y `mcpApp` agregan enlaces profundos y aplicaciones MCP UI sin una segunda implementación.
-- **Un espacio de trabajo completo por usuario.** Skills, `LEARNINGS.md` compartido, `memory/MEMORY.md` personal, `AGENTS.md`, subagentes personalizados, trabajos programados, servidores MCP conectados: todo respaldado por SQL, no se requiere dev-box. Ver [Workspace](/docs/workspace).
+- **Un espacio de trabajo completo por usuario.** Skills, `LEARNINGS.md` compartido, `memory/MEMORY.md` personal, `AGENTS.md`, subagentes personalizados, trabajos programados, servidores MCP conectados: todo respaldado por SQL, no se requiere dev-box. Ver [Recursos del Agente](/docs/agent-resources).
 - **Componentes React integrados.** `<AgentPanel />` y `<AgentSidebar />` representan el chat y el espacio de trabajo en cualquier lugar de su aplicación. Ver [Drop-in Agent](/docs/drop-in-agent).
 - **Tiempos de ejecución del chat del agente BYO.** El mismo chat UI puede ubicarse encima de los agentes OpenAI, las respuestas de OpenAI, el agente Claude SDK, Vercel AI SDK, AG-UI o su propio flujo normalizado de HTTP. Ver [Native Interfaz de chat](/docs/native-chat-ui#byo-agent-runtimes).
 - **Sincronización en vivo entre el agente y UI.** Las escrituras del mismo proceso se transmiten inmediatamente sobre `/_agent-native/events`; una encuesta ligera mantiene convergentes las escrituras sin servidor, cron y entre procesos. La mutación de actions invalida automáticamente las consultas respaldadas por acciones, por lo que los registros creados por el agente aparecen sin una actualización manual. Consulte [Live Sync](#polling-sync) a continuación.

@@ -14,6 +14,8 @@ metadata:
 
 Every new feature MUST update all four areas. Skipping any one breaks the agent-native contract — the agent and UI must always be equal partners.
 
+Scope check first: this is the checklist for a feature that adds app data or a new capability. A restyle, a copy change, or a screen with no new data model and no new agent-visible operation only needs the areas it actually touches — do not manufacture actions, state keys, or a skill for it.
+
 ## Why
 
 Agent-native apps are defined by parity: everything the UI can do, the agent can do, and vice versa. A feature that only has UI is invisible to the agent. A feature that only has scripts is invisible to the user. A feature without app-state sync means the agent is blind to what the user is doing.
@@ -32,7 +34,7 @@ Build the user-facing interface — a page, component, dialog, or route. Use `us
 - **Raw `useQuery` with custom keys** — needs explicit wiring. Fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client` into the `queryKey` and set `placeholderData: (prev) => prev`. The `action` source is the reliable signal (the agent runner emits it after every successful tool call); the resource-specific source (`"dashboards"`, `"analyses"`, `"settings"`, etc.) is bonus when emitted. Without this wiring, agent writes will be invisible until manual refresh — that breaks the framework's #1 promise.
 
   ```tsx
-  import { useChangeVersions } from "@agent-native/core/client";
+  import { useChangeVersions } from "@agent-native/core/client/hooks";
   import { useQuery } from "@tanstack/react-query";
 
   const v = useChangeVersions(["dashboards", "action"]);
@@ -177,8 +179,15 @@ If the feature stores **user-authored resources** (documents, dashboards, forms,
 
 TL;DR: spread `ownableColumns()` into the resource table, pair it with `createSharesTable(...)`, call `registerShareableResource(...)`, wrap list/read queries with `accessFilter`, guard writes with `assertAccess`, and drop `<ShareButton>` in the resource header. The `share-resource`, `unshare-resource`, `list-resource-shares`, and `set-resource-visibility` actions are auto-mounted framework-wide.
 
+## One more area — who inside the app may do it
+
+If the feature is one **only some teammates should be able to perform inside this app** (an admin-only import, a settings reset), that is a per-app role — not a new organization, and not a share grant. See the `authentication` skill.
+
+TL;DR: declare the vocabulary once with `defineAppRoles({ appId, roles, defaultRole })`, guard the action with `authorize: appAccess.requireAny("...")`, and render the picker with `<TeamPage appRoles={descriptor} />`. `defaultRole` is display only — it never satisfies a guard — and `authorize` gates the operation while `accessFilter` / `assertAccess` still scope the rows.
+
 ## Related Skills
 
+- **authentication** — Per-app member roles (`defineAppRoles`) when only some teammates may use a feature
 - **sharing** — How to make a new resource ownable (private by default, share with users/orgs/public)
 - **context-awareness** — How to expose UI state to the agent (area 4 in detail)
 - **actions** — How to create actions with `defineAction` and the `http` option (area 2 in detail)

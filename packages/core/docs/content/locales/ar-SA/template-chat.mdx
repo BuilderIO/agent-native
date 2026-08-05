@@ -13,7 +13,7 @@ description: "تطبيق بسيط للوكيل الأصلي للدردشة أو�
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>كيف يمكنني المساعدة؟</h1><p class='wf-muted' style='margin:10px 0 0'>دردش حول أي شيء. أضف إجراءات أو مكونات أو صفحات أو مهام أو خلفيتك الخاصة.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>راسل الوكيل...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 5 · تلقائي</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>كيف يمكنني المساعدة؟</h1><p class='wf-muted' style='margin:10px 0 0'>دردش حول أي شيء. أضف إجراءات أو مكونات أو صفحات أو مهام أو خلفيتك الخاصة.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>راسل الوكيل...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · تلقائي</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -125,77 +125,9 @@ npx @agent-native/core@latest create my-agent --headless
 
 من هناك، انسخ مسار `/` الخاص بقالب الدردشة وقائمة سلاسل الشريط الجانبي إلى تطبيقك، أو قم بدعم تطبيق الدردشة وانقل actions من الوكيل بدون رأس إلى دليل `actions/` الخاص به. يظل المفتاح الثابت كما هو: actions هي السطح المشترك للدردشة، وUI، وHTTP، وMCP، وA2A، وCLI.
 
-## أول رمز يجب فحصه {#first-code}
-
-- `actions/hello.ts` هو سلوك البادئ الذي يمكن للوكيل الاتصال به. استبدله أو
-  أضف actions بجانبه.
-- يعرض `app/routes/_index.tsx` سطح الدردشة بملء الصفحة. اضبط
-  الاقتراحات أو الحالة الفارغة أو الملحن أو التخطيط المحيط هنا.
-- يخبر `AGENTS.md` الوكيل المدمج بكيفية العمل داخل هذا التطبيق.
-
-<FileTree
-  id="doc-block-rm7ufm"
-  title={"تخطيط template Chat"}
-  entries={[
-    {
-      path: "actions/hello.ts",
-      note: "action المثال الوحيد؛ استبدله أو أضف actions بجانبه",
-    },
-    {
-      path: "actions/view-screen.ts",
-      note: "context action قياسي يقرأه agent",
-    },
-    {
-      path: "actions/navigate.ts",
-      note: "navigation action قياسي",
-    },
-    {
-      path: "app/routes/_index.tsx",
-      note: "يعرض سطح chat بصفحة كاملة؛ عدّل suggestions و empty state و composer",
-    },
-    {
-      path: "AGENTS.md",
-      note: "إرشادات chat-first يقرأها agent المدمج",
-    },
-  ]}
-/>
-
-صفحة الدردشة رفيعة عن قصد:
-
-```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client";
-
-export default function ChatRoute() {
-  return (
-    <AgentChatSurface
-      mode="page"
-      suggestions={[
-        "What can you do?",
-        "Help me customize this chat app",
-        "Show me the actions and pages I can add",
-      ]}
-    />
-  );
-}
-```
-
-## استخدم الواجهة الخلفية للوكيل الخاص بك {#own-agent-backend}
-
-يستخدم القالب حلقة وكيل التطبيق المضمنة بشكل افتراضي. لتوصيل واجهة خلفية مخصصة، قم بتبديل وقت تشغيل الدردشة خلف البرنامج الإضافي لدردشة الوكيل بدلاً من إعادة كتابة UI. يجب أن يظل مسار الدردشة عارضًا رفيعًا حول سطح الدردشة المشترك؛ ينتمي اختيار الواجهة الخلفية إلى البرنامج الإضافي للخادم/محول وقت التشغيل.
-
-استخدم هذا عندما يكون تنسيق النموذج الخاص بك موجودًا بالفعل في مكان آخر، ولكنك لا تزال تريد تطبيقًا به مصادقة، وسلاسل رسائل، وحالة actions، وUI، وصفحات قابلة للنشر.
-
-## التعديلات الأولى {#first-edits}
-
-بعد السقالات، اسأل الوكيل:
-
-> أضف نموذج بيانات لـ `notes`. تحتوي الملاحظة على معرف وعنوان ونص ومالك. اعرض صفحة ملاحظات على `/notes`، وأضف إنشاء/قائمة actions، واجعل الدردشة قادرة على إنشاء ملاحظات.
-
-يجب على الوكيل إضافة مخطط Drizzle وactions والمسار والتنقل والتعليمات. ثم يمكنك استخدام ميزة الملاحظات إما من UI أو من الدردشة.
-
 ## ما هي الخطوة التالية
 
+- [**ميزتك الأولى في الدردشة**](/docs/template-chat-first-edits) — مسار الدردشة الأولي، مع تعليقات توضيحية، بالإضافة إلى شرح كامل لإضافة ميزة حقيقية
 - [**Getting Started**](/docs) - اختر بين قوالب مقطوعة الرأس، والدردشة، والنطاق
 - [**Agent Surfaces**](/docs/agent-surfaces) - أنماط بدون رأس، والدردشة، والمضمنة، والتطبيقات الكاملة
 - [**Actions**](/docs/actions) — اتصال نظام الدردشة وUI معًا

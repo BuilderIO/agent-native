@@ -1,20 +1,22 @@
 import {
   AssistantChat,
   ChatHistoryList,
-  PromptComposer,
   buildRepositoryFromCodeAgentTranscript,
   codeAgentTranscriptHasPendingApproval,
   createCodeAgentChatAdapter,
   isCodeAgentRunActive,
   isCredentialGapCodeAgentEvent,
   mergeCodeAgentTranscriptEvents,
-  readAgentPromptAttachment,
   type ChatHistoryItem,
   type CodeAgentChatController,
+} from "@agent-native/core/client/agent-chat";
+import {
+  PromptComposer,
+  readAgentPromptAttachment,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/composer";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,
@@ -160,6 +162,7 @@ export interface CodeAgentsHost {
   openTerminal?(
     request?: CodeAgentTerminalRequest,
   ): Promise<CodeAgentTerminalResult>;
+  openCodexLogin?(): Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus?(): Promise<CodeAgentRemoteConnectorStatus>;
   setRemoteConnectorEnabled?(
     enabled: boolean,
@@ -177,6 +180,58 @@ export type CodeAgentsRenderAppSurface = (input: {
   refreshKey: number;
 }) => React.ReactNode;
 
+export interface CodeAgentsNewSessionExtensionSubmitInput {
+  prompt: string;
+  cwd?: string;
+  attachments: CodeAgentPromptAttachment[];
+}
+
+export interface CodeAgentsNewSessionExtensionSubmitResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+  detailId?: string;
+}
+
+export interface CodeAgentsNewSessionExtensionModeControlInput {
+  permissionMode: CodeAgentPermissionMode;
+  onPermissionModeChange: (mode: CodeAgentPermissionMode) => void;
+}
+
+export interface CodeAgentsNewSessionExtension {
+  /** The extension always owns the new-session selector; active routes submits and detail. */
+  active: boolean;
+  disabled?: boolean;
+  /** Rendered in place of the standard Plan/Auto picker. */
+  renderModeControl?(
+    input: CodeAgentsNewSessionExtensionModeControlInput,
+  ): React.ReactNode | undefined;
+  /** Opt in only when the extension needs the standard model picker. */
+  showModelSelector?: boolean;
+  submit(
+    input: CodeAgentsNewSessionExtensionSubmitInput,
+  ): Promise<CodeAgentsNewSessionExtensionSubmitResult>;
+  renderDetail?(input: {
+    detailId: string;
+    onClose: () => void;
+  }): React.ReactNode;
+}
+
+export function resolveNewSessionExtensionComposerState(
+  extension?: CodeAgentsNewSessionExtension,
+): {
+  active: boolean;
+  useDefaultModeControl: boolean;
+  showModelSelector: boolean;
+} {
+  const active = extension?.active === true;
+  return {
+    active,
+    useDefaultModeControl: !extension,
+    showModelSelector: active ? extension.showModelSelector === true : true,
+  };
+}
+
 export interface CodeAgentsAppProps {
   apps: AppConfig[];
   host: CodeAgentsHost;
@@ -187,6 +242,8 @@ export interface CodeAgentsAppProps {
   brandIconUrl?: string;
   onOpenSettings?: () => void;
   renderAppSurface?: CodeAgentsRenderAppSurface;
+  newSessionExtension?: CodeAgentsNewSessionExtension;
+  openDetailRequest?: { detailId: string; nonce: number };
 }
 
 type RunListStatus = CodeAgentRunListResult["status"];
@@ -321,16 +378,37 @@ export default function CodeAgentsApp({
   brandIconUrl,
   onOpenSettings,
   renderAppSurface,
+  newSessionExtension,
+  openDetailRequest,
 }: CodeAgentsAppProps) {
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
     getCodeAgentGoal(selectedGoalId) ?? getDefaultCodeAgentGoal();
   const [runs, setRuns] = useState<CodeAgentRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
+    string | null
+  >(null);
+  const activeNewSessionExtension = newSessionExtension?.active
+    ? newSessionExtension
+    : null;
+  const newSessionExtensionComposerState =
+    resolveNewSessionExtensionComposerState(newSessionExtension);
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
   );
+
+  useEffect(() => {
+    if (activeNewSessionExtension) return;
+    setSelectedExtensionDetailId(null);
+  }, [activeNewSessionExtension]);
+
+  useEffect(() => {
+    if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;
+    setSelectedRunId(null);
+    setSelectedExtensionDetailId(openDetailRequest.detailId);
+  }, [activeNewSessionExtension, openDetailRequest]);
   const selectedRunUsesAppSurface = selectedRun
     ? isMigrationRun(selectedRun)
     : false;
@@ -709,6 +787,7 @@ export default function CodeAgentsApp({
             retryResult.run!,
             ...current.filter((run) => run.id !== retryResult.run!.id),
           ]);
+          setSelectedExtensionDetailId(null);
           setSelectedRunId(retryResult.run.id);
           await loadTranscript(retryResult.run.id, true);
         }
@@ -735,6 +814,67 @@ export default function CodeAgentsApp({
     transcriptEvents,
   ]);
 
+  const connectLocalRuntime = useCallback(
+    async (engine: string) => {
+      if (engine !== "codex-cli") return;
+      if (!host.openCodexLogin) {
+        toast("Local sign-in is only available in Agent Native Desktop", {
+          description: "Open Settings to manage hosted providers instead.",
+        });
+        onOpenSettings?.();
+        return;
+      }
+      try {
+        const result = await host.openCodexLogin();
+        if (!result.ok) {
+          toast("Codex sign-in was not opened", {
+            description: result.error,
+          });
+          return;
+        }
+        toast("Codex sign-in opened", {
+          description:
+            "Finish the ChatGPT sign-in in Terminal. The runtime picker will refresh when it is ready.",
+          duration: 4800,
+        });
+
+        let attempts = 0;
+        const refresh = async (): Promise<void> => {
+          const modelResult = await host.listModels?.();
+          if (modelResult?.status === "ok" && modelResult.models.length > 0) {
+            setModelOptions(modelResult.models);
+            if (modelResult.selected) {
+              setModelSelection((current) =>
+                current.model && current.model !== "auto"
+                  ? current
+                  : { ...modelResult.selected!, effort: current.effort },
+              );
+            }
+            if (
+              modelResult.models.some(
+                (option) =>
+                  option.engine === "codex-cli" && option.configured === true,
+              )
+            ) {
+              toast("ChatGPT subscription connected", {
+                description: "This computer is ready for local Agent tasks.",
+              });
+              return;
+            }
+          }
+          attempts += 1;
+          if (attempts < 30) window.setTimeout(() => void refresh(), 2_000);
+        };
+        void refresh();
+      } catch (err) {
+        toast("Codex sign-in was not opened", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [host, onOpenSettings],
+  );
+
   useEffect(() => {
     if (!isActive || !host.getRemoteConnectorStatus) return;
     void loadRemoteConnectorStatus();
@@ -754,6 +894,7 @@ export default function CodeAgentsApp({
     if (!openRequest) return;
     const nextGoal = getCodeAgentGoal(openRequest.goalId);
     if (nextGoal) setSelectedGoalId(nextGoal.id);
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(openRequest.runId ?? null);
     setWorkbenchOpen(true);
     setSearchPanelOpen(false);
@@ -776,6 +917,12 @@ export default function CodeAgentsApp({
   const providerGate = useMemo(
     () => getProviderGate(hostMetadata),
     [hostMetadata],
+  );
+  // `listModels` only includes Codex when the local CLI is installed. Keep
+  // sign-in hidden until that capability has been confirmed by the host so a
+  // fresh install does not offer a command that cannot launch.
+  const codexCliAvailable = modelOptions.some(
+    (option) => option.engine === "codex-cli",
   );
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
@@ -1020,6 +1167,7 @@ export default function CodeAgentsApp({
     );
     if (matchingGoal) {
       setSelectedGoalId(matchingGoal.id);
+      setSelectedExtensionDetailId(null);
       setSelectedRunId(null);
       setWorkbenchOpen(false);
       setSearchPanelOpen(false);
@@ -1033,6 +1181,7 @@ export default function CodeAgentsApp({
       (skill) => skill.name.toLowerCase() === normalized,
     );
     setSelectedGoalId("task");
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
@@ -1089,6 +1238,7 @@ export default function CodeAgentsApp({
     setRuns((current) =>
       current.some((item) => item.id === run.id) ? current : [run, ...current],
     );
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(run.id);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
@@ -1187,6 +1337,7 @@ export default function CodeAgentsApp({
 
   function openSelectedGoal() {
     setSelectedGoalId("task");
+    setSelectedExtensionDetailId(null);
     setSelectedRunId(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
@@ -1232,6 +1383,51 @@ export default function CodeAgentsApp({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
+    if (activeNewSessionExtension) {
+      const prompt = preparedPrompt.trim();
+      if (!prompt) {
+        toast("Describe an outcome first", { duration: 1800 });
+        return;
+      }
+      setCreatingRun(true);
+      try {
+        const result = await activeNewSessionExtension.submit({
+          prompt,
+          cwd: selectedProjectPath || undefined,
+          attachments,
+        });
+        if (!result.ok) {
+          toast(result.message ?? "Could not start the chat", {
+            description: result.error,
+            duration: 3600,
+          });
+          return;
+        }
+        if (result.detailId && !activeNewSessionExtension.renderDetail) {
+          toast("Could not open the collaboration", {
+            description: "This session mode does not provide a detail view.",
+            duration: 3600,
+          });
+          return;
+        }
+        setNewPrompt("");
+        setNewPromptSeed((seed) => seed + 1);
+        setSelectedRunId(null);
+        setSelectedExtensionDetailId(result.detailId ?? null);
+        setWorkbenchOpen(false);
+        setSearchPanelOpen(false);
+        setMobilePanelOpen(false);
+        if (result.message) toast(result.message, { duration: 2200 });
+      } catch (err) {
+        toast("Could not start the chat", {
+          description: err instanceof Error ? err.message : String(err),
+          duration: 3600,
+        });
+      } finally {
+        setCreatingRun(false);
+      }
+      return;
+    }
     if (providerGate.blocked) {
       toast("Connect a model provider first", {
         description: providerGate.description,
@@ -1272,6 +1468,7 @@ export default function CodeAgentsApp({
       setNewPrompt("");
       setNewPromptSeed((seed) => seed + 1);
       setRuns((current) => [result.run!, ...current]);
+      setSelectedExtensionDetailId(null);
       setSelectedRunId(result.run.id);
       if (typedGoal.id !== selectedGoal.id) {
         setSelectedGoalId(typedGoal.id);
@@ -1531,12 +1728,14 @@ export default function CodeAgentsApp({
               activeId={selectedRunId}
               onSelect={(id) => {
                 markRunsViewed([id]);
+                setSelectedExtensionDetailId(null);
                 setSelectedRunId(id);
                 setSearchPanelOpen(false);
                 setMobilePanelOpen(false);
               }}
               onOpen={(id) => {
                 markRunsViewed([id]);
+                setSelectedExtensionDetailId(null);
                 setSelectedRunId(id);
                 setWorkbenchOpen(true);
                 setSearchPanelOpen(false);
@@ -1665,7 +1864,14 @@ export default function CodeAgentsApp({
                       </div>
                     )}
 
-                    {selectedRun ? (
+                    {activeNewSessionExtension &&
+                    selectedExtensionDetailId &&
+                    activeNewSessionExtension.renderDetail ? (
+                      activeNewSessionExtension.renderDetail({
+                        detailId: selectedExtensionDetailId,
+                        onClose: openSelectedGoal,
+                      })
+                    ) : selectedRun ? (
                       <RunDetailCard
                         host={host}
                         run={selectedRun}
@@ -1689,17 +1895,25 @@ export default function CodeAgentsApp({
                         onConnectBuilder={connectBuilderProvider}
                         onOpenSettings={onOpenSettings}
                         onConnectProvider={connectBuilderProvider}
+                        onConnectLocalRuntime={
+                          codexCliAvailable ? connectLocalRuntime : undefined
+                        }
                       />
                     ) : (
                       <div className="code-agents-start">
                         <h2>What outcome do you want?</h2>
-                        {providerGate.blocked && (
+                        {!activeNewSessionExtension && providerGate.blocked && (
                           <ProviderGateNotice
                             description={providerGate.description}
                             connecting={builderConnecting}
                             message={builderConnectMessage}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
+                            onConnectLocalRuntime={
+                              codexCliAvailable
+                                ? () => void connectLocalRuntime("codex-cli")
+                                : undefined
+                            }
                           />
                         )}
                         <NewSessionComposer
@@ -1710,14 +1924,45 @@ export default function CodeAgentsApp({
                           permissionMode={newRunPermissionMode}
                           modelSelection={selectedModelSelection}
                           modelOptions={modelOptions}
-                          slashCommands={slashCommands}
-                          disabled={providerGate.blocked}
+                          slashCommands={
+                            activeNewSessionExtension ? [] : slashCommands
+                          }
+                          disabled={
+                            activeNewSessionExtension
+                              ? activeNewSessionExtension.disabled
+                              : providerGate.blocked
+                          }
+                          modeControl={newSessionExtension?.renderModeControl?.(
+                            {
+                              permissionMode: newRunPermissionMode,
+                              onPermissionModeChange: setNewRunPermissionMode,
+                            },
+                          )}
+                          useDefaultModeControl={
+                            newSessionExtensionComposerState.useDefaultModeControl
+                          }
+                          showModelSelector={
+                            newSessionExtensionComposerState.showModelSelector
+                          }
                           onPromptChange={setNewPrompt}
                           onPermissionModeChange={setNewRunPermissionMode}
                           onModelSelectionChange={setModelSelection}
-                          onSlashCommand={handleSlashCommand}
+                          onSlashCommand={
+                            activeNewSessionExtension
+                              ? undefined
+                              : handleSlashCommand
+                          }
                           onSubmit={createRunFromPrompt}
-                          onConnectProvider={connectBuilderProvider}
+                          onConnectProvider={
+                            activeNewSessionExtension
+                              ? undefined
+                              : connectBuilderProvider
+                          }
+                          onConnectLocalRuntime={
+                            !activeNewSessionExtension && codexCliAvailable
+                              ? connectLocalRuntime
+                              : undefined
+                          }
                         />
                         {(projects.length > 0 || canChooseProjectFolder) && (
                           <ProjectFolderPicker
@@ -2122,12 +2367,16 @@ function NewSessionComposer({
   modelOptions,
   slashCommands,
   disabled,
+  modeControl,
+  useDefaultModeControl,
+  showModelSelector,
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
   onSlashCommand,
   onSubmit,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   prompt: string;
   promptSeed: number;
@@ -2138,15 +2387,19 @@ function NewSessionComposer({
   modelOptions: CodeAgentModelOption[];
   slashCommands: SlashCommand[];
   disabled?: boolean;
+  modeControl?: React.ReactNode;
+  useDefaultModeControl?: boolean;
+  showModelSelector?: boolean;
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onSlashCommand: (command: string) => void;
+  onSlashCommand?: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   return (
     <CodeAgentComposer
@@ -2161,12 +2414,16 @@ function NewSessionComposer({
       placeholder="Describe a task or ask a question"
       variant="hero"
       disabled={disabled}
+      modeControl={modeControl}
+      useDefaultModeControl={useDefaultModeControl}
+      showModelSelector={showModelSelector}
       onPromptChange={onPromptChange}
       onPermissionModeChange={onPermissionModeChange}
       onModelSelectionChange={onModelSelectionChange}
       onSlashCommand={onSlashCommand}
       onSubmit={onSubmit}
       onConnectProvider={onConnectProvider}
+      onConnectLocalRuntime={onConnectLocalRuntime}
     />
   );
 }
@@ -2191,6 +2448,10 @@ function CodeAgentComposer({
   onSubmit,
   onStop,
   onConnectProvider,
+  onConnectLocalRuntime,
+  modeControl: modeControlOverride,
+  useDefaultModeControl = true,
+  showModelSelector = true,
 }: {
   prompt: string;
   promptSeed?: string | number;
@@ -2215,6 +2476,10 @@ function CodeAgentComposer({
   ) => void;
   onStop?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
+  modeControl?: React.ReactNode;
+  useDefaultModeControl?: boolean;
+  showModelSelector?: boolean;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
@@ -2225,12 +2490,14 @@ function CodeAgentComposer({
     [],
   );
 
-  const modeControl = (
+  const modeControl = useDefaultModeControl ? (
     <RunModeSelect
       value={permissionMode}
       onChange={onPermissionModeChange}
       compact
     />
+  ) : (
+    modeControlOverride
   );
 
   const stopButton =
@@ -2266,10 +2533,15 @@ function CodeAgentComposer({
       initialTextKey={promptSeed}
       modeControl={modeControl}
       actionButton={stopButton}
-      availableModels={availableModels}
-      selectedModel={normalizedModel.model ?? "auto"}
-      selectedEngine={normalizedModel.engine ?? "auto"}
-      selectedEffort={normalizedModel.effort}
+      showModelSelector={showModelSelector}
+      availableModels={showModelSelector ? availableModels : undefined}
+      selectedModel={
+        showModelSelector ? (normalizedModel.model ?? "auto") : undefined
+      }
+      selectedEngine={
+        showModelSelector ? (normalizedModel.engine ?? "auto") : undefined
+      }
+      selectedEffort={showModelSelector ? normalizedModel.effort : undefined}
       onModelChange={(model, engine) =>
         onModelSelectionChange({
           engine,
@@ -2297,6 +2569,7 @@ function CodeAgentComposer({
       voiceEnabled
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}
+      onConnectLocalRuntime={onConnectLocalRuntime}
     />
   );
 }
@@ -2339,7 +2612,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Builder.io, run codex login for Codex CLI, or add your own API key.",
+        "Connect Builder.io (free tier available), sign in with your ChatGPT subscription, or add an API key.",
     };
   }
   return {
@@ -2354,12 +2627,14 @@ function ProviderGateNotice({
   message,
   onConnectBuilder,
   onOpenSettings,
+  onConnectLocalRuntime,
 }: {
   description: string;
   connecting: boolean;
   message: string | null;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
+  onConnectLocalRuntime?: () => void;
 }) {
   return (
     <CodeProviderNotice
@@ -2369,6 +2644,8 @@ function ProviderGateNotice({
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
       onPrimaryAction={onConnectBuilder}
+      localRuntimeActionLabel="Sign in with ChatGPT"
+      onConnectLocalRuntime={onConnectLocalRuntime}
       secondaryActionLabel="API keys"
       onOpenSettings={onOpenSettings}
     />
@@ -2382,6 +2659,8 @@ function CodeProviderNotice({
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
+  localRuntimeActionLabel,
+  onConnectLocalRuntime,
   secondaryActionLabel,
   onOpenSettings,
 }: {
@@ -2391,6 +2670,8 @@ function CodeProviderNotice({
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
+  localRuntimeActionLabel?: string;
+  onConnectLocalRuntime?: () => void;
   secondaryActionLabel?: string;
   onOpenSettings?: () => void;
 }) {
@@ -2410,6 +2691,16 @@ function CodeProviderNotice({
             disabled={primaryDisabled}
           >
             {primaryActionLabel}
+          </button>
+        )}
+        {onConnectLocalRuntime && localRuntimeActionLabel && (
+          <button
+            type="button"
+            className="code-agents-button"
+            onClick={onConnectLocalRuntime}
+          >
+            <IconTerminal2 size={14} strokeWidth={1.8} />
+            {localRuntimeActionLabel}
           </button>
         )}
         {onOpenSettings && secondaryActionLabel && (
@@ -3281,6 +3572,7 @@ function RunDetailCard({
   onConnectBuilder,
   onOpenSettings,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   host: CodeAgentsHost;
   run: CodeAgentRun | null;
@@ -3304,6 +3596,7 @@ function RunDetailCard({
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
 
@@ -3358,13 +3651,19 @@ function RunDetailCard({
           title="Provider needed"
           description={
             builderConnectMessage ??
-            "Connect Builder.io, run codex login for Codex CLI, or add your own API key."
+            "Connect Builder.io (free tier available), run codex login for Codex CLI, or add your own API key."
           }
           primaryActionLabel={
             builderConnecting ? "Waiting..." : "Connect Builder.io"
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
+          localRuntimeActionLabel="Sign in with ChatGPT"
+          onConnectLocalRuntime={
+            onConnectLocalRuntime
+              ? () => onConnectLocalRuntime("codex-cli")
+              : undefined
+          }
           secondaryActionLabel="API keys"
           onOpenSettings={onOpenSettings}
         />
@@ -3427,6 +3726,7 @@ function RunDetailCard({
         onDeny={onDeny}
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
+        onConnectLocalRuntime={onConnectLocalRuntime}
       />
     </div>
   );
@@ -3450,6 +3750,7 @@ function TranscriptPanel({
   onDeny,
   onApproveAlways,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   host: CodeAgentsHost;
   goal: CodeAgentGoalDefinition;
@@ -3470,6 +3771,7 @@ function TranscriptPanel({
   /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
   onApproveAlways?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const selectedModel = normalizedModel.model ?? "auto";
@@ -3596,6 +3898,7 @@ function TranscriptPanel({
             runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
           }
           onConnectProvider={onConnectProvider}
+          onConnectLocalRuntime={onConnectLocalRuntime}
         />
       )}
     </div>

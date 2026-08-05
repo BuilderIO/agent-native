@@ -441,10 +441,10 @@ const messages = {
       "Crie um widget personalizado para minha caixa de entrada",
   },
   settings: {
-    openAgentSettings: "Abrir configurações do agente",
+    openAgentSettings: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    agentTitle: "Configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    agentTitle: "Gerenciar agente",
     aliasName: "Nome do alias",
     aliasNamePlaceholder: "ex.: Equipe de design",
     recipientsOnePerLine: "Destinatários (um email por linha)",

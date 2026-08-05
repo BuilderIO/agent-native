@@ -1,4 +1,4 @@
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 export type ReminderMethod = "popup" | "email";
 export type ReminderMode = "default" | "none" | "custom";
@@ -7,6 +7,7 @@ export type RecurrencePreset =
   | "daily"
   | "weekdays"
   | "weekly"
+  | "biweekly"
   | "monthly"
   | "yearly"
   | "custom";
@@ -33,6 +34,19 @@ export const REMINDER_PRESETS = [
 ] as const;
 
 export const MAX_EVENT_ATTACHMENTS = 25;
+export const UNNAMED_EVENT_TITLE = "(No title)";
+
+export function getEditableEventTitle(
+  event: Pick<CalendarEvent, "title" | "titleIsGenerated">,
+): string {
+  return event.titleIsGenerated ? "" : event.title;
+}
+
+export function buildEventTitleUpdate(
+  title: string,
+): Pick<CalendarEvent, "title" | "titleIsGenerated"> {
+  return { title: title.trim(), titleIsGenerated: false };
+}
 
 const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
 const DAY_CODE_BY_LABEL: Record<string, (typeof DAY_CODES)[number]> = {
@@ -195,6 +209,23 @@ export function getEventEndValidationMessage({
   return "End date and time must be after start date and time.";
 }
 
+export function normalizeAllDayEditEndDate(
+  singleDay: boolean,
+  startDate: string,
+  endDate: string,
+): string {
+  return singleDay ? startDate : endDate;
+}
+
+export function resolveTimeEditScope(
+  isRecurring: boolean,
+  isSingleDayWorkingLocation: boolean,
+  requestedScope: UpdateEventScope,
+): UpdateEventScope {
+  if (!isRecurring || isSingleDayWorkingLocation) return "single";
+  return requestedScope;
+}
+
 export function getLocalTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
@@ -229,14 +260,36 @@ export function dateTimeInTimezoneToIso(
 ) {
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
-  const wallTimeAsUtc = new Date(
-    Date.UTC(year, month - 1, day, hour, minute, 0),
-  );
-  let offset = getTimezoneOffsetMs(wallTimeAsUtc, timezone);
-  let result = new Date(wallTimeAsUtc.getTime() - offset);
-  offset = getTimezoneOffsetMs(result, timezone);
-  result = new Date(wallTimeAsUtc.getTime() - offset);
-  return result.toISOString();
+  const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offsets = new Set<number>();
+  for (let hours = -36; hours <= 36; hours += 6) {
+    offsets.add(
+      getTimezoneOffsetMs(
+        new Date(wallClockUtc + hours * 60 * 60 * 1000),
+        timezone,
+      ),
+    );
+  }
+
+  const candidates = [...offsets]
+    .map((offset) => new Date(wallClockUtc - offset))
+    .map((candidate) => ({
+      candidate,
+      localWallClock:
+        candidate.getTime() + getTimezoneOffsetMs(candidate, timezone),
+    }))
+    .sort((a, b) => {
+      const aDelta = a.localWallClock - wallClockUtc;
+      const bDelta = b.localWallClock - wallClockUtc;
+      if (aDelta === 0 && bDelta === 0) {
+        return a.candidate.getTime() - b.candidate.getTime();
+      }
+      if (aDelta >= 0 && bDelta < 0) return -1;
+      if (aDelta < 0 && bDelta >= 0) return 1;
+      return Math.abs(aDelta) - Math.abs(bDelta);
+    });
+
+  return candidates[0].candidate.toISOString();
 }
 
 export function formatTimezoneLabel(timezone: string) {
@@ -317,6 +370,7 @@ export function getRecurrencePreset(recurrence?: string[]): RecurrencePreset {
   const interval = recurrenceField(rule, "INTERVAL") || "1";
   const byDay = recurrenceField(rule, "BYDAY");
 
+  if (freq === "WEEKLY" && interval === "2") return "biweekly";
   if (interval !== "1") return "custom";
   if (freq === "DAILY" && !byDay) return "daily";
   if ((freq === "DAILY" || freq === "WEEKLY") && byDay === "MO,TU,WE,TH,FR") {
@@ -343,6 +397,10 @@ export function buildRecurrenceRules(
     case "weekly": {
       const day = eventWeekdayCode(startIso, timeZone);
       return [`RRULE:FREQ=WEEKLY;BYDAY=${day}`];
+    }
+    case "biweekly": {
+      const day = eventWeekdayCode(startIso, timeZone);
+      return [`RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=${day}`];
     }
     case "monthly":
       return ["RRULE:FREQ=MONTHLY"];
