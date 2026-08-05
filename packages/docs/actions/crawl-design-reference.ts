@@ -5,6 +5,7 @@ import { z } from "zod";
 const MAX_HTML_BYTES = 512_000;
 const MAX_CSS_BYTES = 192_000;
 const MAX_SCRIPT_BYTES = 2_000_000;
+const MAX_FIRECRAWL_BYTES = 256_000;
 const MAX_STYLESHEETS = 3;
 
 async function readBoundedText(response: Response, maxBytes: number) {
@@ -172,6 +173,50 @@ function colorToHex(value: string | null) {
     .join("");
 }
 
+type FirecrawlBranding = {
+  colors?: {
+    primary?: string;
+    secondary?: string;
+    accent?: string;
+  };
+  fonts?: Array<{ family?: string; role?: string }>;
+  typography?: {
+    fontFamilies?: {
+      primary?: string;
+      heading?: string;
+      body?: string;
+    };
+  };
+};
+
+async function getFirecrawlBranding(url: string, apiKey: string) {
+  const response = await fetch("https://api.firecrawl.dev/v2/scrape", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      url,
+      formats: ["branding"],
+      waitFor: 1_500,
+      timeout: 30_000,
+    }),
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new Error(`Firecrawl returned ${response.status}.`);
+  }
+  const payload = JSON.parse(
+    await readBoundedText(response, MAX_FIRECRAWL_BYTES),
+  ) as {
+    success?: boolean;
+    data?: { branding?: FirecrawlBranding };
+  };
+  return payload.success ? (payload.data?.branding ?? null) : null;
+}
+
 async function getColorNames(colors: Array<string | null>) {
   const values = colors
     .map(colorToHex)
@@ -192,11 +237,18 @@ async function getColorNames(colors: Array<string | null>) {
   );
 }
 
-function findColors(themeColor: string) {
-  const primaryHex = colorToHex(normalizeColor(themeColor));
+function findColors(themeColor: string, branding: FirecrawlBranding | null) {
+  const primaryHex = colorToHex(
+    normalizeColor(branding?.colors?.primary) || normalizeColor(themeColor),
+  );
+  const accentHex = colorToHex(
+    normalizeColor(
+      branding?.colors?.accent || branding?.colors?.secondary || "",
+    ),
+  );
   return {
     primary: primaryHex ? `#${primaryHex}` : null,
-    accent: null,
+    accent: accentHex && accentHex !== primaryHex ? `#${accentHex}` : null,
   };
 }
 
@@ -342,7 +394,18 @@ export default defineAction({
       }),
     );
     const css = `${inlineCss}\n${externalCss.join("\n")}`;
-    const colors = findColors(themeColor);
+    let branding: FirecrawlBranding | null = null;
+    if (process.env.FIRECRAWL_API_KEY) {
+      try {
+        branding = await getFirecrawlBranding(
+          parsedUrl.href,
+          process.env.FIRECRAWL_API_KEY,
+        );
+      } catch {
+        branding = null;
+      }
+    }
+    const colors = findColors(themeColor, branding);
     let colorNames = new Map<string, string>();
     try {
       colorNames = await getColorNames([colors.primary, colors.accent]);
@@ -350,11 +413,16 @@ export default defineAction({
       colorNames = new Map();
     }
     const bodyFont =
+      branding?.typography?.fontFamilies?.body ||
+      branding?.typography?.fontFamilies?.primary ||
+      branding?.fonts?.find((font) => font.role === "body")?.family ||
       findFont(css, [/body/, /html/]) ||
       cleanFontFamily(
         css.match(/--[\w-]*(?:body-)?font[\w-]*\s*:\s*([^;}]+)/i)?.[1],
       );
     const headingFont =
+      branding?.typography?.fontFamilies?.heading ||
+      branding?.fonts?.find((font) => font.role === "heading")?.family ||
       findFont(css, [/h1\b/, /h2\b/, /heading/]) ||
       cleanFontFamily(
         css.match(

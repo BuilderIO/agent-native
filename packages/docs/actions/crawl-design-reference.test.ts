@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ssrfSafeFetch = vi.hoisted(() => vi.fn());
 
@@ -9,7 +9,15 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 import crawlDesignReference from "./crawl-design-reference";
 
 describe("crawl-design-reference", () => {
-  beforeEach(() => ssrfSafeFetch.mockReset());
+  beforeEach(() => {
+    ssrfSafeFetch.mockReset();
+    vi.stubEnv("FIRECRAWL_API_KEY", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
 
   it("extracts bounded brand metadata from a public page", async () => {
     ssrfSafeFetch
@@ -124,6 +132,67 @@ describe("crawl-design-reference", () => {
       "Strategy and creative direction for ambitious brands building meaningful businesses in a changing world",
     );
     expect(output.description.split(" ")).toHaveLength(14);
+  });
+
+  it("prefers rendered branding signals from Firecrawl", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "test-key");
+    const firecrawlFetch = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            branding: {
+              colors: { primary: "#1E3346", accent: "#0DA0A0" },
+              typography: {
+                fontFamilies: { heading: "Sora", body: "Poppins" },
+              },
+            },
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", firecrawlFetch);
+    ssrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          `<!doctype html><html><head><title>Example Studio</title></head></html>`,
+          {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            colors: [
+              { name: "Blue Whale", requestedHex: "#1e3346" },
+              { name: "Persian Green", requestedHex: "#0da0a0" },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+
+    const output = await crawlDesignReference.run({
+      url: "https://example.com",
+    });
+
+    expect(firecrawlFetch).toHaveBeenCalledWith(
+      "https://api.firecrawl.dev/v2/scrape",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ authorization: "Bearer test-key" }),
+      }),
+    );
+    expect(output).toMatchObject({
+      primaryColor: "#1e3346",
+      primaryColorName: "Blue Whale",
+      accentColor: "#0da0a0",
+      accentColorName: "Persian Green",
+      headingFont: "Sora",
+      bodyFont: "Poppins",
+    });
   });
 
   it("ignores arbitrary stylesheet colors without explicit brand semantics", async () => {
