@@ -1,11 +1,12 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
+  IconAlertTriangle,
   IconBolt,
   IconCalendarEvent,
   IconClock,
-  IconAlertTriangle,
   IconEye,
   IconLoader2,
+  IconMail,
   IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
@@ -13,7 +14,6 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { AgentAskPopover } from "../AgentAskPopover.js";
 import {
   Dialog,
   DialogContent,
@@ -23,13 +23,13 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useFormatters, useT } from "../i18n.js";
-import { automationCreationContext } from "../settings/AutomationsSection.js";
 import { AgentEmptyState } from "./AgentEmptyState.js";
 import { AgentTabFrame } from "./AgentTabFrame.js";
 import {
   AutomationDetailsDialog,
   type AutomationDetailsField,
 } from "./AutomationDetailsDialog.js";
+import { AutomationEditorDialog } from "./AutomationEditorDialog.js";
 import { AutomationScheduleDialog } from "./AutomationScheduleDialog.js";
 import type { AgentPageTabProps } from "./types.js";
 import {
@@ -72,12 +72,41 @@ function listAutomations(automations: Automation[]): ListedAutomation[] {
 
 type Translate = ReturnType<typeof useT>;
 
+const EMAIL_EVENT = "mail.message.received";
+
+function triggerLabel(entry: ListedAutomation, t: Translate): string {
+  if (entry.triggerType === "manual") {
+    return t("jobs.manualTrigger", { defaultValue: "On demand" });
+  }
+  if (
+    entry.kind === "automation" &&
+    entry.triggerType === "event" &&
+    entry.resource.event === EMAIL_EVENT
+  ) {
+    return t("jobs.emailTrigger", { defaultValue: "Email received" });
+  }
+  return entry.triggerType === "event"
+    ? t("jobs.eventTrigger", { defaultValue: "App event" })
+    : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" });
+}
+
 function describeTrigger(entry: ListedAutomation, t: Translate): string {
-  if (entry.kind === "automation" && entry.triggerType === "event") {
-    return t("jobs.automationEventDetails", {
-      defaultValue: "Runs when {{event}}.",
-      event: entry.resource.event ?? "an event fires",
+  if (entry.triggerType === "manual") {
+    return t("jobs.automationManualDetails", {
+      defaultValue: "Runs only when started on demand.",
     });
+  }
+  if (entry.kind === "automation" && entry.triggerType === "event") {
+    return entry.resource.event === EMAIL_EVENT
+      ? t("jobs.automationEmailDetails", {
+          defaultValue: "Runs when an email is received.",
+        })
+      : t("jobs.automationEventDetails", {
+          defaultValue: "Runs when {{event}}.",
+          event:
+            entry.resource.event ??
+            t("jobs.unknownEvent", { defaultValue: "an app event fires" }),
+        });
   }
   return (
     entry.resource.scheduleDescription ||
@@ -102,10 +131,7 @@ function detailsFields(
     },
     {
       label: t("jobs.trigger", { defaultValue: "Trigger" }),
-      value:
-        entry.triggerType === "event"
-          ? t("jobs.eventTrigger", { defaultValue: "Event-triggered" })
-          : t("jobs.scheduledTrigger", { defaultValue: "Scheduled" }),
+      value: triggerLabel(entry, t),
     },
   ];
 
@@ -165,10 +191,6 @@ function detailsFields(
   return fields;
 }
 
-export function organizationAutomationCreationContext(): string {
-  return "The user wants to create a new organization automation. Use manage-automations with action=define and scope=organization to create it. Ask clarifying questions if needed about whether it runs on a schedule or event, any conditions, and what actions to take.";
-}
-
 export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
   const t = useT();
   const formatters = useFormatters();
@@ -190,6 +212,10 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
   const [scheduleTarget, setScheduleTarget] = useState<ListedAutomation | null>(
     null,
   );
+  const [editorTarget, setEditorTarget] = useState<{
+    scope: "personal" | "organization";
+    automation: Automation | null;
+  } | null>(null);
   const [runTarget, setRunTarget] = useState<ListedAutomation | null>(null);
 
   const formatDateTime = (value: string | null) => {
@@ -277,19 +303,15 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
                 })}
               </span>
             ) : null}
-            <AgentAskPopover
-              context={organizationAutomationCreationContext()}
-              prompt={t("jobs.organizationPrompt", {
-                defaultValue:
-                  "Create a shared organization automation that does this: ",
-              })}
-              title={t("jobs.automationsCreateTitle", {
-                defaultValue: "Create an automation",
-              })}
-              label={t("jobs.newAutomation", {
-                defaultValue: "New automation",
-              })}
-            />
+            <Button
+              type="button"
+              className="cursor-pointer"
+              onClick={() =>
+                setEditorTarget({ scope: "organization", automation: null })
+              }
+            >
+              {t("jobs.newAutomation", { defaultValue: "New automation" })}
+            </Button>
           </div>
         ) : null}
       </div>
@@ -334,15 +356,15 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
           }
           action={
             organization ? null : (
-              <AgentAskPopover
-                context={automationCreationContext()}
-                prompt={t("jobs.automationPrompt", {
-                  defaultValue: "Create an automation that does this: ",
-                })}
-                title={t("jobs.automationsCreateTitle", {
-                  defaultValue: "Create an automation",
-                })}
-              />
+              <Button
+                type="button"
+                className="cursor-pointer"
+                onClick={() =>
+                  setEditorTarget({ scope: "personal", automation: null })
+                }
+              >
+                {t("jobs.newAutomation", { defaultValue: "New automation" })}
+              </Button>
             )
           }
         />
@@ -353,17 +375,7 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
             const lastRun = formatDateTime(resource.lastRun);
             const lastCheck = formatDateTime(resource.lastCheck);
             const nextRun = formatDateTime(resource.nextRun);
-            const triggerDescription =
-              entry.kind === "automation" && entry.triggerType === "event"
-                ? t("jobs.automationEventTrigger", {
-                    defaultValue: "On {{event}}",
-                    event: entry.resource.event ?? "event",
-                  })
-                : resource.scheduleDescription ||
-                  resource.schedule ||
-                  t("jobs.scheduledTrigger", {
-                    defaultValue: "Scheduled",
-                  });
+            const triggerDescription = describeTrigger(entry, t);
             const instructions =
               entry.kind === "automation"
                 ? entry.resource.body
@@ -376,7 +388,13 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
               >
                 <div className="flex items-start gap-3">
                   <div className="mt-0.5 text-muted-foreground">
-                    {entry.triggerType === "event" ? (
+                    {entry.triggerType === "manual" ? (
+                      <IconPlayerPlay className="size-4" />
+                    ) : entry.kind === "automation" &&
+                      entry.triggerType === "event" &&
+                      entry.resource.event === EMAIL_EVENT ? (
+                      <IconMail className="size-4" />
+                    ) : entry.triggerType === "event" ? (
                       <IconBolt className="size-4" />
                     ) : (
                       <IconClock className="size-4" />
@@ -388,13 +406,7 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
                         {resource.name.replace(/-/g, " ")}
                       </h3>
                       <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        {entry.triggerType === "event"
-                          ? t("jobs.eventTrigger", {
-                              defaultValue: "Event-triggered",
-                            })
-                          : t("jobs.scheduledTrigger", {
-                              defaultValue: "Scheduled",
-                            })}
+                        {triggerLabel(entry, t)}
                       </span>
                       <span
                         className={
@@ -477,7 +489,24 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
                           <IconPlayerPlay className="size-3.5" />
                           {t("jobs.runNow", { defaultValue: "Run now" })}
                         </Button>
-                        {entry.triggerType === "schedule" ? (
+                        {entry.kind === "automation" ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="cursor-pointer px-2 text-xs"
+                            disabled={mutationPending}
+                            onClick={() =>
+                              setEditorTarget({
+                                scope: entry.resource.scope,
+                                automation: entry.resource,
+                              })
+                            }
+                          >
+                            <IconPencil className="size-3.5" />
+                            {t("jobs.edit", { defaultValue: "Edit" })}
+                          </Button>
+                        ) : entry.triggerType === "schedule" ? (
                           <Button
                             type="button"
                             variant="ghost"
@@ -550,18 +579,15 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
           "Manage agent tasks that run on a schedule or in response to events.",
       })}
       actions={
-        <AgentAskPopover
-          context={automationCreationContext()}
-          prompt={t("jobs.automationPrompt", {
-            defaultValue: "Create an automation that does this: ",
-          })}
-          title={t("jobs.automationsCreateTitle", {
-            defaultValue: "Create an automation",
-          })}
-          label={t("jobs.newAutomation", {
-            defaultValue: "New automation",
-          })}
-        />
+        <Button
+          type="button"
+          className="cursor-pointer"
+          onClick={() =>
+            setEditorTarget({ scope: "personal", automation: null })
+          }
+        >
+          {t("jobs.newAutomation", { defaultValue: "New automation" })}
+        </Button>
       }
     >
       <div className="space-y-7">
@@ -742,6 +768,35 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
             formatDateTime(new Date(value).toISOString()) ?? String(value)
           }
           onClose={() => setDetailsTarget(null)}
+        />
+      ) : null}
+
+      {editorTarget ? (
+        <AutomationEditorDialog
+          open
+          scope={editorTarget.scope}
+          automation={editorTarget.automation}
+          saving={
+            editorTarget.scope === "organization"
+              ? organizationAutomationsMutation.isPending
+              : personalAutomationsMutation.isPending
+          }
+          error={
+            (editorTarget.scope === "organization"
+              ? organizationAutomationsMutation.error
+              : personalAutomationsMutation.error
+            )?.message ?? null
+          }
+          onCancel={() => setEditorTarget(null)}
+          onSave={(input) => {
+            const mutation =
+              editorTarget.scope === "organization"
+                ? organizationAutomationsMutation
+                : personalAutomationsMutation;
+            mutation.mutate(input, {
+              onSuccess: () => setEditorTarget(null),
+            });
+          }}
         />
       ) : null}
 

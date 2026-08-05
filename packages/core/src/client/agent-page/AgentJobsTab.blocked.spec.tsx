@@ -23,12 +23,6 @@ vi.mock("./use-jobs.js", () => ({
   useRunAutomationNow: jobMocks.useRunAutomationNow,
 }));
 
-vi.mock("../AgentAskPopover.js", () => ({
-  AgentAskPopover: ({ title, label }: { title: string; label?: string }) => (
-    <button type="button">{label ?? title}</button>
-  ),
-}));
-
 vi.mock("../i18n.js", () => ({
   useFormatters: () => ({ formatDate: (value: string) => value }),
   useT:
@@ -146,6 +140,12 @@ describe("AgentJobsTab blocked automation", () => {
 
     act(() => {
       editButton?.click();
+    });
+    const advancedButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((button) => button.textContent?.trim() === "Advanced");
+    act(() => {
+      advancedButton?.click();
     });
 
     const input = document.querySelector<HTMLInputElement>(

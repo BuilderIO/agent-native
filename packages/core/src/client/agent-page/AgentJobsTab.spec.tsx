@@ -10,6 +10,7 @@ const jobMocks = vi.hoisted(() => ({
     user: vi.fn(),
   },
   useRunAutomationNow: vi.fn(),
+  useAutomationEvents: vi.fn(),
   useAutomations: vi.fn(),
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
@@ -17,27 +18,12 @@ const jobMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./use-jobs.js", () => ({
+  useAutomationEvents: jobMocks.useAutomationEvents,
   useAutomations: jobMocks.useAutomations,
   useManageAutomation: jobMocks.useManageAutomation,
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
-}));
-
-vi.mock("../AgentAskPopover.js", () => ({
-  AgentAskPopover: ({
-    context,
-    label,
-    title,
-  }: {
-    context: string;
-    label?: string;
-    title: string;
-  }) => (
-    <button type="button" data-creation-context={context}>
-      {label ?? title}
-    </button>
-  ),
 }));
 
 vi.mock("../i18n.js", () => ({
@@ -58,10 +44,7 @@ vi.mock("../i18n.js", () => ({
     },
 }));
 
-import {
-  AgentJobsTab,
-  organizationAutomationCreationContext,
-} from "./AgentJobsTab.js";
+import { AgentJobsTab } from "./AgentJobsTab.js";
 
 function queryResult<T>(data: T) {
   return {
@@ -141,6 +124,7 @@ describe("AgentJobsTab organization automations", () => {
           : [],
       ),
     );
+    jobMocks.useAutomationEvents.mockReturnValue(queryResult([]));
     jobMocks.useManageRecurringJob.mockReturnValue(mutationResult());
     jobMocks.useRunAutomationNow.mockReturnValue(mutationResult());
     jobMocks.useManageAutomation.mockImplementation((scope: "user" | "org") =>
@@ -163,7 +147,7 @@ describe("AgentJobsTab organization automations", () => {
     expect(jobMocks.useAutomations).toHaveBeenCalledWith("org");
     expect(container.textContent).toContain("weekly report");
     expect(container.textContent).toContain("new lead alert");
-    expect(container.textContent).toContain("On lead.created");
+    expect(container.textContent).toContain("Runs when lead.created.");
     expect(container.textContent).toContain(
       "Scheduled and event-triggered automations shared with this organization.",
     );
@@ -198,22 +182,73 @@ describe("AgentJobsTab organization automations", () => {
     expect(jobMocks.manageAutomation.user).not.toHaveBeenCalled();
   });
 
-  it("creates organization automations through the scoped automation tool", () => {
+  it("opens organization creation with scope fixed by its section", () => {
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);
     });
 
-    const orgCreationButton = Array.from(
-      container.querySelectorAll("[data-creation-context]"),
-    ).find((button) =>
-      button
-        .getAttribute("data-creation-context")
-        ?.includes("scope=organization"),
+    const organizationSection = [...container.querySelectorAll("section")].find(
+      (section) => section.textContent?.includes("Organization"),
     );
+    const createButton = [
+      ...(organizationSection?.querySelectorAll("button") ?? []),
+    ].find((button) => button.textContent?.trim() === "New automation");
+    act(() => createButton?.click());
 
-    expect(orgCreationButton).not.toBeUndefined();
-    expect(organizationAutomationCreationContext()).toContain(
-      "manage-automations with action=define and scope=organization",
+    expect(document.body.textContent).toContain(
+      "fixed to the organization scope",
     );
+  });
+
+  it("closes the full editor after an explicit automation update succeeds", () => {
+    jobMocks.useManageAutomation.mockImplementation(
+      (scope: "user" | "org") => ({
+        error: null,
+        isPending: false,
+        mutate: (input: unknown, options?: { onSuccess?: () => void }) => {
+          jobMocks.manageAutomation[scope](input);
+          options?.onSuccess?.();
+        },
+      }),
+    );
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const eventRow = [...container.querySelectorAll("article")].find((row) =>
+      row.textContent?.includes("new lead alert"),
+    );
+    const editButton = [...(eventRow?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent?.trim() === "Edit",
+    );
+    act(() => editButton?.click());
+    expect(document.body.textContent).toContain("Edit automation");
+
+    const body =
+      document.querySelector<HTMLTextAreaElement>("#automation-body");
+    if (!body) throw new Error("No automation instructions field");
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      setter?.call(body, "Notify the account team.");
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+      body.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const saveButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Save changes",
+    );
+    act(() => saveButton?.click());
+
+    expect(jobMocks.manageAutomation.org).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "update",
+        name: "new-lead-alert",
+        scope: "organization",
+        body: "Notify the account team.",
+      }),
+    );
+    expect(document.body.textContent).not.toContain("Edit automation");
   });
 });
