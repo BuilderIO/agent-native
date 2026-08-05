@@ -10,15 +10,17 @@ import {
   setResponseStatus,
 } from "h3";
 
-import { MAX_FIG_FILE_BYTES } from "../lib/fig-file-limits.js";
 import {
   normalizeImportedHtmlDocument,
   saveImportedDesignFiles,
 } from "../lib/import-design-files.js";
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
+  TOTAL_BODY_LIMIT,
+} from "../lib/request-body-limits.js";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
-const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
-const TOTAL_BODY_LIMIT = MAX_FIG_FILE_BYTES + MULTIPART_OVERHEAD_BYTES;
 
 // Matches the local-kiwi clipboard frame cap so a token-free .fig hydration of
 // a multi-frame paste can fill every imported screen in one upload.
@@ -130,8 +132,10 @@ export const importDesignFile = defineEventHandler(async (event) => {
         }
 
         if (ext === ".fig") {
-          if (data.length > MAX_FIG_FILE_BYTES) {
-            throw new Error(".fig file is too large (max 50 MB).");
+          if (data.length > MAX_UPLOAD_BYTES) {
+            throw new Error(
+              `.fig file is too large (max ${MAX_UPLOAD_MB} MB). In Figma, copy just the frame you want into a new file and export that as .fig.`,
+            );
           }
 
           // Token-free hydration: fill the image placeholders left by a no-token
