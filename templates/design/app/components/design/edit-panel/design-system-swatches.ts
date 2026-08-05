@@ -25,30 +25,62 @@ function normalizeHex(value: string): string | null {
   return parsed ? rgbaToHex(parsed).toUpperCase() : null;
 }
 
+/** Guards a cyclic alias chain (`--a: var(--b); --b: var(--a)`). */
+const MAX_ALIAS_DEPTH = 8;
+
+/**
+ * A token's value as a paintable literal, following aliases through the kit's
+ * own vocabulary. A kit legitimately defines one token as another, and dropping
+ * those loses a selectable token; painting them raw gives an empty swatch.
+ */
+function paintableTokenValue(
+  value: string,
+  byCssVar: ReadonlyMap<string, string>,
+  depth = 0,
+): string | null {
+  if (normalizeHex(value)) return value;
+  if (depth >= MAX_ALIAS_DEPTH) return null;
+  const reference = parseTokenReference(value);
+  if (!reference) return null;
+
+  const aliased = byCssVar.get(reference.cssVar);
+  if (aliased !== undefined) {
+    const resolved = paintableTokenValue(aliased, byCssVar, depth + 1);
+    if (resolved) return resolved;
+  }
+  return reference.fallback
+    ? paintableTokenValue(reference.fallback, byCssVar, depth + 1)
+    : null;
+}
+
 /**
  * The linked kit's swatchable colour tokens from an `index-design-tokens`
  * result, which mixes the design's own `:root` colours into the same list.
- * Unparseable values are dropped — `color` covers unresolved `var(--x)` too,
- * and those paint an empty swatch.
+ * Values that resolve to no colour at all are dropped, since they would paint
+ * an empty swatch.
  */
 export function toDesignSystemColorSwatches(
   tokens: readonly IndexedToken[] | undefined,
   limit = 48,
 ): DesignSystemColorSwatch[] {
   if (!tokens) return [];
+  // Every token, not just kit ones: a kit alias may point at a design `:root`
+  // variable, and that still resolves to a real colour.
+  const byCssVar = new Map(tokens.map((token) => [token.cssVar, token.value]));
   const seen = new Set<string>();
   const out: DesignSystemColorSwatch[] = [];
 
   for (const token of tokens) {
     if (token.type !== "color") continue;
     if (token.origin !== "brand-kit") continue;
-    if (!normalizeHex(token.value)) continue;
+    const value = paintableTokenValue(token.value, byCssVar);
+    if (!value) continue;
     if (seen.has(token.cssVar)) continue;
     seen.add(token.cssVar);
     out.push({
       name: token.name,
       cssVar: token.cssVar,
-      value: token.value,
+      value,
       ...(token.group ? { group: token.group } : {}),
       ...(token.source ? { source: token.source } : {}),
     });
@@ -114,22 +146,27 @@ export function tokenReferenceValue(swatch: DesignSystemColorSwatch): string {
   return `var(${swatch.cssVar}, ${swatch.value})`;
 }
 
+const HIDDEN_TOKEN_MIX =
+  /^color-mix\(\s*in\s+srgb\s*,\s*(var\(.+\))\s+0%\s*,\s*transparent\s*\)$/i;
+
 /**
- * What to write when hiding a colour, and the reference to park so showing can
- * restore it. Hiding zeroes the alpha channel, which a `var()` reference has
- * none of — so its fallback supplies the channels and the reference itself has
- * to be carried out of band or the token is gone once hidden.
+ * What to write when hiding a colour. Zeroing alpha needs literal channels,
+ * which a `var()` reference has none of — so a token is hidden as a 0% mix that
+ * keeps the reference inside the persisted CSS. React state would not survive
+ * the deselect/reselect that unmounts the inspector.
  */
 export function hiddenColorWrite(
   color: string,
   zeroAlpha: (literal: string) => string | null,
-): { value: string; parkedToken: string | null } {
+): string {
   const reference = parseTokenReference(color);
-  const zeroed = zeroAlpha(reference?.fallback ?? color);
-  return {
-    value: zeroed ?? "transparent",
-    parkedToken: reference && zeroed ? color : null,
-  };
+  if (reference) return `color-mix(in srgb, ${color} 0%, transparent)`;
+  return zeroAlpha(color) ?? "transparent";
+}
+
+/** The reference a hidden token colour carries, or null if it is not one. */
+export function hiddenTokenReference(value: string): string | null {
+  return HIDDEN_TOKEN_MIX.exec(value.trim())?.[1] ?? null;
 }
 
 /**

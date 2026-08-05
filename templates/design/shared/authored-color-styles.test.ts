@@ -235,6 +235,42 @@ describe("collectAuthoredColorStyles", () => {
     );
   });
 
+  it("recurses into an unconditional grouping rule, as @layer is", () => {
+    // happy-dom does not model @layer, so this builds its CSSLayerBlockRule
+    // shape: cssRules, no conditionText, no selectorText of its own.
+    render(`<span id="t" class="up">+18.6%</span>`);
+    const carrier = document.createElement("style");
+    carrier.textContent = ".up{color:var(--cds-support-success)}";
+    document.head.append(carrier);
+    const inner = (document.styleSheets[0] as CSSStyleSheet).cssRules[0];
+    carrier.remove();
+
+    document.adoptedStyleSheets = [
+      { cssRules: [{ cssRules: [inner] }] } as unknown as CSSStyleSheet,
+    ];
+    expect(collectAuthoredColorStyles(target()).color).toBe(
+      "var(--cds-support-success)",
+    );
+  });
+
+  it("lets an !important rule beat a plain inline declaration", () => {
+    // CSS order: an important author declaration outranks a normal inline one,
+    // so reporting the inline value would name a token that is not painting.
+    render(
+      `<style>:root{--near:#161616;--far:#161616}.label{color:var(--far) !important}</style>` +
+        `<p id="t" class="label" style="color:var(--near)">x</p>`,
+    );
+    expect(collectAuthoredColorStyles(target()).color).toBe("var(--far)");
+  });
+
+  it("lets an important inline declaration win", () => {
+    render(
+      `<style>:root{--near:#161616;--far:#161616}.label{color:var(--far) !important}</style>` +
+        `<p id="t" class="label" style="color:var(--near) !important">x</p>`,
+    );
+    expect(collectAuthoredColorStyles(target()).color).toBe("var(--near)");
+  });
+
   it("prefers the more specific rule over a later, weaker one", () => {
     render(
       `<style>:root{--color-text:#161616}#t{color:#24a148}.label{color:var(--color-text)}</style>` +

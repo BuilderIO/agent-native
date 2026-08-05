@@ -483,6 +483,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     return best;
   }
+  var INLINE_SPECIFICITY = Number.MAX_SAFE_INTEGER;
   function beats(next, current) {
     if (!current) return true;
     if (next.important !== current.important) return next.important;
@@ -496,7 +497,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     for (let index = 0; index < rules.length; index += 1) {
       const rule = rules[index];
       if (!rule) continue;
-      if (rule.cssRules && rule.conditionText !== void 0) {
+      const declaresOwnStyles = Boolean(rule.selectorText && rule.style);
+      if (!declaresOwnStyles) {
+        if (!rule.cssRules) continue;
+        if (rule.conditionText === void 0) {
+          readRules(element, rule.cssRules, out, counter);
+          continue;
+        }
         let applies = false;
         try {
           applies = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia(rule.conditionText).matches : false;
@@ -505,6 +512,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (applies) readRules(element, rule.cssRules, out, counter);
         continue;
+      }
+      if (rule.cssRules?.length) {
+        readRules(element, rule.cssRules, out, counter);
       }
       if (!rule.selectorText || !rule.style) continue;
       const specificity = matchedSpecificity(element, rule.selectorText);
@@ -590,16 +600,24 @@ export const editorChromeBridgeScript: string = `"use strict";
         error
       );
     }
+    const inline = element.style;
+    if (inline) {
+      const order = counter.order++;
+      for (const property of AUTHORED_COLOR_PROPERTIES) {
+        const value = inline[property];
+        if (!isAuthoredColor(value)) continue;
+        const candidate = {
+          value,
+          important: inline.getPropertyPriority?.(cssPropertyName(property)) === "important",
+          specificity: INLINE_SPECIFICITY,
+          order
+        };
+        if (beats(candidate, ranked[property])) ranked[property] = candidate;
+      }
+    }
     const out = {};
     for (const [property, candidate] of Object.entries(ranked)) {
       out[property] = candidate.value;
-    }
-    const inline = element.style;
-    if (inline) {
-      for (const property of AUTHORED_COLOR_PROPERTIES) {
-        const value = inline[property];
-        if (isAuthoredColor(value)) out[property] = value;
-      }
     }
     return out;
   }

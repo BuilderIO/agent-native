@@ -25,6 +25,7 @@ import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
 import {
   hiddenColorWrite,
+  hiddenTokenReference,
   parseTokenReference,
   type DesignSystemColorSwatch,
 } from "./design-system-swatches";
@@ -154,11 +155,6 @@ export function FillProperties({
   const [hiddenFillSizeStash, setHiddenFillSizeStash] = useState<
     Record<string, string>
   >({});
-  // Hiding zeroes the colour's alpha, which needs a literal — so a token-backed
-  // fill has to park its reference here or showing it again restores a bare hex.
-  const [hiddenFillTokenStash, setHiddenFillTokenStash] = useState<
-    Record<string, string>
-  >({});
   const fillStashKey = elementStableKey(element);
   // getComputedStyle resolves `var()` before we can read it, so a token-backed
   // fill would come back as a bare colour and lose the name it was set from.
@@ -167,8 +163,11 @@ export function FillProperties({
   const computedFill = isTextFillElement
     ? styles.color || ""
     : styles.backgroundColor || "";
+  // A hidden token's `color-mix` also has to survive here, or the reference it
+  // carries is replaced by the transparent colour it computes to.
   const fillValue =
-    authoredFill && parseTokenReference(authoredFill)
+    authoredFill &&
+    (parseTokenReference(authoredFill) || hiddenTokenReference(authoredFill))
       ? authoredFill
       : computedFill;
   const backgroundLayers = isTextFillElement
@@ -206,21 +205,14 @@ export function FillProperties({
   // color-list channels are real data, unlike comments — verified
   // separately: computed style strips comments but keeps rgba() channels).
   // Showing again just restores alpha to 1 using those same channels, so no
-  // stash is required and the hide survives reselect/reload. Only a token
-  // reference, which has no channels to carry, still needs the stash above.
-  const isHidden = !colorHasVisibleAlpha(fillValue);
-  const fillTokenStashKey = `${fillStashKey}:${fillProperty}:token`;
+  // stash is required and the hide survives reselect/reload.
+  const hiddenFillToken = hiddenTokenReference(fillValue);
+  const isHidden = Boolean(hiddenFillToken) || !colorHasVisibleAlpha(fillValue);
 
   const handleFillVisibilityToggle = () => {
     if (isHidden) {
-      const parkedToken = hiddenFillTokenStash[fillTokenStashKey];
-      if (parkedToken) {
-        setHiddenFillTokenStash((stash) => {
-          const next = { ...stash };
-          delete next[fillTokenStashKey];
-          return next;
-        });
-        onStyleChange(fillProperty, parkedToken);
+      if (hiddenFillToken) {
+        onStyleChange(fillProperty, hiddenFillToken);
         return;
       }
       const parsed = parseCssColor(fillValue);
@@ -232,15 +224,7 @@ export function FillProperties({
       onStyleChange(fillProperty, restored);
       return;
     }
-    // "transparent" when nothing parses: there are no channels to preserve.
-    const hidden = hiddenColorWrite(fillValue, zeroAlphaLiteral);
-    if (hidden.parkedToken) {
-      setHiddenFillTokenStash((stash) => ({
-        ...stash,
-        [fillTokenStashKey]: hidden.parkedToken as string,
-      }));
-    }
-    onStyleChange(fillProperty, hidden.value);
+    onStyleChange(fillProperty, hiddenColorWrite(fillValue, zeroAlphaLiteral));
   };
 
   // Reorder fill layers by dragging: permute all four index-aligned parallel

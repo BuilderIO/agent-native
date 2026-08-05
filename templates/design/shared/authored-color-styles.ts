@@ -158,6 +158,9 @@ function matchedSpecificity(element: Element, selectorText: string): number {
   return best;
 }
 
+/** Above any selector: only importance can outrank an inline declaration. */
+const INLINE_SPECIFICITY = Number.MAX_SAFE_INTEGER;
+
 interface Candidate {
   value: string;
   important: boolean;
@@ -186,8 +189,21 @@ function readRules(
     const rule = rules[index] as StyleRuleLike | undefined;
     if (!rule) continue;
 
-    // Only while it applies, so this matches what the canvas paints.
-    if (rule.cssRules && rule.conditionText !== undefined) {
+    // Tested before `cssRules`: a style rule carries one too (CSS nesting), so
+    // treating anything with `cssRules` as a group skips every declaration.
+    const declaresOwnStyles = Boolean(rule.selectorText && rule.style);
+
+    if (!declaresOwnStyles) {
+      if (!rule.cssRules) continue;
+      // Any grouping rule, not just conditional ones: an `@layer` block holds
+      // cssRules with no conditionText, and Tailwind puts its utilities there.
+      // Layer precedence is not modelled, only membership.
+      if (rule.conditionText === undefined) {
+        readRules(element, rule.cssRules, out, counter);
+        continue;
+      }
+      // A conditional group counts only while it applies, so the walk matches
+      // what the canvas paints.
       let applies = false;
       try {
         applies =
@@ -200,6 +216,10 @@ function readRules(
       }
       if (applies) readRules(element, rule.cssRules, out, counter);
       continue;
+    }
+
+    if (rule.cssRules?.length) {
+      readRules(element, rule.cssRules, out, counter);
     }
 
     if (!rule.selectorText || !rule.style) continue;
@@ -323,18 +343,29 @@ function collectForElement(element: Element): Record<string, string> {
     );
   }
 
+  // Inline outranks any selector, but a normal inline declaration still loses
+  // to an `!important` stylesheet one — so it competes rather than overwrites.
+  const inline = (element as HTMLElement).style;
+  if (inline) {
+    const order = counter.order++;
+    for (const property of AUTHORED_COLOR_PROPERTIES) {
+      const value = inline[property as never] as unknown as string;
+      if (!isAuthoredColor(value)) continue;
+      const candidate: Candidate = {
+        value,
+        important:
+          inline.getPropertyPriority?.(cssPropertyName(property)) ===
+          "important",
+        specificity: INLINE_SPECIFICITY,
+        order,
+      };
+      if (beats(candidate, ranked[property])) ranked[property] = candidate;
+    }
+  }
+
   const out: Record<string, string> = {};
   for (const [property, candidate] of Object.entries(ranked)) {
     out[property] = candidate.value;
-  }
-
-  // Inline beats every rule, so it is applied last.
-  const inline = (element as HTMLElement).style;
-  if (inline) {
-    for (const property of AUTHORED_COLOR_PROPERTIES) {
-      const value = inline[property as never] as unknown as string;
-      if (isAuthoredColor(value)) out[property] = value;
-    }
   }
 
   return out;

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   groupColorSwatches,
   hiddenColorWrite,
+  hiddenTokenReference,
   parseTokenReference,
   resolveTokenNameForColor,
   swatchLabel,
@@ -73,14 +74,52 @@ describe("toDesignSystemColorSwatches", () => {
     ).toEqual(["--cds-link-primary"]);
   });
 
-  it("drops colour-typed values that cannot be painted", () => {
+  it("drops colour-typed values that resolve to no colour", () => {
+    expect(
+      toDesignSystemColorSwatches([
+        token(),
+        token({ cssVar: "--cds-inherit", value: "inherit" }),
+        token({ cssVar: "--cds-dangling", value: "var(--not-in-this-kit)" }),
+      ]).map((s) => s.cssVar),
+    ).toEqual(["--cds-link-primary"]);
+  });
+
+  it("keeps a token aliased to another token, resolved for its swatch", () => {
     expect(
       toDesignSystemColorSwatches([
         token(),
         token({ cssVar: "--cds-alias", value: "var(--cds-link-primary)" }),
-        token({ cssVar: "--cds-inherit", value: "inherit" }),
-      ]).map((s) => s.cssVar),
-    ).toEqual(["--cds-link-primary"]);
+      ]),
+    ).toMatchObject([
+      { cssVar: "--cds-link-primary", value: "#0f62fe" },
+      { cssVar: "--cds-alias", value: "#0f62fe" },
+    ]);
+  });
+
+  it("follows an alias through the design's own variables", () => {
+    expect(
+      toDesignSystemColorSwatches([
+        token({ cssVar: "--cds-alias", value: "var(--hero-bg)" }),
+        token({ cssVar: "--hero-bg", value: "#24a148", origin: "design" }),
+      ]),
+    ).toMatchObject([{ cssVar: "--cds-alias", value: "#24a148" }]);
+  });
+
+  it("uses the fallback when the alias target is missing", () => {
+    expect(
+      toDesignSystemColorSwatches([
+        token({ cssVar: "--cds-alias", value: "var(--gone, #ff0000)" }),
+      ]),
+    ).toMatchObject([{ cssVar: "--cds-alias", value: "#ff0000" }]);
+  });
+
+  it("survives a cyclic alias chain", () => {
+    expect(
+      toDesignSystemColorSwatches([
+        token({ cssVar: "--a", value: "var(--b)" }),
+        token({ cssVar: "--b", value: "var(--a)" }),
+      ]),
+    ).toEqual([]);
   });
 
   it("keeps one entry per css var", () => {
@@ -262,30 +301,45 @@ describe("hiddenColorWrite", () => {
       ? "rgba(0, 0, 0, 0)"
       : null;
 
-  it("parks the reference and zeroes its fallback", () => {
-    expect(hiddenColorWrite("var(--cds-link-primary, #0f62fe)", zero)).toEqual({
-      value: "rgba(0, 0, 0, 0)",
-      parkedToken: "var(--cds-link-primary, #0f62fe)",
-    });
+  it("keeps a token reference inside the persisted value", () => {
+    // Not React state: the inspector unmounts on deselect, and the hide has to
+    // outlive that or Show restores a bare hex.
+    expect(hiddenColorWrite("var(--cds-link-primary, #0f62fe)", zero)).toBe(
+      "color-mix(in srgb, var(--cds-link-primary, #0f62fe) 0%, transparent)",
+    );
   });
 
-  it("parks nothing for a plain colour", () => {
-    expect(hiddenColorWrite("#0f62fe", zero)).toEqual({
-      value: "rgba(0, 0, 0, 0)",
-      parkedToken: null,
-    });
+  it("zeroes the channels of a plain colour", () => {
+    expect(hiddenColorWrite("#0f62fe", zero)).toBe("rgba(0, 0, 0, 0)");
   });
 
   it("falls back to transparent when nothing parses", () => {
-    // A reference with no fallback has no channels to zero, so there is
-    // nothing to restore and parking it would strand the hide.
-    expect(hiddenColorWrite("var(--cds-focus)", zero)).toEqual({
-      value: "transparent",
-      parkedToken: null,
-    });
-    expect(hiddenColorWrite("transparent", zero)).toEqual({
-      value: "transparent",
-      parkedToken: null,
-    });
+    expect(hiddenColorWrite("not-a-colour", zero)).toBe("transparent");
+  });
+});
+
+describe("hiddenTokenReference", () => {
+  it("recovers the reference a hidden token carries", () => {
+    expect(
+      hiddenTokenReference(
+        "color-mix(in srgb, var(--cds-link-primary, #0f62fe) 0%, transparent)",
+      ),
+    ).toBe("var(--cds-link-primary, #0f62fe)");
+  });
+
+  it("round-trips whatever hiddenColorWrite produced", () => {
+    const reference = "var(--brand, rgb(1, 2, 3))";
+    expect(hiddenTokenReference(hiddenColorWrite(reference, () => null))).toBe(
+      reference,
+    );
+  });
+
+  it("is null for values that are not a hidden token", () => {
+    expect(hiddenTokenReference("rgba(0, 0, 0, 0)")).toBeNull();
+    expect(hiddenTokenReference("var(--a, #fff)")).toBeNull();
+    // A visible mix is not a hide marker.
+    expect(
+      hiddenTokenReference("color-mix(in srgb, var(--a) 50%, transparent)"),
+    ).toBeNull();
   });
 });
