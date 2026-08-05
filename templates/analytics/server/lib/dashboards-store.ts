@@ -62,6 +62,9 @@ export interface DashboardSummaryRecord {
   id: string;
   kind: DashboardKind;
   name: string;
+  configName: string | null;
+  catalogTemplateId: string | null;
+  demoId: string | null;
   parentId: string | null;
   ownerEmail: string;
   orgId: string | null;
@@ -535,11 +538,23 @@ export async function listDashboardSummaries(
     : sql<
         string | null
       >`json_extract(${schema.dashboards.config}, '$.parentId')`;
+  const configName = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
+    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
+  const catalogTemplateId = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`
+    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.catalog.templateId')`;
+  const demoId = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`
+    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.demo.id')`;
   const rows = await db
     .select({
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
       name: schema.dashboards.title,
+      configName,
+      catalogTemplateId,
+      demoId,
       parentId,
       ownerEmail: schema.dashboards.ownerEmail,
       orgId: schema.dashboards.orgId,
@@ -554,6 +569,12 @@ export async function listDashboardSummaries(
     .where(where);
   const out: DashboardSummaryRecord[] = rows.map((row: any) => ({
     ...row,
+    configName: typeof row.configName === "string" ? row.configName : null,
+    catalogTemplateId:
+      typeof row.catalogTemplateId === "string"
+        ? row.catalogTemplateId
+        : null,
+    demoId: typeof row.demoId === "string" ? row.demoId : null,
     parentId: typeof row.parentId === "string" ? row.parentId : null,
     orgId: row.orgId ?? null,
     archivedAt: row.archivedAt ?? null,
@@ -596,6 +617,9 @@ export async function listDashboardSummaries(
         id,
         kind,
         name: title,
+        configName: null,
+        catalogTemplateId: null,
+        demoId: null,
         parentId: typeof config.parentId === "string" ? config.parentId : null,
         ownerEmail: ctx.email,
         orgId,

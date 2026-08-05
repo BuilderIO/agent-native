@@ -144,6 +144,9 @@ describe("listDashboardSummaries", () => {
 
     expect(state.projection).not.toHaveProperty("config");
     expect(state.projection?.name).toEqual({ name: "title" });
+    expect(state.projection).toHaveProperty("configName");
+    expect(state.projection).toHaveProperty("catalogTemplateId");
+    expect(state.projection).toHaveProperty("demoId");
     expect(state.projection?.parentId).toMatchObject({ kind: "sql" });
     expect(result[0]).toMatchObject({
       id: "child",
