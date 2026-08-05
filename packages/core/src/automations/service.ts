@@ -17,6 +17,10 @@ import {
   resourcePut,
   type Resource,
 } from "../resources/store.js";
+import {
+  listAccessibleAutomations,
+  type AccessibleAutomation,
+} from "./access.js";
 
 export type AutomationScope = "personal" | "organization";
 
@@ -34,6 +38,12 @@ export interface AutomationDefinition {
     mode: "agentic" | "deterministic";
   };
   body: string;
+  canUpdate: boolean;
+}
+
+export interface AccessibleAutomationDefinition extends AccessibleAutomation {
+  scope: AutomationScope;
+  /** Compatibility alias for callers not yet migrated to capabilities.canEdit. */
   canUpdate: boolean;
 }
 
@@ -237,6 +247,23 @@ async function readDefinition(
   };
 }
 
+export async function listAccessibleAutomationDefinitions(
+  actorInput: AutomationActor,
+): Promise<AccessibleAutomationDefinition[]> {
+  const actor = normalizeActor(actorInput);
+  const definitions = await listAccessibleAutomations(actor);
+  return definitions.map((definition) => ({
+    ...definition,
+    scope: definition.owningOrganizationId ? "organization" : "personal",
+    canUpdate: definition.capabilities.canEdit,
+  }));
+}
+
+/**
+ * Scoped explicit-only compatibility wrapper. New list consumers should use
+ * listAccessibleAutomationDefinitions so shared and legacy rows are not split
+ * into parallel authorization paths.
+ */
 export async function listAutomationDefinitions(
   actorInput: AutomationActor,
   scope: AutomationScope,

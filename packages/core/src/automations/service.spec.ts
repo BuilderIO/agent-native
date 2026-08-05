@@ -6,6 +6,11 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
+const listAccessibleAutomationsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./access.js", () => ({
+  listAccessibleAutomations: listAccessibleAutomationsMock,
+}));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
@@ -38,6 +43,7 @@ import {
   automationMatchesEventOwner,
   defineAutomation,
   deleteAutomation,
+  listAccessibleAutomationDefinitions,
   listAutomationDefinitions,
   resolveAutomationExecutionIdentity,
   updateAutomation,
@@ -91,6 +97,55 @@ describe("automation domain service", () => {
     resourceListMock.mockResolvedValue([]);
     resourcePutMock.mockResolvedValue(undefined);
     getUserSettingMock.mockResolvedValue(null);
+    listAccessibleAutomationsMock.mockResolvedValue([]);
+  });
+
+  it("maps the centralized access result into the unified service list", async () => {
+    listAccessibleAutomationsMock.mockResolvedValue([
+      {
+        resource: resource(eventAutomation),
+        name: "notify",
+        classification: {
+          kind: "automation",
+          hasExplicitTriggerType: true,
+          triggerType: "event",
+        },
+        meta: { triggerType: "event" },
+        body: "Send the notification.",
+        immutableCreator: "alice@example.com",
+        owningOrganizationId: "org-1",
+        effectiveRole: "collaborate",
+        capabilities: {
+          canEdit: true,
+          canOperate: true,
+          canDelete: false,
+          canManageSharing: false,
+        },
+        sharing: {
+          source: "explicit",
+          visibility: "private",
+          organizationId: "org-1",
+          grantCount: 1,
+        },
+        creator: {
+          email: "alice@example.com",
+          label: "Alice",
+        },
+      },
+    ]);
+
+    const result = await listAccessibleAutomationDefinitions(actor);
+
+    expect(listAccessibleAutomationsMock).toHaveBeenCalledWith({
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+    expect(result[0]).toMatchObject({
+      scope: "organization",
+      effectiveRole: "collaborate",
+      canUpdate: true,
+      capabilities: { canManageSharing: false },
+    });
   });
 
   it("schedules a new automation in the timezone the creator saved", async () => {
