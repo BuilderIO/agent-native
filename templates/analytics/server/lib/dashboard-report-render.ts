@@ -13,8 +13,12 @@ import type {
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
-import { MAX_CONCURRENT_SQL_QUERIES } from "../../shared/sql-query-limits";
+import {
+  MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
+  MAX_CONCURRENT_SQL_QUERIES,
+} from "../../shared/sql-query-limits";
 import {
   normalizeDashboardPanelQuery,
   type DashboardPanelSource,
@@ -22,6 +26,7 @@ import {
 import { resolveAnalyticsPanelSource } from "./dashboard-panel-source-resolver";
 import {
   renderReportChartSvg,
+  renderFunnelChartSvg,
   REPORT_CHART_FONT_FAMILY,
   type ReportChartSeries,
   type ReportChartType,
@@ -186,7 +191,7 @@ async function fetchOnePanel(
 
   try {
     const result = await withTimeout(
-      resolveAnalyticsPanelSource({ source, query }, ctx),
+      resolveAnalyticsPanelSource({ source, query, timeoutMs }, ctx),
       timeoutMs,
       `Panel query timed out after ${Math.round(timeoutMs / 1000)}s`,
     );
@@ -276,42 +281,57 @@ export async function fetchReportPanelData(args: {
     args.perPanelTimeoutMs ?? DEFAULT_PANEL_TIMEOUT_MS,
   );
 
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < queue.length) {
-      const panel = queue[next++];
-      const remaining = args.deadlineAt
-        ? args.deadlineAt - Date.now()
-        : Infinity;
-      if (remaining <= 0) {
-        results.set(panel.id, {
-          status: "query-failed",
-          message:
-            "The report delivery deadline passed before this panel could run",
-        });
-        continue;
+  const runQueue = async (
+    panelQueue: SqlPanel[],
+    concurrency: number,
+  ): Promise<void> => {
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < panelQueue.length) {
+        const panel = panelQueue[next++];
+        const remaining = args.deadlineAt
+          ? args.deadlineAt - Date.now()
+          : Infinity;
+        if (remaining <= 0) {
+          results.set(panel.id, {
+            status: "query-failed",
+            message:
+              "The report delivery deadline passed before this panel could run",
+          });
+          continue;
+        }
+        results.set(
+          panel.id,
+          await fetchOnePanel(
+            panel,
+            vars,
+            ctx,
+            Math.min(perPanelTimeoutMs, remaining),
+          ),
+        );
       }
-      results.set(
-        panel.id,
-        await fetchOnePanel(
-          panel,
-          vars,
-          ctx,
-          Math.min(perPanelTimeoutMs, remaining),
-        ),
-      );
-    }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, panelQueue.length) }, () =>
+        worker(),
+      ),
+    );
   };
 
   await runWithRequestContext(
     { userEmail: ownerEmail, ...(args.orgId ? { orgId: args.orgId } : {}) },
     async () => {
-      await Promise.all(
-        Array.from(
-          { length: Math.min(MAX_CONCURRENT_SQL_QUERIES, queue.length) },
-          () => worker(),
+      await Promise.all([
+        runQueue(
+          queue.filter((panel) => panel.source === "first-party"),
+          MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
         ),
-      );
+        runQueue(
+          queue.filter((panel) => panel.source !== "first-party"),
+          MAX_CONCURRENT_SQL_QUERIES,
+        ),
+      ]);
     },
   );
 
@@ -516,6 +536,7 @@ const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   line: "line",
   area: "area",
   pie: "pie",
+  funnel: "funnel",
   "stacked-bar": "bar",
   "stacked-area": "area",
 };
@@ -905,7 +926,7 @@ async function renderChartBlock(args: {
   panel: SqlPanel;
   rows: Array<Record<string, unknown>>;
   forcedYKeys?: string[];
-  chartType: ReportChartType;
+  chartType: Exclude<ReportChartType, "funnel">;
   index: number;
   description: string;
 }): Promise<PanelBlock> {
@@ -975,6 +996,72 @@ async function renderChartBlock(args: {
       panel,
       "Chart could not be rendered",
       describeError(error),
+    );
+  }
+}
+
+async function renderFunnelChartBlock(args: {
+  panel: SqlPanel;
+  rows: Array<Record<string, unknown>>;
+  index: number;
+  description: string;
+}): Promise<PanelBlock> {
+  const { panel, rows, index, description } = args;
+  const funnel = resolveDashboardFunnelRows(
+    rows,
+    panel.config?.xKey,
+    panel.config?.yKey,
+  );
+  if (funnel.items.length === 0) {
+    const table = renderTableHtml(panel, rows);
+    return {
+      panelId: panel.id,
+      html: panelCardHtml(
+        panel,
+        `${table.html}${noteHtml("No funnel stages were returned, so the rows are shown as a table.")}`,
+      ),
+      text: `${panel.title}\n${table.text}`,
+    };
+  }
+
+  const subtitle = description;
+  const alt = `funnel chart of ${funnel.items.map((item) => item.label).join(", ")}`;
+  try {
+    const svg = renderFunnelChartSvg({
+      title: "",
+      subtitle,
+      rows: funnel.items,
+      width: CHART_WIDTH,
+      height: CHART_HEIGHT,
+      formatter: panel.config?.yFormatter,
+      colors: panel.config?.colors,
+    });
+    const png = await rasterizeChartPng(svg, CHART_WIDTH * CHART_RASTER_SCALE);
+    const slug =
+      panel.id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "panel";
+    const contentId = `dashboard-report-panel-${index}-${slug}`;
+    return {
+      panelId: panel.id,
+      html: panelCardHtml(
+        panel,
+        `<img src="cid:${contentId}" alt="${escapeHtml(alt)}" width="${CHART_WIDTH}" style="display:block;width:100%;max-width:${CHART_WIDTH}px;height:auto;border:0;" />`,
+      ),
+      text: `${panel.title}: chart attached${subtitle ? ` (${subtitle})` : ""}`,
+      attachment: {
+        filename: `${slug}.png`,
+        content: png,
+        contentType: "image/png",
+        contentId,
+        disposition: "inline",
+      },
+    };
+  } catch (error) {
+    return failureBlock(
+      panel,
+      "Chart rendering failed",
+      error instanceof Error
+        ? error.message
+        : "The funnel image could not be rendered.",
     );
   }
 }
@@ -1075,6 +1162,17 @@ export async function renderReportEmail(args: {
     const chartType: ReportChartType | undefined =
       REPORT_CHART_TYPES[panel.chartType];
     if (chartType) {
+      if (chartType === "funnel") {
+        const block = await renderFunnelChartBlock({
+          panel,
+          rows,
+          index: chartIndex++,
+          description,
+        });
+        if (truncatedNote) block.html += truncatedNote;
+        blocks.push(block);
+        continue;
+      }
       const block = await renderChartBlock({
         panel,
         rows,

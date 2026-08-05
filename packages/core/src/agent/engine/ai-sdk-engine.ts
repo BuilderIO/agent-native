@@ -23,7 +23,14 @@ import {
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
-import { describeErrorWithCauses } from "./error-detail.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
+import {
+  classifyProviderError,
+  describeErrorWithCauses,
+} from "./error-detail.js";
 import {
   createFirstEventAbortController,
   FIRST_STREAM_EVENT_TIMEOUT_MS,
@@ -225,6 +232,8 @@ class AISDKEngine implements AgentEngine {
   private readonly provider: AISDKProvider;
   private readonly apiKey?: string;
   private readonly baseUrl?: string;
+  /** Empty for providers that need no key (ollama). */
+  private readonly requiredEnvVars: readonly string[];
   private readonly appName?: string;
   private readonly appUrl?: string;
 
@@ -240,12 +249,34 @@ class AISDKEngine implements AgentEngine {
     this.apiKey =
       config.apiKey ??
       (config.allowEnvFallback === false ? "" : getProviderApiKey(provider));
+    this.requiredEnvVars = PROVIDER_ENV_VARS[provider];
     this.baseUrl = config.baseUrl;
     this.appName = config.appName;
     this.appUrl = config.appUrl;
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    // An absent key is not an anonymous request. Without this the provider
+    // factory is constructed with no `apiKey`, the SDK omits the Authorization
+    // header entirely, and the gateway's 401 comes back as
+    // "Missing Authentication header" — which `classifyProviderError` codes
+    // `http_401`, a transport failure naming the wrong cause. A scheduled job
+    // then repeats that doomed unauthenticated request on every tick forever.
+    // `builder-engine` and `anthropic-engine` already fail closed here; this
+    // engine was the only one that did not.
+    //
+    // A configured `baseUrl` is exempt: a self-hosted or local gateway may
+    // legitimately accept unauthenticated requests.
+    if (!this.apiKey && !this.baseUrl && this.requiredEnvVars.length > 0) {
+      yield {
+        type: "stop",
+        reason: "error",
+        error: `${LLM_MISSING_CREDENTIALS_MESSAGE} (engine "${this.name}" has no ${this.requiredEnvVars.join(" or ")})`,
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      };
+      return;
+    }
+
     let aiModule: any;
     try {
       aiModule = await import("ai");
@@ -440,6 +471,7 @@ class AISDKEngine implements AgentEngine {
       // before it, regardless of where `finish` arrives in the stream.
       let bufferedStop: EngineEvent | undefined;
       let sawFirstEvent = false;
+      let credentialFailureRecorded = false;
 
       for await (const part of result.fullStream) {
         // "start" is a synthetic lifecycle marker the AI SDK enqueues
@@ -453,6 +485,21 @@ class AISDKEngine implements AgentEngine {
         }
         for (const event of aiSdkPartToEngineEvents(part)) {
           observeStreamedToolInput(toolInputs, event);
+          if (
+            event.type === "stop" &&
+            event.reason === "error" &&
+            event.statusCode === 401
+          ) {
+            await recordProviderCredentialAuthFailure({
+              key: PROVIDER_ENV_VARS[this.provider][0],
+              value: this.apiKey,
+              status: event.statusCode,
+              code: event.errorCode ?? "http_401",
+              message:
+                event.error || "The model provider rejected the saved API key.",
+            });
+            credentialFailureRecorded = true;
+          }
           if (event.type === "stop") {
             bufferedStop = event;
           } else {
@@ -491,47 +538,25 @@ class AISDKEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
-      await clearProviderCredentialAuthFailure({
-        key: PROVIDER_ENV_VARS[this.provider][0],
-        value: this.apiKey,
-      });
+      if (!credentialFailureRecorded) {
+        await clearProviderCredentialAuthFailure({
+          key: PROVIDER_ENV_VARS[this.provider][0],
+          value: this.apiKey,
+        });
+      }
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
       const timedOut = firstEventAbort.didTimeout();
-      // AI SDK wraps exhausted retries in RetryError and keeps the final
-      // APICallError on `lastError`. Read classification fields from that
-      // provider error so the retry wrapper does not erase transport status.
-      const providerError =
-        err?.lastError instanceof Error ? err.lastError : err;
-      // Surface structured fields from AI SDK's APICallError so
-      // isRetryableError can check statusCode/providerRetryable directly
-      // rather than keyword-matching the message string.
-      const statusCode: number | undefined =
-        typeof providerError?.statusCode === "number"
-          ? providerError.statusCode
-          : undefined;
-      const rawMessage: string =
-        providerError?.message ?? String(providerError);
-      // Classify on the bare message — the recorded `errorMessage` carries the
-      // cause chain, which is where the real transport failure lives.
       const errorMessage = describeErrorWithCauses(err);
-      const normalizedRawMessage = rawMessage.trim().toLowerCase();
-      const isConnectionError =
-        !timedOut &&
-        statusCode === undefined &&
-        (normalizedRawMessage === "connection error." ||
-          normalizedRawMessage.startsWith("cannot connect to api:"));
-      const providerRetryable: boolean | undefined =
-        typeof providerError?.isRetryable === "boolean"
-          ? providerError.isRetryable
-          : isConnectionError || timedOut
-            ? true
-            : undefined;
-      if (statusCode === 401) {
+      // Same classifier the stream-part path uses (translate-ai-sdk.ts) — a
+      // provider failure must not be classifiable only when it happens to
+      // throw.
+      const classification = classifyProviderError(err, timedOut);
+      if (classification.statusCode === 401) {
         await recordProviderCredentialAuthFailure({
           key: PROVIDER_ENV_VARS[this.provider][0],
           value: this.apiKey,
-          status: statusCode,
+          status: classification.statusCode,
           code: "http_401",
           message: errorMessage,
         });
@@ -540,17 +565,7 @@ class AISDKEngine implements AgentEngine {
         type: "stop",
         reason: "error",
         error: errorMessage,
-        // Tag every known status with `http_<status>` (not just 401) so a
-        // rate limit surfaces as `http_429`. The structured statusCode
-        // already drives turn-level retries, but the run-level continuation
-        // logic keys off the errorCode, so this lets a rate-limited turn
-        // auto-resume too — matching the Builder gateway path.
-        ...(statusCode !== undefined
-          ? { errorCode: `http_${statusCode}`, statusCode }
-          : isConnectionError || timedOut
-            ? { errorCode: "provider_network_error" }
-            : {}),
-        ...(providerRetryable !== undefined ? { providerRetryable } : {}),
+        ...classification,
       };
       throw err;
     } finally {

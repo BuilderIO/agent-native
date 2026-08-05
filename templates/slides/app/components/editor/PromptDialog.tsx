@@ -16,6 +16,37 @@ export interface UploadedFile {
   size: number;
 }
 
+export async function uploadPromptFiles(
+  files: File[],
+): Promise<UploadedFile[]> {
+  if (files.length === 0) return [];
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+  const response = await fetch(`${appBasePath()}/api/uploads`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    let message = "Upload failed";
+    try {
+      const data: unknown = await response.json();
+      if (
+        data &&
+        typeof data === "object" &&
+        "error" in data &&
+        typeof data.error === "string" &&
+        data.error.trim()
+      ) {
+        message = data.error;
+      }
+    } catch (error) {
+      throw new Error(`Upload failed (${response.status})`, { cause: error });
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as UploadedFile[];
+}
+
 /**
  * Radix popovers portal to `document.body`, so a mousedown inside the model
  * picker or attachment menu reads as "outside" any panel that hosts a composer.
@@ -137,17 +168,7 @@ export default function PromptPopover({
       if (files.length === 0) return [];
       setUploading(true);
       try {
-        const formData = new FormData();
-        files.forEach((f) => formData.append("files", f));
-        const res = await fetch(`${appBasePath()}/api/uploads`, {
-          method: "POST",
-          body: formData,
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error || "Upload failed");
-        }
-        return (await res.json()) as UploadedFile[];
+        return await uploadPromptFiles(files);
       } finally {
         setUploading(false);
       }
@@ -200,10 +221,22 @@ export default function PromptPopover({
         className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
         style={{ top: 0, left: 0, visibility: "visible" }}
       >
-        <div className="px-3.5 pt-3 pb-2">
+        <div className="flex items-center justify-between gap-3 px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
             {title}
           </span>
+          {onSkip && (
+            <button
+              type="button"
+              onClick={() => {
+                onSkip();
+                onOpenChange(false);
+              }}
+              className="shrink-0 cursor-pointer text-xs text-primary hover:text-primary/80"
+            >
+              {skipLabel}
+            </button>
+          )}
         </div>
 
         <div className="px-2 pb-2">
@@ -226,21 +259,6 @@ export default function PromptPopover({
           promptText={promptText}
           onSourceContextChange={setGoogleDocContext}
         />
-
-        {onSkip && (
-          <div className="flex justify-end border-t border-border px-3.5 py-2">
-            <button
-              type="button"
-              onClick={() => {
-                onSkip();
-                onOpenChange(false);
-              }}
-              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA]"
-            >
-              {skipLabel}
-            </button>
-          </div>
-        )}
       </div>
     </>
   );

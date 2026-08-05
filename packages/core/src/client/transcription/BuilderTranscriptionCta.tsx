@@ -6,7 +6,7 @@
  * Drop this next to transcript displays in any template.
  */
 
-import { IconBolt, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import { IconBolt, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
@@ -112,7 +112,6 @@ export function BuilderTranscriptionCta() {
           className="ml-auto shrink-0 inline-flex items-center gap-1 rounded bg-foreground px-2 py-1 text-[10px] font-semibold text-background hover:opacity-90 transition-opacity"
         >
           Connect
-          <IconExternalLink size={10} />
         </button>
       )}
     </div>

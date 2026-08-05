@@ -19,17 +19,24 @@ type AnalyticsPanelSourceResolver = PanelSourceResolver<
   CredentialContext
 >;
 
+type AnalyticsPanelSourceRequest = PanelSourceRequest<DashboardPanelSource> & {
+  timeoutMs?: number;
+};
+
 function createResolver(
   source: DashboardPanelSource,
 ): AnalyticsPanelSourceResolver {
   return {
     source,
-    resolve: async (request, context) =>
-      (await runDashboardPanelQuery({
+    resolve: async (request, context) => {
+      const timeoutMs = (request as AnalyticsPanelSourceRequest).timeoutMs;
+      return (await runDashboardPanelQuery({
         source: request.source,
         query: request.query,
         ctx: context,
-      })) as DashboardPanelQueryResult | MissingKeyResponse,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      })) as DashboardPanelQueryResult | MissingKeyResponse;
+    },
   };
 }
 
@@ -42,7 +49,7 @@ const registry = createPanelSourceResolverRegistry<
 >({ resolvers: analyticsPanelSourceResolvers });
 
 export async function resolveAnalyticsPanelSource(
-  request: PanelSourceRequest<DashboardPanelSource>,
+  request: AnalyticsPanelSourceRequest,
   context: CredentialContext,
 ): Promise<PanelSourceResult | MissingKeyResponse> {
   return registry.resolve(request, context) as Promise<

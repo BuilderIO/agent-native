@@ -55,6 +55,7 @@ import {
   createThread,
   getThread,
   grantThreadUserShare,
+  setThreadSourceIfMissing,
 } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
@@ -606,7 +607,7 @@ async function enqueueAndDispatch(
         ),
       )
     : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
-  await dispatchPendingIntegrationTask({
+  const outcome = await dispatchPendingIntegrationTask({
     taskId,
     task: {
       platform: incoming.platform,
@@ -617,6 +618,29 @@ async function enqueueAndDispatch(
     baseUrl,
     portableSettleMs: settleWaitMs,
   });
+
+  // A definitive dispatch failure leaves a queued task nobody is running while
+  // the placeholder above already told the user work had started. Say so
+  // instead of leaving that indicator spinning until the sweep — if it runs.
+  if (outcome === "failed") {
+    console.error(
+      `[integrations] dispatch failed for task ${taskId} (${incoming.platform}/${incoming.externalThreadId})`,
+    );
+    try {
+      await options.adapter.sendResponse(
+        {
+          text: "I couldn't start working on that — the request was accepted but never handed off. Please try again.",
+          platformContext: incoming.platformContext,
+        },
+        incoming,
+      );
+    } catch (err) {
+      console.error(
+        "[integrations] failed to report dispatch failure to user:",
+        err,
+      );
+    }
+  }
 }
 
 /**
@@ -882,6 +906,11 @@ async function processIncomingMessage(
         () =>
           createThread(ownerEmail, {
             title: `${adapter.label}: ${incoming.senderName || incoming.senderId || "User"}`,
+            source: {
+              platform: incoming.platform,
+              appId: options.appId ?? null,
+              url: incoming.sourceUrl ?? null,
+            },
           }),
       );
       await saveThreadMapping(
@@ -901,6 +930,11 @@ async function processIncomingMessage(
     }
 
     threadId = mapping.internalThreadId;
+    await setThreadSourceIfMissing(threadId, {
+      platform: incoming.platform,
+      appId: options.appId ?? null,
+      url: incoming.sourceUrl ?? null,
+    });
     // Load existing thread history for context.
     thread = await getThread(threadId);
   } catch (error) {
@@ -2251,6 +2285,13 @@ function isQueuedA2AContinuationDeferral(text: string): boolean {
   if (!normalized) return true;
   if (hasSubstantiveA2APartialAnswer(text)) return false;
   if (normalized.includes(A2A_CONTINUATION_QUEUED_MARKER)) return true;
+  if (
+    /\bwill\b[^.!?]{0,160}\bpost\b[^.!?]{0,160}\b(?:thread|result|link|content id)\b/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
   return /\b(?:still (?:working|processing)|is working on|taking longer than expected|will (?:post|update|surface|show up)|(?:it'?ll|it will|the result will|the final result will) (?:post|be posted|update|be updated|surface|show up)|will be (?:posted|updated|sent|shared)|final result when it finishes|while you wait|as soon as (?:it|it'?s|it is|the result|the artifact) (?:comes back|is ready|ready)|hang tight|relay from the .* agent)\b/i.test(
     normalized,
   );

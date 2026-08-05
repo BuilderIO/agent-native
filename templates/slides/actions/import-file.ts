@@ -110,6 +110,7 @@ export default defineAction({
         ownerEmail,
         orgId: getRequestOrgId(),
         projectName: title,
+        sourceKind: "figma",
       });
       return {
         format: "fig",

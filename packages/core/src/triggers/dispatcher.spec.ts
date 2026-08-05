@@ -7,7 +7,9 @@ import {
 import { buildTriggerContent, initTriggerDispatcher } from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
+const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
@@ -29,7 +31,9 @@ vi.mock("../resources/store.js", () => ({
       ? owner.slice("__organization__:".length)
       : null,
   resourceListAllOwners: resourceListAllOwnersMock,
+  resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
 }));
 
 vi.mock("../event-bus/index.js", () => ({
@@ -131,8 +135,10 @@ describe("trigger dispatcher", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: user exists and (when checked) is an org member.
-    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }] });
+    // Default: user exists and (when checked) is an org member. rowsAffected: 1
+    // also lets the background run's self-claim CAS UPDATE (see
+    // background-automation-runner.ts) succeed by default.
+    dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
     resourceListAllOwnersMock.mockResolvedValue([
       {
@@ -151,7 +157,25 @@ createdBy: alice+triggers@agent-native.test
 Respond to the event.`,
       },
     ]);
+    resourceGetByPathMock.mockImplementation(
+      async (owner: string, path: string) => {
+        const latestListCall = resourceListAllOwnersMock.mock.results.at(-1);
+        const resources = latestListCall?.value
+          ? await latestListCall.value
+          : [];
+        return resources.find(
+          (resource: { owner: string; path: string }) =>
+            resource.owner === owner && resource.path === path,
+        );
+      },
+    );
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => {
+        await resourcePutMock(input.owner, input.path, input.content);
+        return { id: input.owner + input.path };
+      },
+    );
     createThreadMock.mockResolvedValue({ id: "thread-1" });
     subscribeMock.mockImplementation((eventName: string) => `sub-${eventName}`);
     runAgentLoopMock.mockResolvedValue({
@@ -635,9 +659,10 @@ Read the calendar.`,
         ]),
       }),
     );
-    expect(startRunMock.mock.calls[0]?.[4]).toEqual(
-      expect.objectContaining({ dispatchMode: "background" }),
-    );
+    // dispatch_mode is now set via the runner's own pre-claim (insertRun +
+    // claimBackgroundRun) before startRun is even called, not through
+    // startRun's options — see background-automation-runner.spec.ts.
+    expect(startRunMock.mock.calls[0]?.[4]).not.toHaveProperty("dispatchMode");
   });
 
   it("fails loudly before execution when a requested event MCP tool is unavailable", async () => {

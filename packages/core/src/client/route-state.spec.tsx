@@ -27,6 +27,12 @@ function appStateKey(url: RequestInfo | URL): string {
   return String(url).split("/_agent-native/application-state/")[1] ?? "";
 }
 
+function batchedKeys(url: RequestInfo | URL): string[] | null {
+  const query = String(url).split("/_agent-native/application-state?keys=")[1];
+  if (query === undefined) return null;
+  return query.split(",").map(decodeURIComponent);
+}
+
 function makeAppStateFetch(initialState: Record<string, unknown>) {
   const state = { ...initialState };
   const writes: Array<{ key: string; body: unknown; init: RequestInit }> = [];
@@ -45,6 +51,17 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
         delete state[key];
         deletes.push({ key, init: init ?? {} });
         return jsonResponse({ ok: true });
+      }
+      const keys = batchedKeys(url);
+      if (keys) {
+        const values: Record<string, unknown> = {};
+        for (const batchKey of keys) {
+          if (batchKey in state) values[batchKey] = state[batchKey];
+        }
+        return jsonResponse({
+          values,
+          missing: keys.filter((batchKey) => !(batchKey in values)),
+        });
       }
       return jsonResponse(state[key] ?? null);
     },
@@ -163,12 +180,17 @@ describe("route-state client helpers", () => {
         key: "navigate:tab-1",
         init: {
           method: "DELETE",
-          headers: { "X-Request-Source": "tab-1" },
+          headers: {
+            "X-Agent-Native-CSRF": "1",
+            "X-Request-Source": "tab-1",
+          },
           keepalive: undefined,
           signal: undefined,
         },
       },
     ]);
+    // Reads are batched, so which keys share a request is not a behavioural
+    // contract — that only the tab-scoped command was consumed is (above).
     expect(
       fetchMock.mock.calls.some(([url]) => appStateKey(url) === "navigate"),
     ).toBe(false);
@@ -237,6 +259,59 @@ describe("route-state client helpers", () => {
       view: "detail/123",
       label: null,
     });
+  });
+
+  it("uses the workspace gateway when a command targets a sibling app", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      "navigate:tab-1": {
+        path: "/seo-application/settings",
+        _writeId: "cmd-2",
+      },
+    });
+    const assign = vi.fn();
+    const replace = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "market-research", path: "/market-research" },
+        { id: "seo-application", path: "/seo-application" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: {
+        pathname: "/market-research/_agent-native/poll",
+        assign,
+        replace,
+      },
+    });
+
+    function Harness() {
+      useAgentRouteState({
+        browserTabId: "tab-1",
+        requestSource: "tab-1",
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({ view: pathname }),
+        getCommandPath: (command: { path?: string }) => command.path,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/market-research"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(assign).toHaveBeenCalledWith("/seo-application/settings");
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("prepares shared chat view transitions before navigate commands", async () => {

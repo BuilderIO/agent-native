@@ -1488,6 +1488,9 @@ const frFR = {
     advancedRuntime: "Avancé : étendre le runtime",
     templatesSection: "Apps",
     gettingStarted: "Bien démarrer",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Qu'est-ce qu'Agent-Native ?",
     agentSurfaces: "Surfaces Agent",
     keyConcepts: "Concepts clés",
@@ -1661,6 +1664,7 @@ const frFR = {
     formsOverview: "Vue d'ensemble",
     formsBuildingPublishing: "Création et publication",
     formsResponses: "Réponses et aperçus",
+    docsComponents: "Docs Components",
     formsDevelopers: "Guide développeur",
   },
 } satisfies typeof enUS;

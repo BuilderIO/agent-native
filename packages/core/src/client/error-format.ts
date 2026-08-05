@@ -95,6 +95,7 @@ function isProviderAuthenticationError(
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
       text,
     ) ||
+    lower.includes("missing authentication header") ||
     lower.includes("invalid x-api-key") ||
     lower.includes("invalid api key") ||
     lower.includes("incorrect api key") ||
@@ -141,6 +142,17 @@ export function normalizeChatError(
     };
   }
 
+  // A model/parameter combination this provider will never accept. Retrying is
+  // pointless and the raw sentence names an API surface the reader has no way
+  // to act on, so say what they can actually change.
+  if (code === "provider_config_error") {
+    return {
+      message:
+        "This model can't use tools with the current settings. Switch models in Settings, then retry.",
+      details: text,
+    };
+  }
+
   if (isProviderRateLimit(text, errorCode)) {
     return {
       message:
@@ -152,7 +164,7 @@ export function normalizeChatError(
   if (isProviderAuthenticationError(text, errorCode)) {
     return {
       message:
-        "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+        "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
       details: text,
     };
   }

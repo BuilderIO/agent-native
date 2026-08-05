@@ -123,11 +123,11 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError(raw, "authentication_error");
 
     expect(normalized.message).toBe(
-      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
     );
     expect(normalized.details).toBe(raw);
     expect(formatChatErrorText(raw, undefined, "authentication_error")).toBe(
-      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
     );
   });
 
@@ -135,12 +135,12 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError("401 status code (no body)");
 
     expect(normalized.message).toBe(
-      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
     );
     expect(normalized.details).toBe("401 status code (no body)");
     expect(normalized.message).not.toContain("no body");
     expect(formatChatErrorText("401 status code (no body)")).toBe(
-      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
     );
   });
 

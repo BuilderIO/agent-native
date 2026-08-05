@@ -200,28 +200,28 @@ npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?ap
 
 1. **選取一個範例應用程式。**使用 CLI 選取器，或瀏覽檔案並選取一個開始。
 2. **打造品牌。**更改名稱、顏色、徽標和文案。大多數範例應用程式都將其公開在單一設定檔案中。
-3. **自訂它。** 要求代理新增您需要的列，更改收件箱分組的方式，連線到您的內部 API，新增新檢視。代理編輯程式碼；您檢視差異。
+3. **自訂它。** 在自己的儲存庫與開發工作流程中變更原始碼。如果代理 frame 被有意授予工作區與寫入工具，它可以提供協助；否則嵌入式代理會透過 actions、資料和已設定的整合來操作應用程式。
 4. **發貨。**執行部署指令。您現在在自己的域中擁有自己的正式環境 SaaS。
 
-步驟 2-4 通常需要幾天而不是幾個月的時間。第 3 步是開放式的 - 透過與代理交談，用簡單的英語來說，您的分叉 SaaS 會隨著時間的推移而發展。
+步驟 2-4 通常需要幾天而不是幾個月。第 3 步是開放式的，因為應用程式歸您所有並可持續演進；嵌入式代理仍可操作已部署的產品，並在明確啟用程式碼存取時協助變更原始碼。
 
 ## 為什麼這是實用的 {#why}
 
 傳統的程式碼庫分叉模型會大規模當機：每個使用者維護自己的收件箱聽起來像是一場維護噩夢。兩個框架決策使其發揮作用：
 
-1. **代理進行維護。**您無需編寫程式碼來新增列或連線新的整合 - 您可以詢問代理。所以“你自己的分叉收件箱”是一個功能，而不是一個負擔。
+1. **應用程式保持框架合約。** 原始碼擁有領域行為，而 Core 會隨著應用程式演進保持 actions、SQL、狀態與同步的一致性。
 2. **每使用者自訂，無需每使用者程式碼。** Skills、記憶、指令、連線的 MCP 伺服器和子代理都位於 SQL 中。每個使用者都有自己的定制層；共用程式碼庫同時託管所有這些內容。
 
 結果：Claude - 每個使用者的程式碼級靈活性，以及正常的 SaaS 部署經濟性。
 
-<Diagram id="doc-block-oqiktb" title={"為什麼每使用者自訂可以擴展"} summary={"有兩個想法使從可執行 app 開始的模型保持實用：代理進行維護，每個使用者的自訂位於 SQL 中，而不是每個使用者的程式碼中。"}>
+<Diagram id="doc-block-oqiktb" title={"為什麼每使用者自訂可以擴展"} summary={"有兩個想法使從可執行 app 開始的模型保持實用：應用程式保持框架合約，每個使用者的自訂位於 SQL 中，而不是每個使用者的程式碼中。"}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>分享d codebase</strong
     ><small class="diagram-muted">一個應用，一次部署</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">應用程式保持框架合約</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>

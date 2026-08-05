@@ -1480,6 +1480,9 @@ const koKR = {
     advancedRuntime: "고급: 런타임 확장",
     templatesSection: "앱",
     gettingStarted: "시작하기",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native란?",
     agentSurfaces: "Agent 표면",
     keyConcepts: "핵심 개념",
@@ -1653,6 +1656,7 @@ const koKR = {
     formsOverview: "개요",
     formsBuildingPublishing: "빌드 및 게시",
     formsResponses: "응답 및 인사이트",
+    docsComponents: "Docs Components",
     formsDevelopers: "개발자 가이드",
   },
 } satisfies typeof enUS;

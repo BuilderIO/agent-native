@@ -1800,7 +1800,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 feedback={feedbackButton}
                 search={searchButton}
                 collapse={collapseButton}
-                className={showCollapsedSidebar ? undefined : "px-0 py-0"}
               />
             </div>
           </>
@@ -2193,7 +2192,6 @@ function StandardLayout({ children }: AppLayoutProps) {
               feedback={feedbackButton}
               search={searchButton}
               collapse={collapseButton}
-              className="px-0 py-0"
             />
           </div>
         </div>

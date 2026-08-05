@@ -16,6 +16,9 @@ const VALID_CHART_TYPES = new Set([
   "metric",
   "table",
   "pie",
+  "funnel",
+  "heatmap",
+  "callout",
 ]);
 // Embed URLs accept external sources plus the restricted first-party analytics
 // source. They intentionally do not expose arbitrary app database querying.

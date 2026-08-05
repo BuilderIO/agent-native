@@ -595,6 +595,7 @@ const messages = {
     title: "设置",
     pageTitle: "设置 · Clips",
     intro: "此 Clips 工作区的偏好设置和已连接服务。",
+    preferencesTitle: "偏好设置",
     languageTitle: "语言",
     languageDescription:
       "选择此账号的界面语言。Clips 会在不同设备上记住你的选择。",
@@ -629,9 +630,15 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     transcriptCleanup: "后台清理",
     transcriptCleanupDescription: "先立即显示原生转录，后台可用时再进行清理。",
     notifications: "通知",
+    sharing: "共享",
+    defaultVisibility: "新录制内容的默认可见性",
+    defaultVisibilityDescription:
+      "应用于你创建的每个录制内容，你仍可为单个录制内容更改可见性。",
+    visibilityPrivate: "私密 - 仅自己",
+    visibilityOrg: "组织 - 工作区中的任何人",
+    visibilityPublic: "公开 - 任何拥有链接的人",
     emailNotifications: "邮件通知",
-    emailNotificationsDescription:
-      "当有人评论、回应或与你分享录制时，收到邮件通知。",
+    emailNotificationsDescription: "当有人评论或回应你的录制时，收到邮件通知。",
     saved: "设置已保存",
     saveFailed: "保存失败",
     builderConnectedToast: "Builder.io 已连接",
@@ -778,12 +785,15 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     noViewsYet: "暂无观看记录。",
     viewsCount_one: "{{count}} 次观看",
     viewsCount_other: "{{count}} 次观看",
+    agentViewsCount_one: "AI 智能体观看 {{count}} 次",
+    agentViewsCount_other: "AI 智能体观看 {{count}} 次",
     totalViewsSummary: "共 {{total}} 次观看，{{unique}} 位独立观看者",
     viewsTab: "观看",
     insightsTab: "洞察",
     humanViews: "真人观看",
     agentViews: "AI 智能体观看",
     noAgentViewsYet: "暂无 AI 智能体观看记录。",
+    unknownAgent: "未知智能体",
     totalVideoViews: "视频观看总数",
     averageCompletionRate: "平均完成率",
     moreInsights: "更多洞察",
@@ -1460,6 +1470,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
     connectGoogleCalendar: "Connect Google Calendar (已本地化)",
+    googleMayShowWarning: "检查 Google 访问权限",
+    googleNotVerifiedTitle: "连接前请验证应用",
+    googleWarningBeforeAdvanced:
+      "请确认应用名称和请求的 Calendar 访问权限与你信任的 Clips 部署相符。如果 Google 显示未验证应用警告，或应用身份看起来陌生，请停止操作并联系工作区管理员。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (已本地化)",
     getDesktopApp: "Get desktop app (已本地化)",

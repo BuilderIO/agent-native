@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { DEFAULT_STYLE_REFERENCE_URLS } from "@shared/api";
+import {
+  DEFAULT_STYLE_REFERENCE_URLS,
+  normalizeReferenceUrls,
+} from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
@@ -18,13 +21,76 @@ interface ImageGenPanelProps {
     deckId: string;
     deckTitle: string;
   };
+  referenceImageUrls?: string[];
   anchorRef?: React.RefObject<HTMLButtonElement | null>;
+}
+
+export interface BuildImageGenerationContextArgs {
+  prompt: string;
+  slideContext?: ImageGenPanelProps["slideContext"];
+  referenceImageUrls?: string[];
+}
+
+export function buildImageGenerationContext({
+  prompt,
+  slideContext,
+  referenceImageUrls = [],
+}: BuildImageGenerationContextArgs): string {
+  const contextParts: string[] = [];
+
+  contextParts.push(
+    "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt. That action delegates to the Assets app so the images come from the brand library; never call an image-generation API directly from slides.",
+  );
+  contextParts.push(
+    "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",
+  );
+  contextParts.push(
+    "Do not render visible words, labels, spec text, prompt text, or UI copy inside the image unless the user's image prompt explicitly asks for exact text.",
+  );
+  contextParts.push(
+    'Do not browse, search, or inspect brand assets for style phrases like "Builder.io" unless the user explicitly asks to set up, import, save, or apply a brand/design system.',
+  );
+
+  const styleReferenceUrls = normalizeReferenceUrls(referenceImageUrls);
+  if (styleReferenceUrls.length > 0) {
+    contextParts.push(
+      `Call \`generate-image-api\` with referenceImageUrls set to this exact array: ${JSON.stringify(styleReferenceUrls)}.`,
+    );
+  }
+
+  if (prompt.trim()) {
+    contextParts.push(`Image prompt: "${prompt}"`);
+  } else {
+    contextParts.push(
+      "Generate an appropriate image based on the slide content below.",
+    );
+  }
+
+  if (slideContext) {
+    contextParts.push(
+      `\nTarget: Slide ${slideContext.slideIndex + 1} (id: ${slideContext.slideId}) in deck "${slideContext.deckTitle}" (id: ${slideContext.deckId}).`,
+    );
+    contextParts.push(`Current slide layout: ${slideContext.slideLayout}`);
+    contextParts.push(
+      `Current slide content:\n\`\`\`\n${slideContext.slideContent}\n\`\`\``,
+    );
+    contextParts.push(
+      `Pass deckId, slideId, slideContent, and referenceImageUrls to the action so Assets can ground the generation in this slide.`,
+    );
+  }
+
+  contextParts.push(
+    '\nGenerate 3 variations. Show each as an inline rendered image preview using markdown image syntax (![Variation 1](url)), not a plain text link — the chat renders "![]()" as an actual image but "[]()" as a bare link. Let the user pick their favorite, then insert the chosen generated image into the slide content in the right place.',
+  );
+
+  return contextParts.join("\n");
 }
 
 export default function ImageGenPanel({
   open,
   onOpenChange,
   slideContext,
+  referenceImageUrls = [],
   anchorRef,
 }: ImageGenPanelProps) {
   const t = useT();
@@ -63,57 +129,24 @@ export default function ImageGenPanel({
   };
 
   const handleGenerate = () => {
-    const activeRefs = DEFAULT_STYLE_REFERENCE_URLS.filter(
+    const activeDefaultRefs = DEFAULT_STYLE_REFERENCE_URLS.filter(
       (_, i) => !disabledDefaults.has(i),
     );
-    const contextParts: string[] = [];
-
-    contextParts.push(
-      "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt.",
-    );
-    contextParts.push(
-      "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",
-    );
-    contextParts.push(
-      "Do not render visible words, labels, spec text, prompt text, or UI copy inside the image unless the user's image prompt explicitly asks for exact text.",
-    );
-    contextParts.push(
-      'Do not browse, search, or inspect brand assets for style phrases like "Builder.io" unless the user explicitly asks to set up, import, save, or apply a brand/design system.',
-    );
-
-    if (prompt.trim()) {
-      contextParts.push(`Image prompt: "${prompt}"`);
-    } else {
-      contextParts.push(
-        "Generate an appropriate image based on the slide content below.",
-      );
-    }
-
-    if (slideContext) {
-      contextParts.push(
-        `\nTarget: Slide ${slideContext.slideIndex + 1} (id: ${slideContext.slideId}) in deck "${slideContext.deckTitle}" (id: ${slideContext.deckId}).`,
-      );
-      contextParts.push(`Current slide layout: ${slideContext.slideLayout}`);
-      contextParts.push(
-        `Current slide content:\n\`\`\`\n${slideContext.slideContent}\n\`\`\``,
-      );
-    }
-
-    if (activeRefs.length > 0) {
-      contextParts.push(
-        `\nUse these ${activeRefs.length} style reference URLs for brand matching (already configured as defaults in the script).`,
-      );
-    }
-
-    contextParts.push(
-      '\nGenerate 3 variations. Show each as an inline rendered image preview using markdown image syntax (![Variation 1](url)), not a plain text link — the chat renders "![]()" as an actual image but "[]()" as a bare link. Let the user pick their favorite, then insert the chosen generated image into the slide content in the right place.',
-    );
+    const activeRefs = normalizeReferenceUrls([
+      ...activeDefaultRefs,
+      ...referenceImageUrls,
+    ]);
+    const context = buildImageGenerationContext({
+      prompt,
+      slideContext,
+      referenceImageUrls: activeRefs,
+    });
 
     const label = prompt.trim()
       ? `Generate 3 image variations: ${prompt}`
       : `Generate image for slide ${slideContext ? slideContext.slideIndex + 1 : ""}`;
 
-    agentSubmit(label, contextParts.join("\n"));
+    agentSubmit(label, context);
     setPrompt("");
   };
 

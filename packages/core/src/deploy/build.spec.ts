@@ -854,6 +854,8 @@ export default (event) =>
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
     expect(html).toContain("streamController.enqueue");
+    expect(html).not.toContain("dev server");
+    expect(html).not.toContain("browser console");
     expect(html).toContain("loaderData");
     expect(html).not.toContain("en-US");
   });
@@ -1595,6 +1597,35 @@ describe("runNitroBuildPipeline", () => {
     ).toBe(true);
   });
 
+  it("does not mirror again when the preset already mounted publicDir at the base path", async () => {
+    const { cwd, clientDir } = setupFixture();
+    // Nitro's netlify preset resolves publicDir to `dist{{ baseURL }}`, so the
+    // public dir IS the mount path. Mirroring again wrote a whole second client
+    // build at dist/docs/docs that only the workspace deploy ever deleted.
+    const publicOutputDir = path.join(cwd, "dist", "docs");
+    fs.mkdirSync(publicOutputDir, { recursive: true });
+
+    await runNitroBuildPipeline({
+      nitro: { options: { output: { publicDir: publicOutputDir } } },
+      hooks: {
+        prepare: async () => {},
+        copyPublicAssets: async () => {},
+        nitroBuild: async () => {},
+      },
+      clientDir,
+      publicOutputDir,
+      appBasePath: "/docs",
+      cwd,
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(publicOutputDir, "assets", "entry.client-abc.js"),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(publicOutputDir, "docs"))).toBe(false);
+  });
+
   it("adds exact immutable route rules for copied hashed client assets", async () => {
     const { cwd, clientDir, publicOutputDir } = setupFixture();
     const nitro: any = {
@@ -1680,7 +1711,7 @@ describe("runNitroBuildPipeline", () => {
   });
 });
 
-describe("durable-background Netlify function emit (single-template, flag-gated)", () => {
+describe("durable-background Netlify function emit (single-template, default-on)", () => {
   const dirs: string[] = [];
   let previousFlag: string | undefined;
   let previousWorkspaceFlag: string | undefined;
@@ -1871,11 +1902,8 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
   });
 
-  it("is OFF BY DEFAULT (flag unset) so the -background function is NOT emitted", () => {
-    // Default-off (opt-in) matches the runtime gate (isFlagEnabled) — durable is
-    // opt-in until the async worker path is proven live, so the 15-min
-    // `-background` function is emitted only when an app explicitly opts in.
-    expect(isDurableBackgroundDeployEnabled()).toBe(false);
+  it("is ON BY DEFAULT so the -background function is emitted", () => {
+    expect(isDurableBackgroundDeployEnabled()).toBe(true);
   });
 
   it("is ON only when explicitly opted in via a truthy flag", () => {
@@ -1885,19 +1913,17 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     }
   });
 
-  it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
-    for (const value of [
-      "0",
-      "false",
-      "no",
-      "off",
-      "FALSE",
-      " Off ",
-      "",
-      "maybe",
-    ]) {
+  it("is OFF for explicit falsy flag values", () => {
+    for (const value of ["0", "false", "no", "off", "FALSE", " Off "]) {
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
       expect(isDurableBackgroundDeployEnabled()).toBe(false);
+    }
+  });
+
+  it("stays ON for empty or unrecognized flag values", () => {
+    for (const value of ["", "maybe"]) {
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+      expect(isDurableBackgroundDeployEnabled()).toBe(true);
     }
   });
 
@@ -1979,6 +2005,26 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain("wrapper failed before reaching the route");
   });
 
+  it("hard-links the handler bundle instead of writing a second copy of it", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
+
+    const source = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_libs",
+      "yjs.mjs",
+    );
+    const clone = path.join(backgroundDir(cwd), "_libs", "yjs.mjs");
+    // Same inode: the extra function costs its entry file, not another whole
+    // server bundle. Netlify still zips each function separately, so this is
+    // invisible to the deploy — a hard link IS a regular file to every reader.
+    expect(fs.statSync(clone).ino).toBe(fs.statSync(source).ino);
+  });
+
   it("does NOT touch the server /* catch-all (no excludedPath patch — default url is never shadowed)", () => {
     const cwd = setupNetlifyOutput();
 
@@ -2013,6 +2059,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
     // No .netlify/functions-internal/server/main.mjs present.
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
 
     expect(() =>
       emitSingleTemplateNetlifyBackgroundFunction(cwd),
@@ -2077,6 +2124,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
 
+    emitSingleTemplateNetlifyBackgroundFunction(cwd);
     emitSingleTemplateNetlifyKeepWarmFunction(cwd);
 
     const entry = fs.readFileSync(
@@ -2104,7 +2152,13 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain("const BACKGROUND_WARM_PATH = null");
   });
 
-  function prepareSingleTemplateNetlifyOutput(cwd: string): void {
+  function prepareSingleTemplateNetlifyOutput(
+    cwd: string,
+    options: { emitBackground?: boolean } = {},
+  ): void {
+    if (options.emitBackground !== false) {
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
+    }
     writeSingleTemplateNetlifyRedirects(cwd);
   }
 
@@ -2423,7 +2477,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
   it("fails when durable background is enabled but the Netlify background function is missing", () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
-    prepareSingleTemplateNetlifyOutput(cwd);
+    prepareSingleTemplateNetlifyOutput(cwd, { emitBackground: false });
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /durable background is enabled/,

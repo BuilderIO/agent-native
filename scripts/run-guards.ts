@@ -13,6 +13,7 @@ const guards = [
   "guard:template-list",
   "guard:netlify-private-env",
   "guard:trusted-acceptance",
+  "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",
   "guard:template-standard",
@@ -38,6 +39,11 @@ const guards = [
   "guard:ssr-cache-shell",
   "guard:route-chunk-recovery",
   "guard:one-sign-in",
+  "guard:no-secret-literals",
+  "guard:additive-migrations",
+  "guard:no-silent-coercion",
+  "guard:no-raw-colors",
+  "guard:dead-settings-keys",
 ] as const;
 
 type GuardName = (typeof guards)[number];

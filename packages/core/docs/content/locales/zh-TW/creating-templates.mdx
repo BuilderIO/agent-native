@@ -9,6 +9,14 @@ description: "如何建立和發布您自己的 Agent-Native 應用範本。"
 
 將 `@agent-native/core` 用於執行階段合約：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。將 `@agent-native/toolkit` 用於可重用的應用程式建構 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和簡單 app shell slots。當變體承載產品行為或視覺識別時，請保留在範本本地。
 
+在決定某項能力應放在哪一層時，請記住這三個層次：
+
+- **Core - 框架：**每個應用程式都可使用的必要執行階段與資料合約。
+- **Toolkit - 可選的可重複使用部件：**應用程式可以採用、組合或分叉的共享 UI 與產品系統。
+- **Templates - 可選應用程式：**建構在 Core 上、通常使用 Toolkit 的完整領域產品，可分叉作為起點。
+
+Toolkit 與 Templates 都是可選的。範本不等於框架本身，Toolkit 也不會取代 Core。
+
 一個好的範本：
 
 - 使用有用的種子資料或空狀態流端對端地解決一個工作流。

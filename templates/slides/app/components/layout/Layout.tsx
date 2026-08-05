@@ -143,7 +143,7 @@ export function Layout({ children }: LayoutProps) {
               }
             />
           </div>
-          <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
+          <div className="agent-layout-main-surface flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
             {!ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">

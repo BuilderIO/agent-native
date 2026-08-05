@@ -406,6 +406,136 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
 });
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * In-place scaffold safety boundary (`create .`)
+ *
+ * `create .` scaffolds into the current directory, which may already be a git
+ * repo with the user's own files. The scaffold must be staged so a failure
+ * can't delete that directory, must preserve pre-existing files, and must not
+ * write a commit into the user's history.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
+  function git(cwd: string, args: string[]): string {
+    const res = spawnSync("git", args, {
+      cwd,
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@example.com",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@example.com",
+      },
+    });
+    if (res.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${res.stderr}`);
+    }
+    return res.stdout.trim();
+  }
+
+  function setupExistingRepo(dir: string): {
+    readme: string;
+    gitignore: string;
+    head: string;
+  } {
+    fs.mkdirSync(dir, { recursive: true });
+    const readme = "# My existing project\nDo not clobber me.\n";
+    const gitignore = "node_modules\n.env\n";
+    fs.writeFileSync(path.join(dir, "README.md"), readme);
+    fs.writeFileSync(path.join(dir, ".gitignore"), gitignore);
+    git(dir, ["init"]);
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "existing history"]);
+    return { readme, gitignore, head: git(dir, ["rev-parse", "HEAD"]) };
+  }
+
+  it("preserves .git, README.md, .gitignore and existing history", async () => {
+    const dir = path.join(tmpDir, "in-place-app");
+    const { readme, gitignore, head } = setupExistingRepo(dir);
+    process.chdir(dir);
+
+    await createApp(".", { template: "headless" });
+
+    // Pre-existing user files are untouched.
+    expect(fs.readFileSync(path.join(dir, "README.md"), "utf-8")).toBe(readme);
+    expect(fs.readFileSync(path.join(dir, ".gitignore"), "utf-8")).toBe(
+      gitignore,
+    );
+    expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
+
+    // The scaffold landed in the current directory.
+    expect(fs.existsSync(path.join(dir, "actions", "hello.ts"))).toBe(true);
+    expect(readPkg(dir).name).toBe("in-place-app");
+
+    // No commit was written into the user's repo: HEAD is unchanged and the
+    // scaffolded files are left untracked for the user to review.
+    expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+    // git collapses an untracked directory to its top-level path.
+    expect(git(dir, ["status", "--porcelain"])).toContain("?? actions/");
+  });
+
+  it("leaves the current directory intact and removes staging on failure", async () => {
+    const dir = path.join(tmpDir, "in-place-fail");
+    const { readme, head } = setupExistingRepo(dir);
+    process.chdir(dir);
+
+    // Fail the scaffold mid-flight by rejecting writes into the staging dir,
+    // and capture the staging path so we can assert it was cleaned up.
+    let stagingDir: string | undefined;
+    const realMkdtemp = fs.mkdtempSync.bind(fs);
+    const realWrite = fs.writeFileSync.bind(fs);
+    const mkdtempSpy = vi.spyOn(fs, "mkdtempSync").mockImplementation(((
+      prefix: any,
+      ...rest: any[]
+    ) => {
+      const created = (realMkdtemp as any)(prefix, ...rest);
+      if (String(prefix).includes("agent-native-create-")) {
+        stagingDir = created;
+      }
+      return created;
+    }) as any);
+    const writeSpy = vi.spyOn(fs, "writeFileSync").mockImplementation(((
+      file: any,
+      ...rest: any[]
+    ) => {
+      if (
+        typeof file === "string" &&
+        stagingDir &&
+        file.startsWith(stagingDir)
+      ) {
+        throw new Error("injected scaffold failure");
+      }
+      return (realWrite as any)(file, ...rest);
+    }) as any);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as any);
+
+    try {
+      await expect(createApp(".", { template: "headless" })).rejects.toThrow(
+        "process.exit(1)",
+      );
+    } finally {
+      mkdtempSpy.mockRestore();
+      writeSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    // The user's current directory and history are untouched...
+    expect(fs.readFileSync(path.join(dir, "README.md"), "utf-8")).toBe(readme);
+    expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
+    expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+    // ...no partial scaffold leaked into it...
+    expect(fs.existsSync(path.join(dir, "actions"))).toBe(false);
+    // ...and the staging directory was removed.
+    expect(stagingDir).toBeDefined();
+    expect(fs.existsSync(stagingDir!)).toBe(false);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
  * Headless onboarding guards
  *
  * The two documented post-install commands for a headless scaffold —
@@ -611,11 +741,10 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
   });
 
-  it("scaffolds the pinpoint package when design is included", async () => {
+  it("does not scaffold the optional pinpoint package with design", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["chat", "design"]);
     const pinpointDir = path.join(wsDir, "packages", "pinpoint");
-    expect(fs.existsSync(pinpointDir)).toBe(true);
-    expect(fs.existsSync(path.join(pinpointDir, "package.json"))).toBe(true);
+    expect(fs.existsSync(pinpointDir)).toBe(false);
   });
 
   it("scaffolds the committed design bridge modules that DesignCanvas imports at module load", async () => {

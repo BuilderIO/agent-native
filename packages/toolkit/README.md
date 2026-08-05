@@ -39,6 +39,14 @@ import {
   StatsCard,
   buildDashboardPanelGroups,
 } from "@agent-native/toolkit/dashboard";
+import {
+  CanvasCommentPins,
+  DrawOverlay,
+} from "@agent-native/toolkit/canvas-annotations";
+import {
+  createCanvasGestureController,
+  createCanvasInteractionCore,
+} from "@agent-native/toolkit/canvas-interactions";
 import { VisualTweakControl } from "@agent-native/toolkit/design-tweaks";
 import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
@@ -55,6 +63,17 @@ Import `@agent-native/toolkit/styles.css` after Tailwind to include Toolkit's
 source scanning. If an app renders `SharedRichEditor`, also import
 `@agent-native/toolkit/editor.css`. If an app renders `ChatHistoryList` or
 `ChatHistoryRail`, also import `@agent-native/toolkit/chat-history.css`.
+
+`DrawOverlay` backs the Design and Slides drawing tools. `CanvasCommentPins`
+provides lightweight, transient pins that send canvas context to an agent.
+Translation, agent-chat routing, document context, and storage-backed review
+threads stay with the app.
+
+`createCanvasGestureController` provides a headless move and resize state
+machine with zoom conversion, modifier policies, previews, cancellation, and a
+single commit boundary. Apps provide adapters for selection, rendering, and
+persistence. `createCanvasInteractionCore` exposes the same shared geometry,
+text-activation, Escape, nudge, and shortcut policies without owning state.
 
 Use `ChatHistoryRail` for app sidebars. It shows five recent chats by default,
 progressively discloses up to fifteen, and keeps the app-provided New chat

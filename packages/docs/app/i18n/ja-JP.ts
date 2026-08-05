@@ -1484,6 +1484,9 @@ const jaJP = {
     advancedRuntime: "高度: ランタイムを拡張",
     templatesSection: "アプリ",
     gettingStarted: "はじめに",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native とは？",
     agentSurfaces: "Agent サーフェス",
     keyConcepts: "主要概念",
@@ -1657,6 +1660,7 @@ const jaJP = {
     formsOverview: "概要",
     formsBuildingPublishing: "作成と公開",
     formsResponses: "回答とインサイト",
+    docsComponents: "Docs Components",
     formsDevelopers: "開発者ガイド",
   },
 } satisfies typeof enUS;

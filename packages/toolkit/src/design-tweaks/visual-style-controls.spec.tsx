@@ -91,6 +91,66 @@ describe("visual style controls", () => {
     expect(input?.value).toBe("24px");
   });
 
+  it("supports a compact icon prefix without removing the accessible label", () => {
+    const TestIcon = ({
+      className,
+      "aria-hidden": ariaHidden,
+    }: {
+      className?: string;
+      "aria-hidden"?: boolean;
+    }) => (
+      <svg
+        data-testid="scrub-icon"
+        className={className}
+        aria-hidden={ariaHidden}
+      />
+    );
+
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="Corner radius"
+          value={12}
+          unit="px"
+          icon={TestIcon}
+          prefix="icon"
+          onChange={() => {}}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    const label = container.querySelector<HTMLLabelElement>("label");
+    expect(label?.querySelector("svg")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    expect(label?.className).toContain("w-8");
+    expect(label?.querySelector("span")?.textContent).toBe("Corner radius");
+    expect(label?.querySelector("span")?.className).toContain("sr-only");
+    expect(label?.htmlFor).toBe(input?.id);
+  });
+
+  it("keeps labels single-line while the numeric input fills the remaining row", () => {
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="A long numeric property label"
+          value={12}
+          onChange={() => {}}
+        />,
+      );
+    });
+
+    const row = container.querySelector("div");
+    const label = container.querySelector("label");
+    const input = container.querySelector("input");
+    expect(row?.className).toContain("min-w-0");
+    expect(label?.className).toContain("whitespace-nowrap");
+    expect(label?.querySelector("span")?.className).toContain("truncate");
+    expect(input?.className).toContain("w-0");
+    expect(input?.className).toContain("flex-1");
+  });
+
   it("leaves every segment unselected for a mixed value", () => {
     act(() => {
       root.render(

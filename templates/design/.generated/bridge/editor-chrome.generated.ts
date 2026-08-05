@@ -4,6 +4,390 @@
 /** Compiled IIFE string for editor-chrome.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const editorChromeBridgeScript: string = `"use strict";
 (() => {
+  // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
+  var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
+  var DEFAULT_CANVAS_NUDGE = 1;
+  var DEFAULT_CANVAS_ACCELERATED_NUDGE = 10;
+  var DEFAULT_CANVAS_MIN_SIZE = 24;
+  var DEFAULT_CANVAS_INTERACTION_CAPABILITIES = {
+    selection: true,
+    multiSelection: false,
+    move: true,
+    resize: true,
+    textEditing: true,
+    nudge: true,
+    duplicate: true,
+    clipboard: true,
+    delete: true,
+    arrange: true,
+    snapping: false,
+    alignment: false,
+    distribution: false,
+    grouping: false,
+    rotation: false,
+    marquee: false
+  };
+  var DEFAULT_CANVAS_SHORTCUTS = [
+    { command: "select-all", key: "a", modifiers: ["primary"] },
+    { command: "undo", key: "z", modifiers: ["primary"] },
+    { command: "redo", key: "z", modifiers: ["primary", "shift"] },
+    { command: "copy", key: "c", modifiers: ["primary"] },
+    { command: "cut", key: "x", modifiers: ["primary"] },
+    { command: "paste", key: "v", modifiers: ["primary"] },
+    { command: "duplicate", key: "d", modifiers: ["primary"] },
+    { command: "delete", key: "Backspace" },
+    { command: "delete", key: "Delete" },
+    {
+      command: "arrange-front",
+      key: "]",
+      code: "BracketRight",
+      modifiers: ["primary", "shift"]
+    },
+    {
+      command: "arrange-back",
+      key: "[",
+      code: "BracketLeft",
+      modifiers: ["primary", "shift"]
+    }
+  ];
+  function primaryModifierIsPressed(modifiers) {
+    return Boolean(modifiers.metaKey || modifiers.ctrlKey);
+  }
+  function hasShortcutModifier(modifier, input) {
+    switch (modifier) {
+      case "primary":
+        return primaryModifierIsPressed(input);
+      case "shift":
+        return Boolean(input.shiftKey);
+      case "alt":
+        return Boolean(input.altKey);
+      case "ctrl":
+        return Boolean(input.ctrlKey);
+      case "meta":
+        return Boolean(input.metaKey);
+    }
+  }
+  function hasOnlyShortcutModifiers(shortcut, input) {
+    const modifiers = new Set(shortcut.modifiers ?? []);
+    const expectedPrimary = modifiers.has("primary");
+    const expectedCtrl = modifiers.has("ctrl") || expectedPrimary;
+    const expectedMeta = modifiers.has("meta") || expectedPrimary;
+    return Boolean(input.shiftKey) === modifiers.has("shift") && Boolean(input.altKey) === modifiers.has("alt") && (!input.ctrlKey || expectedCtrl) && (!input.metaKey || expectedMeta) && (!expectedPrimary || primaryModifierIsPressed(input));
+  }
+  function resolveCanvasTextActivation(input, policy = {}) {
+    if (!input.textEditable)
+      return "select";
+    const activation = policy.activation ?? "double-click";
+    return input.clickCount >= (activation === "single-click" ? 1 : 2) ? "edit" : "select";
+  }
+  function resolveCanvasEscape(input, policy = {}) {
+    const selectedObjectIds = input.selectedObjectIds ?? [];
+    if (input.editingObjectId === null) {
+      return { action: "none", editingObjectId: null, selectedObjectIds };
+    }
+    if ((policy.escapeBehavior ?? "select-object") === "cancel-edit") {
+      return { action: "cancel-edit", editingObjectId: null, selectedObjectIds };
+    }
+    if ((policy.escapeBehavior ?? "select-object") === "clear-selection") {
+      return {
+        action: "clear-selection",
+        editingObjectId: null,
+        selectedObjectIds: []
+      };
+    }
+    return {
+      action: "select-object",
+      editingObjectId: null,
+      selectedObjectIds: [input.editingObjectId]
+    };
+  }
+  function clientPointToCanvasPoint(point, viewport, canvas) {
+    if (viewport.width <= 0 || viewport.height <= 0)
+      return { x: 0, y: 0 };
+    return {
+      x: (point.x - viewport.left) / viewport.width * canvas.width,
+      y: (point.y - viewport.top) / viewport.height * canvas.height
+    };
+  }
+  function clientDeltaToCanvasDelta(delta, viewport, canvas) {
+    if (viewport.width <= 0 || viewport.height <= 0)
+      return { x: 0, y: 0 };
+    return {
+      x: delta.x / viewport.width * canvas.width,
+      y: delta.y / viewport.height * canvas.height
+    };
+  }
+  function hasCrossedCanvasDragThreshold(start, current, threshold = DEFAULT_CANVAS_DRAG_THRESHOLD) {
+    const dx = current.x - start.x;
+    const dy = current.y - start.y;
+    return dx * dx + dy * dy >= threshold * threshold;
+  }
+  function constrainCanvasDragDelta(delta, lockAxis = false) {
+    if (!lockAxis)
+      return delta;
+    return Math.abs(delta.x) >= Math.abs(delta.y) ? { x: delta.x, y: 0 } : { x: 0, y: delta.y };
+  }
+  function resizeCanvasRect(start, input) {
+    const fromWest = input.handle === "nw" || input.handle === "w" || input.handle === "sw";
+    const fromEast = input.handle === "ne" || input.handle === "e" || input.handle === "se";
+    const fromNorth = input.handle === "nw" || input.handle === "n" || input.handle === "ne";
+    const fromSouth = input.handle === "sw" || input.handle === "s" || input.handle === "se";
+    const resizesHorizontally = fromWest || fromEast;
+    const resizesVertically = fromNorth || fromSouth;
+    let width = start.width + (fromWest ? -input.delta.x : fromEast ? input.delta.x : 0);
+    let height = start.height + (fromNorth ? -input.delta.y : fromSouth ? input.delta.y : 0);
+    const minWidth = input.minWidth ?? DEFAULT_CANVAS_MIN_SIZE;
+    const minHeight = input.minHeight ?? DEFAULT_CANVAS_MIN_SIZE;
+    if (input.preserveAspectRatio && resizesHorizontally && resizesVertically && start.width > 0 && start.height > 0) {
+      const horizontalScale = width / start.width;
+      const verticalScale = height / start.height;
+      const scale = Math.abs(horizontalScale - 1) >= Math.abs(verticalScale - 1) ? horizontalScale : verticalScale;
+      const minScale = Math.max(minWidth / start.width, minHeight / start.height);
+      width = start.width * Math.max(minScale, scale);
+      height = start.height * Math.max(minScale, scale);
+    }
+    width = Math.max(minWidth, width);
+    height = Math.max(minHeight, height);
+    return {
+      x: fromWest ? start.x + start.width - width : start.x,
+      y: fromNorth ? start.y + start.height - height : start.y,
+      width,
+      height
+    };
+  }
+  function shouldDuplicateCanvasDrag(modifiers, duplicateModifier = "alt") {
+    switch (duplicateModifier) {
+      case "alt":
+        return Boolean(modifiers.altKey);
+      case "meta":
+        return Boolean(modifiers.metaKey);
+      case "ctrl":
+        return Boolean(modifiers.ctrlKey);
+      case "none":
+        return false;
+    }
+  }
+  function resolveCanvasNudge(input, policy = {}) {
+    const amount = input.shiftKey ? policy.acceleratedAmount ?? DEFAULT_CANVAS_ACCELERATED_NUDGE : policy.amount ?? DEFAULT_CANVAS_NUDGE;
+    switch (input.key) {
+      case "ArrowLeft":
+        return { command: "nudge-left", delta: { x: -amount, y: 0 } };
+      case "ArrowRight":
+        return { command: "nudge-right", delta: { x: amount, y: 0 } };
+      case "ArrowUp":
+        return { command: "nudge-up", delta: { x: 0, y: -amount } };
+      case "ArrowDown":
+        return { command: "nudge-down", delta: { x: 0, y: amount } };
+      default:
+        return null;
+    }
+  }
+  function resolveCanvasShortcut(input, shortcuts = DEFAULT_CANVAS_SHORTCUTS) {
+    const normalizedKey = input.key.toLowerCase();
+    const shortcut = shortcuts.find((candidate) => (candidate.key.toLowerCase() === normalizedKey || candidate.code !== void 0 && candidate.code === input.code) && (candidate.modifiers ?? []).every((modifier) => hasShortcutModifier(modifier, input)) && hasOnlyShortcutModifiers(candidate, input));
+    return shortcut?.command ?? null;
+  }
+  function createCanvasShortcutRegistry(shortcuts = DEFAULT_CANVAS_SHORTCUTS) {
+    return {
+      shortcuts,
+      resolve: (input) => resolveCanvasShortcut(input, shortcuts)
+    };
+  }
+  function createCanvasInteractionCore(config = {}, adapter) {
+    const textEditing = config.textEditing ?? {};
+    const capabilities = {
+      ...DEFAULT_CANVAS_INTERACTION_CAPABILITIES,
+      ...adapter?.capabilities,
+      ...config.capabilities
+    };
+    const drag = config.drag ?? {};
+    const nudge = config.nudge ?? {};
+    const shortcuts = createCanvasShortcutRegistry(config.shortcuts);
+    const supportsCommand = (command) => {
+      switch (command.id) {
+        case "copy":
+        case "cut":
+        case "paste":
+          return capabilities.clipboard;
+        case "duplicate":
+          return capabilities.duplicate;
+        case "delete":
+          return capabilities.delete;
+        case "nudge":
+        case "nudge-left":
+        case "nudge-right":
+        case "nudge-up":
+        case "nudge-down":
+          return capabilities.nudge;
+        case "arrange-front":
+        case "arrange-back":
+        case "bring-forward":
+        case "bring-to-front":
+        case "send-backward":
+        case "send-to-back":
+          return capabilities.arrange;
+        case "align-left":
+        case "align-center":
+        case "align-right":
+        case "align-top":
+        case "align-middle":
+        case "align-bottom":
+          return capabilities.alignment;
+        case "distribute-horizontal":
+        case "distribute-vertical":
+          return capabilities.distribution;
+        case "group":
+        case "ungroup":
+          return capabilities.grouping;
+        case "frame-selection":
+          return capabilities.selection;
+        default:
+          return true;
+      }
+    };
+    return {
+      capabilities,
+      textActivation: (input) => capabilities.textEditing ? resolveCanvasTextActivation(input, textEditing) : "select",
+      escape: (input) => resolveCanvasEscape(input, textEditing),
+      clientPointToCanvas: (point, viewport, canvas) => clientPointToCanvasPoint(point, viewport, canvas),
+      clientDeltaToCanvas: (delta, viewport, canvas) => clientDeltaToCanvasDelta(delta, viewport, canvas),
+      hasCrossedDragThreshold: (start, current) => hasCrossedCanvasDragThreshold(start, current, drag.threshold),
+      constrainDrag: (delta, modifiers = {}) => constrainCanvasDragDelta(delta, Boolean(modifiers.shiftKey)),
+      resize: (start, input) => resizeCanvasRect(start, {
+        ...input,
+        minWidth: input.minWidth ?? config.minSize,
+        minHeight: input.minHeight ?? config.minSize
+      }),
+      shouldDuplicateDrag: (modifiers) => capabilities.duplicate && shouldDuplicateCanvasDrag(modifiers, drag.duplicateModifier),
+      nudge: (input) => capabilities.nudge ? resolveCanvasNudge(input, nudge) : null,
+      shortcut: (input) => shortcuts.resolve(input),
+      dispatch: (command) => {
+        if (!adapter)
+          return { handled: false, reason: "no-adapter" };
+        if (!supportsCommand(command)) {
+          return { handled: false, reason: "unsupported" };
+        }
+        return adapter.dispatch(command);
+      }
+    };
+  }
+  function createCanvasGestureController(config) {
+    const core = createCanvasInteractionCore(config);
+    let start = null;
+    let activeGesture = null;
+    const state = () => ({
+      phase: activeGesture ? "active" : start ? "pending" : "idle",
+      gesture: activeGesture
+    });
+    const canStart = (kind) => kind === "move" ? core.capabilities.move : core.capabilities.resize;
+    const buildGesture = (gestureStart, pointer) => {
+      const clientDelta = {
+        x: pointer.x - gestureStart.pointer.x,
+        y: pointer.y - gestureStart.pointer.y
+      };
+      const convertedDelta = clientDeltaToCanvasDelta(clientDelta, gestureStart.viewport, gestureStart.canvas);
+      const duplicate = gestureStart.kind === "move" && core.capabilities.duplicate ? core.shouldDuplicateDrag(gestureStart.pointer) && core.shouldDuplicateDrag(pointer) : false;
+      if (gestureStart.kind === "move") {
+        return {
+          kind: "move",
+          objectIds: gestureStart.objectIds,
+          startPointer: gestureStart.pointer,
+          pointer,
+          clientDelta,
+          canvasDelta: core.constrainDrag(convertedDelta, pointer),
+          duplicate
+        };
+      }
+      return {
+        kind: "resize",
+        objectIds: gestureStart.objectIds,
+        startPointer: gestureStart.pointer,
+        pointer,
+        clientDelta,
+        canvasDelta: convertedDelta,
+        duplicate: false,
+        handle: gestureStart.handle,
+        startRect: gestureStart.rect,
+        rect: core.resize(gestureStart.rect, {
+          handle: gestureStart.handle,
+          delta: convertedDelta,
+          preserveAspectRatio: Boolean(pointer.shiftKey)
+        })
+      };
+    };
+    const preview = (gesture) => {
+      activeGesture = gesture;
+      return {
+        phase: "active",
+        gesture,
+        preview: config.adapter.preview?.(gesture) ?? null,
+        state: state()
+      };
+    };
+    const update = (pointer) => {
+      if (!start)
+        return { phase: "idle", state: state() };
+      if (!activeGesture) {
+        const crossedThreshold = core.hasCrossedDragThreshold(start.pointer, pointer);
+        if (!crossedThreshold)
+          return { phase: "pending", state: state() };
+      }
+      return preview(buildGesture(start, pointer));
+    };
+    const hasSamePointerState = (first, second) => first.x === second.x && first.y === second.y && Boolean(first.altKey) === Boolean(second.altKey) && Boolean(first.ctrlKey) === Boolean(second.ctrlKey) && Boolean(first.metaKey) === Boolean(second.metaKey) && Boolean(first.shiftKey) === Boolean(second.shiftKey);
+    return {
+      capabilities: core.capabilities,
+      getState: state,
+      pointerDown: (gestureStart) => {
+        if (start) {
+          return { accepted: false, reason: "already-active", state: state() };
+        }
+        if (!canStart(gestureStart.kind)) {
+          return { accepted: false, reason: "unsupported", state: state() };
+        }
+        if (gestureStart.kind === "resize" && (gestureStart.rect.width <= 0 || gestureStart.rect.height <= 0)) {
+          return { accepted: false, reason: "invalid-resize", state: state() };
+        }
+        start = gestureStart;
+        return { accepted: true, state: state() };
+      },
+      pointerMove: update,
+      pointerUp: (pointer) => {
+        const shouldUpdate = activeGesture === null || !hasSamePointerState(activeGesture.pointer, pointer);
+        const beforeEnd = shouldUpdate ? update(pointer) : { phase: "active", state: state() };
+        const gesture = activeGesture;
+        start = null;
+        activeGesture = null;
+        if (!gesture) {
+          return {
+            committed: false,
+            reason: beforeEnd.phase === "idle" ? "idle" : "below-threshold",
+            state: state()
+          };
+        }
+        return {
+          committed: true,
+          gesture,
+          result: config.adapter.commit(gesture),
+          state: state()
+        };
+      },
+      cancel: () => {
+        const gesture = activeGesture;
+        start = null;
+        activeGesture = null;
+        if (!gesture)
+          return { cancelled: false, reason: "idle", state: state() };
+        return {
+          cancelled: true,
+          gesture,
+          result: config.adapter.cancel?.(gesture) ?? null,
+          state: state()
+        };
+      }
+    };
+  }
+
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     if (window.__anEditorChromeBridge) return;
@@ -176,17 +560,28 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       renderRuntimeInteractionStatePreviews();
     }
-    function runtimeHeadHtmlWithoutEditorChrome() {
-      if (!document.head) return "";
-      var clone = document.head.cloneNode(true);
-      Array.prototype.slice.call(
-        clone.querySelectorAll(
-          "[data-agent-native-editor-chrome-style], [data-agent-native-editing-safety-style]"
-        )
-      ).forEach(function(node) {
+    var lastSourceHeadHtml = null;
+    function replaceSourceHeadNodes(previousSourceHtml, nextSourceHtml) {
+      if (!document.head) return;
+      var stale = document.createElement("head");
+      stale.innerHTML = previousSourceHtml || "";
+      var staleCounts = {};
+      Array.prototype.forEach.call(stale.children, function(node) {
+        var key = node.outerHTML;
+        staleCounts[key] = (staleCounts[key] || 0) + 1;
+      });
+      Array.prototype.slice.call(document.head.children).forEach(function(node) {
+        var key = node.outerHTML;
+        if (!staleCounts[key]) return;
+        staleCounts[key] -= 1;
         if (node.parentNode) node.parentNode.removeChild(node);
       });
-      return clone.innerHTML;
+      var next = document.createElement("head");
+      next.innerHTML = nextSourceHtml || "";
+      var anchor = document.head.firstChild;
+      Array.prototype.slice.call(next.children).forEach(function(node) {
+        document.head.insertBefore(document.importNode(node, true), anchor);
+      });
     }
     function chromeScaleX() {
       return 1 / Math.max(0.05, editorChromeScaleX);
@@ -2152,7 +2547,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
       ensureEditorChromeStyle();
-      var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+      if (lastSourceHeadHtml === null) {
+        lastSourceHeadHtml = nextHeadHtml;
+      }
+      var currentHeadHtml = lastSourceHeadHtml;
       if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
         var currentMatch = null;
         var nextMatch = null;
@@ -2214,8 +2612,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       if (currentHeadHtml !== nextHeadHtml) {
-        document.head.innerHTML = nextHeadHtml;
+        replaceSourceHeadNodes(currentHeadHtml, nextHeadHtml);
         ensureEditorChromeStyle();
+        lastSourceHeadHtml = nextHeadHtml;
       }
       Array.prototype.slice.call(document.body.attributes).forEach(function(attribute) {
         document.body.removeAttribute(attribute.name);
@@ -3287,6 +3686,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       var pointerGesture = e && e.type && e.type.indexOf("pointer") === 0;
       return pointerGesture ? { move: "pointermove", up: "pointerup" } : { move: "mousemove", up: "mouseup" };
     }
+    function bridgeGestureViewport() {
+      var width = Math.max(
+        1,
+        window.innerWidth || document.documentElement.clientWidth || 1
+      );
+      var height = Math.max(
+        1,
+        window.innerHeight || document.documentElement.clientHeight || 1
+      );
+      return { left: 0, top: 0, width, height };
+    }
+    function bridgeGesturePointer(e) {
+      return {
+        x: e.clientX,
+        y: e.clientY,
+        altKey: !!e.altKey,
+        ctrlKey: !!e.ctrlKey,
+        metaKey: !!e.metaKey,
+        shiftKey: !!e.shiftKey
+      };
+    }
     function elementFromEditorPoint(clientX, clientY) {
       lastEditorPointWasBlocked = false;
       var shieldPointerEvents = shieldOverlay.style.pointerEvents;
@@ -3403,7 +3823,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
       );
     }
+    function isShowShortcutsChord(e) {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
+      return e.key === "?" || e.key === "/";
+    }
     function shouldForwardDesignHotkey(e) {
+      if (isShowShortcutsChord(e)) return true;
       if (readOnly) return false;
       if (activeTextEditEl || isEditorTypingTarget(e.target) || e.isComposing)
         return false;
@@ -6529,8 +6954,42 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var dragEl = gestureEl;
-      var moved = false;
+      var gestureViewport = bridgeGestureViewport();
       var DRAG_THRESHOLD = 3;
+      var bridgeMoveController = createCanvasGestureController({
+        capabilities: { move: true, resize: true },
+        drag: {
+          // Shield drags already crossed the outer threshold before reaching
+          // startMove. Keeping their controller threshold at zero preserves the
+          // first post-shield delta, while direct selection-chrome drags still
+          // need a real threshold before they preview or persist.
+          threshold: pointerStartParam ? 0 : DRAG_THRESHOLD,
+          duplicateModifier: "alt"
+        },
+        adapter: {
+          preview: function() {
+            return { handled: true };
+          },
+          commit: function() {
+            return { handled: true };
+          },
+          cancel: function() {
+            return { handled: true };
+          }
+        }
+      });
+      bridgeMoveController.pointerDown({
+        kind: "move",
+        objectIds: [getSelector(gestureEl)],
+        // \`e\` is deliberately the event that actually began the legacy move
+        // lifecycle. \`pointerStartParam\` is only Design's outer shield
+        // disambiguation origin; using it here would apply that first
+        // threshold-crossing delta twice.
+        pointer: bridgeGesturePointer(e),
+        viewport: gestureViewport,
+        canvas: { width: gestureViewport.width, height: gestureViewport.height }
+      });
+      var moved = false;
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
       var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
@@ -6558,18 +7017,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.requestAnimationFrame(flushCrossScreenDragMove);
       }
       function onMove(ev) {
+        var controllerMove = bridgeMoveController.pointerMove(
+          bridgeGesturePointer(ev)
+        );
+        if (controllerMove.phase !== "active") return;
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
         }
-        var rawDx = ev.clientX - startX;
-        var rawDy = ev.clientY - startY;
-        if (ev.shiftKey) {
-          if (Math.abs(rawDx) > Math.abs(rawDy)) {
-            rawDy = 0;
-          } else {
-            rawDx = 0;
-          }
-        }
+        var rawDx = controllerMove.gesture.canvasDelta.x;
+        var rawDy = controllerMove.gesture.canvasDelta.y;
         var nextLeft = originLeft + rawDx;
         var nextTop = originTop + rawDy;
         var snapBypass = Boolean(ev.metaKey || ev.ctrlKey);
@@ -6650,6 +7106,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         crossScreenDragMovePendingEv = null;
       }
       function cancelMoveDrag() {
+        bridgeMoveController.cancel();
         cleanupMoveDrag();
         hideTransformBadge();
         hideInsertionGuide();
@@ -6676,6 +7133,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelMoveDrag();
       }
       function onUp(ev) {
+        var controllerEnd = bridgeMoveController.pointerUp(
+          bridgeGesturePointer(ev)
+        );
+        if (!controllerEnd.committed) {
+          cleanupMoveDrag();
+          hideTransformBadge();
+          hideInsertionGuide();
+          hideSnapGuides();
+          return;
+        }
         cleanupMoveDrag();
         hideTransformBadge();
         hideInsertionGuide();
@@ -6810,6 +7277,41 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startX = e.clientX;
       var startY = e.clientY;
       var resizeTheta = currentRotation(resizeEl) * Math.PI / 180;
+      var resizeGestureViewport = bridgeGestureViewport();
+      var RESIZE_DRAG_THRESHOLD = 3;
+      var bridgeResizeController = createCanvasGestureController({
+        capabilities: { move: true, resize: true },
+        drag: { threshold: RESIZE_DRAG_THRESHOLD, duplicateModifier: "alt" },
+        minSize: 8,
+        adapter: {
+          preview: function() {
+            return { handled: true };
+          },
+          commit: function() {
+            return { handled: true };
+          },
+          cancel: function() {
+            return { handled: true };
+          }
+        }
+      });
+      bridgeResizeController.pointerDown({
+        kind: "resize",
+        objectIds: [getSelector(resizeEl)],
+        pointer: bridgeGesturePointer(e),
+        viewport: resizeGestureViewport,
+        canvas: {
+          width: resizeGestureViewport.width,
+          height: resizeGestureViewport.height
+        },
+        handle,
+        rect: {
+          x: origin.left,
+          y: origin.top,
+          width: origin.width,
+          height: origin.height
+        }
+      });
       var widthTouched = false;
       var heightTouched = false;
       function nextRect(ev) {
@@ -6889,6 +7391,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       function onMove(ev) {
+        var controllerMove = bridgeResizeController.pointerMove(
+          bridgeGesturePointer(ev)
+        );
+        if (controllerMove.phase !== "active") return;
         if (!resizeEl) return;
         var rect = nextRect(ev);
         if (rect.touchesWidth) widthTouched = true;
@@ -6923,6 +7429,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         clearActiveDragCancel(cancelResizeDrag);
       }
       function cancelResizeDrag() {
+        bridgeResizeController.cancel();
         cleanupResizeDrag();
         hideTransformBadge();
         if (resizeEl && document.documentElement.contains(resizeEl)) {
@@ -6945,7 +7452,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         stopNativeInteraction(ev);
         cancelResizeDrag();
       }
-      function onUp() {
+      function onUp(ev) {
+        var controllerEnd = bridgeResizeController.pointerUp(
+          bridgeGesturePointer(ev)
+        );
+        if (!controllerEnd.committed) {
+          cleanupResizeDrag();
+          hideTransformBadge();
+          return;
+        }
         cleanupResizeDrag();
         hideTransformBadge();
         if (!resizeEl) return;
@@ -8199,7 +8714,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (e.data.type === "agent-native:text-edit-status") {
         var textEditStatusCorrelationId = typeof e.data.correlationId === "string" ? e.data.correlationId : "";
         var textEditStatusNodeId = typeof e.data.nodeId === "string" ? e.data.nodeId : "";
-        var textEditStatus = false;
+        var textEditStatus = "missing";
         if (textEditStatusNodeId) {
           var escapedTextEditStatusNodeId = textEditStatusNodeId.replace(/\\\\/g, "\\\\\\\\").replace(/"/g, '\\\\"');
           var textEditStatusNode = document.querySelector(
@@ -8212,6 +8727,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             textEditStatus = "active";
           } else if (textEditStatusNode && (textEditStatusNode.textContent ?? "").trim().length > 0) {
             textEditStatus = "done";
+          } else if (textEditStatusNode) {
+            textEditStatus = false;
           }
         }
         window.parent.postMessage(

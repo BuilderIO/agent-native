@@ -31,6 +31,7 @@ interface DesignSystemCardProps {
   data: DesignSystemData;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
+  accessRole?: "owner" | "admin" | "editor" | "viewer";
   canManage?: boolean;
   onClick: () => void;
   onSetDefault: () => void;
@@ -50,6 +51,7 @@ export function DesignSystemCard({
   data,
   isDefault,
   visibility,
+  accessRole,
   canManage,
   onClick,
   onSetDefault,
@@ -97,23 +99,25 @@ export function DesignSystemCard({
           className="absolute top-3 right-3 z-10 flex items-center gap-1.5"
           onClick={(e) => e.stopPropagation()}
         >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onSetDefault}
-                className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
-              >
-                {isDefault ? (
-                  <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
-                ) : (
-                  <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isDefault ? "Default design system" : "Set as default"}
-            </TooltipContent>
-          </Tooltip>
+          {accessRole === "owner" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onSetDefault}
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                >
+                  {isDefault ? (
+                    <IconStarFilled className="w-4 h-4 text-primary" />
+                  ) : (
+                    <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isDefault ? "Default design system" : "Set as default"}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <ShareButton
             resourceType="design-system"
             resourceId={id}

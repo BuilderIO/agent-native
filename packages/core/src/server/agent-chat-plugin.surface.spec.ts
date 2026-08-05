@@ -12,6 +12,7 @@ import {
   corpusToolNamesTaughtByPrompt,
   generateCorpusToolsPrompt,
 } from "./agent-chat/framework-prompts.js";
+import { resolveA2AAgentDelegationEnabled } from "./agent-chat/plugin-options.js";
 import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
@@ -159,6 +160,37 @@ describe("interactive agent run options — wiring guards", () => {
       /if \(isBackgroundWorker\) \{\s*await startedRun\.finalized;\s*return \{ ok: true, runId \};\s*\}/,
     );
     expect(source).not.toContain("backgroundRunDone");
+  });
+});
+
+describe("background automation action surface — wiring guards", () => {
+  it("uses one shared background action builder with unattended email tools", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "backgroundCoreEmailTools = createCoreEmailActionEntries({",
+    );
+    expect(source).toContain("...backgroundCoreEmailTools,");
+    expect(
+      source.match(/getActions: getBackgroundActionEntries/g),
+    ).toHaveLength(2);
+  });
+});
+
+describe("delegated agent run policy — wiring guards", () => {
+  it("forwards non-default delegated budgets to MCP ask_app", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const mcpCallStart = source.indexOf("await runMCPAgentLoop(");
+    expect(mcpCallStart).toBeGreaterThan(-1);
+
+    const mcpCall = source.slice(mcpCallStart, mcpCallStart + 3200);
+    expect(mcpCall).toMatch(
+      /\{\s*delegatedRunPolicy: options\?\.delegatedRunPolicy,\s*finalResponseGuard: options\?\.finalResponseGuard,\s*runSoftTimeoutMs: options\?\.runSoftTimeoutMs,\s*\}/,
+    );
   });
 });
 
@@ -611,5 +643,60 @@ describe("assembled prompt snapshots", () => {
   it("compact prompt (default examples) matches snapshot", () => {
     const compact = buildFrameworkCoreCompact();
     expect(compact).toMatchSnapshot();
+  });
+});
+
+describe("delegated tool surfaces in dev", () => {
+  it("enables cross-app delegation by default with an explicit isolation opt-out", () => {
+    expect(resolveA2AAgentDelegationEnabled()).toBe(true);
+    expect(resolveA2AAgentDelegationEnabled({})).toBe(true);
+    expect(resolveA2AAgentDelegationEnabled({ a2aAgentDelegation: true })).toBe(
+      true,
+    );
+    expect(
+      resolveA2AAgentDelegationEnabled({ a2aAgentDelegation: false }),
+    ).toBe(false);
+  });
+
+  // The interactive surface routes template actions through bash in dev to
+  // dodge the degenerate empty-object tool call some models emit. A delegated
+  // caller (A2A, or `ask_app` over MCP) has nobody to retry for it: with no
+  // native action the sibling agent shells out, repeats the same command, and
+  // the run dies on the repetition guard minutes later. Both delegated
+  // surfaces therefore keep template actions native even in dev.
+  it("keep template actions native so a sibling never has to shell out", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    const devBranch = (declaration: string): string => {
+      const start = source.indexOf(declaration);
+      expect(start, `${declaration} not found`).toBeGreaterThan(-1);
+      const branch = source.slice(start, start + 1200);
+      const elseAt = branch.indexOf(": {");
+      expect(elseAt, `${declaration} has no else branch`).toBeGreaterThan(-1);
+      return branch.slice(0, elseAt);
+    };
+
+    expect(devBranch("const a2aActions = attachToolSearch(")).toContain(
+      "...templateScripts,",
+    );
+    expect(devBranch("const mcpActions = attachToolSearch(")).toContain(
+      "...templateScripts,",
+    );
+
+    const a2aPrompt = source.slice(
+      source.indexOf("// Delegated turns use native template actions"),
+      source.indexOf("// Build tools — same as interactive handler."),
+    );
+    expect(a2aPrompt).toContain("basePrompt +");
+    expect(a2aPrompt).not.toContain("devPrompt +");
+
+    const mcpPrompt = source.slice(
+      source.indexOf("// ask_app receives native template actions"),
+      source.indexOf("const mcpEvents:"),
+    );
+    expect(mcpPrompt).toContain("basePrompt +");
+    expect(mcpPrompt).not.toContain("mcpDevPrompt");
   });
 });

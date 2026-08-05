@@ -15,9 +15,11 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
+import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import { submitOverviewPrompt } from "../lib/overview-chat";
 import type { WorkspaceAppSummary } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
+import { ConnectedAppCard } from "./connected-app-card";
 import { CreateAppPopover } from "./create-app-popover";
 import { useSetPageTitle } from "./layout/HeaderActions";
 import { Button } from "./ui/button";
@@ -141,17 +143,29 @@ function CommandPanel() {
 function AppsPanel({
   apps,
   isLoading,
+  otherApps,
+  otherAppsError,
+  otherAppsLoading,
+  onRetryOtherApps,
 }: {
   apps: WorkspaceAppSummary[];
   isLoading: boolean;
+  otherApps: ConnectedAppSummary[];
+  otherAppsError?: Error | null;
+  otherAppsLoading: boolean;
+  onRetryOtherApps: () => void;
 }) {
   const t = useT();
   const [showPending, setShowPending] = useState(false);
   const visibleApps = apps.filter((app) => !app.isDispatch && !app.archived);
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
+  const hasActiveApps = activeApps.length > 0 || otherApps.length > 0;
   const showSkeletons =
-    isLoading && activeApps.length === 0 && pendingApps.length === 0;
+    (isLoading || otherAppsLoading) &&
+    activeApps.length === 0 &&
+    otherApps.length === 0 &&
+    pendingApps.length === 0;
 
   return (
     <section className="flex flex-col gap-3">
@@ -176,15 +190,21 @@ function AppsPanel({
             </div>
           ))}
         </div>
-      ) : activeApps.length > 0 ? (
+      ) : hasActiveApps ? (
         <div className="grid gap-3 md:grid-cols-2">
           {activeApps.map((app) => (
             <WorkspaceAppCard key={app.id} app={app} className="min-h-32" />
+          ))}
+          {otherApps.map((app) => (
+            <ConnectedAppCard key={app.id} app={app} />
           ))}
         </div>
       ) : (
         <CreateAppPopover />
       )}
+      {otherAppsError ? (
+        <ActionQueryError error={otherAppsError} onRetry={onRetryOtherApps} />
+      ) : null}
       {pendingApps.length > 0 ? (
         <Collapsible open={showPending} onOpenChange={setShowPending}>
           <div className="space-y-3 border-t pt-3">
@@ -246,7 +266,15 @@ export function DispatchControlPlane() {
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
   );
+  const connectedAppsQuery = useActionQuery<ConnectedAppSummary[]>(
+    "list-connected-agents",
+    {},
+  );
   const { data: workspaceApps = [], isLoading: appsLoading } = appsQuery;
+  const otherApps = filterOtherApps(
+    connectedAppsQuery.data ?? [],
+    workspaceApps ?? [],
+  );
 
   return (
     <div className="flex flex-col gap-8">
@@ -257,7 +285,14 @@ export function DispatchControlPlane() {
           onRetry={() => void appsQuery.refetch()}
         />
       ) : (
-        <AppsPanel apps={workspaceApps ?? []} isLoading={appsLoading} />
+        <AppsPanel
+          apps={workspaceApps ?? []}
+          isLoading={appsLoading}
+          otherApps={otherApps}
+          otherAppsError={connectedAppsQuery.error}
+          otherAppsLoading={connectedAppsQuery.isLoading}
+          onRetryOtherApps={() => void connectedAppsQuery.refetch()}
+        />
       )}
     </div>
   );

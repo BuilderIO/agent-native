@@ -78,4 +78,33 @@ describe("Brain JSON action inputs", () => {
 
     expect(parsed.config).toEqual(config);
   });
+
+  it("validates and coerces trusted-answer policy updates", () => {
+    const actionSchema = (
+      updateSourceAction as unknown as {
+        schema: { parse: (value: unknown) => { policy?: unknown } };
+      }
+    ).schema;
+
+    expect(
+      actionSchema.parse({
+        id: "source-docs",
+        policy: JSON.stringify({
+          trustTier: "blessed",
+          answerEligible: true,
+          authority: 95,
+          freshnessWindowDays: 30,
+          reviewRequired: false,
+          conflictBehavior: "prefer-higher-authority",
+        }),
+      }).policy,
+    ).toEqual({
+      trustTier: "blessed",
+      answerEligible: true,
+      authority: 95,
+      freshnessWindowDays: 30,
+      reviewRequired: false,
+      conflictBehavior: "prefer-higher-authority",
+    });
+  });
 });

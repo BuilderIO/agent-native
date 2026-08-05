@@ -7,6 +7,7 @@ import {
   type NavigateOptions,
 } from "react-router";
 
+import { isWorkspaceAppPath } from "./api-path.js";
 import {
   deleteClientAppState,
   readClientAppState,
@@ -439,6 +440,14 @@ export function useAgentRouteState<
         typeof navigateOptions === "function"
           ? navigateOptions(command)
           : navigateOptions;
+      if (isWorkspaceAppPath(path)) {
+        if (resolvedOptions?.replace) {
+          window.location.replace(path);
+        } else {
+          window.location.assign(path);
+        }
+        return;
+      }
       const transitionOptions = resolveAgentChatViewTransitionOption(
         options.agentChatViewTransition,
         command,

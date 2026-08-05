@@ -5,10 +5,14 @@ import {
   buildMergedConfig,
   formatMcpConnectError,
   mountMcpServersRoutes,
+  startMcpConfigRefresh,
 } from "./routes.js";
 
 const mockedSettings = vi.hoisted(() => ({
   all: {} as Record<string, Record<string, unknown>>,
+  readError: null as Error | null,
+  reads: 0,
+  emitter: null as null | import("node:events").EventEmitter,
 }));
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
@@ -25,9 +29,18 @@ vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: (app: any) => app.h3,
 }));
 
-vi.mock("../settings/store.js", () => ({
-  getAllSettings: async () => mockedSettings.all,
-}));
+vi.mock("../settings/store.js", async () => {
+  const { EventEmitter } = await import("node:events");
+  mockedSettings.emitter = new EventEmitter();
+  return {
+    getAllSettings: async () => {
+      mockedSettings.reads += 1;
+      if (mockedSettings.readError) throw mockedSettings.readError;
+      return mockedSettings.all;
+    },
+    getSettingsEmitter: () => mockedSettings.emitter,
+  };
+});
 
 vi.mock("./config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./config.js")>();
@@ -48,6 +61,8 @@ vi.mock("./workspace-servers.js", () => ({
 
 beforeEach(() => {
   mockedSettings.all = {};
+  mockedSettings.readError = null;
+  mockedSettings.reads = 0;
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
 });
@@ -87,6 +102,63 @@ describe("formatMcpConnectError", () => {
     ).toBe(
       "That URL returned JSON, but not an MCP JSON-RPC response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
     );
+  });
+});
+
+describe("startMcpConfigRefresh", () => {
+  it("re-reads the settings table only on a write or the backstop", async () => {
+    // `buildMergedConfig` scans the whole settings table. On an idle app that
+    // used to be a full-table round trip every 60s per app, forever, just to
+    // diff a signature that had not changed since boot.
+    vi.useFakeTimers();
+    const manager = {
+      getConfig: () => ({ servers: {} }),
+      reconfigure: vi.fn(async () => {}),
+    };
+    const stop = startMcpConfigRefresh(manager as never)!;
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(1);
+
+      // Idle: no settings write, no scan.
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(mockedSettings.reads).toBe(1);
+
+      mockedSettings.emitter!.emit("settings", { source: "settings" });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(2);
+
+      // Backstop still catches a write made by another process.
+      await vi.advanceTimersByTimeAsync(6 * 60_000);
+      expect(mockedSettings.reads).toBe(3);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a failed refresh on the next interval", async () => {
+    vi.useFakeTimers();
+    const reconfigure = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary manager failure"))
+      .mockResolvedValue(undefined);
+    const manager = {
+      getConfig: () => ({ servers: { stale: {} } }),
+      reconfigure,
+    };
+    const stop = startMcpConfigRefresh(manager as never)!;
+    try {
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockedSettings.reads).toBe(2);
+      expect(reconfigure).toHaveBeenCalledTimes(2);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
   });
 });
 

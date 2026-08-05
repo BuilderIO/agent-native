@@ -17,6 +17,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { hashSlideContent } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
   awaitLayoutFitCheck,
@@ -350,6 +351,11 @@ export default defineAction({
         );
       });
 
+      // Start the freshness window immediately after the SQL write and before
+      // notifying the editor. A render can happen during presence/navigation;
+      // capturing the timestamp later can discard that valid measurement.
+      const fitSince = Date.now();
+
       // Best-effort agent presence: light the agent up on the newly-added slide
       // in open editors and drop a lingering "AI edited" highlight for it. Uses
       // the NEW slide's id. Never blocks or fails the write.
@@ -388,11 +394,15 @@ export default defineAction({
 
       // Wait briefly for the editor to render the new slide and report its
       // measured fit. If we get an "overflows" signal, append the auto-fix
-      // hint so the agent can call update-slide right away and patch the
-      // slide HTML until it fits. Timeout = no editor measurement available
+      // hint so the agent can make one bounded structural repair. Timeout = no
+      // editor measurement available
       // (e.g. headless server) — return success without a fit hint.
-      const fitSince = Date.now();
-      const fit = await awaitLayoutFitCheck(newSlideId, fitSince, 5000);
+      const fit = await awaitLayoutFitCheck(
+        newSlideId,
+        fitSince,
+        5000,
+        hashSlideContent(newSlide.content),
+      );
 
       const base = {
         deckId,
@@ -411,7 +421,10 @@ export default defineAction({
           ...base,
           layoutOverflow: {
             verticalOverflow: fit.measurement.verticalOverflow,
+            horizontalOverflow: fit.measurement.horizontalOverflow ?? 0,
+            contentWidth: fit.measurement.contentWidth,
             contentHeight: fit.measurement.contentHeight,
+            viewportWidth: fit.measurement.viewportWidth,
             viewportHeight: fit.measurement.viewportHeight,
           },
           message: formatOverflowForTool(deckId, fit.measurement),

@@ -1002,9 +1002,38 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     notes: [
       "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
-      "Batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+      "The public Gong REST API does not expose an arbitrary transcript-text filter. Use configured keyword tracker results from /calls/extensive when they cover the requested term; otherwise batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
     ],
     corpusRecipes: [
+      {
+        label: "Stage Gong calls with configured keyword tracker hits",
+        useWhen:
+          "Use when the requested term or phrase already exists as a Gong keyword tracker and the answer can use tracker matches instead of arbitrary transcript-text search.",
+        workflow: [
+          "Call /calls/extensive with the narrowest date, workspace, or owner filters available and contentSelector.exposedFields.content.trackers = true.",
+          "Stage the calls pages with provider-api-request stageAs or saveToFile; use the POST-body cursor at records.cursor for complete pagination.",
+          "Use query-staged-dataset or a Data Program to flatten content.trackers, filter by tracker id/name/phrase, and aggregate counts or occurrences.",
+          "Tracker results are provider-indexed evidence for configured trackers, not an arbitrary transcript search. For an unconfigured term, use Gong native Search when connected or the transcript batch recipe below.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: { fromDateTime: "<iso-date-time>" },
+            contentSelector: {
+              exposedFields: {
+                content: { trackers: true, trackerOccurrences: true },
+              },
+            },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
+      },
       {
         label: "Batch-search Gong call transcripts from staged call ids",
         useWhen:
@@ -3997,8 +4026,14 @@ async function resolveRequiredCredential(options: {
   connectionId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
   const credential = await resolveOptionalCredential(options);
-  if (!credential?.value) throw new Error(`${options.key} not configured`);
-  return credential;
+  if (credential?.value) return credential;
+  const scopeGap = await describeCredentialScopeGap([options.key], options.ctx)
+    // coercion-ok: only enriches an error we throw either way — losing the scope
+    // hint still surfaces the real "not configured" failure, never a success.
+    .catch(() => null);
+  throw new Error(
+    `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+  );
 }
 
 async function resolveOptionalCredential(options: {

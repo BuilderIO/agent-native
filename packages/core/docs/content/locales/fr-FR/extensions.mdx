@@ -16,10 +16,11 @@ Le cadrage est important : une extension n'est pas un bac à sable générique 
 > [emplacement](#slots) nommé exposé par le modèle. Elle ne peut pas injecter
 > d'éléments dans n'importe quel composant natif — par exemple à côté de chaque
 > participant dans Calendrier — sauf si le modèle expose un emplacement à cet
-> endroit. Pour une personnalisation plus poussée, demandez à l'agent de
-> modifier le code source du modèle. La personnalisation complète du code est
-> une capacité fondamentale d'Agent Native ; les extensions constituent la
-> couche rapide, sans déploiement.
+> endroit. Pour une personnalisation plus poussée, modifiez le template dans
+> votre dépôt et votre flux de développement. L'agent intégré ne peut aider que
+> si l'hôte accorde intentionnellement des outils d'écriture
+> repository/workspace ; les extensions restent la couche rapide sans
+> déploiement.
 
 Trois éléments font que les extensions fonctionnent :
 
@@ -427,9 +428,9 @@ Les extensions sont privées par défaut pour l'utilisateur qui les a créées. 
 
 Les extensions partagées ont leurs propres URL et se connectent à la même boîte de dialogue de partage que les documents, les présentations et les tableaux de bord. Les installations d'emplacements sont toujours personnelles : le partage d'une extension signifie que d'autres _peuvent_ l'installer ; il ne l'épingle pas automatiquement sur leur UI.
 
-## Dois-je utiliser une extension ou modifier le code de l’application ? {#vs-app-code}
+## Dois-je utiliser une extension ou le flux de source de l’application ? {#vs-app-code}
 
-Le framework permet à l’agent de modifier directement le code source de l’application : composants, itinéraires, styles et logique métier. Utilisez cette question lorsque l’un ou l’autre choix pourrait répondre à la demande :
+L'agent intégré ne modifie pas le code source par défaut ; il ne peut le faire que si l'hôte accorde intentionnellement des outils d'écriture repository/workspace. Utilisez le flux de source pour un comportement durable et les extensions pour une personnalisation rapide au runtime.
 
 - **Commencez par le code de l’application** pour le comportement du produit, l’interface native, la mise en page, les itinéraires, la logique métier ou tout ce qui doit être réutilisé.
 - **Utilisez un bloc personnalisé uniquement si l’application l’active** et si l’utilisateur demande explicitement une visualisation ou interaction ponctuelle dans une surface existante. Il est rapide et sans déploiement, mais reste un correctif isolé créé par l’agent.
@@ -437,7 +438,7 @@ Le framework permet à l’agent de modifier directement le code source de l’a
 
 |                              | Extension                                       | Modification du code de l'application               |
 | ---------------------------- | ----------------------------------------------- | --------------------------------------------------- |
-| **Créé par**                 | Agent (ou utilisateur) au moment de l'exécution | Agent modifiant les fichiers sources                |
+| **Créé par**                 | Agent (ou utilisateur) au moment de l'exécution | Utilisateur ou flux capable de modifier le code     |
 | **Stocké dans**              | La base de données                              | Le dépôt git                                        |
 | **Nécessite une build**      | Non                                             | Oui                                                 |
 | **Nécessite un déploiement** | Non                                             | Oui                                                 |

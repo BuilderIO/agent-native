@@ -1475,6 +1475,9 @@ const arSA = {
     advancedRuntime: "متقدم: توسيع runtime",
     templatesSection: "التطبيقات",
     gettingStarted: "البدء",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "ما هو Agent-Native؟",
     agentSurfaces: "واجهات Agent",
     keyConcepts: "المفاهيم الأساسية",
@@ -1648,6 +1651,7 @@ const arSA = {
     formsOverview: "نظرة عامة",
     formsBuildingPublishing: "الإنشاء والنشر",
     formsResponses: "الردود والرؤى",
+    docsComponents: "Docs Components",
     formsDevelopers: "دليل المطور",
   },
 } satisfies typeof enUS;

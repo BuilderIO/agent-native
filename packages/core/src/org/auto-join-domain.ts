@@ -1,6 +1,7 @@
 import { getDbExec } from "../db/client.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { setActiveOrgId } from "./active-org.js";
+import { invalidateRequestMemberOrgIds } from "./request-org-cache.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -87,6 +88,7 @@ export async function autoJoinDomainMatchingOrgs(
         args: [nanoid(), m.orgId, email, Date.now()],
       });
       joined.push({ orgId: m.orgId });
+      invalidateRequestMemberOrgIds();
     } catch {
       // Race with a parallel join (e.g. user accepted an invite to the
       // same org milliseconds earlier). The unique constraint keeps the

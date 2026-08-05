@@ -367,6 +367,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
       );
     }
     if (state.db.operationCount > 0) {
+      appendServerTiming(response, event, "db-ops", state.db.operationCount);
       appendServerTiming(response, event, "db", state.db.operationWallMs);
       appendServerTiming(
         response,

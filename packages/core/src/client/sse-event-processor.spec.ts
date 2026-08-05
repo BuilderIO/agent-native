@@ -682,6 +682,72 @@ describe("SSE replay render pacing", () => {
     ]);
   });
 
+  it("streams partial tool input into one card before upgrading it", async () => {
+    const events = [
+      { type: "tool_input_start", id: "call-1", tool: "add-slide" },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\">',
+      },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: "<h1>Live title",
+      },
+      {
+        type: "tool_start",
+        id: "call-1",
+        tool: "add-slide",
+        input: {
+          deckId: "deck-1",
+          content: '<div class="fmd-slide"><h1>Live title</h1></div>',
+        },
+      },
+      {
+        type: "tool_done",
+        id: "call-1",
+        tool: "add-slide",
+        result: '{"slideId":"slide-1"}',
+      },
+      { type: "done" },
+    ];
+
+    const results = (await drain(
+      readSSEStream(eventStream(events), [], { value: 0 }, undefined),
+    )) as any[];
+
+    expect(results[2].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        activity: true,
+        argsText:
+          '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\"><h1>Live title',
+      }),
+    ]);
+    expect(results[3].content).toEqual([
+      {
+        type: "tool-call",
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        argsText: JSON.stringify(events[3].input),
+        args: events[3].input,
+      },
+    ]);
+    expect(results.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolCallId: "call-1",
+          toolName: "add-slide",
+          result: '{"slideId":"slide-1"}',
+        }),
+      ]),
+    );
+  });
+
   it("marks synthetic agent-call cards as presentation-only activity", async () => {
     const results = (await drain(
       readSSEStream(
@@ -1564,6 +1630,39 @@ describe("SSE event processor no-progress recovery", () => {
     ]);
   });
 
+  // `error-detail.ts` now names two deterministic failures that used to persist
+  // as `unknown` (a model/tools config rejection and a missing auth header) so
+  // they stop reaching users as raw provider text. Naming them must not make
+  // them auto-continue — a retry cannot fix either one, and this is the check
+  // that keeps a future addition to the recoverable list from doing so.
+  it("names a deterministic failure without making it recoverable", async () => {
+    for (const [errorCode, error] of [
+      [
+        "provider_config_error",
+        "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+      ],
+      ["authentication_error", "Missing Authentication header"],
+    ]) {
+      const caught = await (async () => {
+        try {
+          for await (const _ of readSSEStream(
+            eventStream([{ type: "error", error, errorCode }]),
+            [],
+            { value: 0 },
+            undefined,
+          )) {
+            // no-op
+          }
+        } catch (err) {
+          return err;
+        }
+        return undefined;
+      })();
+
+      expect(caught).not.toBeInstanceOf(AgentAutoContinueSignal);
+    }
+  });
+
   it("carries activity trail on auto-continuation signals", async () => {
     const err = await (async () => {
       try {
@@ -1893,7 +1992,7 @@ describe("SSE event processor error classification", () => {
         type: "agent-chat:run-error",
         detail: {
           message:
-            "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+            "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
           details: "401 status code (no body)",
           tabId: "tab-provider-auth",
         },
@@ -1906,7 +2005,7 @@ describe("SSE event processor error classification", () => {
       content: [
         {
           type: "text",
-          text: "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+          text: "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
         },
       ],
       status: { type: "incomplete", reason: "error" },
@@ -1914,7 +2013,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           runError: {
             message:
-              "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+              "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
             details: "401 status code (no body)",
           },
         },
@@ -3298,6 +3397,40 @@ describe("SSE event processor error classification", () => {
     expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
       errorCode: "builder_gateway_network_error",
       message: "Builder gateway network error: socket hang up",
+      recoverable: true,
+    });
+  });
+
+  it("auto-continues provider network errors", async () => {
+    const message =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "provider_network_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-provider-network",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "provider_network_error",
+      message:
+        "The model provider could not be reached. Check your connection and retry.",
+      details: message,
       recoverable: true,
     });
   });

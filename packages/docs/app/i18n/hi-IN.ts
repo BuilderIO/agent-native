@@ -1477,6 +1477,9 @@ const hiIN = {
     advancedRuntime: "उन्नत: runtime बढ़ाएं",
     templatesSection: "ऐप्स",
     gettingStarted: "शुरुआत",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native क्या है?",
     agentSurfaces: "Agent surfaces",
     keyConcepts: "मुख्य अवधारणाएं",
@@ -1650,6 +1653,7 @@ const hiIN = {
     formsOverview: "अवलोकन",
     formsBuildingPublishing: "निर्माण और प्रकाशन",
     formsResponses: "प्रतिक्रियाएं और इनसाइट्स",
+    docsComponents: "Docs Components",
     formsDevelopers: "डेवलपर गाइड",
   },
 } satisfies typeof enUS;

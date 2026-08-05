@@ -141,6 +141,66 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("keeps the pending verification email across a redirect without storing its password", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      "var PENDING_SIGNUP_EMAIL_STORAGE_KEY = 'an.onboarding.pendingSignupEmail'",
+    );
+    expect(html).toContain(
+      "localStorage.setItem(pendingSignupEmailStorageKey(), email)",
+    );
+    expect(html).toContain("rememberPendingSignupEmail(pendingSignupEmail)");
+    expect(html).toContain(
+      "pendingSignupEmail || readRememberedPendingSignupEmail()",
+    );
+    expect(html).toContain(
+      "if (loginEmail && rememberedEmail) loginEmail.value = rememberedEmail",
+    );
+  });
+
+  it("normalizes and rehydrates the stored verification email at runtime", () => {
+    const html = getOnboardingHtml();
+    const start = html.indexOf(
+      "var PENDING_SIGNUP_EMAIL_STORAGE_KEY = 'an.onboarding.pendingSignupEmail'",
+    );
+    const end = html.indexOf("function setActiveTab", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    };
+    const runtime = new Function(
+      "localStorage",
+      "__anBasePath",
+      "__anIsValidAuthEmail",
+      "__anNormalizeAuthEmail",
+      `${html.slice(start, end)}
+return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
+    )(
+      storage,
+      () => "/design",
+      (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+      (value: string) => value.trim().toLowerCase(),
+    ) as {
+      rememberPendingSignupEmail: (email: string) => void;
+      readRememberedPendingSignupEmail: () => string;
+    };
+
+    runtime.rememberPendingSignupEmail("URVI28@OUTLOOK.COM");
+    expect(runtime.readRememberedPendingSignupEmail()).toBe(
+      "urvi28@outlook.com",
+    );
+    expect(values.has("an.onboarding.pendingSignupEmail:/design")).toBe(true);
+
+    runtime.rememberPendingSignupEmail("");
+    expect(runtime.readRememberedPendingSignupEmail()).toBe("");
+  });
+
   it("captures first-touch attribution on the standalone auth page", () => {
     const html = getOnboardingHtml();
 

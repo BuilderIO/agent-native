@@ -15,6 +15,7 @@ import {
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs, startRun } from "../agent/run-manager.js";
+import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import {
   resolveAutomationExecutionIdentity,
@@ -24,6 +25,7 @@ import { createThread } from "../chat-threads/store.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
+  organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
 import {
@@ -31,6 +33,11 @@ import {
   type RequestContext,
 } from "../server/request-context.js";
 import type { JobFrontmatter } from "./frontmatter.js";
+import {
+  attachAutomationRunThread,
+  finishAutomationRun,
+  startAutomationRun,
+} from "./run-history.js";
 
 const BACKGROUND_RUN_STUCK_MS = 10 * 60_000;
 const BACKGROUND_RUN_HARD_TIMEOUT_MS = 5 * 60_000;
@@ -68,6 +75,8 @@ export interface BackgroundAutomationRunOptions {
   requestContext?: Omit<RequestContext, "userEmail" | "orgId">;
   actionCaller?: ActionCaller;
   actionAutomation?: ActionAutomationContext;
+  /** Reuse a history row created by a durable run-now enqueue. */
+  historyId?: string;
 }
 
 export interface BackgroundAutomationRunResult {
@@ -248,6 +257,95 @@ export async function runBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
 ): Promise<BackgroundAutomationRunResult> {
+  const { automation } = options;
+  // Bookkeeping, so it must not gate the work it describes: a history table
+  // that cannot be written should cost us the record, not the automation.
+  // Everything downstream tolerates a null id by skipping its own write.
+  let historyId: string | null = null;
+  if (options.historyId) {
+    historyId = options.historyId;
+  } else {
+    try {
+      const historyOwner = options.orgId
+        ? organizationResourceOwner(options.orgId)
+        : automation.resource.owner === "__shared__"
+          ? options.ownerEmail
+          : automation.resource.owner;
+      historyId = await startAutomationRun({
+        owner: historyOwner,
+        automation: automation.name,
+        path: automation.resource.path,
+        scope: options.orgId ? "organization" : "personal",
+        orgId: options.orgId ?? null,
+      });
+    } catch (err) {
+      console.error(
+        `[automations] Could not open a history record for "${automation.name}"; running anyway:`,
+        err,
+      );
+    }
+  }
+
+  let result: BackgroundAutomationRunResult;
+  try {
+    result = await executeBackgroundAutomation(options, deps, historyId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await recordRunOutcome(
+      historyId,
+      "error",
+      `${message}. No delivery was confirmed.`,
+    );
+    throw err;
+  }
+  // Outside the try: history is bookkeeping about the run, so a failure to
+  // write it must not turn a completed automation into a reported failure.
+  await recordRunOutcome(historyId, "success");
+  return result;
+}
+
+/**
+ * Link the run to its agent thread. Bookkeeping again: the automation is
+ * already executing by this point, so a failed write costs the cross-reference
+ * in the history view, not the run.
+ */
+async function recordRunThread(
+  historyId: string | null,
+  threadId: string,
+  runId: string,
+): Promise<void> {
+  if (!historyId) return;
+  try {
+    await attachAutomationRunThread(historyId, threadId, runId);
+  } catch (err) {
+    console.error(
+      `[automations] Could not attach thread ${threadId} to run ${historyId}:`,
+      err,
+    );
+  }
+}
+
+async function recordRunOutcome(
+  historyId: string | null,
+  status: "success" | "error",
+  error?: string,
+): Promise<void> {
+  if (!historyId) return;
+  try {
+    await finishAutomationRun(historyId, status, error);
+  } catch (err) {
+    console.error(
+      `[automations] Could not record run ${historyId} as ${status}:`,
+      err,
+    );
+  }
+}
+
+async function executeBackgroundAutomation(
+  options: BackgroundAutomationRunOptions,
+  deps: BackgroundAutomationDeps,
+  historyId: string | null,
+): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
 
@@ -290,8 +388,25 @@ export async function runBackgroundAutomation(
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
       const thread = await createThread(ownerEmail, { title: threadTitle });
       const runId = createRunId(options.runIdPrefix);
+      await recordRunThread(historyId, thread.id, runId);
+
+      // Scheduled work is background work: it has no synchronous serverless
+      // caller waiting on it, so it must not inherit the interactive clamp
+      // (40s soft timeout, a 30s no-progress backstop at 0.75x that, and 6
+      // continuations). A dashboard render or digest legitimately spends
+      // minutes across many tool calls, and dies the first time any gap
+      // between two of them exceeds 30s — recorded as `no_progress` after
+      // several minutes of real work, because the backstop is suspended
+      // while a tool is in flight but not between tools.
+      //
+      // Hardcoded rather than `isInBackgroundFunctionRuntime()` (what
+      // webhook-handler.ts uses): a webhook can arrive on either runtime, but
+      // a scheduler tick never serves a synchronous request, so the
+      // interactive clamp never applies to it. The wider soft ceiling stays
+      // bounded by this runner's own BACKGROUND_RUN_HARD_TIMEOUT_MS abort.
       const softTimeoutMs = resolveRunSoftTimeoutMs(undefined, {
         useHostedDefault: true,
+        backgroundFunction: true,
       });
 
       const usageRef: {
@@ -299,6 +414,26 @@ export async function runBackgroundAutomation(
       } = { current: null };
       let responseText = "";
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
+
+      // This runner executes in-process, synchronously — there is no HTTP
+      // self-dispatch to a separate worker. Self-claim the row into
+      // 'background-processing' right away, exactly like a genuine HTTP
+      // background worker does immediately after its own insert (see
+      // production-agent.ts's `claimBackgroundWorkerRunEarly`). Without this,
+      // the row sits at dispatch_mode='background' for its whole life with no
+      // worker ever claiming it, which is indistinguishable from a lost HTTP
+      // handoff to the unclaimed-background-run sweep — it gets reaped as
+      // "background_worker_never_started" out from under a still-executing
+      // job the moment any single tool call runs past the 25s grace window.
+      await insertRun(runId, thread.id, undefined, {
+        dispatchMode: "background",
+      });
+      const claimedOwnRun = await claimBackgroundRun(runId);
+      if (!claimedOwnRun) {
+        throw new Error(
+          `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
+        );
+      }
 
       await new Promise<void>((resolve, reject) => {
         const activeRun = startRun(
@@ -329,6 +464,7 @@ export async function runBackgroundAutomation(
                 runId,
               },
               softTimeoutMs,
+              { backgroundFunction: true },
             );
           },
           async (run) => {
@@ -360,7 +496,7 @@ export async function runBackgroundAutomation(
           },
           {
             softTimeoutMs,
-            dispatchMode: "background",
+            backgroundFunction: true,
             model,
             engineName: engine.name,
           },

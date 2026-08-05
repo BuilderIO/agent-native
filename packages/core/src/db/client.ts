@@ -652,6 +652,7 @@ function sqlAndArgs(sql: DbExecStatement): {
 }
 
 const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
+const POSTGRES_STATEMENT_TIMEOUT_RESET_MS = 5_000;
 const POSTGRES_MAX_INT = 2_147_483_647;
 
 function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
@@ -953,19 +954,19 @@ export function isServerlessRuntime(): boolean {
 }
 
 /**
- * postgres.js pool options tuned per runtime. A serverless instance handles
- * one request at a time, so a single connection is enough. Keeping the
- * foreground pool at 1 is important because each instance can also open an
- * app and Better Auth pool; a max of 2 on each pool still exhausted Neon
- * under a burst of warm instances. idle_timeout is shortened on
+ * postgres.js pool options tuned per runtime. idle_timeout is shortened on
  * serverless so a thawed-but-idle instance releases its connections quickly.
- * Long-lived Node servers keep the normal pool for throughput.
+ * Long-lived Node servers keep the larger pool for throughput.
+ *
+ * The cap assumes {@link sharedDbPool}: one pool per URL for the whole
+ * process, not one per consumer. See {@link neonPoolMax} for why the cap must
+ * leave room for concurrency.
  */
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 1 : 10,
+    max: serverless ? 4 : 20,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -976,13 +977,21 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
 }
 
 /**
- * Connection cap for the @neondatabase/serverless `Pool`. Same instance
- * accumulation risk as postgres.js — one connection is enough for a
- * foreground serverless invocation and keeps the aggregate app/framework/auth
- * budget bounded.
+ * Connection cap for the @neondatabase/serverless `Pool`.
+ *
+ * TRAP: this number is the ceiling on how many statements one request can have
+ * in flight at once. It used to be 1 on serverless, which made every
+ * `Promise.all([...reads])` in a request serialize behind the single slot —
+ * against a remote endpoint that is ~83ms of pure wait per query, so ten
+ * "concurrent" reads took ~880ms instead of ~86ms. The cap was 1 only because
+ * every consumer built its OWN pool (the DbExec singleton, Better Auth, and one
+ * per `createGetDb()` schema module), so the real per-instance connection count
+ * was that number multiplied by ~6. {@link sharedDbPool} collapses those into
+ * one pool per URL, so the same aggregate budget buys in-request concurrency.
+ * Keep pools shared if you raise this.
  */
 export function neonPoolMax(): number {
-  if (!isServerlessRuntime()) return 10;
+  if (!isServerlessRuntime()) return 20;
   // The durable background-function worker is a SINGLE process per run (unlike
   // the many warm request-instances the foreground serverless has), so it can
   // safely hold a larger pool without risking Neon's connection cap. The agent's
@@ -995,7 +1004,7 @@ export function neonPoolMax(): number {
   // burst; keep the foreground serverless pool tiny to avoid "Max client
   // connections reached" across many warm instances.
   if (isBackgroundFunctionPoolContext()) return 8;
-  return 1;
+  return 4;
 }
 
 /**
@@ -1109,6 +1118,113 @@ export function attachNeonPoolErrorLogger(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Shared connection pools
+// ---------------------------------------------------------------------------
+
+interface ClosablePool {
+  end(): Promise<unknown>;
+}
+
+const _sharedDbPools = new Map<string, ClosablePool>();
+const _sharedDbPoolCloseHooks = new Set<() => void>();
+const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
+
+/**
+ * One connection pool per (driver, URL) for the whole process.
+ *
+ * Opening a connection to a remote database costs a full TCP + TLS + auth
+ * round-trip chain (~300-800ms measured against Neon in-region), and it used
+ * to be paid once per CONSUMER: the `getDbExec` singleton, Better Auth, and one
+ * more for every `createGetDb()` schema module (four in core alone, plus each
+ * app's). Their `max` values also multiplied against the provider's connection
+ * cap, which forced each pool down to a size too small to run a request's reads
+ * concurrently.
+ *
+ * TRAP: only consumers that live as long as the process may share. Anything
+ * handed a `close()` — `createDbExec()`, the migration exec on the direct
+ * endpoint — must keep a private pool, or closing it takes the whole process's
+ * database access down with it.
+ */
+export function sharedDbPool<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  create: () => T,
+): T {
+  const key = `${driver} ${url}`;
+  const existing = _sharedDbPools.get(key);
+  if (existing) return existing as T;
+  const created = create();
+  _sharedDbPools.set(key, created);
+  return created;
+}
+
+/**
+ * Swap the pool registered for a key, for the postgres.js recycle path that
+ * replaces a pool whose query timed out. Without this the registry would keep
+ * handing out the discarded pool.
+ */
+export function replaceSharedDbPool<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  previous: T,
+  next: T,
+): void {
+  const key = `${driver} ${url}`;
+  if (_sharedDbPools.get(key) !== previous) return;
+  _sharedDbPools.set(key, next);
+  for (const hook of _sharedDbPoolReplacementHooks.get(key) ?? []) {
+    try {
+      hook();
+    } catch {
+      // A consumer's reset must not block the replacement from being used.
+    }
+  }
+}
+
+/**
+ * Run `hook` when one shared pool is replaced, so derived consumers rebuild
+ * their handles instead of continuing to use the timed-out pool.
+ */
+export function onSharedDbPoolReplaced(
+  driver: string,
+  url: string,
+  hook: () => void,
+): void {
+  const key = `${driver}${String.fromCharCode(0)}${url}`;
+  const hooks = _sharedDbPoolReplacementHooks.get(key) ?? new Set();
+  hooks.add(hook);
+  _sharedDbPoolReplacementHooks.set(key, hooks);
+}
+
+/**
+ * Run `hook` when the shared pools are closed, so consumers holding a derived
+ * handle (a Drizzle instance bound to the pool, the Better Auth adapter) drop
+ * it instead of issuing queries on a closed pool.
+ */
+export function onSharedDbPoolsClosed(hook: () => void): void {
+  _sharedDbPoolCloseHooks.add(hook);
+}
+
+export async function closeSharedDbPools(): Promise<void> {
+  const pools = [..._sharedDbPools.values()];
+  _sharedDbPools.clear();
+  for (const hook of _sharedDbPoolCloseHooks) {
+    try {
+      hook();
+    } catch {
+      // A consumer's reset must not block the rest from being released.
+    }
+  }
+  await Promise.all(
+    pools.map((pool) =>
+      Promise.resolve(pool.end()).catch(() => {
+        // Already closed (process exiting, provider hung up) — nothing to do.
+      }),
+    ),
+  );
+}
+
 function disposePostgresPoolEventually(
   pool: { end: () => Promise<unknown> },
   label: string,
@@ -1129,8 +1245,6 @@ function disposePostgresPoolEventually(
 // ---------------------------------------------------------------------------
 
 let _exec: DbExec | undefined;
-let _pgPool: any;
-let _neonPool: any;
 let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
@@ -1225,22 +1339,20 @@ async function createDbExecInternal(
     // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
-      const { Pool, neonConfig } = await import("@neondatabase/serverless");
-      // In the durable background-function worker, route pool queries over Neon's
-      // stateless HTTP transport instead of a long-lived WebSocket. A frozen/thawed
-      // bg-fn instance can leave the pool's WebSocket connections half-dead, so
-      // queries after the first burst stall on connect()/query() — observed: the
-      // analytics worker stalls right after model resolution and never claims.
-      // HTTP-per-query (poolQueryViaFetch) has no persistent socket to die; the
-      // foreground keeps the WebSocket pool. See the bg-fn execute branch below.
+      const { Pool, neon } = await import("@neondatabase/serverless");
+      // A frozen/thawed background function can retain half-dead WebSocket
+      // connections, so its direct executions use stateless Neon HTTP instead.
+      // The foreground and transaction surface keep the WebSocket pool.
       const bgHttp = isBackgroundFunctionPoolContext();
-      if (bgHttp) {
-        (neonConfig as { poolQueryViaFetch?: boolean }).poolQueryViaFetch =
-          true;
-      }
-      const pool = new Pool({ connectionString: url, max: neonPoolMax() });
+      const makePool = () =>
+        new Pool({ connectionString: url, max: neonPoolMax() });
+      // The singleton exec shares the process pool; `createDbExec()` callers own
+      // a `close()` and so must not be handed it.
+      const pool = trackSingletonResources
+        ? sharedDbPool("neon", url, makePool)
+        : makePool();
       attachNeonPoolErrorLogger(pool);
-      if (trackSingletonResources) _neonPool = pool;
+      const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
       async function queryNeonClient(
         client: any,
         sql: Parameters<DbExec["execute"]>[0],
@@ -1282,7 +1394,7 @@ async function createDbExecInternal(
             await queryNeonClient(
               client,
               "RESET statement_timeout",
-              remainingMs(),
+              Math.max(remainingMs(), POSTGRES_STATEMENT_TIMEOUT_RESET_MS),
             );
           } catch (err) {
             markClientForDiscard();
@@ -1293,17 +1405,63 @@ async function createDbExecInternal(
           }
         }
       }
+      async function queryNeonHttp(sql: Parameters<DbExec["execute"]>[0]) {
+        if (!httpSql) {
+          throw new Error("Neon HTTP query used outside a background function");
+        }
+        const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
+        const pgSql = sqliteToPostgresParams(rawSql);
+        const controller = new AbortController();
+        const run = async () => {
+          if (!hasExplicitDbTimeout(sql)) {
+            return httpSql.query(pgSql, args as any[], {
+              fetchOptions: { signal: controller.signal },
+            });
+          }
+          const statementDeadlineMs =
+            Date.now() + postgresStatementTimeoutMs(timeoutMs);
+          const results = await httpSql.transaction(
+            [
+              httpSql.query(
+                `SELECT set_config(
+                  'statement_timeout',
+                  GREATEST(
+                    1,
+                    $1::bigint -
+                      FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                  )::text,
+                  true
+                )`,
+                [statementDeadlineMs],
+              ),
+              httpSql.query(pgSql, args as any[]),
+            ],
+            { fetchOptions: { signal: controller.signal } },
+          );
+          return results[1];
+        };
+        const result = await withDbTimeout("query", run, timeoutMs, () =>
+          controller.abort(),
+        );
+        return {
+          rows: result.rows,
+          rowsAffected: result.rowCount ?? 0,
+        };
+      }
       return {
         async execute(sql) {
           const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           if (bgHttp) {
-            // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
-            // persistent socket to stall. queryNeonClient calls pool.query(),
-            // which the driver routes over HTTP when poolQueryViaFetch is set.
+            // HTTP-per-query path: no pool.connect() and no persistent socket
+            // to survive a background-function freeze. Explicitly budgeted
+            // statements run with SET LOCAL inside the same HTTP transaction,
+            // so the server cancels the SQL before the fetch deadline without
+            // leaking session state into Neon's pooled backends.
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() => queryNeonClient(pool, sql), maxAttempts);
+            }>(() => queryNeonHttp(sql), maxAttempts);
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];
@@ -1421,6 +1579,7 @@ async function createDbExecInternal(
           }, 1);
         },
         async close() {
+          if (trackSingletonResources) return closeSharedDbPools();
           await pool.end();
         },
       };
@@ -1526,12 +1685,17 @@ async function createDbExecInternal(
       // server-side timeout, avoiding ECONNRESET when the server hangs up.
       const createPool = () => postgres(url, pgPoolOptions(url));
       type PostgresPool = ReturnType<typeof createPool>;
-      let pool = createPool();
-      if (trackSingletonResources) _pgPool = pool;
+      // Same rule as the Neon path: the singleton exec shares the process pool,
+      // `createDbExec()` callers own a `close()` and get a private one.
+      let pool = trackSingletonResources
+        ? sharedDbPool("postgres-js", url, createPool)
+        : createPool();
       const recyclePool = (timedOutPool: PostgresPool) => {
         if (pool === timedOutPool) {
           pool = createPool();
-          if (trackSingletonResources) _pgPool = pool;
+          if (trackSingletonResources) {
+            replaceSharedDbPool("postgres-js", url, timedOutPool, pool);
+          }
         }
         disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
       };
@@ -1586,6 +1750,7 @@ async function createDbExecInternal(
           return result as T;
         },
         async close() {
+          if (trackSingletonResources) return closeSharedDbPools();
           await pool.end();
         },
       };
@@ -1844,14 +2009,9 @@ export function getDbExec(): DbExec {
 
 /** Close the database connection (for scripts that need cleanup). */
 export async function closeDbExec(): Promise<void> {
-  if (_pgPool) {
-    await _pgPool.end();
-    _pgPool = undefined;
-  }
-  if (_neonPool) {
-    await _neonPool.end();
-    _neonPool = undefined;
-  }
+  // Both Postgres pools live in the shared registry, which also notifies the
+  // Drizzle / Better Auth consumers bound to them.
+  await closeSharedDbPools();
   if (_sqlite) {
     _sqlite.close();
     _sqlite = undefined;

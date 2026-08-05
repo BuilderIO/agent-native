@@ -30,21 +30,21 @@ ladder.
 - Preserve freeform objects and their `data-slide-object-id` values. They are
   absolutely positioned `.fmd-slide` children; keep generated flex/grid in
   normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
-- Follow linked design-system tokens and custom instructions.
+- Read `slide-editing` before creating slides; it covers fit, density, and overflow.
+- Follow linked design-system tokens; read `design-systems` for per-source actions.
 - Build reusable design systems from Figma, code, GitHub, or `design.md` via
-  Builder-backed DSI indexing, never a duplicate local copy. Read
-  `design-systems` for the per-source actions.
+  Builder-backed DSI indexing, never a duplicate local copy.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
   large scans with `stageAs` and analyze them via `query-staged-dataset`.
-- Use image-generation and image-selection actions only when the deck genuinely
-  needs imagery; keep citations/asset provenance when available.
-- Use framework sharing actions for deck visibility and grants.
-- For a known, read-only sibling-app operation, use `call-agent` with `action`
-  and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
-  model loop. In Analytics, use `gong-native-insights` for provider-synthesized
-  briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
+- Images: call `generate-image-api`, not an image API or Assets directly; keep
+  provenance. Show results as `![alt](url)`.
+- Use sharing actions for visibility and grants.
+- Ask a sibling app's agent with a natural-language `call-agent` message by
+  default. Let that specialist use its own instructions, skills, sources, and
+  tools. Direct action invocation is only for an exact bounded read with a
+  fully known schema; never use it as a workaround for slow or failed A2A.
 - For data requests, read `.agents/skills/analytics-data-for-decks/SKILL.md` and
   delegate via Analytics over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call

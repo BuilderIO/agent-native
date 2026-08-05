@@ -4,7 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "./db/index.js";
 
@@ -154,6 +154,7 @@ export async function assertWorkspaceVisible(
 export async function resolveDefaultDesignSystemId(
   ownerEmail: string,
 ): Promise<string | null> {
+  const orgId = getRequestOrgId();
   const personal = await getDb()
     .select({ id: schema.designSystems.id })
     .from(schema.designSystems)
@@ -161,6 +162,9 @@ export async function resolveDefaultDesignSystemId(
       and(
         eq(schema.designSystems.ownerEmail, ownerEmail),
         eq(schema.designSystems.isDefault, true),
+        orgId
+          ? eq(schema.designSystems.orgId, orgId)
+          : isNull(schema.designSystems.orgId),
       ),
     )
     .limit(1);

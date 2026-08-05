@@ -621,6 +621,7 @@ const messages = {
     title: "설정",
     pageTitle: "설정 · Clips",
     intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
+    preferencesTitle: "환경설정",
     languageTitle: "언어",
     languageDescription:
       "이 계정의 인터페이스 언어를 선택하세요. Clips가 여러 기기에서 기억합니다.",
@@ -657,9 +658,16 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     transcriptCleanupDescription:
       "기본 대본을 즉시 표시하고, 사용 가능해지면 백그라운드에서 정리합니다.",
     notifications: "알림",
+    sharing: "공유",
+    defaultVisibility: "새 녹화의 기본 공개 범위",
+    defaultVisibilityDescription:
+      "생성하는 모든 녹화에 적용됩니다. 녹화별로 공개 범위를 변경할 수 있습니다.",
+    visibilityPrivate: "비공개 - 나만",
+    visibilityOrg: "조직 - 워크스페이스의 모든 사람",
+    visibilityPublic: "공개 - 링크가 있는 모든 사람",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:
-      "누군가 댓글을 달거나 반응하거나 녹화를 공유하면 이메일을 받습니다.",
+      "누군가 내 녹화에 댓글을 달거나 반응하면 이메일을 받습니다.",
     saved: "설정이 저장됨",
     saveFailed: "저장 실패",
     builderConnectedToast: "Builder.io 연결됨",
@@ -813,12 +821,15 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     noViewsYet: "아직 조회 기록이 없습니다.",
     viewsCount_one: "조회수 {{count}}회",
     viewsCount_other: "조회수 {{count}}회",
+    agentViewsCount_one: "AI 에이전트 조회수 {{count}}회",
+    agentViewsCount_other: "AI 에이전트 조회수 {{count}}회",
     totalViewsSummary: "총 조회수 {{total}}회, 고유 시청자 {{unique}}명",
     viewsTab: "조회",
     insightsTab: "인사이트",
     humanViews: "사람 조회수",
     agentViews: "AI 에이전트 조회수",
     noAgentViewsYet: "아직 AI 에이전트 조회 기록이 없습니다.",
+    unknownAgent: "알 수 없는 에이전트",
     totalVideoViews: "총 동영상 조회수",
     averageCompletionRate: "평균 완료율",
     moreInsights: "인사이트 더 보기",
@@ -1506,6 +1517,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
+    googleMayShowWarning: "Google 액세스 검토",
+    googleNotVerifiedTitle: "연결하기 전에 앱을 확인하세요",
+    googleWarningBeforeAdvanced:
+      "앱 이름과 요청된 Calendar 액세스가 신뢰하는 Clips 배포와 일치하는지 확인하세요. Google에서 확인되지 않은 앱 경고를 표시하거나 신원이 낯설게 보이면 중단하고 워크스페이스 관리자에게 문의하세요.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",

@@ -203,7 +203,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — इस प्रॉम्प्ट के लिए एक अलग चैट थ्रेड बनाएं।
 - **`background`** - `newTab` के साथ, नए थ्रेड पर ध्यान केंद्रित किए बिना चलाएं। छिपे हुए रन को `RunsTray` में ट्रैक किया जाता है।
 - **`openSidebar`** - पृष्ठभूमि/मूक प्रेषण के लिए `false` पर सेट करें। डिफ़ॉल्ट रूप से साइडबार खुलता है ताकि उपयोगकर्ता प्रतिक्रिया देख सके।
-- **`type`** — `"content"` (डिफ़ॉल्ट) कार्य को एम्बेडेड ऐप एजेंट में रखता है। `"code"` कोड-संपादन फ़्रेम तक रूट करता है (एजेंट-लिखित कोड परिवर्तनों के लिए, [Frames](/docs/frames) देखें)।
+- **`type`** — `"content"` (डिफ़ॉल्ट) कार्य को embedded app agent में रखता है, जो app tools का उपयोग करता है। `"code"` repository source changes के लिए अलग code-capable frame तक route करता है; write access केवल तभी उपलब्ध है जब host जानबूझकर repository/workspace tooling दे। [Frames](/docs/frames) देखें।
 
 `sendToAgentChat` एक स्थिर `tabId` लौटाता है जिसका उपयोग आप चैट रन को ट्रैक करने के लिए कर सकते हैं।
 

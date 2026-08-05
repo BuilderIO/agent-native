@@ -1487,6 +1487,9 @@ const deDE = {
     advancedRuntime: "Fortgeschritten: Runtime erweitern",
     templatesSection: "Apps",
     gettingStarted: "Erste Schritte",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Was ist Agent-Native?",
     agentSurfaces: "Agent-Oberflächen",
     keyConcepts: "Schlüsselkonzepte",
@@ -1660,6 +1663,7 @@ const deDE = {
     formsOverview: "Überblick",
     formsBuildingPublishing: "Erstellen und Veröffentlichen",
     formsResponses: "Antworten und Erkenntnisse",
+    docsComponents: "Docs Components",
     formsDevelopers: "Entwicklerhandbuch",
   },
 } satisfies typeof enUS;

@@ -30,6 +30,22 @@ function queryArgs(query: string | { args?: unknown[] }): unknown[] {
   return typeof query === "string" ? [] : (query.args ?? []);
 }
 
+/**
+ * `recoverDueA2AContinuationIds` short-circuits on a cheap
+ * `status IN ('pending','processing','delivering')` probe, so a double that
+ * answers every SELECT with zero rows never reaches the recovery statements
+ * these tests assert on. Report one live row from the probe and nothing else.
+ */
+function mockEmptyExceptLiveProbe(): void {
+  executeMock.mockImplementation(async (query: string | { sql: string }) =>
+    querySql(query).includes(
+      "status IN ('pending', 'processing', 'delivering')",
+    )
+      ? { rows: [{ id: "cont-live" }], rowsAffected: 0 }
+      : { rows: [], rowsAffected: 0 },
+  );
+}
+
 function continuationRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "cont-1",
@@ -1274,7 +1290,7 @@ describe("A2A continuations store", () => {
 
   it("recovers stale delivering continuations as retryable pending during due sweeps", async () => {
     const { claimDueA2AContinuations } = await loadStore();
-    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    mockEmptyExceptLiveProbe();
 
     await expect(claimDueA2AContinuations()).resolves.toEqual([]);
 
@@ -1303,7 +1319,7 @@ describe("A2A continuations store", () => {
 
   it("limits disabled-scope recovery to receipt-confirmed continuation rows", async () => {
     const { recoverDueA2AContinuationIds } = await loadStore();
-    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    mockEmptyExceptLiveProbe();
 
     await expect(
       recoverDueA2AContinuationIds(5, ["task-mixed"], true),
@@ -1316,7 +1332,8 @@ describe("A2A continuations store", () => {
           sql.includes("integration_a2a_continuations") &&
           (sql.includes("SET status = ?") || sql.includes("SELECT id FROM")),
       );
-    expect(custodyQueries).toHaveLength(3);
+    // Live probe + two lease resets + the due selection.
+    expect(custodyQueries).toHaveLength(4);
     for (const sql of custodyQueries) {
       expect(sql).toContain("terminal_delivery_confirmed_at IS NOT NULL");
     }
@@ -1348,16 +1365,38 @@ describe("A2A continuations store", () => {
       ),
     ).toBe(false);
     const selection = executeMock.mock.calls.find(([query]) =>
-      querySql(query).includes("SELECT id FROM integration_a2a_continuations"),
+      querySql(query).includes("ORDER BY next_check_at ASC"),
     );
     expect(querySql(selection![0])).toContain("status = 'pending'");
     expect(querySql(selection![0])).not.toContain("completed");
     expect(queryArgs(selection![0])).toHaveLength(2);
   });
 
-  it("limits durable scheduler recovery updates to eligible task scopes", async () => {
+  it("costs one query and writes nothing when no continuation is live", async () => {
+    // The 60s retry job calls this on every app. Both lease resets used to run
+    // blind, so an app whose queue has been empty since boot still paid three
+    // round trips a minute forever.
     const { recoverDueA2AContinuationIds } = await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await expect(recoverDueA2AContinuationIds(5)).resolves.toEqual([]);
+
+    const workQueries = executeMock.mock.calls
+      .map(([query]) => querySql(query))
+      .filter(
+        (sql) =>
+          sql.includes("integration_a2a_continuations") &&
+          (sql.startsWith("UPDATE") || sql.includes("SELECT id FROM")),
+      );
+    expect(workQueries).toHaveLength(1);
+    expect(workQueries[0]).toContain(
+      "status IN ('pending', 'processing', 'delivering')",
+    );
+  });
+
+  it("limits durable scheduler recovery updates to eligible task scopes", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    mockEmptyExceptLiveProbe();
 
     await recoverDueA2AContinuationIds(5, ["task-canary"]);
 
@@ -1370,7 +1409,7 @@ describe("A2A continuations store", () => {
 
   it("recovers processing continuations with stale next checks during due sweeps", async () => {
     const { claimDueA2AContinuations } = await loadStore();
-    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    mockEmptyExceptLiveProbe();
 
     await expect(claimDueA2AContinuations()).resolves.toEqual([]);
 

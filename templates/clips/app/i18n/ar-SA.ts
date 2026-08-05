@@ -621,6 +621,7 @@ const messages = {
     title: "الإعدادات",
     pageTitle: "الإعدادات · Clips",
     intro: "التفضيلات والخدمات المتصلة لمساحة Clips هذه.",
+    preferencesTitle: "التفضيلات",
     languageTitle: "اللغة",
     languageDescription:
       "اختر لغة الواجهة لهذا الحساب. سيتذكرها Clips عبر أجهزتك.",
@@ -657,9 +658,16 @@ const messages = {
     transcriptCleanupDescription:
       "اعرض النص الأصلي فورًا، ثم نظفه في الخلفية عند توفره.",
     notifications: "الإشعارات",
+    sharing: "المشاركة",
+    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
+    defaultVisibilityDescription:
+      "تُطبَّق على كل تسجيل تنشئه. لا يزال بإمكانك تغيير الرؤية لكل تسجيل.",
+    visibilityPrivate: "خاص - أنت فقط",
+    visibilityOrg: "المؤسسة - أي شخص في مساحة عملك",
+    visibilityPublic: "عام - أي شخص لديه الرابط",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
-      "احصل على بريد إلكتروني عندما يعلّق شخص أو يتفاعل أو يشارك تسجيلًا معك.",
+      "احصل على بريد إلكتروني عندما يعلّق شخص على تسجيلك أو يتفاعل معه.",
     saved: "تم حفظ الإعدادات",
     saveFailed: "فشل الحفظ",
     builderConnectedToast: "تم اتصال Builder.io",
@@ -821,12 +829,19 @@ const messages = {
     viewsCount_few: "{{count}} مشاهدات",
     viewsCount_many: "{{count}} مشاهدة",
     viewsCount_other: "{{count}} مشاهدة",
+    agentViewsCount_zero: "{{count}} مشاهدة من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_one: "{{count}} مشاهدة من وكيل ذكاء اصطناعي",
+    agentViewsCount_two: "{{count}} مشاهدتان من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_few: "{{count}} مشاهدات من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_many: "{{count}} مشاهدة من وكلاء الذكاء الاصطناعي",
+    agentViewsCount_other: "{{count}} مشاهدة من وكلاء الذكاء الاصطناعي",
     totalViewsSummary: "{{total}} مشاهدة إجمالية، {{unique}} مشاهدًا فريدًا",
     viewsTab: "المشاهدات",
     insightsTab: "الرؤى",
     humanViews: "مشاهدات بشرية",
     agentViews: "مشاهدات وكلاء الذكاء الاصطناعي",
     noAgentViewsYet: "لا توجد مشاهدات من وكلاء الذكاء الاصطناعي بعد.",
+    unknownAgent: "وكيل غير معروف",
     totalVideoViews: "إجمالي مشاهدات الفيديو",
     averageCompletionRate: "متوسط معدل الإكمال",
     moreInsights: "المزيد من الرؤى",
@@ -1511,6 +1526,10 @@ const messages = {
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
+    googleMayShowWarning: "مراجعة صلاحيات Google",
+    googleNotVerifiedTitle: "تحقق من التطبيق قبل الاتصال",
+    googleWarningBeforeAdvanced:
+      "تأكد من أن اسم التطبيق وصلاحيات Calendar المطلوبة تتطابق مع بيئة Clips التي تثق بها. إذا عرض Google تحذيرًا بأن التطبيق غير موثّق أو بدت الهوية غير مألوفة، فتوقف وتواصل مع مسؤول مساحة العمل.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",

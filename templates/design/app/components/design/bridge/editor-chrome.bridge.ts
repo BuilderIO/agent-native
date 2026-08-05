@@ -18,13 +18,17 @@
  *   __RUNTIME_LAYER_SNAPSHOT_ENABLED__ — true only for URL-backed localhost apps
  *
  * Rules:
- *   • No import/require of any module (DOM globals only).
+ *   • The shared, build-time-inlined canvas interaction controller is the one
+ *     permitted import. No runtime module lookup survives code generation.
+ *   • No require of any module (DOM globals only at iframe runtime).
  *   • No references to outer/module scope (the code runs inside an iframe).
  *   • Wrap everything in a self-executing IIFE.
  *
  * keep in sync with hit-test.bridge.ts for the shared container/axis/placement
  * helpers (search for "// keep in sync" comments).
  */
+import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
+
 declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
 declare var __EDITOR_CHROME_SCALE_X__: string;
@@ -311,19 +315,49 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     renderRuntimeInteractionStatePreviews();
   }
 
-  function runtimeHeadHtmlWithoutEditorChrome(): string {
-    if (!document.head) return "";
-    var clone = document.head.cloneNode(true) as HTMLElement;
-    Array.prototype.slice
-      .call(
-        clone.querySelectorAll(
-          "[data-agent-native-editor-chrome-style], [data-agent-native-editing-safety-style]",
-        ),
-      )
-      .forEach(function (node) {
-        if (node.parentNode) node.parentNode.removeChild(node);
-      });
-    return clone.innerHTML;
+  /**
+   * The last source <head> this bridge applied. Compared against instead of the
+   * live head, which also carries nodes the page's own runtime injected —
+   * @tailwindcss/browser's compiled sheet above all. Against the live head the
+   * comparison always differs, the head gets wiped, the compiled CSS goes with
+   * it, and the re-inserted `<script src>` cannot rebuild it because innerHTML
+   * never executes scripts. The screen then renders unstyled for good.
+   */
+  var lastSourceHeadHtml: string | null = null;
+
+  /**
+   * Swaps only the nodes the previous source head contributed. Assigning
+   * `document.head.innerHTML` instead destroys whatever the page's own runtime
+   * injected — @tailwindcss/browser's compiled sheet above all — and the
+   * `<script src>` re-inserted in its place can never rebuild it, because
+   * innerHTML does not execute scripts.
+   */
+  function replaceSourceHeadNodes(
+    previousSourceHtml: string | null,
+    nextSourceHtml: string,
+  ): void {
+    if (!document.head) return;
+    var stale = document.createElement("head");
+    stale.innerHTML = previousSourceHtml || "";
+    var staleCounts: Record<string, number> = {};
+    Array.prototype.forEach.call(stale.children, function (node: Element) {
+      var key = node.outerHTML;
+      staleCounts[key] = (staleCounts[key] || 0) + 1;
+    });
+    Array.prototype.slice.call(document.head.children).forEach(function (
+      node: Element,
+    ) {
+      var key = node.outerHTML;
+      if (!staleCounts[key]) return;
+      staleCounts[key] -= 1;
+      if (node.parentNode) node.parentNode.removeChild(node);
+    });
+    var next = document.createElement("head");
+    next.innerHTML = nextSourceHtml || "";
+    var anchor = document.head.firstChild;
+    Array.prototype.slice.call(next.children).forEach(function (node: Element) {
+      document.head.insertBefore(document.importNode(node, true), anchor);
+    });
   }
 
   function chromeScaleX(): number {
@@ -3119,8 +3153,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // Both layer states are painted here, from the one `layer-states` message,
   // so every call site that re-runs after a runtime document swap restores
   // hide AND lock together. Locked paints an attribute only; the hairline
-  // treatment lives in the editor chrome stylesheet so it is stripped from
-  // runtimeHeadHtmlWithoutEditorChrome and never reaches source or export.
+  // treatment lives in the editor chrome stylesheet, which is never part of
+  // the source head and so never reaches source or export.
   function applyLayerStateSelectors(): void {
     document
       .querySelectorAll("[data-agent-native-runtime-hidden]")
@@ -3244,7 +3278,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
-    var currentHeadHtml = runtimeHeadHtmlWithoutEditorChrome();
+    if (lastSourceHeadHtml === null) {
+      // First patch after a srcdoc build, so the document already carries this
+      // source head. Forced replacements adopt too: treating the live head as
+      // the baseline is what wipes the runtime's own nodes.
+      lastSourceHeadHtml = nextHeadHtml;
+    }
+    var currentHeadHtml = lastSourceHeadHtml;
     if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
       var currentMatch = null;
       var nextMatch = null;
@@ -3322,8 +3362,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       }
     }
     if (currentHeadHtml !== nextHeadHtml) {
-      document.head.innerHTML = nextHeadHtml;
+      replaceSourceHeadNodes(currentHeadHtml, nextHeadHtml);
       ensureEditorChromeStyle();
+      lastSourceHeadHtml = nextHeadHtml;
     }
     Array.prototype.slice.call(document.body.attributes).forEach(function (
       attribute: Attr,
@@ -4908,6 +4949,34 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       : { move: "mousemove", up: "mouseup" };
   }
 
+  // The bridge is bundled into an iframe IIFE. Its canvas is expressed in the
+  // iframe's CSS pixels, so client and canvas coordinates intentionally share
+  // the same viewport. Keeping this conversion at the adapter boundary lets
+  // the common controller own gesture lifecycle/threshold/Shift semantics
+  // without teaching it Design's source patches, auto layout, or transforms.
+  function bridgeGestureViewport() {
+    var width = Math.max(
+      1,
+      window.innerWidth || document.documentElement.clientWidth || 1,
+    );
+    var height = Math.max(
+      1,
+      window.innerHeight || document.documentElement.clientHeight || 1,
+    );
+    return { left: 0, top: 0, width: width, height: height };
+  }
+
+  function bridgeGesturePointer(e) {
+    return {
+      x: e.clientX,
+      y: e.clientY,
+      altKey: !!e.altKey,
+      ctrlKey: !!e.ctrlKey,
+      metaKey: !!e.metaKey,
+      shiftKey: !!e.shiftKey,
+    };
+  }
+
   function elementFromEditorPoint(
     clientX: number,
     clientY: number,
@@ -5069,7 +5138,23 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     );
   }
 
+  function isShowShortcutsChord(e) {
+    if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
+    // macOS delivers Control+Shift+/ as "/" — Control suppresses the shifted
+    // character — while Windows sends "?". Match both; see
+    // isShowKeyboardShortcutsHotkey in useDesignHotkeys.ts.
+    return e.key === "?" || e.key === "/";
+  }
+
   function shouldForwardDesignHotkey(e) {
+    // Shortcut help is not an editing affordance, so it forwards ahead of the
+    // read-only and typing guards below — the host matcher is deliberately
+    // global for the same reason. Without this the chord never escapes the
+    // canvas iframe, which is where focus lands the moment you click a frame.
+    // Not reached during a live text-edit session: that block returns before
+    // this function runs, deliberately — see the activeTextEditEl guard in
+    // the keydown listener.
+    if (isShowShortcutsChord(e)) return true;
     // Read-only surfaces (e.g. background/inactive board screens) must never
     // forward edit hotkeys or preventDefault() native browser shortcuts —
     // Escape/Enter/Tab/Delete/arrow-key/undo-redo forwarding is an editing
@@ -9815,8 +9900,49 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     // clear-selection postMessage cannot swap selectedEl mid-drag and cause
     // mutations on the wrong element or a null-deref in onUp.
     var dragEl = gestureEl;
-    var moved = false;
+    var gestureViewport = bridgeGestureViewport();
+    // Design owns the advanced preview math below: snapping/guides, nested
+    // auto-layout conversion, and cross-screen state all have source-aware
+    // invariants. The shared controller owns only the browser gesture state
+    // machine and emits the normalized pointer lifecycle that gates it.
+    // Use the same threshold for the controller and the legacy moved flag so
+    // a selected-box click remains a click instead of starting a persistence
+    // gesture with a zero delta.
     var DRAG_THRESHOLD = 3;
+    var bridgeMoveController = createCanvasGestureController({
+      capabilities: { move: true, resize: true },
+      drag: {
+        // Shield drags already crossed the outer threshold before reaching
+        // startMove. Keeping their controller threshold at zero preserves the
+        // first post-shield delta, while direct selection-chrome drags still
+        // need a real threshold before they preview or persist.
+        threshold: pointerStartParam ? 0 : DRAG_THRESHOLD,
+        duplicateModifier: "alt",
+      },
+      adapter: {
+        preview: function () {
+          return { handled: true };
+        },
+        commit: function () {
+          return { handled: true };
+        },
+        cancel: function () {
+          return { handled: true };
+        },
+      },
+    });
+    bridgeMoveController.pointerDown({
+      kind: "move",
+      objectIds: [getSelector(gestureEl)],
+      // `e` is deliberately the event that actually began the legacy move
+      // lifecycle. `pointerStartParam` is only Design's outer shield
+      // disambiguation origin; using it here would apply that first
+      // threshold-crossing delta twice.
+      pointer: bridgeGesturePointer(e),
+      viewport: gestureViewport,
+      canvas: { width: gestureViewport.width, height: gestureViewport.height },
+    });
+    var moved = false;
     dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
     var currentAutoLayoutTarget: {
       anchor: Element;
@@ -9866,26 +9992,21 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       window.requestAnimationFrame(flushCrossScreenDragMove);
     }
     function onMove(ev) {
+      var controllerMove = bridgeMoveController.pointerMove(
+        bridgeGesturePointer(ev),
+      );
+      if (controllerMove.phase !== "active") return;
       if (
         !moved &&
         Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD
       ) {
         moved = true;
       }
-      var rawDx = ev.clientX - startX;
-      var rawDy = ev.clientY - startY;
-      // Figma dominant-axis lock: while Shift is held, zero out whichever
-      // delta has the smaller magnitude so the element only moves along one
-      // axis. Read live off the move event (not cached at drag start) so
-      // pressing/releasing Shift mid-drag re-evaluates every event, matching
-      // how the resize path reads ev.shiftKey per-move rather than once.
-      if (ev.shiftKey) {
-        if (Math.abs(rawDx) > Math.abs(rawDy)) {
-          rawDy = 0;
-        } else {
-          rawDx = 0;
-        }
-      }
+      // The controller converts client deltas at the iframe boundary and
+      // applies the live Shift dominant-axis constraint. Design-specific snap
+      // and auto-layout handling decorates this normalized delta below.
+      var rawDx = controllerMove.gesture.canvasDelta.x;
+      var rawDy = controllerMove.gesture.canvasDelta.y;
       var nextLeft = originLeft + rawDx;
       var nextTop = originTop + rawDy;
       // Alignment/smart-guide snapping: disabled while Cmd/Ctrl is held
@@ -9993,6 +10114,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       crossScreenDragMovePendingEv = null;
     }
     function cancelMoveDrag() {
+      bridgeMoveController.cancel();
       cleanupMoveDrag();
       hideTransformBadge();
       hideInsertionGuide();
@@ -10019,6 +10141,16 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       cancelMoveDrag();
     }
     function onUp(ev) {
+      var controllerEnd = bridgeMoveController.pointerUp(
+        bridgeGesturePointer(ev),
+      );
+      if (!controllerEnd.committed) {
+        cleanupMoveDrag();
+        hideTransformBadge();
+        hideInsertionGuide();
+        hideSnapGuides();
+        return;
+      }
       cleanupMoveDrag();
       hideTransformBadge();
       hideInsertionGuide();
@@ -10224,6 +10356,45 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     // Capture the element rotation once at drag-start so per-move projection is
     // cheap and consistent even if the transform changes during the drag.
     var resizeTheta = (currentRotation(resizeEl) * Math.PI) / 180;
+    var resizeGestureViewport = bridgeGestureViewport();
+    // Keep generic resize lifecycle in Toolkit while Design continues to own
+    // rotated/Alt-centered/Scale-tool geometry. The generic rect emitted by
+    // the controller is intentionally advisory here; applying it directly
+    // would discard Design's rotation-projected resize invariants.
+    var RESIZE_DRAG_THRESHOLD = 3;
+    var bridgeResizeController = createCanvasGestureController({
+      capabilities: { move: true, resize: true },
+      drag: { threshold: RESIZE_DRAG_THRESHOLD, duplicateModifier: "alt" },
+      minSize: 8,
+      adapter: {
+        preview: function () {
+          return { handled: true };
+        },
+        commit: function () {
+          return { handled: true };
+        },
+        cancel: function () {
+          return { handled: true };
+        },
+      },
+    });
+    bridgeResizeController.pointerDown({
+      kind: "resize",
+      objectIds: [getSelector(resizeEl)],
+      pointer: bridgeGesturePointer(e),
+      viewport: resizeGestureViewport,
+      canvas: {
+        width: resizeGestureViewport.width,
+        height: resizeGestureViewport.height,
+      },
+      handle: handle,
+      rect: {
+        x: origin.left,
+        y: origin.top,
+        width: origin.width,
+        height: origin.height,
+      },
+    });
     // Figma commit-semantics parity: a resize must only ever write the
     // axis/axes the user actually dragged. A pure vertical edge-drag (handle
     // "n"/"s", no Shift, scale tool off) must leave width completely alone —
@@ -10336,6 +10507,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       };
     }
     function onMove(ev) {
+      var controllerMove = bridgeResizeController.pointerMove(
+        bridgeGesturePointer(ev),
+      );
+      if (controllerMove.phase !== "active") return;
       if (!resizeEl) return;
       var rect = nextRect(ev);
       if (rect.touchesWidth) widthTouched = true;
@@ -10382,6 +10557,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       clearActiveDragCancel(cancelResizeDrag);
     }
     function cancelResizeDrag() {
+      bridgeResizeController.cancel();
       cleanupResizeDrag();
       hideTransformBadge();
       if (resizeEl && document.documentElement.contains(resizeEl)) {
@@ -10404,7 +10580,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       stopNativeInteraction(ev);
       cancelResizeDrag();
     }
-    function onUp() {
+    function onUp(ev) {
+      var controllerEnd = bridgeResizeController.pointerUp(
+        bridgeGesturePointer(ev),
+      );
+      if (!controllerEnd.committed) {
+        cleanupResizeDrag();
+        hideTransformBadge();
+        return;
+      }
       cleanupResizeDrag();
       hideTransformBadge();
       if (!resizeEl) return;
@@ -10961,6 +11145,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         }
         // While a live session exists, never forward hotkeys to the host
         // (matches shouldForwardDesignHotkey's activeTextEditEl guard).
+        // The shortcut-help chord is deliberately included in that exclusion:
+        // the panel lives in the parent document, so opening it moves focus
+        // out of the iframe, blurs the editable and commits the in-progress
+        // edit. Ending someone's text entry to show help is a worse trade
+        // than help being unavailable for the duration of a typing session;
+        // it stays available everywhere else, including while a text layer is
+        // merely selected.
         return;
       }
       if (!shouldForwardDesignHotkey(e)) return;
@@ -12177,7 +12368,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         typeof e.data.correlationId === "string" ? e.data.correlationId : "";
       var textEditStatusNodeId: string =
         typeof e.data.nodeId === "string" ? e.data.nodeId : "";
-      var textEditStatus: "active" | "done" | false = false;
+      // "missing" (this document has no such node) stays distinct from a bare
+      // `false` (node is here, just not being edited). The host's retry ladder
+      // needs the difference: the first is a still-propagating insert or the
+      // wrong iframe, the second means the user has not typed yet.
+      var textEditStatus: "active" | "done" | "missing" | false = "missing";
       if (textEditStatusNodeId) {
         var escapedTextEditStatusNodeId = textEditStatusNodeId
           .replace(/\\/g, "\\\\")
@@ -12201,6 +12396,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           (textEditStatusNode.textContent ?? "").trim().length > 0
         ) {
           textEditStatus = "done";
+        } else if (textEditStatusNode) {
+          textEditStatus = false;
         }
       }
       (window.parent as Window).postMessage(

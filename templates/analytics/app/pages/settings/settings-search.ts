@@ -52,6 +52,18 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       hash: "language",
     },
     {
+      id: "analytics-error-email-notifications",
+      label: t("settings.errorEmailNotifications"),
+      keywords: "email notifications errors alerts javascript monitoring",
+      hash: "error-email-notifications",
+    },
+    {
+      id: "analytics-bell-sound",
+      label: t("settings.bellSound"),
+      keywords: "sound audio ding agent completion notification",
+      hash: "bell-sound",
+    },
+    {
       id: "analytics-about",
       label: t("settings.about"),
       keywords: "about version info usage",

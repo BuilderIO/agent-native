@@ -618,19 +618,27 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
   }
 }
 
-function scopeClause(scope: AnalyticsScope): {
+function scopedTableSource(
+  tableName: string,
+  scope: AnalyticsScope,
+  today: string,
+): {
   sql: string;
   args: Array<string | null>;
 } {
+  const freshness = freshnessClause(tableName);
   if (scope.orgId) {
     return {
-      sql: "(org_id = ? OR (org_id IS NULL AND owner_email = ?))",
-      args: [scope.orgId, scope.userEmail],
+      // Keep the org and personal fallback as separate branches so Postgres can
+      // use each branch's composite tenant/date indexes instead of scanning one
+      // broad org index for an OR predicate.
+      sql: `(SELECT * FROM ${tableName} WHERE org_id = ? AND ${freshness} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+      args: [scope.orgId, today, scope.userEmail, today],
     };
   }
   return {
-    sql: "(org_id IS NULL AND owner_email = ?)",
-    args: [scope.userEmail],
+    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = ? AND ${freshness})`,
+    args: [scope.userEmail, today],
   };
 }
 
@@ -661,9 +669,9 @@ export function scopedAnalyticsSql(
         !RESERVED_ALIAS_WORDS.has(normalizedAlias)
           ? aliasPart
           : ` AS ${normalizedTable}`;
-      const scopeDef = scopeClause(scope);
-      args.push(...scopeDef.args, today);
-      return `${keyword} (SELECT * FROM ${normalizedTable} WHERE ${scopeDef.sql} AND ${freshnessClause(normalizedTable)})${usableAlias}`;
+      const scopedSource = scopedTableSource(normalizedTable, scope, today);
+      args.push(...scopedSource.args);
+      return `${keyword} ${scopedSource.sql}${usableAlias}`;
     },
   );
   return { sql: rewritten, args };

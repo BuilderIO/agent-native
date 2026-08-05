@@ -26,10 +26,9 @@ describe("Analytics authenticated MCP read actions", () => {
     expect(action.mcpApp).toBeUndefined();
   });
 
-  it("keeps query-agent-native-analytics off HTTP and on the explicit connector catalog", () => {
-    // Raw SQL must never mount a GET route (SQL would land in query strings
-    // and access logs). The action is not auto-derived as an authenticated
-    // read; it stays MCP-callable only via the explicit connector catalog.
+  it("keeps query-agent-native-analytics internal to the Analytics agent", () => {
+    // Raw SQL must never mount a GET route or appear in the direct connector
+    // catalog. Sibling agents ask Analytics, which owns the schema and query.
     expect(queryAgentNativeAnalytics.http).toBe(false);
     expect(queryAgentNativeAnalytics.readOnly).toBe(true);
     expect(queryAgentNativeAnalytics.publicAgent).toEqual({
@@ -38,7 +37,7 @@ describe("Analytics authenticated MCP read actions", () => {
       requiresAuth: true,
     });
     expect(queryAgentNativeAnalytics.mcpApp).toBeUndefined();
-    expect(ANALYTICS_CONNECTOR_CATALOG).toContain(
+    expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain(
       "query-agent-native-analytics",
     );
   });

@@ -99,7 +99,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint", "creative-context"],
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -199,7 +199,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint", "embedding", "creative-context"],
+    requiredPackages: ["embedding", "creative-context"],
     core: true,
   },
   {
@@ -253,6 +253,19 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://macros.agent-native.com",
     hidden: true,
     defaultMode: "dev",
+  },
+  {
+    name: "factory",
+    label: "Factory",
+    hint: "Build agent factories with gates you control",
+    icon: "Users",
+    color: "#7C3AED",
+    colorRgb: "124 58 237",
+    devPort: 8108,
+    prodUrl: "https://agent-native-factory.netlify.app",
+    hidden: true,
+    defaultMode: "dev",
+    core: false,
   },
 ];
 

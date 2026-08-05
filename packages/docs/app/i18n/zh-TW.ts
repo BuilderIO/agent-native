@@ -1458,6 +1458,9 @@ const messages = {
     advancedRuntime: "進階：擴充功能執行時",
     templatesSection: "應用程式",
     gettingStarted: "入門",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "什麼是 Agent-Native？",
     agentSurfaces: "Agent 介面",
     keyConcepts: "核心概念",
@@ -1631,6 +1634,7 @@ const messages = {
     formsOverview: "總覽",
     formsBuildingPublishing: "建置與發布",
     formsResponses: "回應與洞察",
+    docsComponents: "Docs Components",
     formsDevelopers: "開發者指南",
   },
 };

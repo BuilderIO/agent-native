@@ -36,6 +36,7 @@ import {
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
+import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
   getRealtimeClientConfigScript,
@@ -331,6 +332,28 @@ function removeDocumentCsp(headers: Headers): void {
   headers.delete("content-security-policy-report-only");
 }
 
+/**
+ * Render an error message safely as a `text/plain` body.
+ *
+ * Vite ids its virtual modules with a leading NUL (`\0virtual:react-router/…`),
+ * and those ids travel verbatim inside module-resolution error messages. One raw
+ * NUL is enough for curl to refuse to print the response as text, hiding the only
+ * line that says what broke. Escape the control bytes rather than deleting them:
+ * the NUL is part of the real resolved id, so a reader who greps for it or pastes
+ * it into a bug report must be able to see that it is there.
+ */
+function textSafeErrorMessage(err: unknown): string {
+  const message = String((err as { message?: unknown })?.message ?? err);
+  // C0 controls except tab, newline, and carriage return, which are real formatting.
+  return message.replace(
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,
+    (char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code === 0 ? "\\0" : `\\x${code.toString(16).padStart(2, "0")}`;
+    },
+  );
+}
+
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
     isMcpPublicPath(pathname) ||
@@ -357,7 +380,11 @@ async function rewriteMountedResponse(
   requestUrl: string,
 ): Promise<Response> {
   const clientConfigScript =
-    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
@@ -473,7 +500,7 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       const isProd = process.env.NODE_ENV === "production";
       const body = isProd
         ? "Internal Server Error"
-        : `Internal Server Error: ${(err as Error)?.message ?? err}`;
+        : `Internal Server Error: ${textSafeErrorMessage(err)}`;
       return new Response(body, {
         status: 500,
         headers: { "content-type": "text/plain" },

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   A2AClient,
+  A2ATaskTerminalError,
   A2ATaskTimeoutError,
   callAction,
   callAgent,
@@ -33,6 +34,13 @@ vi.mock("../extensions/url-safety.js", async (importOriginal) => {
 
 describe("A2AClient", () => {
   const originalEnv = { ...process.env };
+  const authenticatedJwt = [
+    "eyJhbGciOiJIUzI1NiJ9",
+    Buffer.from(JSON.stringify({ sub: "user@example.test" })).toString(
+      "base64url",
+    ),
+    "signature",
+  ].join(".");
 
   beforeEach(() => {
     process.env = { ...originalEnv };
@@ -104,6 +112,104 @@ describe("A2AClient", () => {
     ]);
   });
 
+  it("retries an idempotent initial submission after a transient connection failure", async () => {
+    const submissions: Array<Record<string, unknown>> = [];
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        const body = JSON.parse(String(init.body));
+        submissions.push(body.params);
+        if (postAttempts === 1) throw new Error("socket hang up");
+        return completedResponse(body, "recovered once");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test/_agent-native/a2a", "hello", {
+        async: true,
+        apiKey: authenticatedJwt,
+      }),
+    ).resolves.toBe("recovered once");
+    expect(postAttempts).toBe(2);
+    expect(submissions[0]?.idempotencyKey).toMatch(/^auto:/);
+    expect(submissions[1]?.idempotencyKey).toBe(submissions[0]?.idempotencyKey);
+  });
+
+  it("does not retry synchronous message submissions even with an idempotency key", async () => {
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        throw new Error("socket hang up");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test/_agent-native/a2a", "hello", {
+        async: false,
+        apiKey: authenticatedJwt,
+        idempotencyKey: "sync-key",
+      }),
+    ).rejects.toThrow("socket hang up");
+    expect(postAttempts).toBe(1);
+  });
+
+  it("does not retry ownerless async message submissions", async () => {
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        throw new Error("socket hang up");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test/_agent-native/a2a", "hello", {
+        async: true,
+      }),
+    ).rejects.toThrow("socket hang up");
+    expect(postAttempts).toBe(1);
+  });
+
+  it("retries an idempotent submission after a transient 429", async () => {
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        const body = JSON.parse(String(init.body));
+        if (postAttempts === 1) {
+          return new Response("busy", { status: 429 });
+        }
+        return completedResponse(body, "recovered after rate limit");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: true,
+        apiKey: authenticatedJwt,
+      }),
+    ).resolves.toBe("recovered after rate limit");
+    expect(postAttempts).toBe(2);
+  });
+
   it("throws structured timeout errors with the remote task id", async () => {
     vi.stubGlobal(
       "fetch",
@@ -146,21 +252,164 @@ describe("A2AClient", () => {
     await expect(
       client.sendAndWait(
         { role: "user", parts: [{ type: "text", text: "hello" }] },
-        { timeoutMs: 1, pollIntervalMs: 1 },
+        { timeoutMs: 30, pollIntervalMs: 1 },
       ),
     ).rejects.toMatchObject({
       name: "A2ATaskTimeoutError",
       taskId: "task-qa",
       lastState: "working",
-      timeoutMs: 1,
+      timeoutMs: 30,
     });
 
     await expect(
       client.sendAndWait(
         { role: "user", parts: [{ type: "text", text: "hello" }] },
-        { timeoutMs: 1, pollIntervalMs: 1 },
+        { timeoutMs: 30, pollIntervalMs: 1 },
       ),
     ).rejects.toBeInstanceOf(A2ATaskTimeoutError);
+  });
+
+  it("includes initial submission in the end-to-end timeout budget", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init.signal?.addEventListener("abort", rejectAborted, { once: true });
+        });
+      }),
+    );
+
+    const startedAt = Date.now();
+    await expect(
+      new A2AClient("https://agent.test").sendAndWait(
+        { role: "user", parts: [{ type: "text", text: "hello" }] },
+        { timeoutMs: 30, pollIntervalMs: 1 },
+      ),
+    ).rejects.toThrow(/aborted|deadline/i);
+    expect(Date.now() - startedAt).toBeLessThan(500);
+  });
+
+  it("reserves a bounded deadline for submission when agent-card discovery hangs", async () => {
+    let postAttempted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          postAttempted = true;
+          return completedResponse(
+            JSON.parse(String(init.body)),
+            "submitted after discovery timeout",
+          );
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init?.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init?.signal?.addEventListener("abort", rejectAborted, {
+            once: true,
+          });
+        });
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        timeoutMs: 200,
+        pollIntervalMs: 1,
+      }),
+    ).resolves.toBe("submitted after discovery timeout");
+    expect(postAttempted).toBe(true);
+  });
+
+  it("surfaces permanent task-status errors without waiting for the deadline", async () => {
+    let taskReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-gone");
+        }
+        taskReads += 1;
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32004, message: "Task not found" },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      new A2AClient("https://agent.test").sendAndWait(
+        { role: "user", parts: [{ type: "text", text: "hello" }] },
+        { timeoutMs: 5_000, pollIntervalMs: 1 },
+      ),
+    ).rejects.toThrow(/Task not found/);
+    expect(taskReads).toBe(1);
+  });
+
+  it("isolates progress callback errors from terminal task handling", async () => {
+    let taskReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-callback");
+        }
+        taskReads += 1;
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-callback",
+              status: {
+                state: "completed",
+                message: {
+                  role: "agent",
+                  parts: [{ type: "text", text: "finished despite callback" }],
+                },
+              },
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+        onUpdate: () => {
+          throw new Error("presentation failed");
+        },
+      }),
+    ).resolves.toBe("finished despite callback");
+    expect(taskReads).toBe(1);
   });
 
   it("bounds a hung task-status request by the overall poll deadline", async () => {
@@ -332,6 +581,200 @@ describe("A2AClient", () => {
     expect(
       fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
     ).toHaveLength(1);
+  });
+
+  it.each(["failed", "canceled", "input-required"] as const)(
+    "preserves a %s task as a typed terminal error",
+    async (state) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body));
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              result: {
+                id: `task-${state}`,
+                status: {
+                  state,
+                  message: {
+                    role: "agent",
+                    parts: [{ type: "text", text: `${state} details` }],
+                  },
+                },
+                history: [],
+                artifacts: [],
+              },
+            }),
+            { status: 200 },
+          );
+        }),
+      );
+
+      await expect(
+        callAgent("https://agent.test", "hello"),
+      ).rejects.toMatchObject({
+        name: "A2ATaskTerminalError",
+        taskId: `task-${state}`,
+        state,
+        responseText: `${state} details`,
+      });
+      await expect(
+        callAgent("https://agent.test", "hello"),
+      ).rejects.toBeInstanceOf(A2ATaskTerminalError);
+    },
+  );
+
+  it("rejects completed tasks with neither text nor a verified artifact", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-empty",
+              status: { state: "completed" },
+              history: [],
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTerminalError",
+      state: "completed",
+      errorCode: "empty_agent_response",
+    });
+  });
+
+  it("accepts a verified artifact as completion evidence when text is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-artifact",
+              status: { state: "completed" },
+              history: [],
+              artifacts: [
+                {
+                  name: "customer-deck.pptx",
+                  parts: [
+                    {
+                      type: "file",
+                      file: {
+                        name: "customer-deck.pptx",
+                        uri: "https://slides.agent.test/deck/customer-deck",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).resolves.toContain("customer-deck.pptx");
+  });
+
+  it("rejects a named artifact with no usable parts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-empty-artifact",
+              status: { state: "completed" },
+              artifacts: [{ name: "empty.pptx", parts: [] }],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).rejects.toMatchObject({ errorCode: "empty_agent_response" });
+  });
+
+  it("accepts an unnamed artifact with a usable data reference", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-data-artifact",
+              status: { state: "completed" },
+              artifacts: [
+                {
+                  parts: [
+                    {
+                      type: "data",
+                      data: {
+                        artifactId: "deck-123",
+                        url: "https://slides.agent.test/deck/deck-123",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).resolves.toContain("https://slides.agent.test/deck/deck-123");
+  });
+
+  it("rejects oversized completed text instead of treating a partial truncation as success", async () => {
+    const sentinelTail = "https://analytics.agent.test/artifact/result";
+    const oversized = "A".repeat(80_000) + sentinelTail;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return completedResponse(body, oversized);
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTerminalError",
+      state: "completed",
+      errorCode: "a2a_response_too_large",
+    });
   });
 
   it("continues an existing task without submitting duplicate work", async () => {
@@ -688,6 +1131,46 @@ describe("A2AClient", () => {
     ).rejects.toMatchObject({
       name: "A2ATaskTimeoutError",
       taskId: "task-deck-continuation",
+    });
+  });
+
+  it("reserves a separate submission budget before the bounded poll handoff", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 20);
+            init.signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(new DOMException("aborted", "AbortError"));
+              },
+              { once: true },
+            );
+          });
+          return workingResponse(body, "task-slow-submission");
+        }
+        return workingResponse(body, "task-slow-submission");
+      }),
+    );
+
+    await expect(
+      callAgent("https://slides.agent.test", "make a deck", {
+        timeoutMs: 5,
+        submissionTimeoutMs: 50,
+        pollIntervalMs: 1,
+        returnRecoverableArtifactsOnTimeout: false,
+      }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-slow-submission",
+      timeoutMs: 5,
     });
   });
 

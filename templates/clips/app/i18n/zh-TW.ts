@@ -595,6 +595,7 @@ const messages = {
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "此 Clips 工作區的偏好設定和已連線服務。",
+    preferencesTitle: "偏好設定",
     languageTitle: "語言",
     languageDescription:
       "選取此帳號的介面語言。Clips 會在不同設備上記住你的選取。",
@@ -622,9 +623,15 @@ const messages = {
     transcriptCleanup: "背景清理",
     transcriptCleanupDescription: "先立即顯示原生轉錄，背景可用時再進行清理。",
     notifications: "通知",
+    sharing: "共用",
+    defaultVisibility: "新錄製內容的預設可見性",
+    defaultVisibilityDescription:
+      "套用於你建立的每個錄製內容，你仍可為個別錄製內容變更可見性。",
+    visibilityPrivate: "私密 - 僅自己",
+    visibilityOrg: "組織 - 工作區中的任何人",
+    visibilityPublic: "公開 - 任何擁有連結的人",
     emailNotifications: "郵件通知",
-    emailNotificationsDescription:
-      "當有人評論、回應或與你分享錄製時，收到郵件通知。",
+    emailNotificationsDescription: "當有人評論或回應你的錄製時，收到郵件通知。",
     saved: "設定已儲存",
     saveFailed: "儲存失敗",
     builderConnectedToast: "Builder.io 已連線",
@@ -771,12 +778,15 @@ const messages = {
     noViewsYet: "尚無觀看紀錄。",
     viewsCount_one: "{{count}} 次觀看",
     viewsCount_other: "{{count}} 次觀看",
+    agentViewsCount_one: "AI 代理觀看 {{count}} 次",
+    agentViewsCount_other: "AI 代理觀看 {{count}} 次",
     totalViewsSummary: "共 {{total}} 次觀看，{{unique}} 位獨立觀看者",
     viewsTab: "觀看",
     insightsTab: "洞察",
     humanViews: "真人觀看",
     agentViews: "AI 代理觀看",
     noAgentViewsYet: "尚無 AI 代理觀看紀錄。",
+    unknownAgent: "未知代理",
     totalVideoViews: "影片觀看總數",
     averageCompletionRate: "平均完成率",
     moreInsights: "更多洞察",
@@ -1437,6 +1447,10 @@ const messages = {
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",
+    googleMayShowWarning: "檢查 Google 存取權",
+    googleNotVerifiedTitle: "連線前請驗證應用程式",
+    googleWarningBeforeAdvanced:
+      "請確認應用程式名稱和要求的 Calendar 存取權與你信任的 Clips 部署相符。如果 Google 顯示未驗證應用程式警告，或應用程式身分看起來陌生，請停止操作並聯絡工作區管理員。",
     desktopReminder:
       "連線 Google Calendar，保持 Clips Desktop 開啟，會議開始時從提醒或選單列點選 Start notes。",
     getDesktopApp: "取得桌面應用程式",

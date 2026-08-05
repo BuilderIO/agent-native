@@ -1460,6 +1460,9 @@ const zhCN = {
     advancedRuntime: "高级：扩展运行时",
     templatesSection: "应用",
     gettingStarted: "入门",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "什么是 Agent-Native？",
     agentSurfaces: "Agent 界面",
     keyConcepts: "核心概念",
@@ -1633,6 +1636,7 @@ const zhCN = {
     formsOverview: "概览",
     formsBuildingPublishing: "构建与发布",
     formsResponses: "回复与洞察",
+    docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },
 } satisfies typeof enUS;

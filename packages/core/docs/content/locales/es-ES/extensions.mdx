@@ -16,10 +16,10 @@ El marco importa: una extensión no es un entorno limitado genérico de "haz lo 
 > [ranura](#slots) con nombre que expone la plantilla. No puede insertar
 > elementos en componentes nativos arbitrarios —por ejemplo, junto a cada
 > asistente en Calendario— a menos que la plantilla exponga una ranura allí.
-> Para una personalización más profunda, pide al agente que edite el código
-> fuente de la plantilla. La personalización completa del código es una
-> capacidad central de Agent Native; las extensiones son la capa rápida y sin
-> despliegues.
+> Para una personalización más profunda, cambia la plantilla en tu repositorio
+> y flujo de desarrollo. El agente integrado solo puede ayudar si el host
+> concede intencionalmente herramientas de escritura de repository/workspace;
+> las extensiones siguen siendo la capa rápida y sin despliegues.
 
 Tres cosas hacen que las extensiones funcionen:
 
@@ -427,22 +427,22 @@ Las extensiones son privadas para el usuario que las creó de forma predetermina
 
 Las extensiones compartidas tienen sus propios URL y se conectan al mismo cuadro de diálogo para compartir que documentos, presentaciones y paneles. Las instalaciones de tragamonedas son siempre personales: compartir una extensión significa que otros _pueden_ instalarla; no lo fija automáticamente a su UI.
 
-## ¿Debo usar una extensión o editar el código de la aplicación? {#vs-app-code}
+## ¿Debo usar una extensión o el flujo de código fuente? {#vs-app-code}
 
-El marco permite al agente editar directamente el código fuente de la aplicación —componentes, rutas, estilos y lógica de negocio—. Usa esta pregunta cuando cualquiera de las dos opciones podría resolver la solicitud:
+El agente integrado no edita el código fuente de forma predeterminada; solo puede hacerlo si el host concede intencionalmente herramientas de escritura de repository/workspace. Usa el flujo de código fuente para el comportamiento duradero y las extensiones para personalización rápida en runtime.
 
 - **Empieza con el código de la aplicación** para el comportamiento del producto, la UI nativa, el layout, las rutas, la lógica de negocio o cualquier cosa que deba reutilizarse.
 - **Usa un bloque personalizado solo si la aplicación lo habilita** y el usuario pide explícitamente una visualización o interacción puntual en una superficie existente. Es rápido y no requiere despliegue, pero sigue siendo un parche aislado creado por el agente.
 - **Promueve los bloques duraderos.** Si un bloque resulta útil más allá de su contexto original, usa **Promover a código de aplicación** y mantenlo activo hasta que el cambio de código se revise y despliegue.
 
-|                                 | Extensión                                     | Edición del código de la aplicación  |
-| ------------------------------- | --------------------------------------------- | ------------------------------------ |
-| **Creado por**                  | Agente (o usuario) en tiempo de ejecución     | Agente editando archivos fuente      |
-| **Almacenado en**               | La base de datos                              | El repositorio de git                |
-| **Requiere una compilación**    | No                                            | Sí                                   |
-| **Requiere una implementación** | No                                            | Sí                                   |
-| **Alcance**                     | Un usuario (o compartido con la organización) | El producto completo, cada usuario   |
-| **Mejor para**                  | Bloques personalizados puntuales              | Comportamiento duradero del producto |
+|                                 | Extensión                                     | Edición del código de la aplicación     |
+| ------------------------------- | --------------------------------------------- | --------------------------------------- |
+| **Creado por**                  | Agente (o usuario) en tiempo de ejecución     | Usuario o flujo con capacidad de código |
+| **Almacenado en**               | La base de datos                              | El repositorio de git                   |
+| **Requiere una compilación**    | No                                            | Sí                                      |
+| **Requiere una implementación** | No                                            | Sí                                      |
+| **Alcance**                     | Un usuario (o compartido con la organización) | El producto completo, cada usuario      |
+| **Mejor para**                  | Bloques personalizados puntuales              | Comportamiento duradero del producto    |
 
 Regla general: **usa el código de la aplicación de forma predeterminada.** En una aplicación que habilita extensiones, una visualización puntual puede ser un bloque personalizado; un nuevo tipo de gráfico que deba estar disponible en todos los dashboards pertenece al código de la plantilla.
 

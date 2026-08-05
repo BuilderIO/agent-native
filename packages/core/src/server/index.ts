@@ -514,6 +514,7 @@ export {
   type BuilderDesignSystemProxyFields,
   type BuilderDesignSystemProxyFieldsOptions,
   type BuilderDesignSystemProxyReference,
+  type BuilderDesignSystemSourceKind,
 } from "./builder-design-systems.js";
 export {
   getBuilderBranchProjectId,
@@ -546,6 +547,16 @@ export {
   type EmailProvider,
   type SendEmailArgs,
 } from "./email.js";
+export {
+  notifyActivity,
+  runActivityNotification,
+  resolveActivityRecipients,
+  type ActivityDeliveryFailure,
+  type ActivityNotificationResult,
+  type ActivityNotificationStatus,
+  type NotifyActivityInput,
+  type ResolveActivityRecipientsInput,
+} from "./activity-notifications.js";
 export {
   renderEmail,
   emailStrong,

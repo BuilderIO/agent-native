@@ -32,8 +32,8 @@ describe("Analytics settings command items", () => {
           href: "/settings#dashboard-templates",
         }),
         expect.objectContaining({
-          label: "Connections",
-          href: "/settings#connections",
+          label: "Integrations",
+          href: "/settings#integrations",
         }),
         expect.objectContaining({
           label: "Voice Transcription",

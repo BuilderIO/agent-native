@@ -16,9 +16,10 @@ O enquadramento é importante: uma extensão não é uma sandbox genérica do ti
 > [slot](#slots) nomeado exposto pelo modelo. Ela não pode inserir elementos em
 > componentes nativos arbitrários — por exemplo, ao lado de cada participante
 > no Calendário — a menos que o modelo exponha um slot nesse local. Para uma
-> personalização mais profunda, peça ao agente para editar o código-fonte do
-> modelo. A personalização completa do código é um recurso central do Agent
-> Native; as extensões são a camada rápida, sem implantação.
+> personalização mais profunda, altere o template no seu repositório e fluxo
+> de desenvolvimento. O agente incorporado só pode ajudar quando o host concede
+> intencionalmente ferramentas de escrita de repository/workspace; as extensões
+> continuam sendo a camada rápida, sem implantação.
 
 Três coisas fazem as extensões funcionarem:
 
@@ -426,22 +427,22 @@ As extensões são privadas para o usuário que as criou por padrão. Para compa
 
 As extensões compartilhadas têm seus próprios URLs e se conectam à mesma caixa de diálogo de compartilhamento que documentos, apresentações e painéis. As instalações de slots são sempre pessoais – compartilhar uma extensão significa que outras pessoas _podem_ instalá-la; ele não o fixa automaticamente no UI.
 
-## Devo usar uma extensão ou editar o código do aplicativo? {#vs-app-code}
+## Devo usar uma extensão ou o fluxo de código-fonte? {#vs-app-code}
 
-A estrutura permite que o agente edite diretamente o código-fonte do aplicativo — componentes, rotas, estilos e lógica de negócio. Use esta pergunta quando qualquer um dos dois caminhos puder resolver a solicitação:
+O agente incorporado não edita o código-fonte por padrão; só pode fazer isso quando o host concede intencionalmente ferramentas de escrita de repository/workspace. Use o fluxo de código-fonte para comportamento duradouro e extensões para personalização rápida em runtime.
 
 - **Comece com o código do aplicativo** para comportamento do produto, UI nativa, layout, rotas, lógica de negócio ou qualquer recurso que deva ser reutilizado.
 - **Use um bloco personalizado somente se o aplicativo habilitar o recurso** e o usuário pedir explicitamente uma visualização ou interação pontual em uma superfície existente. É rápido e não exige deploy, mas continua sendo um patch isolado criado pelo agente.
 - **Promova blocos duradouros.** Se um bloco se tornar útil além do contexto original, use **Promover para código do aplicativo** e mantenha o bloco até a revisão e implantação da mudança.
 
-|                            | Extensão                                        | Edição do código do aplicativo     |
-| -------------------------- | ----------------------------------------------- | ---------------------------------- |
-| **Criado por**             | Agente (ou usuário) em tempo de execução        | Agente editando arquivos de origem |
-| **Armazenado em**          | O banco de dados                                | O repositório git                  |
-| **Requer uma versão**      | Não                                             | Sim                                |
-| **Requer uma implantação** | Não                                             | Sim                                |
-| **Escopo**                 | Um usuário (ou compartilhado com a organização) | O produto inteiro, cada usuário    |
-| **Melhor para**            | Blocos personalizados pontuais                  | Comportamento duradouro do produto |
+|                            | Extensão                                        | Edição do código do aplicativo            |
+| -------------------------- | ----------------------------------------------- | ----------------------------------------- |
+| **Criado por**             | Agente (ou usuário) em tempo de execução        | Usuário ou fluxo com capacidade de código |
+| **Armazenado em**          | O banco de dados                                | O repositório git                         |
+| **Requer uma versão**      | Não                                             | Sim                                       |
+| **Requer uma implantação** | Não                                             | Sim                                       |
+| **Escopo**                 | Um usuário (ou compartilhado com a organização) | O produto inteiro, cada usuário           |
+| **Melhor para**            | Blocos personalizados pontuais                  | Comportamento duradouro do produto        |
 
 Regra geral: **use o código do aplicativo por padrão.** Em um aplicativo que habilita extensões, uma visualização pontual pode ser um bloco personalizado; um novo tipo de gráfico disponível em todos os dashboards pertence ao código do template.
 

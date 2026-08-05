@@ -87,7 +87,8 @@ import {
   type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
-import { agentNativePath, appPath } from "./api-path.js";
+import { agentNativePath, appPath, isWorkspaceAppPath } from "./api-path.js";
+import { readClientAppState } from "./application-state.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
@@ -106,6 +107,8 @@ import type {
   MultiTabAssistantChatHeaderProps,
   MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
+import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
+import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
@@ -129,10 +132,11 @@ function settingsRouteHashForSection(section?: string | null): string {
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
     normalized === "integrations" ||
+    normalized === "connections" ||
     normalized === "email" ||
     normalized === "browser"
   ) {
-    return "#connections";
+    return "#integrations";
   }
   if (
     normalized === "account" ||
@@ -177,6 +181,12 @@ const OnboardingPanel = lazy(() =>
   })),
 );
 
+const FirstRunOnboarding = lazy(() =>
+  import("./onboarding/FirstRunOnboarding.js").then((m) => ({
+    default: m.FirstRunOnboarding,
+  })),
+);
+
 // Lazy-load SetupButton — the header entry-point that re-opens the
 // onboarding panel after the user has dismissed it.
 const SetupButton = lazy(() =>
@@ -190,6 +200,8 @@ const SetupButton = lazy(() =>
 // GitHub, etc.) is surfaced in better places (the settings panel and the
 // per-feature setup affordances). Keep this off; do not re-enable globally.
 const SHOW_ONBOARDING = false;
+const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
+const AgentSidebarOnboardingContext = React.createContext(false);
 
 const CLI_STORAGE_KEY = "agent-native-cli-command";
 const CLI_DEFAULT = "claude";
@@ -441,9 +453,11 @@ export function shouldShowAgentPanelModeButtons(isSidebar: boolean) {
 export function shouldShowAgentPanelFullViewAction(
   agentPageHref: string | undefined,
   mode: PanelMode,
+  isSidebar = false,
 ) {
   return (
-    Boolean(agentPageHref) && (mode === "resources" || mode === "settings")
+    Boolean(agentPageHref) &&
+    (isSidebar || mode === "resources" || mode === "settings")
   );
 }
 
@@ -731,7 +745,6 @@ function CodeAccessUnavailablePanel({
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
         >
           {secondaryCtaLabel}
-          <IconExternalLink className="h-3 w-3" />
         </a>
       </div>
     </div>
@@ -770,6 +783,10 @@ function AgentPanelInner({
   const t = useT();
   const navigate = useNavigate();
   const mounted = useClientOnly();
+  const onboardingPreviewMode = useOnboardingPreviewMode();
+  const showFirstRunOnboarding =
+    SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
+  const insideAgentSidebar = React.useContext(AgentSidebarOnboardingContext);
   const feedbackEnabled =
     resolveFeedbackUrl(undefined, mounted ? undefined : null) !== null;
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1273,7 +1290,7 @@ function AgentPanelInner({
           </IconTooltip>
         )}
         {agentPageHref &&
-          shouldShowAgentPanelFullViewAction(agentPageHref, mode) && (
+          shouldShowAgentPanelFullViewAction(agentPageHref, mode, chatOnly) && (
             <IconTooltip content={t("agentPanel.openFullView")}>
               <Link
                 to={agentPageHref}
@@ -1979,6 +1996,12 @@ function AgentPanelInner({
         </Suspense>
       )}
 
+      {showFirstRunOnboarding && mounted && !insideAgentSidebar && (
+        <Suspense fallback={null}>
+          <FirstRunOnboarding />
+        </Suspense>
+      )}
+
       {/* Chat view — always mounted to preserve state.
           Header (with tabs + mode buttons) is always visible.
           Chat content is hidden when CLI or resources mode is active.
@@ -2356,13 +2379,7 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
     queryKey: setUrlQueryKey,
     queryFn: async () => {
       const read = async (key: string) => {
-        const res = await fetch(
-          agentNativePath(`/_agent-native/application-state/${key}`),
-        );
-        if (!res.ok || res.status === 204) return null;
-        const text = await res.text();
-        if (!text) return null;
-        const data = JSON.parse(text);
+        const data = await readClientAppState<Record<string, unknown>>(key);
         return data ? { key, command: data } : null;
       };
       try {
@@ -2452,7 +2469,11 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
       // Replace rather than push so repeated agent URL updates don't
       // clutter the history stack and can't trigger extra remounts from
       // router navigation lifecycle.
-      window.setTimeout(() => navigate(url, { replace: true }), 0);
+      if (isWorkspaceAppPath(url)) {
+        window.location.replace(url);
+      } else {
+        window.setTimeout(() => navigate(url, { replace: true }), 0);
+      }
     } catch {
       // Malformed command — ignore.
     }
@@ -2585,45 +2606,69 @@ class AgentPanelErrorBoundary extends React.Component<
       assistantUiRecoverableRenderErrorKind(this.state.error) &&
       this.state.staleIndexRecoveryCount < 2
     ) {
-      return (
-        <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
-          Reloading chat UI...
-        </div>
-      );
+      return <AgentPanelReloadingNotice />;
     }
 
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <div className="max-w-[260px] space-y-1">
-          <p className="text-sm font-medium text-foreground">
-            Agent panel hit an internal UI error.
-          </p>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            The app is still usable. Reset the panel to reload the chat UI.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-          onClick={() => {
-            this.setState({ error: null, staleIndexRecoveryCount: 0 });
-            this.props.onReset();
-          }}
-        >
-          Reset agent panel
-        </button>
-        <ErrorReportActions
-          appName="Agent panel"
-          title="Agent panel UI error"
-          details={this.state.error.message}
-          issueTitle="Agent panel UI error"
-          className="max-w-[260px]"
-          feedbackClassName="h-7"
-          githubClassName="h-7"
-        />
-      </div>
+      <AgentPanelErrorFallback
+        details={this.state.error.message}
+        onReset={() => {
+          this.setState({ error: null, staleIndexRecoveryCount: 0 });
+          this.props.onReset();
+        }}
+      />
     );
   }
+}
+
+// The boundary must stay a class (componentDidCatch), but its copy still has to
+// come from the catalog like every other string in this file — so the fallback
+// UI lives in function components that can call useT.
+function AgentPanelReloadingNotice() {
+  const t = useT();
+  return (
+    <div className="flex h-full items-center justify-center p-6 text-center text-xs text-muted-foreground">
+      {t("agentPanel.uiError.reloading")}
+    </div>
+  );
+}
+
+function AgentPanelErrorFallback({
+  details,
+  onReset,
+}: {
+  details: string;
+  onReset: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="max-w-[260px] space-y-1">
+        <p className="text-sm font-medium text-foreground">
+          {t("agentPanel.uiError.title")}
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("agentPanel.uiError.description")}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+        onClick={onReset}
+      >
+        {t("agentPanel.uiError.reset")}
+      </button>
+      <ErrorReportActions
+        appName="Agent panel"
+        title={t("agentPanel.uiError.title")}
+        details={details}
+        issueTitle="Agent panel UI error"
+        className="max-w-[260px]"
+        feedbackClassName="h-7"
+        githubClassName="h-7"
+      />
+    </div>
+  );
 }
 
 export function AgentPanel(props: AgentPanelProps) {
@@ -2824,6 +2869,9 @@ export function AgentSidebar({
   threadUrlSync,
   agentPageHref,
 }: AgentSidebarProps) {
+  const onboardingPreviewMode = useOnboardingPreviewMode();
+  const showFirstRunOnboarding =
+    SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
     () =>
@@ -3389,53 +3437,63 @@ export function AgentSidebar({
   ) : null;
 
   return (
-    <RealtimeVoiceModeProvider browserTabId={browserTabId}>
-      <div
-        className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
-        data-agent-sidebar-position={position}
-        data-agent-sidebar-resizing={isResizing ? "true" : undefined}
-      >
-        <AgentNativeRouteWarmup />
-        {/* Mobile backdrop — tapping it closes the sidebar */}
-        {isMobile &&
-          !presentationMode &&
-          (mobileAnimationEnabled ? shouldRenderPanel : open) && (
-            <div
-              className={cn(
-                "agent-sidebar-backdrop fixed inset-0 bg-black/40",
-                mobileAnimationEnabled && !panelOpen && "pointer-events-none",
-              )}
-              data-agent-sidebar-animation={
-                mobileAnimationEnabled ? "mobile" : undefined
-              }
-              data-agent-sidebar-state={panelOpen ? "open" : "closed"}
-              style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
-              onClick={() => setOpenPersisted(false)}
-            />
-          )}
-        {/* URLSync writes the current URL to application-state so the agent
-          sees what page/filters the user is on, and applies URL-update
-          commands the agent writes via `set-search-params` / `set-url`. */}
-        {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
-        {isLeft && !presentationMode ? sidebar : null}
+    <AgentSidebarOnboardingContext.Provider value>
+      <RealtimeVoiceModeProvider browserTabId={browserTabId}>
+        {showFirstRunOnboarding && (
+          <Suspense fallback={null}>
+            <FirstRunOnboarding />
+          </Suspense>
+        )}
         <div
-          className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
-          data-agent-sidebar-main-position={position}
-          data-agent-sidebar-main-state={
-            !isMobile && !effectiveFullscreen && !presentationMode && panelOpen
-              ? "open"
-              : "closed"
-          }
+          className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
+          data-agent-sidebar-position={position}
           data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >
-          {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
+          <AgentNativeRouteWarmup />
+          {/* Mobile backdrop — tapping it closes the sidebar */}
+          {isMobile &&
+            !presentationMode &&
+            (mobileAnimationEnabled ? shouldRenderPanel : open) && (
+              <div
+                className={cn(
+                  "agent-sidebar-backdrop fixed inset-0 bg-foreground/40",
+                  mobileAnimationEnabled && !panelOpen && "pointer-events-none",
+                )}
+                data-agent-sidebar-animation={
+                  mobileAnimationEnabled ? "mobile" : undefined
+                }
+                data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+                style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
+                onClick={() => setOpenPersisted(false)}
+              />
+            )}
+          {/* URLSync writes the current URL to application-state so the agent
+          sees what page/filters the user is on, and applies URL-update
+          commands the agent writes via `set-search-params` / `set-url`. */}
+          {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+          {isLeft && !presentationMode ? sidebar : null}
+          <div
+            className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
+            data-agent-sidebar-main-position={position}
+            data-agent-sidebar-main-state={
+              !isMobile &&
+              !effectiveFullscreen &&
+              !presentationMode &&
+              panelOpen
+                ? "open"
+                : "closed"
+            }
+            data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+          >
+            {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
-          <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+            <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          </div>
+          {!isLeft && !presentationMode ? sidebar : null}
         </div>
-        {!isLeft && !presentationMode ? sidebar : null}
-      </div>
-    </RealtimeVoiceModeProvider>
+      </RealtimeVoiceModeProvider>
+    </AgentSidebarOnboardingContext.Provider>
   );
 }
 

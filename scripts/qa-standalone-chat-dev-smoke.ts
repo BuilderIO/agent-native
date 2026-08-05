@@ -37,6 +37,11 @@ import { fileURLToPath } from "node:url";
 
 import type { APIResponse, Browser, Page } from "playwright";
 
+import {
+  MISSING_BROWSER_HINT,
+  MISSING_HEADED_BROWSER_HINT,
+} from "./playwright-browser-hint";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -566,7 +571,7 @@ async function launchBrowser(): Promise<Browser> {
             ? bundledError.message.split("\n")[0]
             : String(bundledError)
         }`,
-        "Install a browser with `pnpm exec playwright install chromium` or set PLAYWRIGHT_CHANNEL.",
+        headed ? MISSING_HEADED_BROWSER_HINT : MISSING_BROWSER_HINT,
       ].join("\n"),
     );
   }
@@ -812,7 +817,7 @@ async function gotoAndWaitForAgentPage(
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("tablist", { name: "Agent sections" })
+        .getByRole("tablist", { name: /(?:Agent|Settings) sections/ })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
@@ -835,7 +840,7 @@ async function gotoAndWaitForAgentPage(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show Agent sections tabs before timeout: ${message}\n` +
+    `${path} did not show Agent or Settings sections tabs before timeout: ${message}\n` +
       `Body preview: ${lastBody.slice(0, 400)}`,
   );
 }

@@ -9,6 +9,7 @@ import {
   serializeCapture,
   serializeSource,
 } from "../server/lib/brain.js";
+import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
 import { optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -68,15 +69,26 @@ export default defineAction({
         source: source ? serializeSource(source) : undefined,
         capture: undefined,
         sensitivityReceipt: error.receipt,
-        nextAction: undefined,
+        distillation: undefined,
       };
     }
+    const distillation =
+      args.enqueueDistillation &&
+      capture.status !== "distilled" &&
+      capture.status !== "ignored"
+        ? await enqueueCaptureDistillation({ capture })
+        : undefined;
+    const serializedCapture = serializeCapture(capture);
     return {
       source: source ? serializeSource(source) : undefined,
-      capture: serializeCapture(capture),
-      nextAction: args.enqueueDistillation
-        ? "Call enqueue-distillation with this captureId."
-        : undefined,
+      capture: distillation
+        ? {
+            ...serializedCapture,
+            status: "distilling",
+            updatedAt: distillation.queueItem.updatedAt,
+          }
+        : serializedCapture,
+      distillation,
     };
   },
 });

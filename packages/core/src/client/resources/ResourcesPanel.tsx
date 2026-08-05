@@ -1877,7 +1877,7 @@ export function ResourcesPanel({
         </div>
       ) : (
         /* Floating action buttons — absolute top-right over tree view */
-        <div className="absolute top-1 right-1 z-10 flex items-center gap-1">
+        <div className="absolute end-3 top-3 z-10 flex items-center gap-1">
           {activeCreateMenuMode !== "hidden" &&
             (!resourceFilter || resourceFilter === "files") && (
               <CreateMenu
@@ -2054,6 +2054,14 @@ export function ResourcesPanel({
                   titleTooltip="Files visible only to you"
                   sectionAction={renderScopeCreateMenu("personal")}
                   emptyStateAction={renderEmptyStateAction("personal")}
+                  emptyStateTitle={
+                    resourceFilter === "files" ? "No files yet" : undefined
+                  }
+                  emptyStateDescription={
+                    resourceFilter === "files"
+                      ? "Add a file to give your agent more context."
+                      : undefined
+                  }
                 />
               </div>
             )}
@@ -2091,6 +2099,14 @@ export function ResourcesPanel({
                   headingHint={!canEditOrg ? "Read only" : undefined}
                   sectionAction={renderScopeCreateMenu("shared")}
                   emptyStateAction={renderEmptyStateAction("shared")}
+                  emptyStateTitle={
+                    resourceFilter === "files" ? "No files yet" : undefined
+                  }
+                  emptyStateDescription={
+                    resourceFilter === "files"
+                      ? "Add a file to give your agent more context."
+                      : undefined
+                  }
                 />
               </div>
             )}

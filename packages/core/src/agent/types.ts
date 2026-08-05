@@ -245,6 +245,10 @@ export type AgentChatEvent =
       id?: string;
       progressBytes?: number;
     }
+  /** The model is still assembling an action input; sent before tool_start. */
+  | { type: "tool_input_start"; tool?: string; id?: string }
+  /** Incremental action-input text, kept separate from the finalized input. */
+  | { type: "tool_input_delta"; tool?: string; id?: string; text: string }
   | { type: "stream_keepalive" }
   | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
@@ -276,8 +280,10 @@ export type AgentChatEvent =
   | {
       type: "agent_call";
       agent: string;
-      status: "start" | "done" | "error";
+      status: "start" | "done" | "pending" | "error";
       agentCallId?: string;
+      /** Remote task to resume when status is pending/input-required. */
+      taskId?: string;
       durationMs?: number;
     }
   | {

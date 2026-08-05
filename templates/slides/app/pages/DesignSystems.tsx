@@ -53,9 +53,9 @@ export default function DesignSystems() {
     setShowSetup(true);
   };
 
-  const handleSetDefault = async (id: string) => {
+  const handleSetDefault = async (id: string, isDefault: boolean) => {
     try {
-      await callAction("set-default-design-system", { id });
+      await callAction("set-default-design-system", { id, isDefault });
       refetch();
     } catch (err) {
       console.error("Failed to set default design system:", err);
@@ -264,9 +264,10 @@ export default function DesignSystems() {
                     data={parsed}
                     isDefault={ds.isDefault}
                     visibility={ds.visibility}
+                    accessRole={ds.accessRole}
                     canManage={ds.canManage}
                     onClick={() => handleCardClick(ds.id)}
-                    onSetDefault={() => handleSetDefault(ds.id)}
+                    onSetDefault={() => handleSetDefault(ds.id, !ds.isDefault)}
                     onDelete={() => setDeleteId(ds.id)}
                     isWorkspaceDefault={workspaceDesignSystem?.id === ds.id}
                     canSetWorkspaceDefault={canManageWorkspaceDefaults}

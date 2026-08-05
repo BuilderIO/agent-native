@@ -17,6 +17,8 @@ import { validateFirstPartyAnalyticsSql } from "./first-party-analytics";
 import {
   buildPanel,
   DEPLOYED_RECURRING_USERS_BY_TEMPLATE_SQL,
+  DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL,
+  DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
   LEGACY_DAU_BY_TEMPLATE_SQL,
@@ -26,6 +28,7 @@ import {
   LEGACY_V0_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL,
   LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
   LEGACY_WAU_BY_TEMPLATE_SQL,
+  MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
@@ -188,15 +191,10 @@ describe("dashboard catalog", () => {
       const sql = panel?.sql ?? "";
       const lookbackFilter =
         "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
-      expect(sql).toContain("WITH first_seen AS");
-      expect(sql).toContain("), activity AS");
-      expect(sql.split(lookbackFilter)).toHaveLength(4);
-      expect(sql.indexOf(lookbackFilter)).toBeLessThan(
-        sql.indexOf("), activity AS"),
-      );
-      expect(sql.lastIndexOf(lookbackFilter)).toBeGreaterThan(
-        sql.indexOf("), activity AS"),
-      );
+      expect(sql).toContain("WITH activity AS");
+      expect(sql).toContain("MIN(event_date) OVER");
+      expect(sql.match(/FROM analytics_events/g)).toHaveLength(1);
+      expect(sql.split(lookbackFilter)).toHaveLength(3);
       expect(panel?.config?.description).toContain("previous 365 days");
       expect(panel?.config?.description).not.toContain("all-time first");
     }
@@ -248,7 +246,11 @@ describe("dashboard catalog", () => {
       expect(seedPanel?.config?.description).toContain("previous 365 days");
       const sql = catalogPanel.sql;
       const baseEnd = sql.indexOf(
-        id === "retention-over-time" ? "), first_seen" : "), ranked_first_seen",
+        id === "retention-over-time"
+          ? "), first_seen"
+          : id === "one-day-retention-by-template"
+            ? "), observed"
+            : "), ranked_first_seen",
       );
       const lookback = sql.indexOf(
         "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')",
@@ -257,6 +259,26 @@ describe("dashboard catalog", () => {
       expect(lookback).toBeLessThan(baseEnd);
       expect(catalogPanel.config?.description).toContain("previous 365 days");
     }
+  });
+
+  it("repairs the materialized one-day retention self-join to one analytics scan", () => {
+    const current = requiredFirstPartyPanel("one-day-retention-by-template");
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        {
+          ...current,
+          sql: MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    const sql = (repaired.config.panels as Array<{ sql: string }>)[0]?.sql;
+    expect(sql).toBe(current.sql);
+    expect(sql?.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(sql).toContain("FIRST_VALUE(template) OVER");
+    expect(sql).toContain("MAX(CASE WHEN event_date > cohort_date");
+    expect(sql).not.toContain("JOIN base");
   });
 
   it("uses a fixed 800-day generator for signup date fill in catalog and seed", () => {
@@ -496,6 +518,56 @@ describe("dashboard catalog", () => {
     expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
       daily.sql,
     );
+  });
+
+  it("repairs the deployed double-scan recurring panel to one table scan", () => {
+    const daily = requiredFirstPartyPanel("recurring-users-by-template");
+    expect(DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL).toHaveLength(3_292);
+    expect(
+      createHash("sha256")
+        .update(DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL)
+        .digest("hex"),
+    ).toBe("b901455aa79d5b9ac21c71e18bad2aca3312defa7cb7d435c383fc14c1c52caa");
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [{ ...daily, sql: DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL }],
+    });
+
+    expect(repaired.changed).toBe(true);
+    expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
+      daily.sql,
+    );
+    expect(daily.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(daily.sql).toContain(
+      "MIN(event_date) OVER (PARTITION BY NULLIF(user_key, '')) AS first_date",
+    );
+    expect(daily.sql).not.toContain("first_seen AS");
+  });
+
+  it("repairs the deployed weekly double-scan recurring panel", () => {
+    const weekly = requiredFirstPartyPanel("recurring-users-by-template-bar");
+    expect(DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL).toHaveLength(
+      3_341,
+    );
+    expect(
+      createHash("sha256")
+        .update(DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL)
+        .digest("hex"),
+    ).toBe("bbb489eedaf2a662ed849b7bcd2bfbb3b8fe5a15dad055a1389bbe75eef48f8a");
+    const repaired = repairFirstPartyObservedRetentionPanels({
+      panels: [
+        {
+          ...weekly,
+          sql: DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
+      weekly.sql,
+    );
+    expect(weekly.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(weekly.sql).toContain("MIN(event_date) OVER");
   });
 
   it("repairs the exact shipped weekly recurring panel", () => {

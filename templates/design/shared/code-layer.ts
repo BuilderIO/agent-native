@@ -2230,6 +2230,38 @@ function buildProjection(
   };
 }
 
+/**
+ * Most-recently-used projections, keyed by the exact document they came from.
+ *
+ * Projecting means a full HTML parse plus a tree walk, and the editor calls
+ * this on nearly every selection and content change from dozens of call sites —
+ * repeatedly, synchronously, on the main thread, for documents that have not
+ * changed. That is the canvas "freezing while just clicking" and the sluggish
+ * cursor.
+ *
+ * Keyed on the whole HTML string rather than a hash on purpose: a 32-bit hash
+ * collision would hand a caller a confidently wrong layer tree, and every
+ * id-keyed edit downstream would target the wrong node. The string is already
+ * retained by the file/query cache, so the key costs a reference, not a copy.
+ *
+ * Callers must treat the result as read-only — it is shared now. Every consumer
+ * only reads (`find`/`filter`/`map`); `applyCodeLayer*`-style writers build new
+ * HTML and re-project rather than editing a projection in place.
+ */
+const PROJECTION_CACHE_MAX = 24;
+const projectionCache = new Map<string, CodeLayerProjection>();
+
+/** Every own field of the source, sorted, so adding a field to
+ *  CodeLayerSource later cannot silently start returning a projection whose
+ *  `.source` came from a different call. */
+function projectionSourceKey(source: CodeLayerSource): string {
+  const record = source as unknown as Record<string, unknown>;
+  return Object.keys(source)
+    .sort()
+    .map((field) => `${field}=${record[field] ?? ""}`)
+    .join("\u0000");
+}
+
 export function buildCodeLayerProjection(
   html: string,
   options: { source?: CodeLayerSource } = {},
@@ -2238,8 +2270,28 @@ export function buildCodeLayerProjection(
   // (e.g. `activeContent` is briefly undefined on first render). Projecting a
   // non-string must yield an empty projection, never crash the editor.
   const safeHtml = typeof html === "string" ? html : "";
-  return buildProjection(safeHtml, options.source ?? { kind: "inline-html" })
-    .projection;
+  const source = options.source ?? { kind: "inline-html" };
+  const key = `${projectionSourceKey(source)}\u0000${safeHtml}`;
+  const cached = projectionCache.get(key);
+  if (cached) {
+    // Re-insert so the Map's insertion order stays least-recently-used first.
+    projectionCache.delete(key);
+    projectionCache.set(key, cached);
+    return cached;
+  }
+  const projection = buildProjection(safeHtml, source).projection;
+  projectionCache.set(key, projection);
+  if (projectionCache.size > PROJECTION_CACHE_MAX) {
+    const oldest = projectionCache.keys().next();
+    if (!oldest.done) projectionCache.delete(oldest.value);
+  }
+  return projection;
+}
+
+/** Drops every cached projection. Exists for tests that assert projection
+ *  identity/eviction; production has no reason to call it. */
+export function clearCodeLayerProjectionCache(): void {
+  projectionCache.clear();
 }
 
 export function ensureCodeLayerNodeIdsInHtml(

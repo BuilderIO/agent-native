@@ -32,8 +32,6 @@ import {
   IconShare,
   IconSettings,
   IconSearch,
-  IconUpload,
-  IconLink,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useParams } from "react-router";
@@ -43,6 +41,7 @@ import {
   CaptureInstallButton,
   CaptureInstallInlineLink,
 } from "@/components/capture-install-options";
+import { ImportMenu } from "@/components/import-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -336,32 +335,48 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             showCollapsedSidebar ? "justify-center px-2" : "px-4",
           )}
         >
-          <div
+          <button
+            type="button"
+            onClick={() => {
+              if (!isMobile) setSidebarCollapsed((value) => !value);
+            }}
+            aria-label={
+              isMobile
+                ? t("navigation.brand")
+                : showCollapsedSidebar
+                  ? t("navigation.expandSidebar")
+                  : t("navigation.collapseSidebar")
+            }
             className={cn(
-              "flex min-w-0 items-center gap-2",
-              !showCollapsedSidebar && "flex-1",
+              "flex min-w-0 items-center gap-2 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              showCollapsedSidebar
+                ? "size-8 justify-center"
+                : "flex-1 text-start",
             )}
+            data-sidebar-brand-toggle
           >
+            <img
+              src={appPath("/agent-native-icon-light.svg")}
+              alt=""
+              aria-hidden="true"
+              width={28}
+              height={16}
+              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+            />
+            <img
+              src={appPath("/agent-native-icon-dark.svg")}
+              alt=""
+              aria-hidden="true"
+              width={28}
+              height={16}
+              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+            />
             {!showCollapsedSidebar && (
-              <>
-                <img
-                  src={appPath("/agent-native-icon-light.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="block h-4 w-auto shrink-0 dark:hidden"
-                />
-                <img
-                  src={appPath("/agent-native-icon-dark.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="hidden h-4 w-auto shrink-0 dark:block"
-                />
-                <span className="truncate text-sm font-semibold text-foreground">
-                  {t("navigation.brand")}
-                </span>
-              </>
+              <span className="truncate text-sm font-semibold text-foreground">
+                {t("navigation.brand")}
+              </span>
             )}
-          </div>
+          </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {showCollapsedSidebar ? (
@@ -384,34 +399,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
               </div>
 
               <div className="flex flex-col items-center gap-1 px-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to="/record?autoUpload=1"
-                      aria-label={t("preRecord.uploadVideo")}
-                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                    >
-                      <IconUpload className="h-4 w-4" />
-                    </NavLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("preRecord.uploadVideo")}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavLink
-                      to="/import"
-                      aria-label={t("preRecord.importLoom")}
-                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                    >
-                      <IconLink className="h-4 w-4" />
-                    </NavLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {t("preRecord.importLoom")}
-                  </TooltipContent>
-                </Tooltip>
+                <ImportMenu
+                  uploadHref="/record?autoUpload=1"
+                  importLoomHref="/import"
+                  iconOnly
+                  variant="ghost"
+                  menuSide="right"
+                  menuAlign="start"
+                />
               </div>
 
               <nav className="mt-3 flex flex-col items-center gap-1 px-2">
@@ -441,34 +436,16 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           ) : (
             <>
               <div className="px-3 py-3">
-                <Button className="w-full gap-1.5" size="sm" asChild>
-                  <NavLink to="/record">
-                    <IconPlayerRecord className="h-4 w-4" />
-                    {t("navigation.newRecording")}
-                  </NavLink>
+                <Button className="w-full" size="sm" asChild>
+                  <NavLink to="/record">{t("navigation.newRecording")}</NavLink>
                 </Button>
-                <Button
-                  className="mt-1.5 w-full gap-1.5 text-muted-foreground"
+                <ImportMenu
+                  uploadHref="/record?autoUpload=1"
+                  importLoomHref="/import"
                   size="sm"
                   variant="ghost"
-                  asChild
-                >
-                  <NavLink to="/record?autoUpload=1">
-                    <IconUpload className="h-4 w-4" />
-                    {t("preRecord.uploadVideo")}
-                  </NavLink>
-                </Button>
-                <Button
-                  className="mt-1.5 w-full gap-1.5 text-muted-foreground"
-                  size="sm"
-                  variant="ghost"
-                  asChild
-                >
-                  <NavLink to="/import">
-                    <IconLink className="h-4 w-4" />
-                    {t("preRecord.importLoom")}
-                  </NavLink>
-                </Button>
+                  className="mt-1.5 w-full"
+                />
               </div>
 
               <nav className="mt-3 space-y-0.5 px-2">
@@ -672,7 +649,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           feedback={feedbackButton}
           search={searchButton}
           collapse={collapseButton}
-          className={showCollapsedSidebar ? undefined : "px-0 py-0"}
         />
       </aside>
 

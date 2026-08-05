@@ -140,5 +140,42 @@ describe("desktop updates", () => {
       releaseNotes: "Fixes",
     });
     expect(electronState.ipcMain.handlers.has(IPC.UPDATE_INSTALL)).toBe(true);
+
+    updaterState.checkForUpdates.mockClear();
+    updaterState.downloadUpdate.mockClear();
+    await expect(checkForAppUpdates()).resolves.toEqual({
+      state: "downloaded",
+      version: "1.1.0",
+      releaseNotes: "Fixes",
+    });
+
+    const downloadHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_DOWNLOAD,
+    );
+    expect(downloadHandler).toBeDefined();
+    await expect(downloadHandler!()).resolves.toEqual({
+      state: "downloaded",
+      version: "1.1.0",
+      releaseNotes: "Fixes",
+    });
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+    expect(updaterState.downloadUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not start another check while native staging is pending", async () => {
+    const refreshApplicationMenu = vi.fn();
+    registerUpdatesIpc({
+      refreshApplicationMenu,
+      focusMainWindow: vi.fn(),
+    });
+
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    await expect(checkForAppUpdates()).resolves.toEqual({ state: "idle" });
+
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+    expect(refreshApplicationMenu).not.toHaveBeenCalled();
   });
 });

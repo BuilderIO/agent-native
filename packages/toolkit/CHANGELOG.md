@@ -1,5 +1,51 @@
 # @agent-native/toolkit
 
+## 0.13.1
+
+### Patch Changes
+
+- c71d383: Include the shared creative-context and toolkit updates in the next package release.
+
+## 0.13.0
+
+### Minor Changes
+
+- 106af0e: Add dense horizontal variants to the design-tweak controls. `VisualColorPicker`
+  gains a `swatch` variant that drops the value text and caret, an optional
+  `glyph` rendered over the current color, and an app tooltip naming the property
+  it paints. `VisualScrubInput` gains a `steppers` option that replaces the
+  drag-scrub label with minus/plus buttons.
+
+## 0.12.2
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
+## 0.12.1
+
+### Patch Changes
+
+- 89e5910: Memoize the composer runtime adapters context value so consumer effects stop
+  re-running on every provider render. The voice input preference was re-read from
+  app state, and the sidebar-state listener re-subscribed, once per render.
+
+## 0.12.0
+
+### Minor Changes
+
+- c0e7d64: Add reusable canvas drawing, text annotation, and pinned agent-comment controls.
+- c0e7d64: Add a reusable canvas interaction controller for text activation, shortcuts, moving, resizing, duplication, and gesture lifecycle.
+
+## 0.11.2
+
+### Patch Changes
+
+- cc35067: Fix `VisualInspectorPanel` clipping its own scroll area instead of scrolling. The panel body was capped by a viewport-derived `max-height`, so when a host laid the panel out shorter than the viewport — for example a style dock sharing vertical space with an expanded notes panel — overflowing content was hidden by the panel's `overflow-hidden` with no way to reach it. The body now flexes within the panel's actual height and keeps the cap as an upper bound.
+
 ## 0.11.1
 
 ### Patch Changes

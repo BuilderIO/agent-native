@@ -9,6 +9,14 @@ description: "如何创建和发布您自己的代理本机应用模板。"
 
 将 `@agent-native/core` 用于运行时契约：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。将 `@agent-native/toolkit` 用于可复用的应用构建 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和简单 app shell slots。当变体承载产品行为或视觉身份时，请保留在模板本地。
 
+在决定某项能力应放在哪一层时，请牢记这三个层次：
+
+- **Core - 框架：**每个应用都可使用的必需运行时和数据契约。
+- **Toolkit - 可选的可复用部件：**应用可以采用、组合或分叉的共享 UI 和产品系统。
+- **Templates - 可选应用：**构建在 Core 上、通常使用 Toolkit 的完整领域产品，可以分叉作为起点。
+
+Toolkit 和 Templates 都是可选的。模板并不等同于框架本身，Toolkit 也不会取代 Core。
+
 一个好的模板：
 
 - 使用有用的种子数据或空状态流端到端地解决一个工作流。

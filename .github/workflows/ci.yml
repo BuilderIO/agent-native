@@ -416,8 +416,6 @@ jobs:
     name: Scaffold E2E — create + pnpm install
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -454,9 +452,19 @@ jobs:
         # Guards the documented one-file headless onboarding: a fresh
         # `--headless` scaffold must `pnpm typecheck` (no inherited vite/client
         # types) and `pnpm action hello` (server-safe package root, no React /
-        # react-query in the load graph) out of the box. AGENT_NATIVE_CREATE_USE_LOCAL_CORE
-        # is set at the job level, so the gated heavyweight guard actually runs.
+        # react-query in the load graph) out of the box.
         run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
+
+      - name: Headless onboarding — local core install + typecheck + action
+        # Keep the local package-linking setup scoped to the heavyweight test.
+        # Applying it to the whole create-e2e file makes lightweight scaffold
+        # tests spend their timeout packing the local Core and Toolkit.
+        env:
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+        run: >-
+          pnpm --filter @agent-native/core exec vitest run
+          src/cli/create-e2e.spec.ts
+          -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         # Dispatch is in the combo because it exercises the

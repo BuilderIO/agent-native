@@ -2610,6 +2610,9 @@ export function MultiTabAssistantChat({
                   hasInFlightWork={() =>
                     chatRefs.current.get(tabId)?.hasInFlightWork() ?? false
                   }
+                  isAwaitingResponse={() =>
+                    chatRefs.current.get(tabId)?.isRunning() ?? false
+                  }
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(

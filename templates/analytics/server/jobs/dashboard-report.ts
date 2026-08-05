@@ -1,3 +1,4 @@
+import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 
 import { sendDashboardReportSubscription } from "../lib/dashboard-report";
@@ -8,15 +9,21 @@ import {
   recordDashboardReportCaptureOutcome,
 } from "../lib/dashboard-report-subscriptions";
 
+declare global {
+  var __AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__: boolean | undefined;
+}
+
 let running = false;
 const DEFAULT_MAX_REPORTS_PER_SWEEP = 5;
 const SERVERLESS_REPORT_DELIVERY_BUDGET_MS = 220_000;
-/**
- * Reports render from SQL in seconds now, so one sweep can drain the whole
- * batch. When capture still drove a headless browser this was forced to 1 and
- * every subscription after the first missed its same-day retry window.
- */
-const SERVERLESS_MAX_REPORTS_PER_SWEEP = 5;
+const SERVERLESS_MAX_REPORTS_PER_SWEEP = 1;
+
+function serverlessDashboardReportRuntime(): boolean {
+  return (
+    process.env.NETLIFY === "true" ||
+    globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ === true
+  );
+}
 
 async function persistDashboardReportResult(
   ...args: Parameters<typeof markDashboardReportResult>
@@ -51,8 +58,50 @@ async function persistDashboardReportCaptureOutcome(
   }
 }
 
+/**
+ * Tell the owner when a scheduled report is finally given up on. Retries stay
+ * silent — only an exhausted retry window means the report they expected will
+ * never arrive, and a log line alone leaves them waiting on nothing.
+ */
+async function notifyDashboardReportGaveUp(
+  sub: {
+    id: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    dashboardId?: string;
+  },
+  reason: string,
+): Promise<void> {
+  try {
+    await notifyWithDelivery(
+      {
+        severity: "warning",
+        title: "Scheduled dashboard report failed",
+        body: `The scheduled report for subscription ${sub.id} could not be delivered: ${reason}`,
+        channels: ["inbox", "email"],
+        metadata: {
+          kind: "dashboard_report_failure",
+          subscriptionId: sub.id,
+          path: "/dashboard-reports",
+          // The email channel is a no-op without explicit recipients.
+          emailRecipients: [sub.ownerEmail],
+          emailSubject: "Your scheduled dashboard report did not send",
+        },
+      },
+      { owner: sub.ownerEmail },
+    );
+  } catch (err) {
+    console.error(
+      `[dashboard-report] Could not notify owner of subscription ${sub.id} about the failure:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 function maxReportsPerSweep(): number {
-  if (process.env.NETLIFY === "true") return SERVERLESS_MAX_REPORTS_PER_SWEEP;
+  if (serverlessDashboardReportRuntime()) {
+    return SERVERLESS_MAX_REPORTS_PER_SWEEP;
+  }
   const raw = process.env.DASHBOARD_REPORT_SWEEP_LIMIT?.trim();
   if (!raw) return DEFAULT_MAX_REPORTS_PER_SWEEP;
   const parsed = Number.parseInt(raw, 10);
@@ -72,10 +121,6 @@ export async function runDashboardReportsOnce(): Promise<{
 }> {
   if (running) return { processed: 0, failed: 0, remaining: 0 };
   running = true;
-  const deliveryDeadlineAt =
-    process.env.NETLIFY === "true"
-      ? Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS
-      : undefined;
   let processed = 0;
   let failed = 0;
   let remaining = 0;
@@ -86,6 +131,9 @@ export async function runDashboardReportsOnce(): Promise<{
     remaining = batch.length >= sweepLimit ? 1 : 0;
     for (const sub of batch) {
       processed++;
+      const deliveryDeadlineAt = serverlessDashboardReportRuntime()
+        ? Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS
+        : undefined;
       const retryAt = dashboardReportRetryAt(sub);
       try {
         const result = await runWithRequestContext(
@@ -120,6 +168,7 @@ export async function runDashboardReportsOnce(): Promise<{
             });
           } else {
             await persistDashboardReportResult(sub, "error", retryMessage);
+            await notifyDashboardReportGaveUp(sub, degradedReason);
           }
           continue;
         }
@@ -148,6 +197,7 @@ export async function runDashboardReportsOnce(): Promise<{
           });
         } else {
           await persistDashboardReportResult(sub, "error", message);
+          await notifyDashboardReportGaveUp(sub, message);
         }
       }
     }

@@ -156,7 +156,7 @@ export function stepDownReasoningEffort(
   return REASONING_EFFORT_STEP_DOWN[effort] ?? effort;
 }
 
-function isGPTReasoningModel(model: string) {
+export function isGPTReasoningModel(model: string) {
   const id = model.toLowerCase().replace(/^openai\//, "");
   return /^gpt-5/.test(id) || /^o\d/.test(id);
 }

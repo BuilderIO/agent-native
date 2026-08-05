@@ -23,8 +23,14 @@ export interface NavigationState {
   extensionId?: string;
   extensionSlug?: string;
   dreamId?: string;
+  threadDebugMode?: string;
   sourceId?: string;
+  inspectSourceId?: string;
+  ownerEmail?: string;
+  failureStatus?: string;
+  range?: string;
   query?: string;
+  runId?: string;
   threadId?: string;
 }
 
@@ -147,6 +153,28 @@ export function buildDispatchNavigationState(
     if (dreamId) state.dreamId = dreamId;
     if (sourceId) state.sourceId = sourceId;
     if (query) state.query = query;
+  }
+
+  if (state.view === "thread-debug") {
+    const params = new URLSearchParams(search);
+    const mode = params.get("mode");
+    const sourceId = params.get("source");
+    const inspectSourceId = params.get("inspectSource");
+    const ownerEmail = params.get("owner");
+    const status = params.get("status");
+    const range = params.get("range");
+    const query = params.get("query");
+    const runId = params.get("runId");
+    const selectedThreadId = params.get("threadId");
+    if (mode) state.threadDebugMode = mode;
+    if (sourceId) state.sourceId = sourceId;
+    if (inspectSourceId) state.inspectSourceId = inspectSourceId;
+    if (ownerEmail) state.ownerEmail = ownerEmail;
+    if (status) state.failureStatus = status;
+    if (range) state.range = range;
+    if (query) state.query = query;
+    if (runId) state.runId = runId;
+    if (selectedThreadId) state.threadId = selectedThreadId;
   }
 
   return state;

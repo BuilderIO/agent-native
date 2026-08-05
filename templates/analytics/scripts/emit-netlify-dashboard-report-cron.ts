@@ -1,9 +1,11 @@
 #!/usr/bin/env tsx
 
 import { randomBytes } from "node:crypto";
-import { existsSync, rmSync, cpSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { cloneServerBundleForFunction } from "@agent-native/core/deploy/function-bundle";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FUNCTIONS_DIR = path.join(ROOT, ".netlify", "functions-internal");
@@ -73,7 +75,7 @@ export const config = {
 function emitBackgroundWorker(token: string) {
   const dest = path.join(FUNCTIONS_DIR, WORKER_NAME);
   rmSync(dest, { recursive: true, force: true });
-  cpSync(SERVER_DIR, dest, { recursive: true });
+  cloneServerBundleForFunction(SERVER_DIR, dest);
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
@@ -81,6 +83,7 @@ globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
 const ROUTE_PATH = ${JSON.stringify(ROUTE_PATH)};
+const WORKER_PATH = "/.netlify/functions/${WORKER_NAME}";
 let cachedHandler;
 
 function timingSafeEquals(a, b) {
@@ -90,6 +93,27 @@ function timingSafeEquals(a, b) {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
+}
+
+async function triggerNextSweep(request) {
+  const url = new URL(request.url);
+  url.pathname = WORKER_PATH;
+  url.search = "";
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-agent-native-dashboard-report-cron": CRON_TOKEN,
+    },
+    body: JSON.stringify({ scheduled: true }),
+  });
+  if (!response.ok && response.status !== 202) {
+    console.error(
+      "[dashboard-report-cron] Follow-up sweep trigger failed:",
+      response.status,
+      await response.text().catch(() => ""),
+    );
+  }
 }
 
 export default async function handler(request, context) {
@@ -109,7 +133,12 @@ export default async function handler(request, context) {
     body: JSON.stringify({ scheduled: true }),
   });
 
-  return await cachedHandler(rewritten, context);
+  const response = await cachedHandler(rewritten, context);
+  const result = await response.clone().json().catch(() => null);
+  if (response.ok && result?.remaining > 0) {
+    await triggerNextSweep(request);
+  }
+  return response;
 }
 
 export const config = {
@@ -190,7 +219,7 @@ export const config = {
 function emitAlertBackgroundWorker(token: string) {
   const dest = path.join(FUNCTIONS_DIR, ALERT_WORKER_NAME);
   rmSync(dest, { recursive: true, force: true });
-  cpSync(SERVER_DIR, dest, { recursive: true });
+  cloneServerBundleForFunction(SERVER_DIR, dest);
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
@@ -307,7 +336,7 @@ export const config = {
 function emitUptimeBackgroundWorker(token: string) {
   const dest = path.join(FUNCTIONS_DIR, UPTIME_WORKER_NAME);
   rmSync(dest, { recursive: true, force: true });
-  cpSync(SERVER_DIR, dest, { recursive: true });
+  cloneServerBundleForFunction(SERVER_DIR, dest);
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;

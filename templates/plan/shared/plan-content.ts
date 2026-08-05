@@ -1495,12 +1495,27 @@ export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
     submitLabel: z.string().trim().max(400).optional(),
   });
 
+/**
+ * Rich-text stores Markdown as runtime text. A fully escaped one-line payload
+ * ("### Heading\\n\\nBody") renders as one giant heading, so reject that shape at
+ * the shared schema instead of persisting a document that only looks valid.
+ * Escapes are still fine when they occur alongside real line breaks, such as
+ * an intentional `\\n` inside a code example.
+ */
+const planMarkdownSchema = z
+  .string()
+  .max(100_000)
+  .refine(
+    (value) => value.includes("\n") || !value.includes("\\n"),
+    "Rich-text Markdown must use actual line breaks, not a fully escaped `\\n` string.",
+  );
+
 export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   z.discriminatedUnion("type", [
     baseBlockSchema.extend({
       type: z.literal("rich-text"),
       data: z.object({
-        markdown: z.string().max(100_000),
+        markdown: planMarkdownSchema,
       }),
     }),
     baseBlockSchema.extend({
@@ -2758,7 +2773,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
     op: z.literal("update-rich-text"),
     blockId: idSchema,
     title: z.string().trim().min(1).max(180).optional(),
-    markdown: z.string().max(100_000).optional(),
+    markdown: planMarkdownSchema.optional(),
   }),
   z.object({
     op: z.literal("update-custom-html"),
@@ -2942,6 +2957,41 @@ export const agentPlanContentPatchesSchema = z
   .describe(
     "Structured edits to plan content. Call get-plan-blocks before " +
       "replace-block / replace-blocks / append-block.",
+  );
+
+/**
+ * Model-facing patch vocabulary for edits to an existing hosted plan. Full
+ * block/content replacement remains valid at runtime for the browser editor
+ * and explicit callers, but advertising it to an agent makes it too easy to
+ * resend the whole document and hit the provider's streamed-JSON limit.
+ */
+const AGENT_INCREMENTAL_PATCH_EXCLUDED_OPS = new Set([
+  "set-prototype",
+  "replace-block",
+  "replace-blocks",
+  "replace-wireframe-screen",
+]);
+
+const agentIncrementalPlanContentPatchOptions =
+  agentPlanContentPatchOptions.filter((option) => {
+    const op = (option.shape as { op: { value: string } }).op.value;
+    return !AGENT_INCREMENTAL_PATCH_EXCLUDED_OPS.has(op);
+  });
+
+export const agentPlanIncrementalContentPatchesSchema = z
+  .array(
+    z.discriminatedUnion(
+      "op",
+      agentIncrementalPlanContentPatchOptions as unknown as Parameters<
+        typeof z.discriminatedUnion
+      >[1],
+    ),
+  )
+  .max(80)
+  .describe(
+    "Small targeted edits to an existing plan. Prefer append-block, update-rich-text, " +
+      "patch-wireframe-html, patch-prototype-html, or update-block. Do not " +
+      "resend the full plan; use get-visual-plan for context and keep each call incremental.",
   );
 
 export function applyPlanContentPatches(

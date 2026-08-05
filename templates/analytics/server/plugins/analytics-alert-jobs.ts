@@ -1,4 +1,5 @@
 import { runAnalyticsAlertsOnce } from "../jobs/analytics-alerts";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime";
 
 const DEFAULT_INTERVAL_MS = 60_000;
 let skippingLogged = false;
@@ -9,7 +10,7 @@ declare global {
 
 function platformSchedulerOwnsAlerts(): boolean {
   return (
-    process.env.NETLIFY === "true" ||
+    isProductionServerlessRuntime() ||
     globalThis.__AGENT_NATIVE_ANALYTICS_ALERT_SCHEDULED_RUNTIME__ === true
   );
 }

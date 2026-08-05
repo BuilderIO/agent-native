@@ -93,6 +93,14 @@ export default defineAction({
       orgId: getRequestOrgId(),
       projectName,
       description,
+      sourceKind:
+        githubRepoUrl && (codeFiles?.length || designMd)
+          ? "mixed"
+          : githubRepoUrl
+            ? "github"
+            : codeFiles?.length || designMd
+              ? "code"
+              : undefined,
     });
 
     return {

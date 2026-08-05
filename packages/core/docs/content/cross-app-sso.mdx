@@ -15,6 +15,32 @@ This is the same trust primitive [A2A](/docs/a2a-protocol) and [External Agents]
 
 </Callout>
 
+## What the user sees {#user-flow}
+
+Cross-App SSO should feel like moving between products in one workspace, not
+creating a second account. For example:
+
+1. Sign in to [Dispatch](https://dispatch.agent-native.com), or to any app
+   that already uses the workspace identity.
+2. Open [Mail](https://mail.agent-native.com), [Calendar](https://calendar.agent-native.com),
+   or another enabled app in a new tab.
+3. The app sends the browser to Dispatch only if it does not already have a
+   Dispatch session. If the session exists, the redirect is effectively
+   invisible.
+4. Return to the app already signed in, with the same email, records, and org
+   context as before.
+
+The important distinction is that this is **one sign-in, not one shared
+cookie**. Each separately hosted app still creates and owns its own local
+session. Dispatch proves the user's identity at the app's front door, and the
+app then continues with its normal local auth and access checks.
+
+For a product walkthrough, record this exact sequence: sign in once in
+Dispatch, open two other hosted apps, show that neither asks for credentials,
+then sign out of one app and show that the other app's session is independent.
+That last step makes the security boundary visible: SSO removes repeated
+logins without turning every app into one shared session store.
+
 ## What & why {#what-why}
 
 Per-app user stores mean there is no single place a browser cookie could live that every app trusts. The federation model instead names one app — **Dispatch** — as the identity authority. Any other app can delegate "who is this person?" to Dispatch, get back a short-lived signed assertion of the user's verified email, and then **link that to its own local account by email**.

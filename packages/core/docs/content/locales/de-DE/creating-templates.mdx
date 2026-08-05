@@ -9,6 +9,14 @@ Vorlagen sind vollständige, forkbare agentennative Apps, die einen echten Arbei
 
 Verwenden Sie `@agent-native/core` für den Laufzeitvertrag: Actions, Server-Plugins, Datenbank-Helfer, App-State, Routing-Helfer und Agent-Chat. Verwenden Sie `@agent-native/toolkit` für wiederverwendbare App-Building-UI und Helfer wie gemeinsame Primitives, Toast- und Mobile-Hooks, Date-Picker und einfache App-Shell-Slots. Halten Sie template-spezifische Varianten lokal, wenn sie Produktverhalten oder visuelle Identität kodieren.
 
+Behalten Sie bei der Zuordnung einer Funktion die drei Ebenen im Blick:
+
+- **Core - das Framework:** der erforderliche Laufzeit- und Datenvertrag, den jede App nutzen kann.
+- **Toolkit - optionale wiederverwendbare Teile:** gemeinsame UI- und Produktsysteme, die Apps übernehmen, zusammensetzen oder forken können.
+- **Templates - optionale Apps:** vollständige Domänenprodukte auf Core, die häufig Toolkit nutzen und als Ausgangspunkt geforkt werden können.
+
+Toolkit und Templates sind optional. Ein Template ist nicht das Framework selbst, und Toolkit ersetzt Core nicht.
+
 Eine gute Vorlage:
 
 - Löst einen Workflow durchgängig, mit nützlichen Seed-Daten oder einem Leerzustandsfluss.

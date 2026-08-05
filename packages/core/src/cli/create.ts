@@ -50,6 +50,18 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/.claude/skills",
 ];
 const localPackageTarballs = new Map<string, string>();
+/** VCS/editor files that don't count as "not empty" for an in-place scaffold. */
+const IN_PLACE_ALLOWLIST = new Set([
+  ".git",
+  ".gitignore",
+  ".gitattributes",
+  ".DS_Store",
+  ".idea",
+  ".vscode",
+  "LICENSE",
+  "README.md",
+  "Thumbs.db",
+]);
 
 /**
  * Tagged error for input that fails CLI-level validation (repo names, app
@@ -110,6 +122,11 @@ export interface CreateAppOptions {
    * unconditional workspace scaffold.
    */
   forceWorkspace?: boolean;
+  /**
+   * Internal: scaffold into the current directory instead of a new subfolder.
+   * Set when the name argument is `.`/`./` (see `createApp`).
+   */
+  inPlace?: boolean;
 }
 
 /**
@@ -126,6 +143,13 @@ export async function createApp(
   opts?: CreateAppOptions,
 ): Promise<void> {
   const clack = await import("@clack/prompts");
+
+  // `create .` (or `./`) means "scaffold into the current folder" — derive the
+  // project name from the folder's basename, like create-react-app / npm init.
+  if (name === "." || name === "./") {
+    name = path.basename(process.cwd());
+    opts = { ...opts, inPlace: true };
+  }
 
   // Reject an invalid provided name before any interactive prompt so bad input
   // fails fast instead of blocking on the start-shape picker below.
@@ -335,6 +359,44 @@ function assertValidProjectName(
     process.exit(1);
   }
 }
+/**
+ * Resolve where a scaffold writes and guard the target. A named project writes
+ * to a new sibling subfolder that must not already exist; `create .` writes
+ * into the current directory, which must be empty apart from benign VCS/editor
+ * files (a pre-existing repo is allowed).
+ *
+ * For an in-place scaffold we do NOT return the current directory: we build
+ * into a private staging directory and `finalizeScaffold` copies the result
+ * in afterward. Staging keeps the whole scaffold atomic — a mid-scaffold
+ * failure's cleanup can only ever delete the staging dir, never the user's
+ * current directory (including its `.git`).
+ */
+function resolveScaffoldTarget(
+  name: string,
+  inPlace: boolean | undefined,
+  clack: typeof import("@clack/prompts"),
+): string {
+  if (inPlace) {
+    const conflicting = fs
+      .readdirSync(process.cwd())
+      .filter((entry) => !IN_PLACE_ALLOWLIST.has(entry));
+    if (conflicting.length > 0) {
+      const shown = conflicting.slice(0, 3).join(", ");
+      const more = conflicting.length > 3 ? ", …" : "";
+      clack.cancel(
+        `Current directory is not empty (${shown}${more}). Scaffold into an empty folder, or run \`create <name>\` to make a new one.`,
+      );
+      process.exit(1);
+    }
+    return fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-create-"));
+  }
+  const targetDir = path.resolve(process.cwd(), name);
+  if (fs.existsSync(targetDir)) {
+    clack.cancel(`Directory "${name}" already exists.`);
+    process.exit(1);
+  }
+  return targetDir;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Workspace creation (new default)
@@ -378,11 +440,7 @@ async function createWorkspaceInteractive(
         });
   const templates = ["dispatch", ...optionalPicks];
 
-  const targetDir = path.resolve(process.cwd(), name);
-  if (fs.existsSync(targetDir)) {
-    clack.cancel(`Directory "${name}" already exists.`);
-    process.exit(1);
-  }
+  const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
   const s = clack.spinner();
   for (const template of templates) {
@@ -482,13 +540,15 @@ async function createWorkspaceInteractive(
   } catch (err: any) {
     s.stop("Failed to scaffold workspace.");
     // Remove the partially-scaffolded workspace so a retry of `agent-native
-    // create <name>` doesn't trip the "Directory already exists" guard.
+    // create <name>` doesn't trip the "Directory already exists" guard. For an
+    // in-place scaffold `targetDir` is the private staging dir, so this never
+    // touches the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
-  tryGitInit(targetDir);
+  finalizeScaffold(targetDir, opts?.inPlace);
 
   // Show the user the tree we just built so the workspace/app distinction is
   // visible, not just described. First-time users routinely expect their
@@ -708,6 +768,14 @@ export async function addAppToWorkspace(
   }
 
   const hasDispatch = installed.includes("dispatch");
+  const availableTemplates = coreTemplates().filter(
+    (template) => !installed.includes(template.name),
+  );
+  if (availableTemplates.length === 0) {
+    clack.cancel("All available apps are already installed.");
+    process.exit(0);
+  }
+
   const templates = await promptTemplatePicker(preselected, clack, {
     excludeNames: installed,
     message: "Which apps do you want to add?",
@@ -716,7 +784,9 @@ export async function addAppToWorkspace(
     recommendedNames: hasDispatch ? [] : ["dispatch"],
   });
   if (templates.length === 0) {
-    clack.cancel("No apps selected. Cancelled.");
+    clack.cancel(
+      "No apps selected. Press space to select an app, then press enter to continue.",
+    );
     process.exit(0);
   }
 
@@ -835,11 +905,7 @@ async function createStandaloneApp(
 
   name = await promptNameIfMissing(name, clack, "app", "my-app");
 
-  const targetDir = path.resolve(process.cwd(), name);
-  if (fs.existsSync(targetDir)) {
-    clack.cancel(`Directory "${name}" already exists.`);
-    process.exit(1);
-  }
+  const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
   // Standalone is single-select — pick one template.
   let template =
@@ -879,12 +945,14 @@ async function createStandaloneApp(
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
+    // `targetDir` is the private staging dir for an in-place scaffold, so this
+    // only ever removes the staging copy, never the user's current directory.
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
-  tryGitInit(targetDir);
+  finalizeScaffold(targetDir, opts?.inPlace);
 
   if (template === "headless") {
     clack.outro(
@@ -942,6 +1010,35 @@ function cleanupOnFailure(targetDir: string): void {
   } catch {
     // Ignore — original error is more useful than a cleanup failure.
   }
+}
+
+/**
+ * Land a finished scaffold in its final home and initialize git. A named
+ * scaffold is already in place, so this only inits git. An in-place scaffold
+ * (`create .`) was built in `scaffoldDir` (a staging dir); copy only the files
+ * that don't already exist into the current directory so pre-existing files
+ * (`.git`, `README.md`, `.gitignore`, editor configs) are preserved, then drop
+ * the staging dir. Git init/commit is skipped when the current directory is
+ * already a repo so we never write an unexpected commit into the user's
+ * history.
+ */
+function finalizeScaffold(scaffoldDir: string, inPlace?: boolean): void {
+  if (!inPlace) {
+    tryGitInitUnlessRepo(scaffoldDir);
+    return;
+  }
+  const dest = process.cwd();
+  try {
+    copyDir(scaffoldDir, dest, undefined, { skipExisting: true });
+  } finally {
+    cleanupOnFailure(scaffoldDir);
+  }
+  tryGitInitUnlessRepo(dest);
+}
+
+function tryGitInitUnlessRepo(dir: string): void {
+  if (fs.existsSync(path.join(dir, ".git"))) return;
+  tryGitInit(dir);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1361,13 +1458,17 @@ function localPackageTarball(packageDir: string): string {
   const packDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "agent-native-local-package-"),
   );
-  const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  execFileSync(pnpm, ["pack", "--pack-destination", packDir], {
-    cwd: packageDir,
-    encoding: "utf-8",
-    env: { ...process.env, npm_config_ignore_scripts: "true" },
-    stdio: "pipe",
-  });
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  execFileSync(
+    npm,
+    ["pack", "--ignore-scripts", "--pack-destination", packDir],
+    {
+      cwd: packageDir,
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      stdio: "pipe",
+    },
+  );
 
   const tarballs = fs
     .readdirSync(packDir)
@@ -1378,9 +1479,108 @@ function localPackageTarball(packageDir: string): string {
     );
   }
 
-  const tarball = pathToFileURL(path.join(packDir, tarballs[0]!)).href;
+  const rawTarball = path.join(packDir, tarballs[0]!);
+  const unpackDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-unpack-"),
+  );
+  execFileSync("tar", ["-xzf", rawTarball, "-C", unpackDir], {
+    stdio: "pipe",
+  });
+  rewritePublishedPackageManifest(
+    path.join(unpackDir, "package", "package.json"),
+  );
+
+  const repackDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-repack-"),
+  );
+  execFileSync(
+    npm,
+    ["pack", "--ignore-scripts", "--pack-destination", repackDir],
+    {
+      cwd: path.join(unpackDir, "package"),
+      encoding: "utf-8",
+      env: { ...process.env, npm_config_ignore_scripts: "true" },
+      stdio: "pipe",
+    },
+  );
+  const repackedTarballs = fs
+    .readdirSync(repackDir)
+    .filter((entry) => entry.endsWith(".tgz"));
+  if (repackedTarballs.length !== 1) {
+    throw new Error(
+      `Expected one repacked local package artifact in ${repackDir}, found ${repackedTarballs.length}.`,
+    );
+  }
+
+  const tarball = pathToFileURL(
+    path.join(repackDir, repackedTarballs[0]!),
+  ).href;
   localPackageTarballs.set(packageDir, tarball);
   return tarball;
+}
+
+function rewritePublishedPackageManifest(manifestPath: string): void {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  const catalogs = loadCatalog();
+
+  for (const dependencyType of [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+  ] as const) {
+    const dependencies = manifest[dependencyType];
+    if (!dependencies) continue;
+    for (const [name, specifier] of Object.entries(dependencies)) {
+      if (specifier === "catalog:") {
+        const version = catalogs[name];
+        if (!version) {
+          throw new Error(
+            `Cannot resolve catalog dependency ${name} while linking a local package.`,
+          );
+        }
+        dependencies[name] = version;
+        continue;
+      }
+      if (specifier.startsWith("workspace:")) {
+        dependencies[name] = resolvePublishedWorkspaceSpecifier(
+          name,
+          specifier.slice("workspace:".length),
+        );
+      }
+    }
+  }
+
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+function resolvePublishedWorkspaceSpecifier(
+  packageName: string,
+  workspaceSpecifier: string,
+): string {
+  if (workspaceSpecifier && !["*", "^", "~"].includes(workspaceSpecifier)) {
+    return workspaceSpecifier;
+  }
+
+  const localPackage = findLocalPackage(packageName);
+  if (!localPackage) return "*";
+  try {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(localPackage, "package.json"), "utf-8"),
+    ) as { version?: unknown };
+    const version =
+      typeof packageJson.version === "string" ? packageJson.version : null;
+    if (!version) return "*";
+    if (workspaceSpecifier === "^" || workspaceSpecifier === "~") {
+      return `${workspaceSpecifier}${version}`;
+    }
+    return version;
+  } catch {
+    return "*";
+  }
 }
 
 /**
@@ -3389,13 +3589,25 @@ function replacePlaceholders(
   }
 }
 
-function copyDir(src: string, dest: string, root?: string): void {
+function copyDir(
+  src: string,
+  dest: string,
+  root?: string,
+  opts?: { skipExisting?: boolean },
+): void {
   const resolvedRoot = root ?? path.resolve(src);
+  const skipExisting = opts?.skipExisting ?? false;
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     if (shouldSkipScaffoldEntry(entry.name, srcPath)) continue;
     const destPath = path.join(dest, entry.name);
+    // Preserve anything already at the destination (in-place scaffold merges
+    // into a directory the user may already own). Directories still recurse so
+    // new files land inside a pre-existing folder.
+    if (skipExisting && !entry.isDirectory() && fs.existsSync(destPath)) {
+      continue;
+    }
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
       const resolvedTarget = path.resolve(path.dirname(srcPath), target);
@@ -3405,7 +3617,7 @@ function copyDir(src: string, dest: string, root?: string): void {
         try {
           const stat = fs.statSync(srcPath);
           if (stat.isDirectory()) {
-            copyDir(srcPath, destPath, resolvedRoot);
+            copyDir(srcPath, destPath, resolvedRoot, opts);
           } else {
             fs.copyFileSync(srcPath, destPath);
           }
@@ -3414,7 +3626,7 @@ function copyDir(src: string, dest: string, root?: string): void {
         }
       }
     } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, resolvedRoot);
+      copyDir(srcPath, destPath, resolvedRoot, opts);
     } else {
       fs.copyFileSync(srcPath, destPath);
     }

@@ -2229,13 +2229,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 src={appPath("/agent-native-icon-light.svg")}
                 alt=""
                 aria-hidden="true"
-                className="block h-5 w-auto shrink-0 dark:hidden"
+                width={35}
+                height={20}
+                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
               />
               <img
                 src={appPath("/agent-native-icon-dark.svg")}
                 alt=""
                 aria-hidden="true"
-                className="hidden h-5 w-auto shrink-0 dark:block"
+                width={35}
+                height={20}
+                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
               />
               <span className="text-lg font-bold tracking-tight">
                 {t("navigation.brand")}

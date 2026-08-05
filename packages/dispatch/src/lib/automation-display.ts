@@ -27,6 +27,16 @@ export function automationTarget(item: DispatchAutomationItem): string {
   return item.triggerType || "schedule";
 }
 
+export function automationScopeLabel(
+  item: Pick<DispatchAutomationItem, "owner" | "scope">,
+): string {
+  return item.scope === "organization" ||
+    item.owner.startsWith("__organization__:") ||
+    item.owner === "__shared__"
+    ? "Organization"
+    : "Personal";
+}
+
 export function relativeRunTime(value: string | null | undefined): string {
   if (!value) return "never";
   const timestamp = new Date(value).getTime();
@@ -44,6 +54,10 @@ export function automationLastRun(item: DispatchAutomationItem): string {
   return item.lastRun ? relativeRunTime(item.lastRun) : "never";
 }
 
+export function automationLastCheck(item: DispatchAutomationItem): string {
+  return item.lastCheck ? relativeRunTime(item.lastCheck) : "never";
+}
+
 export function automationNextRun(item: DispatchAutomationItem): string {
   if (!item.enabled) return "paused";
   if (item.triggerType === "event") return "on event";
@@ -59,7 +73,7 @@ export function automationStatus(item: DispatchAutomationItem): {
   if (item.lastStatus === "running")
     return { label: "Running", tone: "warning" };
   if (item.lastStatus === "skipped")
-    return { label: "Skipped", tone: "warning" };
+    return { label: "Blocked", tone: "warning" };
   if (item.lastStatus === "success")
     return { label: "Healthy", tone: "success" };
   return { label: "Ready", tone: "default" };
@@ -69,8 +83,14 @@ export function sortAutomations(
   automations: DispatchAutomationItem[],
 ): DispatchAutomationItem[] {
   return [...automations].sort((a, b) => {
-    const aError = a.enabled && a.lastStatus === "error" ? 1 : 0;
-    const bError = b.enabled && b.lastStatus === "error" ? 1 : 0;
+    const aError =
+      a.enabled && (a.lastStatus === "error" || a.lastStatus === "skipped")
+        ? 1
+        : 0;
+    const bError =
+      b.enabled && (b.lastStatus === "error" || b.lastStatus === "skipped")
+        ? 1
+        : 0;
     if (aError !== bError) return bError - aError;
     return (b.lastRun || "").localeCompare(a.lastRun || "");
   });

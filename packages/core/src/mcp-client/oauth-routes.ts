@@ -275,7 +275,7 @@ async function handleMcpOAuthCallback(
     await options.reconfigure();
     const returnPath =
       flow.returnUrl ??
-      `/settings/connections?connected=mcp-${encodeURIComponent(flow.name)}`;
+      `/settings?connected=mcp-${encodeURIComponent(flow.name)}#integrations`;
     return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
   } catch {
     setResponseStatus(event, 400);

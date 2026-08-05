@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   recordDashboardReportCaptureOutcome: vi.fn(),
   runWithRequestContext: vi.fn(),
   sendDashboardReportSubscription: vi.fn(),
+  notifyWithDelivery: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/notifications", () => ({
+  notifyWithDelivery: mocks.notifyWithDelivery,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -82,6 +87,7 @@ describe("dashboard report sweep", () => {
     mocks.dashboardReportRetryAt.mockReturnValue(null);
     mocks.markDashboardReportResult.mockReset();
     mocks.recordDashboardReportCaptureOutcome.mockReset();
+    mocks.notifyWithDelivery.mockReset();
     mocks.recordDashboardReportCaptureOutcome.mockResolvedValue(true);
     mocks.runWithRequestContext.mockImplementation(
       async (_ctx, run: () => Promise<unknown>) => run(),
@@ -92,6 +98,7 @@ describe("dashboard report sweep", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
+    globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = undefined;
   });
 
   it("persists a complete report as success with zero failures", async () => {
@@ -194,6 +201,32 @@ describe("dashboard report sweep", () => {
       "error",
       "panels unavailable: panel_revenue",
     );
+    expect(mocks.notifyWithDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channels: ["inbox", "email"],
+        metadata: expect.objectContaining({
+          emailRecipients: [sub.ownerEmail],
+        }),
+      }),
+      { owner: sub.ownerEmail },
+    );
+  });
+
+  it("stays quiet while a retry is still scheduled", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue("2026-07-13T11:16:00.000Z");
+    mocks.sendDashboardReportSubscription.mockResolvedValue(
+      completeResult({
+        reportMode: "degraded",
+        degradedPanelIds: ["panel_revenue"],
+        emailsSent: false,
+      }),
+    );
+
+    await runDashboardReportsOnce();
+
+    expect(mocks.notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("marks the subscription failed when send throws and persists the thrown message", async () => {
@@ -304,7 +337,7 @@ describe("dashboard report sweep", () => {
     );
   });
 
-  it("captures the serverless delivery deadline before claiming work", async () => {
+  it("gives a claimed serverless report a fresh delivery deadline", async () => {
     vi.useFakeTimers();
     vi.stubEnv("NETLIFY", "true");
     const startedAt = new Date("2026-07-23T12:00:00.000Z");
@@ -321,7 +354,7 @@ describe("dashboard report sweep", () => {
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
       sub,
       expect.objectContaining({
-        deadlineAt: startedAt.getTime() + 220_000,
+        deadlineAt: startedAt.getTime() + 80_000 + 220_000,
         onCaptureOutcome: expect.any(Function),
       }),
     );
@@ -338,14 +371,29 @@ describe("dashboard report sweep", () => {
     expect(options).not.toHaveProperty("deadlineAt");
   });
 
-  it("claims up to 5 reports per sweep on Netlify regardless of the override", async () => {
+  it("claims one report per sweep on Netlify regardless of the override", async () => {
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("DASHBOARD_REPORT_SWEEP_LIMIT", "1");
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([]);
 
     await runDashboardReportsOnce();
 
-    expect(mocks.claimDueDashboardReportSubscriptions).toHaveBeenCalledWith(5);
+    expect(mocks.claimDueDashboardReportSubscriptions).toHaveBeenCalledWith(1);
+  });
+
+  it("uses serverless limits when the generated background worker marks the runtime", async () => {
+    globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = true;
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
+
+    await runDashboardReportsOnce();
+
+    expect(mocks.claimDueDashboardReportSubscriptions).toHaveBeenCalledWith(1);
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({ deadlineAt: expect.any(Number) }),
+    );
   });
 
   it("honors DASHBOARD_REPORT_SWEEP_LIMIT off Netlify", async () => {
@@ -367,15 +415,14 @@ describe("dashboard report sweep", () => {
 
   it("reports remaining work when the batch fills the sweep limit", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const subs = Array.from({ length: 5 }, (_, i) =>
-      subscription({ id: `sub_${i}` }),
-    );
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue(subs);
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([
+      subscription(),
+    ]);
     mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
 
     const result = await runDashboardReportsOnce();
 
-    expect(result).toEqual({ processed: 5, failed: 0, remaining: 1 });
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 1 });
   });
 
   it("returns zeros for a concurrent call while a sweep is already running", async () => {
@@ -427,5 +474,22 @@ describe("dashboard report sweep", () => {
       expect(marker).toBeGreaterThan(-1);
       expect(serverImport).toBeGreaterThan(marker);
     }
+  });
+
+  it("chains Netlify report workers while due reports remain", () => {
+    const source = readFileSync(
+      new URL(
+        "../../scripts/emit-netlify-dashboard-report-cron.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const start = source.indexOf("function emitBackgroundWorker");
+    const end = source.indexOf("function emitAlertScheduledTrigger", start);
+    const workerSource = source.slice(start, end);
+
+    expect(workerSource).toContain("response.clone().json()");
+    expect(workerSource).toContain("result?.remaining > 0");
+    expect(workerSource).toContain("await triggerNextSweep(request)");
   });
 });

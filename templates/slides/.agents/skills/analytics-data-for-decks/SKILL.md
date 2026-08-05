@@ -17,18 +17,14 @@ other analytics data.
 
 ## Delegation
 
-- For a known, read-only operation, use `call-agent` with `agent: "analytics"`,
-  the exact `action`, and complete `input`. This invokes Analytics directly
-  without starting a second model loop.
-- For ambiguous, multi-source, or narrative questions, use `call-agent` with a
-  natural-language `message` and let Analytics decide which source or sources
-  to use.
-- Useful Analytics operations include `hubspot-records` for bounded CRM
-  records and `hubspot-deals` for pipeline and deal metrics,
-  `account-deep-dive` for a named account or renewal/risk review, `gong-calls`
-  for quotes/counts/transcripts and coverage, and `gong-native-insights` for
-  bounded narrative synthesis. For first-party product activity, send a
-  natural-language message and let Analytics choose its query.
+- Use `call-agent` with `agent: "analytics"` and a natural-language `message`
+  by default. Describe the business question, requested window or cohort, and
+  the concise result shape the deck needs. Analytics decides which sources,
+  tools, queries, and joins answer it.
+- A direct `action` + `input` call is optional only when an exact bounded
+  semantic read and its complete schema are already known. It is not a fallback
+  for slow, failed, or unavailable agent delegation. Never invent an Analytics
+  action contract to make a demo pass.
 - Slides must not write SQL, choose a warehouse or provider, call HubSpot/Gong
   directly, or interpret a provider schema itself. Analytics owns source
   selection, data dictionary interpretation, filters, joins, and query

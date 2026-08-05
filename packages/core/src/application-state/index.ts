@@ -2,6 +2,7 @@
 export {
   appStateGet,
   appStateGetMany,
+  appStateGetManyEntries,
   appStatePut,
   appStateDelete,
   appStateCompareAndSet,
@@ -22,6 +23,8 @@ export {
 // H3 route handlers (for templates)
 export {
   getState,
+  getStateMany,
+  MAX_APP_STATE_BATCH_KEYS,
   putState,
   deleteState,
   listComposeDrafts,

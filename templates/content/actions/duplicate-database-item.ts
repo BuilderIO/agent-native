@@ -88,6 +88,33 @@ export default defineAction({
       .where(eq(schema.documentShares.resourceId, row.database.documentId));
 
     await db.transaction(async (tx) => {
+      const [lockedDatabase] = await tx
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, row.database.id),
+            eq(schema.contentDatabases.ownerEmail, row.database.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .returning({ id: schema.contentDatabases.id });
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
+      const [claimedSource] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, row.database.id),
+            eq(schema.contentDatabaseItemKeyClaims.documentId, row.document.id),
+          ),
+        )
+        .limit(1);
+      if (claimedSource) {
+        throw new Error(
+          "Rows with active stable-key claims cannot be duplicated.",
+        );
+      }
       await tx
         .update(schema.contentDatabaseItems)
         .set({
@@ -176,8 +203,22 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    const response = await getContentDatabaseResponse(row.item.databaseId, {
+      limit: 100,
+      offset: 0,
+    });
+    const duplicatedItem =
+      response.items.find((item) => item.id === nextItemId) ??
+      (
+        await getContentDatabaseResponse(row.item.databaseId, {
+          limit: 1,
+          offset: 0,
+          documentIds: [nextDocumentId],
+        })
+      ).items.find((item) => item.id === nextItemId);
     return {
-      ...(await getContentDatabaseResponse(row.item.databaseId)),
+      ...response,
+      duplicatedItems: duplicatedItem ? [duplicatedItem] : [],
       duplicatedItemId: nextItemId,
       duplicatedDocumentId: nextDocumentId,
     };

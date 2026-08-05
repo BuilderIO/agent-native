@@ -3,11 +3,12 @@
  *
  * Three invariants enforced here:
  *
- * 1. NO runtime imports — every *.bridge.ts source must be free of
- *    `import … from` and `require(` statements (type-only imports that are
- *    erased by tsc are caught here too; authors should simply not import
- *    anything rather than relying on the "type-only erasure" loophole, since
- *    the esbuild step would bundle them inline anyway).
+ * 1. NO runtime imports except the one explicitly bridge-safe Toolkit entry
+ *    point. `@agent-native/toolkit/canvas-interactions` is bundled inline by
+ *    esbuild, so the generated iframe IIFE still has no runtime module
+ *    dependency. All other `import … from` and `require(` statements remain
+ *    prohibited (including type-only imports, which would silently widen the
+ *    bridge's dependency surface).
  *
  * 2. BRIDGE TSCONFIG CLEAN — `tsc -p bridge/tsconfig.json` must exit 0,
  *    proving every *.bridge.ts is valid under the scoped DOM-only environment
@@ -37,10 +38,20 @@ import { embeddedWheelBridgeScript } from "../../../../.generated/bridge/embedde
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 import { buildCodeLayerProjection } from "../../../../shared/code-layer";
 
+declare global {
+  interface Window {
+    __bridgeMessages?: Array<{ type?: string; phase?: string }>;
+  }
+}
+
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const designRoot = resolve(__dirname, "../../../..");
 const bridgeDir = __dirname;
 const generatedDir = join(designRoot, ".generated", "bridge");
+
+const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
+  "editor-chrome.bridge.ts": ["@agent-native/toolkit/canvas-interactions"],
+};
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -179,7 +190,7 @@ describe("bridge source files", () => {
   });
 
   for (const filename of bridgeFiles) {
-    it(`${filename} — no runtime import/require statements`, () => {
+    it(`${filename} — only bridge-safe inlined imports`, () => {
       const src = readFileSync(join(bridgeDir, filename), "utf-8");
 
       // Strip line comments so we don't flag commented-out examples.
@@ -188,18 +199,227 @@ describe("bridge source files", () => {
       // Strip block comments.
       const noComments = stripped.replace(/\/\*[\s\S]*?\*\//g, "");
 
-      const hasImport = /\bimport\s+(?:type\s+)?(?:\*|{|[a-zA-Z_$])/.test(
-        noComments,
+      const importSources = [
+        ...noComments.matchAll(
+          /\bimport\s+(?:type\s+)?(?:\*\s+as\s+)?(?:{|[a-zA-Z_$])[^;]*?\s+from\s+["']([^"']+)["']/g,
+        ),
+      ].map((match) => match[1]);
+      const allowedImports = new Set(BRIDGE_SAFE_IMPORTS[filename] ?? []);
+      const hasUnsafeImport = importSources.some(
+        (source) => !allowedImports.has(source),
       );
       const hasRequire = /\brequire\s*\(/.test(noComments);
 
       expect(
-        hasImport || hasRequire,
-        `${filename} contains a runtime import or require — bridge files must be self-contained (DOM globals only).\n` +
-          `If you need a type import for documentation purposes, write it as a JSDoc comment instead.`,
+        hasUnsafeImport || hasRequire,
+        `${filename} contains an import or require outside the narrow bridge-safe allow-list. Generated bridge files must remain self-contained iframe IIFEs.`,
       ).toBe(false);
     });
   }
+});
+
+describe("editor chrome shared gesture controller", () => {
+  it("inlines the controller into the iframe runtime for both move and resize", () => {
+    const source = readFileSync(
+      join(bridgeDir, "editor-chrome.bridge.ts"),
+      "utf-8",
+    );
+
+    expect(source).toContain(
+      'from "@agent-native/toolkit/canvas-interactions"',
+    );
+    expect(source).toContain("bridgeMoveController.pointerMove");
+    expect(source).toContain("bridgeMoveController.pointerUp");
+    expect(source).toContain("bridgeResizeController.pointerMove");
+    expect(source).toContain("bridgeResizeController.pointerUp");
+
+    // The generated bridge is what runs inside srcdoc. This proves esbuild
+    // bundled the shared controller rather than leaving an iframe import.
+    expect(editorChromeBridgeScript).toContain(
+      "function createCanvasGestureController",
+    );
+    expect(editorChromeBridgeScript).toContain("bridgeMoveController");
+    expect(editorChromeBridgeScript).toContain("bridgeResizeController");
+    expect(editorChromeBridgeScript).not.toContain(
+      "@agent-native/toolkit/canvas-interactions",
+    );
+  });
+
+  it(
+    "does not preview or commit a selected-box click, then commits one real drag",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      const pageErrors: string[] = [];
+
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 900, height: 700 },
+        });
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #target { position: absolute; left: 280px; top: 240px; width: 160px; height: 90px; background: #e9eef8; }
+      #shield-target { position: absolute; left: 520px; top: 240px; width: 160px; height: 90px; background: #f3d9a4; }
+    </style>
+  </head>
+  <body>
+    <div id="target" data-agent-native-node-id="target">Target</div>
+    <div id="shield-target" data-agent-native-node-id="shield-target">Shield target</div>
+    <script>
+      window.__bridgeMessages = [];
+      window.addEventListener("message", (event) => window.__bridgeMessages.push(event.data));
+    </script>
+  </body>
+</html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+        await page.mouse.click(360, 285);
+        await page.waitForFunction(() => {
+          const selection = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return (
+            selection && window.getComputedStyle(selection).display === "block"
+          );
+        });
+        await page.evaluate(() => {
+          window.__bridgeMessages = [];
+        });
+
+        // Exercise the selection-chrome entry path directly: it is normally
+        // reached from the interactive overlay regions rather than the text
+        // center, which belongs to the shield. A zero-delta selection-chrome
+        // drag must not become a persistence gesture.
+        await page.evaluate(() => {
+          const selection = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          )!;
+          selection.dispatchEvent(
+            new MouseEvent("mousedown", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 360,
+              clientY: 285,
+            }),
+          );
+          document.dispatchEvent(
+            new MouseEvent("mouseup", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 360,
+              clientY: 285,
+            }),
+          );
+        });
+        await page.waitForTimeout(20);
+        const afterClick = await page.evaluate(() => {
+          const target = document.getElementById("target") as HTMLElement;
+          const messages = window.__bridgeMessages ?? [];
+          const rect = target.getBoundingClientRect();
+          return {
+            left: rect.left,
+            top: rect.top,
+            styleChanges: messages.filter(
+              (message) => message.type === "visual-style-change",
+            ).length,
+          };
+        });
+        expect(afterClick).toEqual({
+          left: 280,
+          top: 240,
+          styleChanges: 0,
+        });
+
+        await page.evaluate(() => {
+          const selection = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          )!;
+          selection.dispatchEvent(
+            new MouseEvent("mousedown", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 360,
+              clientY: 285,
+            }),
+          );
+          document.dispatchEvent(
+            new MouseEvent("mousemove", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 380,
+              clientY: 297,
+            }),
+          );
+          document.dispatchEvent(
+            new MouseEvent("mouseup", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 380,
+              clientY: 297,
+            }),
+          );
+        });
+        await page.waitForTimeout(20);
+        const afterDrag = await page.evaluate(() => {
+          const target = document.getElementById("target") as HTMLElement;
+          const messages = window.__bridgeMessages ?? [];
+          const rect = target.getBoundingClientRect();
+          return {
+            left: rect.left,
+            top: rect.top,
+            styleChanges: messages.filter(
+              (message) => message.type === "visual-style-change",
+            ).length,
+          };
+        });
+        expect(afterDrag.left).not.toBe(280);
+        expect(afterDrag.top).not.toBe(240);
+        expect(afterDrag.styleChanges).toBe(1);
+
+        // A shield drag calls startMove after its own 3px discrimination.
+        // Its first subsequent 2px movement must still preview and persist;
+        // otherwise the bridge applies a second threshold and feels 6px late.
+        await page.evaluate(() => {
+          window.__bridgeMessages = [];
+        });
+        await page.mouse.move(600, 285);
+        await page.mouse.down();
+        await page.mouse.move(610, 285);
+        await page.mouse.move(612, 287);
+        await page.mouse.up();
+        await page.waitForTimeout(20);
+        const afterShieldDrag = await page.evaluate(() => {
+          const target = document.getElementById(
+            "shield-target",
+          ) as HTMLElement;
+          const rect = target.getBoundingClientRect();
+          const messages = window.__bridgeMessages ?? [];
+          return {
+            left: rect.left,
+            top: rect.top,
+            styleChanges: messages.filter(
+              (message) => message.type === "visual-style-change",
+            ).length,
+          };
+        });
+        expect(afterShieldDrag).toEqual({
+          left: 522,
+          top: 242,
+          styleChanges: 1,
+        });
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 });
 
 // ── test 2: bridge tsconfig clean ──────────────────────────────────────────

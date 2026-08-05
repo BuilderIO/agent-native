@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
@@ -86,6 +86,36 @@ export default defineAction({
     }));
 
     await db.transaction(async (tx) => {
+      const [lockedDatabase] = await tx
+        .update(schema.contentDatabases)
+        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .where(
+          and(
+            eq(schema.contentDatabases.id, database.id),
+            eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .returning({ id: schema.contentDatabases.id });
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
+      const [claimedSource] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            inArray(
+              schema.contentDatabaseItemKeyClaims.documentId,
+              sourceDocumentIds,
+            ),
+          ),
+        )
+        .limit(1);
+      if (claimedSource) {
+        throw new Error(
+          "Rows with active stable-key claims cannot be duplicated.",
+        );
+      }
       await tx
         .update(schema.contentDatabaseItems)
         .set({
@@ -186,8 +216,26 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    const response = await getContentDatabaseResponse(database.id, {
+      limit: 100,
+      offset: 0,
+    });
+    const duplicatedPage = await getContentDatabaseResponse(database.id, {
+      limit: duplicates.length,
+      offset: 0,
+      documentIds: duplicates.map(
+        (duplicate) => duplicate.duplicatedDocumentId,
+      ),
+    });
+    const duplicatedItemIds = new Set(
+      duplicates.map((duplicate) => duplicate.duplicatedItemId),
+    );
+    const duplicatedItems = duplicatedPage.items.filter((item) =>
+      duplicatedItemIds.has(item.id),
+    );
     return {
-      ...(await getContentDatabaseResponse(database.id)),
+      ...response,
+      duplicatedItems,
       duplicatedItemId: duplicates[0]?.duplicatedItemId,
       duplicatedDocumentId: duplicates[0]?.duplicatedDocumentId,
       duplicatedItemIds: duplicates.map(

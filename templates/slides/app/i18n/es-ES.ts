@@ -28,6 +28,10 @@ const messages = {
   settings: {
     title: "Ajustes",
     description: "Preferencias de idioma y espacio de trabajo para esta app.",
+    emailNotifications: "Notificaciones por correo",
+    emailNotificationsDescription:
+      "Recibe un correo cuando alguien comente o responda en tu presentación.",
+    saveFailed: "No se pudo guardar",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
@@ -363,6 +367,8 @@ const messages = {
   styleInspector: {
     title: "Style",
     close: "Cerrar inspector de estilo",
+    slideBackground: "Fondo de la diapositiva",
+    slide: "Diapositiva",
     deckStyle: "Estilo de la presentación",
     designSystemTweaks: "Ajustes del sistema de diseño",
     closeTweaks: "Cerrar ajustes",
@@ -405,6 +411,14 @@ const messages = {
     cornerRadius: "Radio de esquina",
     strokeWeight: "Grosor",
     typography: "Tipografía",
+    weight: "Grosor",
+    italic: "Cursiva",
+    underline: "Subrayado",
+    bulletList: "Lista con viñetas",
+    numberedList: "Lista numerada",
+    align: "Alineación",
+    decreaseSize: "Reducir tamaño de fuente",
+    increaseSize: "Aumentar tamaño de fuente",
     mixed: "Mezclado",
     textColor: "Color del texto",
     primary: "Primary",
@@ -422,6 +436,10 @@ const messages = {
     emerald: "Emerald",
     amber: "Amber",
     rose: "Rose",
+    arrange: "Organizar",
+    order: "Orden",
+    bringToFront: "Traer al frente",
+    sendToBack: "Enviar al fondo",
   },
   animations: {
     appear: "Aparecer",
@@ -502,9 +520,10 @@ const messages = {
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
-    slides: "Diapositivas",
   },
   presentation: {
+    loadFailed: "No se pudo cargar esta presentación.",
+    tryAgain: "Reintentar",
     presenterView: "Vista del presentador",
     speakerNotes: "Notas del orador",
     noNotesForSlide: "No hay notas para esta diapositiva",
@@ -542,6 +561,7 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    dismissLayoutWarning: "Descartar advertencia de diseño",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
     slidesAdded_many: "{{count}} diapositivas añadidas",
@@ -554,6 +574,31 @@ const messages = {
     figParseFailed:
       "No se pudo iniciar la indexación de Builder para ese archivo de Figma.",
     updated: "Sistema de diseño actualizado",
+    sourceLabel: "Fuente",
+    sourceFigma: "Archivo de Figma",
+    sourceCode: "Archivos de código",
+    sourceGitHub: "Repositorio de GitHub",
+    sourceMixed: "Varias fuentes",
+    sourceBuilder: "Inteligencia de sistemas de diseño de Builder",
+    sourceIndexing: "Indexando",
+    sourceIndexed: "Indexado",
+    sourceUnavailable: "Resultados no disponibles",
+    sourceIndexingDescription:
+      "Builder sigue procesando esta fuente. Los resultados aparecerán aquí cuando estén listos.",
+    sourceIndexedDescription:
+      "{{docs}} documentos · {{tokens}} tokens indexados",
+    sourceIndexedDocsOnly: "{{docs}} documentos indexados",
+    sourceIndexedTokensOnly: "{{tokens}} tokens indexados",
+    sourceUnavailableDescription:
+      "Builder no pudo cargar los resultados más recientes de la fuente.",
+    sourceOpenInBuilder: "Abrir en Builder",
+    loadFailed:
+      "No se pudo cargar este sistema de diseño. Ciérralo y vuelve a intentarlo.",
+    otherSources: "Otros",
+    otherSourcesDescription:
+      "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
+    chooseSourcePrompt: "Elige una fuente para configurar",
+    loading: "Cargando sistema de diseño",
     updateFailed: "No se pudo actualizar",
     generationStarted: "Generación del sistema de diseño iniciada",
     generationStartedDescription:
@@ -644,6 +689,21 @@ const messages = {
     referenceDeckNone: "No usar ninguno",
     referenceDeckStarredGroup: "Destacados",
     referenceDeckOtherGroup: "Otros decks",
+    referenceReviewTitle: "Revisar referencias",
+    referenceReviewDescription:
+      "Mantén el sistema de diseño y el deck de referencia predeterminados salvo que los quites. Busca otro deck, importa un archivo o continúa cuando estés listo.",
+    chooseAnotherDeck: "Elegir otro deck",
+    noMatchingDecks: "No se encontraron decks coincidentes.",
+    googleSlidesReferenceTitle: "Decks de Google Slides",
+    googleSlidesReferenceConnect:
+      "Conecta Google Drive para importar un deck de Slides.",
+    googleSlidesReferenceChoose: "Elegir un deck de Google Slides",
+    googleSlidesReferencePicking: "Procesando...",
+    googleSlidesReferenceConnected:
+      "Conectado. Elige un deck de Google Slides para importarlo como referencia reutilizable.",
+    googleSlidesReferenceUnavailable:
+      "Conecta Google Drive y configura Picker para importar un deck de Google Slides.",
+    skipReferences: "Omitir referencias",
     workspaceDefaultBadge: "Predeterminado del espacio de trabajo",
     setWorkspaceDefault:
       "Establecer como predeterminado del espacio de trabajo",
@@ -652,6 +712,7 @@ const messages = {
       "Establecido como predeterminado del espacio de trabajo",
     workspaceDefaultCleared:
       "Se quitó el predeterminado del espacio de trabajo",
+    duplicateFailed: "No se pudo duplicar esa presentación",
     workspaceDefaultFailed:
       "No se pudo actualizar el predeterminado del espacio de trabajo",
     workspaceDefaultConfirmTitle:

@@ -111,6 +111,13 @@ When the user asks for a dashboard:
 6. Persist with `update-dashboard`, not raw SQL or settings writes.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
+An explicit dashboard request authorizes the complete non-destructive build in
+the same turn. After querying or scaffolding, continue through extension-data
+seeding/refresh, dashboard save/embed, and navigation; do not ask whether to
+proceed or leave an empty Custom Block shell. Ask only when metric scope/grain
+is materially ambiguous, the change is destructive, or it has an external side
+effect such as sending email or outreach.
+
 Layout is always **1 column when the available content width is below the `md` threshold** (panels stack), then expands to the configured column count at/above it. The grid uses a container query, so it also stacks when the agent sidebar narrows the content pane — not only at narrow viewports. So picking 3 or 4 columns is fine — the renderer keeps narrow layouts readable automatically.
 
 ```bash
@@ -155,6 +162,43 @@ flattens into the baseline and reads as "no data."
   single axis and shows a config warning rather than dropping the series.
 - Scheduled email reports render the same two scales, so a dual-axis panel is
   safe to put on a subscribed dashboard.
+
+## Reusable Native Dashboard Patterns
+
+The recent extension-backed dashboards in Builder Analytics cluster into a few
+repeatable compositions. Prefer these native panels, with a real SQL or Data
+Program result behind each one, when creating a replacement or a new dashboard:
+
+| Pattern | Native composition |
+| --- | --- |
+| Customer ROI / value realization | `metric` KPI cards, `line` or `area` trends, `table` detail, and `callout` or `section` panels for the business narrative |
+| Account engagement / outreach | `metric` coverage and adoption cards, a daily `line` trend, `heatmap` or `table` segmentation, and `callout` alerts |
+| GTM pipeline / cross-sell | `funnel` for ordered stages, `metric` totals, `bar` or `line` trends, and a `table` for account-level follow-up |
+| Win/loss analysis | `section` groups with `metric`, `table`, `bar`, `callout`, and trend panels; use a Data Program for provider joins and evidence rows |
+
+Funnel panels use `config.xKey` for the stage label and `config.yKey` for a
+non-negative count or value. The renderer preserves the SQL row order, shows
+each stage's share of the first stage, and shows the change from the previous
+stage. Keep the intended stage order in SQL with `ORDER BY`.
+
+When a dashboard is being migrated from an extension, create a new v2 copy,
+bind its panels to the real provider schema or Data Programs, and compare it
+with the original before retiring the extension-backed version. Do not invent
+customer-specific SQL, provider joins, cached rows, or extension ids in a
+catalog template. Existing dashboards remain readable while the native
+replacement is validated. Bespoke interaction flows, arbitrary layouts, and
+visualizations outside these contracts may remain Custom Blocks.
+
+The source tree ships four provider-free v2 manifests in
+`server/lib/native-v2-dashboards.ts`: Customer ROI, Account Engagement,
+Cross-sell, and Win / Loss. They intentionally contain no customer names,
+provider ids, SQL, cached rows, or guessed joins. After deployment, an
+organization owner or admin provisions them with `ensure-native-v2-dashboards`
+by supplying one real Data Program per binding key. The action validates the
+stored program output contract, shares the programs with the organization,
+creates deterministic `native-*-v2-*` dashboard copies, and preserves the
+extension-backed originals and any existing v2 edits. Do not add these to the
+root demo bootstrap or silently auto-bind them to guessed provider schemas.
 
 ## When To Use An Extension Instead
 
@@ -474,6 +518,7 @@ type PanelPatch = {
     | "table"
     | "pie"
     | "section"
+    | "funnel"
     | "heatmap"
     | "callout"
     | "extension";

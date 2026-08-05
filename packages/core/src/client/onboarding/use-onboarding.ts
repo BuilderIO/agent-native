@@ -9,13 +9,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
  */
 
 import type {
+  OnboardingAppProfile,
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
+import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { agentNativePath } from "../api-path.js";
 
 export interface UseOnboardingResult {
   steps: OnboardingStepStatus[];
+  profile: OnboardingAppProfile | null;
   loading: boolean;
   error: string | null;
   /** Active step = first required+incomplete, else first incomplete. */
@@ -34,6 +37,17 @@ export interface UseOnboardingResult {
   dismiss: () => Promise<void>;
   /** Re-open the panel after dismissal. */
   reopen: () => Promise<void>;
+  /** True until the post-signup full-screen flow is completed. */
+  firstRun: boolean;
+  /** Clear the post-signup full-screen flow marker. */
+  completeFirstRun: () => Promise<void>;
+}
+
+function hasFirstRunCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie
+    .split(";")
+    .some((part) => part.trim().startsWith(`${FIRST_RUN_ONBOARDING_COOKIE}=`));
 }
 
 export function useOnboarding(
@@ -41,10 +55,18 @@ export function useOnboarding(
 ): UseOnboardingResult {
   const preview = options.preview === true;
   const [steps, setSteps] = useState<OnboardingStepStatus[]>([]);
+  const [profile, setProfile] = useState<OnboardingAppProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [firstRun, setFirstRun] = useState(
+    () => preview || hasFirstRunCookie(),
+  );
   const mountedRef = useRef(true);
+
+  useEffect(() => {
+    setFirstRun(preview || hasFirstRunCookie());
+  }, [preview]);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -53,9 +75,10 @@ export function useOnboarding(
           ? "/_agent-native/onboarding/steps?preview=1"
           : "/_agent-native/onboarding/steps",
       );
-      const [stepsRes, dismissRes] = await Promise.all([
+      const [stepsRes, dismissRes, profileRes] = await Promise.all([
         fetch(stepsUrl),
         fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
+        fetch(agentNativePath("/_agent-native/onboarding/profile")),
       ]);
       if (!mountedRef.current) return;
       if (!stepsRes.ok) {
@@ -63,6 +86,11 @@ export function useOnboarding(
       }
       const stepsData: OnboardingStepStatus[] = await stepsRes.json();
       setSteps(stepsData);
+
+      if (!profileRes.ok) {
+        throw new Error(`profile: ${profileRes.status}`);
+      }
+      setProfile((await profileRes.json()) as OnboardingAppProfile);
 
       if (dismissRes.ok) {
         const d = (await dismissRes.json()) as {
@@ -135,6 +163,35 @@ export function useOnboarding(
     await fetchAll();
   }, [fetchAll]);
 
+  const completeFirstRun = useCallback(async () => {
+    if (preview) {
+      setFirstRun(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:first-run-completed"),
+        );
+      }
+      return;
+    }
+    const response = await fetch(
+      agentNativePath("/_agent-native/onboarding/first-run/complete"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    if (!response.ok) {
+      setError(`first-run completion: ${response.status}`);
+      return;
+    }
+    setFirstRun(false);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
+    }
+    await fetchAll();
+  }, [fetchAll, preview]);
+
   const totalCount = steps.length;
   const completeCount = steps.filter((s) => s.complete).length;
   const allComplete = steps.filter((s) => s.required).every((s) => s.complete);
@@ -146,6 +203,7 @@ export function useOnboarding(
 
   return {
     steps,
+    profile,
     loading,
     error,
     currentStepId,
@@ -157,6 +215,8 @@ export function useOnboarding(
     complete,
     dismiss,
     reopen,
+    firstRun,
+    completeFirstRun,
   };
 }
 

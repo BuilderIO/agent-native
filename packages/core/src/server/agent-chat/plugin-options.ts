@@ -342,6 +342,27 @@ export interface AgentChatPluginOptions {
   externalAgents?: ExternalAgentPolicy;
 
   /**
+   * Allow this app's A2A agent to delegate to a different app through the
+   * built-in `call-agent` tool. Enabled by default so a receiver keeps the
+   * same cross-app capability as its interactive agent. Set false only for an
+   * intentionally isolated app. Core enforces a bounded delegation path so
+   * cycle safety does not depend on removing the tool.
+   */
+  a2aAgentDelegation?: boolean;
+
+  /**
+   * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter
+   * than interactive chat because every retained tool result is re-sent on
+   * later iterations and delegated callers need a compact answer, not a raw
+   * transcript. Apps may raise one limit deliberately for proven workloads.
+   */
+  delegatedRunPolicy?: {
+    maxIterations?: number;
+    maxRunInputTokens?: number;
+    maxToolResultChars?: number;
+  };
+
+  /**
    * Skip mounting the remote MCP protocol route.
    *
    * Most apps should leave this off so agent chat, A2A, and MCP share one
@@ -384,5 +405,17 @@ export interface AgentChatPluginOptions {
    * App-level default tool-call limits. Individual actions override these with
    * their own `timeoutMs` / `maxResultChars` declarations.
    */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
+  toolLimits?: {
+    timeoutMs?: number;
+    maxResultChars?: number;
+    /** Absolute cap applied even when an individual action declares more. */
+    hardMaxResultChars?: number;
+  };
+}
+
+/** Cross-app agent delegation is a workspace default; false is an isolation opt-out. */
+export function resolveA2AAgentDelegationEnabled(
+  options?: Pick<AgentChatPluginOptions, "a2aAgentDelegation">,
+): boolean {
+  return options?.a2aAgentDelegation !== false;
 }

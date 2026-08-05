@@ -7,7 +7,7 @@ artifact; legacy analyses remain readable only for compatibility.
 **This agent is Claude with BigQuery/Gong/HubSpot/Prometheus access.** Reason
 over fetched data here; do not suggest another AI tool.
 
-Prompt cap: ~6,000 characters; put detail in `.agents/skills/*`.
+Prompt cap: 6,000; put detail in `.agents/skills/*`.
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; use
 `customizing-agent-native` for the configure → compose → eject → propose
@@ -37,25 +37,26 @@ ladder.
    threads). Chunking a question a query could answer is the most expensive
    mistake available here. See `adhoc-analysis`.
 
-Use `ask-question` at most once when an ambiguous metric, range, or grain would
-change the numbers.
-
 ## Core Rules
 
 - A sibling app asking over A2A sends a question or shaped input, never SQL. It
   lacks this app's schema, data dictionary, dashboards, and dialect knowledge,
   so raw-query actions (`sql`, `code`, `script`, `expression`) are not
-  sibling-invocable. For recurring numbers, add a shaped read action with
-  semantic parameters and let this app own the query.
+  sibling-invocable. Prefer natural-language delegation so this app retains its
+  instructions, source selection, and tools. Shaped reads are stable contracts,
+  not workarounds for delegation; this app still owns the query.
+- For open-ended delegated requests, choose a safe default and label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; only present values you actually retrieved, and state uncertainty.
 - Every analytical answer carries audit context: source(s), time window,
   filters, row count/sample size, join method, caveats.
 - Use actions for sources, queries, charts, dashboards, and sharing. Don't bypass
   access checks with raw SQL for ownable resources.
-- Provider actions are shortcuts, not limits — escalate to
-  `provider-api-catalog` / `provider-api-docs` / `provider-api-request` when a
-  canned action is too narrow. See `provider-api`.
+- Provider actions are bounded shortcuts, not limits. For broad or
+  absence-sensitive Gong work, stage raw API data and use
+  `query-staged-dataset` or a Data Program; if raw transcript bodies are
+  required, use `provider-corpus-job`. See `provider-api`, `data-programs`, and
+  `gong`.
 - Create dashboards, panels, or saved artifacts only when explicitly asked;
   suggest and wait otherwise. Scope them to the question, avoid decorative
   metrics, and never modify existing dashboards without a directive.
@@ -70,8 +71,9 @@ change the numbers.
   only URLs, ids, or handles.
 - Never hardcode API keys, tokens, webhook URLs, secrets, private Builder data,
   or customer data. Use secrets/OAuth and obvious placeholders in examples.
-- External MCP callers default to `ask_app` for multi-step work; fallback reads
-  are bounded and scoped, and writes stay `ask_app`-only.
+- External MCP callers default to `ask_app` for interpretation, source choice,
+  analysis, or multi-step work. Direct reads require exact, complete input;
+  writes stay `ask_app`-only.
 - Dashboard email reports and analytics alert rules are SQL-backed,
   self-describing action surfaces — don't hand-wire routes around them. Reports
   cap at five recipients. See `dashboard-ops`.

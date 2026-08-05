@@ -213,6 +213,28 @@ describe("Analytics agent Plan mode policy", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
   });
 
+  it("keeps the complete dashboard build path on the initial tool surface", () => {
+    expect(INITIAL_TOOL_NAMES).toEqual(
+      expect.arrayContaining([
+        "update-dashboard",
+        "mutate-dashboard",
+        "compose-dashboard",
+        "create-extension",
+        "extension-data-set",
+      ]),
+    );
+  });
+
+  it("tells explicit dashboard requests to finish non-destructive build steps", async () => {
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | (() => Promise<string>)
+      | undefined;
+    expect(extraContext).toBeDefined();
+    const context = await extraContext?.();
+    expect(context).toContain("EXECUTION CONTINUITY");
+    expect(context).toContain("Do not ask 'want me to proceed?'");
+  });
+
   it("makes Custom Blocks a deliberate one-off exception to native dashboards", () => {
     expect(ANALYTICS_CUSTOM_BLOCK_GUIDANCE).toContain(
       "native dashboard panels and Data Programs first",
@@ -277,6 +299,53 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard", () => {
+  it("retries a dashboard build that pauses after creating an extension shell", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Build a dashboard for Intuit Fusion errors",
+        draftText:
+          "I created the dashboard shell. The table is empty until the users are seeded. Want me to proceed with seeding the 981 users now?",
+        toolResults: [
+          {
+            name: "create-extension",
+            isError: false,
+            content: '{"id":"fusion-errors"}',
+          },
+          {
+            name: "bigquery",
+            isError: false,
+            content: '{"rows":[{"user":"a"}]}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      expandToolSurface: true,
+      maxRetries: 2,
+      retryMessage: expect.stringContaining("same turn"),
+    });
+  });
+
+  it("does not turn a completed dashboard save into another build pass", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "Build a dashboard for Intuit Fusion errors",
+        draftText:
+          "The dashboard is saved with its requested panels. Would you like me to add another view?",
+        toolResults: [
+          {
+            name: "update-dashboard",
+            isError: false,
+            content: '{"dashboardId":"fusion-errors"}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
   it("retries a casual greeting that drafted the canned no-grounded-data fallback, without repeating that sentence in the fallback", () => {
     const result = realDataFinalGuard(
       guardContext({
@@ -304,6 +373,34 @@ describe("realDataFinalGuard", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it("does not let A2A transport hints trigger corpus or dashboard fallbacks", () => {
+    const request =
+      "Choose one useful current customer metric and return its value.";
+    const transportHint =
+      "If you create a dashboard, return a concise answer instead of full transcripts.";
+    const tagged = `${request}\n\n<a2a-caller-hint>\n${transportHint}\n</a2a-caller-hint>`;
+    const legacy = `${request}\n\n[Note: this request comes from another app via A2A. ${transportHint}]`;
+
+    for (const userText of [tagged, legacy]) {
+      const result = realDataFinalGuard(
+        guardContext({
+          userText,
+          draftText:
+            "Daily active customers: 123 for 2026-07-29 UTC. Source: HubSpot. This is a bounded current metric.",
+          toolResults: [
+            {
+              name: "hubspot-records",
+              isError: false,
+              content: '{"records":[{"count":123}]}',
+            },
+          ],
+        }),
+      );
+
+      expect(result).toBeNull();
+    }
   });
 
   it("classifies a recovered greeting from the stable request instead of the synthetic continuation", () => {

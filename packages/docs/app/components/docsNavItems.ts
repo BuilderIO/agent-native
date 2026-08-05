@@ -37,6 +37,23 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "getting-started",
         labelKey: "gettingStarted",
         slug: "getting-started",
+        children: [
+          {
+            id: "getting-started-actions",
+            labelKey: "gettingStartedActions",
+            slug: "getting-started-actions",
+          },
+          {
+            id: "getting-started-database",
+            labelKey: "gettingStartedDatabase",
+            slug: "getting-started-database",
+          },
+          {
+            id: "getting-started-pages",
+            labelKey: "gettingStartedPages",
+            slug: "getting-started-pages",
+          },
+        ],
       },
       {
         id: "what-is-agent-native",

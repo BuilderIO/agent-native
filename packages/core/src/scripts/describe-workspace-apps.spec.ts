@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
+import { _resetCapabilityCacheForTests } from "../server/agent-capabilities.js";
 import type { DiscoveredAgent } from "../server/agent-discovery.js";
 
 const getAgentCard = vi.fn();
@@ -60,6 +61,7 @@ function card(overrides: Partial<AgentCard> = {}): AgentCard {
 describe("describe-workspace-apps", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    _resetCapabilityCacheForTests();
     discoverAgents.mockResolvedValue([]);
     findAgent.mockResolvedValue(undefined);
     getAgentCard.mockResolvedValue(card());
@@ -67,6 +69,13 @@ describe("describe-workspace-apps", () => {
 
   it("tells the agent not to hand-maintain a workspace app list", () => {
     expect(tool.description).toContain("never hand-maintain");
+  });
+
+  it("makes the receiving specialist agent the default cross-app path", () => {
+    expect(tool.description).toContain("natural-language call-agent message");
+    expect(tool.description).toContain(
+      "not a substitute for the specialist agent",
+    );
   });
 
   it("reports each peer's purpose and its live callable actions", async () => {
@@ -147,6 +156,7 @@ describe("describe-workspace-apps", () => {
     expect(output).toContain("Run a bounded analytics query.");
     expect(output).toContain("send-report (mutating)");
     expect(output).toContain('agent="analytics"');
+    expect(output).toContain('message="<objective>"');
     expect(findAgent).toHaveBeenCalledWith("analytics", "coach");
   });
 

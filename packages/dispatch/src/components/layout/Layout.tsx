@@ -22,6 +22,7 @@ import {
   IconArrowUpRight,
   IconApps,
   IconBrain,
+  IconBrandSlack,
   IconChartBar,
   IconBrandTelegram,
   IconKey,
@@ -40,10 +41,13 @@ import {
   IconSettingsAutomation,
   IconShieldCheck,
   IconSearch,
+  IconWorld,
+  IconDeviceDesktop,
 } from "@tabler/icons-react";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -228,9 +232,11 @@ const ADVANCED_NAV_ITEMS = [
 ] as const satisfies readonly DispatchNavItem[];
 
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
+const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
+const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
 
 // Routes whose page renders its own toolbar.
 // Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
@@ -322,6 +328,28 @@ function threadTitle(thread: ChatThreadSummary, fallback: string) {
   return thread.title || thread.preview || fallback;
 }
 
+function readChatHistoryIncludesExternal(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(CHAT_HISTORY_SOURCE_KEY) === "all";
+  } catch {
+    // coercion-ok: localStorage is optional browser persistence.
+    return false;
+  }
+}
+
+function threadSourceIcon(platform: string | undefined): ReactNode {
+  const normalized = platform?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "slack") {
+    return <IconBrandSlack size={13} aria-hidden="true" />;
+  }
+  if (normalized === "telegram") {
+    return <IconBrandTelegram size={13} aria-hidden="true" />;
+  }
+  return <IconWorld size={13} aria-hidden="true" />;
+}
+
 function threadUpdatedAt(thread: ChatThreadSummary) {
   return Number.isFinite(thread.updatedAt)
     ? thread.updatedAt
@@ -334,6 +362,9 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  const [includeExternal, setIncludeExternal] = useState(false);
+  const [historyPreferenceReady, setHistoryPreferenceReady] = useState(false);
+  const historyModeRef = useRef(includeExternal);
   const {
     threads,
     activeThreadId,
@@ -342,7 +373,10 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     switchThread,
     renameThread,
     refreshThreads,
-  } = useChatThreads(undefined, "dispatch", undefined, { autoCreate: false });
+  } = useChatThreads(undefined, "dispatch", undefined, {
+    autoCreate: false,
+    includeExternal,
+  });
 
   const visibleThreads = useMemo(
     () =>
@@ -360,9 +394,29 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     (localPathname === "/chat" ? null : activeThreadId);
   const chatItems: ChatHistoryItem[] = visibleThreads.map((thread) => {
     const title = threadTitle(thread, t("dispatch.sidebar.newChat"));
+    const sourceIcon = threadSourceIcon(thread.source?.platform);
+    const sourceLabel = thread.source?.platform
+      ? thread.source.platform[0].toUpperCase() +
+        thread.source.platform.slice(1)
+      : null;
     return {
       id: thread.id,
-      title: <span title={title}>{title}</span>,
+      title: (
+        <span
+          className="flex min-w-0 items-center gap-1"
+          title={sourceLabel ? `${sourceLabel}: ${title}` : title}
+        >
+          {sourceIcon ? (
+            <span
+              className="shrink-0 text-sidebar-foreground/55"
+              aria-label={sourceLabel ?? "Connected source"}
+            >
+              {sourceIcon}
+            </span>
+          ) : null}
+          <span className="truncate">{title}</span>
+        </span>
+      ),
       titleText: title,
       timestamp:
         thread.id === displayedActiveThreadId
@@ -370,6 +424,25 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
           : formatThreadAge(threadUpdatedAt(thread)),
     };
   });
+
+  useEffect(() => {
+    setIncludeExternal(readChatHistoryIncludesExternal());
+    setHistoryPreferenceReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!historyPreferenceReady) return;
+    try {
+      localStorage.setItem(
+        CHAT_HISTORY_SOURCE_KEY,
+        includeExternal ? "all" : "local",
+      );
+    } catch {} // coercion-ok: localStorage is optional browser persistence.
+    if (historyModeRef.current !== includeExternal) {
+      historyModeRef.current = includeExternal;
+      refreshThreads();
+    }
+  }, [historyPreferenceReady, includeExternal, refreshThreads]);
 
   useEffect(() => {
     const refresh = () => refreshThreads();
@@ -415,6 +488,43 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="ms-4 min-w-0 space-y-0.5">
+      <div className="flex justify-end px-2 pt-0.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              data-dispatch-chat-source-toggle
+              aria-pressed={includeExternal}
+              aria-label={
+                includeExternal
+                  ? t("dispatch.sidebar.showLocalChats", {
+                      defaultValue: "Show local chats",
+                    })
+                  : t("dispatch.sidebar.showAllChats", {
+                      defaultValue: "Show all chats",
+                    })
+              }
+              onClick={() => setIncludeExternal((current) => !current)}
+              className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              {includeExternal ? (
+                <IconWorld size={14} aria-hidden="true" />
+              ) : (
+                <IconDeviceDesktop size={14} aria-hidden="true" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {includeExternal
+              ? t("dispatch.sidebar.showLocalChats", {
+                  defaultValue: "Show local chats",
+                })
+              : t("dispatch.sidebar.showAllChats", {
+                  defaultValue: "Show all chats",
+                })}
+          </TooltipContent>
+        </Tooltip>
+      </div>
       {chatsLoading &&
         visibleThreads.length === 0 &&
         Array.from({ length: 3 }).map((_, index) => (
@@ -654,17 +764,24 @@ export function NavContent({
                 src={appPath("/agent-native-icon-light.svg")}
                 alt=""
                 aria-hidden="true"
-                className="block h-5 w-auto shrink-0 dark:hidden"
+                width={35}
+                height={20}
+                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
               />
               <img
                 src={appPath("/agent-native-icon-dark.svg")}
                 alt=""
                 aria-hidden="true"
-                className="hidden h-5 w-auto shrink-0 dark:block"
+                width={35}
+                height={20}
+                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-lg font-bold tracking-tight text-foreground">
-                  Dispatch
+                <div
+                  data-dispatch-sidebar-label
+                  className="truncate text-lg font-bold tracking-tight text-foreground"
+                >
+                  {DISPATCH_SIDEBAR_LABEL}
                 </div>
               </div>
             </>

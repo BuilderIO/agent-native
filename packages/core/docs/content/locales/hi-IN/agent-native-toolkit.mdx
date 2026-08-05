@@ -20,12 +20,12 @@ Toolkit उच्च-गुणवत्ता वाले एजेंटिक
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="किट कैसे फिट होते हैं" summary={"फ़्रेमवर्क रनटाइम टिकाऊ गारंटी देता है। Toolkit उन गारंटियों को पुन: उपयोग योग्य उत्पाद सिस्टम में बदलता है। ऐप्स डोमेन-विशिष्ट डेटा, रूट और विज़ुअल पहचान जोड़ते हैं।"}>
+<Diagram id="doc-block-toolkits-boundary" title="तीन layers कैसे साथ आती हैं" summary={"Core framework की नींव है। Toolkit वैकल्पिक reusable infrastructure और UI है। Templates, Core पर बने वैकल्पिक apps हैं जो अक्सर Toolkit उपयोग करते हैं।"}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">रनटाइम</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     एक्शन, SQL, प्रमाणीकरण, ऐप स्टेट, एक्सेस जाँच, रीयलटाइम ट्रांसपोर्ट
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -35,7 +35,7 @@ Toolkit उच्च-गुणवत्ता वाले एजेंटिक
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">ऐप्स</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     डोमेन स्कीमा, रूट, एक्शन, ब्रांडिंग, विशेष वर्कफ़्लो
   </div>
 </div>
@@ -59,6 +59,8 @@ Toolkit उच्च-गुणवत्ता वाले एजेंटिक
 ```
 
 </Diagram>
+
+Core framework है। Toolkit framework के लिए reusable pieces की एक वैकल्पिक shelf है। Templates, Core पर बने वैकल्पिक apps हैं; वे Toolkit उपयोग कर सकते हैं और complete starting points के रूप में fork किए जा सकते हैं। कोई app Toolkit या template के बिना सीधे Core भी उपयोग कर सकता है।
 
 ## कैटलॉग {#catalog}
 

@@ -172,7 +172,7 @@ describe("listWorkspaceApps", () => {
           apps: [
             {
               id: "dispatch",
-              name: "Agent-Native Dispatch",
+              name: "Dispatch",
               path: "/dispatch",
             },
             {

@@ -30,9 +30,11 @@ The framing matters: an extension isn't a generic "do whatever you want" sandbox
 its own page or inside a named [slot](#slots) exposed by the template. It
 cannot inject elements into arbitrary native components — for example, beside
 every attendee in Calendar — unless the template exposes a slot there. For
-deeper customization, ask the agent to edit the template's source code. Full
-code customization is a core Agent Native capability; extensions are the
-fast, no-deploy layer.
+deeper customization, change the template in your own repository and
+development workflow. An embedded, development, or Builder frame may assist
+when it is intentionally granted workspace and write tooling; otherwise the
+embedded app agent works through app tools. Extensions remain the fast,
+no-deploy layer for runtime customization.
 
 </Callout>
 
@@ -652,13 +654,11 @@ Extensions are private to the user who created them by default. To share:
 
 Shared extensions have their own URLs and plug into the same share dialog as documents, decks, and dashboards. Slot installs are always personal — sharing an extension means others _can_ install it; it doesn't auto-pin it to their UI.
 
-## Should I use an extension or edit the app code? {#vs-app-code}
+## Should I use an extension or the app source workflow? {#vs-app-code}
 
-The framework lets the agent edit the app's source code directly — components,
-routes, styles, and business logic. Use this question when either path could
-solve the request:
+Use this question when either path could solve the request:
 
-- **Start with app code** for product behavior, native UI, layout, routes,
+- **Use the source workflow** for product behavior, native UI, layout, routes,
   business logic, or anything that should be reused across dashboards or users.
 - **Use a custom block only when the app opts in** and the user explicitly wants
   a bespoke, one-off visualization or interaction in an existing extension
@@ -669,19 +669,19 @@ solve the request:
   source-change workflow. Keep the original block in place until the code
   change is reviewed and deployed.
 
-|                       | Extension                      | App code edit                  |
-| --------------------- | ------------------------------ | ------------------------------ |
-| **Created by**        | Agent (or user) at runtime     | Agent editing source files     |
-| **Stored in**         | The database                   | The git repository             |
-| **Requires a build**  | No                             | Yes                            |
-| **Requires a deploy** | No                             | Yes                            |
-| **Scope**             | One user (or shared with org)  | The entire product, every user |
-| **Best for**          | Explicit one-off custom blocks | Durable product behavior       |
+|                       | Extension                      | App source workflow                      |
+| --------------------- | ------------------------------ | ---------------------------------------- |
+| **Created by**        | Agent (or user) at runtime     | User or intentionally code-enabled agent |
+| **Stored in**         | The database                   | The git repository                       |
+| **Requires a build**  | No                             | Yes                                      |
+| **Requires a deploy** | No                             | Yes                                      |
+| **Scope**             | One user (or shared with org)  | The entire product, every user           |
+| **Best for**          | Explicit one-off custom blocks | Durable product behavior                 |
 
-Rule of thumb: **default to app code.** In an app that explicitly enables
+Rule of thumb: **use an extension for runtime customization.** In an app that explicitly enables
 extensions, a one-off custom visualization on a dashboard can be a Custom
 Block; a new pie, multi-bar, or line chart type that should be available across
-dashboards belongs in the template code.
+dashboards belongs in the template source and normal development workflow.
 
 If what you actually need is a cached, refreshable data source for an existing chart or table — not a new interactive widget — see [Data Programs](/docs/data-programs) instead; it shares this page's sandbox and security posture but has no UI of its own.
 

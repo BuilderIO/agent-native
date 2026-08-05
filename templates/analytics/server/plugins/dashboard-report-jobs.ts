@@ -1,4 +1,5 @@
 import { runDashboardReportsOnce } from "../jobs/dashboard-report";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime";
 
 const INTERVAL_MS = 60_000;
 let skippingLogged = false;
@@ -9,7 +10,7 @@ declare global {
 
 function platformSchedulerOwnsReports(): boolean {
   return (
-    process.env.NETLIFY === "true" ||
+    isProductionServerlessRuntime() ||
     globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ === true
   );
 }

@@ -351,4 +351,14 @@ Record the signal.`,
       { owner },
     );
   });
+
+  it("does not allow an automation to recursively queue another automation", async () => {
+    const result = await tool().run(
+      { action: "run-now", name: "another-automation" },
+      { caller: "automation" },
+    );
+
+    expect(result).toBe("Error: an automation cannot run another automation.");
+    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+  });
 });

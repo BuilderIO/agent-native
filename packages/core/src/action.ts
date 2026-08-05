@@ -8,6 +8,7 @@ import type {
   ActionTool,
   AgentChatAttachment,
   AgentChatEvent,
+  AgentNativeJsonSchema,
 } from "./agent/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
@@ -81,6 +82,9 @@ export interface ActionRunContext {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  /** Bounded cross-app lineage used to prevent recursive delegation cycles. */
+  delegationDepth?: number;
+  visitedApps?: string[];
   /**
    * Attachments submitted with the current agent turn (pasted text blocks,
    * uploaded files, images), exactly as the server received them — with full,
@@ -1442,6 +1446,52 @@ function coerceGatewayStringifiedArgs(
   return out ?? args;
 }
 
+// The enums and required members that actually explain a rejection are usually
+// nested inside `items`/`oneOf` (a discriminated union of operations), not on
+// the top-level property, so rendering only the top level prints `operations*:
+// array` — true and useless. Bounded depth keeps a deep schema from crowding out
+// the validation errors it is meant to explain.
+const MAX_SIGNATURE_DEPTH = 4;
+const MAX_SIGNATURE_LENGTH = 1200;
+
+function describeSchemaType(
+  spec: AgentNativeJsonSchema | undefined,
+  depth: number,
+): string {
+  if (!spec) return "any";
+  if (spec.const !== undefined) return JSON.stringify(spec.const);
+  if (Array.isArray(spec.enum)) {
+    return spec.enum.map((value) => JSON.stringify(value)).join("|");
+  }
+
+  const branches = spec.oneOf ?? spec.anyOf;
+  if (branches?.length) {
+    if (depth >= MAX_SIGNATURE_DEPTH) return "object";
+    return branches
+      .map((branch) => describeSchemaType(branch, depth))
+      .join(" | ");
+  }
+
+  if (spec.properties && Object.keys(spec.properties).length > 0) {
+    if (depth >= MAX_SIGNATURE_DEPTH) return "object";
+    const required = new Set(spec.required ?? []);
+    const members = Object.entries(spec.properties)
+      .map(
+        ([key, value]) =>
+          `${key}${required.has(key) ? "*" : "?"}: ${describeSchemaType(value, depth + 1)}`,
+      )
+      .join(", ");
+    return `{ ${members} }`;
+  }
+
+  if (spec.items) {
+    if (depth >= MAX_SIGNATURE_DEPTH) return "array";
+    return `array<${describeSchemaType(spec.items, depth + 1)}>`;
+  }
+
+  return Array.isArray(spec.type) ? spec.type.join("|") : (spec.type ?? "any");
+}
+
 /**
  * Compact signature of an action's parameters, e.g.
  * `{ deckId*: string, operation*: "edit"|"replace", slideId?: string }` where
@@ -1466,19 +1516,13 @@ export function describeToolParameterSignature(
     (key) => !only?.length || only.includes(key),
   );
   const sig = (keys.length ? keys : Object.keys(properties))
-    .map((key) => {
-      const spec = properties[key];
-      const mark = required.has(key) ? "*" : "?";
-      const type = Array.isArray(spec.enum)
-        ? spec.enum.map((value) => JSON.stringify(value)).join("|")
-        : Array.isArray(spec.type)
-          ? spec.type.join("|")
-          : (spec.type ?? "any");
-      return `${key}${mark}: ${type}`;
-    })
+    .map(
+      (key) =>
+        `${key}${required.has(key) ? "*" : "?"}: ${describeSchemaType(properties[key], 1)}`,
+    )
     .join(", ");
   if (!sig) return null;
-  return `{ ${sig.length > 600 ? `${sig.slice(0, 600)}…` : sig} }`;
+  return `{ ${sig.length > MAX_SIGNATURE_LENGTH ? `${sig.slice(0, MAX_SIGNATURE_LENGTH)}…` : sig} }`;
 }
 
 /**

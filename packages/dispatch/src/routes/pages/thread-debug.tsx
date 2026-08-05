@@ -1,12 +1,14 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAlertTriangle,
+  IconClock,
   IconDatabase,
   IconFileSearch,
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -71,11 +73,76 @@ interface ThreadMessage {
 interface ThreadRun {
   id: string;
   status: string;
+  turnId?: string | null;
   abortReason: string | null;
+  errorCode?: string | null;
+  errorDetail?: string | null;
+  terminalReason?: string | null;
+  dispatchMode?: string | null;
+  diagStage?: string | null;
+  workerStage?: string | null;
   startedAt: number;
   completedAt: number | null;
   heartbeatAt: number | null;
+  lastProgressAt?: number | null;
+  durationMs?: number | null;
+  peakRssMb?: number | null;
   events: Array<{ seq: number; event: any; rawEventData: string }>;
+}
+
+type ThreadDebugMode = "failures" | "threads";
+type FailureStatus = "all" | "errored" | "aborted" | "truncated";
+type FailureRange = "24h" | "7d" | "30d";
+
+interface AgentRunFailure {
+  id: string;
+  threadId: string;
+  sourceId?: string;
+  sourceLabel?: string;
+  source?: {
+    id: string;
+    label: string;
+    kind?: string;
+    databaseUrlEnv?: string | null;
+  };
+  ownerEmail: string;
+  threadTitle: string;
+  threadPreview: string;
+  status: string;
+  errorCode: string | null;
+  errorDetail: string | null;
+  terminalReason: string | null;
+  abortReason: string | null;
+  dispatchMode: string | null;
+  diagStage: string | null;
+  workerStage?: string | null;
+  startedAt: number;
+  completedAt: number | null;
+  durationMs: number | null;
+}
+
+interface AgentRunFailuresResponse {
+  failures: AgentRunFailure[];
+  sources: Array<{
+    source: {
+      id: string;
+      label: string;
+      kind?: string;
+      databaseUrlEnv?: string | null;
+    };
+    status: "ok" | "unsupported" | "unavailable" | "disconnected";
+    failureCount: number;
+    errorCode?: string | null;
+  }>;
+  partial: boolean;
+  count?: number;
+  access: { viewerEmail: string; scope: string; canInspectAll: boolean };
+  filters?: {
+    sourceId?: string;
+    status?: FailureStatus;
+    lookbackHours?: number;
+    limit?: number;
+  };
 }
 
 interface ThreadDebugResponse {
@@ -102,12 +169,49 @@ interface ThreadDebugResponse {
   checkpoints: any[];
 }
 
+const FAILURE_RANGE_HOURS: Record<FailureRange, number> = {
+  "24h": 24,
+  "7d": 7 * 24,
+  "30d": 30 * 24,
+};
+
+function parseMode(value: string | null): ThreadDebugMode {
+  return value === "threads" ? "threads" : "failures";
+}
+
+function parseFailureStatus(value: string | null): FailureStatus {
+  return value === "errored" || value === "aborted" || value === "truncated"
+    ? value
+    : "all";
+}
+
+function parseFailureRange(value: string | null): FailureRange {
+  return value === "7d" || value === "30d" ? value : "24h";
+}
+
+function failureSourceId(failure: AgentRunFailure): string {
+  return failure.sourceId || failure.source?.id || "current";
+}
+
+function failureSourceLabel(failure: AgentRunFailure): string {
+  return (
+    failure.sourceLabel || failure.source?.label || failureSourceId(failure)
+  );
+}
+
 function formatDate(value: number | string | null | undefined): string {
   if (value == null || value === "") return "n/a";
   const numeric = Number(value);
   const date = Number.isFinite(numeric) ? new Date(numeric) : new Date(value);
   if (Number.isNaN(date.getTime())) return "n/a";
   return date.toLocaleString();
+}
+
+function formatDuration(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "n/a";
+  if (value < 1_000) return `${Math.round(value)}ms`;
+  if (value < 60_000) return `${(value / 1_000).toFixed(1)}s`;
+  return `${(value / 60_000).toFixed(1)}m`;
 }
 
 function json(value: unknown): string {
@@ -134,6 +238,24 @@ function messageTitle(message: ThreadMessage): string {
 
 function toolParts(message: ThreadMessage): any[] {
   return message.contentParts.filter((part) => part?.type === "tool-call");
+}
+
+function diagnosticStage(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { stage?: unknown; detail?: unknown };
+    const stage =
+      typeof parsed.stage === "string" && parsed.stage.trim()
+        ? parsed.stage.trim()
+        : value;
+    const detail =
+      typeof parsed.detail === "string" && parsed.detail.trim()
+        ? parsed.detail.trim()
+        : "";
+    return detail ? `${stage}: ${detail}` : stage;
+  } catch {
+    return value;
+  }
 }
 
 function RawBlock({
@@ -208,6 +330,90 @@ function ResultCard({
   );
 }
 
+function FailureCard({
+  failure,
+  selected,
+  onSelect,
+}: {
+  failure: AgentRunFailure;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const t = useT();
+  const summary =
+    failure.errorCode ||
+    failure.terminalReason ||
+    failure.abortReason ||
+    failure.status;
+  const statusLabel =
+    failure.status === "errored"
+      ? t("dispatch.pages.threadDebugErrored", {
+          defaultValue: "Errored",
+        })
+      : failure.status === "aborted"
+        ? t("dispatch.pages.threadDebugAborted", {
+            defaultValue: "Aborted",
+          })
+        : failure.status === "truncated"
+          ? t("dispatch.pages.threadDebugTruncated", {
+              defaultValue: "Truncated",
+            })
+          : failure.status;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "w-full rounded-lg border px-3 py-3 text-left transition-colors",
+        selected
+          ? "border-foreground bg-muted"
+          : "bg-card hover:border-foreground/30 hover:bg-muted/40",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground">
+            {failure.threadTitle || failure.threadPreview || failure.threadId}
+          </div>
+          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+            {failure.id}
+          </div>
+        </div>
+        <Badge variant="outline" className="shrink-0">
+          {statusLabel}
+        </Badge>
+      </div>
+      <div className="mt-2 flex items-center gap-1.5 text-xs text-foreground">
+        <IconAlertTriangle className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{summary}</span>
+      </div>
+      {failure.errorDetail ? (
+        <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          {failure.errorDetail}
+        </div>
+      ) : null}
+      <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+        <span className="truncate">
+          {failureSourceLabel(failure)} · {failure.ownerEmail}
+        </span>
+        <span className="inline-flex shrink-0 items-center gap-1">
+          <IconClock className="size-3" />
+          {formatDate(failure.completedAt ?? failure.startedAt)}
+          {failure.durationMs == null
+            ? null
+            : ` · ${formatDuration(failure.durationMs)}`}
+        </span>
+      </div>
+      <span className="sr-only">
+        {t("dispatch.pages.threadDebugInspectFailure", {
+          defaultValue: "Inspect failed run",
+        })}
+      </span>
+    </button>
+  );
+}
+
 function MessageBlock({ message }: { message: ThreadMessage }) {
   const tools = toolParts(message);
   return (
@@ -259,6 +465,7 @@ function MessageBlock({ message }: { message: ThreadMessage }) {
 }
 
 function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
+  const t = useT();
   const rawBundle = useMemo(
     () => ({
       thread: detail.thread,
@@ -334,12 +541,91 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
                     <span className="font-mono text-xs text-foreground">
                       {run.id}
                     </span>
+                    {run.errorCode ? (
+                      <span className="font-mono text-xs text-destructive">
+                        {run.errorCode}
+                      </span>
+                    ) : null}
                     <span className="text-xs text-muted-foreground">
                       {formatDate(run.startedAt)}
                     </span>
                   </div>
                 </summary>
-                <div className="space-y-2 border-t px-4 py-3">
+                <div className="space-y-3 border-t px-4 py-3">
+                  <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-3">
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dispatch.pages.threadDebugFailureCode", {
+                          defaultValue: "Failure code",
+                        })}
+                      </div>
+                      <div className="mt-0.5 break-words font-mono text-foreground">
+                        {run.errorCode || "n/a"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dispatch.pages.threadDebugTerminalReason", {
+                          defaultValue: "Terminal reason",
+                        })}
+                      </div>
+                      <div className="mt-0.5 break-words font-mono text-foreground">
+                        {run.terminalReason || run.abortReason || "n/a"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dispatch.pages.threadDebugDispatchMode", {
+                          defaultValue: "Dispatch mode",
+                        })}
+                      </div>
+                      <div className="mt-0.5 break-words font-mono text-foreground">
+                        {run.dispatchMode || "foreground"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dispatch.pages.threadDebugLastStage", {
+                          defaultValue: "Last stage",
+                        })}
+                      </div>
+                      <div className="mt-0.5 break-words font-mono text-foreground">
+                        {diagnosticStage(run.workerStage) ||
+                          diagnosticStage(run.diagStage) ||
+                          "n/a"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dispatch.pages.threadDebugDuration", {
+                          defaultValue: "Duration",
+                        })}
+                      </div>
+                      <div className="mt-0.5 text-foreground">
+                        {formatDuration(
+                          run.durationMs ??
+                            (run.completedAt == null
+                              ? null
+                              : run.completedAt - run.startedAt),
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">
+                        {t("dispatch.pages.threadDebugLastProgress", {
+                          defaultValue: "Last progress",
+                        })}
+                      </div>
+                      <div className="mt-0.5 text-foreground">
+                        {formatDate(run.lastProgressAt ?? run.heartbeatAt)}
+                      </div>
+                    </div>
+                  </div>
+                  {run.errorDetail ? (
+                    <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive">
+                      {run.errorDetail}
+                    </div>
+                  ) : null}
                   {run.events.map((event) => (
                     <details
                       key={`${run.id}-${event.seq}`}
@@ -418,25 +704,31 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
 }
 
 export default function ThreadDebugRoute() {
-  const [routeSearchParams] = useSearchParams();
-  const initialSourceId = routeSearchParams.get("source") || "current";
-  const initialQuery = routeSearchParams.get("query") || "";
-  const initialOwnerEmail = routeSearchParams.get("ownerEmail") || "";
-  const [sourceId, setSourceId] = useState(initialSourceId);
-  const [query, setQuery] = useState(initialQuery);
-  const [ownerEmail, setOwnerEmail] = useState(initialOwnerEmail);
+  const t = useT();
+  const [routeSearchParams, setRouteSearchParams] = useSearchParams();
+  const mode = parseMode(routeSearchParams.get("mode"));
+  const sourceId =
+    routeSearchParams.get("source") ||
+    (mode === "failures" ? "all" : "current");
+  const ownerEmail = routeSearchParams.get("owner") || "";
+  const query = routeSearchParams.get("query") || "";
+  const status = parseFailureStatus(routeSearchParams.get("status"));
+  const range = parseFailureRange(routeSearchParams.get("range"));
+  const runId = routeSearchParams.get("runId") || "";
+  const threadId = routeSearchParams.get("threadId") || "";
+  const inspectSourceId = routeSearchParams.get("inspectSource") || "";
   const [lookupId, setLookupId] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState({
-    sourceId: initialSourceId,
-    query: initialQuery,
-    ownerEmail: initialOwnerEmail,
-  });
-  const [selected, setSelected] = useState<{
-    sourceId: string;
-    lookupId: string;
-    lookupKind: "thread" | "run";
-    ownerEmail?: string;
-  } | null>(null);
+
+  function updateRouteState(
+    updates: Record<string, string | null | undefined>,
+  ) {
+    const next = new URLSearchParams(routeSearchParams);
+    for (const [key, value] of Object.entries(updates)) {
+      if (value == null || value === "") next.delete(key);
+      else next.set(key, value);
+    }
+    setRouteSearchParams(next, { replace: true });
+  }
 
   const sourcesQuery = useActionQuery<{
     access: {
@@ -452,14 +744,54 @@ export default function ThreadDebugRoute() {
   const { data: sourcesData, isLoading: sourcesLoading } = sourcesQuery;
 
   const sources: ThreadDebugSource[] = sourcesData?.sources ?? [];
-  const searchParams = useMemo(
+  const failureParams = useMemo(
     () => ({
-      sourceId: submittedSearch.sourceId,
-      query: submittedSearch.query || undefined,
-      ownerEmail: submittedSearch.ownerEmail || undefined,
+      sourceId,
+      ownerEmail: ownerEmail.trim() || undefined,
+      status,
+      lookbackHours: FAILURE_RANGE_HOURS[range],
       limit: 25,
     }),
-    [submittedSearch],
+    [ownerEmail, range, sourceId, status],
+  );
+  const {
+    data: failuresData,
+    isLoading: failuresLoading,
+    error: failuresError,
+    refetch: refetchFailures,
+  } = useActionQuery<AgentRunFailuresResponse>(
+    "list-agent-run-failures",
+    failureParams,
+    { enabled: mode === "failures" },
+  );
+  const failures = failuresData?.failures ?? [];
+  const unavailableFailureSources = (failuresData?.sources ?? []).filter(
+    (source) => source.status !== "ok",
+  );
+  const failureSourceStatusLabels = {
+    ok: "ok",
+    disconnected: t("dispatch.pages.threadDebugDisconnected", {
+      defaultValue: "disconnected",
+    }),
+    unsupported: t("dispatch.pages.threadDebugUnsupported", {
+      defaultValue: "unsupported",
+    }),
+    unavailable: t("dispatch.pages.threadDebugUnavailable", {
+      defaultValue: "unavailable",
+    }),
+  };
+
+  const threadSourceId = sourceId === "all" ? "current" : sourceId;
+  const detailSourceId =
+    runId && inspectSourceId ? inspectSourceId : threadSourceId;
+  const searchParams = useMemo(
+    () => ({
+      sourceId: threadSourceId,
+      query: query.trim() || undefined,
+      ownerEmail: ownerEmail.trim() || undefined,
+      limit: 25,
+    }),
+    [ownerEmail, query, threadSourceId],
   );
   const {
     data: searchData,
@@ -471,21 +803,19 @@ export default function ThreadDebugRoute() {
     threads: ThreadSearchResult[];
     access: { scope: string; canInspectAll: boolean };
     source: { id: string; label: string };
-  }>("search-agent-threads", searchParams);
+  }>("search-agent-threads", searchParams, { enabled: mode === "threads" });
   const searchThreads: ThreadSearchResult[] = searchData?.threads ?? [];
 
   const detailParams = useMemo(
     () => ({
-      sourceId: selected?.sourceId ?? "current",
-      ...(selected?.lookupKind === "run"
-        ? { runId: selected.lookupId }
-        : { threadId: selected?.lookupId ?? "" }),
-      ownerEmail: selected?.ownerEmail,
+      sourceId: detailSourceId,
+      ...(runId ? { runId } : { threadId }),
+      ownerEmail: ownerEmail.trim() || undefined,
       maxRuns: 20,
       maxEvents: 800,
       maxTraceSpans: 600,
     }),
-    [selected],
+    [detailSourceId, ownerEmail, runId, threadId],
   );
   const {
     data: detail,
@@ -496,46 +826,47 @@ export default function ThreadDebugRoute() {
     "get-agent-thread-debug",
     detailParams,
     {
-      enabled: Boolean(selected?.lookupId),
+      enabled: Boolean(runId || threadId),
     },
   );
 
-  const selectedSource = sources.find((source) => source.id === sourceId);
-
-  useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        view: "thread-debug",
-        path:
-          typeof window === "undefined"
-            ? "/thread-debug"
-            : window.location.pathname,
-        sourceId,
-        query,
-        ownerEmail: ownerEmail.trim() || undefined,
-        threadId:
-          selected?.lookupKind === "thread"
-            ? selected.lookupId
-            : !selected && lookupId.trim() && !lookupId.startsWith("run-")
-              ? lookupId.trim()
-              : undefined,
-        runId:
-          selected?.lookupKind === "run"
-            ? selected.lookupId
-            : !selected && lookupId.trim() && lookupId.startsWith("run-")
-              ? lookupId.trim()
-              : undefined,
-      }),
-    }).catch(() => {});
-  }, [ownerEmail, query, selected, sourceId, lookupId]);
+  const selectedSource = sources.find((source) => source.id === threadSourceId);
+  const detailPane = (
+    <section className="min-w-0">
+      {detailError ? (
+        <ActionQueryError
+          error={detailError}
+          onRetry={() => void refetchDetail()}
+        />
+      ) : null}
+      {detailLoading ? (
+        <div className="rounded-lg bg-card p-4">
+          <Skeleton className="h-6 w-72" />
+          <Skeleton className="mt-3 h-4 w-96" />
+          <Skeleton className="mt-6 h-[520px] w-full" />
+        </div>
+      ) : detail ? (
+        <ThreadDetail detail={detail} />
+      ) : (
+        <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-dashed bg-card px-4 text-center text-sm text-muted-foreground">
+          <IconFileSearch className="mb-2 size-5" />
+          {t("dispatch.pages.threadDebugSelectPrompt", {
+            defaultValue: "Select a failed run or thread to inspect.",
+          })}
+        </div>
+      )}
+    </section>
+  );
 
   return (
     <DispatchShell
-      title="Thread Debug"
-      description="Inspect persisted agent chat threads, run events, and AI internals."
+      title={t("dispatch.pages.threadDebugTitle", {
+        defaultValue: "Thread Debug",
+      })}
+      description={t("dispatch.pages.threadDebugDescription", {
+        defaultValue:
+          "Inspect failed agent runs, persisted threads, run events, and AI internals.",
+      })}
     >
       <div className="space-y-4">
         {sourcesQuery.isError ? (
@@ -544,178 +875,466 @@ export default function ThreadDebugRoute() {
             onRetry={() => void sourcesQuery.refetch()}
           />
         ) : null}
-        <section className="rounded-lg bg-card p-4">
-          <div className="grid gap-3 lg:grid-cols-[220px_1fr_260px_auto]">
-            <Select value={sourceId} onValueChange={setSourceId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Source" />
-              </SelectTrigger>
-              <SelectContent>
-                {sources.map((source) => (
-                  <SelectItem key={source.id} value={source.id}>
-                    {source.label}
-                  </SelectItem>
-                ))}
-                {sources.length === 0 ? (
-                  <SelectItem value="current">Current Dispatch DB</SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search title, preview, messages, tools"
-            />
-            <Input
-              value={ownerEmail}
-              onChange={(event) => setOwnerEmail(event.target.value)}
-              placeholder="Owner email"
-            />
-            <Button
-              type="button"
-              onClick={() =>
-                setSubmittedSearch({
-                  sourceId,
-                  query: query.trim(),
-                  ownerEmail: ownerEmail.trim(),
-                })
-              }
-            >
-              <IconSearch size={16} />
-              Search
-            </Button>
-          </div>
+        <Tabs
+          value={mode}
+          onValueChange={(value) => {
+            const nextMode = parseMode(value);
+            updateRouteState({
+              mode: nextMode,
+              source:
+                nextMode === "threads" && sourceId === "all"
+                  ? "current"
+                  : sourceId,
+              runId: null,
+              threadId: null,
+              inspectSource: null,
+            });
+          }}
+        >
+          <TabsList>
+            <TabsTrigger value="failures">
+              {t("dispatch.pages.threadDebugFailedRuns", {
+                defaultValue: "Failed runs",
+              })}
+            </TabsTrigger>
+            <TabsTrigger value="threads">
+              {t("dispatch.pages.threadDebugThreads", {
+                defaultValue: "Threads",
+              })}
+            </TabsTrigger>
+          </TabsList>
 
-          <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
-            <Input
-              value={lookupId}
-              onChange={(event) => setLookupId(event.target.value)}
-              placeholder="Paste thread or request/run ID"
-              className="font-mono"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                const trimmed = lookupId.trim();
-                if (!trimmed) return;
-                setSelected({
-                  sourceId,
-                  lookupId: trimmed,
-                  lookupKind: trimmed.startsWith("run-") ? "run" : "thread",
-                  ownerEmail: ownerEmail.trim() || undefined,
-                });
-              }}
-            >
-              <IconFileSearch size={16} />
-              Inspect
-            </Button>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {sourcesLoading ? <Skeleton className="h-5 w-32" /> : null}
-            {selectedSource ? <SourceBadge source={selectedSource} /> : null}
-            {selectedSource?.databaseUrlEnv ? (
-              <Badge variant="outline" className="font-mono">
-                {selectedSource.databaseUrlEnv}
-              </Badge>
-            ) : null}
-            {sourcesData?.access ? (
-              <span>
-                {sourcesData.access.viewerEmail} ·{" "}
-                {sourcesData.access.canInspectAll ? "admin scope" : "own scope"}
-              </span>
-            ) : null}
-          </div>
-        </section>
-
-        {searchError ? (
-          <ActionQueryError
-            error={searchError}
-            onRetry={() => void refetchSearch()}
-          />
-        ) : null}
-
-        <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-          <section className="min-h-[520px] rounded-lg bg-card">
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div>
-                <div className="text-sm font-semibold text-foreground">
-                  Threads
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {searchData?.count ?? 0} results ·{" "}
-                  {searchData?.access?.scope ?? "current scope"}
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => refetchSearch()}
-                aria-label="Refresh threads"
-              >
-                <IconRefresh size={16} />
-              </Button>
-            </div>
-            <div className="max-h-[760px] space-y-2 overflow-auto p-3">
-              {searchLoading ? (
-                <>
-                  <Skeleton className="h-28 w-full rounded-lg" />
-                  <Skeleton className="h-28 w-full rounded-lg" />
-                  <Skeleton className="h-28 w-full rounded-lg" />
-                </>
-              ) : null}
-              {!searchLoading && searchThreads.length === 0 ? (
-                <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
-                  <IconDatabase className="mb-2 h-5 w-5" />
-                  No threads found.
-                </div>
-              ) : null}
-              {searchThreads.map((result) => (
-                <ResultCard
-                  key={result.id}
-                  result={result}
-                  selected={
-                    selected?.lookupKind === "thread" &&
-                    selected.lookupId === result.id
-                  }
-                  onSelect={() =>
-                    setSelected({
-                      sourceId: submittedSearch.sourceId,
-                      lookupId: result.id,
-                      lookupKind: "thread",
-                      ownerEmail: submittedSearch.ownerEmail || undefined,
+          <TabsContent value="failures" className="mt-4 space-y-4">
+            <section className="rounded-lg bg-card p-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[220px_1fr_180px_150px]">
+                <Select
+                  value={sourceId}
+                  onValueChange={(value) =>
+                    updateRouteState({
+                      source: value,
+                      runId: null,
+                      threadId: null,
+                      inspectSource: null,
                     })
                   }
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={t("dispatch.pages.threadDebugSource", {
+                        defaultValue: "Source",
+                      })}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {t("dispatch.pages.threadDebugAllSources", {
+                        defaultValue: "All sources",
+                      })}
+                    </SelectItem>
+                    {sources.map((source) => (
+                      <SelectItem key={source.id} value={source.id}>
+                        {source.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={ownerEmail}
+                  onChange={(event) =>
+                    updateRouteState({ owner: event.target.value })
+                  }
+                  placeholder={t("dispatch.pages.threadDebugOwner", {
+                    defaultValue: "Owner email",
+                  })}
                 />
-              ))}
-            </div>
-          </section>
+                <Select
+                  value={status}
+                  onValueChange={(value) =>
+                    updateRouteState({
+                      status: parseFailureStatus(value),
+                      runId: null,
+                      inspectSource: null,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={t("dispatch.pages.threadDebugStatus", {
+                        defaultValue: "Status",
+                      })}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {t("dispatch.pages.threadDebugAllStatuses", {
+                        defaultValue: "All statuses",
+                      })}
+                    </SelectItem>
+                    <SelectItem value="errored">
+                      {t("dispatch.pages.threadDebugErrored", {
+                        defaultValue: "Errored",
+                      })}
+                    </SelectItem>
+                    <SelectItem value="aborted">
+                      {t("dispatch.pages.threadDebugAborted", {
+                        defaultValue: "Aborted",
+                      })}
+                    </SelectItem>
+                    <SelectItem value="truncated">
+                      {t("dispatch.pages.threadDebugTruncated", {
+                        defaultValue: "Truncated",
+                      })}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={range}
+                  onValueChange={(value) =>
+                    updateRouteState({
+                      range: parseFailureRange(value),
+                      runId: null,
+                      inspectSource: null,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={t("dispatch.pages.threadDebugRange", {
+                        defaultValue: "Time range",
+                      })}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24h">
+                      {t("dispatch.pages.threadDebugRange24h", {
+                        defaultValue: "Last 24 hours",
+                      })}
+                    </SelectItem>
+                    <SelectItem value="7d">
+                      {t("dispatch.pages.threadDebugRange7d", {
+                        defaultValue: "Last 7 days",
+                      })}
+                    </SelectItem>
+                    <SelectItem value="30d">
+                      {t("dispatch.pages.threadDebugRange30d", {
+                        defaultValue: "Last 30 days",
+                      })}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  {failuresData?.count ?? failures.length}{" "}
+                  {t("dispatch.pages.threadDebugFailureResults", {
+                    defaultValue: "failed runs",
+                  })}
+                </span>
+                <span>·</span>
+                <span>
+                  {failuresData?.access?.scope ??
+                    t("dispatch.pages.threadDebugCurrentScope", {
+                      defaultValue: "current scope",
+                    })}
+                </span>
+                {failuresData?.partial ? (
+                  <Badge variant="outline">
+                    {t("dispatch.pages.threadDebugPartialResults", {
+                      defaultValue: "Partial results",
+                    })}
+                  </Badge>
+                ) : null}
+              </div>
+              {unavailableFailureSources.length > 0 ? (
+                <div className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <IconAlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    {t("dispatch.pages.threadDebugUnavailableSources", {
+                      defaultValue: "Unavailable sources:",
+                    })}{" "}
+                    {unavailableFailureSources
+                      .map(
+                        ({ source, status: sourceStatus }) =>
+                          `${source.label} (${failureSourceStatusLabels[sourceStatus]})`,
+                      )
+                      .join(", ")}
+                  </span>
+                </div>
+              ) : null}
+            </section>
 
-          <section className="min-w-0">
-            {detailError ? (
+            {failuresError ? (
               <ActionQueryError
-                error={detailError}
-                onRetry={() => void refetchDetail()}
+                error={failuresError}
+                onRetry={() => void refetchFailures()}
               />
             ) : null}
-            {detailLoading ? (
-              <div className="rounded-lg bg-card p-4">
-                <Skeleton className="h-6 w-72" />
-                <Skeleton className="mt-3 h-4 w-96" />
-                <Skeleton className="mt-6 h-[520px] w-full" />
+
+            <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+              <section className="min-h-[520px] rounded-lg bg-card">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <div className="text-sm font-semibold text-foreground">
+                    {t("dispatch.pages.threadDebugFailedRuns", {
+                      defaultValue: "Failed runs",
+                    })}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void refetchFailures()}
+                    aria-label={t("dispatch.pages.threadDebugRefreshFailures", {
+                      defaultValue: "Refresh failed runs",
+                    })}
+                  >
+                    <IconRefresh className="size-4" />
+                  </Button>
+                </div>
+                <div className="max-h-[760px] space-y-2 overflow-auto p-3">
+                  {failuresLoading ? (
+                    <>
+                      <Skeleton className="h-32 w-full rounded-lg" />
+                      <Skeleton className="h-32 w-full rounded-lg" />
+                      <Skeleton className="h-32 w-full rounded-lg" />
+                    </>
+                  ) : null}
+                  {!failuresLoading && failures.length === 0 ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
+                      <IconDatabase className="mb-2 size-5" />
+                      {t("dispatch.pages.threadDebugNoFailures", {
+                        defaultValue: "No failed runs found.",
+                      })}
+                    </div>
+                  ) : null}
+                  {failures.map((failure) => (
+                    <FailureCard
+                      key={`${failureSourceId(failure)}:${failure.id}`}
+                      failure={failure}
+                      selected={
+                        runId === failure.id &&
+                        detailSourceId === failureSourceId(failure)
+                      }
+                      onSelect={() =>
+                        updateRouteState({
+                          inspectSource: failureSourceId(failure),
+                          runId: failure.id,
+                          threadId: null,
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+              {detailPane}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="threads" className="mt-4 space-y-4">
+            <section className="rounded-lg bg-card p-4">
+              <div className="grid gap-3 lg:grid-cols-[220px_1fr_260px_auto]">
+                <Select
+                  value={threadSourceId}
+                  onValueChange={(value) =>
+                    updateRouteState({
+                      source: value,
+                      runId: null,
+                      threadId: null,
+                      inspectSource: null,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={t("dispatch.pages.threadDebugSource", {
+                        defaultValue: "Source",
+                      })}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sources.map((source) => (
+                      <SelectItem key={source.id} value={source.id}>
+                        {source.label}
+                      </SelectItem>
+                    ))}
+                    {sources.length === 0 ? (
+                      <SelectItem value="current">
+                        {t("dispatch.pages.threadDebugCurrentDatabase", {
+                          defaultValue: "Current Dispatch DB",
+                        })}
+                      </SelectItem>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={query}
+                  onChange={(event) =>
+                    updateRouteState({ query: event.target.value })
+                  }
+                  placeholder={t(
+                    "dispatch.pages.threadDebugSearchPlaceholder",
+                    {
+                      defaultValue: "Search title, preview, messages, tools",
+                    },
+                  )}
+                />
+                <Input
+                  value={ownerEmail}
+                  onChange={(event) =>
+                    updateRouteState({ owner: event.target.value })
+                  }
+                  placeholder={t("dispatch.pages.threadDebugOwner", {
+                    defaultValue: "Owner email",
+                  })}
+                />
+                <Button type="button" onClick={() => void refetchSearch()}>
+                  <IconSearch className="size-4" />
+                  {t("dispatch.pages.threadDebugSearch", {
+                    defaultValue: "Search",
+                  })}
+                </Button>
               </div>
-            ) : detail ? (
-              <ThreadDetail detail={detail} />
-            ) : (
-              <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-dashed bg-card px-4 text-center text-sm text-muted-foreground">
-                <IconFileSearch className="mb-2 h-5 w-5" />
-                Select or inspect a thread or request/run ID.
+
+              <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
+                <Input
+                  value={lookupId}
+                  onChange={(event) => setLookupId(event.target.value)}
+                  placeholder={t(
+                    "dispatch.pages.threadDebugLookupPlaceholder",
+                    {
+                      defaultValue: "Paste thread or request/run ID",
+                    },
+                  )}
+                  className="font-mono"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const trimmed = lookupId.trim();
+                    if (!trimmed) return;
+                    updateRouteState(
+                      trimmed.startsWith("run-")
+                        ? {
+                            runId: trimmed,
+                            threadId: null,
+                            inspectSource: null,
+                          }
+                        : {
+                            threadId: trimmed,
+                            runId: null,
+                            inspectSource: null,
+                          },
+                    );
+                  }}
+                >
+                  <IconFileSearch className="size-4" />
+                  {t("dispatch.pages.threadDebugInspect", {
+                    defaultValue: "Inspect",
+                  })}
+                </Button>
               </div>
-            )}
-          </section>
-        </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {sourcesLoading ? <Skeleton className="h-5 w-32" /> : null}
+                {selectedSource ? (
+                  <SourceBadge source={selectedSource} />
+                ) : null}
+                {selectedSource?.databaseUrlEnv ? (
+                  <Badge variant="outline" className="font-mono">
+                    {selectedSource.databaseUrlEnv}
+                  </Badge>
+                ) : null}
+                {sourcesData?.access ? (
+                  <span>
+                    {sourcesData.access.viewerEmail} ·{" "}
+                    {sourcesData.access.canInspectAll
+                      ? t("dispatch.pages.threadDebugAdminScope", {
+                          defaultValue: "admin scope",
+                        })
+                      : t("dispatch.pages.threadDebugOwnScope", {
+                          defaultValue: "own scope",
+                        })}
+                  </span>
+                ) : null}
+              </div>
+            </section>
+
+            {searchError ? (
+              <ActionQueryError
+                error={searchError}
+                onRetry={() => void refetchSearch()}
+              />
+            ) : null}
+
+            <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+              <section className="min-h-[520px] rounded-lg bg-card">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {t("dispatch.pages.threadDebugThreads", {
+                        defaultValue: "Threads",
+                      })}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {searchData?.count ?? 0}{" "}
+                      {t("dispatch.pages.threadDebugResults", {
+                        defaultValue: "results",
+                      })}{" "}
+                      ·{" "}
+                      {searchData?.access?.scope ??
+                        t("dispatch.pages.threadDebugCurrentScope", {
+                          defaultValue: "current scope",
+                        })}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void refetchSearch()}
+                    aria-label={t("dispatch.pages.threadDebugRefreshThreads", {
+                      defaultValue: "Refresh threads",
+                    })}
+                  >
+                    <IconRefresh className="size-4" />
+                  </Button>
+                </div>
+                <div className="max-h-[760px] space-y-2 overflow-auto p-3">
+                  {searchLoading ? (
+                    <>
+                      <Skeleton className="h-28 w-full rounded-lg" />
+                      <Skeleton className="h-28 w-full rounded-lg" />
+                      <Skeleton className="h-28 w-full rounded-lg" />
+                    </>
+                  ) : null}
+                  {!searchLoading && searchThreads.length === 0 ? (
+                    <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed px-4 text-center text-sm text-muted-foreground">
+                      <IconDatabase className="mb-2 size-5" />
+                      {t("dispatch.pages.threadDebugNoThreads", {
+                        defaultValue: "No threads found.",
+                      })}
+                    </div>
+                  ) : null}
+                  {searchThreads.map((result) => (
+                    <ResultCard
+                      key={result.id}
+                      result={result}
+                      selected={threadId === result.id}
+                      onSelect={() =>
+                        updateRouteState({
+                          threadId: result.id,
+                          runId: null,
+                          inspectSource: null,
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+              {detailPane}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </DispatchShell>
   );

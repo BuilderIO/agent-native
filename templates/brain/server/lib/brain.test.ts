@@ -679,6 +679,7 @@ vi.mock("@agent-native/core/resources/store", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: vi.fn(async () => null),
+  writeAppState: vi.fn(async () => undefined),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -1280,7 +1281,11 @@ describe("Brain knowledge quality gates", () => {
       content: "Decision: ship the beta on May 20.",
     } as const;
     await createCapture(input);
-    await createCapture(input);
+    Object.assign(mocks.rows.captures[0], {
+      status: "distilled",
+      distilledAt: "2026-05-16T12:00:00.000Z",
+    });
+    const unchanged = await createCapture(input);
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(enqueue).toHaveBeenCalledWith(
@@ -1289,6 +1294,39 @@ describe("Brain knowledge quality gates", () => {
         next: expect.any(Object),
       }),
     );
+    expect(unchanged).toMatchObject({
+      status: "distilled",
+      distilledAt: "2026-05-16T12:00:00.000Z",
+    });
+  });
+
+  it("invalidates a capture when publisher metadata changes", async () => {
+    seedSource();
+    const enqueue = vi.mocked(enqueueCaptureInvalidation);
+    const input = {
+      sourceId: "source-1",
+      externalId: "capture-ext-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+    } as const;
+
+    await createCapture({
+      ...input,
+      metadata: { sourceUrl: "https://docs.example.test/old" },
+    });
+    await createCapture({
+      ...input,
+      metadata: { sourceUrl: "https://docs.example.test/new" },
+    });
+
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(mocks.rows.captures[0]).toMatchObject({ status: "queued" });
+    expect(
+      JSON.parse(String(mocks.rows.captures[0]?.metadataJson)),
+    ).toMatchObject({
+      sourceUrl: "https://docs.example.test/new",
+    });
   });
 
   it("prevents an in-flight refresh from recreating an upstream-deleted capture", async () => {

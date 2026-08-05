@@ -87,6 +87,9 @@ async function ensureTable(): Promise<void> {
           pinned_at ${intType()},
           archived_at ${intType()},
           share_token_hash TEXT,
+          source_platform TEXT,
+          source_app_id TEXT,
+          source_url TEXT,
           org_id TEXT,
           visibility TEXT NOT NULL DEFAULT 'private'
         )
@@ -115,6 +118,9 @@ async function ensureTable(): Promise<void> {
           ["pinned_at", intType()],
           ["archived_at", intType()],
           ["share_token_hash", "TEXT"],
+          ["source_platform", "TEXT"],
+          ["source_app_id", "TEXT"],
+          ["source_url", "TEXT"],
           ["org_id", "TEXT"],
           ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
         ] as const) {
@@ -149,6 +155,10 @@ async function ensureTable(): Promise<void> {
           "chat_threads_scope_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
         );
+        await ensureIndexExists(
+          "chat_threads_source_updated_idx",
+          `CREATE INDEX IF NOT EXISTS chat_threads_source_updated_idx ON chat_threads (owner_email, source_app_id, updated_at)`,
+        );
         // Public share-link resolution looks threads up by token hash;
         // without this index it degrades to a LIKE scan over every blob.
         await ensureIndexExists(
@@ -175,6 +185,9 @@ async function ensureTable(): Promise<void> {
         ["pinned_at", intType()],
         ["archived_at", intType()],
         ["share_token_hash", "TEXT"],
+        ["source_platform", "TEXT"],
+        ["source_app_id", "TEXT"],
+        ["source_url", "TEXT"],
         ["org_id", "TEXT"],
         ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
       ] as const) {
@@ -209,6 +222,7 @@ async function ensureTable(): Promise<void> {
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
         `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
+        `CREATE INDEX IF NOT EXISTS chat_threads_source_updated_idx ON chat_threads (owner_email, source_app_id, updated_at)`,
         `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
         CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL,
       ]) {
@@ -289,6 +303,12 @@ export interface ChatThreadScope {
   label?: string;
 }
 
+export interface ChatThreadSource {
+  platform?: string | null;
+  appId?: string | null;
+  url?: string | null;
+}
+
 export interface ChatThread {
   id: string;
   ownerEmail: string;
@@ -301,6 +321,7 @@ export interface ChatThread {
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
   archivedAt: number | null;
+  source: ChatThreadSource | null;
   orgId: string | null;
   visibility: "private" | "org" | "public";
 }
@@ -315,6 +336,7 @@ export interface ChatThreadSummary {
   scope: ChatThreadScope | null;
   pinnedAt: number | null;
   archivedAt: number | null;
+  source: ChatThreadSource | null;
   orgId: string | null;
   visibility: "private" | "org" | "public";
 }
@@ -333,6 +355,27 @@ function readScope(r: Record<string, unknown>): ChatThreadScope | null {
   if (!type || !id) return null;
   const label = r.scope_label as string | null | undefined;
   return label ? { type, id, label } : { type, id };
+}
+
+function readSource(r: Record<string, unknown>): ChatThreadSource | null {
+  const platform =
+    typeof r.source_platform === "string" && r.source_platform.trim()
+      ? r.source_platform.trim()
+      : null;
+  const appId =
+    typeof r.source_app_id === "string" && r.source_app_id.trim()
+      ? r.source_app_id.trim()
+      : null;
+  const url =
+    typeof r.source_url === "string" && r.source_url.trim()
+      ? r.source_url.trim()
+      : null;
+  if (!platform && !appId && !url) return null;
+  return {
+    ...(platform ? { platform } : {}),
+    ...(appId ? { appId } : {}),
+    ...(url ? { url } : {}),
+  };
 }
 
 function readNullableNumber(value: unknown): number | null {
@@ -407,6 +450,7 @@ function rowToThread(r: Record<string, unknown>): ChatThread {
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
     archivedAt: readNullableNumber(r.archived_at),
+    source: readSource(r),
     orgId: (r.org_id as string | null | undefined) ?? null,
     visibility: readVisibility(r.visibility),
   };
@@ -428,6 +472,7 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
     scope: readScope(r),
     pinnedAt: readNullableNumber(r.pinned_at),
     archivedAt: readNullableNumber(r.archived_at),
+    source: readSource(r),
     orgId: (r.org_id as string | null | undefined) ?? null,
     visibility: readVisibility(r.visibility),
   };
@@ -435,7 +480,12 @@ function rowToSummary(r: Record<string, unknown>): ChatThreadSummary | null {
 
 export async function createThread(
   ownerEmail: string,
-  opts?: { id?: string; title?: string; scope?: ChatThreadScope | null },
+  opts?: {
+    id?: string;
+    title?: string;
+    scope?: ChatThreadScope | null;
+    source?: ChatThreadSource | null;
+  },
 ): Promise<ChatThread> {
   await ensureTable();
   const client = getDbExec();
@@ -443,10 +493,11 @@ export async function createThread(
   const now = Date.now();
   const title = opts?.title ?? "";
   const scope = opts?.scope ?? null;
+  const source = opts?.source ?? null;
   const orgId = getRequestOrgId() ?? null;
 
   await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, org_id, visibility) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?, ?, 'private')`,
+    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, '', '{}', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
     args: [
       id,
       ownerEmail,
@@ -456,6 +507,9 @@ export async function createThread(
       scope?.type ?? null,
       scope?.id ?? null,
       scope?.label ?? null,
+      source?.platform ?? null,
+      source?.appId ?? null,
+      source?.url ?? null,
       orgId,
     ],
   });
@@ -472,19 +526,20 @@ export async function createThread(
     scope,
     pinnedAt: null,
     archivedAt: null,
+    source,
     orgId,
     visibility: "private",
   };
 }
 
-const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, org_id, visibility`;
+const THREAD_COLUMNS = `id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, source_platform, source_app_id, source_url, org_id, visibility`;
 // The list/summary path deliberately omits `thread_data`: it is the full
 // message-history JSON blob and selecting it for every row turns "open the
 // sidebar" into "download every conversation". The summary derives nothing
 // from the blob anymore — preview and message_count are dedicated columns
 // (message_count is maintained on write). The detail path (`THREAD_COLUMNS` /
 // `getThread`) still returns the full blob.
-const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, org_id, visibility`;
+const SUMMARY_COLUMNS = `id, title, preview, message_count, created_at, updated_at, scope_type, scope_id, scope_label, pinned_at, archived_at, source_platform, source_app_id, source_url, org_id, visibility`;
 
 export function registerChatThreadsShareable(): void {
   registerShareableResource({
@@ -529,6 +584,32 @@ export async function getThread(id: string): Promise<ChatThread | null> {
   });
   if (rows.length === 0) return null;
   return rowToThread(rows[0]);
+}
+
+/**
+ * Fill missing provenance on a thread without rewriting an established origin.
+ * Integration retries and long-lived mapped conversations both pass through
+ * this path, so the first source remains the source shown in chat history.
+ */
+export async function setThreadSourceIfMissing(
+  id: string,
+  source: ChatThreadSource | null | undefined,
+): Promise<boolean> {
+  if (!source || (!source.platform && !source.appId && !source.url)) {
+    return false;
+  }
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE chat_threads SET source_platform = COALESCE(source_platform, ?), source_app_id = COALESCE(source_app_id, ?), source_url = COALESCE(source_url, ?) WHERE id = ?`,
+    args: [
+      source.platform ?? null,
+      source.appId ?? null,
+      source.url ?? null,
+      id,
+    ],
+  });
+  return result.rowsAffected > 0;
 }
 
 export async function forkThread(
@@ -599,7 +680,7 @@ export async function forkThread(
   const client = getDbExec();
   const orgId = getRequestOrgId() ?? null;
   await client.execute({
-    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, org_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
+    sql: `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, scope_type, scope_id, scope_label, source_platform, source_app_id, source_url, org_id, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'private')`,
     args: [
       id,
       ownerEmail,
@@ -612,6 +693,9 @@ export async function forkThread(
       source.scope?.type ?? null,
       source.scope?.id ?? null,
       source.scope?.label ?? null,
+      null,
+      null,
+      null,
       orgId,
     ],
   });
@@ -627,6 +711,7 @@ export async function forkThread(
     scope: source.scope,
     pinnedAt: null,
     archivedAt: null,
+    source: null,
     orgId,
     visibility: "private",
   };
@@ -653,6 +738,14 @@ export interface ListThreadsOptions {
    * (e.g. an "Archived" filter or restoring one via `setThreadArchived`).
    */
   includeArchived?: boolean;
+  /**
+   * Include connected and other-app threads. The HTTP chat list defaults this
+   * to false so each app shows its own local chats first; internal callers
+   * keep the historical all-sources behavior unless they opt out explicitly.
+   */
+  includeExternal?: boolean;
+  /** Current app id used by the local-only view. */
+  sourceAppId?: string | null;
 }
 
 function chatThreadAccessSql(
@@ -691,8 +784,8 @@ export async function listThreads(
   const offset = opts.offset ?? 0;
   const client = getDbExec();
   // `message_count > 0` is the authoritative "has messages" signal maintained
-  // on every write, so the old `OR thread_data LIKE '%"messages"%'` substring
-  // scan over the full blob is no longer needed here.
+  // on every write. The local-only view adds a narrowly scoped legacy marker
+  // check below because older integration rows predate persisted source fields.
   const access = chatThreadAccessSql(
     ownerEmail,
     opts.orgId ?? getRequestOrgId(),
@@ -701,6 +794,16 @@ export async function listThreads(
   const args: (string | number)[] = [...access.args];
   if (!opts.includeArchived) {
     filters.push(`archived_at IS NULL`);
+  }
+  if (opts.includeExternal === false) {
+    filters.push(`source_platform IS NULL`);
+    filters.push(
+      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
+    );
+    if (opts.sourceAppId) {
+      filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
+      args.push(opts.sourceAppId);
+    }
   }
   if (opts.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
@@ -731,6 +834,10 @@ export async function searchThreads(
     orgId?: string | null;
     /** See `ListThreadsOptions.includeArchived` — defaults to false. */
     includeArchived?: boolean;
+    /** See `ListThreadsOptions.includeExternal`. */
+    includeExternal?: boolean;
+    /** Current app id used by the local-only view. */
+    sourceAppId?: string | null;
   } = {},
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
@@ -752,6 +859,16 @@ export async function searchThreads(
   if (!options.includeArchived) {
     filters.push(`archived_at IS NULL`);
   }
+  if (options.includeExternal === false) {
+    filters.push(`source_platform IS NULL`);
+    filters.push(
+      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
+    );
+    if (options.sourceAppId) {
+      filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
+      args.push(options.sourceAppId);
+    }
+  }
   if (options.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(options.scope.type, options.scope.id);
@@ -764,6 +881,48 @@ export async function searchThreads(
   return rows
     .map((r) => rowToSummary(r))
     .filter((r): r is ChatThreadSummary => r !== null);
+}
+
+/**
+ * Scope a thread should carry after a run inside a resource: adopt when it has
+ * none, otherwise keep what it has. An unscoped thread reads as general, and a
+ * general chat renders inside every resource — so never retag, never clear.
+ */
+export function resolveRunThreadScope(
+  existing: ChatThreadScope | null,
+  incoming: ChatThreadScope | null | undefined,
+): ChatThreadScope | null {
+  if (existing) return existing;
+  return incoming ?? null;
+}
+
+/**
+ * Claim an unscoped thread for `scope`, returning the scope it actually ends up
+ * with. `withThreadDataLock` only serializes one process, so two workers can
+ * both read the same unscoped row; the `scope_type IS NULL` guard makes the
+ * first writer win and the loser reports the winner instead of retagging.
+ */
+export async function adoptThreadScopeIfUnscoped(
+  id: string,
+  scope: ChatThreadScope,
+): Promise<ChatThreadScope | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE chat_threads SET scope_type = ?, scope_id = ?, scope_label = ?, updated_at = ? WHERE id = ? AND scope_type IS NULL`,
+    args: [
+      scope.type,
+      scope.id,
+      scope.label ?? null,
+      Math.max(Date.now(), 1),
+      id,
+    ],
+  });
+  if (result.rowsAffected > 0) {
+    emitChatThreadChange(id);
+    return scope;
+  }
+  return (await getThread(id))?.scope ?? null;
 }
 
 /**

@@ -508,6 +508,7 @@ export default function ShareRoute() {
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
+  const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -892,6 +893,7 @@ export default function ShareRoute() {
             <RecordingViewsBadge
               recordingId={recording.id}
               viewCount={viewCount}
+              agentViewCount={agentViewCount}
               canViewDetails={viewerCanEdit}
               onOpenInsights={() => setPanel("insights")}
             />
@@ -997,6 +999,7 @@ export default function ShareRoute() {
               cta={firstCta}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
+              onCommentClick={() => setPanel("comments")}
               className="h-full w-full rounded-none sm:rounded-xl"
             />
           </div>

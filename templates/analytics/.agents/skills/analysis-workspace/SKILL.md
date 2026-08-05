@@ -48,6 +48,28 @@ window, then read them back selectively for synthesis.
   `timed_out`, chunk the work or persist intermediate progress with
   `workspaceWrite` and re-run.
 
+## Delegated Analysis Handoff
+
+Background sub-agents start with a clean context. A handoff for a large
+analysis must include the exact staged dataset id or workspace path, the
+records/chunk range to process, the output path, and the checkpoint or resume
+operation. The child must read that staged input before making provider calls.
+
+- If a readable staged file or dataset already exists, process it in place. Do
+  not re-page the provider endpoint to recreate the same corpus.
+- If the named staged input is missing or unreadable, stop with an explicit
+  missing-input error. Do not silently fall back to a full provider sweep.
+- For more than 500 Gong records, do not use `gong-calls(exhaustive=true)`, a
+  per-call transcript loop, or a single `provider-api-request` `fetchAllPages`
+  call as the analysis itself. If the term is a configured keyword tracker,
+  stage `/calls/extensive` tracker results and reduce them with a Data Program
+  or `query-staged-dataset`. Otherwise use `provider-corpus-job` with a staged
+  call-id input and continue raw transcript retrieval in bounded, checkpointed
+  batches.
+- Write a compact result or progress marker after every completed chunk. A
+  final answer written only after the whole corpus is processed is not a
+  checkpoint.
+
 ## Workspace File Helpers
 
 Inside `run-code`, use the workspace helper functions:
@@ -105,11 +127,15 @@ narrow, where records must be joined across systems, or where absence matters:
 
 1. Discover the provider surface with `provider-api-catalog` and
    `provider-api-docs` when endpoint/filter/pagination details are uncertain.
-2. Pull the relevant records with `provider-api-request`. Use `fetchAllPages`
-   for cursor pagination, `stageAs` for queryable staged datasets, and
-   `saveToFile` for large raw responses.
-3. Use `run-code` to call `providerFetch` or `appAction` in loops, write
-   intermediate files, normalize records, join identity fields, and aggregate.
+2. For a broad or absence-sensitive corpus, start with the provider's native
+   search or indexed tracker surface when one exists. Otherwise use
+   `provider-api-request` as the raw ingestion step with `stageAs` or
+   `saveToFile`, then reduce the staged data with `query-staged-dataset` or a
+   Data Program. Use `provider-corpus-job` for durable paginated or batched
+   transcript/body scans so each page or batch is checkpointed durably.
+3. Use `run-code` to read staged data, write intermediate files, normalize
+   records, join identity fields, and aggregate. For long code, use
+   `background: true` and persist progress after each chunk.
 4. Validate coverage before synthesis. Track pages fetched, records inspected,
    truncation flags, aborted calls, and records skipped for missing joins.
 5. Finalize with the answer plus coverage and caveats. If coverage is partial,

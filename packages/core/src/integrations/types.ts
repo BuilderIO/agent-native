@@ -163,6 +163,13 @@ export interface OutboundTarget {
   tenantId?: string;
   /** Managed installation id when the caller already resolved it. */
   installationId?: string;
+  /**
+   * Provider installation key identifying which connected app to send as.
+   * Required when a tenant has more than one app of the same platform
+   * connected — without it the adapter cannot tell them apart and refuses to
+   * guess rather than posting under the wrong bot identity.
+   */
+  installationKey?: string;
 }
 
 /**

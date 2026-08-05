@@ -1487,6 +1487,9 @@ const esES = {
     advancedRuntime: "Avanzado: extender el runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeros pasos",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "¿Qué es Agent-Native?",
     agentSurfaces: "Superficies del Agent",
     keyConcepts: "Conceptos clave",
@@ -1660,6 +1663,7 @@ const esES = {
     formsOverview: "Visión general",
     formsBuildingPublishing: "Creación y publicación",
     formsResponses: "Respuestas y estadísticas",
+    docsComponents: "Docs Components",
     formsDevelopers: "Guía para desarrolladores",
   },
 } satisfies typeof enUS;

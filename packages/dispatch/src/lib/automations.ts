@@ -5,6 +5,7 @@ export interface DispatchAutomationItem {
   name: string;
   path: string;
   owner: string;
+  scope?: "personal" | "organization";
   canUpdate?: boolean;
   triggerType?: "schedule" | "event" | string;
   event?: string;
@@ -14,8 +15,10 @@ export interface DispatchAutomationItem {
   mode?: string;
   domain?: string;
   enabled?: boolean;
+  timezone?: string;
   lastStatus?: string;
   lastRun?: string;
+  lastCheck?: string;
   lastError?: string;
   nextRun?: string;
   createdBy?: string;

@@ -196,6 +196,10 @@ export interface MultiScreenCanvasProps {
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
+  /** Return false to keep the arrow key: the host's real selection is an
+   * element inside a screen, and this canvas still lists that screen in
+   * `selectedIds`. Same veto `onDeleteSelection` uses. */
+  onNudgeSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,
@@ -225,7 +229,11 @@ export interface MultiScreenCanvasProps {
    * Called when the user clicks the + affordance on a screen's breakpoint
    * row to add the next standard breakpoint width (390 / 768 / 1280).
    */
-  onAddBreakpoint?: (screenId: string, widthPx: number) => void;
+  /** Adds a breakpoint width to the DESIGN. A design has one active breakpoint
+   *  set in v1, so this deliberately takes no screen id: every screen renders
+   *  the same widths, and a per-screen parameter here only ever promised
+   *  scoping the action cannot deliver. */
+  onAddBreakpoint?: (widthPx: number) => void;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -838,6 +846,9 @@ export type PendingWheelGesture =
   | {
       mode: "zoom";
       deltaY: number;
+      /** Trackpad pinch rather than a discrete mouse notch — the two use
+       *  different sensitivities, so accumulation must not mix them. */
+      pinch: boolean;
       cursor: Point;
       clientX: number;
       clientY: number;

@@ -93,7 +93,6 @@ import {
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   integrationDispatchScopeValue,
   isInIntegrationRecoveryRuntime,
-  isIntegrationDurableDispatchConfigured,
   isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
 import {
@@ -1787,15 +1786,16 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 401);
           return { error: "Invalid or expired internal token" };
         }
-        if (!isIntegrationDurableDispatchConfigured()) {
-          return { ok: true, disabled: true };
-        }
         const webhookBaseUrl = getBaseUrl(event);
         const [pendingTasks, campaigns, a2aContinuations] = await Promise.all([
+          // Portable (fire-and-forget) dispatch loses tasks whenever the
+          // self-dispatch POST dies with the container, and the in-process
+          // retry interval does not survive a serverless freeze. Sweeping only
+          // durable scopes left those deployments with no recovery at all, so
+          // the queue is swept regardless of dispatch mode.
           retryStuckPendingTasks({
             webhookBaseUrl,
             limit: 20,
-            durableOnly: true,
           }).catch((error) => {
             console.error(
               "[integrations] Pending-task recovery failed:",

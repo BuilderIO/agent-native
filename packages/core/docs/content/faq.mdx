@@ -26,7 +26,7 @@ Agent-native is for people who want a real app and an AI agent to work from the 
 
 ### How is this different from adding AI to an existing app? {#how-is-this-different}
 
-Most apps bolt AI on as an afterthought that can't actually _do_ things in the app. In an agent-native app the agent is a first-class citizen that shares the same actions, database, and state as the UI, so it can do anything the buttons can — and modify the app's own code. See [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+Most apps bolt AI on as an afterthought that can't actually _do_ things in the app. In an agent-native app the agent is a first-class citizen that shares the same actions, database, and state as the UI, so it can do anything the buttons can. See [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
 <Diagram id="doc-block-1s6b04" title="Bolted-on AI vs. agent-native" summary="A bolted-on chat sidebar lives in its own world. An agent-native agent shares the same actions, database, and state as the UI.">
 
@@ -126,7 +126,7 @@ The framework ships with production-ready templates including [Chat](/docs/templ
 
 ### Can I customize templates? {#can-i-customize-templates}
 
-That's the whole point. Start from a template and customize it by asking the agent. "Add a priority field to forms." "Connect to our Salesforce instance." "Change the color scheme to match our brand." The agent modifies the code, and your app evolves over time.
+That's the whole point. Start from a template and customize it in your own repository and development workflow. "Add a priority field to forms." "Connect to our Salesforce instance." "Change the color scheme to match our brand." An agent can edit the source when its frame is intentionally granted workspace and write tooling; otherwise the embedded agent operates the resulting app through its actions and data surface.
 
 ### Can I build something the templates don't cover? {#build-from-scratch}
 
@@ -138,9 +138,9 @@ Yes — install a skill into a coding agent you already use with one command and
 
 ## Agent capabilities {#agent-capabilities}
 
-### Can the agent really modify the app's own code? {#can-the-agent-modify-code}
+### Does the embedded agent edit the app's source code? {#can-the-agent-modify-code}
 
-Yes, and it's a feature. The agent can safely edit components, routes, styles, and actions. You ask "add a cohort analysis chart" and the agent builds it. You ask "connect to our Stripe account" and the agent writes the integration. Everything is normal Git-tracked code, so bad changes are easy to revert.
+Not by default. The embedded agent normally works through actions, SQL-backed state, and configured integrations. It can edit components, routes, styles, or actions only when its frame is intentionally granted repository workspace and write tooling. Otherwise use your normal development workflow or a separate code-capable development/Builder frame. For runtime customization without source changes, use [Extensions](/docs/extensions).
 
 ### Can users talk to the agent from outside the app? {#external-channels}
 

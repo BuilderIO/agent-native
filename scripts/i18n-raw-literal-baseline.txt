@@ -1,8 +1,11 @@
 # Existing raw visible UI literals.
 # Keep this file sorted. Remove entries as surfaces move to i18n.
 # Format: relative/source/path.tsx|Visible string
+packages/docs/app/components/blocks/cards.tsx|Feature name
+packages/docs/app/components/blocks/comparison.tsx|A side-by-side comparison of two to four options, e.g. Before/After or Option A/Option B.
+packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.
+packages/docs/app/components/blocks/steps.tsx|Step title
 packages/docs/app/components/docBlocks.tsx|| Extract
-templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY - topY
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
 templates/crm/app/components/crm/CreateCrmRecordDialog.tsx|This record lives in the local-authoritative Native SQL CRM. You can connect or mirror another CRM separately.

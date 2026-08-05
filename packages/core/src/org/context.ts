@@ -7,6 +7,10 @@ import { getSetting } from "../settings/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
+import {
+  invalidateRequestMemberOrgIds,
+  requestMemberOrgIds,
+} from "./request-org-cache.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
 const EMPTY_CONTEXT: OrgContext = {
@@ -210,6 +214,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
+  // Started before the memberships await so the two round trips overlap; the
+  // `catch` only covers the early returns below, the later `await` still
+  // propagates a real failure.
+  const activeOrgSettingPromise = loadActiveOrgSettingForEvent(event, email);
+  activeOrgSettingPromise.catch(() => {});
+
   let memberships: MembershipRow[] | null;
   try {
     memberships = await loadMembershipsForEvent(event, email);
@@ -238,7 +248,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
-  const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
+  const activeOrgSetting = await activeOrgSettingPromise;
   const explicitPersonal = activeOrgSetting?.orgId === null;
 
   const emailDomain = emailDomainOf(email);
@@ -410,17 +420,26 @@ async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
 export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
-  const rows = await queryOrgMembers({
-    sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?
-          ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
-    args: [email.toLowerCase()],
+  const idsPromise = requestMemberOrgIds(email, async () => {
+    const rows = await queryOrgMembers({
+      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?
+            ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
+      args: [email.toLowerCase()],
+    });
+    return rows?.map((r: any) => String(r.org_id)) ?? null;
   });
-  if (!rows?.length) return null;
-  const ids = rows.map((r: any) => String(r.org_id));
-  const activeOrgSetting = (await getUserSetting(
+  // Both reads depend only on the email, so they overlap instead of queueing.
+  // The `catch` only keeps the early return below from surfacing an unhandled
+  // rejection; the `await` further down still propagates the failure.
+  const settingPromise = getUserSetting(
     email,
     "active-org-id",
-  )) as ActiveOrgSetting;
+  ) as Promise<ActiveOrgSetting>;
+  settingPromise.catch(() => {});
+
+  const ids = await idsPromise;
+  if (!ids?.length) return null;
+  const activeOrgSetting = await settingPromise;
   if (activeOrgSetting?.orgId === null) return null;
   if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
     return activeOrgSetting.orgId;
@@ -438,9 +457,13 @@ export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,
 ): Promise<string | null> {
+  // Overlapped, not queued: each is a separate round trip and this pair runs
+  // on the session-backfill path of every authenticated request.
+  const settingPromise = loadActiveOrgSettingForEvent(event, email);
+  settingPromise.catch(() => {});
   const memberships = await loadMembershipsForEvent(event, email);
   if (!memberships || memberships.length === 0) return null;
-  const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
+  const activeOrgSetting = await settingPromise;
   if (activeOrgSetting?.orgId === null) return null;
   if (
     activeOrgSetting?.orgId &&
@@ -485,6 +508,7 @@ export async function createOrganization(
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
     args: [nanoid(), id, email, role, createdAt],
   });
+  invalidateRequestMemberOrgIds();
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
 
@@ -669,6 +693,7 @@ async function tryCreateDefaultOrg(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), orgId, email, "owner", now],
     });
+    invalidateRequestMemberOrgIds();
 
     await setActiveOrgId(email, orgId, "auto-created default organization");
 

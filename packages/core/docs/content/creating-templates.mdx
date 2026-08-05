@@ -14,6 +14,15 @@ shadcn-style primitives, toast/mobile hooks, date pickers, and simple app shell
 slots. Keep template-specific variants local when they encode product behavior
 or visual identity.
 
+Keep the three layers in mind when deciding where a capability belongs:
+
+- **Core - the framework:** the required runtime and data contract every app can use.
+- **Toolkit - optional reusable pieces:** shared UI and product systems that apps can adopt, compose, or fork.
+- **Templates - optional apps:** complete domain products built on Core, commonly using Toolkit, that people can fork and use as starting points.
+
+Toolkit and Templates are optional. A template is not the framework itself, and
+Toolkit does not replace Core.
+
 A good template:
 
 - Solves one workflow end-to-end, with useful seed data or an empty-state flow.

@@ -30,7 +30,7 @@ import {
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
-  isDurableBackgroundFlagEnabled,
+  isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import {
   INTEGRATION_RECOVERY_RUNTIME_MARKER,
@@ -53,6 +53,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
 } from "../shared/social-meta.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import { cloneServerBundleForFunction, copyDir } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1157,6 +1158,39 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getPostHogClientConfigScript() {
+  // MUST stay consistent with resolvePublicPostHogConfig in
+  // server/posthog-config.ts (worker bundles a string copy; it can't import it).
+  // Never falls back to POSTHOG_API_KEY — that key can be a private one and
+  // this string is inlined into the public, CDN-cached HTML shell.
+  const env = globalThis.process?.env || {};
+  const posthogKey = firstNonEmpty(
+    env.POSTHOG_PUBLIC_KEY,
+    env.VITE_POSTHOG_KEY,
+    env.VITE_POSTHOG_PUBLIC_KEY,
+  );
+  if (!posthogKey) return null;
+  const posthogHost = (
+    firstNonEmpty(
+      env.POSTHOG_PUBLIC_HOST,
+      env.VITE_POSTHOG_HOST,
+      env.POSTHOG_HOST,
+    ) || "https://us.i.posthog.com"
+  ).replace(/\\/+$/, "");
+  const config = {
+    posthogKey,
+    posthogHost,
+    posthogErrorTracking:
+      (env.POSTHOG_ERROR_TRACKING || "").trim().toLowerCase() !== "false",
+  };
+  return (
+    '<script data-agent-native-posthog-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function getRealtimeClientConfigScript() {
   // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
   // server/sentry-config.ts (worker bundles a string copy; it can't import it).
@@ -1330,7 +1364,11 @@ function applyImmutableAssetCacheHeaders(response, request) {
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
   const clientConfigScript =
-    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+    [
+      getSentryClientConfigScript(),
+      getPostHogClientConfigScript(),
+      getRealtimeClientConfigScript(),
+    ]
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
@@ -1717,7 +1755,8 @@ export function generateCloudflarePagesStaticShellFromManifest(
     ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
     : EMPTY_REACT_ROUTER_TURBO_STREAM;
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><p class="an-stall-hint">Still loading. If this does not finish, reload the page — the browser console may show what failed.</p><style>@keyframes an-spin { to { transform: rotate(360deg) } } @keyframes an-stall-in { to { opacity: 0.6 } } .an-stall-hint { opacity: 0; margin: 0; max-width: 32rem; padding: 0 1.5rem; text-align: center; font-size: 0.875rem; line-height: 1.5; font-family: ui-sans-serif, system-ui, sans-serif; animation: an-stall-in 0.4s ease-out 10s forwards } @media (prefers-reduced-motion: reduce) { .an-stall-hint { animation-duration: 0s } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+  // guard:allow-raw-color - static shell loads before app theme tokens exist
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
 }
 
 function writeCloudflarePagesStaticShell({
@@ -2317,46 +2356,7 @@ function getDirSize(dir: string): number {
   return size;
 }
 
-export function copyDir(
-  src: string,
-  dest: string,
-  ancestorRealPaths = new Set<string>(),
-) {
-  const realSrc = fs.realpathSync(src);
-  if (ancestorRealPaths.has(realSrc)) return;
-  const nextAncestorRealPaths = new Set(ancestorRealPaths);
-  nextAncestorRealPaths.add(realSrc);
-
-  fs.mkdirSync(dest, { recursive: true });
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isSymbolicLink()) {
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(srcPath);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          console.warn(
-            `[deploy] Skipping broken symlink while copying ${srcPath}`,
-          );
-          continue;
-        }
-        throw error;
-      }
-      if (stat.isDirectory()) {
-        copyDir(srcPath, destPath, nextAncestorRealPaths);
-      } else {
-        fs.copyFileSync(srcPath, destPath);
-      }
-    } else if (entry.isDirectory()) {
-      copyDir(srcPath, destPath, nextAncestorRealPaths);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
+export { copyDir };
 
 const LIBSQL_NATIVE_PACKAGE_NAMES = [
   "darwin-arm64",
@@ -2576,29 +2576,14 @@ export function findInstalledResvgPackages(
 
 /**
  * Deploy-time gate for emitting the second `-background` Netlify function.
- * Reads the same env flag the runtime gate uses
- * (`AGENT_CHAT_DURABLE_BACKGROUND`).
- *
- * DEFAULT-OFF (opt-in). It IS the runtime gate's flag parse
- * (`isDurableBackgroundFlagEnabled`), so the two can no longer drift:
- * unset/empty/unknown means DISABLED; an app opts IN
- * only with an explicit truthy value (`true`/`1`/`yes`/`on`). A premature
- * fleet-wide default-on caused real-user incidents (2026-06-24) before the
- * async worker path was proven, so durable is opt-in until verified live. This
- * gate is what emits the 15-min `-background` function so the `_process-run`
- * dispatch lands on it (async 202 → the worker runs with the real 15-min budget
- * → its ~13-min soft-timeout fits). The deploy gate and runtime gate MUST agree:
- * if the deploy emitted no `-background` function but the runtime still routed
- * the worker into the ~13-min timeout regime, the worker would overshoot the
- * ~60s synchronous wall and re-dispatch in a loop. (The runtime now also guards
- * the ~13-min budget on the real function name via `isInBackgroundFunctionRuntime`,
- * so a missing emit does not loop.) A missing emit is NOT benign, though: the
- * app then runs every turn on the ~60s synchronous wall for the life of the
- * deploy, so an opted-in build that cannot emit the function FAILS rather than
- * warning.
+ * Netlify deploys are default-on; an explicit falsy
+ * `AGENT_CHAT_DURABLE_BACKGROUND` value opts out. This is called only from the
+ * Netlify preset, so non-Netlify builds remain unaffected. The gate and runtime
+ * default must agree: otherwise the runtime could target a worker that the
+ * deploy did not emit.
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
-  return isDurableBackgroundFlagEnabled();
+  return !isDurableBackgroundFlagExplicitlyDisabled();
 }
 
 /**
@@ -2649,9 +2634,15 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
   // dispatch (18.4s observed to reach the agent loop). A POST with no runId is
   // rejected by the `_process-run` route before any DB work, so this only keeps
   // the container alive.
-  const backgroundWarmPath = isDurableBackgroundEmitRequired()
-    ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
-    : "null";
+  const backgroundEntryPath = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  const backgroundWarmPath =
+    isDurableBackgroundEmitRequired() && fs.existsSync(backgroundEntryPath)
+      ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
+      : "null";
   const entry = `const HEALTH_PATH = "/_agent-native/health";
 const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
@@ -2816,7 +2807,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   // NOT scanned — emitting there is why the standalone attempt 404'd.
   const dest = path.join(internalDir, backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(serverDir, dest);
+  cloneServerBundleForFunction(serverDir, dest);
   // Drop the original Nitro `/*` entry so our entry is the entrypoint and the
   // copied bundle does NOT re-register the catch-all `config.path`.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
@@ -2997,7 +2988,7 @@ export function emitSingleTemplateNetlifyIntegrationRecoveryFunction(
   const functionName = NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME;
   const dest = path.join(internalDir, functionName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(serverDir, dest);
+  cloneServerBundleForFunction(serverDir, dest);
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const entry = `import { createHmac } from "node:crypto";
@@ -3820,7 +3811,10 @@ export async function runNitroBuildPipeline(
 
   if (hasClientBuild && publicOutputDir) {
     copyDir(clientDir, publicOutputDir);
-    if (appBasePath) {
+    if (
+      appBasePath &&
+      !publicDirIsMountedAtBasePath(publicOutputDir, appBasePath)
+    ) {
       copyDir(clientDir, path.join(publicOutputDir, appBasePath.slice(1)));
     }
     console.log(
@@ -3829,6 +3823,22 @@ export async function runNitroBuildPipeline(
   }
 
   await hooks.nitroBuild(nitro);
+}
+
+/**
+ * Nitro's serverless presets end `output.publicDir` in `{{ baseURL }}`
+ * (netlify: `dist{{ baseURL }}`, vercel: `static{{ baseURL }}`, cloudflare:
+ * `{{ output.dir }}{{ baseURL }}`), so for those the public dir already IS the
+ * mount path. Mirroring again produced a whole second client build one level
+ * deeper that nothing ever served — the workspace deploy only deleted it again.
+ * Presets whose public dir is flat (`node-server`) still need the mirror.
+ */
+export function publicDirIsMountedAtBasePath(
+  publicOutputDir: string,
+  appBasePath: string,
+): boolean {
+  const mountSuffix = path.sep + appBasePath.slice(1).split("/").join(path.sep);
+  return path.resolve(publicOutputDir).endsWith(mountSuffix);
 }
 
 /**
@@ -4148,20 +4158,22 @@ export default bundle;
   }
 
   if (preset === "netlify") {
-    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
-
-    // Durable background agent runs (default-OFF / opt-in; enable with a truthy
-    // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
-    // function whose name ends in `-background` re-exporting the same handler
-    // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-    // function. When not opted in this is a no-op and the single-function
-    // deploy is byte-for-byte unchanged.
+    // Durable background agent runs are default-on for Netlify; a falsy
+    // AGENT_CHAT_DURABLE_BACKGROUND value opts out. Additive ONLY: emits a
+    // SECOND Netlify function whose name ends in `-background` re-exporting the
+    // same handler bundle, so the chat `_process-run` POST lands on Netlify's
+    // async (15-min) function. When opted out this is a no-op and the
+    // single-function deploy is byte-for-byte unchanged.
     // NOT wrapped in try/catch: this block only runs when the runtime depends
     // on the function, and a swallowed failure ships an app that loses the
     // background budget for the life of the deploy with nothing in the log.
     if (isDurableBackgroundEmitRequired()) {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
+
+    // Emit keep-warm after the background artifact so it only pings a function
+    // that this build actually produced.
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
 
     if (isIntegrationDurableDispatchDeployEnabled()) {
       try {

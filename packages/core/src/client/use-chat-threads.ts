@@ -18,8 +18,15 @@ export interface ChatThreadSummary {
   createdAt: number;
   updatedAt: number;
   scope: ChatThreadScope | null;
+  source?: ChatThreadSource | null;
   pinnedAt?: number | null;
   archivedAt?: number | null;
+}
+
+export interface ChatThreadSource {
+  platform?: string;
+  appId?: string;
+  url?: string;
 }
 
 export interface ChatThreadData {
@@ -32,6 +39,7 @@ export interface ChatThreadData {
   createdAt: number;
   updatedAt: number;
   scope: ChatThreadScope | null;
+  source?: ChatThreadSource | null;
   pinnedAt?: number | null;
   archivedAt?: number | null;
 }
@@ -72,6 +80,8 @@ export interface UseChatThreadsOptions {
    * create/new-chat mode.
    */
   routeThreadId?: string | null;
+  /** Include connected and other-app chats in list/search results. */
+  includeExternal?: boolean;
 }
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
@@ -81,14 +91,38 @@ const THREADS_PAGE_SIZE = 50;
 async function fetchThreadListPage(
   apiUrl: string,
   offset: number,
+  includeExternal: boolean,
 ): Promise<ChatThreadSummary[] | undefined> {
-  return fetch(
-    offset > 0 ? `${apiUrl}/threads?offset=${offset}` : `${apiUrl}/threads`,
-  ).then(async (res) => {
+  const params = new URLSearchParams();
+  if (offset > 0) params.set("offset", String(offset));
+  if (includeExternal) params.set("includeExternal", "1");
+  const query = params.toString();
+  return fetch(`${apiUrl}/threads${query ? `?${query}` : ""}`).then(
+    async (res) => {
+      if (!res.ok) return undefined;
+      const data = await res.json();
+      return (data.threads ?? []) as ChatThreadSummary[];
+    },
+  );
+}
+
+/**
+ * Look up one thread the list page did not carry. Distinguishes the three states
+ * the caller must not collapse: the thread (found), `null` (the server denies it
+ * exists), and `undefined` (unreachable — nothing was learned).
+ */
+async function fetchThreadById(
+  apiUrl: string,
+  id: string,
+): Promise<ChatThreadSummary | null | undefined> {
+  try {
+    const res = await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`);
+    if (res.status === 404) return null;
     if (!res.ok) return undefined;
-    const data = await res.json();
-    return (data.threads ?? []) as ChatThreadSummary[];
-  });
+    return (await res.json()) as ChatThreadSummary;
+  } catch {
+    return undefined;
+  }
 }
 
 function emitThreadsUpdated() {
@@ -184,6 +218,7 @@ export function useChatThreads(
 ) {
   const autoCreate = options?.autoCreate !== false;
   const restoreActiveThread = options?.restoreActiveThread !== false;
+  const includeExternal = options?.includeExternal === true;
   const routeControlsActiveThread = options?.routeThreadId !== undefined;
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
   // Each (storageKey, scope) pair gets its own active-thread localStorage key
@@ -235,6 +270,7 @@ export function useChatThreads(
   const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
   const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
   const nextThreadsOffsetRef = useRef(0);
+  const latestFetchRequestRef = useRef(0);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
   threadsRef.current = threads;
 
@@ -411,6 +447,17 @@ export function useChatThreads(
       } catch {
         nextActiveThreadId = null;
       }
+      // Only a known mismatch disqualifies the pointer — an unresolved scope
+      // must not be read as "belongs here".
+      if (nextActiveThreadId) {
+        const savedScope = readKnownThreadScope(nextActiveThreadId);
+        if (
+          savedScope !== undefined &&
+          !threadCanStayVisibleInScope(savedScope, scopeRef.current)
+        ) {
+          nextActiveThreadId = null;
+        }
+      }
       if (!nextActiveThreadId && autoCreate) {
         nextActiveThreadId = createLocalThreadId();
         newlyCreatedRef.current.add(nextActiveThreadId);
@@ -452,9 +499,15 @@ export function useChatThreads(
 
   const fetchThreads = useCallback(
     async (options?: { append?: boolean }) => {
+      const requestId = ++latestFetchRequestRef.current;
       try {
         const offset = options?.append ? nextThreadsOffsetRef.current : 0;
-        const loaded = await fetchThreadListPage(apiUrl, offset);
+        const loaded = await fetchThreadListPage(
+          apiUrl,
+          offset,
+          includeExternal,
+        );
+        if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!loaded) {
           if (!options?.append) {
             setThreadsLoadError("Could not load chat history.");
@@ -535,13 +588,14 @@ export function useChatThreads(
         });
         return loaded;
       } catch {
+        if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!options?.append) {
           setThreadsLoadError("Could not load chat history.");
         }
         return undefined;
       }
     },
-    [apiUrl],
+    [apiUrl, includeExternal],
   );
 
   const loadMoreThreads = useCallback(async (): Promise<void> => {
@@ -583,7 +637,7 @@ export function useChatThreads(
 
     (async () => {
       const loadedThreads = await fetchThreads();
-      const savedId = activeThreadIdRef.current;
+      const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
         // Thread-list fetch failed. Do not reclassify a saved id as a new
         // optimistic tab; AssistantChat should still get a chance to restore
@@ -591,8 +645,40 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
+      // Exempts route-owned threads (the URL names what the user asked for) and
+      // ids this client generated, which have never reached the server.
+      const lookupRestored = Boolean(
+        restoredId &&
+        !routeControlsActiveThread &&
+        !newlyCreatedRef.current.has(restoredId),
+      );
+      const restoredOnPage = restoredId
+        ? loadedThreads.find((t) => t.id === restoredId)
+        : undefined;
+      // One page, so absence from it is not absence from the server — this is what
+      // separates an older real thread from the ghost tab reclassified below.
+      const restoredThread =
+        lookupRestored && !restoredOnPage
+          ? await fetchThreadById(apiUrl, restoredId!)
+          : restoredOnPage;
+      if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
+        // Lookup unreachable. Reclassifying now would stamp this thread with the
+        // current scope on a guess; leave it untouched for the next mount.
+        setIsLoading(false);
+        return;
+      }
+      const restoredBelongsElsewhere = Boolean(
+        restoredThread &&
+        !threadCanStayVisibleInScope(
+          restoredThread.scope ?? null,
+          scopeRef.current,
+        ),
+      );
+      if (restoredBelongsElsewhere) setActiveThreadId(null);
+      const savedId = restoredBelongsElsewhere ? null : restoredId;
       const loadedHasSavedId = Boolean(
-        savedId && loadedThreads.some((t) => t.id === savedId),
+        savedId &&
+        (restoredThread || loadedThreads.some((t) => t.id === savedId)),
       );
       const savedIdCameFromRoute =
         Boolean(savedId) &&
@@ -646,6 +732,7 @@ export function useChatThreads(
       setIsLoading(false);
     })();
   }, [
+    apiUrl,
     fetchThreads,
     addOptimisticThread,
     autoCreate,
@@ -948,12 +1035,9 @@ export function useChatThreads(
     [apiUrl, clearUserRenamedThread, createThread],
   );
 
-  // Ref to look up the latest scope of a known thread inside
-  // saveThreadData without making the callback re-create on every
-  // setThreads. The thread's scope is owned by createThread /
-  // detachThread / fetchThreads — saveThreadData just mirrors it on
-  // every save so the server eventually catches up after
-  // persistSubmittedUserMessage creates the row sans scope.
+  // Reads scope through refs so this callback survives every setThreads. Scope
+  // rides only on creation: a periodic save must never move an existing thread
+  // between resources, however stale this client's guess is.
   const saveThreadData = useCallback(
     async (
       id: string,
@@ -968,7 +1052,7 @@ export function useChatThreads(
       try {
         const { titleSource, ...threadDataPayload } = data;
         const localThread = threadsRef.current.find((t) => t.id === id);
-        const localScope = localThread?.scope ?? null;
+        const knownScope = readKnownThreadScope(id) ?? null;
         const preserveUserTitle = userRenamedThreadIdsRef.current.has(id);
         const title = nextThreadTitle(
           localThread?.title,
@@ -977,11 +1061,7 @@ export function useChatThreads(
           titleSource,
           { preserveUserTitle },
         );
-        const payload = {
-          ...threadDataPayload,
-          title,
-          scope: localScope,
-        };
+        const payload = { ...threadDataPayload, title };
         let response = await fetch(
           `${apiUrl}/threads/${encodeURIComponent(id)}`,
           {
@@ -997,7 +1077,11 @@ export function useChatThreads(
           const created = await fetch(`${apiUrl}/threads`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, title, scope: localScope }),
+            body: JSON.stringify({
+              id,
+              title,
+              ...(knownScope ? { scope: knownScope } : {}),
+            }),
           });
           if (!created.ok) return;
           response = await fetch(
@@ -1059,7 +1143,7 @@ export function useChatThreads(
         });
       } catch {}
     },
-    [apiUrl],
+    [apiUrl, readKnownThreadScope],
   );
 
   const generateTitle = useCallback(
@@ -1193,9 +1277,9 @@ export function useChatThreads(
   const searchThreads = useCallback(
     async (query: string): Promise<ChatThreadSummary[]> => {
       try {
-        const res = await fetch(
-          `${apiUrl}/threads?q=${encodeURIComponent(query)}`,
-        );
+        const params = new URLSearchParams({ q: query });
+        if (includeExternal) params.set("includeExternal", "1");
+        const res = await fetch(`${apiUrl}/threads?${params.toString()}`);
         if (!res.ok) return [];
         const data = await res.json();
         return data.threads ?? [];
@@ -1203,7 +1287,7 @@ export function useChatThreads(
         return [];
       }
     },
-    [apiUrl],
+    [apiUrl, includeExternal],
   );
 
   const getThreadShareState = useCallback(

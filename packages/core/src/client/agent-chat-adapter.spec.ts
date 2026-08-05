@@ -6561,8 +6561,10 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    // Past the 150s follow idle window (polled at ~1s cadence).
-    await vi.advanceTimersByTimeAsync(165_000);
+    // Past the follow idle window, including polling/backoff headroom.
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 15_000,
+    );
     const results = await promise;
 
     expect(postCount).toBe(1);
@@ -6699,6 +6701,7 @@ describe("createAgentChatAdapter", () => {
     );
 
     let postCount = 0;
+    const stalledProgressAt = Date.now();
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
@@ -6718,7 +6721,7 @@ describe("createAgentChatAdapter", () => {
           status: "running",
           dispatchMode: "background",
           heartbeatAt: Date.now(),
-          lastProgressAt: Date.now(),
+          lastProgressAt: stalledProgressAt,
           awaitingRedispatch: false,
         });
       }
@@ -6758,7 +6761,8 @@ describe("createAgentChatAdapter", () => {
 
   it("BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS sits comfortably between the server's redispatch budget and its hard bound", async () => {
     // The full derived timing chain (see this constant's doc comment):
-    //   GRACE_MS + FAST_SWEEP_MS  <  BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS  <  REDISPATCH_BOUND_MS
+    //   GRACE_MS + FAST_SWEEP_MS  <  RUN_NO_PROGRESS_HARD_TIMEOUT_MS
+    //     <  BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS  <  REDISPATCH_BOUND_MS
     // Imports the REAL run-store constants (not copied literals) so this
     // test breaks the moment any of the four numbers drift out of budget.
     const {
@@ -6766,6 +6770,8 @@ describe("createAgentChatAdapter", () => {
       UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     } = await import("../agent/run-store.js");
+    const { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } =
+      await import("../agent/run-manager.js");
 
     const worstCaseFirstAttemptMs =
       UNCLAIMED_BACKGROUND_RUN_GRACE_MS +
@@ -6774,7 +6780,10 @@ describe("createAgentChatAdapter", () => {
     // window would even start to matter.
     expect(
       worstCaseFirstAttemptMs + UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
-    ).toBeLessThan(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS);
+    ).toBeLessThan(RUN_NO_PROGRESS_HARD_TIMEOUT_MS);
+    expect(RUN_NO_PROGRESS_HARD_TIMEOUT_MS).toBeLessThan(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
+    );
     expect(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS).toBeLessThan(
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     );
@@ -7435,6 +7444,303 @@ describe("background follow per-turn budget", () => {
       `/runs/turn/${encodeURIComponent(requestTurnId)}/abort`,
     );
   });
+
+  it("does not treat repeated zero-event SSE closures on the same run as progress", async () => {
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    let eventRequestCount = 0;
+    const abortRequests: Array<Record<string, unknown>> = [];
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "activity", label: "Contacting model" },
+            { type: "auto_continue", reason: "stream_ended" },
+          ],
+          "run-same-empty",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-same-empty",
+          threadId: "thread-same-empty",
+          turnId: requestTurnId,
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: 1_000,
+        });
+      }
+      if (url.includes("/runs/run-same-empty/events")) {
+        eventRequestCount += 1;
+        return emptySseResponse("run-same-empty");
+      }
+      if (url.includes("/runs/turn/") && init?.method === "POST") {
+        abortRequests.push(JSON.parse(init.body as string));
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-same-empty",
+      threadId: "thread-same-empty",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 20_000,
+    );
+    const results = await promise;
+
+    expect(eventRequestCount).toBeGreaterThan(1);
+    expect(eventRequestCount).toBeLessThan(50);
+    expect(abortRequests.at(-1)).toMatchObject({
+      threadId: "thread-same-empty",
+      reason: "background_run_lost",
+    });
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(last.metadata.custom.runError).toMatchObject({
+      errorCode: "background_run_lost",
+    });
+    expect(last.metadata.custom.runError.details).toContain(
+      "background_follow_no_progress_detaches:",
+    );
+    expect(last.metadata.custom.runError.details).toContain(
+      "background_follow_last_detach_reason: stream_ended",
+    );
+    expect(last.metadata.custom.runError.details).toContain(
+      "background_follow_last_detach_source: client_watchdog",
+    );
+  });
+
+  it("does not treat sequenced keepalive and clear noise as background progress", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    let eventRequestCount = 0;
+    let abortReason = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "activity", label: "Contacting model" },
+            { type: "auto_continue", reason: "stream_ended" },
+          ],
+          "run-sequenced-noise",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-sequenced-noise",
+          threadId: "thread-sequenced-noise",
+          turnId: requestTurnId,
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          // Mirrors the incident: transport noise continued, but the server's
+          // authoritative real-progress timestamp did not move.
+          lastProgressAt: 1_000,
+        });
+      }
+      if (url.includes("/runs/run-sequenced-noise/events")) {
+        eventRequestCount += 1;
+        return sseResponse(
+          [
+            eventRequestCount % 2 === 0
+              ? { type: "clear", seq: eventRequestCount }
+              : { type: "stream_keepalive", seq: eventRequestCount },
+          ],
+          "run-sequenced-noise",
+        );
+      }
+      if (url.includes("/runs/turn/") && init?.method === "POST") {
+        abortReason = JSON.parse(init.body as string).reason;
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-sequenced-noise",
+      threadId: "thread-sequenced-noise",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 20_000,
+    );
+    const results = await promise;
+
+    expect(eventRequestCount).toBeGreaterThan(1);
+    expect(abortReason).toBe("background_run_lost");
+    expect((results.at(-1) as any).metadata.custom.runError.errorCode).toBe(
+      "background_run_lost",
+    );
+  });
+
+  it.each([
+    ["a newer server progress timestamp", "server-progress"],
+    ["a successor run id", "successor"],
+  ] as const)(
+    "resets same-turn background idle time after %s",
+    async (_label, progressKind) => {
+      vi.useFakeTimers();
+      vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+      vi.stubGlobal(
+        "CustomEvent",
+        class CustomEvent {
+          type: string;
+          detail: unknown;
+          constructor(type: string, init?: { detail?: unknown }) {
+            this.type = type;
+            this.detail = init?.detail;
+          }
+        },
+      );
+
+      let requestTurnId = "";
+      let activeRunId = "run-progress-0";
+      let serverProgressAt = 1_000;
+      let finish = false;
+      let abortCount = 0;
+      const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+          requestTurnId = JSON.parse(init.body as string).turnId;
+          return backgroundSseResponse(
+            [{ type: "auto_continue", reason: "stream_ended" }],
+            "run-progress-0",
+          );
+        }
+        if (url.includes("/runs/active")) {
+          return jsonResponse({
+            active: true,
+            runId: activeRunId,
+            threadId: "thread-progress-reset",
+            turnId: requestTurnId,
+            status: finish ? "completed" : "running",
+            dispatchMode: "background-processing",
+            terminalReason: finish ? "done" : null,
+            heartbeatAt: Date.now(),
+            lastProgressAt: serverProgressAt,
+          });
+        }
+        if (url.includes("/events")) {
+          if (finish) {
+            return sseResponse([{ type: "done", seq: 99 }], activeRunId);
+          }
+          return emptySseResponse(activeRunId);
+        }
+        if (url.includes("/runs/turn/") && init?.method === "POST") {
+          abortCount += 1;
+          return jsonResponse({ ok: true });
+        }
+        return jsonResponse({ error: "unexpected" }, 500);
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const adapter = createAgentChatAdapter({
+        apiUrl: "/_agent-native/agent-chat",
+        tabId: `chat-progress-${progressKind}`,
+        threadId: "thread-progress-reset",
+      });
+      const promise = drain(
+        adapter.run({
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "keep working" }],
+            },
+          ],
+          abortSignal: new AbortController().signal,
+        } as any),
+      );
+
+      await vi.advanceTimersByTimeAsync(
+        BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS - 20_000,
+      );
+      if (progressKind === "server-progress") {
+        serverProgressAt += 1_000;
+      } else {
+        activeRunId = "run-progress-1";
+      }
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      const raceResult = await Promise.race([
+        promise.then(() => "settled" as const),
+        Promise.resolve("pending" as const),
+      ]);
+      expect(raceResult).toBe("pending");
+
+      finish = true;
+      await vi.advanceTimersByTimeAsync(10_000);
+      const results = await promise;
+
+      expect(abortCount).toBe(0);
+      expect(
+        results.some(
+          (result: any) =>
+            result.status?.type === "incomplete" &&
+            result.status?.reason === "error",
+        ),
+      ).toBe(false);
+    },
+  );
 });
 
 describe("activeRunLooksAlive", () => {

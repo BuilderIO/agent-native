@@ -1483,6 +1483,9 @@ const ptBR = {
     advancedRuntime: "Avançado: estender o runtime",
     templatesSection: "Apps",
     gettingStarted: "Primeiros passos",
+    gettingStartedActions: "Add an Action",
+    gettingStartedDatabase: "Persist Data in SQL",
+    gettingStartedPages: "Add a Page",
     whatIsAgentNative: "O que é Agent-Native?",
     agentSurfaces: "Superfícies do Agent",
     keyConcepts: "Conceitos principais",
@@ -1656,6 +1659,7 @@ const ptBR = {
     formsOverview: "Visão geral",
     formsBuildingPublishing: "Construção e publicação",
     formsResponses: "Respostas e insights",
+    docsComponents: "Docs Components",
     formsDevelopers: "Guia do desenvolvedor",
   },
 } satisfies typeof enUS;

@@ -75,7 +75,7 @@ const SlideSchema = z.object({
 
 // Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
 const SlidesSchema = z.preprocess(
-  (v) => (typeof v === "string" ? JSON.parse(v) : v),
+  (v) => (v === undefined ? [] : typeof v === "string" ? JSON.parse(v) : v),
   z.array(SlideSchema),
 );
 

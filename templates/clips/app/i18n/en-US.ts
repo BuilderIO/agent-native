@@ -617,6 +617,7 @@ const messages = {
     title: "Settings",
     pageTitle: "Settings · Clips",
     intro: "Preferences and connected services for this Clips workspace.",
+    preferencesTitle: "Preferences",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language for this account. Clips remembers it across devices.",
@@ -653,9 +654,16 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     transcriptCleanupDescription:
       "Show the native transcript immediately, then clean it up in the background when available.",
     notifications: "Notifications",
+    sharing: "Sharing",
+    defaultVisibility: "Default visibility for new recordings",
+    defaultVisibilityDescription:
+      "Applied to every recording you create. You can still change visibility per recording.",
+    visibilityPrivate: "Private - only you",
+    visibilityOrg: "Organization - anyone in your workspace",
+    visibilityPublic: "Public - anyone with the link",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:
-      "Get an email when someone comments, reacts, or shares a recording with you.",
+      "Get an email when someone comments on or reacts to your recording.",
     saved: "Settings saved",
     saveFailed: "Failed to save",
     builderConnectedToast: "Builder.io connected",
@@ -811,12 +819,15 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     noViewsYet: "No views yet.",
     viewsCount_one: "{{count}} view",
     viewsCount_other: "{{count}} views",
+    agentViewsCount_one: "{{count}} agent view",
+    agentViewsCount_other: "{{count}} agent views",
     totalViewsSummary: "{{total}} total views, {{unique}} unique viewers",
     viewsTab: "Views",
     insightsTab: "Insights",
     humanViews: "Human views",
     agentViews: "Agent views",
     noAgentViewsYet: "No agent views yet.",
+    unknownAgent: "Unknown agent",
     totalVideoViews: "Total video views",
     averageCompletionRate: "Average completion rate",
     moreInsights: "More insights",
@@ -1498,6 +1509,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
+    googleMayShowWarning: "Review Google access",
+    googleNotVerifiedTitle: "Verify the app before connecting",
+    googleWarningBeforeAdvanced:
+      "Confirm the app name and requested Calendar access match the Clips deployment you trust. If Google shows an unverified-app warning or the identity looks unfamiliar, stop and contact your workspace administrator.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.",
     getDesktopApp: "Get desktop app",
