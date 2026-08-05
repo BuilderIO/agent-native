@@ -1301,7 +1301,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     micOffConfirmTitle: "Record without a microphone? (Lokalisiert)",
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Lokalisiert)",
-    startWithoutMic: "Start without mic (Lokalisiert)",
+    startWithoutMic: "Start anyway (Lokalisiert)",
     uploadVideo: "Upload video (Lokalisiert)",
     importLoom: "Import Loom (Lokalisiert)",
     importing: "Importing... (Lokalisiert)",

@@ -1264,7 +1264,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     micOffConfirmTitle: "Record without a microphone?",
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
-    startWithoutMic: "Start without mic",
+    startWithoutMic: "Start anyway",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",
