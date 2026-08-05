@@ -23,6 +23,10 @@ import {
 import { DesignColorPicker, imageFillToBackgroundStyles } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
+import {
+  parseTokenReference,
+  type DesignSystemColorSwatch,
+} from "./design-system-swatches";
 import { selectionColorValues } from "./document-colors";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -46,6 +50,7 @@ import {
   SectionIconButton,
   useRowDragReorder,
 } from "./inspector-controls";
+import { authoredColorValue } from "./interaction-state-helpers";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,
@@ -109,6 +114,7 @@ export function FillProperties({
   onStyleChange,
   onStylesChange,
   documentColorPalette = [],
+  designSystemColors,
   glslShaderContext,
   motionKeyframeContext,
   breakpointOverrideContext,
@@ -121,6 +127,9 @@ export function FillProperties({
    * colors below so a real, always-populated "Document colors" row is
    * available even before any file content has been scanned. */
   documentColorPalette?: string[];
+  /** Colour tokens from the design's linked Brand Kit, shown by name in the
+   * fill picker above the document palette. */
+  designSystemColors?: DesignSystemColorSwatch[];
   /**
    * Persistence context for the code-backed Shader paint type (GLSL source
    * saved into the screen HTML). Threaded into the fill picker so its
@@ -144,9 +153,17 @@ export function FillProperties({
     Record<string, string>
   >({});
   const fillStashKey = elementStableKey(element);
-  const fillValue = isTextFillElement
+  // getComputedStyle resolves `var()` before we can read it, so a token-backed
+  // fill would come back as a bare colour and lose the name it was set from.
+  // The authored inline value still holds the reference.
+  const authoredFill = authoredColorValue(element, fillProperty);
+  const computedFill = isTextFillElement
     ? styles.color || ""
     : styles.backgroundColor || "";
+  const fillValue =
+    authoredFill && parseTokenReference(authoredFill)
+      ? authoredFill
+      : computedFill;
   const backgroundLayers = isTextFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
@@ -385,6 +402,8 @@ export function FillProperties({
                           commitStylePatch(patch, onStyleChange, onStylesChange)
                   }
                   documentColors={documentColors}
+                  designSystemColors={designSystemColors}
+                  resolvedColor={computedFill}
                   pickerKey={[
                     element.sourceId ??
                       element.id ??

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertStorableDesignSystemTokens } from "../server/lib/design-system-tokens.js";
 
 export default defineAction({
   description:
@@ -23,7 +24,11 @@ export default defineAction({
       .trim()
       .min(1, "data cannot be empty")
       .optional()
-      .describe("Updated JSON string of DesignSystemData"),
+      .describe(
+        "Updated JSON string of DesignSystemData. Replaces the whole object, so " +
+          "include the existing `tokens` array (the source system's named tokens) " +
+          "alongside any edit, or those names are dropped.",
+      ),
     assets: z
       .string()
       .optional()
@@ -36,16 +41,8 @@ export default defineAction({
       ),
   }),
   run: async ({ id, title, description, data, assets, customInstructions }) => {
-    // Validate that data/assets are valid JSON when provided
     if (data !== undefined) {
-      try {
-        const parsed = JSON.parse(data);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          throw new Error();
-        }
-      } catch {
-        throw new Error("data must be a valid JSON object string");
-      }
+      assertStorableDesignSystemTokens(data);
     }
     if (assets !== undefined) {
       try {

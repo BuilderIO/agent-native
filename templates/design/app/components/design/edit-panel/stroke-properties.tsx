@@ -23,6 +23,10 @@ import {
 import { ScrubInput } from "../inspector";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
+import {
+  parseTokenReference,
+  type DesignSystemColorSwatch,
+} from "./design-system-swatches";
 import { isTextElement } from "./element-classification";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import { SectionIconButton } from "./inspector-controls";
@@ -60,6 +64,23 @@ import { STROKE_POSITION_OPTIONS } from "./style-options";
  */
 const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
 
+/**
+ * The stroke colour as authored: its token name when it has one, else the
+ * resolved colour. Empty when no rule set it at all — the border then paints
+ * CSS's `currentColor` default, and echoing the inherited text colour here
+ * would claim a stroke colour the design never chose.
+ */
+export function authoredStrokeColor(
+  element: ElementInfo,
+  property: string,
+  computed: string | undefined,
+): string {
+  const authored =
+    element.inlineStyles?.[property] ?? element.authoredColorStyles?.[property];
+  if (!authored) return "";
+  return parseTokenReference(authored) ? authored : computed || authored;
+}
+
 type StrokeLayerKind = "border" | "outline";
 type StrokePosition = "inside" | "outside" | "center";
 
@@ -67,6 +88,7 @@ function StrokeLayerControl({
   kind,
   visible,
   color,
+  designSystemColors,
   width,
   styleValue,
   outlineOffset,
@@ -80,6 +102,7 @@ function StrokeLayerControl({
   kind: StrokeLayerKind;
   visible: boolean;
   color: string;
+  designSystemColors?: DesignSystemColorSwatch[];
   width: string;
   styleValue: string;
   /** Only meaningful when `kind === "outline"` — distinguishes outside vs
@@ -162,7 +185,10 @@ function StrokeLayerControl({
         <div className="min-w-0 flex-1">
           <ColorInput
             label=""
-            value={cssColorOrFallback(color, "#000000")}
+            // Not cssColorOrFallback: an unset stroke must stay unset here
+            // rather than render as a black the design never chose.
+            value={color}
+            designSystemColors={designSystemColors}
             onChange={(value, meta) =>
               onStyleChange(`${prefix}Color`, value, meta)
             }
@@ -293,12 +319,15 @@ export function StrokeProperties({
   element,
   onStyleChange,
   onStylesChange,
+  designSystemColors,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  /** Linked Brand Kit colour tokens, offered by name in the stroke picker. */
+  designSystemColors?: DesignSystemColorSwatch[];
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -449,7 +478,12 @@ export function StrokeProperties({
             <StrokeLayerControl
               kind="border"
               visible={borderVisible}
-              color={styles.borderColor || "#000000"}
+              color={authoredStrokeColor(
+                element,
+                "borderColor",
+                styles.borderColor,
+              )}
+              designSystemColors={designSystemColors}
               width={styles.borderWidth || "0px"}
               styleValue={styles.borderStyle || "none"}
               onStyleChange={onStyleChange}
@@ -470,7 +504,12 @@ export function StrokeProperties({
             <StrokeLayerControl
               kind="outline"
               visible={outlineVisible}
-              color={styles.outlineColor || styles.borderColor || "#000000"}
+              color={authoredStrokeColor(
+                element,
+                "outlineColor",
+                styles.outlineColor || styles.borderColor,
+              )}
+              designSystemColors={designSystemColors}
               width={styles.outlineWidth || "0px"}
               styleValue={styles.outlineStyle || "solid"}
               outlineOffset={styles.outlineOffset || "0px"}

@@ -1,5 +1,20 @@
 import type { ElementInfo } from "../types";
 
+/**
+ * The colour a property was authored with, else the computed value. A generated
+ * design styles through classes, so `el.style` alone is not enough.
+ */
+export function authoredColorValue(
+  element: ElementInfo,
+  property: string,
+): string | undefined {
+  const inline = element.inlineStyles?.[property];
+  if (inline) return inline;
+  const authored = element.authoredColorStyles?.[property];
+  if (authored) return authored;
+  return element.computedStyles[property];
+}
+
 export function authoredStyleValue(
   element: ElementInfo,
   property: string,

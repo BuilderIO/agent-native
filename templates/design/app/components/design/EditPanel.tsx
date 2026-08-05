@@ -157,6 +157,12 @@ import {
 } from "./edit-panel/code-inspect-helpers";
 import { ComponentSection } from "./edit-panel/component-section";
 import {
+  parseTokenReference,
+  resolveTokenNameForColor,
+  toDesignSystemColorSwatches,
+  type DesignSystemColorSwatch,
+} from "./edit-panel/design-system-swatches";
+import {
   type DocumentColorSourceFile,
   extractDocumentColorPalette,
   selectionColorValues,
@@ -385,6 +391,9 @@ export { deriveLockedAspectSize };
 export { mergeRotationValue, normalizeRotationDegrees };
 export { mixedElementFromSelection };
 export { authoredStyleValue, resolveInteractionStateValue };
+
+/** A `var()` reference names itself, so no kit lookup is needed to label it. */
+const EMPTY_SWATCHES: DesignSystemColorSwatch[] = [];
 export { isTextElement };
 export { ComponentSection };
 export { extractDocumentColorPalette, type DocumentColorSourceFile };
@@ -1469,12 +1478,15 @@ function PageProperties({
   styles,
   onStyleChange,
   onStylesChange,
+  designSystemColors,
   canvasBackground,
   onCanvasBackgroundChange,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  /** Kit tokens offered by name in the canvas/page background pickers. */
+  designSystemColors?: DesignSystemColorSwatch[];
   canvasBackground?: string | null;
   onCanvasBackgroundChange?: (value: string, meta?: StyleChangeMeta) => void;
 }) {
@@ -1505,6 +1517,7 @@ function PageProperties({
         <PanelSection title={t("editPanel.sections.canvas")}>
           <ColorInput
             label={t("editPanel.labels.background")}
+            designSystemColors={designSystemColors}
             value={canvasBackground ?? ""}
             // meta carries phase: "preview" while dragging vs "commit" on
             // release. Dropping it persists every tick and the picker jumps.
@@ -1515,6 +1528,7 @@ function PageProperties({
       <PanelSection title={t("editPanel.sections.page")}>
         <ColorInput
           label={t("editPanel.labels.background")}
+          designSystemColors={designSystemColors}
           value={styles.backgroundColor || ""}
           onChange={(v, meta) => onStyleChange("backgroundColor", v, meta)}
           backgroundImage={styles.backgroundImage}
@@ -1675,8 +1689,15 @@ function SelectionColorsProperties({
                       className="size-4 shrink-0 rounded-[3px] border border-border/60"
                       style={swatchStyle(color.value)}
                     />
-                    <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
-                      {selectionDisplayHex(color.value)}
+                    <span
+                      className={cn(
+                        "min-w-0 flex-1 truncate text-left tabular-nums",
+                        // Hex is conventionally upper-case; a token name is not.
+                        !parseTokenReference(color.value) && "uppercase",
+                      )}
+                    >
+                      {resolveTokenNameForColor(color.value, EMPTY_SWATCHES) ??
+                        selectionDisplayHex(color.value)}
                     </span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
                       {opacity}%
@@ -1871,6 +1892,24 @@ export const EditPanel = memo(function EditPanel({
     () => (files && files.length > 0 ? extractDocumentColorPalette(files) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on filesContentKey (cheap length+id fingerprint) instead of `files` itself so an unstable-but-equal array identity from the parent doesn't force a full re-scan every render.
     [filesContentKey],
+  );
+  // The linked Brand Kit's named colour tokens, for the fill picker. Shares
+  // react-query's cache with the Tokens panel, so opening both costs one fetch.
+  const { data: indexedTokens } = useActionQuery<{
+    tokens?: {
+      name: string;
+      cssVar: string;
+      value: string;
+      type: string;
+      group?: string;
+      source?: string;
+    }[];
+  }>("index-design-tokens", designId ? { designId } : undefined, {
+    enabled: Boolean(designId),
+  });
+  const designSystemColors = useMemo(
+    () => toDesignSystemColorSwatches(indexedTokens?.tokens),
+    [indexedTokens],
   );
   const selectionAlreadyComponent =
     selectedCount === 1 &&
@@ -2279,6 +2318,7 @@ export const EditPanel = memo(function EditPanel({
               {!inspectorElement && !selectedScreenGeometry && (
                 <PageProperties
                   styles={pageStyles}
+                  designSystemColors={designSystemColors}
                   onStyleChange={onStyleChange}
                   onStylesChange={onStylesChange}
                   canvasBackground={canvasBackground}
@@ -2335,11 +2375,13 @@ export const EditPanel = memo(function EditPanel({
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
                     documentColorPalette={documentColorPalette}
+                    designSystemColors={designSystemColors}
                     glslShaderContext={glslShaderContext}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
                   <StrokeProperties
+                    designSystemColors={designSystemColors}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
@@ -2350,6 +2392,7 @@ export const EditPanel = memo(function EditPanel({
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
+                    designSystemColors={designSystemColors}
                     glslShaderContext={glslShaderContext}
                     motionKeyframeContext={motionKeyframeFieldContext}
                   />

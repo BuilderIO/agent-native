@@ -388,6 +388,203 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
+  // shared/authored-color-styles.ts
+  var AUTHORED_COLOR_PROPERTIES = [
+    "color",
+    "backgroundColor",
+    "borderColor",
+    "outlineColor",
+    // Not colours themselves, but the only place a shadow's colour keeps its name.
+    "boxShadow",
+    "textShadow"
+  ];
+  var SHORTHAND_FALLBACK = {
+    backgroundColor: "background",
+    borderColor: "border",
+    outlineColor: "outline"
+  };
+  var INHERITED_PROPERTIES = ["color"];
+  var RESET_KEYWORDS = /* @__PURE__ */ new Set([
+    "initial",
+    "inherit",
+    "unset",
+    "revert",
+    "revert-layer"
+  ]);
+  function isAuthoredColor(value) {
+    return typeof value === "string" && value !== "" && !RESET_KEYWORDS.has(value.trim().toLowerCase());
+  }
+  var LINE_STYLE_KEYWORDS = /* @__PURE__ */ new Set([
+    "none",
+    "hidden",
+    "solid",
+    "dashed",
+    "dotted",
+    "double",
+    "groove",
+    "ridge",
+    "inset",
+    "outset"
+  ]);
+  var LINE_WIDTH = /^(thin|medium|thick|-?\\d*\\.?\\d+[a-z%]*)$/i;
+  function splitTopLevel(value) {
+    const parts = [];
+    let depth = 0;
+    let current = "";
+    for (const char of value) {
+      if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      if (depth === 0 && /\\s/.test(char)) {
+        if (current) parts.push(current);
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    if (current) parts.push(current);
+    return parts;
+  }
+  function lineShorthandColor(value) {
+    const rest = splitTopLevel(value).filter((part) => {
+      const lower = part.toLowerCase();
+      return !LINE_STYLE_KEYWORDS.has(lower) && !LINE_WIDTH.test(part);
+    });
+    return rest.length === 1 ? rest[0] : null;
+  }
+  function shorthandColorValue(shorthand, value) {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/url\\(|gradient\\(/i.test(trimmed)) return null;
+    if (/^var\\(.*\\)$/.test(trimmed)) return trimmed;
+    if (shorthand === "border" || shorthand === "outline") {
+      return lineShorthandColor(trimmed);
+    }
+    return /\\s/.test(trimmed) ? null : trimmed;
+  }
+  function readRules(element, rules, out) {
+    if (!rules) return;
+    for (let index = 0; index < rules.length; index += 1) {
+      const rule = rules[index];
+      if (!rule) continue;
+      if (rule.cssRules && rule.conditionText !== void 0) {
+        let applies = false;
+        try {
+          applies = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia(rule.conditionText).matches : false;
+        } catch {
+          applies = false;
+        }
+        if (applies) readRules(element, rule.cssRules, out);
+        continue;
+      }
+      if (!rule.selectorText || !rule.style) continue;
+      let matches = false;
+      try {
+        matches = element.matches(rule.selectorText);
+      } catch {
+        continue;
+      }
+      if (!matches) continue;
+      for (const property of AUTHORED_COLOR_PROPERTIES) {
+        const declared = rule.style[property];
+        if (isAuthoredColor(declared)) {
+          out[property] = declared;
+          continue;
+        }
+        const shorthand = SHORTHAND_FALLBACK[property];
+        if (!shorthand) continue;
+        const shorthandValue = rule.style[shorthand];
+        if (typeof shorthandValue !== "string") continue;
+        const colorOnly = shorthandColorValue(shorthand, shorthandValue);
+        if (colorOnly) out[property] = colorOnly;
+      }
+    }
+  }
+  function cssPropertyName(property) {
+    return property.replace(/[A-Z]/g, (c) => \`-\${c.toLowerCase()}\`);
+  }
+  function authoredMatchesPainted(element, property, authored) {
+    const view = element.ownerDocument?.defaultView;
+    if (!view || typeof view.getComputedStyle !== "function") return true;
+    let painted = "";
+    try {
+      painted = view.getComputedStyle(element)[property] ?? "";
+    } catch {
+      return true;
+    }
+    if (!painted) return true;
+    const probe = element.ownerDocument.createElement("span");
+    const name = cssPropertyName(property);
+    probe.style.setProperty("display", "none");
+    probe.style.setProperty(name, authored);
+    if (!probe.style.getPropertyValue(name)) return false;
+    element.appendChild(probe);
+    let resolved = "";
+    try {
+      resolved = view.getComputedStyle(probe)[property] ?? "";
+    } catch {
+      resolved = "";
+    }
+    probe.remove();
+    return resolved === "" || resolved === painted;
+  }
+  function collectForElement(element) {
+    const out = {};
+    try {
+      const doc = element.ownerDocument;
+      const sheets = [
+        ...Array.from(doc?.styleSheets ?? []),
+        ...Array.from(
+          doc?.adoptedStyleSheets ?? []
+        )
+      ];
+      for (const sheet of sheets) {
+        let rules;
+        try {
+          rules = sheet.cssRules;
+        } catch {
+          continue;
+        }
+        readRules(element, rules, out);
+      }
+    } catch (error) {
+      console.warn(
+        "[design] could not read stylesheets for authored colours; token names will fall back to resolved values",
+        error
+      );
+    }
+    const inline = element.style;
+    if (inline) {
+      for (const property of AUTHORED_COLOR_PROPERTIES) {
+        const value = inline[property];
+        if (isAuthoredColor(value)) out[property] = value;
+      }
+    }
+    return out;
+  }
+  function collectAuthoredColorStyles(element) {
+    const out = collectForElement(element);
+    for (const property of Object.keys(out)) {
+      if (!authoredMatchesPainted(element, property, out[property])) {
+        delete out[property];
+      }
+    }
+    for (const property of INHERITED_PROPERTIES) {
+      if (out[property]) continue;
+      let ancestor = element.parentElement;
+      while (ancestor) {
+        const inherited = collectForElement(ancestor)[property];
+        if (inherited) {
+          if (authoredMatchesPainted(element, property, inherited)) {
+            out[property] = inherited;
+          }
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+    }
+    return out;
+  }
+
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     if (window.__anEditorChromeBridge) return;
@@ -1633,7 +1830,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       "width",
       "height",
       "transform",
-      "whiteSpace"
+      "whiteSpace",
+      "color",
+      "backgroundColor",
+      "borderColor",
+      "outlineColor",
+      "boxShadow",
+      "textShadow"
     ];
     function collectInlineStyles(el) {
       var styles = {};
@@ -1837,6 +2040,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           whiteSpace: cs.whiteSpace
         },
         inlineStyles: collectInlineStyles(el),
+        authoredColorStyles: collectAuthoredColorStyles(el),
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
         portableStyleSnapshot: collectPortableStyleSnapshot(el),
         boundingRect: {

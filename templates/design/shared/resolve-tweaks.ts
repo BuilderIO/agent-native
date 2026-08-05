@@ -11,12 +11,20 @@
  *  - the snapshot / coding-handoff actions inject so an external agent
  *    continues from the *tuned* design, not the original generated tokens.
  *
- * Keep it pure and dependency-free so the UI and the server actions produce
- * byte-identical output.
+ * Keep it pure so the UI and the server actions produce byte-identical
+ * output. The CSS-safety predicates are re-exported from core so a Brand Kit
+ * token and a tweak value can never be validated by two drifting copies.
  */
+
+import {
+  isSafeCssTokenValue,
+  isSafeCssVarName,
+} from "@agent-native/core/brand-kit/tokens";
 
 import type { TweakDefinition } from "./api.js";
 import { sourceContentHash } from "./source-workspace.js";
+
+export { isSafeCssTokenValue, isSafeCssVarName };
 
 export type TweakSelections = Record<string, string | number | boolean>;
 
@@ -49,22 +57,6 @@ export function tweakSelectionsHash(
  * emitted directly, which lets token edits persist vars that were not part of
  * the generated tweak definition list.
  */
-const CSS_CUSTOM_PROPERTY_NAME = /^--[-_a-zA-Z0-9]+$/;
-
-export function isSafeCssVarName(value: string): boolean {
-  return CSS_CUSTOM_PROPERTY_NAME.test(value);
-}
-
-export function isSafeCssTokenValue(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value.length <= 300 &&
-    !/[;{}<>]/.test(value) &&
-    !/\/\*/.test(value) &&
-    !/[\u0000-\u001f\u007f]/.test(value)
-  );
-}
-
 export function resolveTweaksToCssVars(
   tweaks: TweakDefinition[],
   selections: TweakSelections,

@@ -1,4 +1,9 @@
 import { defineAction } from "@agent-native/core";
+import {
+  classifyBrandKitToken as classifyVar,
+  friendlyTokenName as friendlyName,
+  isColorTokenValue as isColorValue,
+} from "@agent-native/core/brand-kit/tokens";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   CODE_MAX_FILES,
@@ -116,70 +121,6 @@ function designDeepLink(designId: string): string {
   });
 }
 
-function classifyVar(name: string, value: string): ImportedTokenType {
-  const n = name.toLowerCase();
-  if (
-    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
-      n,
-    ) ||
-    isColorValue(value)
-  ) {
-    return "color";
-  }
-  if (/font|size|leading|tracking|weight|heading|body|type/i.test(n)) {
-    return "typography";
-  }
-  if (/radius|rounded/i.test(n)) return "radius";
-  if (/spacing|gap|padding|margin|space/i.test(n)) return "spacing";
-  if (/shadow|blur|drop/i.test(n)) return "shadow";
-  return "other";
-}
-
-function isColorValue(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  if (
-    /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|color\()/i.test(normalized)
-  ) {
-    return true;
-  }
-  return [
-    "red",
-    "blue",
-    "green",
-    "yellow",
-    "orange",
-    "purple",
-    "pink",
-    "cyan",
-    "magenta",
-    "teal",
-    "navy",
-    "maroon",
-    "coral",
-    "salmon",
-    "gold",
-    "silver",
-    "gray",
-    "grey",
-    "indigo",
-    "violet",
-    "lime",
-    "olive",
-    "aqua",
-    "fuchsia",
-    "crimson",
-    "turquoise",
-    "ivory",
-    "beige",
-    "lavender",
-    "tan",
-    "khaki",
-    "plum",
-    "orchid",
-    "sienna",
-  ].includes(normalized);
-}
-
 function toKebab(value: string): string {
   return (
     value
@@ -191,13 +132,6 @@ function toKebab(value: string): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 48) || "token"
   );
-}
-
-function friendlyName(cssVar: string): string {
-  return cssVar
-    .replace(/^--/, "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function normalizeValue(value: string): string {

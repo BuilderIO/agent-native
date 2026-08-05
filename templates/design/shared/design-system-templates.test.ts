@@ -1,3 +1,4 @@
+import { resolveBrandKitTokens } from "@agent-native/core/brand-kit/tokens";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -61,5 +62,24 @@ describe("production design-system templates", () => {
 
   it("does not resolve unknown template ids", () => {
     expect(getProductionDesignSystemTemplate("lookalike")).toBeUndefined();
+  });
+
+  it("exposes each upstream system's own token names, not just the seven roles", () => {
+    for (const template of PRODUCTION_DESIGN_SYSTEM_TEMPLATES) {
+      const tokens = resolveBrandKitTokens(template.data);
+      expect(tokens.length).toBeGreaterThan(7);
+      expect(tokens.every((token) => token.name.length > 0)).toBe(true);
+    }
+
+    const carbonNames = resolveBrandKitTokens(
+      getProductionDesignSystemTemplate("carbon-white")!.data,
+    ).map((token) => token.name);
+    expect(carbonNames).toContain("cds-background-brand");
+    expect(carbonNames).toContain("cds-spacing-13");
+
+    const materialNames = resolveBrandKitTokens(
+      getProductionDesignSystemTemplate("material-3")!.data,
+    ).map((token) => token.name);
+    expect(materialNames).toContain("md-sys-color-primary-container");
   });
 });
