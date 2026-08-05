@@ -1230,6 +1230,7 @@ const hiIN = {
         crawlWebsite: "वेबसाइट की जाँच करें",
         crawlError: "हम उस वेबसाइट की जाँच नहीं कर सके।",
         or: "या",
+        uploadDesignReference: "डिज़ाइन संदर्भ अपलोड करें",
         importDesignSystem: "डिज़ाइन सिस्टम इंपोर्ट करें",
         loginDesignSystems: "डिज़ाइन सिस्टम प्रबंधित करने के लिए लॉग इन करें।",
         promptCreatePrefix: "एक",

@@ -1230,6 +1230,7 @@ const arSA = {
         crawlWebsite: "فحص الموقع",
         crawlError: "تعذر علينا فحص ذلك الموقع.",
         or: "أو",
+        uploadDesignReference: "رفع مرجع التصميم",
         importDesignSystem: "استيراد نظام التصميم",
         loginDesignSystems: "سجّل الدخول لإدارة أنظمة التصميم.",
         promptCreatePrefix: "أنشئ",

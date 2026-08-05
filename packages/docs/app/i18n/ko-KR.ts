@@ -1233,6 +1233,7 @@ const koKR = {
         crawlWebsite: "웹사이트 살펴보기",
         crawlError: "해당 웹사이트를 살펴볼 수 없습니다.",
         or: "또는",
+        uploadDesignReference: "디자인 참고 자료 업로드",
         importDesignSystem: "디자인 시스템 가져오기",
         loginDesignSystems: "로그인하여 디자인 시스템을 관리하세요.",
         promptCreatePrefix: "다음 유형의",

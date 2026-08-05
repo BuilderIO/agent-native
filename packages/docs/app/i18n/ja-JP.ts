@@ -1236,6 +1236,7 @@ const jaJP = {
         crawlWebsite: "ウェブサイトを確認",
         crawlError: "そのウェブサイトを確認できませんでした。",
         or: "または",
+        uploadDesignReference: "デザインの参考資料をアップロード",
         importDesignSystem: "デザインシステムをインポート",
         loginDesignSystems: "ログインしてデザインシステムを管理してください。",
         promptCreatePrefix: "次の種類の",

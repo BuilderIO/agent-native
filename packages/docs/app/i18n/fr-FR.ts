@@ -1240,6 +1240,7 @@ const frFR = {
         crawlWebsite: "Inspecter le site web",
         crawlError: "Nous n’avons pas pu inspecter ce site web.",
         or: "ou",
+        uploadDesignReference: "Importer une référence de design",
         importDesignSystem: "Importer un système de design",
         loginDesignSystems: "Connectez-vous pour gérer les systèmes de design.",
         promptCreatePrefix: "Créez une présentation de",

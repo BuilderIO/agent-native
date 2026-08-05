@@ -1220,6 +1220,7 @@ const zhCN = {
         crawlWebsite: "检查网站",
         crawlError: "我们无法检查该网站。",
         or: "或",
+        uploadDesignReference: "上传设计参考",
         importDesignSystem: "导入设计系统",
         loginDesignSystems: "登录以管理设计系统。",
         promptCreatePrefix: "创建一份",

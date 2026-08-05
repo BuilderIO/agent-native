@@ -1218,6 +1218,7 @@ const messages = {
         crawlWebsite: "檢視網站",
         crawlError: "我們無法檢視該網站。",
         or: "或",
+        uploadDesignReference: "上傳設計參考",
         importDesignSystem: "匯入設計系統",
         loginDesignSystems: "登入以管理設計系統。",
         promptCreatePrefix: "建立一份",

@@ -1234,6 +1234,7 @@ const ptBR = {
         crawlWebsite: "Inspecionar site",
         crawlError: "Não foi possível inspecionar esse site.",
         or: "ou",
+        uploadDesignReference: "Enviar referência de design",
         importDesignSystem: "Importar sistema de design",
         loginDesignSystems: "Entre para gerenciar sistemas de design.",
         promptCreatePrefix: "Crie uma apresentação de",

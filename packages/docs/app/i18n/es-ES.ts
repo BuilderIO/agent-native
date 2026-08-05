@@ -1239,6 +1239,7 @@ const esES = {
         crawlWebsite: "Inspeccionar sitio web",
         crawlError: "No pudimos inspeccionar ese sitio web.",
         or: "o",
+        uploadDesignReference: "Subir referencia de diseño",
         importDesignSystem: "Importar sistema de diseño",
         loginDesignSystems:
           "Inicia sesión para gestionar los sistemas de diseño.",

@@ -1241,6 +1241,7 @@ const deDE = {
         crawlWebsite: "Website prüfen",
         crawlError: "Wir konnten diese Website nicht prüfen.",
         or: "oder",
+        uploadDesignReference: "Designreferenz hochladen",
         importDesignSystem: "Designsystem importieren",
         loginDesignSystems:
           "Melden Sie sich an, um Designsysteme zu verwalten.",
