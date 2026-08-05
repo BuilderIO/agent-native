@@ -3,6 +3,7 @@ import {
   type AgentFailureRegime,
 } from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
+import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
@@ -38,8 +39,10 @@ export interface ThreadDebugSource {
 export interface DebugAccess {
   viewerEmail: string;
   orgId: string | null;
+  orgDomain: string | null;
   role: string | null;
   envAdmin: boolean;
+  threadDebugOperator: boolean;
   canInspectAll: boolean;
   memberEmails: string[];
 }
@@ -126,6 +129,12 @@ function isEnvAdmin(email: string): boolean {
     ...envEmails("WORKSPACE_OWNER_EMAIL"),
     ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
   ].includes(normalized);
+}
+
+function isThreadDebugOperator(email: string): boolean {
+  return envEmails("DISPATCH_THREAD_DEBUG_OPERATOR_EMAILS").includes(
+    email.trim().toLowerCase(),
+  );
 }
 
 function missingTableName(error: unknown): string | null {
@@ -471,20 +480,38 @@ async function currentOrgMembers(orgId: string | null): Promise<string[]> {
   return rows.map((row) => String(row.email ?? "").trim()).filter(Boolean);
 }
 
+async function viewerOrgDomain(orgId: string | null): Promise<string | null> {
+  if (!orgId) return null;
+  const rows = await currentDbRows<{ allowed_domain?: string }>(
+    `SELECT allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+    [orgId],
+  );
+  const domain = String(rows[0]?.allowed_domain ?? "")
+    .trim()
+    .toLowerCase();
+  return domain || null;
+}
+
 async function resolveDebugAccess(): Promise<DebugAccess> {
   const viewerEmail = currentOwnerEmail();
   const orgId = currentOrgId();
   const role = await viewerOrgRole(orgId, viewerEmail);
   const envAdmin = isEnvAdmin(viewerEmail);
-  const canInspectAll = envAdmin || role === "owner" || role === "admin";
+  const threadDebugOperator =
+    Boolean(orgId) && isThreadDebugOperator(viewerEmail);
+  const canInspectAll =
+    envAdmin || threadDebugOperator || role === "owner" || role === "admin";
+  const orgDomain = canInspectAll ? await viewerOrgDomain(orgId) : null;
   const memberEmails = canInspectAll
     ? await currentOrgMembers(orgId)
     : [viewerEmail];
   return {
     viewerEmail,
     orgId,
+    orgDomain,
     role,
     envAdmin,
+    threadDebugOperator,
     canInspectAll,
     memberEmails: memberEmails.length > 0 ? memberEmails : [viewerEmail],
   };
@@ -496,62 +523,94 @@ function assertSourceAccess(
 ) {
   if (source.kind === "current") return;
   if (!access.canInspectAll) {
-    throw new Error(
-      "Only Dispatch admins can inspect thread databases from other apps.",
+    throw new ForbiddenError(
+      "Thread Debug operator access is required to inspect thread databases from other apps.",
+    );
+  }
+  if (access.orgId && !access.orgDomain) {
+    throw new ForbiddenError(
+      "The active organization needs an allowed domain before operators can inspect cross-app traces.",
     );
   }
 }
 
 function ownerScope(
   access: DebugAccess,
+  source: ThreadDebugSourceConfig,
   ownerEmail?: string,
-  column = "owner_email",
+  ownerColumn = "owner_email",
+  orgColumn = "org_id",
+  remoteOrgId?: string | null,
 ): OwnerScope {
   const requested = ownerEmail?.trim();
   if (!access.canInspectAll) {
     return {
-      sql: `${column} = ?`,
+      sql: `${ownerColumn} = ?`,
       args: [access.viewerEmail],
       label: access.viewerEmail,
     };
   }
 
-  if (requested && requested !== "*") {
-    if (
-      access.orgId &&
-      !access.memberEmails.some(
-        (email) => email.toLowerCase() === requested.toLowerCase(),
-      )
-    ) {
-      throw new Error(
-        "The requested owner is not a member of the current organization.",
-      );
+  if (access.orgId) {
+    const clauses: string[] = [];
+    const args: unknown[] = [];
+    if (source.kind === "current") {
+      clauses.push(`${orgColumn} = ?`);
+      args.push(access.orgId);
+    } else {
+      if (!remoteOrgId) {
+        throw new ForbiddenError(
+          "The active organization could not be uniquely resolved in the selected Thread Debug source.",
+        );
+      }
+      clauses.push(`${orgColumn} = ?`);
+      args.push(remoteOrgId);
+    }
+    if (requested && requested !== "*") {
+      clauses.push(`${ownerColumn} = ?`);
+      args.push(requested);
     }
     return {
-      sql: `${column} = ?`,
+      sql: clauses.join(" AND "),
+      args,
+      label:
+        requested && requested !== "*" ? requested : "current organization",
+    };
+  }
+
+  if (requested && requested !== "*") {
+    return {
+      sql: `${ownerColumn} = ?`,
       args: [requested],
       label: requested,
     };
   }
 
-  if (access.envAdmin && !access.orgId) {
-    return { sql: "1 = 1", args: [], label: "all users" };
-  }
+  return { sql: "1 = 1", args: [], label: "all users" };
+}
 
-  const emails = access.memberEmails;
-  if (emails.length === 0) {
-    return {
-      sql: `${column} = ?`,
-      args: [access.viewerEmail],
-      label: access.viewerEmail,
-    };
+async function resolveRemoteOrgId(
+  access: DebugAccess,
+  source: ThreadDebugSourceConfig,
+  exec: DbExec,
+): Promise<string | null> {
+  if (source.kind === "current" || !access.orgId) return null;
+  if (!access.orgDomain) {
+    throw new ForbiddenError(
+      "The active organization needs an allowed domain before operators can inspect cross-app traces.",
+    );
   }
-  const placeholders = emails.map(() => "?").join(", ");
-  return {
-    sql: `${column} IN (${placeholders})`,
-    args: emails,
-    label: access.orgId ? "current organization" : "all users",
-  };
+  const rows = await queryRows<{ id: string }>(
+    exec,
+    `SELECT id FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 2`,
+    [access.orgDomain],
+  );
+  if (rows.length !== 1) {
+    throw new ForbiddenError(
+      "The active organization could not be uniquely resolved in the selected Thread Debug source.",
+    );
+  }
+  return String(rows[0].id);
 }
 
 function serializeThreadSummary(row: ChatThreadRow, query = "") {
@@ -600,7 +659,7 @@ function parseRunEvent(row: Record<string, unknown>) {
 }
 
 export async function listThreadDebugSources(): Promise<{
-  access: Omit<DebugAccess, "memberEmails" | "envAdmin"> & {
+  access: Omit<DebugAccess, "memberEmails" | "envAdmin" | "orgDomain"> & {
     envAdmin: boolean;
     memberCount: number;
   };
@@ -613,6 +672,7 @@ export async function listThreadDebugSources(): Promise<{
       orgId: access.orgId,
       role: access.role,
       envAdmin: access.envAdmin,
+      threadDebugOperator: access.threadDebugOperator,
       canInspectAll: access.canInspectAll,
       memberCount: access.memberEmails.length,
     },
@@ -712,6 +772,7 @@ function sourceHealth(
 
 async function failuresForSource(
   source: ThreadDebugSourceConfig,
+  exec: DbExec,
   scope: OwnerScope,
   input: {
     status: AgentRunFailureStatus | "all";
@@ -720,7 +781,6 @@ async function failuresForSource(
     limit: number;
   },
 ) {
-  const exec = await execForSource(source);
   const statuses =
     input.status === "all" ? [...UNSUCCESSFUL_RUN_STATUSES] : [input.status];
   const statusPlaceholders = statuses.map(() => "?").join(", ");
@@ -770,7 +830,6 @@ export async function listAgentRunFailures(input: {
   const regime = input.regime ?? "all";
   const lookbackHours = Math.max(1, Math.min(720, input.lookbackHours ?? 168));
   const limit = Math.max(1, Math.min(100, input.limit ?? DEFAULT_SEARCH_LIMIT));
-  const scope = ownerScope(access, input.ownerEmail, "t.owner_email");
   const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
 
   let sources: ThreadDebugSourceConfig[];
@@ -806,7 +865,17 @@ export async function listAgentRunFailures(input: {
         };
       }
       try {
-        const failures = await failuresForSource(source, scope, {
+        const exec = await execForSource(source);
+        const remoteOrgId = await resolveRemoteOrgId(access, source, exec);
+        const scope = ownerScope(
+          access,
+          source,
+          input.ownerEmail,
+          "t.owner_email",
+          "t.org_id",
+          remoteOrgId,
+        );
+        const failures = await failuresForSource(source, exec, scope, {
           status,
           regime,
           cutoff,
@@ -817,6 +886,7 @@ export async function listAgentRunFailures(input: {
           health: sourceHealth(source, "ok", failures.length, null),
         };
       } catch (error) {
+        if (error instanceof ForbiddenError) throw error;
         if (error instanceof UnsupportedThreadDebugSchemaError) {
           return {
             failures: [] as ReturnType<typeof serializeRunFailure>[],
@@ -861,7 +931,11 @@ export async function listAgentRunFailures(input: {
     partial: results.some((result) => result.health.status !== "ok"),
     access: {
       viewerEmail: access.viewerEmail,
-      scope: scope.label,
+      scope: ownerScope(
+        access,
+        resolveSourceConfig("current"),
+        input.ownerEmail,
+      ).label,
       canInspectAll: access.canInspectAll,
     },
     sources: results.map((result) => result.health),
@@ -879,12 +953,20 @@ export async function searchAgentThreads(input: {
   const access = await resolveDebugAccess();
   assertSourceAccess(source, access);
   const exec = await execForSource(source);
+  const remoteOrgId = await resolveRemoteOrgId(access, source, exec);
+  const scope = ownerScope(
+    access,
+    source,
+    input.ownerEmail,
+    "owner_email",
+    "org_id",
+    remoteOrgId,
+  );
   const limit = Math.max(
     1,
     Math.min(MAX_SEARCH_LIMIT, input.limit ?? DEFAULT_SEARCH_LIMIT),
   );
   const q = input.query?.trim() ?? "";
-  const scope = ownerScope(access, input.ownerEmail);
   const where = [scope.sql];
   const args: unknown[] = [...scope.args];
   const runThreadIds = q
@@ -914,7 +996,7 @@ export async function searchAgentThreads(input: {
   }
   args.push(limit);
 
-  const rows = await optionalRows<ChatThreadRow>(
+  const rows = await queryRows<ChatThreadRow>(
     exec,
     `SELECT id, owner_email, title, preview, thread_data, message_count, created_at, updated_at
        FROM chat_threads
@@ -954,7 +1036,15 @@ export async function getAgentThreadDebug(input: {
   const access = await resolveDebugAccess();
   assertSourceAccess(source, access);
   const exec = await execForSource(source);
-  const scope = ownerScope(access, input.ownerEmail);
+  const remoteOrgId = await resolveRemoteOrgId(access, source, exec);
+  const scope = ownerScope(
+    access,
+    source,
+    input.ownerEmail,
+    "owner_email",
+    "org_id",
+    remoteOrgId,
+  );
   const requestedId = input.runId?.trim() || input.threadId?.trim() || "";
   if (!requestedId) {
     throw new Error("A thread ID or request/run ID is required.");

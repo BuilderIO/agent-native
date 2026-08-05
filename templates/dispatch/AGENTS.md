@@ -58,7 +58,9 @@ ladder.
   returned run with `get-agent-thread-debug` using the same source id. Do not
   infer run failure from thread text search. Cross-app results may be partial;
   preserve the returned per-source health instead of treating an unavailable
-  source as zero failures.
+  source as zero failures. Read-only Thread Debug operators can inspect
+  organization-owned service-principal traces, but not another organization's
+  traces or any broader Dispatch mutation surface.
 - For a Slack-linked issue, call `read-slack-thread-context` with the exact
   permalink before diagnosing it. It resolves child links to the parent thread,
   preserves attachments and related URLs, and reports whether pagination is
