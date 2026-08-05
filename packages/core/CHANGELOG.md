@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.141.1
+
+### Patch Changes
+
+- f101f20: Strip source-map references from published core build artifacts when the maps are excluded from the package.
+
 ## 0.141.0
 
 ### Minor Changes
