@@ -1,5 +1,49 @@
 # @agent-native/core
 
+## 0.138.0
+
+### Minor Changes
+
+- 9d271fe: Make the portable security guard contract automatic for every CLI-generated app and workspace.
+- 9d271fe: Use magic-link sign-in by default when outbound email is configured, while keeping password sign-in available and adding optional password management in account settings.
+- 9d271fe: Add a bounded `framework-search` tool that searches version-matched docs and readable framework source together, with substring, glob, SQL-like, and safe-regex modes.
+
+### Patch Changes
+
+- 9d271fe: Show the AI connection setup card before an unconfigured chat can be submitted.
+- 9d271fe: Avoid empty-plugin database startup work and keep cold-start route and chat surfaces responsive.
+- 9d271fe: Keep agent-triggered action refresh notifications from blocking tool completion on a slow local database.
+- 9d271fe: Stop interrupted extension-update reconnect cards from appearing to run indefinitely.
+- 9d271fe: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
+- 9d271fe: Persist first-run onboarding completion so the signup flow does not replay after sign-in.
+- 9d271fe: Show a delayed destination spinner during slow client-side route loading and move route warmup to the persistent app provider shell.
+- 9d271fe: Keep assistant threads scoped to the active resource so a Slides deck cannot display another deck's agent run or completion message.
+- 9d271fe: Add typed `agent-native.json` and `agent-native.config.ts` app defaults for shared first-run onboarding.
+- Updated dependencies [9d271fe]
+- Updated dependencies [9d271fe]
+  - @agent-native/toolkit@0.13.2
+
+## 0.137.8
+
+### Patch Changes
+
+- 718f945: Stop stranding users on the loading spinner when the session endpoint is
+  unreadable. `useSession` retried a failed `/_agent-native/auth/session` every
+  second forever while holding `isLoading` true, so a transient 5xx, network
+  failure, or timeout produced a spinner that never resolved and carried no error
+  anywhere. It now retries a bounded number of times with backoff and then reports
+  a distinct `status: "unavailable"` alongside the existing `session`/`isLoading`
+  fields.
+
+  `RequireSession` keys off that status: unreadable is no longer collapsed into
+  signed-out (which would bounce a signed-in user to the sign-in page over a blip)
+  nor into loading (which stranded them). It renders a notice with Try again and
+  Reload actions instead.
+
+  The `DefaultSpinner` stall hint is also environment-aware now. It previously
+  told every visitor — including on hosted deployments — to "check the terminal
+  running the dev server", which is meaningless outside local development.
+
 ## 0.137.7
 
 ### Patch Changes

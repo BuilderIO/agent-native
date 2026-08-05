@@ -1301,6 +1301,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     cameraOff: "Camera off (Localizado)",
     includeCameraAria: "Include camera in this recording (Localizado)",
     startRecording: "Start recording (Localizado)",
+    micOffConfirmTitle: "Record without a microphone? (Localizado)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Localizado)",
+    startWithoutMic: "Start anyway (Localizado)",
     uploadVideo: "Upload video (Localizado)",
     importLoom: "Import Loom (Localizado)",
     importing: "Importing... (Localizado)",

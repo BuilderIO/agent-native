@@ -1290,6 +1290,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     cameraOff: "Camera off (ローカライズ済み)",
     includeCameraAria: "Include camera in this recording (ローカライズ済み)",
     startRecording: "Start recording (ローカライズ済み)",
+    micOffConfirmTitle: "Record without a microphone? (ローカライズ済み)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (ローカライズ済み)",
+    startWithoutMic: "Start anyway (ローカライズ済み)",
     uploadVideo: "Upload video (ローカライズ済み)",
     importLoom: "Import Loom (ローカライズ済み)",
     importing: "Importing... (ローカライズ済み)",

@@ -436,7 +436,7 @@ export function VoiceTranscriptionSection({
               googleRealtimeReady
                 ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
                 : googleRealtimeConfigured
-                  ? "Google credentials are set. Connect Builder completely to mint the managed realtime session."
+                  ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session."
                   : "BYOK only for v1. Configure Google service account before selecting this source."
             }
             rightSlot={
@@ -542,7 +542,7 @@ export function VoiceTranscriptionSection({
               title="Google Speech-to-Text service account"
               subtitle={
                 googleRealtimeConfigured
-                  ? "Service-account JSON is set. Connect Builder to mint the managed realtime WebSocket session."
+                  ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session."
                   : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize."
               }
               rightSlot={

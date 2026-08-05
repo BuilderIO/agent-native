@@ -1233,6 +1233,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     cameraOff: "Camera off (已本地化)",
     includeCameraAria: "Include camera in this recording (已本地化)",
     startRecording: "Start recording (已本地化)",
+    micOffConfirmTitle: "Record without a microphone? (已本地化)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (已本地化)",
+    startWithoutMic: "Start anyway (已本地化)",
     uploadVideo: "Upload video (已本地化)",
     importLoom: "Import Loom (已本地化)",
     importing: "Importing... (已本地化)",

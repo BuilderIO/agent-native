@@ -126,7 +126,7 @@ export async function uploadFile(
     warnedFallbackRef.value = true;
     console.warn(
       "[agent-native] No file upload provider configured. " +
-        "Connect or reconnect Builder.io in Settings → File uploads, " +
+        "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, " +
         "or register a custom provider (S3, R2, GCS, …) via registerFileUploadProvider().",
     );
   }

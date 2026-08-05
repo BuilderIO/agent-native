@@ -124,7 +124,7 @@ export default defineAction({
     });
     if (!uploaded?.url) {
       throw new Error(
-        "File storage is not configured. Connect Builder.io or another upload provider before generating slide images.",
+        "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before generating slide images.",
       );
     }
 

@@ -118,6 +118,7 @@ import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
+import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
   ensureGoogleAuthIdentity,
   getBetterAuth,
@@ -1125,6 +1126,7 @@ let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
 interface AuthGuardConfig {
   loginHtml: string;
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
+  authMode?: OnboardingHtmlOptions["authMode"];
   publicPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
   workspaceAppPublicPaths: string[];
@@ -1145,8 +1147,10 @@ function getOnboardingHtmlOptions(
   options: AuthOptions,
   event?: H3Event,
   rawPath?: string,
+  authMode?: OnboardingHtmlOptions["authMode"],
 ): OnboardingHtmlOptions {
   return {
+    authMode,
     googleOnly: options.googleOnly,
     marketing: options.marketing,
     googleSignInNotice: options.googleSignInNotice,
@@ -1162,18 +1166,23 @@ function getAuthOnboardingHtml(
   options: AuthOptions,
   event?: H3Event,
   rawPath?: string,
+  authMode?: OnboardingHtmlOptions["authMode"],
 ): string {
-  return getOnboardingHtml(getOnboardingHtmlOptions(options, event, rawPath));
+  return getOnboardingHtml(
+    getOnboardingHtmlOptions(options, event, rawPath, authMode),
+  );
 }
 
 function getOnboardingLoginHtmlConfig(
   options: AuthOptions,
-): Pick<AuthGuardConfig, "loginHtml" | "getLoginHtml"> {
-  if (options.loginHtml) return { loginHtml: options.loginHtml };
+  authMode?: OnboardingHtmlOptions["authMode"],
+): Pick<AuthGuardConfig, "loginHtml" | "getLoginHtml" | "authMode"> {
+  if (options.loginHtml) return { loginHtml: options.loginHtml, authMode };
   return {
-    loginHtml: getAuthOnboardingHtml(options),
+    authMode,
+    loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
-      getAuthOnboardingHtml(options, event, rawPath),
+      getAuthOnboardingHtml(options, event, rawPath, authMode),
   };
 }
 
@@ -2489,6 +2498,13 @@ function setFirstRunOnboardingCookie(event: H3Event): void {
   });
 }
 
+function clearFirstRunOnboardingCookie(event: H3Event): void {
+  deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+    ...crossSiteCookieAttrs(event),
+    path: "/",
+  });
+}
+
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   clearFrameworkSessionCookies(event);
   setCookie(event, COOKIE_NAME, token, {
@@ -3110,6 +3126,10 @@ async function mountBetterAuthRoutes(
     ...(options.googleScopes ? { googleScopes: options.googleScopes } : {}),
   };
   const auth = await getBetterAuth(betterAuthConfig);
+  const authLoginMode =
+    typeof getAuthLoginMode === "function"
+      ? await getAuthLoginMode()
+      : ("password" as const);
 
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
   app.use(
@@ -3121,6 +3141,8 @@ async function mountBetterAuthRoutes(
       const isSendVerificationEmail =
         reqPath.includes("send-verification-email") &&
         getMethod(event) === "POST";
+      const isMagicLinkRequest =
+        reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
       const isSignOut =
         reqPath.includes("sign-out") && getMethod(event) === "POST";
       if (isSignOut) optOutOfAuthDisabledSession(event);
@@ -3132,7 +3154,8 @@ async function mountBetterAuthRoutes(
       // Better Auth so an org policy cannot be bypassed through the raw API.
       if (
         reqPath.includes("/sign-in/email") ||
-        reqPath.includes("/sign-up/email")
+        reqPath.includes("/sign-up/email") ||
+        isMagicLinkRequest
       ) {
         const body = (await authRequest
           .clone()
@@ -3192,22 +3215,34 @@ async function mountBetterAuthRoutes(
       // but the resend endpoint is exposed directly so users can request a
       // fresh link while unauthenticated. Keep that path equally strict:
       // only same-origin relative return paths survive into the email.
-      if (isSendVerificationEmail) {
+      if (isSendVerificationEmail || isMagicLinkRequest) {
         try {
           const body = (await authRequest
             .clone()
             .json()
             .catch(() => undefined)) as Record<string, unknown> | undefined;
-          if (body && typeof body.callbackURL === "string") {
-            const callbackURL = safeReturnPath(body.callbackURL);
-            if (callbackURL !== body.callbackURL) {
+          if (body) {
+            const callbackKeys = isMagicLinkRequest
+              ? ["callbackURL", "newUserCallbackURL", "errorCallbackURL"]
+              : ["callbackURL"];
+            const sanitizedBody = { ...body };
+            let changed = false;
+            for (const key of callbackKeys) {
+              if (typeof body[key] !== "string") continue;
+              const callbackURL = safeReturnPath(body[key]);
+              if (callbackURL !== body[key]) {
+                sanitizedBody[key] = callbackURL;
+                changed = true;
+              }
+            }
+            if (changed) {
               const headers = new Headers(authRequest.headers);
               headers.delete("content-length");
               headers.set("content-type", "application/json");
               requestForAuth = new Request(authRequest.url, {
                 method: authRequest.method,
                 headers,
-                body: JSON.stringify({ ...body, callbackURL }),
+                body: JSON.stringify(sanitizedBody),
                 duplex: "half",
               } as RequestInit & { duplex: "half" });
             }
@@ -3416,6 +3451,54 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // Passwordless login via Better Auth's rate-limited magic-link plugin.
+  app.use(
+    "/_agent-native/auth/magic-link",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const body = await readBody(event);
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
+      const callbackURL =
+        typeof body?.callbackURL === "string"
+          ? safeReturnPath(body.callbackURL)
+          : "/";
+
+      if (!email) {
+        setResponseStatus(event, 400);
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
+      }
+
+      if (await isGoogleSignInRequiredForEmail(email)) {
+        setResponseStatus(event, 403);
+        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+      }
+
+      try {
+        await auth.api.signInMagicLink({
+          body: {
+            email,
+            callbackURL,
+            newUserCallbackURL: `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackURL)}`,
+          },
+          headers: event.headers,
+        });
+        return { ok: true };
+      } catch (e: any) {
+        if (!isExpectedAuthFailure(e)) {
+          captureAuthError(e, { route: "magic-link", email });
+        }
+        const authError = publicAuthError(e, "Unable to send sign-in link");
+        setResponseStatus(event, authError.statusCode ?? 400);
+        return { error: authError.message };
+      }
+    }),
+  );
+
   // Backward-compat: POST /_agent-native/auth/register
   app.use(
     "/_agent-native/auth/register",
@@ -3476,6 +3559,7 @@ async function mountBetterAuthRoutes(
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      clearFirstRunOnboardingCookie(event);
       optOutOfAuthDisabledSession(event);
 
       try {
@@ -3548,6 +3632,7 @@ async function mountBetterAuthRoutes(
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
         clearFrameworkSessionCookies(event);
+        clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
         try {
           const result = await auth.api.signOut({
@@ -3597,9 +3682,27 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // Better Auth redirects new magic-link users through this small public
+  // callback so first-run onboarding is marked only for newly created users.
+  app.use(
+    "/_agent-native/auth/magic-link/new-user",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const query = getQuery(event);
+      const rawReturn = Array.isArray(query.return)
+        ? query.return[0]
+        : query.return;
+      setFirstRunOnboardingCookie(event);
+      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+    }),
+  );
+
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
-  const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
+  const loginHtmlConfig = getOnboardingLoginHtmlConfig(options, authLoginMode);
   _authGuardConfig = {
     ...loginHtmlConfig,
     publicPaths,
@@ -3732,6 +3835,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      clearFirstRunOnboardingCookie(event);
       optOutOfAuthDisabledSession(event);
 
       try {
@@ -3813,7 +3917,10 @@ export async function autoMountAuth(
         options.marketing ||
         options.googleSignInNotice
       ) {
-        const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
+        const loginHtmlConfig = getOnboardingLoginHtmlConfig(
+          options,
+          _authGuardConfig.authMode,
+        );
         _authGuardConfig.loginHtml = loginHtmlConfig.loginHtml;
         _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
       }
@@ -3894,6 +4001,7 @@ export async function autoMountAuth(
         const bearerToken = getBearerSessionToken(event);
         if (bearerToken) await removeSession(bearerToken);
         clearFrameworkSessionCookies(event);
+        clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };

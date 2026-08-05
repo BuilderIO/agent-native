@@ -85,6 +85,9 @@ export default defineAction({
         .delete(schema.recordingViews)
         .where(eq(schema.recordingViews.recordingId, args.id));
       await tx
+        .delete(schema.recordingPlaybackPositions)
+        .where(eq(schema.recordingPlaybackPositions.recordingId, args.id));
+      await tx
         .delete(schema.recordingViewers)
         .where(eq(schema.recordingViewers.recordingId, args.id));
       await tx

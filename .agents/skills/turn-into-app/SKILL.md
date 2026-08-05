@@ -66,10 +66,16 @@ Generated apps must follow the shared Agent-Native surface model:
 - Use the right `AgentSidebar` for contextual AI. Every button-triggered
   `sendToAgentChat` handoff should open or focus that sidebar and keep the user
   on the current domain page.
-- Use a sans-first SaaS hierarchy for the app shell. One restrained warm or
-  editorial cue is welcome, but keep serif type for content previews or a
-  deliberate brand moment rather than making the whole tool feel like a
-  publication.
+- Use a sans-first SaaS hierarchy for the app shell. Choose a named visual
+  direction in `DESIGN.md` before styling: product mode, audience, palette
+  family, type treatment, composition, shape language, and anti-references.
+  One restrained editorial cue is welcome, but warm beige plus terracotta is
+  not the default and serif type belongs in content previews or a deliberate
+  brand moment rather than the whole tool.
+- Preserve existing brand tokens. For a new unbranded app, choose a
+  product-fitting palette family and compare sibling apps before reusing their
+  accent. Keep shared semantic tokens and Agent-Native behavior consistent
+  while varying the visual world, density, composition, and shape language.
 - Give the AgentSidebar a subtle surface or divider boundary so it is visually
   distinct from the domain page without becoming a heavy panel wall.
 - Every AI-labeled button must actually call `sendToAgentChat` with bounded
@@ -91,6 +97,9 @@ Generated apps must follow the shared Agent-Native surface model:
 - Before handoff, inspect the first viewport for text density, repeated cards,
   unrelated forms, and generic helper copy. Remove what the user does not need
   until the next decision.
+- Run a `distill`, `typeset`, `colorize`, `layout`, `polish`, and `audit` pass
+  as useful named reviews. Make one intervention at a time and commit the
+  chosen direction rather than averaging several options into generic SaaS.
 - For before/after or original/generated review, stack the source first and the
   result second by default. Reserve side-by-side layouts for short content that
   remains comfortable to scan at the target width.
@@ -131,6 +140,10 @@ Use a first-party template only when it materially fits the workflow. Keep the
 new app independent from the source thread's working tree unless the user
 explicitly asks to extend an existing app.
 
+Read the generated `DESIGN.md` before building the first screen and fill in the
+visual direction as part of the app brief. Do not copy the previous app's
+palette just because its tokens are nearby.
+
 ## 3. Turn the workflow into buttons and agent work
 
 Implement the smallest useful surface around the extracted brief. The app
@@ -167,6 +180,48 @@ starting the app; after restart, the setup prompt is no longer shown when the
 key is available. Keep real secrets out of source, examples, and generated
 content.
 
+Turn-into-app apps should commit an `agent-native.json` app configuration so a
+plain `pnpm dev` has the right first-run behavior without extra flags:
+
+```json
+{
+  "version": 1,
+  "onboarding": {
+    "firstRun": {
+      "development": "connect",
+      "production": "connect-and-integrations"
+    }
+  }
+}
+```
+
+`connect` keeps the Connect Builder / Add your own keys choice visible and
+skips only the generic “This app is an agent.” integrations catalog. The
+production value includes that catalog for a hosted app. Do not replace this
+with a local credential form or remove the shared onboarding. In development,
+the shared Connect Builder card also explains the deployment-level
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` fallback and links to the full
+environment-variable guide.
+
+When the onboarding default needs code rather than a static mode map, add an
+optional `agent-native.config.ts` with the same returned shape:
+
+```ts
+import { defineAgentNativeConfig } from "@agent-native/core/config";
+
+export default defineAgentNativeConfig(({ isDev }) => ({
+  version: 1,
+  onboarding: {
+    firstRun: isDev ? "connect" : "connect-and-integrations",
+  },
+}));
+```
+
+The Vite preset loads this file automatically on supported Node versions. The
+JSON file remains the portable, inspectable fallback. See the [Agent-Native
+app configuration guide](/docs/agent-native-config) for precedence, supported
+modes, and the boundary between committed config and deployment secrets.
+
 For an account-free local preview, create the ignored local `.env` file with
 `AUTH_DISABLED=1` before starting the dev server. This is only for loopback
 development; never commit or deploy this setting. AI/provider connections still
@@ -180,11 +235,12 @@ From the new app directory:
 pnpm dev
 ```
 
-For a fresh local test app, use the ignored `.env` setting above so the domain
-UI opens without an account. Keep the process running so the user can try the
-app. Read the actual server output and report the real local URL. If the app
-needs installation or a setup step, complete it when possible and distinguish
-“not configured” from an unavailable credential store.
+For a fresh local test app, use the ignored `.env` with `AUTH_DISABLED=1` so the
+domain UI opens without an account; the committed app config makes shared
+onboarding visible. Keep the process running so the user can try the app. Read
+the actual server output and report the real local URL. If the app needs installation or a setup step,
+complete it when possible and distinguish “not configured” from an unavailable
+credential store.
 
 ## 6. Verify, build, and deploy
 
@@ -219,7 +275,7 @@ deployed, and live-verified are different states.
 
 ## Handoff
 
-End with the new app directory, local URL, what the buttons do, account-free
-local-preview status, verification performed, deployment URL if it is real,
+End with the new app directory, local URL, visual direction, what the buttons do,
+account-free local-preview status, verification performed, deployment URL if it is real,
 and one precise pending step when something could not be completed. Keep the
 handoff short enough to use in a demo or recording.

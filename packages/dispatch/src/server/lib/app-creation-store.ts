@@ -2095,7 +2095,8 @@ export async function startWorkspaceAppCreation(input: {
       appId: built.appId,
       reason: "builder-not-connected",
       projectId: settings.builderProjectId,
-      message: "Connect your Builder account to create apps from Dispatch.",
+      message:
+        "Connect your Builder account (free tier available) to create apps from Dispatch.",
     };
   }
 

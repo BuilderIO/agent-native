@@ -628,7 +628,8 @@ export function RunErrorRecoveryCard({
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
-              Reconnect Builder.io, then retry this message.
+              Reconnect Builder.io (free tier available), then retry this
+              message.
             </p>
           )}
           {isConnectionRecoveryError && (

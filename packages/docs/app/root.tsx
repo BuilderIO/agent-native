@@ -1,3 +1,4 @@
+import { AgentNativeRouteWarmup } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
   getLocaleInitScript,
@@ -464,23 +465,26 @@ function RootShell({ mounted }: { mounted: boolean }) {
   if (!mounted) return fallback;
 
   return (
-    <Suspense fallback={fallback}>
-      <LazyAgentSidebar
-        storageKey="docs"
-        position="right"
-        defaultOpen={false}
-        defaultSidebarWidth={400}
-        emptyStateText={t("agent.emptyState")}
-        suggestions={[
-          t("agent.suggestionGettingStarted"),
-          t("agent.suggestionActions"),
-          t("agent.suggestionPolling"),
-          t("agent.suggestionDeploy"),
-        ]}
-      >
-        {content}
-      </LazyAgentSidebar>
-    </Suspense>
+    <>
+      <AgentNativeRouteWarmup />
+      <Suspense fallback={fallback}>
+        <LazyAgentSidebar
+          storageKey="docs"
+          position="right"
+          defaultOpen={false}
+          defaultSidebarWidth={400}
+          emptyStateText={t("agent.emptyState")}
+          suggestions={[
+            t("agent.suggestionGettingStarted"),
+            t("agent.suggestionActions"),
+            t("agent.suggestionPolling"),
+            t("agent.suggestionDeploy"),
+          ]}
+        >
+          {content}
+        </LazyAgentSidebar>
+      </Suspense>
+    </>
   );
 }
 
@@ -505,14 +509,14 @@ function LocalizedError({ error }: { error: unknown }) {
           </p>
           <div className="flex items-center gap-3">
             <Link
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/")}
               className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
               {t("errors.goHome")}
             </Link>
             <Link
-              data-an-prefetch="render"
+              data-an-prefetch="viewport"
               to={localizedPath("/docs")}
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
             >
@@ -545,7 +549,7 @@ function LocalizedError({ error }: { error: unknown }) {
           {t("errors.genericBody")}
         </p>
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={localizedPath("/")}
           className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >

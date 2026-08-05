@@ -1371,6 +1371,32 @@ export function createCoreRoutesPlugin(
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
     });
     try {
+      const P = FRAMEWORK_ROUTE_PREFIX;
+
+      // This response is a side-effect-free static contract used by the SSR
+      // shell. Mount it before optional default-plugin/bootstrap work so a
+      // browser's automatic rules fetch cannot inherit the cold-start wait.
+      getH3App(nitroApp).use(
+        `${P}/speculation-rules.json`,
+        defineEventHandler((event) => {
+          // `createH3SSRHandler` points the Speculation-Rules response header
+          // here to prevent Cloudflare Speed Brain from injecting its own
+          // edge prefetch rules. Keep this route public and side-effect free:
+          // browsers may request it while parsing any SSR HTML document.
+          setResponseHeader(
+            event,
+            "content-type",
+            "application/speculationrules+json; charset=utf-8",
+          );
+          for (const [name, value] of Object.entries(
+            resolveSsrCacheHeaders(),
+          )) {
+            setResponseHeader(event, name, value);
+          }
+          return EMPTY_SPECULATION_RULES;
+        }),
+      );
+
       await awaitBootstrap(nitroApp);
 
       const { persistedEnvVars, builderDisconnected } =
@@ -1483,8 +1509,6 @@ export function createCoreRoutesPlugin(
       } catch {
         // Audit module not available — skip
       }
-
-      const P = FRAMEWORK_ROUTE_PREFIX;
 
       for (const provider of [
         "figma",
@@ -1912,27 +1936,6 @@ export function createCoreRoutesPlugin(
             runtime: getRuntimeDebugFingerprint(),
             schema,
           };
-        }),
-      );
-
-      getH3App(nitroApp).use(
-        `${P}/speculation-rules.json`,
-        defineEventHandler((event) => {
-          // `createH3SSRHandler` points the Speculation-Rules response header
-          // here to prevent Cloudflare Speed Brain from injecting its own
-          // edge prefetch rules. Keep this route public and side-effect free:
-          // browsers may request it while parsing any SSR HTML document.
-          setResponseHeader(
-            event,
-            "content-type",
-            "application/speculationrules+json; charset=utf-8",
-          );
-          for (const [name, value] of Object.entries(
-            resolveSsrCacheHeaders(),
-          )) {
-            setResponseHeader(event, name, value);
-          }
-          return EMPTY_SPECULATION_RULES;
         }),
       );
 
@@ -3320,7 +3323,7 @@ export function createCoreRoutesPlugin(
                 setResponseStatus(event, 400);
                 return {
                   error:
-                    "Builder not connected. Connect Builder in Setup to use background agent.",
+                    "Builder not connected. Connect Builder (free tier available) in Setup to use background agent.",
                 };
               }
               const body = (await readBody(event)) as {
@@ -3839,7 +3842,7 @@ export function createCoreRoutesPlugin(
           setResponseStatus(event, 503);
           return {
             error:
-              "No file upload provider configured. Connect Builder.io in Settings → File uploads, or register a provider.",
+              "No file upload provider configured. Connect Builder.io (free tier available) in Settings → File uploads, or register a provider.",
           };
         }),
       );

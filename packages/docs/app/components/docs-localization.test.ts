@@ -91,6 +91,22 @@ describe("localized docs fallback", () => {
     expect(loaderDoc?.slug).toBe("internationalization");
   });
 
+  it("falls back to the canonical page when a translation is missing", async () => {
+    expect(hasLocalizedDoc("fr-FR", "environment-variables")).toBe(false);
+
+    const doc = await loadDoc("environment-variables", "fr-FR");
+    expect(doc?.slug).toBe("environment-variables");
+    expect(doc?.title).toBe("Environment Variables");
+
+    const loaderDoc = await localizedDocLoader(
+      loaderArgs(
+        { locale: "fr-FR", slug: "environment-variables" },
+        "https://docs.test/fr-FR/docs/environment-variables",
+      ),
+    );
+    expect(loaderDoc?.slug).toBe("environment-variables");
+  });
+
   it("loads the renamed Agent Resources source for localized routes", async () => {
     expect(hasLocalizedDoc("fr-FR", "agent-resources")).toBe(true);
     expect(hasLocalizedDoc("fr-FR", "workspace")).toBe(false);

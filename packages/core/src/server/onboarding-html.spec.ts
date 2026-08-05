@@ -141,6 +141,40 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("keeps the password flow unchanged by default", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).not.toContain('id="magic-link-form"');
+    expect(html).toContain('id="signup-form"');
+    expect(html).toContain('id="login-form"');
+    expect(html).toContain("/_agent-native/auth/login");
+  });
+
+  it("renders the email-only magic-link view with a progressive password fallback", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+
+    expect(html).toContain('id="magic-link-form"');
+    expect(html).toContain('id="m-email"');
+    expect(html).toContain('id="use-password-link"');
+    expect(html).toContain('id="back-to-magic-link"');
+    expect(html).toContain("/_agent-native/auth/magic-link");
+    expect(html).toContain(
+      "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
+    );
+    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm()");
+    expect(html).toContain('class="tabs" hidden');
+    expect(html).toContain("magicLinkTitle");
+    expect(html).toContain("magicLinkSubtitle");
+  });
+
+  it("localizes the magic-link copy through the existing auth catalogs", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+
+    expect(html).toContain("我们已向以下邮箱发送安全登录链接：");
+    expect(html).toContain("改用密码");
+    expect(html).toContain("我們已向以下電子郵件寄送安全登入連結：");
+  });
+
   it("keeps the pending verification email across a redirect without storing its password", () => {
     const html = getOnboardingHtml();
 

@@ -12,6 +12,18 @@ vi.mock("drizzle-orm", async (importOriginal) => {
   };
 });
 
+const mutationLock = vi.hoisted(() => vi.fn());
+const membershipLock = vi.hoisted(() => vi.fn());
+
+vi.mock("./_content-database-mutation-lock.js", () => ({
+  lockContentDatabaseMutation: mutationLock,
+  touchContentDatabase: vi.fn(),
+}));
+
+vi.mock("./_database-membership-lock.js", () => ({
+  lockDatabaseMemberships: membershipLock,
+}));
+
 // Minimal schema stand-in: each table is identified by name so a fake db can
 // record which table a delete/select targeted.
 const { schema } = vi.hoisted(() => ({
@@ -27,6 +39,7 @@ const { schema } = vi.hoisted(() => ({
       ownerEmail: "contentDatabases.ownerEmail",
     },
     contentDatabaseItems: {
+      id: "contentDatabaseItems.id",
       databaseId: "contentDatabaseItems.databaseId",
       documentId: "contentDatabaseItems.documentId",
       ownerEmail: "contentDatabaseItems.ownerEmail",
@@ -92,6 +105,9 @@ const { schema } = vi.hoisted(() => ({
       ownerEmail: "documentComments.ownerEmail",
     },
     documentShares: { resourceId: "documentShares.resourceId" },
+    contentDatabaseMigrationReceipts: {
+      databaseId: "contentDatabaseMigrationReceipts.databaseId",
+    },
   },
 }));
 
@@ -131,6 +147,8 @@ describe("deleteDocumentRecursive", () => {
   let operationsOutsideTransaction: string[];
 
   beforeEach(() => {
+    mutationLock.mockReset();
+    membershipLock.mockReset();
     deleteCalls = [];
     selectRows = {
       documents: [],
@@ -197,30 +215,9 @@ describe("deleteDocumentRecursive", () => {
         ownerEmail: "owner-a@example.com",
       },
     ];
-    let lockedParentDatabase = false;
-    db.update = (table: Record<string, string>) => ({
-      set: () => ({
-        where: async (cond: unknown) => {
-          if (
-            table === schema.contentDatabases &&
-            matches(
-              {
-                id: "parent-database",
-                ownerEmail: "owner-a@example.com",
-              },
-              cond,
-            )
-          ) {
-            lockedParentDatabase = true;
-          }
-          return [];
-        },
-      }),
-    });
-
     await deleteDocumentRecursive(db, "row-document", "owner-a@example.com");
 
-    expect(lockedParentDatabase).toBe(true);
+    expect(mutationLock).toHaveBeenCalledWith(db, "parent-database");
     const parentDatabaseDeletes = deleteCalls.filter(
       (call) => call.table === "contentDatabases",
     );
@@ -273,11 +270,13 @@ describe("deleteDocumentRecursive", () => {
     ];
     selectRows.contentDatabaseItems = [
       {
+        id: "membership-1",
         databaseId: "database-1",
         documentId: "row-doc-1",
         ownerEmail: "owner-a@example.com",
       },
       {
+        id: "membership-2",
         databaseId: "database-1",
         documentId: "row-doc-2",
         ownerEmail: "owner-a@example.com",
@@ -307,6 +306,11 @@ describe("deleteDocumentRecursive", () => {
     expect(membershipDeletes[0].cond).toEqual({
       __inArray: [schema.contentDatabaseItems.databaseId, ["database-1"]],
     });
+    expect(mutationLock).toHaveBeenCalledWith(db, "database-1");
+    expect(membershipLock).toHaveBeenCalledWith(
+      db,
+      expect.arrayContaining(["membership-1", "membership-2"]),
+    );
   });
 
   it("recollects database rows after acquiring the permanent-cleanup lock", async () => {
@@ -327,22 +331,16 @@ describe("deleteDocumentRecursive", () => {
     selectRows.documents = [
       { id: "row-doc-1", ownerEmail: "owner-a@example.com" },
     ];
-    db.update = () => ({
-      set: () => ({
-        where: async () => {
-          if (transactionDepth === 0)
-            operationsOutsideTransaction.push("update:contentDatabases");
-          selectRows.contentDatabaseItems.push({
-            databaseId: "database-1",
-            documentId: "late-row-doc",
-            ownerEmail: "owner-a@example.com",
-          });
-          selectRows.documents.push({
-            id: "late-row-doc",
-            ownerEmail: "owner-a@example.com",
-          });
-        },
-      }),
+    mutationLock.mockImplementationOnce(async () => {
+      selectRows.contentDatabaseItems.push({
+        databaseId: "database-1",
+        documentId: "late-row-doc",
+        ownerEmail: "owner-a@example.com",
+      });
+      selectRows.documents.push({
+        id: "late-row-doc",
+        ownerEmail: "owner-a@example.com",
+      });
     });
 
     const deleted = await deleteDocumentRecursive(
@@ -367,16 +365,19 @@ describe("deleteDocumentRecursive", () => {
     ];
     selectRows.contentDatabaseItems = [
       {
+        id: "membership-1",
         databaseId: "database-1",
         documentId: "row-doc-1",
         ownerEmail: "owner-a@example.com",
       },
       {
+        id: "membership-foreign",
         databaseId: "database-1",
         documentId: "foreign-row-doc",
         ownerEmail: "owner-b@example.com",
       },
       {
+        id: "membership-mismatched",
         databaseId: "database-1",
         documentId: "mismatched-row-doc",
         ownerEmail: "owner-a@example.com",

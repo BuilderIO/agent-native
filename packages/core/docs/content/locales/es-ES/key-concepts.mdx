@@ -23,7 +23,7 @@ Cada aplicación nativa del agente consta de tres cosas que funcionan juntas:
 
 - **Agente**: IA autónoma que lee y escribe datos, ejecuta actions y usa herramientas configuradas. Personalizable con skills e instrucciones.
 - **Aplicación**: la superficie del producto alrededor del agente. Esto puede ser solo acción al principio, chat enriquecido, un pequeño plano de control o un UI React completo con paneles, flujos y visualizaciones.
-- **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan directamente con SQL y herramientas integradas; Los servidores MCP son complementos opcionales, no la base.
+- **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan mediante la superficie de acciones y datos de la aplicación; la aplicación puede exponer esa misma superficie mediante MCP. Los servidores MCP externos son complementos opcionales, no la base.
 
 <Diagram id="doc-block-b13lfv" title={"Agente, aplicación y computadora."} summary={"Tres capas trabajando juntas en una tienda SQL compartida. Tanto el agente como la aplicación leen y escriben los mismos datos."}>
 

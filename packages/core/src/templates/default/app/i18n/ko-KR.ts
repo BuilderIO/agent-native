@@ -325,7 +325,7 @@ const messages = {
     codeChangeBadge: "코드 변경",
     connectBuilderTitle: "Builder.io 연결",
     connectBuilderDescription:
-      "이 앱에서 클라우드 기반 코드 변경을 활성화하려면 빌더를 연결하세요.",
+      "이 앱에서 클라우드 기반 코드 변경을 활성화하려면 빌더를 연결하세요(무료 요금제 제공).",
     setupRequired: "설정 필요",
     branchCreated: "지점이 생성되었습니다.",
     close: "닫기",
@@ -486,7 +486,7 @@ const messages = {
     back: "뒤로",
     agentEngineRequired: "에이전트 엔진 필요",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io(무료 요금제 제공) or an LLM key before {{platform}} can answer.",
     openLlm: "LLM 열기",
     setup: "Setup",
     shareDocumentsWith: "다음과 문서 공유",

@@ -682,6 +682,15 @@ export async function mergeCoreSharingActions(
       () => import("../user-profile/actions/update-user-profile.js"),
     ],
     [
+      "get-auth-methods",
+      () => import("../user-profile/actions/get-auth-methods.js"),
+    ],
+    ["set-password", () => import("../user-profile/actions/set-password.js")],
+    [
+      "change-password",
+      () => import("../user-profile/actions/change-password.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],

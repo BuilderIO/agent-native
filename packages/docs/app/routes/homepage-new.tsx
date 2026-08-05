@@ -279,7 +279,7 @@ function ArrowLink({
   if (isInternalPath) {
     return (
       <Link
-        data-an-prefetch="render"
+        data-an-prefetch="viewport"
         to={to}
         className={className}
         onClick={() =>

@@ -42,6 +42,9 @@ agent should know.
 - Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
   type for content previews. Give the AgentSidebar a subtle surface/divider
   boundary, and stack original/generated review vertically by default.
+- Before visual work, read `frontend-design` and the workspace/app `DESIGN.md`.
+  Keep shared chrome semantic and neutral, then choose an app-specific visual
+  direction and palette family instead of copying a sibling app by default.
 - Every AI-labeled button must call `sendToAgentChat()` with
   `openSidebar: true`; label deterministic local actions as local or preview.
 - Normal app data must flow through actions. Define `defineAction` files in
