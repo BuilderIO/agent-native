@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.17.4
+
+### Patch Changes
+
+- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
+
 ## 0.17.3
 
 ### Patch Changes

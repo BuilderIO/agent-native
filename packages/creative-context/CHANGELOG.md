@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.5.12
+
+### Patch Changes
+
+- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
+
 ## 0.5.11
 
 ### Patch Changes
