@@ -1138,7 +1138,7 @@ const deDE = {
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
       s006: "Folienpräsentationen für Menschen und Agenten",
-      s007: "Erstellen Sie anhand einer Eingabeaufforderung ein vollständiges Deck und verfeinern Sie es dann im Gespräch oder bearbeiten Sie es visuell.",
+      s007: "Lassen Sie Ihren KI-Agenten Präsentationen in Ihrem Markendesign erstellen, nehmen Sie jederzeit eigene manuelle Änderungen vor und exportieren Sie sie überallhin.",
       s008: "Ausprobieren",
       s009: "Wie es funktioniert",
       s010: "Alles was Sie brauchen",

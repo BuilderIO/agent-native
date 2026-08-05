@@ -1134,7 +1134,7 @@ const ptBR = {
       s004: "Refinar",
       s005: "Todos os modelos",
       s006: "Apresentações de slides para pessoas e agentes",
-      s007: "Gere uma apresentação completa a partir de um prompt e, em seguida, refine a conversação ou edite visualmente.",
+      s007: "Gere apresentações com a identidade da sua marca usando seu agente de IA, faça suas próprias alterações manuais a qualquer momento e exporte para qualquer lugar.",
       s008: "Experimentar",
       s009: "Como funciona",
       s010: "Tudo que você precisa",

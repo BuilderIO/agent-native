@@ -1137,7 +1137,7 @@ const esES = {
       s004: "Refinar",
       s005: "Todas las plantillas",
       s006: "Presentaciones de diapositivas para personas y agentes",
-      s007: "Genere una plataforma completa a partir de un mensaje y luego refine de forma conversacional o edítela visualmente.",
+      s007: "Genera presentaciones de diapositivas con tu marca desde tu agente de IA, aplica tus propios cambios manuales en cualquier momento y expórtalas donde quieras.",
       s008: "Probar",
       s009: "como funciona",
       s010: "Todo lo que necesitas",

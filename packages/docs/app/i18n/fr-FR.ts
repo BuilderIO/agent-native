@@ -1137,7 +1137,7 @@ const frFR = {
       s004: "Affiner",
       s005: "Tous les modèles",
       s006: "Des présentations pour les humains et les agents",
-      s007: "Générez un deck complet à partir d'une invite, puis affinez-le de manière conversationnelle ou modifiez-le visuellement.",
+      s007: "Générez des présentations aux couleurs de votre marque depuis votre agent IA, apportez vos propres modifications manuelles à tout moment et exportez-les où vous voulez.",
       s008: "Essayer",
       s009: "Comment ça marche",
       s010: "Tout ce dont vous avez besoin",
