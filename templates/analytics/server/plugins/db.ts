@@ -1307,6 +1307,66 @@ const runAnalyticsMigrations = runMigrations(
       name: "first-party-analytics-cache-expires-idx",
       sql: `CREATE INDEX IF NOT EXISTS first_party_analytics_cache_expires_at_idx ON first_party_analytics_cache (expires_at)`,
     },
+    {
+      version: 126,
+      name: "analytics-event-daily-rollups-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_event_daily_rollups (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      template TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 0
+    )`,
+    },
+    {
+      version: 127,
+      name: "analytics-event-daily-rollups-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_daily_rollups_key_idx ON analytics_event_daily_rollups (tenant_key, event_date, event_name, app, template)`,
+    },
+    {
+      version: 128,
+      name: "analytics-user-days-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_user_days (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      user_key TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 129,
+      name: "analytics-user-days-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_user_days_key_idx ON analytics_user_days (tenant_key, event_date, user_key)`,
+    },
+    {
+      version: 130,
+      name: "analytics-query-pressure-daily-table",
+      sql: `CREATE TABLE IF NOT EXISTS analytics_query_pressure_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      query_class TEXT NOT NULL,
+      slow_query_count INTEGER NOT NULL DEFAULT 0,
+      timeout_count INTEGER NOT NULL DEFAULT 0,
+      error_count INTEGER NOT NULL DEFAULT 0,
+      total_duration_ms INTEGER NOT NULL DEFAULT 0,
+      max_duration_ms INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 131,
+      name: "analytics-query-pressure-daily-key-idx",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_query_pressure_daily_key_idx ON analytics_query_pressure_daily (tenant_key, event_date, query_class)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

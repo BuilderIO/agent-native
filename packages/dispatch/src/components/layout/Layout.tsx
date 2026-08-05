@@ -28,6 +28,7 @@ import {
   IconKey,
   IconChevronDown,
   IconLayersSubtract,
+  IconMail,
   IconMessageQuestion,
   IconMessages,
   IconPlugConnected,
@@ -159,6 +160,13 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/integrations",
     label: "Integrations",
     icon: IconPuzzle,
+    section: "operations",
+  },
+  {
+    id: "transactional-email",
+    to: "/transactional-email",
+    label: "Transactional email",
+    icon: IconMail,
     section: "operations",
   },
   {

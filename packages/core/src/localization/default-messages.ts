@@ -7,6 +7,10 @@ const messages = {
   workspaceFile: {
     download: "Download",
   },
+  composer: {
+    sendMessage: "Send message",
+    queueMessage: "Queue message",
+  },
   home: {
     settingsTitle: "Settings",
     settingsDescription: "Language and agent preferences",
@@ -56,6 +60,22 @@ const messages = {
     profileSaving: "Saving...",
     profileSaved: "Profile updated",
     profileSaveError: "Could not update profile",
+    passwordTitle: "Password",
+    passwordDescription:
+      "Add a password for an alternative way to sign in to your account.",
+    passwordStatusLoading: "Checking password settings...",
+    passwordAdd: "Add password",
+    passwordChange: "Change password",
+    passwordCurrentLabel: "Current password",
+    passwordNewLabel: "New password",
+    passwordConfirmLabel: "Confirm new password",
+    passwordPlaceholder: "Enter password",
+    passwordMinLength: "Password must be at least 8 characters",
+    passwordMismatch: "Passwords do not match",
+    passwordSave: "Save password",
+    passwordSaving: "Saving...",
+    passwordSaved: "Password updated",
+    passwordSaveError: "Could not update password",
     profileMenuItem: "Profile",
     manageAgentMenuItem: "Manage agent",
     timezoneLabel: "Timezone",
@@ -176,6 +196,7 @@ const messages = {
       resources: "Resources",
       messaging: "Messaging",
       destinations: "Destinations",
+      transactionalEmail: "Transactional email",
       identities: "Identities",
       approvals: "Approvals",
       automations: "Automations",
@@ -206,6 +227,57 @@ const messages = {
       suggestionBuildApp: "Build a workspace app for X",
       suggestionRouteSlack: "Route Slack mentions to my analytics app",
       suggestionGrantKey: "Grant my OpenAI key to this app",
+    },
+    transactionalEmail: {
+      title: "Transactional email",
+      description:
+        "Every transactional email each app in this workspace can send, with its trigger, recipients, and delivery metrics.",
+      retentionTitle: "Activity feed retention is short",
+      retentionNote:
+        "The email provider's activity feed only retains recent messages, so an empty activity list does not mean nothing was sent.",
+      openRatesUnavailable: "Open rates unavailable",
+      sharedProviderMetricsUnavailable:
+        "Provider metrics vary by sending app. Expand an app to see its provider data.",
+      catalogFanoutFailed: "Could not load app email catalogs",
+      retry: "Retry",
+      noApps: "No ready apps reported a transactional email catalog.",
+      catalogUnreadable: "This app's email catalog could not be read",
+      countsUnreadable: "Send counts could not be read",
+      appSendsNoEmail: "This app sends no transactional email of its own.",
+      emailNotFound: "Email not found",
+      emailNotFoundDescription: "This email is not in the app's catalog.",
+      sharedTitle: "Shared system email",
+      sharedSubtitle: "sent by every app",
+      email: "Email",
+      trigger: "Trigger",
+      sends: "Sends",
+      openRate: "Open rate",
+      lastSent: "Last sent",
+      sendLogUnread:
+        "The send log could not be read, so the number of sends is unknown.",
+      failedCount: "{{count}} failed",
+      failuresUnknown: "failures unknown",
+      noProviderRecord:
+        "The provider reported no record for this email in the window.",
+      noDeliveredMail: "No delivered mail yet",
+      neverSent: "Never sent",
+      lastSentUnknown:
+        "The send log could not be read, so the last send time is unknown.",
+      preview: "Preview",
+      previewDescription:
+        "Rendered with dummy data. Scripts are disabled in this preview.",
+      previewFailed: "Preview could not be rendered",
+      previewFrameTitle: "Preview of {{name}}",
+      subject: "Subject",
+      activityLink: "Activity log",
+      activityTitle: "Activity for {{name}}",
+      activityUnavailable: "Activity feed unavailable",
+      activityEmpty: "No recent activity in the provider's retention window.",
+      recipient: "Recipient",
+      sender: "Sender",
+      status: "Status",
+      opens: "Opens",
+      lastEvent: "Last event",
     },
     pages: {
       appsDescription:
@@ -740,7 +812,7 @@ const messages = {
     codeChangeBadge: "Code change",
     connectBuilderTitle: "Connect Builder.io",
     connectBuilderDescription:
-      "Connect Builder to enable cloud-based code changes from this app.",
+      "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
     setupRequired: "Setup required",
     branchCreated: "Branch created",
     close: "Close",
@@ -912,7 +984,7 @@ const messages = {
     back: "Back",
     agentEngineRequired: "Agent engine required",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "Open LLM",
     setup: "Setup",
     shareDocumentsWith: "Share documents with",
@@ -988,6 +1060,13 @@ const messages = {
       sentry: {
         description: "Inspect issues, events, and debugging data.",
         useCase: "Error monitoring, debugging, performance, crash reports",
+      },
+      fullstory: {
+        description: "Read behavioral analytics and inspect session replays.",
+        useCase:
+          "Product analytics, session replay, qualitative behavior, user research",
+        setupNote:
+          "FullStory MCP is currently beta and requires StoryAI features plus the Model Context Protocol toggle to be enabled by a FullStory organization admin.",
       },
       notion: {
         description: "Search pages and team knowledge.",

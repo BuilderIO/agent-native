@@ -223,7 +223,8 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Builder executor",
         required: true,
         builderIncluded: true,
-        keySummary: "Connect Builder for managed agent runs",
+        keySummary:
+          "Connect Builder for managed agent runs (free tier available)",
         why: "The executor runs approved code and review workflows for Factory items.",
       },
       {

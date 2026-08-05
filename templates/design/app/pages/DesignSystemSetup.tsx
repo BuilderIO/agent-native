@@ -433,7 +433,7 @@ export default function DesignSystemSetup() {
 
     const parts: string[] = [];
     parts.push(
-      "Set up a design system from the following sources. Use Builder Design System Intelligence (DSI) as the source of truth for reusable Figma/code/design.md indexing. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system.",
+      "Set up a design system from the following sources. Use Builder Design System Intelligence (DSI) as the source of truth for reusable Figma/code/design.md indexing. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system. Keep each token under the name its source gives it: put the full named vocabulary in `data.tokens` (name, cssVar, value, type, group, source) as well as filling the seven `colors` roles, so tokens like `interactive-01` are not collapsed into `secondary`.",
     );
 
     if (companyInfo.trim()) {
@@ -450,7 +450,7 @@ export default function DesignSystemSetup() {
 
     if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder from Settings instead of asking me to paste repository credentials into chat.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 

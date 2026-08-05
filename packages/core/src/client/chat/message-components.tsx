@@ -1218,7 +1218,7 @@ export function isCollapsibleAssistantWorkPart(part: {
     !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "") &&
     part.chatUI === undefined &&
     part.mcpApp === undefined &&
-    // Keep the Approve/Deny affordance outside "Worked for…" — needsApproval
+    // Keep the Approve/Deny affordance outside "Worked for…" - needsApproval
     // tools finish with a result string, so without this they collapse and the
     // human gate disappears from the viewport.
     !toolCallHasPendingApproval(part)

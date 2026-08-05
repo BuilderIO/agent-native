@@ -11,6 +11,7 @@ import {
   composerModelCostTier,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
+  getComposerSendTooltipKey,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
   getComposerReasoningEffortOptions,
@@ -171,6 +172,11 @@ describe("createTiptapComposerExtensions", () => {
         hasStopButton: false,
       }),
     ).toBe("send");
+  });
+
+  it("uses the queue tooltip when the submit will wait", () => {
+    expect(getComposerSendTooltipKey(true)).toBe("composer.queueMessage");
+    expect(getComposerSendTooltipKey(false)).toBe("composer.sendMessage");
   });
 
   it("selects and removes context chips one Backspace at a time", () => {

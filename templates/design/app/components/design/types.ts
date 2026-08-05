@@ -96,6 +96,12 @@ export interface ElementInfo {
    */
   inlineStyles?: Record<string, string>;
   /**
+   * Colour declarations resolved through the cascade (inline, else the last
+   * matching rule). Generated designs style via classes, so `inlineStyles` is
+   * empty and only this preserves a `var(--token, …)` reference.
+   */
+  authoredColorStyles?: Record<string, string>;
+  /**
    * Value of the element's `data-an-primitive` attribute (e.g. "text",
    * "rectangle", "frame", "ellipse") when present. Canvas-drawn primitives —
    * including T-tool text, which is a plain `div` — carry this marker so the

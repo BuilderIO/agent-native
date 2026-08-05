@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sendEmail } from "./email";
+import { getEmailReadiness, sendEmail } from "./email";
 
 describe("sendEmail", () => {
   afterEach(() => {
@@ -354,5 +354,36 @@ describe("sendEmail", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.from).toBe("Billing <billing@example.com>");
+  });
+});
+
+describe("getEmailReadiness", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("reports Resend as ready without requiring EMAIL_FROM", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+
+    await expect(getEmailReadiness()).resolves.toEqual({
+      status: "ready",
+      provider: "resend",
+    });
+  });
+
+  it("reports SendGrid without EMAIL_FROM as misconfigured", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+
+    await expect(getEmailReadiness()).resolves.toEqual({
+      status: "misconfigured",
+      provider: "sendgrid",
+    });
+  });
+
+  it("distinguishes an unconfigured transport from a ready one", async () => {
+    await expect(getEmailReadiness()).resolves.toEqual({
+      status: "not-configured",
+      provider: "dev",
+    });
   });
 });

@@ -65,6 +65,22 @@ Contextual agent UI is not a reason to expose every option at once. Start with
 the domain task's primary action, reveal review or configuration only when the
 current state needs it, and let the sidebar carry conversational depth.
 
+## Visual Direction And Workspace Variety
+
+Shared workspace behavior should be consistent without forcing every app into
+the same visual skin. Keep shell and component tokens semantic, then let each
+app declare a named direction in `DESIGN.md` before styling. A new app should
+choose its palette family and composition from the product context, compare
+nearby apps, and avoid inheriting their accent by default. Use the
+`frontend-design` visual-direction reference for mode, palette, type, density,
+shape, anti-references, and the `distill` / `typeset` / `colorize` / `layout` /
+`polish` / `audit` review vocabulary.
+
+Do not make warm beige plus terracotta the workspace fallback. Preserve a
+workspace-level brand when one exists; otherwise keep shared chrome neutral and
+allow app-owned accents to distinguish products while retaining accessible
+semantic states and the shared AgentSidebar contract.
+
 ## Discover Before Building
 
 Before creating an app-local version of repeated workspace or agent UI:

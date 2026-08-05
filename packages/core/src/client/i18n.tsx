@@ -644,7 +644,7 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "codeRequired.codeChangeBadge": "Code change",
   "codeRequired.connectBuilderTitle": "Connect Builder.io",
   "codeRequired.connectBuilderDescription":
-    "Connect Builder to enable cloud-based code changes from this app.",
+    "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
   "codeRequired.setupRequired": "Setup required",
   "codeRequired.branchCreated": "Branch created",
   "codeRequired.close": "Close",

@@ -337,6 +337,11 @@ export function runMigrations(
     }
   }
 
+  // A plugin with no migrations is intentionally a no-op. Creating or reading
+  // a bookkeeping table here turns an empty app plugin into a database cold
+  // start on every serverless boot.
+  if (migrations.length === 0) return async () => {};
+
   const namedTable = `${table}_named`;
 
   return async () => {

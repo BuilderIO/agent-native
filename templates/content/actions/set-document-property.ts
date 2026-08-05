@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -12,6 +12,7 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -80,11 +81,41 @@ export default defineAction({
       await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);
       const content = typeof normalized === "string" ? normalized : "";
-      const target = blocksStorageTarget(
+      let target = blocksStorageTarget(
         parsePropertyOptions(definition.optionsJson),
       );
       await db.transaction(async (tx) => {
         await lockDatabaseMemberships(tx, [membership.id]);
+        const [lockedDefinition] = await tx
+          .select()
+          .from(schema.documentPropertyDefinitions)
+          .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+        const [lockedMembership] = await tx
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.id, membership.id),
+              eq(schema.contentDatabaseItems.databaseId, database.id),
+              eq(schema.contentDatabaseItems.documentId, documentId),
+            ),
+          );
+        if (!lockedDefinition || lockedDefinition.databaseId !== database.id) {
+          throw new Error(`Property "${propertyId}" not found`);
+        }
+        if (!lockedMembership) {
+          throw new Error("Document is not part of this database.");
+        }
+        if (
+          !isBlocksPropertyType(lockedDefinition.type as DocumentPropertyType)
+        ) {
+          throw new Error(
+            "Property type changed before the operation completed.",
+          );
+        }
+        target = blocksStorageTarget(
+          parsePropertyOptions(lockedDefinition.optionsJson),
+        );
         if (target === "document_body") {
           await tx
             .update(schema.documents)
@@ -130,9 +161,13 @@ export default defineAction({
 
     const valueJson = normalizedValueJson(type, value);
     await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
       const [lockedDatabase] = await tx
-        .update(schema.contentDatabases)
-        .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
         .where(
           and(
             eq(schema.contentDatabases.id, database.id),
@@ -140,38 +175,43 @@ export default defineAction({
             eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
             isNull(schema.contentDatabases.deletedAt),
           ),
-        )
-        .returning({ id: schema.contentDatabases.id });
+        );
       if (!lockedDatabase) throw new Error("Database is no longer active.");
+      await lockDatabaseMemberships(tx, [membership.id]);
       const [lockedDefinition] = await tx
-        .update(schema.documentPropertyDefinitions)
-        .set({
-          updatedAt: sql`${schema.documentPropertyDefinitions.updatedAt}`,
-        })
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+      const [lockedMembership] = await tx
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
         .where(
           and(
-            eq(schema.documentPropertyDefinitions.id, propertyId),
-            eq(schema.documentPropertyDefinitions.databaseId, database.id),
-            eq(
-              schema.documentPropertyDefinitions.ownerEmail,
-              database.ownerEmail,
-            ),
+            eq(schema.contentDatabaseItems.id, membership.id),
+            eq(schema.contentDatabaseItems.databaseId, database.id),
+            eq(schema.contentDatabaseItems.documentId, documentId),
           ),
-        )
-        .returning({
-          type: schema.documentPropertyDefinitions.type,
-          systemRole: schema.documentPropertyDefinitions.systemRole,
-        });
-      if (
-        !lockedDefinition ||
-        lockedDefinition.type !== definition.type ||
-        lockedDefinition.systemRole
-      ) {
+        );
+      if (!lockedDefinition || lockedDefinition.databaseId !== database.id) {
+        throw new Error(`Property "${propertyId}" not found`);
+      }
+      if (!lockedMembership) {
+        throw new Error("Document is not part of this database.");
+      }
+      const lockedType = lockedDefinition.type as DocumentPropertyType;
+      if (lockedType !== type) {
         throw new Error(
-          `Property "${propertyId}" changed or was deleted before its value could be written.`,
+          "Property type changed before the operation completed.",
         );
       }
-      await lockDatabaseMemberships(tx, [membership.id]);
+      if (isBlocksPropertyType(lockedType)) {
+        throw new Error(
+          "Property type changed before the operation completed.",
+        );
+      }
+      if (isComputedPropertyType(lockedType)) {
+        throw new Error("Computed properties cannot be edited.");
+      }
       const [conflictingClaim] = await tx
         .select({ id: schema.contentDatabaseItemKeyClaims.id })
         .from(schema.contentDatabaseItemKeyClaims)

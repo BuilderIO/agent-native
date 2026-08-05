@@ -1,12 +1,9 @@
 import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
 import { z } from "zod";
 
-import {
-  ANALYTICS_PROVIDER_API_IDS,
-  getAnalyticsProviderApiRuntime,
-} from "../server/lib/provider-api";
+import { getAnalyticsProviderApiRuntime } from "../server/lib/provider-api";
 
-const ProviderSchema = z.enum(ANALYTICS_PROVIDER_API_IDS);
+const ProviderSchema = z.string().min(1);
 
 export default createProviderApiCatalogAction(
   getAnalyticsProviderApiRuntime(),
@@ -15,7 +12,7 @@ export default createProviderApiCatalogAction(
       "List raw HTTP API capabilities for configured Analytics providers. Use before provider-api-request when canned actions are too narrow. Returns provider base URLs, auth style, credential key names, docs/spec URLs, placeholders, examples, and reusable corpus recipes; never returns secret values.",
     schema: z.object({
       provider: ProviderSchema.optional().describe(
-        "Optional provider id to inspect. Omit to list every provider API escape hatch.",
+        "Optional built-in or custom provider id to inspect. Omit to list every provider API escape hatch visible to this organization.",
       ),
     }),
     http: { method: "GET" },

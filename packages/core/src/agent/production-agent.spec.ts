@@ -1038,6 +1038,7 @@ describe("buildUserContentWithAttachments", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
         resources: actionEntry({ readOnly: true }),
+        "framework-search": actionEntry({ readOnly: true }),
         "docs-search": actionEntry({ readOnly: true }),
         "get-framework-context": actionEntry({ readOnly: true }),
         "read-attachment": actionEntry({ readOnly: true }),
@@ -1052,6 +1053,7 @@ describe("buildUserContentWithAttachments", () => {
       ),
     ).toEqual([
       "resources",
+      "framework-search",
       "docs-search",
       "get-framework-context",
       "read-attachment",

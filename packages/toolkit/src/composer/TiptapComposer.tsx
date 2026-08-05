@@ -124,6 +124,12 @@ export function resolveComposerPrimaryAction(options: {
   return !options.canSubmit && options.hasStopButton ? "stop" : "send";
 }
 
+export function getComposerSendTooltipKey(
+  willQueue: boolean,
+): "composer.queueMessage" | "composer.sendMessage" {
+  return willQueue ? "composer.queueMessage" : "composer.sendMessage";
+}
+
 export type ContextChipBackspaceAction =
   | { type: "select"; key: string }
   | { type: "remove"; key: string }
@@ -668,6 +674,8 @@ export interface TiptapComposerProps {
   onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
+  /** Whether the default send action will wait behind existing work. */
+  willQueue?: boolean;
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
@@ -1704,6 +1712,7 @@ export function TiptapComposer({
   clearOnSubmit = true,
   onTextChange,
   actionButton,
+  willQueue = false,
   extraActionButton,
   stopButton,
   attachButton,
@@ -1740,6 +1749,9 @@ export function TiptapComposer({
 }: TiptapComposerProps) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
+  const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
+    defaultValue: willQueue ? "Queue message" : "Send message",
+  });
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
@@ -3256,11 +3268,7 @@ export function TiptapComposer({
                     <IconArrowUp className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  {t("agentChat.composer.sendMessage", {
-                    defaultValue: "Send message",
-                  })}
-                </TooltipContent>
+                <TooltipContent>{sendButtonTooltip}</TooltipContent>
               </Tooltip>
             )}
           </>

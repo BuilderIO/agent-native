@@ -9,6 +9,7 @@
       "dist/agent-native/index.d.ts",
       "dist/agent-native/index.js"
     ],
+    "./config": ["dist/config.d.ts", "dist/config.js"],
     "./agent-web": ["dist/agent-web/index.js"],
     "./agent/context-xray/actions/context-evict": [
       "dist/agent/context-xray/actions/context-evict.js"

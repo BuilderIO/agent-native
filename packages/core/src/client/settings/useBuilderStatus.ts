@@ -793,7 +793,7 @@ export function useBuilderConnectFlow(
             connectStartedAtRef.current = null;
             setConnecting(false);
             setError(
-              "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
+              "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder (free tier available) again.",
             );
           })();
         } else {

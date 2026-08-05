@@ -912,7 +912,7 @@ export function MultiTabAssistantChat({
     isNewThread,
     pinThread,
     renameThread,
-  } = useChatThreads(apiUrl, storageKey, null, {
+  } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
     routeThreadId: threadUrlSyncEnabled
       ? urlThreadId

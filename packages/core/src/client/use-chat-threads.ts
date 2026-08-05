@@ -257,6 +257,9 @@ export function useChatThreads(
           id = null;
         }
       }
+      // Route-owned create mode still needs a local target immediately. The
+      // URL owns which server thread is open, but an empty new chat is not a
+      // server row yet and must not wait for the thread-list request to paint.
       if (!id && autoCreate) {
         id = createLocalThreadId();
         isNew = true;

@@ -316,7 +316,7 @@ const messages = {
     codeChangeBadge: "代码变更",
     connectBuilderTitle: "连接 Builder.io",
     connectBuilderDescription:
-      "Connect Builder 可从此应用程序启用基于云的代码更改。",
+      "Connect Builder（提供免费套餐）可从此应用程序启用基于云的代码更改。",
     setupRequired: "需要设置",
     branchCreated: "已创建分支",
     close: "关闭",
@@ -471,7 +471,7 @@ const messages = {
     back: "返回",
     agentEngineRequired: "需要代理引擎",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io（提供免费套餐）or an LLM key before {{platform}} can answer.",
     openLlm: "打开LLM",
     setup: "Setup",
     shareDocumentsWith: "与以下人员共享文档",

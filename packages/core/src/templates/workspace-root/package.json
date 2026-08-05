@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "agent-native dev",
     "build": "pnpm -r build",
+    "prebuild": "agent-native doctor --strict",
+    "doctor": "agent-native doctor",
+    "agent-native:doctor": "agent-native doctor",
     "typecheck": "pnpm -r typecheck",
     "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
     "skills:update": "agent-native skills update scaffold --project",

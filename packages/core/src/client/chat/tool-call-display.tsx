@@ -1238,8 +1238,11 @@ export function ToolCallFallback({
 
 export function ReconnectStreamMessage({
   content,
+  allowActivitySpinner = true,
 }: {
   content: ContentPart[];
+  /** Activity-only cards are live during reconnect, but static once frozen. */
+  allowActivitySpinner?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const toolSummary = getReconnectToolSummaryInfo(content);
@@ -1256,7 +1259,7 @@ export function ReconnectStreamMessage({
     (latestIndex, part, index) =>
       part.type === "tool-call" &&
       !isCallAgentToolCallShadowed(content, index) &&
-      (chatRunning || part.activity === true)
+      (chatRunning || (allowActivitySpinner && part.activity === true))
         ? index
         : latestIndex,
     -1,
@@ -1300,7 +1303,8 @@ export function ReconnectStreamMessage({
         structuredMeta={part.structuredMeta}
         outcome={part.outcome}
         isRunning={
-          part.result === undefined && (chatRunning || part.activity === true)
+          part.result === undefined &&
+          (chatRunning || (allowActivitySpinner && part.activity === true))
         }
         isActiveTail={i === latestActiveToolIndex}
         approval={part.approval}
