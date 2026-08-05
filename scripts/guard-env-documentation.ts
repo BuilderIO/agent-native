@@ -182,10 +182,14 @@ console.log(
 );
 
 function repositoryFiles(): string[] {
-  return execFileSync("rg", ["--files", "--hidden", "--glob", "!.git/**"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  })
+  return execFileSync(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    },
+  )
     .split("\n")
     .filter(Boolean);
 }
