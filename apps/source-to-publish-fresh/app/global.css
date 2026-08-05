@@ -105,7 +105,12 @@
   --source-primary-hover: #8d4560;
   --source-sidebar: #efede7;
   --source-shadow: 0 18px 48px rgba(63, 54, 44, 0.08);
+  display: flex;
+  flex: 1 1 0%;
+  height: 100%;
   min-height: 100%;
+  min-width: 0;
+  width: 100%;
 }
 
 .source-app-shell .agent-sidebar-main-surface,
