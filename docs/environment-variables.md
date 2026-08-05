@@ -215,6 +215,12 @@ production deployment:
 
 ## CI-only variables
 
+| Variable                      | Purpose                                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane. |
+| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.         |
+| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.    |
+
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
 `ROLLBACK_SHA`, `ASSERTIONS`, and `RECAP_*`. They are workflow plumbing, not
