@@ -24,7 +24,9 @@ import {
   IconGitBranch,
   IconCloud,
   IconDatabase,
+  IconFolder,
   IconShield,
+  IconShieldLock,
   IconPlugConnected,
   IconTopologyRing2,
   IconLoader2,
@@ -52,6 +54,7 @@ import React, {
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
+import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
 import {
@@ -530,7 +533,6 @@ function UseBuilderCard({
                   : credentialSource === "env"
                     ? "Connect account"
                     : "Reconnect"}
-                <IconExternalLink size={isPage ? 14 : 10} />
               </Button>
             )}
             {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
@@ -552,28 +554,23 @@ function UseBuilderCard({
         disabled={builderFlow.connecting}
         className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
       >
-        {builderFlow.connecting ? "Connecting…" : "Connect Builder"}
+        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
         {builderFlow.connecting ? (
           <IconLoader2 size={14} className="animate-spin" />
-        ) : (
-          <IconExternalLink size={14} />
-        )}
+        ) : null}
       </Button>
     );
   }
 
   return (
-    <Button
-      type="button"
-      onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
-      disabled={builderFlow.connecting}
+    <div
       className={cn(
-        "block w-full rounded-md border border-border text-start no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70",
+        "flex w-full items-center gap-3 rounded-xl border border-border/70 bg-card text-start transition-colors",
         isPage ? "px-4 py-3.5" : "px-3 py-3",
-        isPage ? "[&_svg]:!size-4" : "[&_svg]:!size-3.5",
+        builderFlow.error && "border-destructive/40",
       )}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <div
           className={cn(
             "flex shrink-0 items-center justify-center rounded-md bg-foreground text-background",
@@ -613,12 +610,24 @@ function UseBuilderCard({
             </p>
           )}
         </div>
-        <IconExternalLink
-          size={isPage ? 14 : 12}
-          className="shrink-0 text-muted-foreground mt-0.5"
-        />
       </div>
-    </Button>
+      <Button
+        type="button"
+        intent="neutral"
+        emphasis="outline"
+        onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
+        disabled={builderFlow.connecting}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-medium text-foreground hover:bg-accent/40 disabled:cursor-wait disabled:opacity-70",
+          isPage ? "text-sm" : "text-[11px]",
+        )}
+      >
+        {builderFlow.connecting ? "Connecting…" : "Connect Builder.io"}
+        {builderFlow.connecting ? (
+          <IconLoader2 size={isPage ? 14 : 12} className="animate-spin" />
+        ) : null}
+      </Button>
+    </div>
   );
 }
 
@@ -626,6 +635,7 @@ function UseBuilderCard({
 
 function ManualSetupCard({
   id,
+  title = "Set up manually",
   hint,
   docsUrl,
   docsLabel = "Read the docs",
@@ -634,8 +644,10 @@ function ManualSetupCard({
   sourceBadge,
   bare = false,
   popover = false,
+  popoverLabel = "Manage",
 }: {
   id?: string;
+  title?: string;
   hint?: string;
   docsUrl?: string;
   docsLabel?: string;
@@ -647,6 +659,8 @@ function ManualSetupCard({
   bare?: boolean;
   /** Show only a Manage trigger and progressively disclose the form. */
   popover?: boolean;
+  /** Label for the trigger when the form is shown in a popover. */
+  popoverLabel?: string;
 }) {
   const isPage = useSettingsSurface() === "page";
   const titleCls = isPage ? "text-sm" : "text-[11px]";
@@ -666,7 +680,7 @@ function ManualSetupCard({
     >
       <div className="flex items-center justify-between mb-1">
         <div className={cn("font-medium text-foreground", titleCls)}>
-          Set up manually
+          {title}
         </div>
         {sourceBadge ? (
           <span
@@ -703,7 +717,7 @@ function ManualSetupCard({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <ManageButton />
+        <ManageButton>{popoverLabel}</ManageButton>
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -1267,10 +1281,12 @@ function LLMSectionInner({
             {(!builderConnected || manualSetupOpen || isPage) && (
               <ManualSetupCard
                 id="llm-manual-setup"
+                title="Custom keys"
                 hint={manualSetupHint}
                 sourceBadge={builderConnected ? undefined : sourceBadge}
                 bare={isPage}
                 popover={isPage}
+                popoverLabel="Custom keys"
               >
                 <div className="space-y-2 mb-1">
                   <SettingsSelect
@@ -1638,7 +1654,7 @@ function AppDefaultModelPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
+        <Button
           type="button"
           disabled={disabled}
           aria-label="Default model"
@@ -1649,7 +1665,7 @@ function AppDefaultModelPicker({
             size={15}
             className="shrink-0 text-muted-foreground"
           />
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -3043,7 +3059,7 @@ function SettingsPanelContent({
                     description="Schedule agent tasks or run them from events."
                     control={
                       <a
-                        href="/agent#jobs"
+                        href="/settings#agent:automations"
                         className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
                       >
                         Open automations
@@ -3445,7 +3461,11 @@ export function ConnectionsSettingsContent({
 
 export function AgentSettingsContent({
   className,
-}: { className?: string } = {}) {
+  sections = AGENT_SETTINGS_SECTIONS,
+}: {
+  className?: string;
+  sections?: readonly SettingsSectionId[];
+} = {}) {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const settingsPanelProps = useMemo<SettingsPanelProps>(
     () => ({
@@ -3462,7 +3482,7 @@ export function AgentSettingsContent({
     <SettingsPanelContent
       {...settingsPanelProps}
       surface="page"
-      sections={AGENT_SETTINGS_SECTIONS}
+      sections={sections}
       showCapabilityStrip={false}
       className={cn("w-full", className)}
     />
@@ -3498,6 +3518,74 @@ export function useAgentSettingsTabs(
     const integrations = searchTab("integrations");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
+    const overviewSearchEntries = (agent.searchEntries ?? []).filter(
+      (entry) => entry.hash !== "automations" && entry.hash !== "a2a",
+    );
+    const resourceSearchEntries = [
+      {
+        id: "agent-resource-files",
+        label: "Files",
+        keywords: "files uploads documents context resources",
+        description: "Agent resources",
+        tabId: "agent:resources",
+        hash: "agent:resources:files",
+        icon: IconFolder,
+      },
+      {
+        id: "agent-resource-instructions",
+        label: "Instructions",
+        keywords: "instructions agents md behavior context",
+        description: "Agent resources",
+        tabId: "agent:resources",
+        hash: "agent:resources:instructions",
+        icon: IconFolder,
+      },
+      {
+        id: "agent-resource-memory",
+        label: "Memory",
+        keywords: "memory personalization context",
+        description: "Agent resources",
+        tabId: "agent:resources",
+        hash: "agent:resources:memory",
+        icon: IconFolder,
+      },
+      {
+        id: "agent-resource-agents",
+        label: "Agents",
+        keywords: "agents custom agents delegate",
+        description: "Agent resources",
+        tabId: "agent:resources",
+        hash: "agent:resources:agents",
+        icon: IconFolder,
+      },
+      {
+        id: "agent-resource-skills",
+        label: "Skills",
+        keywords: "skills tools capabilities",
+        description: "Agent resources",
+        tabId: "agent:resources",
+        hash: "agent:resources:skills",
+        icon: IconFolder,
+      },
+      {
+        id: "agent-resource-learnings",
+        label: "Learnings",
+        keywords: "learnings feedback memory",
+        description: "Agent resources",
+        tabId: "agent:resources",
+        hash: "agent:resources:learnings",
+        icon: IconFolder,
+      },
+      {
+        id: "agent-resource-remote-agents",
+        label: "Remote agents",
+        keywords: "remote agents connected a2a",
+        description: "Agent resources",
+        tabId: "agent:resources",
+        hash: "agent:resources:remote-agents",
+        icon: IconFolder,
+      },
+    ];
     return [
       {
         ...integrations,
@@ -3542,11 +3630,85 @@ export function useAgentSettingsTabs(
           ]
         : []),
       {
-        ...agent,
+        id: "agent",
+        label: "Overview",
         icon: IconHierarchy2,
-        label: "Agent",
         group: "agent",
-        content: <AgentSettingsContent className="w-full" />,
+        keywords: agent.keywords,
+        searchEntries: overviewSearchEntries,
+        content: (
+          <AgentWorkspaceContent
+            activeTab="overview"
+            overview={
+              <AgentSettingsContent
+                className="w-full"
+                sections={AGENT_SETTINGS_SECTIONS.filter(
+                  (section) => section !== "automations" && section !== "a2a",
+                )}
+              />
+            }
+          />
+        ),
+      },
+      {
+        id: "agent:resources",
+        label: "Resources",
+        icon: IconFolder,
+        group: "agent",
+        keywords:
+          "resources files instructions agents memory skills learnings remote agents",
+        searchEntries: resourceSearchEntries,
+        content: (
+          <AgentWorkspaceContent activeTab="resources" overview={null} />
+        ),
+      },
+      {
+        id: "agent:automations",
+        label: "Automations",
+        icon: IconBolt,
+        group: "agent",
+        keywords: "automations scheduled events cron jobs tasks",
+        searchEntries: [
+          {
+            id: "section:automations",
+            label: "Automations",
+            keywords: "scheduled events cron jobs tasks",
+            description: "Agent workflows",
+            tabId: "agent:automations",
+            hash: "agent:automations",
+            icon: IconBolt,
+          },
+        ],
+        content: (
+          <AgentWorkspaceContent activeTab="automations" overview={null} />
+        ),
+      },
+      {
+        id: "agent:agents",
+        label: "Connected agents",
+        icon: IconTopologyRing2,
+        group: "agent",
+        keywords: "connected agents remote agents a2a delegate",
+        searchEntries: [
+          {
+            id: "section:a2a",
+            label: "Connected agents",
+            keywords: "remote agents a2a delegate",
+            description: "Agent access",
+            tabId: "agent:agents",
+            hash: "agent:agents",
+            icon: IconTopologyRing2,
+          },
+        ],
+        content: <AgentWorkspaceContent activeTab="agents" overview={null} />,
+      },
+      {
+        id: "agent:access",
+        label: "Access",
+        icon: IconShieldLock,
+        group: "agent",
+        keywords: "access sharing permissions clients",
+        content: <AgentWorkspaceContent activeTab="access" overview={null} />,
       },
     ];
   }, [baseProps, extensionToolsEnabled]);

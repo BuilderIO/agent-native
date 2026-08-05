@@ -19,6 +19,18 @@ importers:
       '@agent-native/toolkit':
         specifier: ^0.12.2
         version: 0.12.2(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.29.2(@tiptap/core@3.28.0(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@tiptap/extension-list@3.29.2(@tiptap/core@3.28.0(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@tiptap/extensions@3.29.2(@tiptap/core@3.28.0(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.15)(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.42.2)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(use-sync-external-store@1.6.0(react@19.2.8))
+      '@assistant-ui/react':
+        specifier: 0.12.28
+        version: 0.12.28(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.15)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
+      '@assistant-ui/react-markdown':
+        specifier: 0.12.11
+        version: 0.12.11(@assistant-ui/react@0.12.28(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(immer@11.1.15)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8)))(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@assistant-ui/store':
+        specifier: 0.2.13
+        version: 0.2.13(@assistant-ui/tap@0.5.16(@types/react@19.2.18)(react@19.2.8))(@types/react@19.2.18)(react@19.2.8)
+      '@assistant-ui/tap':
+        specifier: 0.5.16
+        version: 0.5.16(@types/react@19.2.18)(react@19.2.8)
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.3.0

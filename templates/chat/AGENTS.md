@@ -19,6 +19,11 @@ workflow needs durable UI around the conversation.
 - Keep the first viewport sparse and task-focused. Use progressive disclosure
   and domain-specific navigation, and never use sparkle, wand, magic, or robot
   icons as AI affordances.
+- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
+  type for content previews. Give the AgentSidebar a subtle surface/divider
+  boundary, and stack original/generated review vertically by default.
+- Every AI-labeled button must call `sendToAgentChat()` with
+  `openSidebar: true`; label deterministic local actions as local or preview.
 - Scale effort to the task. A small, well-specified change is a short read, the
   edit, and the app's existing checks (`pnpm typecheck`, formatter, existing
   tests) — not a codebase survey, unrequested tests, or browser automation.

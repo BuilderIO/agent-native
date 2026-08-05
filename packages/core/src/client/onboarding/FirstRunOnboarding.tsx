@@ -601,14 +601,40 @@ export function FirstRunOnboarding() {
   }
 
   return (
-    <OnboardingShell profile={profile} screen="choice">
-      <div className="mx-auto flex w-full max-w-md flex-col items-center text-center">
-        <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+    <OnboardingShell profile={profile} screen="ready">
+      <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <IconCheck size={20} />
         </div>
         <h1 className="mt-5 text-xl font-semibold tracking-[-0.04em]">
-          Ready to go.
+          Your agent is ready.
         </h1>
+        <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+          Start with a chat, then connect more tools whenever you need them.
+        </p>
+        <div className="mt-7 grid w-full gap-2 text-left sm:grid-cols-3">
+          {[
+            ["Chat + actions", "Ask your agent to work across the app."],
+            ["Agent integrations", "Connect tools from Settings anytime."],
+            [
+              "Flexible providers",
+              "Use Builder.io free credits or your own keys.",
+            ],
+          ].map(([title, description]) => (
+            <div
+              key={title}
+              className="rounded-xl bg-card px-4 py-4 ring-1 ring-border/70"
+            >
+              <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <IconCheck size={14} />
+              </span>
+              <p className="mt-3 text-sm font-medium">{title}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {description}
+              </p>
+            </div>
+          ))}
+        </div>
         <button
           type="button"
           data-testid="first-run-open-app"
@@ -630,7 +656,7 @@ function OnboardingShell({
   children,
 }: {
   profile: OnboardingAppProfile | null;
-  screen: "intro" | "choice" | "tools";
+  screen: "intro" | "choice" | "tools" | "ready";
   footer?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -642,34 +668,17 @@ function OnboardingShell({
       aria-modal="true"
       aria-label={`${profile?.appName ?? "Your app"} setup`}
     >
-      <header className="flex items-center justify-between border-b border-border px-5 py-4 text-xs text-muted-foreground sm:px-8">
-        <div className="flex items-center gap-2">
-          <img
-            src={appPath("/agent-native-icon-dark.svg")}
-            alt=""
-            aria-hidden="true"
-            className="h-4 w-auto shrink-0"
-          />
-          <span className="font-medium text-foreground">
-            {profile?.appName ?? "Your app"}
-          </span>
-        </div>
-        <span>
-          {screen === "intro"
-            ? "1 / 3"
-            : screen === "tools"
-              ? "3 / 3"
-              : "2 / 3"}
-        </span>
-      </header>
-      <div className="h-0.5 bg-muted">
+      <div
+        className="h-0.5 shrink-0 bg-muted"
+        data-testid="onboarding-progress"
+      >
         <div
           className="h-full bg-primary transition-[width] duration-200"
           style={{
             width:
               screen === "intro"
                 ? "33.33%"
-                : screen === "tools"
+                : screen === "tools" || screen === "ready"
                   ? "100%"
                   : "66.66%",
           }}
@@ -695,16 +704,12 @@ function OnboardingShell({
 function OnboardingSkeleton() {
   return (
     <div
-      className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background px-5 py-5 sm:px-8"
+      className="fixed inset-0 z-[100] flex h-full min-h-0 flex-col bg-background"
       data-onboarding-loading="true"
       aria-busy="true"
     >
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-4 w-20" />
-        <Skeleton className="h-3 w-8" />
-      </div>
-      <Skeleton className="mt-5 h-0.5 w-full" />
-      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center">
+      <Skeleton className="h-0.5 w-full shrink-0" />
+      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 sm:px-8">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="mt-3 h-10 w-52" />
         <Skeleton className="mt-7 h-3 w-44" />

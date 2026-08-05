@@ -416,6 +416,35 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("General content");
   });
 
+  it("selects the deepest matching tab for nested agent deep links", () => {
+    window.history.replaceState(null, "", "/settings#agent:resources:files");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "agent",
+              label: "Overview",
+              group: "agent",
+              content: <div>Agent overview</div>,
+            },
+            {
+              id: "agent:resources",
+              label: "Resources",
+              group: "agent",
+              content: <div>Agent files</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent files");
+    expect(container.textContent).not.toContain("Agent overview");
+  });
+
   it("opens an extra workspace tab from the workspace hash", () => {
     window.history.replaceState(null, "", "/settings#workspace");
 

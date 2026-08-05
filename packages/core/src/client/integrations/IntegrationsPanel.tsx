@@ -911,51 +911,55 @@ function McpIntegrationsSection({ query }: { query: string }) {
           available.
         </p>
       ) : serversQuery.isLoading ? (
-        <div className="space-y-3 border-y border-border/60 py-4">
+        <div className="space-y-3 rounded-xl border border-border/70 bg-card px-4 py-4">
           <div className="h-5 w-1/2 animate-pulse rounded bg-muted" />
           <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
         </div>
       ) : servers.length > 0 && !normalizedQuery ? (
-        <div className="border-y border-border/60">
-          {servers.map((server) => {
-            const key = `${server.scope}:${server.id}`;
-            const canRemove =
-              server.scope === "user" ||
-              serversQuery.data?.role === "owner" ||
-              serversQuery.data?.role === "admin";
-            return (
-              <div
-                key={key}
-                className="flex items-center gap-3 border-b border-border/60 py-3.5 last:border-b-0"
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
-                  <IconServer className="size-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {server.name}
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold text-foreground">Installed</h3>
+          <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
+            <div className="divide-y divide-border/60 px-4">
+              {servers.map((server) => {
+                const key = `${server.scope}:${server.id}`;
+                const canRemove =
+                  server.scope === "user" ||
+                  serversQuery.data?.role === "owner" ||
+                  serversQuery.data?.role === "admin";
+                return (
+                  <div key={key} className="flex items-center gap-3 py-3.5">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
+                      <IconServer className="size-4" />
                     </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {server.scope === "user" ? "Personal" : "Organization"}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {server.name}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {server.scope === "user"
+                            ? "Personal"
+                            : "Organization"}
+                        </span>
+                      </div>
+                      <McpServerStatus server={server} />
+                    </div>
+                    {canRemove && (
+                      <button
+                        type="button"
+                        onClick={() => void removeServer(server)}
+                        disabled={deleteServer.isPending}
+                        className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                      >
+                        {deleteTarget === key ? "Confirm" : "Remove"}
+                      </button>
+                    )}
                   </div>
-                  <McpServerStatus server={server} />
-                </div>
-                {canRemove && (
-                  <button
-                    type="button"
-                    onClick={() => void removeServer(server)}
-                    disabled={deleteServer.isPending}
-                    className="shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
-                  >
-                    {deleteTarget === key ? "Confirm remove" : "Remove"}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
       ) : null}
 
       {filteredCatalog.length > 0 && (
@@ -968,7 +972,7 @@ function McpIntegrationsSection({ query }: { query: string }) {
               {filteredCatalog.length} integrations
             </span>
           </div>
-          <div className="grid gap-x-8 sm:grid-cols-2">
+          <div className="grid gap-x-8 overflow-hidden rounded-xl border border-border/70 bg-card px-4 sm:grid-cols-2">
             {filteredCatalog.map((integration) => (
               <McpCatalogItem
                 key={integration.id}

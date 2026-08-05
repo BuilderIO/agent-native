@@ -116,9 +116,14 @@ interface ResolvedSearchEntry extends SettingsSearchEntry {
 }
 
 function normalizeTabId(value?: string | null): string | null {
-  const normalized = value
-    ?.replace(/^#/, "")
-    .trim()
+  let decoded = value?.replace(/^#/, "").trim() ?? "";
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    // coercion-ok: preserve malformed external hashes for routing fallback.
+    // Keep the raw hash when an external link contains malformed encoding.
+  }
+  const normalized = decoded
     .toLowerCase()
     .replace(/['"]/g, "")
     .replace(/[\s_]+/g, "-");
@@ -147,7 +152,16 @@ function resolveTabId(
   const normalized = normalizeTabId(value);
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  const nestedTab = tabs
+    .filter(
+      (tab) =>
+        normalized.startsWith(`${tab.id}:`) ||
+        tab.id.startsWith(`${normalized}:`),
+    )
+    .sort((a, b) => b.id.length - a.id.length)[0];
+  if (nestedTab) return nestedTab.id;
   const section = normalized.split(":", 1)[0];
+  if (tabs.some((tab) => tab.id === section)) return section;
   const owner = tabs.find((tab) =>
     tab.searchEntries?.some(
       (entry) => normalizeTabId(entry.hash ?? entry.id) === section,
@@ -176,7 +190,7 @@ function activeTabFromHash(
 function updateHashForTab(tabId: string) {
   if (typeof window === "undefined") return;
   const { pathname, search } = window.location;
-  const hash = tabId === "general" ? "" : `#${encodeURIComponent(tabId)}`;
+  const hash = tabId === "general" ? "" : `#${tabId}`;
   window.history.pushState(null, "", `${pathname}${search}${hash}`);
 }
 
@@ -615,8 +629,7 @@ export function SettingsTabsPage({
                 data-settings-tab-group={group.id}
                 className={cn(
                   "contents sm:block",
-                  groupIndex > 0 &&
-                    "sm:mt-2 sm:border-t sm:border-border/60 sm:pt-2",
+                  groupIndex > 0 && "sm:mt-3 sm:pt-1",
                 )}
               >
                 <div className="contents sm:flex sm:flex-col sm:gap-1">

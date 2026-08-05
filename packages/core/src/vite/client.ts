@@ -615,6 +615,7 @@ function findLocalWorkspacePackageDeps(
 
     return packages;
   } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }
@@ -1006,6 +1007,7 @@ function getAssistantUiAliases(
       },
     ];
   } catch {
+    // coercion-ok: optional peer dependencies may be absent in standalone apps.
     return [];
   }
 }

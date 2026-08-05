@@ -745,7 +745,6 @@ function CodeAccessUnavailablePanel({
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
         >
           {secondaryCtaLabel}
-          <IconExternalLink className="h-3 w-3" />
         </a>
       </div>
     </div>

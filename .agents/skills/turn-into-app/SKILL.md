@@ -66,6 +66,21 @@ Generated apps must follow the shared Agent-Native surface model:
 - Use the right `AgentSidebar` for contextual AI. Every button-triggered
   `sendToAgentChat` handoff should open or focus that sidebar and keep the user
   on the current domain page.
+- Use a sans-first SaaS hierarchy for the app shell. One restrained warm or
+  editorial cue is welcome, but keep serif type for content previews or a
+  deliberate brand moment rather than making the whole tool feel like a
+  publication.
+- Give the AgentSidebar a subtle surface or divider boundary so it is visually
+  distinct from the domain page without becoming a heavy panel wall.
+- Every AI-labeled button must actually call `sendToAgentChat` with bounded
+  context and `openSidebar: true`. Keep `submit: true` for direct execution and
+  `submit: false` only when the user should edit the staged prompt first. Label
+  deterministic local actions as local, preview, or analyze instead of AI.
+- Standalone apps that render `AgentSidebar` must keep one assistant-ui runtime
+  context. Pin the versions compatible with the installed core/toolkit peer
+  graph, and add Vite dedupe/aliases when linked or transitive packages resolve
+  duplicate assistant-ui modules. Verify a fresh AI handoff has no
+  `AssistantUiStaleIndexErrorBoundary` or stale-index console error.
 - Make the left navigation describe domain destinations. Chat is a separate
   destination, not the label for every app page.
 - Start with one primary action and one compact state. Put setup choices,
@@ -76,6 +91,9 @@ Generated apps must follow the shared Agent-Native surface model:
 - Before handoff, inspect the first viewport for text density, repeated cards,
   unrelated forms, and generic helper copy. Remove what the user does not need
   until the next decision.
+- For before/after or original/generated review, stack the source first and the
+  result second by default. Reserve side-by-side layouts for short content that
+  remains comfortable to scan at the target width.
 
 ## 1. Extract the workflow
 
@@ -175,8 +193,11 @@ Exercise the actual happy path, not only the source files:
 1. Load the reported URL and confirm the main route renders.
 2. Confirm the shared onboarding state or a configured local key.
 3. Click the primary workflow button and confirm the intended agent handoff.
+   Also click every other AI-labeled button and confirm it opens the same
+   contextual sidebar with the expected prompt or staged context.
 4. Confirm the result, action persistence, application state, and sync path.
-5. Check the dev output for browser/runtime errors and record any blocked step.
+5. Check the dev output for browser/runtime errors, and capture input, result,
+   and agent-sidebar states so the complete flow is reviewable.
 
 Then run the supported build. For a standalone app, use the generated app's
 documented build and hosting path. For an app inside a workspace, use the

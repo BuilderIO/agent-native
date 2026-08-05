@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -100,17 +101,20 @@ describe("ConnectionsSettingsContent", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
+    const queryClient = new QueryClient();
 
     await act(async () => {
       root.render(
         <MemoryRouter>
-          <ConnectionsSettingsContent
-            settingsPanelProps={{
-              isDevMode: false,
-              onToggleDevMode: vi.fn(),
-              showDevToggle: false,
-            }}
-          />
+          <QueryClientProvider client={queryClient}>
+            <ConnectionsSettingsContent
+              settingsPanelProps={{
+                isDevMode: false,
+                onToggleDevMode: vi.fn(),
+                showDevToggle: false,
+              }}
+            />
+          </QueryClientProvider>
         </MemoryRouter>,
       );
       await Promise.resolve();
@@ -185,17 +189,20 @@ describe("ConnectionsSettingsContent", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
+    const queryClient = new QueryClient();
 
     await act(async () => {
       root.render(
         <MemoryRouter>
-          <ConnectionsSettingsContent
-            settingsPanelProps={{
-              isDevMode: false,
-              onToggleDevMode: vi.fn(),
-              showDevToggle: false,
-            }}
-          />
+          <QueryClientProvider client={queryClient}>
+            <ConnectionsSettingsContent
+              settingsPanelProps={{
+                isDevMode: false,
+                onToggleDevMode: vi.fn(),
+                showDevToggle: false,
+              }}
+            />
+          </QueryClientProvider>
         </MemoryRouter>,
       );
       await Promise.resolve();

@@ -663,6 +663,21 @@ const messages = {
     referenceDeckNone: "Don't use one",
     referenceDeckStarredGroup: "Starred",
     referenceDeckOtherGroup: "Other decks",
+    referenceReviewTitle: "Review references",
+    referenceReviewDescription:
+      "Keep the default design system and reference deck unless you remove them. Search for another deck, import a file, or continue when you're ready.",
+    chooseAnotherDeck: "Choose another deck",
+    noMatchingDecks: "No matching decks found.",
+    googleSlidesReferenceTitle: "Google Slides",
+    googleSlidesReferenceConnect:
+      "Connect Google Drive to import a Slides deck.",
+    googleSlidesReferenceChoose: "Choose Google Slides deck",
+    googleSlidesReferencePicking: "Working...",
+    googleSlidesReferenceConnected:
+      "Connected. Choose a Google Slides deck to import as a reusable reference.",
+    googleSlidesReferenceUnavailable:
+      "Connect Google Drive and configure Picker to import a Google Slides deck.",
+    skipReferences: "Skip references",
     workspaceDefaultBadge: "Workspace default",
     setWorkspaceDefault: "Set as workspace default",
     clearWorkspaceDefault: "Clear workspace default",

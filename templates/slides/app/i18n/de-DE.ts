@@ -676,6 +676,21 @@ const messages = {
     referenceDeckNone: "Keins verwenden",
     referenceDeckStarredGroup: "Markiert",
     referenceDeckOtherGroup: "Weitere Decks",
+    referenceReviewTitle: "Referenzen prüfen",
+    referenceReviewDescription:
+      "Behalte das Standarddesignsystem und das Referenzdeck bei, sofern du sie nicht entfernst. Suche ein anderes Deck, importiere eine Datei oder fahre fort, wenn du bereit bist.",
+    chooseAnotherDeck: "Anderes Deck auswählen",
+    noMatchingDecks: "Keine passenden Decks gefunden.",
+    googleSlidesReferenceTitle: "Google-Slides-Decks",
+    googleSlidesReferenceConnect:
+      "Verbinde Google Drive, um ein Slides-Deck zu importieren.",
+    googleSlidesReferenceChoose: "Google-Slides-Deck auswählen",
+    googleSlidesReferencePicking: "Wird bearbeitet...",
+    googleSlidesReferenceConnected:
+      "Verbunden. Wähle ein Google-Slides-Deck als wiederverwendbare Referenz.",
+    googleSlidesReferenceUnavailable:
+      "Verbinde Google Drive und konfiguriere Picker, um ein Google-Slides-Deck zu importieren.",
+    skipReferences: "Referenzen überspringen",
     workspaceDefaultBadge: "Arbeitsbereichs-Standard",
     setWorkspaceDefault: "Als Arbeitsbereichs-Standard festlegen",
     clearWorkspaceDefault: "Arbeitsbereichs-Standard entfernen",

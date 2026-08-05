@@ -655,6 +655,21 @@ const messages = {
     referenceDeckNone: "किसी का उपयोग न करें",
     referenceDeckStarredGroup: "तारांकित",
     referenceDeckOtherGroup: "अन्य डेक",
+    referenceReviewTitle: "रेफरेंस की समीक्षा करें",
+    referenceReviewDescription:
+      "डिफ़ॉल्ट डिज़ाइन सिस्टम और रेफरेंस डेक रखें, जब तक आप उन्हें हटाना न चाहें। कोई दूसरा डेक खोजें, फ़ाइल इंपोर्ट करें या तैयार होने पर आगे बढ़ें।",
+    chooseAnotherDeck: "दूसरा डेक चुनें",
+    noMatchingDecks: "कोई मिलता-जुलता डेक नहीं मिला।",
+    googleSlidesReferenceTitle: "Google Slides डेक",
+    googleSlidesReferenceConnect:
+      "Slides डेक इंपोर्ट करने के लिए Google Drive कनेक्ट करें।",
+    googleSlidesReferenceChoose: "Google Slides डेक चुनें",
+    googleSlidesReferencePicking: "काम हो रहा है...",
+    googleSlidesReferenceConnected:
+      "कनेक्ट हो गया। दोबारा उपयोग योग्य रेफरेंस के रूप में इंपोर्ट करने के लिए Google Slides डेक चुनें।",
+    googleSlidesReferenceUnavailable:
+      "Google Slides डेक इंपोर्ट करने के लिए Google Drive कनेक्ट करें और Picker कॉन्फ़िगर करें।",
+    skipReferences: "रेफरेंस छोड़ें",
     workspaceDefaultBadge: "कार्यस्थान डिफ़ॉल्ट",
     setWorkspaceDefault: "कार्यस्थान डिफ़ॉल्ट के रूप में सेट करें",
     clearWorkspaceDefault: "कार्यस्थान डिफ़ॉल्ट हटाएँ",

@@ -48,6 +48,18 @@ The repeated app shell has two distinct navigation surfaces:
 - Use familiar message or neutral action icons for agent affordances. Never use
   sparkle, wand, magic, or robot icons as an AI label; the copy should carry the
   meaning.
+- Give the right rail a quiet visual boundary with a subtle surface shift,
+  divider, or both. The domain page and AgentSidebar should not collapse into a
+  single undifferentiated background.
+- Any button labeled as agent work must use `sendToAgentChat` with bounded
+  context and `openSidebar: true`; local deterministic analysis should be
+  labeled as local, preview, or analyze. For original/generated review, stack
+  the source above the result by default and use side-by-side only for short,
+  highly scannable content.
+- Standalone apps with `AgentSidebar` must resolve one assistant-ui runtime
+  context. Match direct assistant-ui pins to the installed core/toolkit peer
+  graph, use Vite dedupe/aliases when linked dependencies can split contexts,
+  and verify an AI handoff produces no stale-index console error.
 
 Contextual agent UI is not a reason to expose every option at once. Start with
 the domain task's primary action, reveal review or configuration only when the

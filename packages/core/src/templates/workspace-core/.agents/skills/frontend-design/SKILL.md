@@ -77,7 +77,10 @@ passed this requirement yet.
 
 ## Aesthetic Guidelines
 
-- **Typography**: Use the product's existing type system first. For net-new public pages, choose characterful but readable type and keep sizing appropriate to the surface.
+- **Typography**: Use the product's existing type system first. For SaaS and
+  operational apps, make a clear sans-serif hierarchy the default; reserve a
+  serif or editorial face for a deliberate content preview or brand moment,
+  not the whole application shell.
 - **Color and theme**: Use semantic tokens and CSS variables. Avoid one-note palettes and default purple/blue gradients unless the brand demands them.
 - **Motion**: Prefer purposeful transitions and small state changes. Use CSS transitions/keyframes unless the app already uses a motion library. Never `transition-all` — list the properties that actually change (e.g. `transition-[opacity,transform]`). Use the shared easing tokens defined in `packages/core/src/styles/agent-native.css` instead of hand-typing curves: `var(--ease-drawer)` (260ms, drawers/app chrome), `var(--ease-collapse)` (200ms, expand/collapse), `var(--ease-out-strong)` (snappy entrances) — in Tailwind, `ease-[var(--ease-collapse)]`. Enter/exit with ease-out, never `ease-in`. Overlays that zoom in must set the Radix origin var (e.g. `origin-[--radix-popover-content-transform-origin]`). Animate `transform`/`opacity`, not width/height/padding/box-shadow. Gate looping or large-movement animations with `motion-reduce:`. Command palettes and keyboard-triggered actions get no animation.
 - **Composition**: Match the workflow. Operational apps should be dense and scannable; marketing or portfolio pages can be more immersive.
@@ -134,6 +137,15 @@ passed this requirement yet.
 - Never use sparkle, wand, magic, robot, or similar decorative AI icons. Use a
   familiar message, assistant, or neutral action icon, and let the button copy
   explain the intent. An icon-only control needs a tooltip and accessible name.
+- Give the persistent agent drawer a quiet but intentional boundary: a subtle
+  surface shift, divider, or both. The sidebar and domain page should not read
+  as one undifferentiated slab, and the treatment should remain calm when the
+  drawer opens or closes.
+- Treat an AI-labeled button as a contract. Buttons named Ask agent, Review
+  with agent, Refine, Generate with AI, or similar must call
+  `sendToAgentChat` with bounded context, `openSidebar: true`, and the intended
+  `submit` mode. A deterministic local action is useful, but label it local,
+  preview, or analyze rather than implying it invoked an agent.
 
 ### Product Surface Review
 
@@ -149,6 +161,9 @@ as an operator would use it repeatedly:
   at a time and preserve the user's progress.
 - Remove generic hero copy, feature tours, repeated helper text, nested cards,
   status-chip soup, and decorative AI treatment before adding more styling.
+- For review flows, stack the source/original first and the generated or safe
+  result second by default. Use side-by-side comparison only when the content
+  is short enough to scan without excessive horizontal reading.
 - Check the result at the target desktop width and a narrow width. If the first
   viewport feels like documentation instead of a tool, subtract again.
 

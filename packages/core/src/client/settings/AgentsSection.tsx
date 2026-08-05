@@ -1,7 +1,6 @@
 import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
 import {
   IconPlus,
-  IconPencil,
   IconTrash,
   IconX,
   IconCheck,
@@ -9,6 +8,7 @@ import {
   IconAlertTriangle,
   IconExternalLink,
   IconRefresh,
+  IconTopologyRing2,
 } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 
@@ -801,26 +801,18 @@ export function AgentsSection() {
 
   return (
     <div>
-      {/* Header with + button */}
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[10px] text-muted-foreground">
-          @-mention agents in chat to delegate tasks via A2A.
-        </div>
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
         <div className="relative">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => {
-                  setShowAdd(!showAdd);
-                  setEditingAgent(null);
-                }}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              >
-                {showAdd ? <IconX size={12} /> : <IconPlus size={12} />}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Add agent</TooltipContent>
-          </Tooltip>
+          <button
+            onClick={() => {
+              setShowAdd(!showAdd);
+              setEditingAgent(null);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            {showAdd ? <IconX size={13} /> : <IconPlus size={13} />}
+            {showAdd ? "Cancel" : "Connect agent"}
+          </button>
           {showAdd && (
             <AgentAddPopover
               initialName={prefill?.name}
@@ -847,87 +839,92 @@ export function AgentsSection() {
           <div className="h-6 w-3/4 rounded bg-muted/50 animate-pulse" />
         </div>
       ) : agents.length === 0 ? (
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
-        >
-          <IconPlus size={12} className="shrink-0" />
-          Add agent
-        </button>
-      ) : (
-        <div className="flex flex-col gap-0.5">
-          {agents.map((agent) => {
-            const probe = probeById?.get(
-              getRemoteAgentIdFromPath(agent.path).toLowerCase(),
-            );
-            const dotState: "ok" | "warn" | null = !probe
-              ? null
-              : probe.reachable && probe.authorized !== false
-                ? "ok"
-                : "warn";
-            return (
-              <div key={agent.id} className="group relative">
-                <div className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/30">
-                  {dotState ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                            dotState === "ok" ? "bg-green-500" : "bg-amber-500"
-                          }`}
-                        />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {probe && describeProbeTooltip(probe)}
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-transparent" />
-                  )}
-                  <span className="text-[11px] font-medium text-foreground truncate shrink-0">
-                    {agent.name}
-                  </span>
-                  <span className="flex-1 text-[10px] text-muted-foreground/60 truncate text-end">
-                    {agent.url}
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => {
-                          setEditingAgent(
-                            editingAgent === agent.id ? null : agent.id,
-                          );
-                          setShowAdd(false);
-                        }}
-                        className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground hover:bg-accent/50"
-                      >
-                        <IconPencil size={11} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Edit agent</TooltipContent>
-                  </Tooltip>
-                </div>
-                {editingAgent === agent.id && (
-                  <AgentEditPopover
-                    agent={agent}
-                    onSave={handleSave}
-                    onDelete={handleDelete}
-                    onClose={() => setEditingAgent(null)}
-                  />
-                )}
-              </div>
-            );
-          })}
+        <div className="flex flex-col items-center rounded-xl border border-border/70 bg-card px-5 py-8 text-center">
+          <span className="mb-2 flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <IconTopologyRing2 size={17} />
+          </span>
+          <p className="text-sm font-medium text-foreground">
+            No connected agents yet
+          </p>
+          <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+            Connect an A2A agent to delegate work from chat.
+          </p>
           <button
-            onClick={() => {
-              setShowAdd(true);
-              setEditingAgent(null);
-            }}
-            className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
+            onClick={() => setShowAdd(true)}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
           >
-            <IconPlus size={12} className="shrink-0" />
-            Add agent
+            <IconPlus size={13} />
+            Connect agent
           </button>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
+          <div className="divide-y divide-border/60 px-4">
+            {agents.map((agent) => {
+              const probe = probeById?.get(
+                getRemoteAgentIdFromPath(agent.path).toLowerCase(),
+              );
+              const dotState: "ok" | "warn" | null = !probe
+                ? null
+                : probe.reachable && probe.authorized !== false
+                  ? "ok"
+                  : "warn";
+              return (
+                <div key={agent.id} className="group relative">
+                  <div className="flex w-full items-center gap-3 py-4">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground">
+                      <IconTopologyRing2 size={15} />
+                    </span>
+                    {dotState ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                              dotState === "ok"
+                                ? "bg-green-500"
+                                : "bg-amber-500"
+                            }`}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {probe && describeProbeTooltip(probe)}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-transparent" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {agent.name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                        {agent.url}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingAgent(
+                          editingAgent === agent.id ? null : agent.id,
+                        );
+                        setShowAdd(false);
+                      }}
+                      className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                    >
+                      Manage
+                    </button>
+                  </div>
+                  {editingAgent === agent.id && (
+                    <AgentEditPopover
+                      agent={agent}
+                      onSave={handleSave}
+                      onDelete={handleDelete}
+                      onClose={() => setEditingAgent(null)}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

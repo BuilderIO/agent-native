@@ -77,6 +77,7 @@ export function parsePreviewItems(value: string) {
       return parsed;
     }
   } catch {
+    // coercion-ok: malformed JSON is converted to the explicit error below.
     // A malformed preview should be visible as a failure, not treated as empty.
   }
   throw new Error("The saved email preview could not be read.");

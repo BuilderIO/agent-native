@@ -909,6 +909,14 @@ describe("agentNative Vite plugin preset", () => {
         "@assistant-ui/tap",
       ]),
     );
+    expect(config.resolve.alias).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ find: /^@assistant-ui\/react$/ }),
+        expect.objectContaining({ find: /^@assistant-ui\/core$/ }),
+        expect.objectContaining({ find: /^@assistant-ui\/store$/ }),
+        expect.objectContaining({ find: /^@assistant-ui\/tap$/ }),
+      ]),
+    );
     expect(config.resolve.alias).toContainEqual({
       find: "~",
       replacement: "/tmp/app",

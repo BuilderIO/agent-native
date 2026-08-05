@@ -637,6 +637,20 @@ const messages = {
     referenceDeckNone: "不使用參考",
     referenceDeckStarredGroup: "已加星號",
     referenceDeckOtherGroup: "其他幻燈片",
+    referenceReviewTitle: "檢查參考內容",
+    referenceReviewDescription:
+      "除非移除，否則保留預設設計系統和參考投影片。搜尋其他投影片、匯入檔案，或準備好後繼續。",
+    chooseAnotherDeck: "選擇其他投影片",
+    noMatchingDecks: "找不到相符的投影片。",
+    googleSlidesReferenceTitle: "Google Slides 投影片",
+    googleSlidesReferenceConnect: "連接 Google Drive 以匯入 Slides 投影片。",
+    googleSlidesReferenceChoose: "選擇 Google Slides 投影片",
+    googleSlidesReferencePicking: "處理中...",
+    googleSlidesReferenceConnected:
+      "已連接。選擇 Google Slides 投影片，將其匯入為可重複使用的參考內容。",
+    googleSlidesReferenceUnavailable:
+      "連接 Google Drive 並設定 Picker 後，才能匯入 Google Slides 投影片。",
+    skipReferences: "跳過參考內容",
     workspaceDefaultBadge: "工作區預設",
     setWorkspaceDefault: "設為工作區預設",
     clearWorkspaceDefault: "清除工作區預設",

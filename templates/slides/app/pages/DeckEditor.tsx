@@ -283,7 +283,9 @@ export default function DeckEditor() {
     isNewDeckCreation: wasNewDeckCreation.current,
     slideCount,
   });
-  const { designSystem } = useDeckDesignSystem(deck?.designSystemId);
+  const { designSystem, imageStyleReferenceUrls } = useDeckDesignSystem(
+    deck?.designSystemId,
+  );
   const commentsOpen = sidePanel === "comments";
   const styleOpen = sidePanel === "style";
 
@@ -1287,6 +1289,7 @@ export default function DeckEditor() {
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
         anchorRef={imageGenButtonRef}
+        referenceImageUrls={imageStyleReferenceUrls}
         slideContext={
           currentSlide
             ? {

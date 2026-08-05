@@ -117,6 +117,16 @@ describe("FirstRunOnboarding", () => {
       );
     });
 
+    const shell = document.body.querySelector(
+      "[data-onboarding-screen='intro']",
+    );
+    expect(shell?.firstElementChild?.getAttribute("data-testid")).toBe(
+      "onboarding-progress",
+    );
+    expect(shell?.querySelector("header")).toBeNull();
+    expect(document.body.textContent).not.toContain("Builder App");
+    expect(document.body.textContent).not.toMatch(/\b[123] \/ 3\b/);
+
     act(() => {
       [...document.body.querySelectorAll("button")]
         .find((button) => button.textContent === "Continue")

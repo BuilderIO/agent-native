@@ -16,6 +16,10 @@
   "dependencies": {
     "@agent-native/core": "0.137.1",
     "@agent-native/toolkit": "^0.12.2",
+    "@assistant-ui/react": "0.12.28",
+    "@assistant-ui/react-markdown": "0.12.11",
+    "@assistant-ui/store": "0.2.13",
+    "@assistant-ui/tap": "0.5.16",
     "@fontsource-variable/inter": "^5.2.8",
     "@libsql/client": "^0.15.8",
     "@react-router/dev": "8.1.0",

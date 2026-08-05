@@ -23,11 +23,6 @@ import {
 import React, { useCallback, useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
 import { SettingsRow } from "./SettingsRow.js";
 import {
   openBuilderConnectPopup,
@@ -384,40 +379,21 @@ export function VoiceTranscriptionSection({
         label="Voice transcription"
         description="Choose how voice input is transcribed."
         control={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Picker
-              mode="select"
-              options={[
-                { value: "mac-native", label: "Mac Native" },
-                { value: "google-realtime", label: "Google Realtime" },
-                { value: "batch", label: "Batch" },
-              ]}
-              value={transcriptionMode}
-              onChange={(next) => {
-                const value = String(next ?? "");
-                if (isTranscriptionMode(value)) chooseSource(value);
-              }}
-              aria-label="Voice transcription"
-              className="w-44 text-start"
-            />
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent/40"
-                >
-                  Manage
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                sideOffset={6}
-                className="max-h-[min(680px,calc(100vh-2rem))] w-[min(520px,calc(100vw-2rem))] overflow-y-auto p-4"
-              >
-                <VoiceTranscriptionSection />
-              </PopoverContent>
-            </Popover>
-          </div>
+          <Picker
+            mode="select"
+            options={[
+              { value: "mac-native", label: "Mac Native" },
+              { value: "google-realtime", label: "Google Realtime" },
+              { value: "batch", label: "Batch" },
+            ]}
+            value={transcriptionMode}
+            onChange={(next) => {
+              const value = String(next ?? "");
+              if (isTranscriptionMode(value)) chooseSource(value);
+            }}
+            aria-label="Voice transcription"
+            className="w-44 text-start"
+          />
         }
       />
     );
@@ -479,7 +455,6 @@ export function VoiceTranscriptionSection({
                   className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
                 >
                   Connect Builder.io
-                  <IconExternalLink size={10} />
                 </button>
               ) : (
                 <button
@@ -587,7 +562,6 @@ export function VoiceTranscriptionSection({
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 ) : (
                   <button
@@ -642,7 +616,6 @@ export function VoiceTranscriptionSection({
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
                     Connect Builder.io
-                    <IconExternalLink size={10} />
                   </button>
                 )
               }
