@@ -1252,6 +1252,7 @@ const jaJP = {
         textThorough: "詳しく",
         findingTitle: "タイトル",
         findingDescription: "説明",
+        findingColors: "カラー",
         findingPrimaryColor: "メインカラー",
         findingAccentColor: "アクセントカラー",
         findingHeadingFont: "見出しフォント",

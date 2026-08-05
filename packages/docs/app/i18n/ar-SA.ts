@@ -1246,6 +1246,7 @@ const arSA = {
         textThorough: "شاملًا",
         findingTitle: "العنوان",
         findingDescription: "الوصف",
+        findingColors: "الألوان",
         findingPrimaryColor: "اللون الأساسي",
         findingAccentColor: "اللون المميز",
         findingHeadingFont: "خط العناوين",

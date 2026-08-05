@@ -1247,6 +1247,7 @@ const enUS = {
         textThorough: "thorough",
         findingTitle: "title",
         findingDescription: "description",
+        findingColors: "colors",
         findingPrimaryColor: "primary color",
         findingAccentColor: "accent color",
         findingHeadingFont: "heading font",

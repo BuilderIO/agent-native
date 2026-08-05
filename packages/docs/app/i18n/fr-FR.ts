@@ -1256,6 +1256,7 @@ const frFR = {
         textThorough: "détaillé",
         findingTitle: "titre",
         findingDescription: "description",
+        findingColors: "couleurs",
         findingPrimaryColor: "couleur principale",
         findingAccentColor: "couleur d’accent",
         findingHeadingFont: "police des titres",

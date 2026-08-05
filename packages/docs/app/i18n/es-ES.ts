@@ -1256,6 +1256,7 @@ const esES = {
         textThorough: "detallado",
         findingTitle: "título",
         findingDescription: "descripción",
+        findingColors: "colores",
         findingPrimaryColor: "color principal",
         findingAccentColor: "color de acento",
         findingHeadingFont: "fuente de los encabezados",

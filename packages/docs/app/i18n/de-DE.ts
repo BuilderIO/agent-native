@@ -1258,6 +1258,7 @@ const deDE = {
         textThorough: "ausführlich",
         findingTitle: "Titel",
         findingDescription: "Beschreibung",
+        findingColors: "Farben",
         findingPrimaryColor: "Primärfarbe",
         findingAccentColor: "Akzentfarbe",
         findingHeadingFont: "Überschriftenschrift",

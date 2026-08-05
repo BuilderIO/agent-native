@@ -1234,6 +1234,7 @@ const messages = {
         textThorough: "詳盡",
         findingTitle: "標題",
         findingDescription: "說明",
+        findingColors: "顏色",
         findingPrimaryColor: "主色",
         findingAccentColor: "強調色",
         findingHeadingFont: "標題字型",

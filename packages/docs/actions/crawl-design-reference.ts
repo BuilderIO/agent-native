@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const MAX_HTML_BYTES = 512_000;
 const MAX_CSS_BYTES = 192_000;
+const MAX_SCRIPT_BYTES = 2_000_000;
 const MAX_STYLESHEETS = 3;
 
 async function readBoundedText(response: Response, maxBytes: number) {
@@ -77,6 +78,66 @@ function truncateWords(value: string, maxWords: number) {
     .join(" ");
 }
 
+function decodeJavaScriptString(value: string) {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value;
+  }
+}
+
+function normalizedIdentity(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z\d]/g, "");
+}
+
+function getBundledMetadata(source: string, hostname: string) {
+  const brandIdentity = normalizedIdentity(
+    hostname.replace(/^www\./, "").split(".")[0] ?? "",
+  );
+  const candidates = [
+    ...source.matchAll(
+      /title:"((?:\\.|[^"\\]){1,200})",description:"((?:\\.|[^"\\]){1,500})"/g,
+    ),
+  ]
+    .map((match) => {
+      const title = cleanText(decodeJavaScriptString(match[1] ?? ""));
+      const description = cleanText(decodeJavaScriptString(match[2] ?? ""));
+      const identifiesBrand = [title, description].some((value) =>
+        normalizedIdentity(value).includes(brandIdentity),
+      );
+      const nearbySource = source.slice(match.index, match.index + 1_000);
+      const canonical = nearbySource.match(
+        /canonical:"((?:\\.|[^"\\]){1,500})"/,
+      )?.[1];
+      let isHomepage = false;
+      if (canonical) {
+        try {
+          const canonicalUrl = new URL(decodeJavaScriptString(canonical));
+          isHomepage =
+            canonicalUrl.hostname.replace(/^www\./, "").toLowerCase() ===
+              hostname.replace(/^www\./, "").toLowerCase() &&
+            canonicalUrl.pathname === "/";
+        } catch {
+          isHomepage = false;
+        }
+      }
+      return { title, description, identifiesBrand, isHomepage };
+    })
+    .sort(
+      (left, right) =>
+        Number(right.isHomepage) - Number(left.isHomepage) ||
+        Number(right.identifiesBrand) - Number(left.identifiesBrand) ||
+        right.description.length - left.description.length,
+    );
+  return {
+    title: candidates[0]?.title ?? "",
+    description: truncateWords(candidates[0]?.description ?? "", 14),
+  };
+}
+
 function normalizeColor(value: string | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
@@ -94,6 +155,52 @@ function findCustomProperty(css: string, names: RegExp[]) {
     if (color) return color;
   }
   return null;
+}
+
+function colorToHex(value: string | null) {
+  if (!value) return null;
+  const hex = value.match(/^#([\da-f]{3,8})$/i)?.[1];
+  if (hex) {
+    const rgb =
+      hex.length === 3 || hex.length === 4
+        ? hex
+            .slice(0, 3)
+            .split("")
+            .map((character) => character.repeat(2))
+            .join("")
+        : hex.slice(0, 6);
+    return rgb.toLowerCase();
+  }
+  const rgb = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+  if (!rgb) return null;
+  return rgb
+    .slice(1, 4)
+    .map((channel) =>
+      Math.max(0, Math.min(255, Math.round(Number(channel))))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("");
+}
+
+async function getColorNames(colors: Array<string | null>) {
+  const values = colors
+    .map(colorToHex)
+    .filter((value): value is string => Boolean(value));
+  if (!values.length) return new Map<string, string>();
+  const endpoint = new URL("https://api.color.pizza/v1/");
+  endpoint.searchParams.set("values", values.join(","));
+  endpoint.searchParams.set("goodnamesonly", "true");
+  const { text } = await fetchText(endpoint.href, 64_000);
+  const response = JSON.parse(text) as {
+    colors?: Array<{ name?: string; requestedHex?: string }>;
+  };
+  return new Map(
+    (response.colors ?? []).flatMap((color) => {
+      const requestedHex = color.requestedHex?.replace(/^#/, "").toLowerCase();
+      return requestedHex && color.name ? [[requestedHex, color.name]] : [];
+    }),
+  );
 }
 
 function findColors(css: string, themeColor: string) {
@@ -161,7 +268,9 @@ export default defineAction({
     title: z.string(),
     description: z.string(),
     primaryColor: z.string().nullable(),
+    primaryColorName: z.string().nullable(),
     accentColor: z.string().nullable(),
+    accentColorName: z.string().nullable(),
     headingFont: z.string().nullable(),
     bodyFont: z.string().nullable(),
   }),
@@ -192,12 +301,12 @@ export default defineAction({
       throw new Error("That URL did not return a web page.");
     }
 
-    const title = cleanText(
+    const staticTitle = cleanText(
       getMetaContent(html, ["og:title", "twitter:title"]) ||
         html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ||
-        parsedUrl.hostname,
+        "",
     ).slice(0, 120);
-    const description = truncateWords(
+    const staticDescription = truncateWords(
       getMetaContent(html, [
         "description",
         "og:description",
@@ -208,6 +317,34 @@ export default defineAction({
         "",
       14,
     );
+    const entryScriptPath = (
+      html.match(/<script\b[^>]*\btype=["']module["'][^>]*>/i) ?? []
+    )
+      .map((tag) => getTagAttribute(tag, "src"))
+      .find(Boolean);
+    let bundledMetadata = { title: "", description: "" };
+    if ((!staticTitle || !staticDescription) && entryScriptPath) {
+      const entryScriptUrl = new URL(
+        entryScriptPath,
+        response.url || parsedUrl.href,
+      );
+      if (entryScriptUrl.origin === parsedUrl.origin) {
+        try {
+          bundledMetadata = getBundledMetadata(
+            (await fetchText(entryScriptUrl.href, MAX_SCRIPT_BYTES)).text,
+            parsedUrl.hostname,
+          );
+        } catch {
+          bundledMetadata = { title: "", description: "" };
+        }
+      }
+    }
+    const title = (
+      staticTitle ||
+      bundledMetadata.title ||
+      parsedUrl.hostname
+    ).slice(0, 120);
+    const description = staticDescription || bundledMetadata.description;
     const themeColor = getMetaContent(html, ["theme-color"]);
     const inlineCss = (html.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) ?? [])
       .map((style) => style.replace(/^<style\b[^>]*>|<\/style>$/gi, ""))
@@ -230,6 +367,12 @@ export default defineAction({
     );
     const css = `${inlineCss}\n${externalCss.join("\n")}`;
     const colors = findColors(css, themeColor);
+    let colorNames = new Map<string, string>();
+    try {
+      colorNames = await getColorNames([colors.primary, colors.accent]);
+    } catch {
+      colorNames = new Map();
+    }
     const bodyFont =
       findFont(css, [/body/, /html/]) ||
       cleanFontFamily(
@@ -248,7 +391,10 @@ export default defineAction({
       title,
       description,
       primaryColor: colors.primary,
+      primaryColorName:
+        colorNames.get(colorToHex(colors.primary) ?? "") ?? null,
       accentColor: colors.accent,
+      accentColorName: colorNames.get(colorToHex(colors.accent) ?? "") ?? null,
       headingFont,
       bodyFont,
     };

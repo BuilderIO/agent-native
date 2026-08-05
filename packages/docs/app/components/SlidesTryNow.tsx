@@ -13,7 +13,9 @@ type DesignReference = {
   title: string;
   description: string;
   primaryColor: string | null;
+  primaryColorName: string | null;
   accentColor: string | null;
+  accentColorName: string | null;
   headingFont: string | null;
   bodyFont: string | null;
 };
@@ -51,6 +53,15 @@ function appendStyleGuideTarget(editor: HTMLDivElement) {
   return target;
 }
 
+function appendColorSwatch(parent: HTMLElement, color: string) {
+  const swatch = document.createElement("span");
+  swatch.setAttribute("aria-hidden", "true");
+  swatch.className =
+    "mx-1 inline-block size-3 rounded-sm border border-black/20 align-middle dark:border-white/30";
+  swatch.style.backgroundColor = color;
+  parent.append(swatch);
+}
+
 export function SlidesTryNow() {
   const t = useT();
   const tn = (key: string) => t(`templateLanding.slides.tryNow.${key}`);
@@ -76,11 +87,27 @@ export function SlidesTryNow() {
       .join(", ");
     if (subject) replaceSubjectPlaceholder(editor, subject);
 
+    const colors = [
+      reference.primaryColor && {
+        code: reference.primaryColor,
+        name: reference.primaryColorName,
+      },
+      reference.accentColor && {
+        code: reference.accentColor,
+        name: reference.accentColorName,
+      },
+    ].filter((color): color is { code: string; name: string | null } =>
+      Boolean(color),
+    );
+    const colorFinding = colors.length
+      ? `${tn("findingColors")}: ${colors
+          .map((color) =>
+            color.name ? `${color.name} (${color.code})` : color.code,
+          )
+          .join(", ")}`
+      : "";
     const findings = [
-      reference.primaryColor &&
-        `${tn("findingPrimaryColor")}: ${reference.primaryColor}`,
-      reference.accentColor &&
-        `${tn("findingAccentColor")}: ${reference.accentColor}`,
+      colorFinding,
       reference.headingFont &&
         `${tn("findingHeadingFont")}: ${reference.headingFont}`,
       reference.bodyFont && `${tn("findingBodyFont")}: ${reference.bodyFont}`,
@@ -100,6 +127,20 @@ export function SlidesTryNow() {
       if (cursor >= text.length && streamTimerRef.current) {
         clearInterval(streamTimerRef.current);
         streamTimerRef.current = null;
+        if (colors.length) {
+          target.textContent = `${tn("styleGuidePrefix")} ${header}\n${tn("findingColors")}: `;
+          colors.forEach((color, index) => {
+            if (index) target.append(", ");
+            appendColorSwatch(target, color.code);
+            target.append(
+              color.name ? `${color.name} (${color.code})` : color.code,
+            );
+          });
+          const typographyFindings = findings.slice(1);
+          if (typographyFindings.length) {
+            target.append(`\n${typographyFindings.join("\n")}`);
+          }
+        }
       }
     }, 10);
   }
