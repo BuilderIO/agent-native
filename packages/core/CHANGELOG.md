@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.141.3
+
+### Patch Changes
+
+- c20e838: Keep durable background workers from retrying serialized startup migrations and maintenance sweeps while processing an agent task.
+- c20e838: Strip source-map references from published core build artifacts when the maps are excluded from the package.
+
 ## 0.141.2
 
 ### Patch Changes
