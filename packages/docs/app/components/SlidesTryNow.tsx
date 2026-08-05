@@ -1,272 +1,250 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useRef, useState } from "react";
+import { callAction } from "@agent-native/core/client/hooks";
+import {
+  IconArrowRight,
+  IconExternalLink,
+  IconLoader2,
+  IconPalette,
+} from "@tabler/icons-react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
-type DeckKind = "pitch" | "sales" | "talk" | "other";
-
-const DECK_OPTIONS: { id: DeckKind; labelKey: string; deckKey?: string }[] = [
-  { id: "pitch", labelKey: "q1Pitch", deckKey: "deckPitch" },
-  { id: "sales", labelKey: "q1Sales", deckKey: "deckSales" },
-  { id: "talk", labelKey: "q1Talk", deckKey: "deckTalk" },
-  { id: "other", labelKey: "q1Other" },
-];
-
-const SUBJECT_QUESTION_KEY: Record<DeckKind, string> = {
-  pitch: "q2Pitch",
-  sales: "q2Sales",
-  talk: "q2Talk",
-  other: "q2Other",
+type DesignReference = {
+  title: string;
+  description: string;
+  primaryColor: string | null;
+  accentColor: string | null;
+  headingFont: string | null;
+  bodyFont: string | null;
 };
 
-const VIBE_KEYS = [
-  "q3VibeMinimal",
-  "q3VibeBold",
-  "q3VibeWarm",
-  "q3VibeTechnical",
-];
+const SUBJECT_PLACEHOLDER = "{type your subject here}";
 
-function chipClass(selected: boolean) {
-  return [
-    "rounded-full border px-4 py-2 text-sm transition",
-    selected
-      ? "border-[var(--docs-accent)] bg-[var(--docs-accent)] text-white"
-      : "border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] hover:border-[var(--fg-secondary)]",
-  ].join(" ");
+function normalizedPublicUrl(value: string) {
+  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  const url = new URL(withProtocol);
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Enter a public website URL.");
+  }
+  if (url.username || url.password) {
+    throw new Error("URLs with embedded credentials are not supported.");
+  }
+  return url.href;
 }
 
-const inputClass =
-  "w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-4 py-2.5 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--fg-secondary)] focus:border-[var(--docs-accent)]";
+function replaceSubjectPlaceholder(editor: HTMLDivElement, subject: string) {
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!node.textContent?.includes(SUBJECT_PLACEHOLDER)) continue;
+    node.textContent = node.textContent.replace(SUBJECT_PLACEHOLDER, subject);
+    return;
+  }
+}
+
+function appendStyleGuideTarget(editor: HTMLDivElement) {
+  editor.append(document.createElement("br"), document.createElement("br"));
+  const target = document.createElement("span");
+  target.dataset.styleGuide = "true";
+  editor.append(target);
+  return target;
+}
 
 export function SlidesTryNow() {
   const t = useT();
-  const tn = (key: string, options?: Record<string, unknown>) =>
-    t(`templateLanding.slides.tryNow.${key}`, options);
+  const tn = (key: string) => t(`templateLanding.slides.tryNow.${key}`);
+  const [url, setUrl] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const editorRef = useRef<HTMLDivElement>(null);
+  const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [deckKind, setDeckKind] = useState<DeckKind | null>(null);
-  const [deckOther, setDeckOther] = useState("");
-  const [subject, setSubject] = useState("");
-  const [subjectAnswer, setSubjectAnswer] = useState("");
-  const [styleInput, setStyleInput] = useState("");
-  const [styleAnswer, setStyleAnswer] = useState("");
-  const [styleVibe, setStyleVibe] = useState("");
-  const [showVibes, setShowVibes] = useState(false);
+  useEffect(
+    () => () => {
+      if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+    },
+    [],
+  );
 
-  const deckLabel =
-    deckKind === "other"
-      ? deckOther.trim()
-      : deckKind
-        ? tn(DECK_OPTIONS.find((o) => o.id === deckKind)!.deckKey!)
-        : "";
-  const styleValue = styleVibe || styleAnswer;
-  const ready = Boolean(deckLabel && subjectAnswer && styleValue);
+  function streamStyleGuide(reference: DesignReference) {
+    const editor = editorRef.current;
+    if (!editor) return;
 
-  const segments: string[] = [];
-  if (deckLabel) segments.push(tn("promptDeck", { deck: deckLabel }));
-  if (subjectAnswer)
-    segments.push(tn("promptSubject", { subject: subjectAnswer }));
-  if (styleValue) {
-    segments.push(
-      styleVibe
-        ? tn("promptStyleVibe", { style: styleVibe })
-        : tn("promptStyleSite", { style: styleValue }),
-    );
+    const subject = [reference.title, reference.description]
+      .filter(Boolean)
+      .join(", ");
+    if (subject) replaceSubjectPlaceholder(editor, subject);
+
+    const findings = [
+      reference.title && `${tn("findingTitle")}: ${reference.title}`,
+      reference.description &&
+        `${tn("findingDescription")}: ${reference.description}`,
+      reference.primaryColor &&
+        `${tn("findingPrimaryColor")}: ${reference.primaryColor}`,
+      reference.accentColor &&
+        `${tn("findingAccentColor")}: ${reference.accentColor}`,
+      reference.headingFont &&
+        `${tn("findingHeadingFont")}: ${reference.headingFont}`,
+      reference.bodyFont && `${tn("findingBodyFont")}: ${reference.bodyFont}`,
+    ].filter(Boolean);
+    const text = `${tn("styleGuidePrefix")} ${findings.join("; ")}.`;
+    const target = appendStyleGuideTarget(editor);
+    let cursor = 0;
+    if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+    streamTimerRef.current = setInterval(() => {
+      cursor = Math.min(text.length, cursor + 4);
+      target.textContent = text.slice(0, cursor);
+      if (cursor >= text.length && streamTimerRef.current) {
+        clearInterval(streamTimerRef.current);
+        streamTimerRef.current = null;
+      }
+    }, 10);
   }
-  if (ready) segments.push(tn("promptClose"));
-  const target = segments.join("\n\n");
 
-  const [text, setText] = useState("");
-  const textRef = useRef("");
-  textRef.current = text;
+  async function handleReferenceSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
 
-  useEffect(() => {
-    if (!target) return;
-    const from = target.startsWith(textRef.current)
-      ? textRef.current.length
-      : 0;
-    if (from === target.length) return;
-    let cursor = from;
-    if (from === 0) setText("");
-    const id = setInterval(() => {
-      cursor = Math.min(target.length, cursor + 3);
-      setText(target.slice(0, cursor));
-      if (cursor >= target.length) clearInterval(id);
-    }, 12);
-    return () => clearInterval(id);
-  }, [target]);
+    let safeUrl: string;
+    try {
+      safeUrl = normalizedPublicUrl(url.trim());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : tn("crawlError"));
+      return;
+    }
 
-  const answeredCount = [deckLabel, subjectAnswer, styleValue].filter(
-    Boolean,
-  ).length;
+    setUrl(safeUrl);
+    setIsLoading(true);
+    try {
+      const reference = (await callAction(
+        "crawl-design-reference",
+        { url: safeUrl },
+        { method: "GET" },
+      )) as DesignReference;
+      streamStyleGuide(reference);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : tn("crawlError"));
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   return (
-    <div className="mx-auto grid max-w-5xl gap-6 text-left lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-      <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
-        <div className="mb-4 text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]">
-          {tn("step", { current: Math.min(answeredCount + 1, 3), total: 3 })}
+    <div className="mx-auto grid max-w-6xl gap-6 text-start lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
+      <aside className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <IconPalette size={18} stroke={1.8} />
+          <h3 className="m-0 text-sm font-semibold">{tn("designReference")}</h3>
         </div>
-
-        <div className="space-y-6">
-          <div>
-            <h3 className="mb-3 text-sm font-semibold">{tn("q1")}</h3>
-            <div className="flex flex-wrap gap-2">
-              {DECK_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setDeckKind(option.id)}
-                  className={chipClass(deckKind === option.id)}
-                >
-                  {tn(option.labelKey)}
-                </button>
-              ))}
-            </div>
-            {deckKind === "other" && (
-              <input
-                autoFocus
-                value={deckOther}
-                onChange={(e) => setDeckOther(e.target.value)}
-                placeholder={tn("q1OtherPlaceholder")}
-                className={`mt-3 ${inputClass}`}
-              />
-            )}
-          </div>
-
-          {deckKind && (
-            <div>
-              <h3 className="mb-1 text-sm font-semibold">
-                {tn(SUBJECT_QUESTION_KEY[deckKind])}
-              </h3>
-              <p className="mb-3 mt-0 text-sm text-[var(--fg-secondary)]">
-                {tn("q2Detail")}
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") setSubjectAnswer(subject.trim());
-                  }}
-                  placeholder={tn("q2Placeholder")}
-                  className={inputClass}
-                />
-                <button
-                  type="button"
-                  disabled={!subject.trim()}
-                  onClick={() => setSubjectAnswer(subject.trim())}
-                  className="shrink-0 rounded-lg border border-[var(--docs-border)] px-4 py-2.5 text-sm font-medium transition hover:border-[var(--fg-secondary)] disabled:opacity-40"
-                >
-                  {tn("answerAction")}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {subjectAnswer && (
-            <div>
-              <h3 className="mb-1 text-sm font-semibold">{tn("q3")}</h3>
-              <p className="mb-3 mt-0 text-sm text-[var(--fg-secondary)]">
-                {tn("q3Detail")}
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  value={styleInput}
-                  onChange={(e) => setStyleInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
-                    setStyleAnswer(styleInput.trim());
-                    setStyleVibe("");
-                  }}
-                  placeholder={tn("q3Placeholder")}
-                  className={inputClass}
-                />
-                <button
-                  type="button"
-                  disabled={!styleInput.trim()}
-                  onClick={() => {
-                    setStyleAnswer(styleInput.trim());
-                    setStyleVibe("");
-                  }}
-                  className="shrink-0 rounded-lg border border-[var(--docs-border)] px-4 py-2.5 text-sm font-medium transition hover:border-[var(--fg-secondary)] disabled:opacity-40"
-                >
-                  {tn("answerAction")}
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowVibes((v) => !v)}
-                className="mt-3 text-sm text-[var(--docs-accent)] underline-offset-2 hover:underline"
-              >
-                {tn("q3VibeToggle")}
-              </button>
-              {showVibes && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {VIBE_KEYS.map((key) => {
-                    const label = tn(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => {
-                          setStyleVibe(label);
-                          setStyleAnswer("");
-                          setStyleInput("");
-                        }}
-                        className={chipClass(styleVibe === label)}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+        <form onSubmit={handleReferenceSubmit}>
+          <label
+            htmlFor="slides-design-reference-url"
+            className="mb-2 block text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]"
+          >
+            {tn("websiteUrl")}
+          </label>
+          <div className="relative">
+            <input
+              id="slides-design-reference-url"
+              type="url"
+              inputMode="url"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder={tn("websiteUrlPlaceholder")}
+              disabled={isLoading}
+              className="w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] py-2.5 ps-3 pe-10 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--fg-secondary)] focus:border-[var(--docs-accent)] disabled:opacity-70"
+            />
+            <button
+              type="submit"
+              disabled={!url.trim() || isLoading}
+              aria-label={tn("crawlWebsite")}
+              className="absolute end-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-[var(--fg-secondary)] transition hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)] disabled:opacity-40"
+            >
+              {isLoading ? (
+                <IconLoader2 className="animate-spin" size={16} />
+              ) : (
+                <IconArrowRight size={16} />
               )}
-            </div>
+            </button>
+          </div>
+          {error && (
+            <p className="mb-0 mt-2 text-xs text-red-600 dark:text-red-400">
+              {error}
+            </p>
           )}
-        </div>
-      </div>
+        </form>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
+        <div className="my-5 flex items-center gap-3 text-[10px] font-medium uppercase tracking-widest text-[var(--fg-secondary)]">
+          <span className="h-px flex-1 bg-[var(--docs-border)]" />
+          {tn("or")}
+          <span className="h-px flex-1 bg-[var(--docs-border)]" />
+        </div>
+
+        <button
+          type="button"
+          disabled
+          className="w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2.5 text-sm font-medium text-[var(--fg-secondary)] opacity-50"
+        >
+          {tn("importDesignSystem")}
+        </button>
+        <a
+          href="https://slides.agent-native.com/_agent-native/sign-in"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1 text-xs text-[var(--fg-secondary)] underline-offset-2 hover:text-[var(--fg)] hover:underline"
+        >
+          {tn("loginDesignSystems")}
+          <IconExternalLink size={13} />
+        </a>
+      </aside>
+
+      <div className="flex min-h-[22rem] flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-6">
         <label
           htmlFor="slides-try-now-prompt"
           className="text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]"
         >
           {tn("composerLabel")}
         </label>
-        <textarea
+        <div
+          ref={editorRef}
           id="slides-try-now-prompt"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={tn("composerPlaceholder")}
-          rows={9}
-          className="w-full flex-1 resize-none rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-6 text-[var(--fg)] outline-none transition placeholder:text-[var(--fg-secondary)] focus:border-[var(--docs-accent)]"
-        />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-sm text-[var(--fg-secondary)]">
-            {ready ? tn("readyHint") : ""}
-          </span>
-          <span className="relative inline-flex">
-            {ready && (
-              <span className="pointer-events-none absolute -inset-1 animate-pulse rounded-xl ring-2 ring-[var(--docs-accent)]" />
-            )}
-            <button
-              type="button"
-              disabled={!text.trim()}
-              className="relative inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-40 dark:bg-white dark:text-black dark:hover:bg-gray-200"
-            >
-              {tn("submit")}
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </button>
-          </span>
+          role="textbox"
+          aria-multiline="true"
+          contentEditable
+          suppressContentEditableWarning
+          className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition focus:border-[var(--docs-accent)]"
+        >
+          {tn("promptCreatePrefix")} {" "}
+          <select
+            defaultValue="capital-raise"
+            aria-label={tn("deckTypeLabel")}
+            className="rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1 text-sm font-medium text-[var(--fg)]"
+            contentEditable={false}
+          >
+            <option value="capital-raise">{tn("deckCapitalRaise")}</option>
+            <option value="b2b-sales">{tn("deckB2bSales")}</option>
+            <option value="live-talk">{tn("deckLiveTalk")}</option>
+          </select>{" "}
+          {tn("promptDeckFor")} {SUBJECT_PLACEHOLDER}. {tn("promptTextShouldBe")} {" "}
+          <select
+            defaultValue="brief"
+            aria-label={tn("textAmountLabel")}
+            className="rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1 text-sm font-medium text-[var(--fg)]"
+            contentEditable={false}
+          >
+            <option value="minimal">{tn("textMinimal")}</option>
+            <option value="brief">{tn("textBrief")}</option>
+            <option value="thorough">{tn("textThorough")}</option>
+          </select>
+          .
+        </div>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+          >
+            {tn("submit")}
+            <IconArrowRight size={16} />
+          </button>
         </div>
       </div>
     </div>
