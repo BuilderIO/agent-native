@@ -1,5 +1,26 @@
 # @agent-native/skills
 
+## 0.2.483
+
+### Patch Changes
+
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+  - @agent-native/core@0.141.0
+
 ## 0.2.482
 
 ### Patch Changes
