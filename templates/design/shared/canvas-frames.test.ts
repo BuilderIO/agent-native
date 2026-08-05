@@ -3,8 +3,70 @@ import { describe, expect, it } from "vitest";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
+  numericDesignDataWriteError,
   parseCanvasFrameGeometryById,
 } from "./canvas-frames";
+
+describe("numericDesignDataWriteError", () => {
+  it("rejects string dimensions", () => {
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], {
+        x: 0,
+        width: "800",
+      }),
+    ).toContain('must be a finite JSON number, received the string "800"');
+    expect(
+      numericDesignDataWriteError(
+        ["canvasFrames", "screen_a", "height"],
+        "600px",
+      ),
+    ).toContain("must be a finite JSON number");
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "width"],
+        "800",
+      ),
+    ).toContain("must be a finite JSON number");
+    expect(
+      numericDesignDataWriteError(["canvasFrames"], {
+        screen_a: { width: 800 },
+        screen_b: { width: "800" },
+      }),
+    ).toContain("must be a finite JSON number");
+  });
+
+  it("rejects null and non-finite dimensions", () => {
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a", "width"], null),
+    ).toContain("received null");
+    expect(
+      numericDesignDataWriteError(
+        ["canvasFrames", "screen_a", "width"],
+        Number.NaN,
+      ),
+    ).toContain("non-finite number");
+  });
+
+  it("accepts numeric geometry and ignores unrelated paths", () => {
+    expect(
+      numericDesignDataWriteError(["canvasFrames", "screen_a"], {
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 250,
+      }),
+    ).toBeNull();
+    expect(
+      numericDesignDataWriteError(
+        ["screenMetadata", "screen_a", "title"],
+        "Home",
+      ),
+    ).toBeNull();
+    expect(
+      numericDesignDataWriteError(["tweakSelections"], { accent: "blue" }),
+    ).toBeNull();
+  });
+});
 
 describe("canvas frame geometry helpers", () => {
   it("parses only finite frame geometry values", () => {
