@@ -408,6 +408,7 @@ const messages = {
     workspace: "Resources",
     newChat: "New chat",
     newTerminal: "New terminal",
+    loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
     collapseSidebar: "Collapse sidebar",
     expandSidebar: "Expand sidebar",
