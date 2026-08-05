@@ -31,6 +31,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import { REACTION_EMOJIS } from "./reaction-emojis";
 import { msToClock } from "./scrubber";
 
 function makeTempId() {
@@ -59,8 +60,6 @@ const defaultLens: CommentsLens = {
   applyComments: (data, next) =>
     data ? { ...(data as object), comments: next } : data,
 };
-
-const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂", "👀"];
 
 export interface Comment {
   id: string;
@@ -928,7 +927,7 @@ function CommentCard({
                 </PopoverTrigger>
                 <PopoverContent side="top" align="start" className="p-1 w-auto">
                   <div className="flex gap-0.5">
-                    {COMMENT_EMOJIS.map((e) => (
+                    {REACTION_EMOJIS.map((e) => (
                       <button
                         key={e}
                         onClick={() => {
