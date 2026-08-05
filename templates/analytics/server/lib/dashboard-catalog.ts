@@ -2,6 +2,7 @@ import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/typ
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
   listDashboardSummaries,
+  type DashboardRecord,
   type DashboardSummaryRecord,
 } from "./dashboards-store";
 import {
