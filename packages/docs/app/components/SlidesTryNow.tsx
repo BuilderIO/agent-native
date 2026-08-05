@@ -85,7 +85,7 @@ export function SlidesTryNow() {
         `${tn("findingHeadingFont")}: ${reference.headingFont}`,
       reference.bodyFont && `${tn("findingBodyFont")}: ${reference.bodyFont}`,
     ].filter(Boolean);
-    const header = [sourceUrl, reference.description]
+    const header = [sourceUrl, reference.title, reference.description]
       .filter(Boolean)
       .join(", ");
     const text = `${tn("styleGuidePrefix")} ${header}${

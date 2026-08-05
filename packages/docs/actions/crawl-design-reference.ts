@@ -202,7 +202,10 @@ export default defineAction({
         "description",
         "og:description",
         "twitter:description",
-      ]),
+      ]) ||
+        html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ||
+        html.match(/<p\b[^>]*>([\s\S]*?)<\/p>/i)?.[1] ||
+        "",
       14,
     );
     const themeColor = getMetaContent(html, ["theme-color"]);

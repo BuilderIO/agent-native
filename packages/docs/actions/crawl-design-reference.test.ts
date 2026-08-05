@@ -53,6 +53,33 @@ describe("crawl-design-reference", () => {
     );
   });
 
+  it("uses visible page copy when description metadata is missing", async () => {
+    ssrfSafeFetch.mockResolvedValueOnce(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>Salt and Wisdom</title></head>
+          <body>
+            <h1>Strategy and creative direction for ambitious brands building meaningful businesses in a changing world</h1>
+          </body>
+        </html>`,
+        {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const output = await crawlDesignReference.run({
+      url: "https://saltandwisdom.com",
+    });
+
+    expect(output.title).toBe("Salt and Wisdom");
+    expect(output.description).toBe(
+      "Strategy and creative direction for ambitious brands building meaningful businesses in a changing world",
+    );
+    expect(output.description.split(" ")).toHaveLength(14);
+  });
+
   it("rejects credential-bearing URLs before fetching", async () => {
     await expect(
       crawlDesignReference.run({ url: "https://user:secret@example.com" }),
