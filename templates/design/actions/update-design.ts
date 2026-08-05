@@ -50,6 +50,81 @@ const dataOperationSchema = z
     }
   });
 
+const agentDataOperationSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("set"),
+    path: dataPathSchema,
+    value: z
+      .union([
+        z.number(),
+        z.boolean(),
+        z.string(),
+        z.null(),
+        z.array(z.unknown()),
+        z.record(z.string(), z.unknown()),
+      ])
+      .describe(
+        "Value to set. Geometry and dimensions (x, y, width, height, rotation, z) " +
+          'are JSON numbers: 800, never "800" or "800px".',
+      ),
+  }),
+  z.object({
+    op: z.literal("delete"),
+    path: dataPathSchema,
+  }),
+]);
+
+const DATA_OPERATIONS_DESCRIPTION =
+  "Atomic path-addressed set/delete operations for design data. " +
+  "Safe to CAS-retry across concurrent writers. " +
+  "Geometry values must be numbers, not strings.";
+
+const inputSchema = z.object({
+  id: z.string().describe("Design ID"),
+  title: z.string().optional().describe("New title"),
+  description: z.string().optional().describe("New description"),
+  data: z
+    .string()
+    .optional()
+    .describe(
+      "Legacy partial JSON object snapshot. Concurrent conflicting snapshots are rejected; use dataOperations for map entries.",
+    ),
+  dataOperations: z
+    .array(dataOperationSchema)
+    .min(1)
+    .max(500)
+    .optional()
+    .describe(DATA_OPERATIONS_DESCRIPTION),
+  operationSource: z
+    .string()
+    .trim()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      "Stable client-session id used with operationRevision to reject late out-of-order writes.",
+    ),
+  operationRevision: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER)
+    .optional()
+    .describe(
+      "Monotonic sequence for operationSource. Stale or duplicate revisions are successful no-ops.",
+    ),
+  projectType: z
+    .enum(["prototype", "other"])
+    .optional()
+    .describe("Updated project type"),
+  designSystemId: z
+    .string()
+    .min(1)
+    .nullable()
+    .optional()
+    .describe("Design system ID to link, or null to unlink"),
+});
+
 type DataOperation = z.infer<typeof dataOperationSchema>;
 
 type DataOperationRevisions = Record<string, number>;
@@ -210,54 +285,7 @@ export default defineAction({
     "with explicit set/delete paths instead of a full data snapshot. " +
     "Dimensions and positions (x, y, width, height, rotation, z) are " +
     "numbers. String values are rejected.",
-  schema: z
-    .object({
-      id: z.string().describe("Design ID"),
-      title: z.string().optional().describe("New title"),
-      description: z.string().optional().describe("New description"),
-      data: z
-        .string()
-        .optional()
-        .describe(
-          "Legacy partial JSON object snapshot. Concurrent conflicting snapshots are rejected; use dataOperations for map entries.",
-        ),
-      dataOperations: z
-        .array(dataOperationSchema)
-        .min(1)
-        .max(500)
-        .optional()
-        .describe(
-          "Atomic path-addressed set/delete operations for design data. Safe to CAS-retry across concurrent writers. Geometry values must be numbers, not strings.",
-        ),
-      operationSource: z
-        .string()
-        .trim()
-        .min(1)
-        .max(128)
-        .optional()
-        .describe(
-          "Stable client-session id used with operationRevision to reject late out-of-order writes.",
-        ),
-      operationRevision: z
-        .number()
-        .int()
-        .nonnegative()
-        .max(Number.MAX_SAFE_INTEGER)
-        .optional()
-        .describe(
-          "Monotonic sequence for operationSource. Stale or duplicate revisions are successful no-ops.",
-        ),
-      projectType: z
-        .enum(["prototype", "other"])
-        .optional()
-        .describe("Updated project type"),
-      designSystemId: z
-        .string()
-        .min(1)
-        .nullable()
-        .optional()
-        .describe("Design system ID to link, or null to unlink"),
-    })
+  schema: inputSchema
     .refine(
       ({ data, dataOperations }) =>
         data === undefined || dataOperations === undefined,
@@ -285,6 +313,19 @@ export default defineAction({
             "operationSource and operationRevision require dataOperations.",
         });
       }
+    }),
+  // operationSource/operationRevision order writes from one browser tab; the
+  // agent has no session to order against, so advertising them only invites a
+  // call that trips the paired-field check.
+  agentInputSchema: inputSchema
+    .omit({ operationSource: true, operationRevision: true })
+    .extend({
+      dataOperations: z
+        .array(agentDataOperationSchema)
+        .min(1)
+        .max(500)
+        .optional()
+        .describe(DATA_OPERATIONS_DESCRIPTION),
     }),
   run: async ({
     id,
