@@ -1,6 +1,5 @@
 import { parseUploadResponse, type ImportResult } from "@/lib/design-import";
-
-export const MAX_FIG_UPLOAD_BYTES = 50 * 1024 * 1024;
+import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
 
 export type FigUploadValidationError = "invalid-extension" | "too-large";
 
@@ -8,7 +7,7 @@ export function validateFigUploadFile(
   file: Pick<File, "name" | "size">,
 ): FigUploadValidationError | null {
   if (!file.name.toLowerCase().endsWith(".fig")) return "invalid-extension";
-  if (file.size > MAX_FIG_UPLOAD_BYTES) return "too-large";
+  if (file.size > MAX_UPLOAD_BYTES) return "too-large";
   return null;
 }
 

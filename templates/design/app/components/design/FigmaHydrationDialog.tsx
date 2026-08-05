@@ -70,8 +70,15 @@ export function FigmaHydrationDialog({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (validateFigUploadFile(file)) {
-      setError(t("designEditor.import.figmaHydrationInvalidFig"));
+    const validationError = validateFigUploadFile(file);
+    if (validationError) {
+      setError(
+        t(
+          validationError === "too-large"
+            ? "designEditor.import.errors.figFileTooLarge"
+            : "designEditor.import.figmaHydrationInvalidFig",
+        ),
+      );
       return;
     }
     setBusy(true);
