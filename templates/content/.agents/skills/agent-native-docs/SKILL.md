@@ -32,6 +32,26 @@ the framework monorepo checkout.
 From a generated app directory:
 
 ```bash
+pnpm action framework-search --pattern "defineAction"
+pnpm action framework-search --pattern "templates/*/actions/*.ts" --mode glob --scope source
+pnpm action framework-search --pattern "Agent(?:Panel|Sidebar)" --mode regex --scope source
+```
+
+Use `framework-search` first when a question may cross the docs and source
+boundary. It searches the version-matched framework docs, runtime-visible
+skills, readable Core or Toolkit package source, and first-party template
+corpus in one bounded read-only call. Use `scope: docs` or `scope: source` to
+narrow it, then use the existing focused readers for the page or file you need.
+
+The same tool is available in the headless `pnpm agent` loop and every built-in
+app agent. Its default substring mode is safest for ordinary questions; use
+`glob` for wildcard paths, `sql-like` for `%` and `_` wildcards, and `regex`
+for precise structural matches. Results are bounded, so refine the pattern or
+path instead of treating a truncated result as exhaustive.
+
+From a generated app directory, the lower-level readers remain available:
+
+```bash
 pnpm action docs-search --query "<feature>"
 pnpm action docs-search --slug <slug>
 pnpm action docs-search --list
@@ -41,9 +61,9 @@ pnpm action source-search --path templates/chat/actions/hello.ts
 pnpm action source-search --list
 ```
 
-The headless `pnpm agent` loop and built-in app agent also expose a read-only
-`docs-search` tool with the same `query`, `slug`, and `list` options, plus a
-read-only `source-search` tool with `query`, `path`, and `list`.
+The headless `pnpm agent` loop and built-in app agent also expose read-only
+`framework-search`, `docs-search`, and `source-search` tools. Use the unified
+tool for discovery, then the focused tools for full page or file reads.
 
 If the action runner is unavailable, search the package directly:
 

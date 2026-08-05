@@ -5,7 +5,10 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { assertContentDatabaseLifecycleAccess } from "./_content-database-lifecycle.js";
-import { trashDocumentSubtree } from "./delete-document.js";
+import {
+  lockDatabasesForTrash,
+  trashDocumentSubtree,
+} from "./delete-document.js";
 
 export default defineAction({
   description:
@@ -21,12 +24,21 @@ export default defineAction({
     await assertAccess("document", database.documentId, "admin");
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
-    await trashDocumentSubtree(
-      db,
-      database.documentId,
-      database.ownerEmail,
-      deletedAt,
-    );
+    await db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+      const lockedDatabaseIds = await lockDatabasesForTrash(
+        transactionDb,
+        database.documentId,
+        database.ownerEmail,
+      );
+      return trashDocumentSubtree(
+        transactionDb,
+        database.documentId,
+        database.ownerEmail,
+        deletedAt,
+        lockedDatabaseIds,
+      );
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

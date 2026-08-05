@@ -134,6 +134,19 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain("Builder.io free credits");
+    const localProviderNote = document.body.querySelector(
+      '[data-testid="first-run-local-provider-note"]',
+    );
+    expect(localProviderNote).toBeTruthy();
+    expect(localProviderNote?.className).toContain("text-center");
+    expect(localProviderNote?.textContent).toContain(
+      "make that provider available to everyone using this app",
+    );
+    expect(
+      document.body.querySelector(
+        'a[href="https://agent-native.com/docs/environment-variables"]',
+      ),
+    ).toBeTruthy();
 
     act(() => {
       [...document.body.querySelectorAll("[role='button']")]
@@ -194,5 +207,39 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector("[data-onboarding-screen='tools']"),
     ).toBeTruthy();
+  });
+
+  it("skips the generic integrations catalog when configured for a workflow app", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding skipIntegrations />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-screen='ready']"),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("This app is an agent.");
+    expect(document.body.textContent).not.toContain("Agent integrations");
   });
 });

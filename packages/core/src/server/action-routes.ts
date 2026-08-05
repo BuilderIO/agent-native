@@ -587,6 +587,7 @@ export function mountActionRoutes(
                 userEmail,
                 orgId: orgId ?? null,
                 caller,
+                requestHeaders: event.headers,
                 actionName: name,
                 ...(resolvedCaller?.delegationJti
                   ? {

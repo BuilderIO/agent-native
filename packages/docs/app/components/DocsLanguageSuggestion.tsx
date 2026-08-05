@@ -155,7 +155,7 @@ export default function DocsLanguageSuggestion() {
         <div className="flex flex-col gap-2 sm:flex-row">
           <Link
             to={href}
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             onClick={acceptSuggestion}
             className="inline-flex min-h-8 flex-1 items-center justify-center rounded-md bg-[var(--fg)] px-3 py-1.5 text-center text-xs font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
           >

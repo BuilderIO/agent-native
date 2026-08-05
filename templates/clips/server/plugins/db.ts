@@ -931,6 +931,21 @@ const migrations = runMigrations(
       // guard:allow-unscoped — startup migration normalizes a legacy placeholder across all rows.
       sql: `UPDATE recording_agent_views SET agent_label = NULL WHERE agent_label = 'Agent'`,
     },
+    {
+      version: 58,
+      name: "recording-playback-positions",
+      sql: `CREATE TABLE IF NOT EXISTS recording_playback_positions (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL,
+      viewer_key TEXT NOT NULL,
+      viewer_email TEXT,
+      position_ms INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS recording_playback_positions_recording_viewer_key_unique_idx
+      ON recording_playback_positions (recording_id, viewer_key)`,
+    },
   ],
   { table: "clips_migrations" },
 );

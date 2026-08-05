@@ -902,6 +902,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(
       container.querySelectorAll("[data-testid='assistant-chat']"),
     ).toHaveLength(1);
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      "/_agent-native/agent-chat",
+      "scope-reset-test",
+      { type: "design", id: "design-1", label: "QA Smoke" },
+      expect.objectContaining({ restoreActiveThread: true }),
+    );
   });
 
   it("renders resource context as a normal composer context item", async () => {

@@ -10,6 +10,7 @@ import {
   serializePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   propertyDefinitionsPositionScope,
@@ -65,19 +66,14 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const newPropertyId = nanoid();
-    const isBlocks = isBlocksPropertyType(
-      definition.type as DocumentPropertyType,
-    );
-    // A duplicated Blocks field is a brand-new, independent, EMPTY field — never
-    // primary (only one field backs the body) and with no copied content.
-    const optionsJson = isBlocks
-      ? serializePropertyOptions({ blocks: { primary: false } })
-      : definition.optionsJson;
-
     await withPositionLock(
       propertyDefinitionsPositionScope(database.id),
       async () => {
         await db.transaction(async (tx) => {
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
+          );
           const memberships = await tx
             .select({ id: schema.contentDatabaseItems.id })
             .from(schema.contentDatabaseItems)
@@ -86,6 +82,33 @@ export default defineAction({
             tx,
             memberships.map((membership) => membership.id),
           );
+          const [lockedDefinition] = await tx
+            .select()
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              and(
+                eq(schema.documentPropertyDefinitions.id, propertyId),
+                eq(
+                  schema.documentPropertyDefinitions.ownerEmail,
+                  document.ownerEmail,
+                ),
+                eq(schema.documentPropertyDefinitions.databaseId, database.id),
+              ),
+            );
+          if (!lockedDefinition) {
+            throw new Error(`Property "${propertyId}" not found`);
+          }
+          if (lockedDefinition.systemRole) {
+            throw new Error("System properties cannot be duplicated.");
+          }
+          const isBlocks = isBlocksPropertyType(
+            lockedDefinition.type as DocumentPropertyType,
+          );
+          // A duplicated Blocks field is a brand-new, independent, EMPTY field — never
+          // primary (only one field backs the body) and with no copied content.
+          const optionsJson = isBlocks
+            ? serializePropertyOptions({ blocks: { primary: false } })
+            : lockedDefinition.optionsJson;
 
           const [maxPos] = await tx
             .select({
@@ -104,12 +127,12 @@ export default defineAction({
 
           await tx.insert(schema.documentPropertyDefinitions).values({
             id: newPropertyId,
-            ownerEmail: definition.ownerEmail,
-            orgId: definition.orgId,
+            ownerEmail: lockedDefinition.ownerEmail,
+            orgId: lockedDefinition.orgId,
             databaseId: database.id,
-            name: `${definition.name} copy`,
-            type: definition.type,
-            visibility: definition.visibility,
+            name: `${lockedDefinition.name} copy`,
+            type: lockedDefinition.type,
+            visibility: lockedDefinition.visibility,
             optionsJson,
             position: (maxPos?.max ?? -1) + 1,
             createdAt: now,

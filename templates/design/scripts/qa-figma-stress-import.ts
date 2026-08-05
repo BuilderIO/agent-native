@@ -48,7 +48,7 @@ const evidence = await runWithRequestContext({ userEmail, orgId }, async () => {
   const localQaStorageEnabled = isLocalFigmaQaUploadEnabled();
   if (!builderCredential && !localQaStorageEnabled) {
     throw new Error(
-      "This QA account has no request-scoped durable upload provider. Connect Builder in Design and retry.",
+      "This QA account has no request-scoped durable upload provider. Connect Builder (free tier available) in Design and retry.",
     );
   }
   // The explicit QA flag must deterministically exercise this provider even

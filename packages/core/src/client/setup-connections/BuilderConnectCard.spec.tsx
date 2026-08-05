@@ -58,7 +58,7 @@ describe("BuilderConnectCard", () => {
     viewModel = {
       title: "Builder connect",
       description:
-        "Connect Builder for managed model access, browser automation, and workspace identity.",
+        "Connect Builder for managed model access, browser automation, and workspace identity. Free tier available.",
       status: { kind: "ready", label: "Ready to connect" },
       configured: false,
       pending: false,

@@ -28,6 +28,9 @@ the agent can use.
   boundary, and stack original/generated review vertically by default.
 - Every AI-labeled button must call `sendToAgentChat()` with
   `openSidebar: true`; label deterministic local actions as local or preview.
+- Before visual work, read `frontend-design` and `DESIGN.md`. Choose a named
+  product direction and palette family, preserve existing brand tokens, and do
+  not clone a neighboring app's accent by default.
 - Application state belongs in SQL `application_state` so the agent can know the
   current route, selection, and focused object.
 - Keep UIs in sync through `useDbSync()` and `/_agent-native/poll`.

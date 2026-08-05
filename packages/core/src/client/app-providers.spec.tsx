@@ -74,9 +74,18 @@ function renderProviders(props: {
   });
 }
 
+// `RequireSession` branches on `useSession().status`, not just `isLoading` —
+// every mock here must supply a status or the gate can neither redirect nor
+// hold the fallback consistently with the real hook.
+const SIGNED_OUT_SESSION = {
+  session: null,
+  isLoading: false,
+  status: "unauthenticated" as const,
+};
+
 describe("AppProviders session gate", () => {
   it("uses Toolkit's theme-aware toaster by default", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     act(() => {
       root.render(
@@ -92,7 +101,7 @@ describe("AppProviders session gate", () => {
   });
 
   it("renders public paths directly without resolving or redirecting a session", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ isPublicPath: true });
 
@@ -104,7 +113,7 @@ describe("AppProviders session gate", () => {
   });
 
   it("gates private paths and redirects signed-out visitors after hydration", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({});
 
@@ -116,7 +125,7 @@ describe("AppProviders session gate", () => {
   });
 
   it("allows token-authenticated private surfaces to bypass the session gate", () => {
-    useSessionMock.mockReturnValue({ session: null, isLoading: false });
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
 
     renderProviders({ sessionBypass: true });
 

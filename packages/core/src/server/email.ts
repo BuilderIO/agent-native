@@ -16,6 +16,14 @@ import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 
 export type EmailProvider = "resend" | "sendgrid" | "dev";
 
+export type EmailReadiness =
+  | { status: "ready"; provider: Exclude<EmailProvider, "dev"> }
+  | { status: "not-configured"; provider: "dev" }
+  | {
+      status: "misconfigured" | "unavailable";
+      provider: EmailProvider | "unknown";
+    };
+
 export interface EmailAttachment {
   filename: string;
   content: string | Buffer;
@@ -115,7 +123,28 @@ async function resolveEmailTransport(): Promise<EmailTransportConfig> {
 }
 
 export async function isEmailConfigured(): Promise<boolean> {
-  return (await resolveEmailTransport()).provider !== "dev";
+  return (await getEmailReadiness()).status === "ready";
+}
+
+/**
+ * Auth must only offer magic links when sending can succeed. In particular,
+ * SendGrid needs EMAIL_FROM while Resend can use its sandbox sender. Keep
+ * unreadable credential stores distinct from an unconfigured deployment so
+ * callers can fail closed without claiming setup is absent.
+ */
+export async function getEmailReadiness(): Promise<EmailReadiness> {
+  try {
+    const config = await resolveEmailTransport();
+    if (config.provider === "dev") {
+      return { status: "not-configured", provider: "dev" };
+    }
+    if (config.provider === "sendgrid" && !config.from) {
+      return { status: "misconfigured", provider: "sendgrid" };
+    }
+    return { status: "ready", provider: config.provider };
+  } catch {
+    return { status: "unavailable", provider: "unknown" };
+  }
 }
 
 export async function getEmailProvider(): Promise<EmailProvider> {

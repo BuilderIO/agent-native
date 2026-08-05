@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { useMseVideoSource } from "@/hooks/use-mse-video-source";
+import { usePlaybackPosition } from "@/hooks/use-playback-position";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -265,9 +266,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [videoUrl],
     );
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const [playbackVideoEl, setPlaybackVideoEl] =
+      useState<HTMLVideoElement | null>(null);
     const setVideoNode = useCallback(
       (el: HTMLVideoElement | null) => {
         videoRef.current = el;
+        setPlaybackVideoEl(el);
         onVideoElementChange?.(el);
       },
       [onVideoElementChange],
@@ -408,6 +412,50 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       () => embedProvider === "loom" || isLoomEmbedUrl(activeVideoSrc),
       [activeVideoSrc, embedProvider],
     );
+    const restorePlaybackPosition = useCallback(
+      (positionMs: number) => {
+        const v = videoRef.current;
+        if (!v || (startMs && startMs > 0)) return;
+        if (hasPlaybackStarted && !autoPlay) return;
+        if (!autoPlay && isPlayPending) return;
+        if (!autoPlay && v.currentTime > 0.5) return;
+
+        const visibleMs = clampSeek(
+          skipExcludedRange(positionMs, excludedRanges, resolvedDurationMs),
+          v,
+          resolvedDurationMs,
+        );
+        if (visibleMs <= 0) return;
+
+        try {
+          initialVisibleFrameSeekedRef.current = true;
+          v.currentTime = visibleMs / 1000;
+          setCurrentMs(visibleMs);
+          setCanPlay(true);
+          setIsPreparing(false);
+          onTimeUpdate?.(visibleMs, resolvedDurationMs);
+        } catch (error) {
+          console.warn("[clips] playback position restore failed", error);
+        }
+      },
+      [
+        autoPlay,
+        excludedRanges,
+        hasPlaybackStarted,
+        isPlayPending,
+        onTimeUpdate,
+        resolvedDurationMs,
+        startMs,
+      ],
+    );
+    usePlaybackPosition({
+      recordingId,
+      videoEl: playbackVideoEl,
+      durationMs,
+      explicitStartMs: startMs,
+      allowRestoreWhilePlaying: autoPlay,
+      onRestore: restorePlaybackPosition,
+    });
     // Clips stores exactly one `videoUrl` per recording (no alternate-format
     // fallback to select between), and every browser MediaRecorder-based
     // recording is stored as `webm` — which Safari (desktop and iOS) cannot
@@ -1291,11 +1339,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ? "loading"
           : "ready"
         : null;
-    const centerOverlayLabel = isPlayPending
-      ? "Starting playback"
-      : isBuffering
-        ? "Buffering"
-        : "Preparing clip";
+    const centerOverlayLabel =
+      isPlayPending && !hasPlaybackStarted
+        ? "Starting playback"
+        : isPlayPending || isBuffering
+          ? "Buffering"
+          : "Preparing clip";
 
     return (
       <div

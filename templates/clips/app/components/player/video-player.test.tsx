@@ -68,6 +68,13 @@ describe("VideoPlayer playback", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ playbackPosition: null }),
+      }),
+    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -271,6 +278,30 @@ describe("VideoPlayer playback", () => {
 
     expect(playSpy).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Starting playback");
+  });
+
+  it("shows buffering instead of starting playback after playback has begun", async () => {
+    const video = getVideo();
+    const centerPlay = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="videoPlayer.playClip"]',
+    );
+
+    await act(async () => {
+      centerPlay?.click();
+      await Promise.resolve();
+    });
+
+    const playSpy = vi
+      .spyOn(video, "play")
+      .mockReturnValue(new Promise<void>(() => {}));
+
+    act(() => {
+      handleRef.current?.play();
+    });
+
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Buffering");
+    expect(container.textContent).not.toContain("Starting playback");
   });
 
   it.each(["AbortError", "NotAllowedError"])(

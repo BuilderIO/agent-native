@@ -33,7 +33,7 @@ export default defineAction({
     "For PPTX files, returns parsed slides with text and layout info ready for conversion. " +
     "For DOCX files, returns structured sections extracted from the document. " +
     "For PDF files, returns extracted text organized by page. " +
-    "For Figma .fig files, requires Builder.io and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
+    "For Figma .fig files, requires Builder.io (free tier available) and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
     "The agent can then use the extracted content to create a deck via create-deck or add-slide, or tell the user where Builder is indexing the design system.",
   schema: z.object({
     filePath: z
@@ -417,7 +417,7 @@ async function importPdfPagesAsFullBleedSlides(args: {
       });
       if (!uploadResult?.url) {
         throw new Error(
-          "File storage is not configured. Connect Builder.io or another upload provider before importing PDF slides.",
+          "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before importing PDF slides.",
         );
       }
       // pdf-parse breaks wrapped text across lines with no way to tell a

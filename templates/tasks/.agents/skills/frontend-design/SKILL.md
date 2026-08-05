@@ -34,6 +34,22 @@ Before coding, decide:
 
 Then implement working code that is cohesive, accessible, responsive, and polished in small details: typography, spacing, copy, motion, empty states, loading states, focus states, and error states.
 
+## Visual Direction Contract
+
+Before styling a new app or workspace surface, define its product mode,
+audience, visual world, palette family, type treatment, composition, shape
+language, and anti-references in `DESIGN.md`. Read
+`references/visual-direction.md` for the direction families and review
+vocabulary. This is the Impeccable-inspired design contract for Agent-Native
+apps: understand the product, name the mode, deal a few coherent directions,
+commit to one, and audit the result instead of averaging back to a starter.
+
+Preserve an existing brand system and component library. When no brand exists,
+choose a deliberate direction based on the domain and compare sibling apps
+before selecting its accent family. Shared behavior and semantic token names
+should stay consistent; palette, density, composition, type contrast, and
+shape language should not be identical by default.
+
 ## Minimalism And Progressive Disclosure
 
 Default to Apple/Linear-level restraint: make the primary workflow obvious, then remove everything that does not help that workflow right now. A polished UI often has fewer visible controls, fewer borders, fewer labels, and fewer explanatory surfaces than the first reasonable implementation.
@@ -81,13 +97,13 @@ passed this requirement yet.
   operational apps, make a clear sans-serif hierarchy the default; reserve a
   serif or editorial face for a deliberate content preview or brand moment,
   not the whole application shell.
-- **Color and theme**: Use semantic tokens and CSS variables. Avoid one-note palettes and default purple/blue gradients unless the brand demands them.
+- **Color and theme**: Use semantic tokens and CSS variables. Avoid one-note palettes, default warm beige/terracotta, and default purple/blue gradients unless the brand demands them. New apps should choose a product-fitting accent family rather than inherit the previous app's color.
 - **Motion**: Prefer purposeful transitions and small state changes. Use CSS transitions/keyframes unless the app already uses a motion library. Never `transition-all` — list the properties that actually change (e.g. `transition-[opacity,transform]`). Use the shared easing tokens defined in `packages/core/src/styles/agent-native.css` instead of hand-typing curves: `var(--ease-drawer)` (260ms, drawers/app chrome), `var(--ease-collapse)` (200ms, expand/collapse), `var(--ease-out-strong)` (snappy entrances) — in Tailwind, `ease-[var(--ease-collapse)]`. Enter/exit with ease-out, never `ease-in`. Overlays that zoom in must set the Radix origin var (e.g. `origin-[--radix-popover-content-transform-origin]`). Animate `transform`/`opacity`, not width/height/padding/box-shadow. Gate looping or large-movement animations with `motion-reduce:`. Command palettes and keyboard-triggered actions get no animation.
 - **Composition**: Match the workflow. Operational apps should be dense and scannable; marketing or portfolio pages can be more immersive.
 - **Visual assets**: Websites, games, and object-focused pages need real or generated media when images help users understand the subject.
 - **Responsive fit**: Text must not overflow buttons, cards, tabs, sidebars, or fixed-format tools. Use stable dimensions for boards, grids, toolbars, and counters.
 
-**Beat convergence, not just defaults.** You sample toward the "on-distribution" center, so naming what to avoid is not enough: every "don't" needs a "do", or you converge on the next safe option (ban Inter and you reach for Roboto; ban purple gradients and you reach for Space Grotesk + a teal accent on every screen). Commit to one named direction, pair any reference with the reason it fits ("Linear: the quiet confidence of its spacing" — a bare "Linear" collapses back to the average), and match implementation effort to the vision: maximalist wants elaborate motion and effects, minimal wants restraint and precise spacing. When building on an existing app, inspect its tokens/type/components first and treat any drift back to a default as a missing token to pin, not something to re-prompt.
+**Beat convergence, not just defaults.** You sample toward the "on-distribution" center, so naming what to avoid is not enough: every "don't" needs a "do", or you converge on the next safe option. Commit to one named direction, pair any reference with the reason it fits, and match implementation effort to the vision. If the brief is open, consider two or three coherent visual worlds, then commit to one instead of averaging them. When building on an existing app, inspect its tokens/type/components first and treat any drift back to a default as a missing token to pin, not something to re-prompt.
 
 ## Agent-Native UI Rules
 
@@ -164,6 +180,9 @@ as an operator would use it repeatedly:
 - For review flows, stack the source/original first and the generated or safe
   result second by default. Use side-by-side comparison only when the content
   is short enough to scan without excessive horizontal reading.
+- Compare the result with sibling apps. Shared toolkit behavior should feel
+  consistent, but a repeated palette, hero composition, type pairing, and
+  radius language without a product reason is visual drift, not consistency.
 - Check the result at the target desktop width and a narrow width. If the first
   viewport feels like documentation instead of a tool, subtract again.
 
@@ -216,6 +235,8 @@ For substantial frontend work:
 5. When registering or changing a company adapter, run
    `@agent-native/toolkit/conformance`, including mixed-overlay focus,
    `portalContainer`, and z-index stacking checks.
+6. For a new app or a visual redesign, review `DESIGN.md` against the rendered
+   surface and run the anti-slop audit in `references/visual-direction.md`.
 
 ## Related Skills
 

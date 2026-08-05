@@ -693,7 +693,7 @@ const messages = {
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
-        "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 50 MB。",
+        "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
       figUploadDescriptionShort:
         "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
@@ -739,7 +739,8 @@ const messages = {
         figmaPasteFailed: "Figma 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
-        figFileTooLarge: ".fig 檔案必須為 50 MB 或更小。",
+        figFileTooLarge:
+          "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
       },
     },
     generationMayHaveStopped:
@@ -1097,6 +1098,8 @@ const messages = {
     assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
+    attachmentsTooLarge:
+      "這些附件太大。上傳總大小上限為 {{max}} MB — 請減少檔案數量或改用較小的檔案。",
     failedToSubmitPrompt: "無法提交提示",
     skipPrompt: "略過提示",
     designSystem: "Design系統",

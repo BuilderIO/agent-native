@@ -932,6 +932,30 @@ const runContentMigrations = runMigrations(
       name: "content-database-item-stable-key-single-active-claim",
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_database_item_key_claims_database_property_document_unique ON content_database_item_key_claims (database_id, property_id, document_id)`,
     },
+    {
+      version: 80,
+      name: "content-database-migration-receipts",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_migration_receipts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        database_id TEXT NOT NULL,
+        database_document_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        plan_hash TEXT NOT NULL,
+        state TEXT NOT NULL,
+        pre_digest TEXT NOT NULL,
+        post_digest TEXT NOT NULL,
+        rollback_json TEXT NOT NULL DEFAULT '{}',
+        result_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_migration_receipts_database_key_unique
+        ON content_database_migration_receipts (database_id, idempotency_key);
+      CREATE INDEX IF NOT EXISTS content_database_migration_receipts_owner_database_idx
+        ON content_database_migration_receipts (owner_email, database_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

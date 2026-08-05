@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.137.7",
+  "version": "0.138.0",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -98,6 +98,10 @@
     "./agent-native": {
       "types": "./dist/agent-native/index.d.ts",
       "default": "./dist/agent-native/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
     },
     "./agent-web": "./dist/agent-web/index.js",
     "./db": "./dist/db/index.js",
