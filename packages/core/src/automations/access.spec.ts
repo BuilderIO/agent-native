@@ -213,6 +213,125 @@ describe("automation access", () => {
     ).toMatchObject({ canEdit: true, canOperate: true, canDelete: false });
   });
 
+  it("allows personal resources to use organization and specific-sharing overlay context without changing their owner", async () => {
+    const organizationVisible = testResource({
+      id: "personal-organization",
+      owner: "owner@example.com",
+      createdBy: "owner@example.com",
+      explicit: true,
+    });
+    const specificallyShared = testResource({
+      id: "personal-specific",
+      owner: "owner@example.com",
+      createdBy: "owner@example.com",
+      explicit: true,
+    });
+    mocks.resourceListAllOwners.mockResolvedValue([
+      organizationVisible,
+      specificallyShared,
+    ]);
+    mocks.loadOverlays.mockResolvedValue(
+      new Map([
+        [
+          "personal-organization",
+          overlay("personal-organization", "organization", "org-1"),
+        ],
+        ["personal-specific", overlay("personal-specific", "private", "org-1")],
+      ]),
+    );
+    mocks.loadGrants.mockResolvedValue(
+      new Map([
+        [
+          "personal-specific",
+          [grant("personal-specific", "member@example.com", "collaborate")],
+        ],
+      ]),
+    );
+    membershipRows = [{ org_id: "org-1", email: "member@example.com" }];
+
+    const memberResult = await listAccessibleAutomations({
+      userEmail: "member@example.com",
+    });
+    expect(memberResult).toEqual([
+      expect.objectContaining({
+        resource: expect.objectContaining({ id: "personal-organization" }),
+        effectiveRole: "view",
+        owningOrganizationId: null,
+        sharing: expect.objectContaining({
+          visibility: "organization",
+          organizationId: "org-1",
+        }),
+      }),
+      expect.objectContaining({
+        resource: expect.objectContaining({ id: "personal-specific" }),
+        effectiveRole: "collaborate",
+        owningOrganizationId: null,
+        sharing: expect.objectContaining({
+          visibility: "private",
+          organizationId: "org-1",
+        }),
+      }),
+    ]);
+
+    const ownerResult = await listAccessibleAutomations({
+      userEmail: "owner@example.com",
+    });
+    expect(ownerResult).toHaveLength(2);
+    expect(ownerResult.every((entry) => entry.effectiveRole === "owner")).toBe(
+      true,
+    );
+  });
+
+  it("removes organization visibility with membership but preserves an explicit grant", async () => {
+    const organizationOnly = testResource({
+      id: "organization-only",
+      owner: "owner@example.com",
+      createdBy: "owner@example.com",
+      explicit: true,
+    });
+    const explicitlyGranted = testResource({
+      id: "explicitly-granted",
+      owner: "owner@example.com",
+      createdBy: "owner@example.com",
+      explicit: true,
+    });
+    mocks.resourceListAllOwners.mockResolvedValue([
+      organizationOnly,
+      explicitlyGranted,
+    ]);
+    mocks.loadOverlays.mockResolvedValue(
+      new Map([
+        [
+          "organization-only",
+          overlay("organization-only", "organization", "org-1"),
+        ],
+        [
+          "explicitly-granted",
+          overlay("explicitly-granted", "organization", "org-1"),
+        ],
+      ]),
+    );
+    mocks.loadGrants.mockResolvedValue(
+      new Map([
+        [
+          "explicitly-granted",
+          [grant("explicitly-granted", "removed@example.com", "view")],
+        ],
+      ]),
+    );
+    membershipRows = [];
+
+    const result = await listAccessibleAutomations({
+      userEmail: "removed@example.com",
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      resource: { id: "explicitly-granted" },
+      effectiveRole: "view",
+    });
+  });
+
   it("removes access after grant revocation or organization membership removal", async () => {
     const granted = testResource({
       id: "granted",
@@ -432,8 +551,8 @@ describe("automation access", () => {
     });
   });
 
-  it("batches overlays, grants, memberships, and profile labels for the list", async () => {
-    const resources = Array.from({ length: 20 }, (_, index) =>
+  it("batches overlays, grants, owner and overlay memberships, and profile labels for the list", async () => {
+    const organizationResources = Array.from({ length: 20 }, (_, index) =>
       testResource({
         id: `job-${index}`,
         owner: "__organization__:org-1",
@@ -441,13 +560,28 @@ describe("automation access", () => {
         orgId: "org-1",
       }),
     );
+    const overlayOrganizationResource = testResource({
+      id: "personal-overlay-org",
+      owner: "personal-owner@example.com",
+      createdBy: "personal-owner@example.com",
+    });
+    const resources = [...organizationResources, overlayOrganizationResource];
     mocks.resourceListAllOwners.mockResolvedValue(resources);
+    mocks.loadOverlays.mockResolvedValue(
+      new Map([
+        [
+          "personal-overlay-org",
+          overlay("personal-overlay-org", "organization", "org-2"),
+        ],
+      ]),
+    );
     membershipRows = [
       { org_id: "org-1", email: "alice@example.com" },
-      ...resources.map((_, index) => ({
+      ...organizationResources.map((_, index) => ({
         org_id: "org-1",
         email: `creator-${index}@example.com`,
       })),
+      { org_id: "org-2", email: "alice@example.com" },
     ];
 
     await listAccessibleAutomations({ userEmail: "alice@example.com" });
@@ -462,6 +596,9 @@ describe("automation access", () => {
       statement.sql.includes('FROM "user"'),
     );
     expect(membershipQueries).toHaveLength(1);
+    expect(membershipQueries[0]?.[0].args).toEqual(
+      expect.arrayContaining(["org-1", "org-2"]),
+    );
     expect(profileQueries).toHaveLength(1);
   });
 });

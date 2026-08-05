@@ -180,13 +180,17 @@ function membershipKey(orgId: string, email: string): string {
 
 async function loadMemberships(
   candidates: readonly ParsedCandidate[],
+  overlays: ReadonlyMap<string, AutomationSharingOverlayRow>,
   callerEmail: string,
   client: DbExec,
 ): Promise<Set<string>> {
   const organizationIds = [
     ...new Set(
       candidates
-        .map((candidate) => candidate.owningOrganizationId)
+        .flatMap((candidate) => [
+          candidate.owningOrganizationId,
+          overlays.get(candidate.resource.id)?.organizationId?.trim() || null,
+        ])
         .filter((value): value is string => !!value),
     ),
   ];
@@ -351,6 +355,7 @@ function evaluateCandidate(
   if (!sharing) return null;
   if (
     overlay &&
+    candidate.owningOrganizationId &&
     candidate.owningOrganizationId !== sharing.organizationId &&
     (sharing.visibility === "organization" || sharing.organizationId !== null)
   ) {
@@ -392,10 +397,10 @@ async function loadAccessData(
   client: DbExec,
 ): Promise<AccessData> {
   const resourceIds = candidates.map((candidate) => candidate.resource.id);
-  const [overlays, grants, memberships, profileLabels] = await Promise.all([
-    loadAutomationSharingOverlays(resourceIds, client),
+  const overlays = await loadAutomationSharingOverlays(resourceIds, client);
+  const [grants, memberships, profileLabels] = await Promise.all([
     loadAutomationSharingGrants(resourceIds, client),
-    loadMemberships(candidates, callerEmail, client),
+    loadMemberships(candidates, overlays, callerEmail, client),
     loadProfileLabels(candidates, client),
   ]);
   return { overlays, grants, memberships, profileLabels };
