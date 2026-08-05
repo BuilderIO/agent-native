@@ -270,6 +270,7 @@ export function useChatThreads(
   const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
   const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
   const nextThreadsOffsetRef = useRef(0);
+  const latestFetchRequestRef = useRef(0);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
   threadsRef.current = threads;
 
@@ -498,6 +499,7 @@ export function useChatThreads(
 
   const fetchThreads = useCallback(
     async (options?: { append?: boolean }) => {
+      const requestId = ++latestFetchRequestRef.current;
       try {
         const offset = options?.append ? nextThreadsOffsetRef.current : 0;
         const loaded = await fetchThreadListPage(
@@ -505,6 +507,7 @@ export function useChatThreads(
           offset,
           includeExternal,
         );
+        if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!loaded) {
           if (!options?.append) {
             setThreadsLoadError("Could not load chat history.");
@@ -585,6 +588,7 @@ export function useChatThreads(
         });
         return loaded;
       } catch {
+        if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!options?.append) {
           setThreadsLoadError("Could not load chat history.");
         }

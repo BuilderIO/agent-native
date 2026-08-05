@@ -362,9 +362,8 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
-  const [includeExternal, setIncludeExternal] = useState(
-    readChatHistoryIncludesExternal,
-  );
+  const [includeExternal, setIncludeExternal] = useState(false);
+  const [historyPreferenceReady, setHistoryPreferenceReady] = useState(false);
   const historyModeRef = useRef(includeExternal);
   const {
     threads,
@@ -427,6 +426,12 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   });
 
   useEffect(() => {
+    setIncludeExternal(readChatHistoryIncludesExternal());
+    setHistoryPreferenceReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!historyPreferenceReady) return;
     try {
       localStorage.setItem(
         CHAT_HISTORY_SOURCE_KEY,
@@ -437,7 +442,7 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
       historyModeRef.current = includeExternal;
       refreshThreads();
     }
-  }, [includeExternal, refreshThreads]);
+  }, [historyPreferenceReady, includeExternal, refreshThreads]);
 
   useEffect(() => {
     const refresh = () => refreshThreads();
