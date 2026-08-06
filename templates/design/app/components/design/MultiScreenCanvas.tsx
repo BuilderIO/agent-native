@@ -3430,6 +3430,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const originCanvas = getCanvasPoint(e.clientX, e.clientY);
       let latestRect = normalizeRectFromPoints(originCanvas, originCanvas);
       let layerCandidates: CanvasLayerMarqueeCandidate[] = [];
+      let lastLayerSelectionSignature: string | null = null;
       const marqueeState: MarqueeDragState = {
         type: "marquee",
         originClient: { x: e.clientX, y: e.clientY },
@@ -3469,6 +3470,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             screenId: candidate.screenId,
             info: candidate.info,
           }));
+        const signature = selection
+          .map(
+            (item) =>
+              `${item.screenId}:${item.info.sourceId ?? item.info.pendingNodeId ?? item.info.selector ?? item.info.id ?? ""}`,
+          )
+          .join("|");
+        if (signature === lastLayerSelectionSignature) return;
+        lastLayerSelectionSignature = signature;
         onLayerMarqueeSelectionChange?.(selection, {
           source: "marquee",
           additive: state.additive,
@@ -3513,6 +3522,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           additive: false,
           shiftKey: false,
         });
+        lastLayerSelectionSignature = "";
       }
       setIsDragging(true);
       // Seed collection with whatever the zero-size origin rect already
@@ -8236,6 +8246,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartRotate={(event) =>
               beginRotate(singleSelectedFrame.id, event)
             }
+            onStartDrag={(event) =>
+              beginFrameDrag(singleSelectedFrame.id, event)
+            }
           />
         ) : null}
 
@@ -8259,6 +8272,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             chromeScale={chromeScale}
             chromeSettling={chromeSettling}
             handlesEnabled={!readOnly}
+            onStartDrag={(event) =>
+              beginFrameDrag(selectedFrameEntries[0]!.id, event)
+            }
             onStartResize={beginGroupResize}
             onStartRotate={beginGroupRotate}
           />
@@ -8270,6 +8286,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             chromeScale={chromeScale}
             chromeSettling={chromeSettling}
             handlesEnabled={!readOnly}
+            onStartDrag={(event) =>
+              beginDraftDrag(selectedDraftEntries[0]!.id, event)
+            }
             onStartResize={beginDraftGroupResize}
           />
         ) : null}
@@ -9563,6 +9582,7 @@ const Screen = memo(function Screen({
     !suppressFrameChromeForChild;
   const screenContentInteractive =
     Boolean(screenContent) &&
+    isSelected &&
     !locked &&
     !penActive &&
     !creationToolActive &&
@@ -9771,16 +9791,14 @@ const Screen = memo(function Screen({
         role="button"
         tabIndex={0}
         onClick={(e) => {
-          if (isInteractiveScreenContentTarget(e.target)) {
-            e.stopPropagation();
-            return;
-          }
+          const interactiveContent = isInteractiveScreenContentTarget(e.target);
           e.stopPropagation();
           if (suppressNextClick.current) {
             suppressNextClick.current = false;
             return;
           }
           if (e.detail > 1) return;
+          if (interactiveContent && isSelected) return;
           onPick(screen.id, e);
         }}
         onDoubleClick={(e) => {
@@ -10672,6 +10690,7 @@ function GroupSelectionBox({
   bounds,
   chromeScale,
   chromeSettling,
+  onStartDrag,
   onStartResize,
   onStartRotate,
   handlesEnabled = true,
@@ -10679,6 +10698,7 @@ function GroupSelectionBox({
   bounds: NonNullable<ReturnType<typeof getFrameGroupBounds>>;
   chromeScale: number;
   chromeSettling: boolean;
+  onStartDrag?: (e: React.MouseEvent) => void;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   /** Multi-selection rotate (CV14). Omit to keep the previous behavior (no
    *  rotate handle shown) — used by callers whose selection kind doesn't
@@ -10699,6 +10719,7 @@ function GroupSelectionBox({
       showRotate={!!onStartRotate}
       handlesEnabled={handlesEnabled}
       filled
+      onStartDrag={onStartDrag}
       onStartResize={onStartResize}
       onStartRotate={onStartRotate ?? (() => {})}
     />
@@ -10765,6 +10786,7 @@ function SelectionBox({
   handlesEnabled = true,
   onStartResize,
   onStartRotate,
+  onStartDrag,
 }: {
   geometry: FrameGeometry;
   chromeScale: number;
@@ -10774,6 +10796,7 @@ function SelectionBox({
   handlesEnabled?: boolean;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
+  onStartDrag?: (e: React.MouseEvent) => void;
 }) {
   return (
     <div
@@ -10798,6 +10821,13 @@ function SelectionBox({
         zIndex: 1_000_000,
       }}
     >
+      {onStartDrag ? (
+        <span
+          data-frame-drag-surface
+          className="pointer-events-auto absolute inset-0 z-[5] cursor-move"
+          onMouseDown={onStartDrag}
+        />
+      ) : null}
       <ResizeHandles
         active
         enabled={handlesEnabled}
