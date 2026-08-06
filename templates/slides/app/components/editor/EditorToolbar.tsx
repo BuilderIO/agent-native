@@ -538,7 +538,7 @@ export default function EditorToolbar({
           >
             <div className="py-1.5">
               {/* Layout section */}
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.layout")}
               </div>
               {slideLayoutOptions.map((opt) => (
@@ -558,7 +558,7 @@ export default function EditorToolbar({
 
               {/* Background section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.background")}
               </div>
               <div className="px-3 pb-2">
@@ -604,7 +604,7 @@ export default function EditorToolbar({
 
               {/* Image & Assets section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.media")}
               </div>
               <button
@@ -632,26 +632,29 @@ export default function EditorToolbar({
 
               {/* Diagrams section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.diagrams")}
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!onUpdateSlide || !currentSlide) return;
-                  const mermaidTemplate = `<div class="fmd-slide" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:60px 80px;font-family:'Poppins',sans-serif;">
-<div class="mermaid">
-graph TD
+                  const defaultMermaidDefinition = `graph TD
     A[Start] --> B{Decision}
     B -->|Yes| C[Action A]
     B -->|No| D[Action B]
     C --> E[End]
-    D --> E
-</div>
-</div>`;
-                  onUpdateSlide({
-                    content: mermaidTemplate,
-                    layout: "blank",
-                  });
+    D --> E`;
+                  try {
+                    const { convertMermaidToExcalidraw } = await import(
+                      "./MermaidToExcalidrawPanel"
+                    );
+                    const data = await convertMermaidToExcalidraw(
+                      defaultMermaidDefinition,
+                    );
+                    onUpdateSlide({ excalidrawData: data });
+                  } catch (err: any) {
+                    console.error("Insert Mermaid diagram failed:", err);
+                  }
                   setLayoutOpen(false);
                 }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
@@ -697,7 +700,7 @@ graph TD
                         console.error("Mermaid to Excalidraw failed:", err);
                       }
                     }}
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))]/80 hover:text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
+                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
                   >
                     <IconTransform className="w-3 h-3" />
                     {t("editorToolbar.convertMermaidToExcalidraw")}
@@ -719,7 +722,7 @@ graph TD
 
               {/* Transitions section */}
               <div className="mx-2 my-1.5 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+              <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t("editorToolbar.transition")}
               </div>
               <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
@@ -752,7 +755,7 @@ graph TD
               {onSetAspectRatio && (
                 <>
                   <div className="mx-2 my-1.5 border-t border-border" />
-                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                  <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                     {t("editorToolbar.aspectRatio")}
                   </div>
                   <div className="px-3 pb-2.5 grid grid-cols-4 gap-1">
