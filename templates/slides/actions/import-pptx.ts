@@ -17,6 +17,7 @@ import {
   parsePptx,
   type ParsedElement,
   type ParsedImage,
+  type ParsedPresentation,
 } from "../server/handlers/import/pptx-parser.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
@@ -83,6 +84,7 @@ export async function importPptxBufferToDeck(args: {
   deckId?: string;
   source?: string;
   imageFallbacks?: ImportedImageFallback[];
+  parsedPresentation?: ParsedPresentation;
 }): Promise<{
   id: string;
   title: string;
@@ -98,8 +100,9 @@ export async function importPptxBufferToDeck(args: {
     deckId,
     source = "import-pptx",
     imageFallbacks,
+    parsedPresentation,
   } = args;
-  const presentation = await parsePptx(fileBuffer);
+  const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
   applyImageFallbacks(presentation, imageFallbacks);
   const deckTitle = title || presentation.title || "Imported Presentation";
   const ownerEmail = getRequestUserEmail();

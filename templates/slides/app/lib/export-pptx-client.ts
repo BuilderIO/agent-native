@@ -350,6 +350,8 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
     size.length < 2 ||
     !Number.isFinite(size[0]) ||
     !Number.isFinite(size[1]) ||
+    size[0] <= 0 ||
+    size[1] <= 0 ||
     !position ||
     position.length < 2 ||
     !Number.isFinite(position[0]) ||
@@ -399,47 +401,6 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
   slideRoot.style.backgroundRepeat = "no-repeat";
 }
 
-async function rasterizeImportedSlide(
-  root: HTMLElement,
-  dims: { width: number; height: number },
-): Promise<boolean> {
-  const imported = root.querySelector<HTMLElement>(".fmd-imported-pptx");
-  if (!imported) return false;
-  const backgroundColor = window.getComputedStyle(imported).backgroundColor;
-
-  const { domToPng } = await importExportModule(
-    () => import("modern-screenshot"),
-  );
-  await preloadImagesWithCors(imported);
-  const dataUrl = await domToPng(imported, {
-    backgroundColor,
-    fetch: {
-      requestInit: { cache: "no-cache", credentials: "include", mode: "cors" },
-    },
-    height: dims.height,
-    scale: 2,
-    width: dims.width,
-  });
-
-  const image = document.createElement("img");
-  image.alt = "";
-  image.src = dataUrl;
-  Object.assign(image.style, {
-    display: "block",
-    height: `${dims.height}px`,
-    left: "0",
-    position: "absolute",
-    top: "0",
-    width: `${dims.width}px`,
-  });
-  root.replaceChildren(image);
-  root.style.background = backgroundColor;
-  root.style.position = "relative";
-  root.style.overflow = "hidden";
-  await image.decode();
-  return true;
-}
-
 export async function buildDeckPptxBlob(
   deckTitle: string,
   slides: PptxExportSlide[],
@@ -468,16 +429,10 @@ export async function buildDeckPptxBlob(
         height: dims.height,
       });
       exportClones.push(clone);
-      const isRasterized = await rasterizeImportedSlide(clone.element, {
-        width: dims.width,
-        height: dims.height,
-      });
-      if (!isRasterized) {
-        materializeImportedBackgroundGrid(clone.element);
-        widenNoWrapTextElements(clone.element);
-        await replaceInlineSvgsWithImages(clone.element);
-        await preloadImagesWithCors(clone.element);
-      }
+      materializeImportedBackgroundGrid(clone.element);
+      widenNoWrapTextElements(clone.element);
+      await replaceInlineSvgsWithImages(clone.element);
+      await preloadImagesWithCors(clone.element);
     }
 
     const initialBlob = await exportToPptx(

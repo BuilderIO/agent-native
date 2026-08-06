@@ -2,8 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import pLimit from "p-limit";
 import { z } from "zod";
 
+import {
+  parsePptx,
+  type ParsedPresentation,
+} from "../server/handlers/import/pptx-parser.js";
 import { getGoogleDocsAccessToken } from "../server/lib/google-docs-oauth.js";
 import {
   importPptxBufferToDeck,
@@ -103,6 +108,18 @@ interface GoogleSlidesPresentationImages {
   }>;
 }
 
+interface GoogleSlidesImageCandidate {
+  slideIndex: number;
+  imageIndex: number;
+  objectId?: string;
+  contentUrl: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  crop?: ImportedImageFallback["crop"];
+}
+
 function finiteNumber(value: number | undefined): number | undefined {
   return value != null && Number.isFinite(value) ? value : undefined;
 }
@@ -115,6 +132,7 @@ function finiteNumber(value: number | undefined): number | undefined {
 async function fetchGoogleSlidesImageFallbacks(
   fileId: string,
   accessToken: string,
+  presentation: ParsedPresentation,
 ): Promise<ImportedImageFallback[]> {
   const fields =
     "slides(pageElements(objectId,size,transform,image(contentUrl,imageProperties(cropProperties))))";
@@ -128,11 +146,14 @@ async function fetchGoogleSlidesImageFallbacks(
       `Google Slides returned HTTP ${response.status} while reading native image elements. Reconnect Google Drive and try the import again.`,
     );
   }
-  const presentation =
+  const googlePresentation =
     (await response.json()) as GoogleSlidesPresentationImages;
-  const fallbacks: ImportedImageFallback[] = [];
+  const candidates: GoogleSlidesImageCandidate[] = [];
+  const candidateKeys = new Set<string>();
 
-  for (const [slideIndex, slide] of (presentation.slides ?? []).entries()) {
+  for (const [slideIndex, slide] of (
+    googlePresentation.slides ?? []
+  ).entries()) {
     for (const [imageIndex, element] of (slide.pageElements ?? []).entries()) {
       const contentUrl = element.image?.contentUrl;
       const baseWidth = finiteNumber(element.size?.width?.magnitude);
@@ -157,25 +178,16 @@ async function fetchGoogleSlidesImageFallbacks(
         continue;
       }
 
-      const imageResponse = await ssrfSafeFetch(
-        contentUrl,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-        { httpsOnly: true, maxRedirects: 2 },
+      const existingImage = presentation.slides[slideIndex]?.elements.some(
+        (existing) =>
+          existing.kind === "image" &&
+          Math.abs(existing.x - x) < 1000 &&
+          Math.abs(existing.y - y) < 1000 &&
+          Math.abs(existing.width - width) < 1000 &&
+          Math.abs(existing.height - height) < 1000,
       );
-      if (!imageResponse.ok) {
-        throw new Error(
-          `Google Slides returned HTTP ${imageResponse.status} while downloading image ${imageIndex + 1} on slide ${slideIndex + 1}.`,
-        );
-      }
-      const mimeType =
-        imageResponse.headers.get("content-type")?.split(";", 1)[0] ||
-        "image/png";
-      if (!mimeType.startsWith("image/")) {
-        throw new Error(
-          `Google Slides returned a non-image asset for image ${imageIndex + 1} on slide ${slideIndex + 1}.`,
-        );
-      }
-      const data = new Uint8Array(await imageResponse.arrayBuffer());
+      if (existingImage) continue;
+
       const cropProperties = element.image?.imageProperties?.cropProperties;
       const crop = cropProperties
         ? {
@@ -185,21 +197,76 @@ async function fetchGoogleSlidesImageFallbacks(
             bottom: cropProperties.bottomOffset ?? 0,
           }
         : undefined;
-      fallbacks.push({
+      const candidateKey = `${slideIndex}:${x}:${y}:${width}:${height}`;
+      if (candidateKeys.has(candidateKey)) continue;
+      candidateKeys.add(candidateKey);
+      candidates.push({
         slideIndex,
+        imageIndex,
+        ...(element.objectId ? { objectId: element.objectId } : {}),
+        contentUrl,
         x,
         y,
         width,
         height,
-        data,
-        mimeType,
-        name: `google-slides-${slideIndex + 1}-${element.objectId ?? imageIndex}.png`,
         ...(crop ? { crop } : {}),
       });
     }
   }
 
-  return fallbacks;
+  const downloadLimit = pLimit(4);
+  const imageDownloads = new Map<
+    string,
+    Promise<{ data: Uint8Array; mimeType: string }>
+  >();
+  const downloadImage = (candidate: GoogleSlidesImageCandidate) => {
+    const existing = imageDownloads.get(candidate.contentUrl);
+    if (existing) return existing;
+
+    const download = downloadLimit(async () => {
+      const imageResponse = await ssrfSafeFetch(
+        candidate.contentUrl,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+        { httpsOnly: true, maxRedirects: 2 },
+      );
+      if (!imageResponse.ok) {
+        throw new Error(
+          `Google Slides returned HTTP ${imageResponse.status} while downloading image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
+        );
+      }
+      const mimeType =
+        imageResponse.headers.get("content-type")?.split(";", 1)[0] ||
+        "image/png";
+      if (!mimeType.startsWith("image/")) {
+        throw new Error(
+          `Google Slides returned a non-image asset for image ${candidate.imageIndex + 1} on slide ${candidate.slideIndex + 1}.`,
+        );
+      }
+      return {
+        data: new Uint8Array(await imageResponse.arrayBuffer()),
+        mimeType,
+      };
+    });
+    imageDownloads.set(candidate.contentUrl, download);
+    return download;
+  };
+
+  return Promise.all(
+    candidates.map(async (candidate) => {
+      const { data, mimeType } = await downloadImage(candidate);
+      return {
+        slideIndex: candidate.slideIndex,
+        x: candidate.x,
+        y: candidate.y,
+        width: candidate.width,
+        height: candidate.height,
+        data,
+        mimeType,
+        name: `google-slides-${candidate.slideIndex + 1}-${candidate.objectId ?? candidate.imageIndex}.png`,
+        ...(candidate.crop ? { crop: candidate.crop } : {}),
+      };
+    }),
+  );
 }
 
 export default defineAction({
@@ -246,12 +313,15 @@ export default defineAction({
       presentationId,
       connection.accessToken,
     );
+    const parsedPresentation = await parsePptx(fileBuffer);
     const imageFallbacks = await fetchGoogleSlidesImageFallbacks(
       presentationId,
       connection.accessToken,
+      parsedPresentation,
     );
     return importPptxBufferToDeck({
       fileBuffer,
+      parsedPresentation,
       title,
       source: "import-google-slides-reference",
       imageFallbacks,

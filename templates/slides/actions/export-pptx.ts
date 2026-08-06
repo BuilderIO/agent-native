@@ -481,6 +481,8 @@ function parseImportedGrid(style: string): GridElement | undefined {
     size.length < 2 ||
     !Number.isFinite(size[0]) ||
     !Number.isFinite(size[1]) ||
+    size[0] <= 0 ||
+    size[1] <= 0 ||
     !position ||
     position.length < 2 ||
     !Number.isFinite(position[0]) ||
