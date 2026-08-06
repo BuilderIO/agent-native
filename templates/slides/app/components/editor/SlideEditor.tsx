@@ -2809,10 +2809,15 @@ export default function SlideEditor({
       const promoteForDrag = () => {
         if (origin) return true;
         const frozen = freezeElementForFreeformSelection(element);
-        if (!frozen || getComputedStyle(element).position !== "absolute") {
+        if (!frozen) {
           return false;
         }
         restoreMarkdownTree = frozen.restoreMarkdownTree;
+        if (getComputedStyle(element).position !== "absolute") {
+          restoreMarkdownTree?.();
+          restoreMarkdownTree = undefined;
+          return false;
+        }
         promotedToFreeform = true;
         origin = getObjectGeometry(element);
         return true;
