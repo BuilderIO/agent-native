@@ -67,14 +67,52 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["meeting_participants", "is_organizer", false],
     ["clips_meetings", "share_transcript", false],
   ];
+  // One probe for all of them, not one per column. This runs on every cold
+  // start, and eleven serialized information_schema round-trips before the
+  // process can serve is exactly the startup cost that made these apps slow —
+  // the same reason `ensureAdditiveColumns` batches its own introspection.
+  // After the first deploy every column already matches and the loop below
+  // does nothing, so the probes were the entire remaining cost.
+  const typesByColumn = new Map<string, string>();
+  try {
+    const probe = await exec.execute({
+      // `information_schema` columns are the `name` type; the explicit
+      // ::text[] casts are what make the comparison legal.
+      sql: `SELECT table_name, column_name, data_type
+            FROM information_schema.columns
+            WHERE table_name = ANY($1::text[]) AND column_name = ANY($2::text[])`,
+      args: [
+        `{${[...new Set(alters.map(([t]) => t))].join(",")}}`,
+        `{${[...new Set(alters.map(([, c]) => c))].join(",")}}`,
+      ],
+    });
+    for (const row of probe.rows as Array<{
+      table_name?: string;
+      column_name?: string;
+      data_type?: string;
+    }>) {
+      if (row.table_name && row.column_name && row.data_type) {
+        typesByColumn.set(
+          `${row.table_name}.${row.column_name}`,
+          row.data_type,
+        );
+      }
+    }
+  } catch (err) {
+    // Probing is the optimization; a failure here must not skip the retype and
+    // silently leave int columns behind. Fall through with an empty map so each
+    // column is attempted individually below, as it was before batching.
+    console.warn(
+      "[db] batched boolean-column probe failed; retrying per column:",
+      (err as Error)?.message ?? err,
+    );
+  }
+
   for (const [table, column, defaultTrue] of alters) {
     try {
-      const probe = await exec.execute({
-        sql: `SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
-        args: [table, column],
-      });
-      const row = (probe.rows as Array<{ data_type?: string }>)[0];
-      if (!row || row.data_type === "boolean") continue;
+      const known = typesByColumn.get(`${table}.${column}`);
+      if (known === "boolean") continue;
+      if (!known && typesByColumn.size > 0) continue; // absent column, nothing to retype
       const def = defaultTrue ? "TRUE" : "FALSE";
       await exec.execute(
         `ALTER TABLE ${table} ALTER COLUMN ${column} DROP DEFAULT, ALTER COLUMN ${column} TYPE BOOLEAN USING (${column} <> 0), ALTER COLUMN ${column} SET DEFAULT ${def}`,
@@ -946,6 +984,16 @@ const migrations = runMigrations(
     CREATE UNIQUE INDEX IF NOT EXISTS recording_playback_positions_recording_viewer_key_unique_idx
       ON recording_playback_positions (recording_id, viewer_key)`,
     },
+    {
+      version: 59,
+      name: "backfill-recording-org-id",
+      // Was a plugin-body call, so it re-ran on every cold start: after the
+      // first pass it updated nothing but still had to scan `recordings` for
+      // `org_id IS NULL` before the app could serve. As a migration it runs
+      // once, is recorded in `clips_migrations`, and is skipped thereafter by
+      // the existing `SELECT MAX(version)` fast path.
+      sql: `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -1230,20 +1278,6 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
   }
 }
 
-async function backfillRecordingOrgId(): Promise<void> {
-  const exec = getDbExec();
-  try {
-    await exec.execute(
-      `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
-    );
-  } catch (err) {
-    console.warn(
-      "[db] backfill recording org_id failed:",
-      (err as Error)?.message ?? err,
-    );
-  }
-}
-
 function assertSafeIdentifier(name: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
     throw new Error(`Unsafe SQL identifier: ${name}`);
@@ -1486,7 +1520,6 @@ export default async (nitroApp: any): Promise<void> => {
   await retypeBooleanColumnsOnPostgres();
   await backfillLegacyClipsTables();
   await syncWorkspacesToOrganizations();
-  await backfillRecordingOrgId();
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),
