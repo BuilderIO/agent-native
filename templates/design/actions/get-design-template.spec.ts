@@ -156,6 +156,24 @@ describe("get-design-template", () => {
     expect(result.files?.[0]?.width).toBeGreaterThan(0);
   });
 
+  it("hides a linked design system the caller cannot read", async () => {
+    testState.resolveAccess.mockImplementation(
+      async (type: string, id: string) => {
+        if (type === "design-template" && id === "saved-template") {
+          return {
+            role: "owner",
+            resource: { ...TEMPLATE_RESOURCE, designSystemId: "private-ds" },
+          };
+        }
+        return null;
+      },
+    );
+
+    const result = await action.run({ templateId: "saved-template" });
+
+    expect(result.designSystemId).toBeNull();
+  });
+
   it("rejects a template id that does not match the design's template", async () => {
     testState.resolveAccess.mockImplementation(async (type: string) =>
       type === "design"

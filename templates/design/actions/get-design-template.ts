@@ -110,10 +110,15 @@ export default defineAction({
       category = String(template.category ?? "other");
       description =
         typeof template.description === "string" ? template.description : null;
-      templateDesignSystemId =
+      const rawDesignSystemId =
         typeof template.designSystemId === "string"
           ? template.designSystemId
           : null;
+      templateDesignSystemId = rawDesignSystemId
+        ? (await resolveAccess("design-system", rawDesignSystemId))
+          ? rawDesignSystemId
+          : null
+        : null;
 
       const templateData = parseDesignTemplateData(
         typeof template.data === "string" ? template.data : "{}",

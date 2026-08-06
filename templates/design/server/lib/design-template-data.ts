@@ -57,7 +57,7 @@ const MAX_TRACKED_FONTS = 12;
 export function extractTemplateFonts(html: string): string[] {
   const fonts = new Set<string>();
 
-  for (const match of html.matchAll(/font-family\s*:\s*([^;}"']+)/gi)) {
+  for (const match of html.matchAll(/font-family\s*:\s*([^;}]+)/gi)) {
     const family = match[1]
       ?.split(",")[0]
       ?.trim()
@@ -68,7 +68,12 @@ export function extractTemplateFonts(html: string): string[] {
   }
   for (const link of html.matchAll(/fonts\.googleapis\.com\/[^"'\s>]+/gi)) {
     for (const family of link[0].matchAll(/family=([^&:"']+)/gi)) {
-      const name = decodeURIComponent(family[1]!).replace(/\+/g, " ").trim();
+      let name: string;
+      try {
+        name = decodeURIComponent(family[1]!).replace(/\+/g, " ").trim();
+      } catch {
+        continue;
+      }
       if (name) fonts.add(name);
     }
   }
