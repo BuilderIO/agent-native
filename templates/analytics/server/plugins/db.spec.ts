@@ -22,8 +22,8 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
-const analyticsIngestTsSource = readFileSync(
-  new URL("../lib/first-party-analytics.ts", import.meta.url),
+const analyticsRollupsTsSource = readFileSync(
+  new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
 );
 
@@ -199,14 +199,18 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).toContain("out-of-band job");
   });
 
-  it("keeps incremental rollup ingest independent of boot migrations", () => {
-    expect(analyticsIngestTsSource).not.toContain(
-      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+  it("keeps the incremental rollup lock inside the rollup write transaction", () => {
+    const writeIdx = analyticsRollupsTsSource.indexOf(
+      "const writeRollups = async (tx: any) => {",
     );
-    expect(analyticsIngestTsSource).not.toContain(
+    const lockIdx = analyticsRollupsTsSource.lastIndexOf(
       "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
     );
-    expect(analyticsIngestTsSource).not.toContain("pg_advisory_xact_lock");
+    expect(writeIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(writeIdx);
+    expect(analyticsRollupsTsSource).toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+    );
   });
 
   it("does not scan every dashboard during serverless startup", () => {
