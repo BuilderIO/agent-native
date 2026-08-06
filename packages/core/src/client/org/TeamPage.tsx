@@ -69,8 +69,8 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import { cn } from "../utils.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
+import { cn } from "../utils.js";
 import {
   useOrg,
   useOrgMembers,
@@ -179,9 +179,7 @@ function OrganizationHelp({ content }: { content: string }) {
           <IconHelpCircle className="size-3.5" />
         </button>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs leading-5">
-        {content}
-      </TooltipContent>
+      <TooltipContent className="max-w-xs leading-5">{content}</TooltipContent>
     </Tooltip>
   );
 }
@@ -1413,112 +1411,114 @@ function DomainSettingsSection({
   }
 
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Email domain auto-join
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Anyone who signs up with an email at this domain will join your
-        organization automatically. You can only set your own email domain (
-        {ownDomain || "—"}); free email providers like gmail.com or outlook.com
-        aren&apos;t allowed.
-      </p>
-      {!editing ? (
-        <div className="flex items-center gap-2">
-          {domain ? (
-            <>
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
-                <IconAt className="h-3.5 w-3.5 text-muted-foreground" />
-                {domain}
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setDraft(domain);
-                      setEditing(true);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <IconPencil size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Edit domain</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    intent="danger"
-                    emphasis="ghost"
-                    disabled={setOrgDomain.isPending}
-                    onClick={() => setOrgDomain.mutate(null)}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                  >
-                    <IconX size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Remove domain</TooltipContent>
-              </Tooltip>
-            </>
-          ) : (
+    <SettingsRow
+      id="email-domain"
+      label={
+        <OrganizationSettingLabel
+          help={`Anyone who signs up with an email at this domain joins the organization automatically. Only your own email domain (${ownDomain || "—"}) can be used; free email providers are not allowed.`}
+        >
+          Email domain auto-join
+        </OrganizationSettingLabel>
+      }
+      control={
+        !editing ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {domain ? (
+              <>
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
+                  <IconAt className="h-3.5 w-3.5 text-muted-foreground" />
+                  {domain}
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setDraft(domain);
+                        setEditing(true);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <IconPencil size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit domain</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      intent="danger"
+                      emphasis="ghost"
+                      disabled={setOrgDomain.isPending}
+                      onClick={() => setOrgDomain.mutate(null)}
+                      className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    >
+                      <IconX size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Remove domain</TooltipContent>
+                </Tooltip>
+              </>
+            ) : (
+              <Button
+                type="button"
+                intent="neutral"
+                emphasis="outline"
+                onClick={() => {
+                  setDraft(ownDomain);
+                  setEditing(true);
+                }}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              >
+                <IconAt size={14} />
+                Set domain
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") save();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              placeholder={ownDomain || "example.com"}
+              className="w-44 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              autoFocus
+            />
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              disabled={setOrgDomain.isPending}
+              onClick={save}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {setOrgDomain.isPending ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
             <Button
               type="button"
               intent="neutral"
               emphasis="outline"
-              onClick={() => {
-                setDraft(ownDomain);
-                setEditing(true);
-              }}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              <IconAt size={14} />
-              Allow {ownDomain || "your domain"} to auto-join
+              Cancel
             </Button>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-              if (e.key === "Escape") setEditing(false);
-            }}
-            placeholder={ownDomain || "example.com"}
-            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
-            autoFocus
-          />
-          <Button
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            disabled={setOrgDomain.isPending}
-            onClick={save}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {setOrgDomain.isPending ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : (
-              "Save"
-            )}
-          </Button>
-          <Button
-            type="button"
-            intent="neutral"
-            emphasis="outline"
-            onClick={() => setEditing(false)}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            Cancel
-          </Button>
-        </div>
-      )}
+          </div>
+        )
+      }
+    >
       <ErrorText error={setOrgDomain.error} />
-    </div>
+    </SettingsRow>
   );
 }
 
