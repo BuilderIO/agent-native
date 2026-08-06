@@ -64,6 +64,42 @@ describe("tracking providers", () => {
     });
   });
 
+  it("maps the browser session onto each provider's own session field", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    vi.stubEnv("MIXPANEL_TOKEN", "mp_test");
+    vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "project_created",
+      { template: "blank" },
+      { userId: "u1", sessionId: "session-1" },
+    );
+    await flushTracking();
+
+    const byUrl = new Map<string, any>(
+      fetchMock.mock.calls.map(([url, init]: [string, any]) => [
+        url,
+        JSON.parse(init.body),
+      ]),
+    );
+    expect(
+      byUrl.get("https://us.i.posthog.com/capture/").properties,
+    ).toMatchObject({ $session_id: "session-1" });
+    expect(
+      byUrl.get("https://api.mixpanel.com/track")[0].properties,
+    ).toMatchObject({ session_id: "session-1" });
+    expect(
+      byUrl.get("https://api2.amplitude.com/2/httpapi").events[0]
+        .event_properties,
+    ).toMatchObject({ session_id: "session-1" });
+  });
+
   it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_vite_test");
     const { listTrackingProviders, registerBuiltinProviders } =
@@ -149,7 +185,7 @@ describe("tracking providers", () => {
         level: "error",
         app: "content",
       },
-      { userId: "u1" },
+      { userId: "u1", sessionId: "session-1" },
     );
     await flushTracking();
 
@@ -161,6 +197,9 @@ describe("tracking providers", () => {
     expect(body.properties.distinct_id).toBe("u1");
     expect(body.properties.app).toBe("content");
     expect(body.properties.$exception_level).toBe("error");
+    // The reshaped exception path is a separate branch from /capture/ — a
+    // server error still has to join the visit that triggered it.
+    expect(body.properties.$session_id).toBe("session-1");
     expect(body.properties.$exception_list[0]).toMatchObject({
       type: "TypeError",
       value: "boom",
