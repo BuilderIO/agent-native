@@ -220,7 +220,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
   });
 
-  it("reserves the first screen-body click for frame selection", async () => {
+  it("reserves an empty screen body for frame selection", async () => {
     const onPick = vi.fn();
     await act(async () => {
       root.render(
@@ -247,7 +247,8 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     const interactiveBody = container.querySelector<HTMLElement>(
       ".design-canvas-iframe-wrapper",
     );
-    const screenCard = container.querySelector<HTMLElement>("[data-screen-card]");
+    const screenCard =
+      container.querySelector<HTMLElement>("[data-screen-card]");
     expect(interactiveBody).not.toBeNull();
     expect(screenCard).not.toBeNull();
     expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("none");
@@ -257,7 +258,40 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
 
     expect(onPick).toHaveBeenCalledWith("screen-a");
-    expect(container.querySelector("[data-frame-selection-box]")).not.toBeNull();
+    expect(
+      container.querySelector("[data-frame-selection-box]"),
+    ).not.toBeNull();
+    expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
+  });
+
+  it("keeps screen content with child layers interactive before frame selection", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content:
+                "<!doctype html><html><body><button>Layer</button></body></html>",
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          renderScreenContent={() => (
+            <div className="design-canvas-iframe-wrapper" />
+          )}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const interactiveBody = container.querySelector<HTMLElement>(
+      ".design-canvas-iframe-wrapper",
+    );
     expect(interactiveBody?.parentElement?.style.pointerEvents).toBe("auto");
   });
 
@@ -332,11 +366,13 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
 
     const deltaA = {
-      x: Number.parseFloat(frameA!.style.left) - Number.parseFloat(beforeA.left),
+      x:
+        Number.parseFloat(frameA!.style.left) - Number.parseFloat(beforeA.left),
       y: Number.parseFloat(frameA!.style.top) - Number.parseFloat(beforeA.top),
     };
     const deltaB = {
-      x: Number.parseFloat(frameB!.style.left) - Number.parseFloat(beforeB.left),
+      x:
+        Number.parseFloat(frameB!.style.left) - Number.parseFloat(beforeB.left),
       y: Number.parseFloat(frameB!.style.top) - Number.parseFloat(beforeB.top),
     };
     expect(deltaA.x).not.toBe(0);

@@ -182,6 +182,19 @@ const MAX_WHEEL_PAN_DELTA = 140;
 const CHROME_SCALE_CSS_VAR = "--an-chrome-scale";
 const PIXEL_GRID_ZOOM = 800;
 
+function hasScreenChildLayers(content: string): boolean {
+  const body = content.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i)?.[1] ?? "";
+  const editableMarkup = body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(
+      /<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>|<(link|meta|base)\b[^>]*>/gi,
+      "",
+    )
+    .trim();
+
+  return editableMarkup.length > 0;
+}
+
 import {
   BOARD_SURFACE_BACKGROUND,
   getBoardContentKey,
@@ -9582,7 +9595,7 @@ const Screen = memo(function Screen({
     !suppressFrameChromeForChild;
   const screenContentInteractive =
     Boolean(screenContent) &&
-    isSelected &&
+    (isSelected || hasScreenChildLayers(screen.content)) &&
     !locked &&
     !penActive &&
     !creationToolActive &&
