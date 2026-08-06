@@ -220,6 +220,34 @@ type AuthSessionCheckResult = "available" | "missing" | "unknown";
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
+type AssistantUiMessageResourceShape = {
+  id: string;
+  content: readonly unknown[];
+  attachments?: readonly { id: string }[];
+};
+
+export function assistantUiMessageListStructureKey(
+  messages: readonly AssistantUiMessageResourceShape[],
+): string {
+  return JSON.stringify(
+    messages.map((message) => [
+      message.id,
+      message.content.map((part, index) => {
+        const partObject =
+          typeof part === "object" && part !== null ? part : null;
+        const toolCallId =
+          partObject && "toolCallId" in partObject
+            ? partObject.toolCallId
+            : undefined;
+        return typeof toolCallId === "string"
+          ? `toolCallId-${toolCallId}`
+          : `index-${index}`;
+      }),
+      (message.attachments ?? []).map((attachment) => attachment.id),
+    ]),
+  );
+}
+
 export type AgentRequestMode = "act" | "plan";
 export type AgentRecoveryAction = "continue" | "retry";
 export interface AssistantChatSendOptions {
@@ -2335,10 +2363,7 @@ const AssistantChatInner = forwardRef<
       enabled: messages.length === 0,
     },
   );
-  const messageListResetKey = useMemo(
-    () => messages.map((message) => message.id).join("|"),
-    [messages],
-  );
+  const messageListResetKey = assistantUiMessageListStructureKey(messages);
 
   // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
   // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
@@ -5605,6 +5630,10 @@ const AssistantChatInner = forwardRef<
                                 resetKey={messageListResetKey}
                               >
                                 <ThreadPrimitive.Messages
+                                  // assistant-ui indexes message parts through tap resources.
+                                  // Keep this key tied to that shape so clear/add transitions remount stale
+                                  // lookups without remounting on every streamed text update.
+                                  key={messageListResetKey}
                                   components={{
                                     UserMessage: AssistantChatUserMessageItem,
                                     AssistantMessage:

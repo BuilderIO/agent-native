@@ -300,6 +300,7 @@ export async function runGuardedDdl(
   ddl: string,
   options: {
     lockTimeout?: string;
+    idleInTransactionTimeout?: string;
     injectedClient?: DbExec;
     dialectIsPostgres?: boolean;
   } = {},
@@ -311,12 +312,28 @@ export async function runGuardedDdl(
   }
 
   const lockTimeout = options.lockTimeout ?? "3s";
+  // Comfortably longer than any DDL this guard runs (it only ever executes
+  // statements already probed as necessary), so it can only fire on a
+  // transaction nobody is driving any more.
+  const idleInTransactionTimeout = options.idleInTransactionTimeout ?? "30s";
   try {
     if (typeof client.transaction === "function") {
       await client.transaction(async (tx) => {
         // SET LOCAL is transaction-scoped: it reverts on COMMIT/ROLLBACK and
         // never persists on the pooled connection.
         await tx.execute(`SET LOCAL lock_timeout = '${lockTimeout}'`);
+        // A serverless worker that is killed mid-transaction — OOM, function
+        // wall, cold-start reap — never reaches COMMIT or ROLLBACK, and the
+        // pooled connection goes back to the pool still inside this
+        // transaction, holding its locks until something reaps it. Nothing
+        // does. Measured in production: 11 sessions stuck `idle in
+        // transaction` for up to 283s, every one of them last executing the
+        // SET LOCAL above, while ordinary queries on that database went from
+        // ~1.5s to 5-7s. Postgres reaps these itself when told to, and the
+        // timeout is the only part of this that survives the process dying.
+        await tx.execute(
+          `SET LOCAL idle_in_transaction_session_timeout = '${idleInTransactionTimeout}'`,
+        );
         await tx.execute(ddl);
       });
     } else {

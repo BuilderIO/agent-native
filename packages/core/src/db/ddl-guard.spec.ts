@@ -121,6 +121,13 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([
         "BEGIN",
         "SET LOCAL lock_timeout = '3s'",
+        // A worker killed mid-transaction never reaches COMMIT or ROLLBACK,
+        // and the pooled connection returns to the pool still holding this
+        // transaction's locks. Production had 11 of these stuck up to 283s,
+        // each one last executing the SET LOCAL above, with ordinary queries
+        // on that database degrading from ~1.5s to 5-7s. This is the only
+        // part of the guard that still applies once the process is gone.
+        "SET LOCAL idle_in_transaction_session_timeout = '30s'",
         "CREATE TABLE foo (id TEXT)",
         "COMMIT",
       ]);

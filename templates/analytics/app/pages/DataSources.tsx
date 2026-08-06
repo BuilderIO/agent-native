@@ -94,6 +94,8 @@ import {
   type WalkthroughStep,
 } from "@/lib/data-sources";
 
+import { CustomApiCard } from "../components/CustomApiCard";
+
 interface AnalyticsPublicKeyRow {
   id: string;
   name: string;
@@ -2122,6 +2124,8 @@ export default function DataSources() {
       </p>
 
       <GoogleSheetsExportCard statusData={statusData} />
+
+      <CustomApiCard />
 
       {unknownFocusedSourceId && (
         <div

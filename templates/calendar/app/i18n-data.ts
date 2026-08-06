@@ -762,6 +762,8 @@ const enUS = {
     end: "End",
     endDate: "End date",
     event: "Event",
+    eventUpdated: "Event updated",
+    updateFailed: "Failed to update event",
     eventAlerts: "Event alerts",
     eventOptions: "Event options",
     autoDecline: "Automatically decline",
@@ -8110,6 +8112,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "添加日历",
+      eventUpdated: "事件已更新",
+      updateFailed: "更新事件失败",
       addCalendarFailed: "添加日历失败",
       addCalendarFromUrl: "从 URL 添加日历",
       added: "已添加",
@@ -8281,6 +8285,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Añadir calendario",
+      eventUpdated: "Evento actualizado",
+      updateFailed: "No se pudo actualizar el evento",
       addCalendarFailed: "No se pudo añadir el calendario",
       addCalendarFromUrl: "Añadir calendario desde URL",
       added: "Añadido",
@@ -8454,6 +8460,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Ajouter un calendrier",
+      eventUpdated: "Événement mis à jour",
+      updateFailed: "Échec de la mise à jour de l'événement",
       addCalendarFailed: "Échec de l’ajout du calendrier",
       addCalendarFromUrl: "Ajouter un calendrier depuis une URL",
       added: "Ajouté",
@@ -8633,6 +8641,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Kalender hinzufügen",
+      eventUpdated: "Ereignis aktualisiert",
+      updateFailed: "Ereignis konnte nicht aktualisiert werden",
       addCalendarFailed: "Kalender konnte nicht hinzugefügt werden",
       addCalendarFromUrl: "Kalender per URL hinzufügen",
       added: "Hinzugefügt",
@@ -8808,6 +8818,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "カレンダーを追加",
+      eventUpdated: "予定を更新しました",
+      updateFailed: "予定を更新できませんでした",
       addCalendarFailed: "カレンダーを追加できませんでした",
       addCalendarFromUrl: "URL からカレンダーを追加",
       added: "追加済み",
@@ -8978,6 +8990,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "캘린더 추가",
+      eventUpdated: "이벤트가 업데이트되었습니다",
+      updateFailed: "이벤트를 업데이트하지 못했습니다",
       addCalendarFailed: "캘린더를 추가하지 못했습니다",
       addCalendarFromUrl: "URL에서 캘린더 추가",
       added: "추가됨",
@@ -9151,6 +9165,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Adicionar calendário",
+      eventUpdated: "Evento atualizado",
+      updateFailed: "Falha ao atualizar evento",
       addCalendarFailed: "Falha ao adicionar calendário",
       addCalendarFromUrl: "Adicionar calendário por URL",
       added: "Adicionado",
@@ -9323,6 +9339,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "कैलेंडर जोड़ें",
+      eventUpdated: "इवेंट अपडेट हो गया",
+      updateFailed: "इवेंट अपडेट नहीं हो सका",
       addCalendarFailed: "कैलेंडर जोड़ने में विफल",
       addCalendarFromUrl: "URL से कैलेंडर जोड़ें",
       added: "जोड़ा गया",
@@ -9494,6 +9512,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "إضافة تقويم",
+      eventUpdated: "تم تحديث الحدث",
+      updateFailed: "فشل تحديث الحدث",
       addCalendarFailed: "فشلت إضافة التقويم",
       addCalendarFromUrl: "إضافة تقويم من URL",
       added: "تمت الإضافة",
