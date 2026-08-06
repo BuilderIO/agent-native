@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.141.6
+
+### Patch Changes
+
+- 158965b: Show Connect Builder.io and provider-key recovery actions when a saved model key is rejected.
+
 ## 0.141.5
 
 ### Patch Changes
