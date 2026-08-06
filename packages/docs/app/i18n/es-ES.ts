@@ -24,6 +24,7 @@ const esES = {
   },
   footer: {
     download: "Descargar",
+    pricing: "Precios",
     brand: "Marca",
     privacy: "Privacidad",
     terms: "Términos",

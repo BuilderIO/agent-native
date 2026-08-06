@@ -24,6 +24,7 @@ const koKR = {
   },
   footer: {
     download: "다운로드",
+    pricing: "요금",
     brand: "브랜드",
     privacy: "개인정보",
     terms: "약관",

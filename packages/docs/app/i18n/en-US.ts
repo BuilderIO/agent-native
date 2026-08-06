@@ -22,6 +22,7 @@ const enUS = {
   },
   footer: {
     download: "Download",
+    pricing: "Pricing",
     brand: "Brand",
     privacy: "Privacy",
     terms: "Terms",

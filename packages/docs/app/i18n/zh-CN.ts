@@ -24,6 +24,7 @@ const zhCN = {
   },
   footer: {
     download: "下载",
+    pricing: "定价",
     brand: "品牌",
     privacy: "隐私",
     terms: "条款",

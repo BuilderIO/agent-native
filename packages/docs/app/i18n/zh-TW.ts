@@ -22,6 +22,7 @@ const messages = {
   },
   footer: {
     download: "下載",
+    pricing: "定價",
     brand: "品牌",
     privacy: "隱私",
     terms: "條款",

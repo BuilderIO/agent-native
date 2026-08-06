@@ -24,6 +24,7 @@ const ptBR = {
   },
   footer: {
     download: "Baixar",
+    pricing: "Preços",
     brand: "Marca",
     privacy: "Privacidade",
     terms: "Termos",

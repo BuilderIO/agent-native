@@ -24,6 +24,7 @@ const arSA = {
   },
   footer: {
     download: "تنزيل",
+    pricing: "الأسعار",
     brand: "العلامة التجارية",
     privacy: "الخصوصية",
     terms: "الشروط",

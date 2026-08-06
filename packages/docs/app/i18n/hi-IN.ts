@@ -24,6 +24,7 @@ const hiIN = {
   },
   footer: {
     download: "डाउनलोड",
+    pricing: "मूल्य निर्धारण",
     brand: "ब्रांड",
     privacy: "गोपनीयता",
     terms: "शर्तें",

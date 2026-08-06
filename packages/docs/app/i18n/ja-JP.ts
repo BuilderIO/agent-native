@@ -24,6 +24,7 @@ const jaJP = {
   },
   footer: {
     download: "ダウンロード",
+    pricing: "料金",
     brand: "ブランド",
     privacy: "プライバシー",
     terms: "利用規約",

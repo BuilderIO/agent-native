@@ -24,6 +24,7 @@ const frFR = {
   },
   footer: {
     download: "Télécharger",
+    pricing: "Tarifs",
     brand: "Marque",
     privacy: "Confidentialité",
     terms: "Conditions",

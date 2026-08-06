@@ -24,6 +24,7 @@ const deDE = {
   },
   footer: {
     download: "Herunterladen",
+    pricing: "Preise",
     brand: "Marke",
     privacy: "Datenschutz",
     terms: "Bedingungen",
