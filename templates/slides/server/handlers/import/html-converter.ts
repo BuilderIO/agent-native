@@ -126,7 +126,12 @@ export function convertToSlideHtml(
   // has no room to show it, which is how imports used to silently drop
   // photos from otherwise short/title-shaped slides.
   if (slide.images.length > 0) {
-    return buildImageSlide(paragraphs, slide, imageUrl, fontFamily);
+    return buildImageSlide(
+      paragraphs,
+      slide,
+      typeof imageUrls === "string" ? imageUrls : undefined,
+      fontFamily,
+    );
   }
 
   if (slide.layoutHint === "title" || paragraphs.length <= 2) {
@@ -139,6 +144,8 @@ export function convertToSlideHtml(
 const DEFAULT_SLIDE_WIDTH_EMU = 9144000;
 const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
 const CSS_PX_PER_POINT = 96 / 72;
+const DEFAULT_PPTX_BACKGROUND = "#000000"; // guard:allow-raw-color - preserve PPTX black when no background is declared
+const DEFAULT_PPTX_FOREGROUND = "#ffffff"; // guard:allow-raw-color - preserve PPTX white when no run color is declared
 
 function buildFidelitySlide(
   slide: ParsedSlide,
@@ -147,7 +154,7 @@ function buildFidelitySlide(
 ): string {
   const widthEmu = slide.widthEmu || DEFAULT_SLIDE_WIDTH_EMU;
   const heightEmu = slide.heightEmu || DEFAULT_SLIDE_HEIGHT_EMU;
-  const background = slide.backgroundColor ?? "#000000";
+  const background = slide.backgroundColor ?? DEFAULT_PPTX_BACKGROUND;
   const elements = slide.elements ?? [];
   const html = elements
     .map((element, index) =>
@@ -264,7 +271,7 @@ function buildFidelityParagraph(
   const fontSize = (firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT;
   const lineHeight = paragraph.lineSpacing ?? 1.2;
   const bullet = paragraph.bulletChar
-    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? "#ffffff")};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${(paragraph.bulletSize ?? firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT}px;">${esc(paragraph.bulletChar)}</span>`
+    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${(paragraph.bulletSize ?? firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT}px;">${esc(paragraph.bulletChar)}</span>`
     : "";
   const marginLeft = paragraph.marginLeftEmu
     ? toSlidePxX(paragraph.marginLeftEmu, widthEmu)
@@ -282,7 +289,7 @@ function formatFidelityRun(run: ParsedTextRun): string {
   const styles = [
     `font-size:${(run.fontSize ?? 18) * CSS_PX_PER_POINT}px`,
     `font-family:${cssFontFamily(run.fontFamily)}`,
-    `color:${esc(run.color ?? "#ffffff")}`,
+    `color:${esc(run.color ?? DEFAULT_PPTX_FOREGROUND)}`,
     `font-weight:${run.bold ? 700 : 400}`,
     `font-style:${run.italic ? "italic" : "normal"}`,
     `text-decoration:${run.underline ? "underline" : "none"}`,

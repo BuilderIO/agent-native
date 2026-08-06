@@ -654,11 +654,13 @@ function parseColor(value: Record<string, unknown> | null): string | undefined {
   if (rgb) return `#${rgb}`;
   const scheme = stringValue(record(value["a:schemeClr"])?.["@_val"]);
   if (!scheme) return undefined;
+  const pptxDarkColor = "#000000"; // guard:allow-raw-color - PPTX dark scheme fallback
+  const pptxLightColor = "#ffffff"; // guard:allow-raw-color - PPTX light scheme fallback
   const fallback: Record<string, string> = {
-    dk1: "#000000",
-    dk2: "#000000",
-    lt1: "#ffffff",
-    lt2: "#ffffff",
+    dk1: pptxDarkColor,
+    dk2: pptxDarkColor,
+    lt1: pptxLightColor,
+    lt2: pptxLightColor,
   };
   return fallback[scheme];
 }
