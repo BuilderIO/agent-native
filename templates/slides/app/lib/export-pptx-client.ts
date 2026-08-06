@@ -338,6 +338,12 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
     ?.trim()
     .split(/\s+/)
     .map((value) => Number.parseFloat(value));
+  const declaredLineWidth = computed.backgroundImage.match(
+    /\b0(?:px)?\s+([\d.]+)px\b/i,
+  )?.[1];
+  const lineWidth = declaredLineWidth
+    ? Number.parseFloat(declaredLineWidth)
+    : Number.NaN;
   if (
     !color ||
     !size ||
@@ -347,7 +353,8 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
     !position ||
     position.length < 2 ||
     !Number.isFinite(position[0]) ||
-    !Number.isFinite(position[1])
+    !Number.isFinite(position[1]) ||
+    !Number.isFinite(lineWidth)
   ) {
     return;
   }
@@ -358,7 +365,7 @@ function materializeImportedBackgroundGrid(root: HTMLElement) {
   const context = canvas.getContext("2d");
   if (!context) return;
   context.strokeStyle = color;
-  context.lineWidth = Math.max(0.5, size[0] / 60);
+  context.lineWidth = Math.max(0.5, lineWidth);
 
   for (let x = position[0]; x < canvas.width; x += size[0]) {
     context.beginPath();

@@ -1,3 +1,7 @@
+---
+"@agent-native/core": patch
+---
+
 Stop paying Clips' startup data work on every cold start. The boolean-column retype made eleven serialized `information_schema` round trips before the app could serve; it now makes one. The `recordings.org_id` backfill moved from the plugin body into a tracked migration, so it runs once instead of re-scanning for `org_id IS NULL` on every cold start.
 
 Log which model a delegated (A2A) turn resolved to and why. The interactive path already logged its model and source; this one logged neither, so "the same app answers me in 27 seconds but takes 5 minutes when another app asks it the same thing" could not be checked. The chat model picker is browser-local, so it reaches an interactive turn as the highest-precedence request model and never reaches a delegated turn at all. Production shows the two paths usually do resolve to the same model anyway (467 of 532 delegated runs), so this is a configuration inconsistency worth seeing rather than the explanation for slow cross-app calls.

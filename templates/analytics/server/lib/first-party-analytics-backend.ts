@@ -989,34 +989,30 @@ function backfillScopeSql(
   sql: string;
   args: string[];
 } {
-  const cursorSql = "(received_at > ? OR (received_at = ? AND id > ?))";
+  const cursorSql = cursor.receivedAt
+    ? "(received_at > ? OR (received_at = ? AND id > ?))"
+    : "";
+  const cursorArgs = cursor.receivedAt
+    ? [cursor.receivedAt, cursor.receivedAt, cursor.id]
+    : [];
   const orderLimitSql = "ORDER BY received_at ASC, id ASC LIMIT ?";
   if (scope.orgId) {
     return {
       sql: `SELECT * FROM (
         SELECT * FROM analytics_events
-        WHERE org_id = ? AND ${cursorSql}
+        WHERE org_id = ?${cursorSql ? ` AND ${cursorSql}` : ""}
         UNION ALL
         SELECT * FROM analytics_events
-        WHERE org_id IS NULL AND owner_email = ? AND ${cursorSql}
+        WHERE org_id IS NULL AND owner_email = ?${cursorSql ? ` AND ${cursorSql}` : ""}
       ) AS scoped_events ${orderLimitSql}`,
-      args: [
-        scope.orgId,
-        cursor.receivedAt,
-        cursor.receivedAt,
-        cursor.id,
-        scope.userEmail,
-        cursor.receivedAt,
-        cursor.receivedAt,
-        cursor.id,
-      ],
+      args: [scope.orgId, ...cursorArgs, scope.userEmail, ...cursorArgs],
     };
   }
   return {
     sql: `SELECT * FROM analytics_events
-      WHERE org_id IS NULL AND owner_email = ? AND ${cursorSql}
+      WHERE org_id IS NULL AND owner_email = ?${cursorSql ? ` AND ${cursorSql}` : ""}
       ${orderLimitSql}`,
-    args: [scope.userEmail, cursor.receivedAt, cursor.receivedAt, cursor.id],
+    args: [scope.userEmail, ...cursorArgs],
   };
 }
 

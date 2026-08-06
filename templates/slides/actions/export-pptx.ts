@@ -474,8 +474,7 @@ function parseImportedGrid(style: string): GridElement | undefined {
     ?.split(/\s+/)
     .map((value) => Number.parseFloat(value));
   const color = backgroundImage?.match(/#[0-9a-f]{6}|rgb\([^)]*\)/i)?.[0];
-  const lineWidth = backgroundImage
-    ?.match(/\s0\s+([\d.]+)px/i)?.[1];
+  const lineWidth = backgroundImage?.match(/\s0\s+([\d.]+)px/i)?.[1];
   if (
     !color ||
     !size ||
@@ -702,13 +701,40 @@ export default defineAction({
         slide && typeof slide === "object" && typeof slide.content === "string"
           ? slide.content
           : "";
-      const { texts, images, shapes, bgColor } = parseSlideHtml(
+      const { texts, images, shapes, grid, bgColor } = parseSlideHtml(
         slideContent,
         aspectRatio,
         slideIndex + 1,
       );
 
       pptxSlide.background = { color: bgColor };
+
+      if (grid) {
+        const gridWidth = pxToIn(grid.stepX, dims);
+        const gridHeight = pxToInY(grid.stepY, dims);
+        const gridX = pxToIn(grid.offsetX, dims);
+        const gridY = pxToInY(grid.offsetY, dims);
+        const lineWidth = Math.max(0.5, grid.lineWidth * 0.75);
+
+        for (let x = gridX; x < dims.pptxInches.w; x += gridWidth) {
+          pptxSlide.addShape(pptx.ShapeType.line, {
+            x,
+            y: 0,
+            w: 0,
+            h: dims.pptxInches.h,
+            line: { color: grid.color, width: lineWidth },
+          });
+        }
+        for (let y = gridY; y < dims.pptxInches.h; y += gridHeight) {
+          pptxSlide.addShape(pptx.ShapeType.line, {
+            x: 0,
+            y,
+            w: dims.pptxInches.w,
+            h: 0,
+            line: { color: grid.color, width: lineWidth },
+          });
+        }
+      }
 
       const orderedTexts = [...texts].sort(
         (a, b) => (a.order ?? 0) - (b.order ?? 0),
