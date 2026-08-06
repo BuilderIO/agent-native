@@ -70,6 +70,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import {
   useOrg,
   useOrgMembers,
@@ -163,6 +164,40 @@ function ErrorText({ error }: { error: unknown }) {
     <p className="text-xs text-destructive">
       {error instanceof Error ? error.message : String(error)}
     </p>
+  );
+}
+
+function OrganizationHelp({ content }: { content: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="More information"
+          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+        >
+          <IconHelpCircle className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs leading-5">
+        {content}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function OrganizationSettingLabel({
+  children,
+  help,
+}: {
+  children: ReactNode;
+  help: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {children}
+      <OrganizationHelp content={help} />
+    </span>
   );
 }
 
