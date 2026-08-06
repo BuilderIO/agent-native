@@ -56,7 +56,9 @@ Fit means the main content fits the native content area. A small outer-wrapper s
 
 Provider-specific Slides actions are shortcuts, not limits. If a first-class action cannot express the exact Google Drive endpoint, file metadata field, export format, query, request body, pagination mode, payload shape, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real provider API. Use the raw provider API escape hatch instead of weakening the answer or claiming Slides cannot do something the underlying Google Drive API can do.
 
-Slides' Google Drive provider API uses the user's connected Google Docs OAuth account. The drive.file scope is intentionally limited to files the user selected or the app created. For large Drive file lists or metadata sweeps, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.`,
+Slides' Google Drive provider API uses the user's connected Google Docs OAuth account. The drive.file scope is intentionally limited to files the user selected or the app created. For large Drive file lists or metadata sweeps, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.
+
+When a Google Drive or Google Slides request needs authentication, tell the user to use the Connect Google button shown in Slides. Do not expose internal routes, API endpoints, OAuth setup instructions, client IDs, or keys in the response, and do not ask the user to configure an API manually.`,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { decks, deckShares } = await import("../db/schema.js");
