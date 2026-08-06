@@ -128,6 +128,12 @@
   width: var(--agent-layout-left-drawer-expanded-width, 14rem);
 }
 
+.agent-layout-left-drawer[data-collapsed="false"] > * {
+  width: var(--agent-layout-left-drawer-expanded-width, 14rem);
+  min-width: var(--agent-layout-left-drawer-expanded-width, 14rem);
+  max-width: var(--agent-layout-left-drawer-expanded-width, 14rem);
+}
+
 .agent-layout-left-drawer .bg-sidebar {
   background: var(--agent-native-lower-surface) !important;
 }

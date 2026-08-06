@@ -1990,6 +1990,12 @@ function AgentPanelInner({
             `[data-agent-fullscreen='true'] .agent-composer-area,` +
             `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
             `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+            `margin-left:auto;margin-right:auto;width:100%;}` +
+            `[data-agent-fullscreen='true'] .agent-composer-area:not(.agent-composer-area--compact){` +
+            `padding-left:0;padding-right:0;}` +
+            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,` +
+            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion-error--composer{` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
       />

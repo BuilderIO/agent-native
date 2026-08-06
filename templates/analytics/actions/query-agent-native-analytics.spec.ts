@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core", () => ({
+  ACTION_CHAT_UI_DATA_TABLE_RENDERER: "core.data-table",
+  dataTableWidgetResultSchema: {},
   defineAction: (definition: unknown) => definition,
 }));
 vi.mock("@agent-native/core/server", () => ({
@@ -37,14 +39,29 @@ describe("query-agent-native-analytics", () => {
       "SELECT event_date, event_name, SUM(event_count) AS events FROM analytics_event_daily_rollups GROUP BY event_date, event_name";
 
     await expect(action.run({ sql })).resolves.toEqual({
-      rows: [{ events: 3 }],
-      schema: [{ name: "events", type: "number" }],
+      widget: "data-table",
+      widgetId: "analytics.query.v1",
+      title: "Analytics query result",
+      table: {
+        title: "Analytics query result",
+        columns: [{ key: "events", label: "events", align: "right" }],
+        rows: [{ events: 3 }],
+      },
     });
     expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledWith(
       sql,
       { userEmail: "alice@example.com", orgId: "org_123" },
       { cache: true },
     );
+  });
+
+  it("declares a native table renderer for chat results", () => {
+    expect(action.outputSchema).toBeDefined();
+    expect(action.chatUI).toEqual({
+      renderer: "core.data-table",
+      title: "Analytics query result",
+      description: "Render query rows as a native table with CSV download.",
+    });
   });
 
   it("teaches the agent to prefer rollups and bound raw reads", () => {

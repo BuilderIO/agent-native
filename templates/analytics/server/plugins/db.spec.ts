@@ -71,6 +71,17 @@ describe("analytics db migrations cover every schema.ts column", () => {
   }
 });
 
+describe("analytics backfill has scoped cursor indexes", () => {
+  it("indexes both organization and personal received_at cursors", () => {
+    expect(dbTsSource).toContain(
+      "analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id)",
+    );
+    expect(dbTsSource).toContain(
+      "analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id)",
+    );
+  });
+});
+
 /**
  * Guard for the name-based migration tracking convention (see the
  * `runMigrations` doc comment in packages/core/src/db/migrations.ts for the
@@ -197,6 +208,24 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).not.toContain("LOCK TABLE analytics_events");
     expect(dbTsSource).toContain("new migration identity");
     expect(dbTsSource).toContain("out-of-band job");
+  });
+
+  it("records the repair marker without making the backfill a boot dependency", () => {
+    const repairStart = dbTsSource.indexOf("version: 134,");
+    const repairEnd = dbTsSource.indexOf("version: 135,", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-rollups-historical-backfill-repair"',
+    );
+    expect(repairEntry).toContain("sql: {},");
+    expect(repairEntry).not.toContain("run:");
+    expect(dbTsSource).not.toContain("deferMigration");
+    expect(dbTsSource).not.toContain(
+      "isHistoricalAnalyticsRollupBackfillComplete",
+    );
   });
 
   it("keeps the incremental rollup lock inside the rollup write transaction", () => {

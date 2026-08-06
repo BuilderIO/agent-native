@@ -121,4 +121,34 @@ describe("parseSlideHtml", () => {
       ),
     ).toThrowError(/Slide 4 contains freeform positioned objects/);
   });
+
+  it("preserves imported scene geometry, rich text runs, and placed images", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="position:relative;background:#000000;">
+        <div class="fmd-pptx-text" data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;">
+          <p style="line-height:1.5;"><span style="font-size:48px;font-family:'Poppins',sans-serif;color:#ffffff;font-weight:700;">Title</span></p>
+          <p style="line-height:1.5;"><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#d9d9d9;">Body </span><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#28e2fa;">accent</span></p>
+        </div>
+        <div class="fmd-pptx-image" data-pptx-element-kind="image" style="position:absolute;left:100px;top:300px;width:200px;height:100px;"><img src="/api/import-assets/token" alt="" /></div>
+      </div>`,
+      "16:9",
+      2,
+    );
+
+    expect(result.bgColor).toBe("000000");
+    expect(result.texts).toHaveLength(1);
+    expect(result.texts[0].x).toBeCloseTo(1, 3);
+    expect(result.texts[0].y).toBeCloseTo((68 / 540) * 7.5, 4);
+    expect(result.texts[0].fontSize).toBe(36);
+    expect(result.texts[0].runs?.map((run) => run.text).join("")).toContain(
+      "Body accent",
+    );
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "/api/import-assets/token",
+        x: expect.closeTo((100 / 960) * 13.33, 4),
+        y: expect.closeTo((300 / 540) * 7.5, 4),
+      }),
+    ]);
+  });
 });

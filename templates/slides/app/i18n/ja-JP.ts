@@ -681,6 +681,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides デッキをインポートするには Google Drive に接続してください。",
     googleSlidesReferenceChoose: "Google Slides デッキを選択",
+    googleSlidesReferenceUrl: "Google Slides のリンクを貼り付け",
     googleSlidesReferencePicking: "処理中...",
     googleSlidesReferenceConnected:
       "接続済みです。再利用可能なリファレンスとしてインポートする Google Slides デッキを選択してください。",

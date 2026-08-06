@@ -1340,6 +1340,30 @@ describe("missing agent engine setup", () => {
   });
 });
 
+describe("chat connection suggestion alignment", () => {
+  it("uses the fullscreen composer width contract and removes page-only insets", () => {
+    const panelSource = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const suggestionSource = readFileSync(
+      "src/client/resources/McpConnectionSuggestion.tsx",
+      { encoding: "utf8" },
+    );
+
+    expect(panelSource).toContain(
+      "[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,",
+    );
+    expect(panelSource).toContain(
+      ".agent-composer-area:not(.agent-composer-area--compact)",
+    );
+    expect(panelSource).toContain("padding-left:0;padding-right:0;");
+    expect(suggestionSource).toContain("w-[min(calc(100%_-_1.5rem),684px)]");
+    expect(suggestionSource).toContain(
+      "agent-mcp-connection-suggestion-error--composer",
+    );
+  });
+});
+
 describe("centered chat loading fallback", () => {
   it("keeps the loading composer in the same ordered stack as the real composer", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {

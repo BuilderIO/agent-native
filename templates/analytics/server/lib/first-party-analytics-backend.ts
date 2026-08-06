@@ -989,15 +989,22 @@ function backfillScopeSql(
   sql: string;
   args: string[];
 } {
-  const cursorSql =
-    "(received_at > ? OR (received_at = ? AND id > ?)) ORDER BY received_at ASC, id ASC LIMIT ?";
+  const cursorSql = "(received_at > ? OR (received_at = ? AND id > ?))";
+  const orderLimitSql = "ORDER BY received_at ASC, id ASC LIMIT ?";
   if (scope.orgId) {
     return {
-      sql:
-        "WHERE (org_id = ? OR (org_id IS NULL AND owner_email = ?)) AND " +
-        cursorSql,
+      sql: `SELECT * FROM (
+        SELECT * FROM analytics_events
+        WHERE org_id = ? AND ${cursorSql}
+        UNION ALL
+        SELECT * FROM analytics_events
+        WHERE org_id IS NULL AND owner_email = ? AND ${cursorSql}
+      ) AS scoped_events ${orderLimitSql}`,
       args: [
         scope.orgId,
+        cursor.receivedAt,
+        cursor.receivedAt,
+        cursor.id,
         scope.userEmail,
         cursor.receivedAt,
         cursor.receivedAt,
@@ -1006,7 +1013,9 @@ function backfillScopeSql(
     };
   }
   return {
-    sql: "WHERE org_id IS NULL AND owner_email = ? AND " + cursorSql,
+    sql: `SELECT * FROM analytics_events
+      WHERE org_id IS NULL AND owner_email = ? AND ${cursorSql}
+      ${orderLimitSql}`,
     args: [scope.userEmail, cursor.receivedAt, cursor.receivedAt, cursor.id],
   };
 }
@@ -1022,7 +1031,7 @@ export async function backfillFirstPartyAnalyticsBatch(
   const parsedCursor = parseBackfillCursor(cursor);
   const scoped = backfillScopeSql(scope, parsedCursor);
   const result = await db.execute({
-    sql: `SELECT * FROM analytics_events ${scoped.sql}`,
+    sql: scoped.sql,
     args: [...scoped.args, boundedLimit],
     timeoutMs: 20_000,
     maxAttempts: 1,
