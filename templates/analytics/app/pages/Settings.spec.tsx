@@ -65,16 +65,29 @@ vi.mock("@agent-native/core/client/settings", () => ({
   SettingsTabsPage: ({
     account,
     general,
+    extraTabs,
   }: {
     account: React.ReactNode;
     general: React.ReactNode;
+    extraTabs?: Array<{ content: React.ReactNode }>;
   }) => (
     <main>
       {account}
       {general}
+      {extraTabs?.map((tab) => tab.content)}
     </main>
   ),
-  useAgentSettingsTabs: () => [],
+  useAgentSettingsTabs: ({
+    agentAdditionalContent,
+  }: {
+    agentAdditionalContent?: React.ReactNode;
+  } = {}) => [
+    {
+      id: "agent",
+      label: "Agent",
+      content: agentAdditionalContent ?? null,
+    },
+  ],
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({ TeamPage: () => null }));

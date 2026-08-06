@@ -188,10 +188,6 @@ const enUS = {
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
-    dashboardTemplates: "Dashboard templates",
-    dashboardTemplatesDescription:
-      "Install a source-controlled dashboard when you need a starting point.",
-    openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
     errorEmailNotifications: "Email new error alerts",
@@ -4434,9 +4430,6 @@ export const messagesByLocale = {
       credentials: "数据源凭据",
       credentialsDescription: "API 密钥和凭据在数据源页面管理。",
       manageDataSources: "管理数据源",
-      dashboardTemplates: "仪表板模板",
-      dashboardTemplatesDescription: "需要起点时，安装受源码管理的仪表板。",
-      openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
       errorEmailNotifications: "通过电子邮件接收新的错误提醒",
@@ -4654,10 +4647,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Las claves API y credenciales se gestionan en la página Fuentes de datos.",
       manageDataSources: "Gestionar fuentes de datos",
-      dashboardTemplates: "Plantillas de paneles",
-      dashboardTemplatesDescription:
-        "Instala un panel controlado por código fuente cuando necesites un punto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
       errorEmailNotifications: "Recibir nuevas alertas de errores por email",
@@ -4880,10 +4869,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Les clés API et identifiants sont gérés sur la page Sources de données.",
       manageDataSources: "Gérer les sources de données",
-      dashboardTemplates: "Modèles de tableaux de bord",
-      dashboardTemplatesDescription:
-        "Installez un tableau de bord suivi dans le code source lorsque vous avez besoin d'un point de départ.",
-      openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
       errorEmailNotifications:
@@ -5114,10 +5099,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API-Schlüssel und Anmeldedaten werden auf der Seite Datenquellen verwaltet.",
       manageDataSources: "Datenquellen verwalten",
-      dashboardTemplates: "Dashboard-Vorlagen",
-      dashboardTemplatesDescription:
-        "Installiere ein quellkontrolliertes Dashboard, wenn du einen Ausgangspunkt brauchst.",
-      openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
       errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
@@ -5339,10 +5320,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API キーと認証情報はデータソースページで管理します。",
       manageDataSources: "データソースを管理",
-      dashboardTemplates: "ダッシュボードテンプレート",
-      dashboardTemplatesDescription:
-        "出発点が必要なときは、ソース管理されたダッシュボードをインストールします。",
-      openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
       errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
@@ -5561,10 +5538,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API 키와 자격 증명은 데이터 소스 페이지에서 관리합니다.",
       manageDataSources: "데이터 소스 관리",
-      dashboardTemplates: "대시보드 템플릿",
-      dashboardTemplatesDescription:
-        "시작점이 필요할 때 소스 제어된 대시보드를 설치하세요.",
-      openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
       errorEmailNotifications: "새 오류 알림을 이메일로 받기",
@@ -5787,10 +5760,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
       manageDataSources: "Gerenciar fontes de dados",
-      dashboardTemplates: "Modelos de dashboard",
-      dashboardTemplatesDescription:
-        "Instale um dashboard controlado por código-fonte quando precisar de um ponto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
       errorEmailNotifications: "Receber novos alertas de erro por e-mail",
@@ -6009,10 +5978,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API कुंजियां और क्रेडेंशियल डेटा स्रोत पेज पर प्रबंधित होते हैं।",
       manageDataSources: "डेटा स्रोत प्रबंधित करें",
-      dashboardTemplates: "डैशबोर्ड टेम्पलेट",
-      dashboardTemplatesDescription:
-        "जब आपको शुरुआत का आधार चाहिए, तो स्रोत-नियंत्रित डैशबोर्ड इंस्टॉल करें।",
-      openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
       errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
@@ -6228,10 +6193,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "تتم إدارة مفاتيح API وبيانات الاعتماد من صفحة مصادر البيانات.",
       manageDataSources: "إدارة مصادر البيانات",
-      dashboardTemplates: "قوالب لوحات المعلومات",
-      dashboardTemplatesDescription:
-        "ثبّت لوحة معلومات مضبوطة في المصدر عندما تحتاج إلى نقطة بداية.",
-      openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
       errorEmailNotifications:

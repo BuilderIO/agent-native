@@ -578,13 +578,18 @@ export function SettingsTabsPage({
                 const tab = tabs.find(
                   (candidate) => candidate.id === entry.tabId,
                 );
+                const entryHash = entry.hash?.replace(/^#/, "");
                 const resultHref = tab?.href
-                  ? entry.hash
-                    ? `${tab.href.split("#", 1)[0]}#${entry.hash.replace(/^#/, "")}`
+                  ? entryHash
+                    ? `${tab.href.split("#", 1)[0]}#${entryHash}`
                     : tab.href
-                  : entry.hash
-                    ? `${buildSettingsRoute(entry.tabId)}#${entry.hash.replace(/^#/, "")}`
-                    : buildSettingsRoute(entry.tabId);
+                  : entryHash?.startsWith("agent:")
+                    ? buildSettingsRoute(entryHash)
+                    : entryHash === entry.tabId
+                      ? buildSettingsRoute(entry.tabId)
+                      : entryHash
+                        ? `${buildSettingsRoute(entry.tabId)}#${entryHash}`
+                        : buildSettingsRoute(entry.tabId);
                 const result = (
                   <>
                     {Icon ? (
