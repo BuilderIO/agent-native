@@ -651,10 +651,14 @@ export default function EditorToolbar({
                       defaultMermaidDefinition,
                     );
                     onUpdateSlide({ excalidrawData: data });
-                  } catch (err: any) {
+                    setLayoutOpen(false);
+                  } catch (err) {
                     console.error("Insert Mermaid diagram failed:", err);
+                    toast.error(t("editorToolbar.insertMermaidFailed"), {
+                      description:
+                        err instanceof Error ? err.message : undefined,
+                    });
                   }
-                  setLayoutOpen(false);
                 }}
                 className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
               >
@@ -695,8 +699,12 @@ export default function EditorToolbar({
                         );
                         onUpdateSlide({ excalidrawData: data });
                         setLayoutOpen(false);
-                      } catch (err: any) {
+                      } catch (err) {
                         console.error("Mermaid to Excalidraw failed:", err);
+                        toast.error(t("editorToolbar.convertMermaidFailed"), {
+                          description:
+                            err instanceof Error ? err.message : undefined,
+                        });
                       }
                     }}
                     className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[hsl(var(--accent-cyan))] hover:bg-accent/50 transition-colors"
