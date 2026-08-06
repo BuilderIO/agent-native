@@ -7,9 +7,20 @@ const mocks = vi.hoisted(() => ({
   registerDispatcher: vi.fn(),
   processImport: vi.fn(),
   processDue: vi.fn(async () => ({ discovered: 0, dispatched: 0, failed: 0 })),
+  processDueBackground: vi.fn(async () => ({
+    discovered: 0,
+    dispatched: 0,
+    failed: 0,
+  })),
+  enqueueDailyMaintenance: vi.fn(async () => ({
+    discovered: 0,
+    queued: 0,
+    failed: 0,
+  })),
   h3Use: vi.fn(),
   verifyInternalToken: vi.fn(() => true),
   isLocalDatabase: vi.fn(() => true),
+  isInBackgroundFunctionRuntime: vi.fn(() => false),
 }));
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
@@ -23,6 +34,7 @@ vi.mock("@agent-native/core/server", () => ({
   fireInternalDispatch: mocks.fireInternalDispatch,
   FRAMEWORK_ROUTE_PREFIX: "/_agent-native",
   getH3App: mocks.getH3App,
+  isInBackgroundFunctionRuntime: mocks.isInBackgroundFunctionRuntime,
   readBody: mocks.readBody,
   verifyInternalToken: mocks.verifyInternalToken,
 }));
@@ -34,17 +46,9 @@ vi.mock("./worker.js", () => ({
 }));
 
 vi.mock("./background-worker.js", () => ({
-  enqueueCreativeContextDailyMaintenance: vi.fn(async () => ({
-    discovered: 0,
-    queued: 0,
-    failed: 0,
-  })),
+  enqueueCreativeContextDailyMaintenance: mocks.enqueueDailyMaintenance,
   processCreativeContextBackgroundJob: vi.fn(),
-  processDueCreativeContextBackgroundJobs: vi.fn(async () => ({
-    discovered: 0,
-    dispatched: 0,
-    failed: 0,
-  })),
+  processDueCreativeContextBackgroundJobs: mocks.processDueBackground,
   registerCreativeContextBackgroundDispatcher: vi.fn(),
 }));
 
@@ -60,11 +64,15 @@ describe("creative context hosted worker", () => {
     mocks.fireInternalDispatch.mockClear();
     mocks.registerDispatcher.mockClear();
     mocks.processDue.mockClear();
+    mocks.processDueBackground.mockClear();
+    mocks.enqueueDailyMaintenance.mockClear();
     mocks.h3Use.mockClear();
     mocks.verifyInternalToken.mockReset();
     mocks.verifyInternalToken.mockReturnValue(true);
     mocks.isLocalDatabase.mockReset();
     mocks.isLocalDatabase.mockReturnValue(true);
+    mocks.isInBackgroundFunctionRuntime.mockReset();
+    mocks.isInBackgroundFunctionRuntime.mockReturnValue(false);
     mocks.getH3App.mockReturnValue({ use: mocks.h3Use });
     mocks.readBody.mockReset();
     vi.unstubAllEnvs();
@@ -113,6 +121,20 @@ describe("creative context hosted worker", () => {
       registerDispatcher: false,
     })({});
     expect(mocks.registerDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("mounts processors without starting database sweeps in background runtime", async () => {
+    mocks.isInBackgroundFunctionRuntime.mockReturnValue(true);
+
+    await createCreativeContextWorkerPlugin({ appId: "analytics" })({});
+
+    expect(mocks.h3Use).toHaveBeenCalledWith(
+      CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE,
+      expect.any(Function),
+    );
+    expect(mocks.processDue).not.toHaveBeenCalled();
+    expect(mocks.processDueBackground).not.toHaveBeenCalled();
+    expect(mocks.enqueueDailyMaintenance).not.toHaveBeenCalled();
   });
 
   it("rejects invalid signed dispatches", async () => {

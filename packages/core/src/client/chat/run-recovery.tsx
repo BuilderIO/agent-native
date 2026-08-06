@@ -27,6 +27,7 @@ import {
 } from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
+import { isProviderAuthenticationError } from "../error-format.js";
 import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -540,12 +541,14 @@ export function RunErrorRecoveryCard({
   onRetry,
   onFork,
   onDismiss,
+  onProviderConnected,
 }: {
   info: RunErrorInfo;
   onContinue: () => void;
   onRetry: () => void;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
+  onProviderConnected?: () => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
@@ -558,6 +561,16 @@ export function RunErrorRecoveryCard({
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const isProviderAuthError = isProviderAuthenticationError(
+    [info.message, info.details].filter(Boolean).join("\n"),
+    info.errorCode,
+  );
+  // Blocked on something the reader goes and fixes elsewhere, then comes back
+  // to. Without a retry the card is a dead end and its own copy ("then retry")
+  // points at a button that isn't there.
+  const isUnblockableExternally =
+    info.errorCode === "email_verification_required";
+  const canRetry = canRecover || isProviderAuthError || isUnblockableExternally;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -589,6 +602,11 @@ export function RunErrorRecoveryCard({
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
     onDismiss();
   }, [onDismiss]);
+
+  const handleProviderConnected = useCallback(() => {
+    onProviderConnected?.();
+    onDismiss();
+  }, [onDismiss, onProviderConnected]);
 
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
@@ -625,10 +643,19 @@ export function RunErrorRecoveryCard({
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {info.message}
           </p>
+          {isProviderAuthError && (
+            <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
+              <BuilderSetupContent
+                layout="sidebar"
+                onConnected={handleProviderConnected}
+              />
+            </div>
+          )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               The current Builder.io or model-provider credential was rejected.
-              Reconnect Builder.io, then retry this message.
+              Reconnect Builder.io (free tier available), then retry this
+              message.
             </p>
           )}
           {isConnectionRecoveryError && (
@@ -700,15 +727,17 @@ export function RunErrorRecoveryCard({
               <IconPlayerPlay size={13} />
               Continue
             </button>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-            >
-              <IconRefresh size={13} />
-              {isQueryError ? "Diagnose and retry" : "Retry"}
-            </button>
           </>
+        )}
+        {canRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            <IconRefresh size={13} />
+            {isQueryError ? "Diagnose and retry" : "Retry"}
+          </button>
         )}
         {canRecover && isConnectionRecoveryError && (
           <button

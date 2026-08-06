@@ -15,7 +15,6 @@ const messages = {
     monitoringErrors: "錯誤",
     admin: "管理",
     agents: "代理",
-    templateCatalog: "目錄",
     dashboards: "儀表板",
     analyses: "分析",
     explorer: "探索器",
@@ -24,6 +23,7 @@ const messages = {
     navigation: "導覽",
     openNavigation: "開啟導覽",
     loadingDashboardTitle: "正在載入儀表板標題",
+    templateCatalog: "目錄",
   },
   dashboardHeader: {
     updated: "更新於 {{date}}",
@@ -132,9 +132,6 @@ const messages = {
     credentials: "資料來源憑證",
     credentialsDescription: "API 金鑰和憑證在資料來源頁面管理。",
     manageDataSources: "管理資料來源",
-    dashboardTemplates: "儀表板範本",
-    dashboardTemplatesDescription: "需要起點時，可安裝來源程式碼控制的儀表板。",
-    openDashboardTemplates: "開啟目錄",
     languageTitle: "語言",
     languageLabel: "介面語言",
     errorEmailNotifications: "透過電子郵件接收新的錯誤提醒",
@@ -144,10 +141,6 @@ const messages = {
     bellSound: "提示音",
     bellSoundDescription: "代理完成工作時播放提示音。預設為關閉。",
     bellSoundSaveFailed: "無法儲存提示音偏好設定。",
-    about: "關於",
-    aboutDescription:
-      "Analytics 用於連線資料來源並建置自訂儀表板。連線 Google Analytics、BigQuery、Stripe 等，然後讓代理建立儀表板。",
-    aboutUsage: "在資料來源頁面管理連線。使用查詢探索器執行臨時 BigQuery SQL。",
     replayStorage: "工作階段回放儲存",
     replayStorageDescription:
       "工作階段回放錄製需要已設定的檔案上傳供應商。連線 Builder.io 以使用免費方案的物件儲存，或使用您自己的 S3 相容儲存桶。",
@@ -475,6 +468,22 @@ const messages = {
     firstPartyAnalytics: "第一方 Analytics",
     firstPartyDescription:
       "透過同一個第一方端點接收產品、工作階段與 $ai_generation 事件，用於儀表板和 LLM 可觀測性。",
+    bigQueryRecommendationTitle: "建議為此資料使用 BigQuery",
+    bigQueryRecommendationDescription:
+      "Neon 仍是預設選擇。當觀察到超過 100 萬個事件或反覆出現慢查詢/逾時時，請連線 BigQuery，並用它進行高資料量或歷史分析。",
+    bigQueryConnectedTitle: "BigQuery 已準備好處理較重的查詢",
+    bigQueryConnectedDescription:
+      "使用 BigQuery 處理高資料量或歷史追蹤查詢。Neon 仍可用於近期營運分析。",
+    bigQuerySetup: "設定 BigQuery",
+    bigQueryMonitorDescription:
+      "Neon 目前仍然適合。請留意事件量和查詢延遲；如果壓力增加，此卡片會建議 BigQuery。",
+    bigQueryHealthyDescription:
+      "目前 Neon 適合這項第一方資料。如果事件量或查詢延遲增加，我們會再次提醒您。",
+    bigQueryHealthUnavailable:
+      "現在無法檢查第一方 Analytics 壓力。請重新載入後再嘗試更換後端。",
+    analyticsEventCount: "觀察到的事件",
+    slowQueries24h: "慢查詢（24 小時）",
+    maxQueryDuration: "最長查詢時間",
     defaultKeyName: "託管範本",
     endpoint: "端點",
     serverEnv: "伺服器環境",
@@ -494,6 +503,23 @@ const messages = {
     configuredCount: "{{count}}已設定",
     searchPlaceholder: "搜尋資料來源...",
     noMatch: "沒有資料來源匹配“{{search}}”",
+  },
+  analyticsBackend: {
+    recommendationTitle: "針對大量歷史資料使用外部分析後端",
+    recommendationDescription:
+      "Neon 仍是近期營運分析的預設選擇。連線 BigQuery 以使用資料倉儲 SQL 和歷史分析，或連線 Amplitude 以進行產品分析、漏斗和留存分析。連線後不會自動搬移 /track 事件或回填現有 Neon 資料。",
+    connectedTitle: "外部分析後端已就緒",
+    connectedDescription:
+      "使用 BigQuery 進行資料倉儲 SQL 和歷史分析，或使用 Amplitude 進行產品分析、漏斗和留存分析。內建的 /track 收集器仍會寫入第一方 Analytics，除非您明確設定其他收集路徑。",
+    options: "外部選項",
+    monitorDescription:
+      "Neon 目前仍然適合。請留意事件量和查詢延遲；如果壓力增加，此卡片會建議外部後端。",
+    healthyDescription:
+      "Neon 目前適合這項第一方資料。如果事件量或查詢延遲增加，我們會建議 BigQuery 或 Amplitude。",
+    unavailableDescription:
+      "現在無法檢查第一方 Analytics 壓力。請重新載入後再嘗試更換後端。",
+    configured: "已設定",
+    setUp: "設定",
   },
   panelEditor: {
     chartTypeLine: "線",
@@ -686,6 +712,7 @@ const messages = {
     monitoring: "監控",
     monitoringDescription:
       "核心可觀測性集中在這裡：執行、追蹤、評估、實驗與回饋。若需要第一方 token、延遲與成本圖表，請從目錄安裝 LLM 可觀測性儀表板。",
+    openCatalog: "開啟目錄",
     dashboardUsage: "儀表板使用情況",
     dashboardUsageTitle: "儀表板使用情況",
     dashboardUsageDescription:
@@ -727,7 +754,6 @@ const messages = {
     visibilitypublic: "公開",
     advanced: "進階",
     database: "應用程式資料庫",
-    openCatalog: "開啟目錄",
     dbConnectionsTitle: "已連接的應用程式資料庫",
     dbConnectionsDescription:
       "連接其他 agent-native 應用程式資料庫，供管理員檢查與修復。這不會把 Analytics 資料開放給所有使用者。",

@@ -14,7 +14,7 @@ description: "ファイル アップロード ストレージを構成します 
 プロバイダーの解決順序は次のとおりです:
 
 1. **ユーザー登録プロバイダー** — `registerFileUploadProvider()` 経由で登録されたカスタムプロバイダー
-2. **Builder.io プロバイダー** — 組み込み、Builder.io が接続されると自動的にアクティブ化されます
+2. **Builder.io プロバイダー**（無料プランあり）— 組み込み、Builder.io が接続されると自動的にアクティブ化されます
 3. **SQL フォールバック** — ファイルをデータベースに Base64 として保存します (開発には問題ありませんが、運用には問題ありません)
 
 <Diagram id="doc-block-1bqg825" title={"プロバイダーの解決順序"} summary={"UploadFile() は、最初に構成されたプロバイダーを順番に選択します。 SQL フォールバックは常に存在するため、アップロードはセットアップなしで機能します。"}>
@@ -102,7 +102,7 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 ## Builder.io ホスティング {#builder-hosting}
 
-アプリが Builder.io に接続されている場合、ファイルのアップロードは Builder のアセット ホスティングに自動的にルーティングされます。ファイルは、構成を必要とせずに CDN から提供されます。これは推奨される運用環境設定です。
+アプリが Builder.io に接続されている場合（無料プランあり）、ファイルのアップロードは Builder のアセット ホスティングに自動的にルーティングされます。ファイルは、構成を必要とせずに CDN から提供されます。これは推奨される運用環境設定です。
 
 ## カスタムプロバイダー {#custom-providers}
 

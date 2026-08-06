@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { decodeContinuation } from "@agent-native/core/shared";
 import {
   expect,
   test,
@@ -385,13 +386,12 @@ async function expectReturnUrl(
     const button = getButton(signedOut.page);
     await expect(button).toBeVisible();
     await button.click();
-    await expect(signedOut.page).toHaveURL(/\/_agent-native\/sign-in\?return=/);
+    await expect(signedOut.page).toHaveURL(/\/sign-in\?c=/);
 
     const url = new URL(signedOut.page.url());
-    const returned = url.searchParams.get("return");
-    expect(returned).toBeTruthy();
-    const decoded = decodeURIComponent(returned ?? "");
-    expect(decoded).toBe(expectedReturnPath);
+    const continuation = url.searchParams.get("c");
+    expect(continuation).toBeTruthy();
+    expect(decodeContinuation(continuation)).toBe(expectedReturnPath);
     await assertNoRuntimeErrors(signedOut);
   } finally {
     await signedOut.close();

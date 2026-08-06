@@ -1,0 +1,418 @@
+---
+title: "数据库"
+description: "为你的代理本机应用连接一个便携式 SQL 数据库：schema 助手、迁移，以及托管数据库选项。"
+---
+
+# 数据库
+
+每个代理本机应用都把状态存储在 SQL 中。UI 和代理通过同一套 Actions、使用同一个 [Drizzle ORM](https://orm.drizzle.team) 客户端来读写同一批表。无论哪一方修改了数据，另一方都会通过轮询层看到变化。
+
+<Diagram id="doc-block-9mtx2f" title="数据如何流向数据库" summary="UI 和代理都通过同一个 Actions 层访问数据库。两个调用方使用同一个 getDb() 客户端和同一批 SQL 表，彼此之间没有各自独立的后端。">
+
+```html
+<div class="diagram-dbr">
+  <div class="diagram-col">
+    <div class="diagram-node">浏览器 / UI</div>
+    <div class="diagram-node">Agent 循环</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Actions</strong>
+    <small class="diagram-muted">defineAction</small>
+    <small class="diagram-muted">getDb() &middot; Drizzle ORM</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL 数据库<br /><small class="diagram-muted">方言取决于 DATABASE_URL</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-dbr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-dbr .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-dbr .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-dbr .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 托管选项 {#hosting}
+
+应用会根据 `DATABASE_URL` 判断使用哪种后端。当该变量未设置时，会回退到本地 SQLite 文件，让你无需任何配置就能开始开发。
+
+### 默认：SQLite 文件 {#default-sqlite}
+
+当未设置 `DATABASE_URL` 时，应用会在 `data/app.db` 处创建一个 SQLite 数据库，无需任何配置。启动开发服务器后，该文件会在首次运行时自动创建。
+
+这仅适用于本地开发。容器、无服务器函数和预览环境可能会在重启之间重置文件系统，导致本地 SQLite 文件消失。部署之前请将 `DATABASE_URL` 设置为持久化的托管数据库。
+
+### 本地 Postgres：PGlite {#local-pglite}
+
+如果想在本地针对 Postgres 方言开发,又不想用 Docker 或托管数据库，可以安装可选的 PGlite 包并设置 `DATABASE_URL`：
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+```bash
+DATABASE_URL=pglite:./data/pglite
+```
+
+[PGlite](https://pglite.dev/) 在进程内运行一个基于 WASM 的 Postgres 数据库。它能让你在部署之前发现仅存在于 Postgres 的 schema 问题，同时保持和 SQLite 默认方案一样简单的搭建流程。与 SQLite 一样，它只是本地存储，不要用于生产或共享环境。
+
+### 生产数据库 {#production}
+
+在 `.env` 文件或部署提供商的环境变量中设置 `DATABASE_URL`，以连接一个托管数据库：
+
+```bash
+# Neon Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# 普通 Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso（libSQL）。还需要设置 DATABASE_AUTH_TOKEN。
+DATABASE_URL=libsql://my-db-org.turso.io
+```
+
+框架会根据 URL 前缀自动检测方言，并相应地配置 Drizzle。
+
+### Builder.io 托管数据库 {#builder-managed}
+
+_计划中（尚未提供）：_ 连接到 Builder.io 后，你的应用将能够使用自动配置的托管数据库，无需任何连接字符串。
+
+## 搭建数据库 {#setup}
+
+一个使用数据库的应用需要三个文件：
+
+- `server/db/schema.ts`：表定义
+- `server/db/index.ts`：类型化的数据库客户端单例
+- `server/plugins/db.ts`：在启动时运行的迁移
+
+### 1. 定义你的 schema {#schema}
+
+从 `@agent-native/core/db/schema` 导入 schema 助手，永远不要直接从 `drizzle-orm/sqlite-core` 或 `drizzle-orm/pg-core` 导入。框架提供的助手会生成与方言无关的定义，可在所有受支持的后端上运行。
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| 助手      | 用途                                                                         |
+| --------- | ---------------------------------------------------------------------------- |
+| `table`   | 定义一个表；会转发给 `pgTable` 或 `sqliteTable`                              |
+| `text`    | 文本列，支持 `{ enum: [...] }`                                               |
+| `integer` | 整数列，`{ mode: "boolean" }` 会映射到 Postgres 的布尔类型                   |
+| `real`    | 浮点数列。在 SQLite 上映射为 `real`，在 Postgres 上映射为 `double precision` |
+| `now`     | 与方言无关的当前时间戳，用于 `.default(now())`                               |
+
+<DataModel
+  id="doc-block-3hbven"
+  title="tasks 表"
+  summary={"使用框架助手定义一次；具体方言在运行时根据 DATABASE_URL 选定。"}
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "领域表。添加 owner_email（或 ...ownableColumns()），以便 SQL 层面的范围限定能把行过滤到已认证的用户。",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "默认值为 0",
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "默认值为 false；映射到 Postgres 的布尔类型",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "用于支持数据范围限定",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "默认值为 now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+存储按用户区分的数据的表必须包含一个 `owner_email` 列，以便框架能把行过滤到已认证的用户。如果表还需要支持与其他用户或组织共享，则应改用展开 `...ownableColumns()`，它会在一次调用中添加 `owner_email`、`org_id` 和 `visibility`。参见下方的[将数据限定到用户范围](#scoping)。
+
+### 2. 创建数据库客户端 {#db-client}
+
+每个应用通过调用 `createGetDb(schema)` 来创建一个惰性的单例 Drizzle 客户端，规范的存放位置是 `server/db/index.ts`：
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+`createGetDb` 返回一个 `getDb()` 函数，它在首次调用时打开数据库连接，之后每次调用都返回同一个类型化的 Drizzle 实例。它会在运行时读取 `DATABASE_URL`，以决定使用哪个后端和方言。
+
+在 Actions 和路由中都应从这个模板本地路径导入 `getDb`,不要直接从 `@agent-native/core` 导入。核心包导出的版本是无类型的；本地导出的版本携带了你的 schema 类型。
+
+### 3. 编写迁移 {#migrations}
+
+Schema 的变更通过 `server/plugins/db.ts` 中的 Nitro 插件在启动时应用。使用 `@agent-native/core/db` 中的 `runMigrations`：
+
+<AnnotatedCode
+  id="doc-block-7qwlpz"
+  title="一个启动迁移插件"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "每个应用独立的版本表",
+      note: "每个应用都在一张独立的表中跟踪自己已应用的版本。请使用你的应用专属的名称，以免与框架迁移或共享同一数据库的其他应用发生冲突。",
+    },
+    {
+      lines: "7",
+      label: "初始建表",
+      note: "`CREATE TABLE IF NOT EXISTS` 可以在每次重启时安全地重复执行。把完整的表定义放在版本 1 中。",
+    },
+    {
+      lines: "17",
+      label: "增量式的列添加",
+      note: "`ADD COLUMN IF NOT EXISTS` 是在初始建表之后添加列的安全方式。永远不要删除或重命名列。",
+    },
+    {
+      lines: "22-25",
+      label: "按方言分支",
+      note: "传入一个以方言为键的对象，为每个后端运行不同的 SQL。对不需要该变更的方言使用 `SELECT 1` 作为空操作。",
+    },
+  ]}
+/>
+
+`runMigrations` 会按顺序执行每一条记录一次，然后记录下已应用的版本，以便后续重启时跳过。每条记录都是幂等的，这个插件在每次启动时调用都是安全的。
+
+<Callout tone="risk">
+  切勿针对生产数据库运行 `drizzle-kit push`。模板 schema 只定义了应用特有的表；
+  它们不包含中心框架表（`user`、`session`、`application_state` 等）。在生产环境
+  运行 `drizzle-kit push` 会把这些表识别为未知表并尝试删除它们，从而导致立即的
+  数据丢失。
+</Callout>
+
+每个应用根目录下的 `drizzle.config.ts` 为本地开发时的 schema 检查配置了 drizzle-kit：
+
+```ts filename="drizzle.config.ts"
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
+export default createDrizzleConfig();
+```
+
+使用 `pnpm db:generate` 检查你的 schema，`pnpm db:push` 仅用于本地数据库。
+
+### 4. 在 Actions 中查询 {#querying}
+
+在你的 Actions 中调用 `getDb()` 获取类型化的 Drizzle 客户端，使用 Drizzle 的查询构建器和 `drizzle-orm` 中的可移植运算符：
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(schema.tasks)
+  .where(
+    and(eq(schema.tasks.ownerEmail, userEmail), eq(schema.tasks.done, false)),
+  )
+  .orderBy(desc(schema.tasks.createdAt));
+
+await db
+  .update(schema.tasks)
+  .set({ done: true })
+  .where(eq(schema.tasks.id, taskId));
+```
+
+## 将数据限定到用户范围 {#scoping}
+
+所有针对面向用户的表的读写都必须限定在已认证用户的范围内。框架提供了两种模式，取决于数据是私有的还是可共享的。
+
+**私有数据**：属于单个用户的表。在 schema 中添加 `ownerEmail: text("owner_email").notNull()`，并在每个查询中加入 `eq(table.ownerEmail, userEmail)`：
+
+```ts
+.where(eq(schema.tasks.ownerEmail, userEmail))
+```
+
+**共享资源**：可以与其他用户或组织共享的表。应在 schema 中展开 `...ownableColumns()`，而不是裸露的 `owner_email`。这会在一次调用中添加 `owner_email`、`org_id` 和 `visibility`，并通过 `createSharesTable` 创建一张配套的共享表：
+
+```ts filename="server/db/schema.ts"
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+export const deckShares = createSharesTable("deck_shares");
+```
+
+然后在列表查询中使用 `@agent-native/core/sharing` 提供的 `accessFilter`，而不是手写的 `eq` 检查：
+
+```ts
+import { accessFilter } from "@agent-native/core/sharing";
+
+const rows = await db
+  .select()
+  .from(schema.decks)
+  .where(accessFilter(schema.decks, schema.deckShares));
+```
+
+`accessFilter` 构建的查询会放行调用者拥有的行、与其组织共享的行,以及明确共享给该调用者的行,不会暴露其他用户的行。
+
+完整模型参见[安全性 — 数据范围限定](/docs/security#data-scoping)和[共享](/docs/sharing#building)。
+
+## 基于 SQL 的同步 {#sync}
+
+代理本机架构不依赖文件系统监听器或粘性的内存态。当某个 Action 写入数据库时，一个同步版本号会递增。客户端的 `useDbSync()` Hook 会轮询 `/_agent-native/poll`，一旦发现更高的版本号,就会让对应的 React Query 缓存失效。
+
+这种方式在无服务器和多实例部署下依然有效，因为数据库本身就是协调点。如果你在 Actions 之外编写自定义的写操作，请使用框架助手，或者自行触发相应的同步失效，以便打开的 UI 能够刷新。
+
+<Diagram id="doc-block-qhkdv8" title="基于 SQL 的同步循环" summary="没有监听器，没有粘性状态：一次写入会让 SQL 中的版本号递增；每个客户端轮询该版本号并重新拉取数据。">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    Action / 助手<br /><small class="diagram-muted">修改数据</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL 数据库</strong
+    ><small class="diagram-muted">同步版本号递增</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >轮询 /_agent-native/poll</small
+      >
+    </div>
+    <div class="diagram-pill ok">使缓存失效 &rarr; UI 刷新</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="poll 端点" method="GET" path="/_agent-native/poll" summary="返回当前按来源划分的数据库同步版本号，以便客户端检测变化。" auth="Session cookie（请求范围内的身份）" responses={[
+  {
+    "status": "200",
+    "description": "按来源为键的当前同步版本号。"
+  }
+]}>
+
+`useDbSync()` 会按固定间隔调用这个端点，并在 SSE 不可用时作为回退方案。当返回的版本号高于客户端最后一次看到的值时，对应的 React Query 缓存会失效并重新拉取。
+
+</Endpoint>
+
+## 原始 SQL {#raw-sql}
+
+对于高级查询、健康检查，或 Drizzle 查询构建器无法表达的一次性维护操作，可以使用 `@agent-native/core/db` 中的 `getDbExec`：
+
+```ts
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+
+const { rows } = await getDbExec().execute({
+  sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
+  args: [userEmail, 50],
+});
+```
+
+`getDbExec` 会自动把 `?` 参数转换为 Postgres 所需的 `$1`、`$2` 等形式。使用 `isPostgres()` 按方言分支处理，使用 `intType()` 返回当前后端对应的正确整数类型。日常的读写请优先使用 Drizzle 查询构建器,原始 SQL 会绕过类型安全，也更难维护。
+
+## 环境变量 {#environment-variables}
+
+| 变量                  | 用途                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | 持久化的 SQL 连接字符串（未设置 = 本地 SQLite；`pglite:./data/pglite` = 可选的本地 Postgres） |
+| `DATABASE_AUTH_TOKEN` | 供需要单独令牌的提供商使用的身份验证令牌，例如 Turso/libSQL                                   |
+
+## 下一步 {#whats-next}
+
+- [**安全性 — 数据范围限定**](/docs/security#data-scoping)：`owner_email` 和访问助手如何限定读写范围
+- [**共享**](/docs/sharing#building)：`ownableColumns()` 以及共享资源的可见性模型
+- [**插件**](/docs/server-plugins)：迁移运行所在的启动插件生命周期
+- [**Actions**](/docs/actions)：Actions 调用 `getDb()` 读写数据的表面
+- [**部署**](/docs/deployment#persistent-database)：为每个部署目标连接持久化数据库
+- [**实时同步**](/docs/key-concepts#polling-sync)：`useDbSync()` 及完整的客户端同步模型

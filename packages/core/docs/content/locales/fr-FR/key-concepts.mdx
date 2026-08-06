@@ -23,7 +23,7 @@ Chaque application native pour agent est composée de trois éléments qui fonc
 
 - **Agent** – IA autonome qui lit et écrit des données, exécute des actions et utilise les outils configurés. Personnalisable avec skills et instructions.
 - **Application** — Surface du produit autour de l'agent. Il peut s'agir au début d'une action uniquement, d'un chat riche, d'un petit plan de contrôle ou d'un UI React complet avec des tableaux de bord, des flux et des visualisations.
-- **Ordinateur** — Base de données, navigateur, exécution de code. Les agents travaillent directement avec SQL et les outils intégrés ; Les serveurs MCP sont des modules complémentaires facultatifs, et non la base.
+- **Ordinateur** — Base de données, navigateur, exécution de code. Les agents travaillent via la surface d'actions et de données de l'application ; l'application peut exposer cette même surface via MCP. Les serveurs MCP externes restent des modules complémentaires facultatifs, et non la base.
 
 <Diagram id="doc-block-1w2cmz8" title="Agent, application et ordinateur" summary={"Trois couches travaillant ensemble sur un magasin SQL partagé. L'agent et l'application lisent et écrivent les mêmes données."}>
 

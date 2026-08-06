@@ -463,7 +463,7 @@ function BuilderCreditsPausedNotice({
               size="sm"
               className="h-8 text-amber-900 hover:bg-amber-100 hover:text-amber-950 dark:text-amber-100 dark:hover:bg-amber-900/40"
             >
-              <a href={appPath("/settings#ai-providers")}>
+              <a href={appPath("/settings/general#ai-providers")}>
                 {t("builderCredits.openAiSetup")}
               </a>
             </Button>

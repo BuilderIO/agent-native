@@ -404,6 +404,24 @@ export const recordingViews = table("recording_views", {
   viewedAt: text("viewed_at").notNull().default(now()),
 });
 
+export const recordingPlaybackPositions = table(
+  "recording_playback_positions",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    viewerKey: text("viewer_key").notNull(),
+    viewerEmail: text("viewer_email"),
+    positionMs: integer("position_ms").notNull().default(0),
+    updatedAt: text("updated_at").notNull().default(now()),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (position) => ({
+    recordingPlaybackPositionUnique: uniqueIndex(
+      "recording_playback_positions_recording_viewer_key_unique_idx",
+    ).on(position.recordingId, position.viewerKey),
+  }),
+);
+
 // Agent views — one row per (clip, agent, time bucket). Deliberately separate
 // from `recording_viewers` / `recording_views` so no human-view count can ever
 // pick agents up by forgetting a filter: the human tables stay agent-free.

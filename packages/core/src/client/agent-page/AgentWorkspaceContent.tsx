@@ -6,7 +6,6 @@ import {
   IconHierarchy2,
   IconHistory,
   IconNotes,
-  IconShieldLock,
   IconTopologyRing2,
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
@@ -26,8 +25,7 @@ export type AgentWorkspaceTab =
   | "overview"
   | "resources"
   | "automations"
-  | "agents"
-  | "access";
+  | "agents";
 
 const RESOURCE_TABS: Array<{
   id: ResourceView;
@@ -52,7 +50,6 @@ const HUB_TABS: Array<{
   { id: "resources", label: "Resources", icon: IconFolder },
   { id: "automations", label: "Automations", icon: IconBolt },
   { id: "agents", label: "Connected agents", icon: IconTopologyRing2 },
-  { id: "access", label: "Access", icon: IconShieldLock },
 ];
 
 const RESOURCE_IDS = new Set(RESOURCE_TABS.map((tab) => tab.id));
@@ -68,9 +65,17 @@ function initialHubState(): {
   if (typeof window === "undefined") {
     return { tab: "overview", resource: "files" };
   }
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const settingsIndex = pathParts.indexOf("settings");
+  const settingsPath =
+    settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
+  const routeParts =
+    settingsPath[0] === "agent" ? settingsPath : ["agent", ...settingsPath];
   const hash = normalizeHash(window.location.hash);
-  const parts = hash.split(":");
-  const scoped = parts[0] === "agent";
+  const hashParts = hash.split(":");
+  const pathScoped = settingsPath[0] === "agent";
+  const scoped = pathScoped || hashParts[0] === "agent";
+  const parts = pathScoped ? routeParts : hashParts;
   const requested = scoped ? parts[1] : hash;
   const resource =
     scoped && RESOURCE_IDS.has(parts[2] as ResourceView)
@@ -97,7 +102,6 @@ function initialHubState(): {
   ) {
     return { tab: "agents", resource };
   }
-  if (requested === "access") return { tab: "access", resource };
   return { tab: "overview", resource };
 }
 
@@ -118,9 +122,9 @@ function ResourceContent({ resource }: { resource: ResourceView }) {
                   window.history.pushState(
                     null,
                     "",
-                    `${window.location.pathname}${window.location.search}#agent:resources:${tab.id}`,
+                    `/settings/agent/resources/${tab.id}${window.location.search}`,
                   );
-                  window.dispatchEvent(new Event("hashchange"));
+                  window.dispatchEvent(new Event("popstate"));
                 }
               }}
               className={cn(
@@ -163,30 +167,6 @@ function ResourceContent({ resource }: { resource: ResourceView }) {
   );
 }
 
-function AccessContent() {
-  return (
-    <div>
-      <div className="rounded-xl border border-border/70 bg-card text-card-foreground">
-        <div className="px-5 py-5 sm:px-6">
-          <div className="flex items-start gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground">
-              <IconShieldLock className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">
-                Agent access
-              </p>
-              <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                Use the agent card and MCP endpoints from connected clients.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function AgentWorkspaceContent({
   overview,
   className,
@@ -218,7 +198,7 @@ export function AgentWorkspaceContent({
           ? "Schedule and manage agent tasks."
           : activeTab === "agents"
             ? "Connect agents to delegate work from chat."
-            : "Control how other apps and agents access this agent.";
+            : "Configure how your agent works, what it knows, and what it can do.";
 
   return (
     <div className={cn("w-full space-y-6", className)}>
@@ -243,7 +223,6 @@ export function AgentWorkspaceContent({
         </Suspense>
       )}
       {activeTab === "agents" && <AgentsSection />}
-      {activeTab === "access" && <AccessContent />}
     </div>
   );
 }

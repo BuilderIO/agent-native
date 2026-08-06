@@ -82,6 +82,7 @@ import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
 } from "./assistant-ui-recovery.js";
+import { modelCatalogConfirmsMissing } from "./chat-model-groups.js";
 import { AGENT_CHAT_VIEW_TRANSITION_PREPARE_EVENT } from "./chat-view-transition.js";
 // ─── chat/ module imports ─────────────────────────────────────────────────────
 import {
@@ -119,6 +120,7 @@ import {
   withLastAssistantRunDuration,
 } from "./chat/repo-helpers.js";
 import {
+  BuilderSetupCard,
   BuilderSetupContent,
   LoopLimitContinueCard,
   RunErrorRecoveryCard,
@@ -2428,11 +2430,23 @@ const AssistantChatInner = forwardRef<
     providerStatusChecksEnabled,
     { tabId, threadId },
   );
-  const missingApiKey = agentEngineConfigured.missing;
-  // A status check that has not answered is not a reason to swallow keystrokes,
-  // and a confirmed-missing key swaps the composer for the Connect AI button
-  // below rather than disabling it. Only the host's own `composerDisabled`
-  // (Desktop-only chats) blocks typing.
+  const modelCatalogMissing = modelCatalogConfirmsMissing(
+    availableModels,
+    modelListLoading,
+  );
+  // The model picker has already resolved the same provider status shown in
+  // its setup choices. Keep the signal available for the authoritative missing
+  // state, but do not surface setup while the readiness request is unresolved.
+  const missingApiKey =
+    agentEngineConfigured.state !== "configured" &&
+    (agentEngineConfigured.missing || modelCatalogMissing);
+  // Unknown and unavailable mean we do not know yet. Only an authoritative
+  // missing response may replace the composer with the setup card; otherwise
+  // connected users briefly see a false "Connect AI" state on first mount.
+  const engineSetupRequired =
+    providerStatusChecksEnabled &&
+    agentEngineConfigured.state === "missing" &&
+    missingApiKey;
   const isComposerDisabled = composerDisabled;
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
@@ -4187,7 +4201,14 @@ const AssistantChatInner = forwardRef<
   // restored queues can exist after a reload where this component never saw the
   // previous run as active.
   useEffect(() => {
-    if (isRestoring || isRunning || queuedMessages.length === 0) {
+    // Keep prompts visible while setup is missing. Dequeuing them would remove
+    // the only user-visible copy and immediately re-enter the provider failure.
+    if (
+      isRestoring ||
+      engineSetupRequired ||
+      isRunning ||
+      queuedMessages.length === 0
+    ) {
       return;
     }
     if (dequeueInFlightRef.current) return;
@@ -4298,6 +4319,7 @@ const AssistantChatInner = forwardRef<
     applyLocalQueuedMessages,
     isRestoring,
     isRunning,
+    engineSetupRequired,
     queueWakeVersion,
     queuedMessages,
     threadId,
@@ -4397,7 +4419,9 @@ const AssistantChatInner = forwardRef<
     }
     try {
       const frozenContent = cloneContentParts(reconnectContent);
-      settleInterruptedToolCalls(frozenContent);
+      settleInterruptedToolCalls(frozenContent, undefined, {
+        includeActivity: true,
+      });
       const repo = normalizeThreadRepository(threadRuntime.export());
       const messages = getRepoMessages(repo);
       const lastEntry = messages[messages.length - 1];
@@ -4610,10 +4634,8 @@ const AssistantChatInner = forwardRef<
       submitMessageId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
-      if (agentEngineConfigured.state === "missing") {
+      if (engineSetupRequired) {
         requestMissingKeySetup();
-        reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
-        return;
       }
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
@@ -4794,7 +4816,7 @@ const AssistantChatInner = forwardRef<
           },
         ]);
         stopActiveRunRef.current({ preserveQueuedMessages: true });
-      } else if (isRunning && intent === "queued") {
+      } else if (engineSetupRequired || (isRunning && intent === "queued")) {
         applyLocalQueuedMessages((prev) => [
           ...prev,
           {
@@ -4855,12 +4877,12 @@ const AssistantChatInner = forwardRef<
     },
     [
       applyLocalQueuedMessages,
-      agentEngineConfigured.state,
       buildComposerContextSubmission,
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
       markOptimisticRunning,
+      engineSetupRequired,
       appendThreadMessage,
       requestMissingKeySetup,
       selectedEffort,
@@ -5197,7 +5219,9 @@ const AssistantChatInner = forwardRef<
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
-  const showMissingKeySetup = missingApiKey && !authError;
+  const showMissingKeySetup = engineSetupRequired && !authError;
+  const showInlineMissingKeySetup =
+    showMissingKeySetup && missingApiKeySetupLayout === "sidebar";
   const showPlanModeCallout =
     execMode === "plan" &&
     !planModeDisabled &&
@@ -5290,7 +5314,7 @@ const AssistantChatInner = forwardRef<
     Boolean(composerSlot) && (!centerComposerWhenEmpty || centeredEmptyState);
   const compactMissingKeyEmptyState =
     missingApiKeySetupLayout === "sidebar" &&
-    missingApiKey &&
+    engineSetupRequired &&
     !authError &&
     showEmptyState &&
     !isRestoring;
@@ -5320,7 +5344,8 @@ const AssistantChatInner = forwardRef<
     (guidedQuestions && guidedQuestions.length > 0) ||
     showScrollToBottom ||
     composerContextItems.length > 0 ||
-    showPlanModeCallout,
+    showPlanModeCallout ||
+    showInlineMissingKeySetup,
   );
 
   // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
@@ -5551,7 +5576,7 @@ const AssistantChatInner = forwardRef<
                                     <button
                                       key={suggestion}
                                       onClick={() => {
-                                        if (missingApiKey) {
+                                        if (engineSetupRequired) {
                                           requestMissingKeySetup();
                                           return;
                                         }
@@ -5621,6 +5646,7 @@ const AssistantChatInner = forwardRef<
                                     }}
                                     onRetry={retryAfterRunError}
                                     onFork={onForkChat}
+                                    onProviderConnected={handleBuilderConnected}
                                     onDismiss={() => {
                                       if (visibleRunErrorKey) {
                                         setDismissedRunErrorKey(
@@ -5639,6 +5665,7 @@ const AssistantChatInner = forwardRef<
                                   <MessageScrollerItem>
                                     <ReconnectStreamMessage
                                       content={visibleReconnectContent}
+                                      allowActivitySpinner={!reconnectFrozen}
                                     />
                                   </MessageScrollerItem>
                                 )}
@@ -5651,6 +5678,7 @@ const AssistantChatInner = forwardRef<
                                   <MessageScrollerItem>
                                     <ReconnectStreamMessage
                                       content={reconnectActivityContent}
+                                      allowActivitySpinner={!reconnectFrozen}
                                     />
                                   </MessageScrollerItem>
                                 )}
@@ -5827,9 +5855,20 @@ const AssistantChatInner = forwardRef<
                           onSwitchToAct={handleSwitchToAct}
                         />
                       )}
+                      {showInlineMissingKeySetup ? (
+                        <BuilderSetupCard
+                          fullWidth
+                          layout="sidebar"
+                          onConnected={handleBuilderConnected}
+                        />
+                      ) : null}
                       {/* Input area */}
                       <Popover
-                        open={showMissingKeySetup && missingKeySetupOpen}
+                        open={
+                          showMissingKeySetup &&
+                          !showInlineMissingKeySetup &&
+                          missingKeySetupOpen
+                        }
                         onOpenChange={setMissingKeySetupOpen}
                       >
                         <AgentComposerFrame
@@ -5845,7 +5884,7 @@ const AssistantChatInner = forwardRef<
                               "agent-composer-root--missing-key",
                           )}
                         >
-                          {showMissingKeySetup ? (
+                          {showMissingKeySetup && !showInlineMissingKeySetup ? (
                             <PopoverTrigger asChild>
                               <button
                                 type="button"
@@ -5882,18 +5921,23 @@ const AssistantChatInner = forwardRef<
                                     ? handleComposerTextChange
                                     : undefined
                                 }
-                                disabled={isComposerDisabled}
+                                disabled={
+                                  isComposerDisabled ||
+                                  showInlineMissingKeySetup
+                                }
                                 placeholder={
-                                  missingApiKey
-                                    ? "Connect AI to start chatting..."
-                                    : composerDisabled
-                                      ? (composerDisabledPlaceholder ??
-                                        "Open Desktop to use this chat.")
-                                      : isRunning
-                                        ? queuedMessages.length > 0
-                                          ? `${queuedMessages.length} queued — send a follow-up...`
-                                          : "Send a follow-up..."
-                                        : composerPlaceholder
+                                  showInlineMissingKeySetup
+                                    ? "Connect AI above to start chatting..."
+                                    : engineSetupRequired
+                                      ? "Connect AI to start chatting..."
+                                      : composerDisabled
+                                        ? (composerDisabledPlaceholder ??
+                                          "Open Desktop to use this chat.")
+                                        : isRunning
+                                          ? queuedMessages.length > 0
+                                            ? `${queuedMessages.length} queued — send a follow-up...`
+                                            : "Send a follow-up..."
+                                          : composerPlaceholder
                                 }
                                 onSubmit={
                                   isRunning || composerContextItems.length > 0
@@ -5920,6 +5964,7 @@ const AssistantChatInner = forwardRef<
                                         )
                                     : undefined
                                 }
+                                willQueue={engineSetupRequired || isRunning}
                                 onSlashCommand={onSlashCommand}
                                 execMode={execMode}
                                 onExecModeChange={onExecModeChange}
@@ -5981,7 +6026,7 @@ const AssistantChatInner = forwardRef<
                             </>
                           )}
                         </AgentComposerFrame>
-                        {showMissingKeySetup ? (
+                        {showMissingKeySetup && !showInlineMissingKeySetup ? (
                           <PopoverContent
                             side={
                               missingApiKeySetupLayout === "sidebar"

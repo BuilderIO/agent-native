@@ -519,6 +519,7 @@ async function createWorkspaceInteractive(
         ...resolution,
         shape: "workspace",
       });
+      ensureGuardedScaffold(appDir);
       fixWebManifestName(
         appDir,
         appName,
@@ -677,6 +678,7 @@ async function scaffoldWorkspaceRoot(
   // Root-level agent instructions apply before an agent descends into an app.
   linkWorkspaceRootSkills(targetDir);
   setupAgentSymlinks(targetDir);
+  ensureGuardedScaffold(targetDir);
 }
 
 function linkWorkspaceRootSkills(targetDir: string): void {
@@ -862,6 +864,7 @@ async function scaffoldOneAppIntoWorkspace(
       ...resolution,
       shape: "workspace",
     });
+    ensureGuardedScaffold(appDir);
     fixWebManifestName(
       appDir,
       appName,
@@ -1686,6 +1689,118 @@ async function scaffoldRequiredPackages(
   }
 }
 
+const AGENT_NATIVE_DOCTOR = "agent-native doctor";
+const AGENT_NATIVE_DOCTOR_STRICT = `${AGENT_NATIVE_DOCTOR} --strict`;
+const GUARDED_VERIFICATION_MARKER = "Guarded verification";
+const GUARDED_VERIFICATION_GUIDANCE =
+  "- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.\n";
+
+/**
+ * Keep the portable guard contract attached to every app/workspace created by
+ * the CLI, including community templates whose package.json was not authored
+ * by this repository. The scanners stay versioned in @agent-native/core; a
+ * generated project only receives the small command/config/instructions
+ * surface needed to run them locally and in hosted builds.
+ */
+function ensureGuardedScaffold(appDir: string): void {
+  const packagePath = path.join(appDir, "package.json");
+  if (!fs.existsSync(packagePath)) return;
+
+  const parsedPackage = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+  if (
+    !parsedPackage ||
+    typeof parsedPackage !== "object" ||
+    Array.isArray(parsedPackage)
+  ) {
+    throw new Error(`${packagePath} must contain a JSON object`);
+  }
+  const packageJson = parsedPackage as {
+    scripts?: Record<string, unknown>;
+  } & Record<string, unknown>;
+  const existingScripts = packageJson.scripts;
+  if (
+    existingScripts !== undefined &&
+    (!existingScripts ||
+      typeof existingScripts !== "object" ||
+      Array.isArray(existingScripts))
+  ) {
+    throw new Error(`${packagePath} has an invalid scripts object`);
+  }
+  const scripts = existingScripts ?? {};
+
+  // Keep an existing project-specific `doctor` script intact while providing
+  // a collision-free framework entry point that every generated project has.
+  const existingNativeDoctor = scripts["agent-native:doctor"];
+  scripts["agent-native:doctor"] =
+    typeof existingNativeDoctor === "string" &&
+    existingNativeDoctor !== AGENT_NATIVE_DOCTOR &&
+    !existingNativeDoctor.includes(AGENT_NATIVE_DOCTOR)
+      ? `${existingNativeDoctor} && ${AGENT_NATIVE_DOCTOR}`
+      : AGENT_NATIVE_DOCTOR;
+  if (typeof scripts.doctor !== "string") {
+    scripts.doctor = AGENT_NATIVE_DOCTOR;
+  }
+
+  // Community templates may use vite/next/another build command instead of
+  // `agent-native build`, so attach the strict check to the package lifecycle.
+  // Agent-Native builds already run doctor and get strictness from the config.
+  if (
+    typeof scripts.build === "string" &&
+    !/\bagent-native\s+build\b/.test(scripts.build) &&
+    !String(scripts.prebuild ?? "").includes(AGENT_NATIVE_DOCTOR_STRICT)
+  ) {
+    const existingPrebuild =
+      typeof scripts.prebuild === "string" ? scripts.prebuild.trim() : "";
+    scripts.prebuild = existingPrebuild
+      ? `${existingPrebuild} && ${AGENT_NATIVE_DOCTOR_STRICT}`
+      : AGENT_NATIVE_DOCTOR_STRICT;
+  }
+  packageJson.scripts = scripts;
+  fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n");
+
+  const manifestPath = path.join(appDir, "agent-native.json");
+  let manifest: Record<string, unknown> = {};
+  if (fs.existsSync(manifestPath)) {
+    const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+    if (
+      !parsedManifest ||
+      typeof parsedManifest !== "object" ||
+      Array.isArray(parsedManifest)
+    ) {
+      throw new Error(`${manifestPath} must contain a JSON object`);
+    }
+    manifest = parsedManifest as Record<string, unknown>;
+  }
+  const doctor =
+    manifest.doctor &&
+    typeof manifest.doctor === "object" &&
+    !Array.isArray(manifest.doctor)
+      ? (manifest.doctor as Record<string, unknown>)
+      : {};
+  // An explicit false remains an intentional, reviewable opt-out. Missing
+  // configuration is strict so a hosted build cannot publish a finding.
+  if (typeof doctor.failOnBuild !== "boolean") doctor.failOnBuild = true;
+  manifest.doctor = doctor;
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+
+  const agentsPath = path.join(appDir, "AGENTS.md");
+  if (fs.existsSync(agentsPath)) {
+    const agents = fs.readFileSync(agentsPath, "utf-8");
+    if (!agents.includes(GUARDED_VERIFICATION_MARKER)) {
+      fs.writeFileSync(
+        agentsPath,
+        `${agents.trimEnd()}\n\n${GUARDED_VERIFICATION_GUIDANCE}`,
+      );
+    }
+  } else {
+    fs.writeFileSync(
+      agentsPath,
+      `# Agent-Native project instructions\n\n${GUARDED_VERIFICATION_GUIDANCE}`,
+    );
+    setupAgentSymlinks(appDir);
+  }
+}
+
 /**
  * Post-process a standalone scaffold: replace placeholders, strip
  * workspace:* deps, set up agent symlinks, etc.
@@ -1708,6 +1823,7 @@ function postProcessStandalone(
     ...resolution,
     shape: "standalone",
   });
+  ensureGuardedScaffold(targetDir);
   fixWebManifestName(targetDir, name, templateName, resolution?.sourceIdentity);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
@@ -2037,6 +2153,7 @@ export { parseWorkspaceScope };
 /** @internal — exported for E2E tests */
 export {
   scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
+  ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
   scaffoldRequiredPackages as _scaffoldRequiredPackages,
   postProcessStandalone as _postProcessStandalone,

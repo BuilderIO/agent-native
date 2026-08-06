@@ -25,7 +25,7 @@ At runtime, every agent-native app is three things working together:
 
 - **Agent** — Autonomous AI that reads data, writes data, runs actions, and uses configured tools. It can also modify source when its frame is intentionally granted workspace and write tooling. Customizable with skills and instructions.
 - **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
-- **Computer** — Database, browser, and configured tool runtimes. Agents work through the app's action and data surface; MCP servers are optional add-ons, not the foundation.
+- **Computer** — Database, browser, and configured tool runtimes. Agents work through the app's action and data surface; an app may expose that same action surface over MCP, while external MCP servers remain optional add-ons rather than the foundation.
 
 <Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
 

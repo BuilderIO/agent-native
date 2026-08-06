@@ -5,6 +5,7 @@ import {
   fireInternalDispatch,
   FRAMEWORK_ROUTE_PREFIX,
   getH3App,
+  isInBackgroundFunctionRuntime,
   readBody,
   verifyInternalToken,
   type NitroPluginDef,
@@ -51,8 +52,10 @@ export function createCreativeContextWorkerPlugin(input: {
     registerCreativeContextBackgroundDispatcher((dispatch) =>
       scheduleHostedBackgroundDispatch({ ...dispatch, appId }),
     );
-    startCreativeContextImportSweep({ appId });
-    startCreativeContextDailyMaintenance({ appId });
+    if (!isInBackgroundFunctionRuntime()) {
+      startCreativeContextImportSweep({ appId });
+      startCreativeContextDailyMaintenance({ appId });
+    }
     const h3App = getH3App(nitroApp);
     h3App.use(CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE, async (event: any) => {
       if (event?.req?.method !== "POST") {

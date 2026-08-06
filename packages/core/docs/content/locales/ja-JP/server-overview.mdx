@@ -1,0 +1,234 @@
+---
+title: "サーバー"
+description: "エージェント ネイティブ アプリにおける Nitro サーバー層 — 何のためにあり、いつカスタム ルートに頼るべきか、各パーツがどうつながっているか。"
+---
+
+# サーバー
+
+`server/` ディレクトリは、エージェント ネイティブ アプリのインフラストラクチャ層です。起動時のタスク、認証、そして actions ではカバーできない HTTP サーフェスを扱います。プロダクトの動作のほとんどは [Actions](/docs/actions) に属します。サーバーは、それらの actions を外部から利用可能にする存在です。
+
+<Diagram id="doc-block-server-overview-1" title="リクエストがサーバーをどう流れるか" summary="呼び出し元は Nitro サーバーに到達し、そのほとんどのリクエストは Actions によって処理されます。Middleware と Routes は Actions がカバーできないケースを扱います。どちらの経路もデータベースにクエリできます。">
+
+```html
+<div class="diagram-srv">
+  <div class="diagram-col">
+    <div class="diagram-node">ブラウザ / UI</div>
+    <div class="diagram-node">エージェント ループ</div>
+    <div class="diagram-node">
+      外部クライアント<br /><small class="diagram-muted"
+        >HTTP · MCP · A2A</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro サーバー</strong>
+    <div class="srv-path">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">主要経路</small>
+    </div>
+    <div class="srv-or diagram-muted">または</div>
+    <div class="srv-path">
+      <span class="diagram-pill">Middleware</span
+      ><span class="srv-inner-arrow diagram-muted" aria-hidden="true"
+        >&rarr;</span
+      ><span class="diagram-pill">Routes</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL データベース<br /><small class="diagram-muted">Drizzle</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-srv {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-srv .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-srv .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-srv .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.srv-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.srv-or {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-left: 2px;
+}
+.srv-inner-arrow {
+  font-size: 14px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## サーバーの役割 {#role}
+
+従来の Web アプリでは、サーバーがロジックの大半を担っています。ビジネスルール、データアクセス、プレゼンテーションのすべてがルートハンドラーの内部で行われます。エージェント ネイティブ アプリはこれとは異なります。ロジックは actions に置かれ、エージェントと UI がそれを対等なパートナーとして共有します。サーバーの仕事は調整です。データベースのマイグレーションを実行し、認証を構成し、エージェント ループをマウントし、actions だけでは表現できない狭い範囲の HTTP 関心事を扱います。
+
+<Diagram id="doc-block-server-overview-2" title="従来のサーバーと Agent Native の比較">
+
+```html
+<div class="diagram-cmp">
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">従来型</div>
+    <div class="diagram-node">ブラウザ</div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>サーバー</strong>
+      <small class="diagram-muted">ロジックがここに存在する</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">ルート ハンドラー</span>
+        <span class="cmp-tag">ビジネス ロジック</span>
+        <span class="cmp-tag">データ アクセス</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>データベース</div>
+  </div>
+  <div class="cmp-vs diagram-muted">vs</div>
+  <div class="cmp-col">
+    <div class="cmp-label diagram-muted">Agent Native</div>
+    <div class="cmp-callers">
+      <div class="diagram-node">ブラウザ / UI</div>
+      <div class="diagram-node">エージェント</div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>サーバー</strong>
+      <small class="diagram-muted">調整のみ</small>
+      <div class="cmp-pills">
+        <span class="cmp-tag">Actions</span>
+        <span class="cmp-tag">認証</span>
+        <span class="cmp-tag">マイグレーション</span>
+      </div>
+    </div>
+    <div class="cmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>データベース</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+.cmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: flex-start;
+}
+.cmp-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cmp-tag {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-right: 10px;
+}
+.cmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+ブラウザからのリクエスト、エージェント ループ、外部 API クライアントはすべて同じ Nitro サーバーを経由し、同じ SQL データベースから読み取ります。エージェント専用のバックエンドや UI 専用のバックエンドは存在しません。サーバー層こそが、actions を外部の世界に公開する仕組みです。
+
+## server/ ディレクトリの中身 {#server-directory}
+
+以下は、すべてのエージェント ネイティブ アプリが備える `server/` 内のディレクトリとファイルです。それぞれがサーバー層の特定の部分に対応しています — 何をするものか、いつ使うべきか、フレームワークの他の部分とどうつながっているかを示します。
+
+| ページ                                      | 内容                                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **[データベース](/docs/server-database)**   | `table()` ヘルパーによるスキーマ定義、`getDb`、および ownable テーブルのパターン                  |
+| **[ミドルウェア](/docs/server-middleware)** | `server/middleware/` にある認証ガードと、それがプラグインではなくそこで動く理由                   |
+| **[プラグイン](/docs/server-plugins)**      | すべてのアプリが備える 3 つの起動プラグイン: db マイグレーション、認証、agent-chat                |
+| **[ルート](/docs/server-routes)**           | ファイルベースのルート、SSR キャッチオール、カスタム ルートをリクエストユーザーにスコープする方法 |
+
+## Nitro {#nitro}
+
+[Nitro](https://nitro.build) は、エージェント ネイティブの HTTP 層を支えるサーバー ツールキットです。`server/` で構成するものの大半は Nitro に関するものです。ファイルベースのルート、起動プラグイン、ミドルウェアです。
+
+- **ファイルベースのルーティング**: ファイル名がそのまま HTTP メソッドと URL パスにマッピングされ、登録は一切不要です。`server/routes/api/health.get.ts` は自動的に `GET /api/health` になります。詳細は [ルート](/docs/server-routes) を参照してください。
+- **プラグイン**: サーバー起動時に一度だけ、どのリクエストが処理される前にも実行されるコードです。データベースのマイグレーション、認証の構成、agent-chat のマウントはすべて `server/plugins/` で行われます。詳細は [プラグイン](/docs/server-plugins) を参照してください。
+- **ミドルウェア**: ルートに到達する前に、受信するすべてのリクエストに対して実行されるコードです。認証ガードは `server/middleware/` にあります。詳細は [ミドルウェア](/docs/server-middleware) を参照してください。
+
+Nitro はデプロイ先にも依存しません。同じアプリを Node.js、Cloudflare Workers、Netlify、Vercel、その他のランタイムにコードの変更なしでデプロイできます。プリセットを設定するだけです。[デプロイ](/docs/deployment) を参照してください。
+
+基盤となるリクエスト/レスポンス API は [H3](https://h3.unjs.io) です。カスタム ルートで `defineEventHandler`、`createError`、`getQuery` を見かけたら、それは H3 です。フレームワークが直接カバーしていない事柄については、[Nitro のドキュメント](https://nitro.build/guide) と [H3 のドキュメント](https://h3.unjs.io) がリファレンスになります。
+
+## まず Actions をデフォルトにする {#actions-first}
+
+Agent Native のアーキテクチャは従来とは異なります。アプリの新機能を考えるときは、まずそれが action にできないかを検討してください。たとえば、UI とエージェントの両方が何かを行う必要がある場合は、カスタム API ルートではなく action を定義します。actions は自動的に以下になります。
+
+- エージェント ツール。
+- 型付きのフロントエンド フック。
+- `/_agent-native/actions/:name` 配下の HTTP エンドポイント。
+- MCP および A2A から呼び出し可能なツール。
+- 開発用の CLI コマンド。
+
+ルート形式のプロトコルやバイナリ/ストリーミングの挙動が必要な場合にのみ、カスタム `/api/*` ルートを使用してください。詳細は [Actions](/docs/actions) を参照してください。
+
+## 次は何ですか {#whats-next}
+
+- [**Actions**](/docs/actions): デフォルトの操作サーフェス。適合しない場合にのみカスタム ルートに頼ってください。
+- [**データベース**](/docs/server-database): カスタム ルートと actions の両方がインポートする `getDb()`/スキーマ パターン
+- [**ミドルウェア**](/docs/server-middleware): 認証ガードと `server/middleware/` ディレクトリ
+- [**プラグイン**](/docs/server-plugins): マイグレーション、認証、エージェントのための起動プラグイン
+- [**ルート**](/docs/server-routes): ファイルベースのルート、リクエスト コンテキスト、SSR キャッチオール

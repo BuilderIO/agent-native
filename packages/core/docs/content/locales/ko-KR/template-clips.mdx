@@ -246,7 +246,7 @@ pnpm dev
 
 Clips는 기본 레코더가 포함된 더 큰 템플릿입니다(로컬 캡처를 위한 데스크톱 도우미 제공). 녹화물을 업로드하려면 세 가지 설정 단계가 필요합니다:
 
-1. **비디오 저장소(필수).** 온보딩 마법사를 통해 저장소 백엔드를 연결합니다. 가장 쉬운 경로는 Builder.io(베타 기간 동안 무료, 원클릭)입니다. 자체 호스팅 스토리지의 경우 `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`를 설정하고 선택적으로 `S3_REGION` 및 `S3_PUBLIC_BASE_URL`를 설정합니다. Cloudflare R2와 DigitalOcean Spaces는 `R2_*` 접두사가 있는 동일한 환경 변수를 사용합니다.
+1. **비디오 저장소(필수).** 온보딩 마법사를 통해 저장소 백엔드를 연결합니다. 가장 쉬운 경로는 Builder.io(free tier includes video storage and AI credits, 원클릭)입니다. 자체 호스팅 스토리지의 경우 `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`를 설정하고 선택적으로 `S3_REGION` 및 `S3_PUBLIC_BASE_URL`를 설정합니다. Cloudflare R2와 DigitalOcean Spaces는 `R2_*` 접두사가 있는 동일한 환경 변수를 사용합니다.
 2. **Google Calendar(선택 사항).** 예정된 회의를 동기화하려면 설정에서 Google Calendar 계정을 연결하세요. dev의 OAuth 콜백 URL는 `http://localhost:8094/_agent-native/google/callback`입니다. Gmail 및 Google Calendar API가 활성화된 [Google Cloud Console](https://console.cloud.google.com/)에서 Google OAuth 클라이언트를 설정하세요.
 3. **화면 캡처 권한.** macOS의 경우 시스템 설정 → 개인 정보 보호 및 보안 → 화면 녹화에서 브라우저(또는 데스크톱 동반 앱)에 화면 녹화 권한을 부여하세요. 브라우저 녹화는 수정된 콘솔을 저장하고 레코더 페이지에서 XHR 진단을 가져올 수 있습니다. Chrome 확장 프로그램 목록을 사용할 수 있게 되면 사용자가 활성 탭 브라우저 로그용 확장 프로그램이나 가장 원활한 기본 캡처 경로를 위한 데스크톱 앱을 선택할 수 있도록 `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`를 활성화하세요.
 4. **Slack 미리보기(선택 사항).** `links:read`, `links:write` 및 `links.embed:write`를 사용하여 Slack 앱을 만듭니다. `link_shared`를 구독하세요. **App Unfurl Domains** 아래에 Clips 공유 도메인을 추가하세요. 요청 URL를 `https://your-clips.example.com/api/slack/unfurl`로 설정합니다. OAuth 리디렉션 URL `https://your-clips.example.com/api/slack/oauth/callback`를 추가합니다. `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` 및 `SLACK_SIGNING_SECRET`를 구성한 다음 클립 설정에서 작업 공간을 연결하세요.
@@ -270,7 +270,7 @@ Clips는 기본 레코더가 포함된 더 큰 템플릿입니다(로컬 캡처�
 
 2. **프로덕션 상태를 구성합니다.** 영구 `DATABASE_URL`, 일반 설정
    [Deployment](/docs/deployment)의 프로덕션 인증/비밀 변수 및
-   비디오 저장 제공업체. Builder.io Connect는 가장 쉬운 저장 경로입니다. 를 위해
+   비디오 저장 제공업체. Builder.io Connect(free tier includes video storage and AI credits)는 가장 쉬운 저장 경로입니다. 를 위해
    자체 호스팅 스토리지, S3 호환을 위해 `S3_*` 또는 `R2_*` 변수 사용
    버킷.
 
@@ -303,7 +303,7 @@ Clips는 기본 레코더가 포함된 더 큰 템플릿입니다(로컬 캡처�
    다른 확장 프로그램 목록
 
 6. **선택적 통합을 연결하세요.** Google Calendar는 회의 탭을 강화합니다.
-   `GEMINI_API_KEY` 또는 Builder.io Connect는 성적표 정리 및 제목을 강화합니다.
+   `GEMINI_API_KEY` 또는 Builder.io Connect(free tier includes AI credits)는 성적표 정리 및 제목을 강화합니다.
    `GROQ_API_KEY`는 음성-텍스트 대체 기능을 제공할 수 있으며 Slack OAuth
    설정에서 연결하면 플레이 가능한 Slack 전개가 가능해집니다.
 

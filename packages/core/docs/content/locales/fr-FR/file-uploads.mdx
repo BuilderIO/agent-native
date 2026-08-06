@@ -14,7 +14,7 @@ Les requêtes de téléchargement sont envoyées à `POST /_agent-native/file-up
 L'ordre de résolution du fournisseur est :
 
 1. **Fournisseurs enregistrés par l'utilisateur** : fournisseurs personnalisés enregistrés via `registerFileUploadProvider()`
-2. **Fournisseur Builder.io** — intégré, s'active automatiquement lorsque Builder.io est connecté
+2. **Fournisseur Builder.io** (offre gratuite disponible) — intégré, s'active automatiquement lorsque Builder.io est connecté
 3. **secours SQL** — stocke les fichiers en base64 dans la base de données (bien pour le développement, pas pour la production)
 
 <Diagram id="doc-block-1msczw9" title={"Ordre de résolution du fournisseur"} summary={"uploadFile() sélectionne le premier fournisseur configuré dans l'ordre. La solution de secours SQL existe toujours, donc les téléchargements fonctionnent sans configuration."}>
@@ -102,7 +102,7 @@ Un avertissement unique est enregistré lorsque la solution de secours est utili
 
 ## Hébergement Builder.io {#builder-hosting}
 
-Lorsque votre application est connectée à Builder.io, les téléchargements de fichiers sont automatiquement acheminés vers l'hébergement d'actifs de Builder. Les fichiers sont servis à partir d'un CDN sans aucune configuration nécessaire. Il s'agit de la configuration de production recommandée.
+Lorsque votre application est connectée à Builder.io (offre gratuite disponible), les téléchargements de fichiers sont automatiquement acheminés vers l'hébergement d'actifs de Builder. Les fichiers sont servis à partir d'un CDN sans aucune configuration nécessaire. Il s'agit de la configuration de production recommandée.
 
 ## Fournisseurs personnalisés {#custom-providers}
 

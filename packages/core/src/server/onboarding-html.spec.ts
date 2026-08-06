@@ -141,6 +141,70 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("keeps the password flow unchanged by default", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).not.toContain('id="magic-link-form"');
+    expect(html).toContain('id="signup-form"');
+    expect(html).toContain('id="login-form"');
+    expect(html).toContain("/_agent-native/auth/login");
+  });
+
+  it("renders the email-only magic-link view with a progressive password fallback", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+
+    expect(html).toContain('id="magic-link-form"');
+    expect(html).toContain('id="m-email"');
+    expect(html).toContain('id="magic-link-submit"');
+    expect(html).toContain('class="magic-link-submit"');
+    expect(html).toContain(".magic-link-submit { display: none; }");
+    expect(html).toContain("button.classList.toggle('is-visible', isValid)");
+    expect(html).toContain(
+      "magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState)",
+    );
+    expect(html).toContain('id="use-password-link"');
+    expect(html).toContain('class="link-button auth-mode-link"');
+    expect(html).toContain('id="back-to-magic-link"');
+    expect(html).toContain("/_agent-native/auth/magic-link");
+    expect(html).toContain(
+      "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
+    );
+    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm()");
+    expect(html).toContain('class="tabs" id="auth-tabs" hidden');
+    expect(html).toContain(
+      '<h1 id="heading" data-i18n="magicLinkTitle">Welcome</h1>',
+    );
+    expect(html).toContain("Create an account or sign in");
+    expect(html).not.toContain("Email me a sign-in link");
+    expect(html).toContain("magicLinkTitle");
+    expect(html).toContain("magicLinkSubtitle");
+  });
+
+  it("localizes the magic-link copy through the existing auth catalogs", () => {
+    const html = getOnboardingHtml({ authMode: "magic-link" });
+
+    expect(html).toContain("欢迎");
+    expect(html).toContain("创建账户或登录");
+    expect(html).toContain("继续");
+    expect(html).toContain("我们已向以下邮箱发送安全登录链接：");
+    expect(html).toContain("改用密码");
+    expect(html).toContain("我們已向以下電子郵件寄送安全登入連結：");
+  });
+
+  it("shows the hosted terms notice on the initial magic-link view", () => {
+    const html = getOnboardingHtml({
+      authMode: "magic-link",
+      requestHost: "slides.agent-native.com",
+    });
+
+    expect(html).toContain('id="magic-link-form"');
+    expect(html).toContain(
+      'data-i18n="legalPrefix">By signing up, you accept our',
+    );
+    expect(html).toContain('href="https://www.agent-native.com/terms"');
+    expect(html).toContain('href="https://www.agent-native.com/privacy"');
+  });
+
   it("keeps the pending verification email across a redirect without storing its password", () => {
     const html = getOnboardingHtml();
 
@@ -351,7 +415,7 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     });
     expect(
       journey.signInJourney({
-        at: "/_agent-native/sign-in",
+        at: "/sign-in",
         legacyReturn: "/inbox#x",
       }).resumeHref,
     ).toBe("/inbox#x");

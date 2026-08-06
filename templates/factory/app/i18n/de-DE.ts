@@ -181,6 +181,36 @@ const messages = {
     pastRunsEmpty: "Noch keine Läufe aufgezeichnet.",
     saveAutomation: "Speichern",
     runNow: "Jetzt ausführen",
+    automationHealthTitle: "Scheduler-Status",
+    automationHealthDescription:
+      "Der Heartbeat zeigt, ob der bereitgestellte Worker für wiederkehrende Aufgaben weiterhin Zeitpläne prüft.",
+    automationHealthHealthy: "Gesund",
+    automationHealthStale: "Veraltet",
+    automationHealthError: "Fehler",
+    automationHealthNoData: "Kein Heartbeat",
+    automationLastCheck: "Letzte Prüfung",
+    automationLastDispatch: "Letzte Ausführung",
+    automationRuntime: "Laufzeit",
+    automationHealthNoDataHint:
+      "Es wurde noch kein Scheduler-Heartbeat aufgezeichnet. Stelle den neuesten Factory-Build bereit und prüfe dann erneut.",
+    automationHealthStaleHint:
+      "Der Scheduler hat kürzlich nicht geprüft. Das bedeutet meist, dass die bereitgestellte geplante Funktion oder der Hintergrund-Worker nicht läuft.",
+    automationHealthErrorDetail: "Letzter Scheduler-Fehler",
+    automationOpenThread: "Thread öffnen",
+    automationFailureAlertsTitle:
+      "Warnungen bei fehlgeschlagenen Automatisierungen",
+    automationFailureAlertsDescription:
+      "Sende eine In-App-Warnung und E-Mail, wenn eine Factory-Automatisierung fehlschlägt. Identische Fehler werden 15 Minuten lang zusammengefasst.",
+    automationFailureAlertsEnabled:
+      "Bei Fehlern von Automatisierungen per E-Mail benachrichtigen",
+    automationFailureAlertEmail: "Warn-E-Mail",
+    automationFailureAlertEmailPlaceholder:
+      "Standardmäßig der Workspace-Inhaber",
+    automationFailureEmailReadiness: "E-Mail-Anbieter",
+    automationDiagnosticsLoadError:
+      "Factory-Diagnosen konnten nicht geladen werden. Prüfe Zugriff, Deployment und Datenbankmigrationen und versuche es erneut.",
+    automationEmailReadinessHint:
+      "E-Mail verwendet den Dispatch-Tresor der Organisation. Konfiguriere dort einen Anbieter, wenn dies nicht bereit ist.",
   },
   factoryCanvas: {
     dragHint: "Ziehe Knoten, um die Factory neu zu gestalten",

@@ -85,6 +85,7 @@ ladder.
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |
+| `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
 
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as

@@ -28,7 +28,7 @@ import {
   getCloudflareD1Binding,
   getMigrationDatabaseUrl,
 } from "./client.js";
-import { runMigrations } from "./migrations.js";
+import { deferMigration, runMigrations } from "./migrations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -123,6 +123,18 @@ describe("runMigrations – SQLite steady-state (no pending migrations)", () => 
   });
 });
 
+describe("runMigrations – empty migration list", () => {
+  it("does not touch the database when a plugin has no migrations", async () => {
+    const plugin = runMigrations([], { table: "empty_migrations" });
+
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(getCloudflareD1Binding).not.toHaveBeenCalled();
+  });
+});
+
 describe("runMigrations – run-only entries", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -172,6 +184,17 @@ describe("runMigrations – run-only entries", () => {
     vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeNamedExec({ version: 0, appliedNames: [] });
     const directExec = makeNamedExec({ version: 0, appliedNames: [] });
+    pooledExec.execute.mockImplementation(
+      async (sql: string | { sql: string; args?: unknown[] }) => {
+        const statement = typeof sql === "string" ? sql : sql.sql;
+        if (/SELECT name FROM/i.test(statement)) {
+          throw new Error(
+            'relation "pg_run_only_migrations_named" does not exist',
+          );
+        }
+        return { rows: [{ v: 0 }], rowsAffected: 0 };
+      },
+    );
     vi.mocked(getDbExec).mockReturnValue(pooledExec);
     vi.mocked(createDbExec).mockResolvedValue(directExec);
     vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
@@ -187,6 +210,23 @@ describe("runMigrations – run-only entries", () => {
     expect(directExec.insertedNames).toEqual(["repair-counts"]);
     expect(directExec.insertedVersions).toEqual([1]);
     expect(directExec.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a deferred run-only migration unrecorded", async () => {
+    vi.mocked(isPostgres).mockReturnValue(false);
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    const run = vi.fn(async () => deferMigration());
+
+    const plugin = runMigrations(
+      [{ version: 1, name: "serialized-backfill", sql: {}, run }],
+      { table: "deferred_run_only_migrations" },
+    );
+    await plugin(null);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(exec.insertedNames).toEqual([]);
+    expect(exec.insertedVersions).toEqual([]);
   });
 
   it("records D1 run-only bookkeeping in one atomic batch", async () => {
@@ -327,6 +367,31 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(calls.some((s) => /ALTER TABLE t1/i.test(s))).toBe(true);
     // Version 1 and 2 must NOT be applied (already at v2)
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
+  });
+
+  it("uses the pooled exec for a pending run-only migration", async () => {
+    vi.mocked(isPostgres).mockReturnValue(true);
+    const pooledExec = makeNamedExec({ version: 131, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+
+    const run = vi.fn(async () => {});
+    const migrations = [
+      {
+        version: 132,
+        name: "run-only-backfill",
+        sql: {},
+        run,
+      },
+    ];
+
+    const plugin = runMigrations(migrations, {
+      table: "run_only_migrations",
+    });
+    await plugin(null);
+
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(pooledExec.insertedNames).toContain("run-only-backfill");
   });
 
   it("closes the direct exec after migrations complete", async () => {

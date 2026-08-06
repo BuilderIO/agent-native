@@ -1,6 +1,10 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import {
+  createAuthPlugin,
+  isInBackgroundFunctionRuntime,
+  markDefaultPluginProvided,
+} from "@agent-native/core/server";
 
-export default createAuthPlugin({
+const authPlugin = createAuthPlugin({
   publicPaths: [
     "/track",
     "/api/analytics/track",
@@ -23,3 +27,18 @@ export default createAuthPlugin({
     ],
   },
 });
+
+export default async (nitroApp: any): Promise<void> => {
+  // Keep the custom slot marked so runtime discovery cannot mount a second
+  // default auth plugin while this worker is registering its internal routes.
+  markDefaultPluginProvided(nitroApp, "auth");
+  if (isInBackgroundFunctionRuntime()) {
+    // Background functions authenticate their signed processor routes locally;
+    // Better Auth would perform an unnecessary database initialization here.
+    console.info(
+      "[auth] Skipping Better Auth setup in durable background runtime",
+    );
+    return;
+  }
+  await authPlugin(nitroApp);
+};

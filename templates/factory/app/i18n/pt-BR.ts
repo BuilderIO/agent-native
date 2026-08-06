@@ -183,6 +183,35 @@ const messages = {
     pastRunsEmpty: "Nenhuma execução registrada ainda.",
     saveAutomation: "Salvar",
     runNow: "Executar agora",
+    automationHealthTitle: "Saúde do agendador",
+    automationHealthDescription:
+      "O heartbeat mostra se o worker de tarefas recorrentes implantado continua verificando os agendamentos.",
+    automationHealthHealthy: "Saudável",
+    automationHealthStale: "Desatualizado",
+    automationHealthError: "Erro",
+    automationHealthNoData: "Sem heartbeat",
+    automationLastCheck: "Última verificação",
+    automationLastDispatch: "Último despacho",
+    automationRuntime: "Runtime",
+    automationHealthNoDataHint:
+      "Nenhum heartbeat do agendador foi registrado ainda. Implante o build mais recente do Factory e verifique novamente.",
+    automationHealthStaleHint:
+      "O agendador não verificou recentemente. Isso geralmente significa que a função agendada ou o worker em segundo plano implantado não está em execução.",
+    automationHealthErrorDetail: "Último erro do agendador",
+    automationOpenThread: "Abrir thread",
+    automationFailureAlertsTitle: "Alertas de falha da automação",
+    automationFailureAlertsDescription:
+      "Envie um alerta no app e um e-mail quando uma automação do Factory falhar. Falhas idênticas são agrupadas por 15 minutos.",
+    automationFailureAlertsEnabled:
+      "Envie-me um e-mail quando as automações falharem",
+    automationFailureAlertEmail: "E-mail de alerta",
+    automationFailureAlertEmailPlaceholder:
+      "Por padrão, o proprietário do workspace",
+    automationFailureEmailReadiness: "Provedor de e-mail",
+    automationDiagnosticsLoadError:
+      "Não foi possível carregar os diagnósticos do Factory. Verifique acesso, implantação e migrações do banco de dados e tente novamente.",
+    automationEmailReadinessHint:
+      "O e-mail usa o cofre Dispatch da organização. Configure um provedor lá se não estiver pronto.",
   },
   factoryCanvas: {
     dragHint: "Arraste os nós para remodelar a fábrica",

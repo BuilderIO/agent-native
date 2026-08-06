@@ -66,7 +66,6 @@ const DEFAULT_SOURCES = [".env", ".env.local"];
 const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
 const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
-  ["VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING", "true"],
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
   ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
   [

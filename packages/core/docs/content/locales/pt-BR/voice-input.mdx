@@ -7,7 +7,7 @@ description: "Ditado de voz no compositor de bate-papo do agente — Builder Gem
 
 Todo aplicativo nativo do agente possui um microfone no compositor de bate-papo. Clique nele, fale e suas palavras serão transcritas no prompt. Útil em dispositivos móveis, útil para solicitações longas, útil quando você está em outra coisa.
 
-A estrutura lida com tudo isso automaticamente. Os usuários conectados ao Builder obtêm o Gemini Flash-Lite hospedado no Builder por padrão; caso contrário, os usuários poderão trazer sua própria chave de provedor ou recorrer ao reconhecimento de fala do navegador.
+A estrutura lida com tudo isso automaticamente. Os usuários conectados ao Builder (nível gratuito disponível) obtêm o Gemini Flash-Lite hospedado no Builder por padrão; caso contrário, os usuários poderão trazer sua própria chave de provedor ou recorrer ao reconhecimento de fala do navegador.
 
 ## Modo de voz em tempo real {#realtime-speech-mode}
 
@@ -19,7 +19,7 @@ O modelo de voz usa as mesmas ferramentas autenticadas do Agent Native que o cha
 
 O botão de voz do compositor grava o áudio no navegador e depois escolhe um provedor:
 
-1. **Builder Gemini Flash-Lite (padrão quando Builder está conectado).** O navegador envia áudio para `/_agent-native/transcribe-voice`, que faz proxy através de Builder.io usando Gemini Flash-Lite. Não é necessária nenhuma chave Google API.
+1. **Builder Gemini Flash-Lite (padrão quando Builder está conectado).** O navegador envia áudio para `/_agent-native/transcribe-voice`, que faz proxy através de Builder.io (nível gratuito disponível) usando Gemini Flash-Lite. Não é necessária nenhuma chave Google API.
 2. **Provedores de nuvem BYOK.** Os usuários podem escolher Google Gemini, Groq Whisper ou OpenAI Whisper em Configurações. A rota resolve segredos criptografados no escopo do usuário antes das credenciais de implantação compartilhadas.
 3. **Fala da Web do navegador API (substituição).** Se nenhum provedor de servidor estiver disponível, o compositor poderá usar o reconhecimento de fala integrado do navegador. Funciona em navegadores baseados em Chromium (Chrome, Edge, Arc) e Safari. Menos preciso; transmite ao vivo.
 
@@ -75,7 +75,7 @@ A rota é **somente da mesma origem** — POSTs entre sites são rejeitados para
 
 ## Habilitando provedores {#enabling-providers}
 
-Builder é o caminho mais fácil: conecte Builder.io em Configurações e o provedor padrão se tornará Builder Gemini Flash-Lite. Para provedores BYOK, adicione a chave correspondente em Configurações → Chaves API.
+Builder é o caminho mais fácil: conecte Builder.io (nível gratuito disponível) em Configurações e o provedor padrão se tornará Builder Gemini Flash-Lite. Para provedores BYOK, adicione a chave correspondente em Configurações → Chaves API.
 
 ### Por usuário (recomendado para SaaS)
 

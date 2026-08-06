@@ -248,6 +248,16 @@ const migrations = [
       ALTER TABLE factory_config ADD COLUMN last_sentry_seen_at TEXT;
     `,
   },
+  {
+    version: 17,
+    name: "factory-automation-failure-alert-settings",
+    sql: `
+      ALTER TABLE factory_config ADD COLUMN automation_failure_alerts_enabled INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE factory_config ADD COLUMN automation_failure_alert_email TEXT;
+      ALTER TABLE factory_config ADD COLUMN last_automation_failure_alert_key TEXT;
+      ALTER TABLE factory_config ADD COLUMN last_automation_failure_alert_at TEXT;
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

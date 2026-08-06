@@ -29,8 +29,11 @@
  */
 import React, { useEffect, useRef } from "react";
 
-import { signInJourney } from "../shared/sign-in-journey.js";
-import { agentNativePath, appBasePath } from "./api-path.js";
+import {
+  SIGN_IN_ENTRY_PATH,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
+import { appBasePath, appPath } from "./api-path.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
 import { useSession } from "./use-session.js";
 
@@ -60,7 +63,7 @@ export interface RequireSessionProps {
   fallback?: React.ReactNode;
   /**
    * When true (default), unauthenticated visitors are redirected to the
-   * framework sign-in entry point (`/_agent-native/sign-in`) carrying a `c`
+   * framework sign-in entry point (`/sign-in`) carrying a `c`
    * continuation for the current URL — so they land back here once signed in.
    * When false, `signedOut` is rendered instead and no navigation happens.
    */
@@ -88,7 +91,7 @@ export interface RequireSessionProps {
  * directly and honour its `signInHref: null`.
  */
 export function buildSignInReturnHref(opts?: { returnTo?: string }): string {
-  const base = agentNativePath("/_agent-native/sign-in");
+  const base = appPath(SIGN_IN_ENTRY_PATH);
   if (typeof window === "undefined") return base;
   return currentJourney(opts?.returnTo).signInHref ?? base;
 }
@@ -118,13 +121,13 @@ function ResolvedSessionGate({
   redirect = true,
   signedOut,
 }: Omit<RequireSessionProps, "bypass">) {
-  const { session, isLoading } = useSession();
+  const { session, status, retry } = useSession();
   // Guard against firing the redirect more than once (effect re-runs, React
   // StrictMode double-invoke) — a second navigation while the first is in
   // flight is harmless but noisy.
   const redirectedRef = useRef(false);
 
-  const mustRedirect = !isLoading && !session && redirect;
+  const mustRedirect = status === "unauthenticated" && redirect;
 
   useEffect(() => {
     if (!mustRedirect) return;
@@ -144,10 +147,43 @@ function ResolvedSessionGate({
 
   // Still resolving, or redirect already in flight: show the loading fallback
   // rather than flashing app chrome the visitor can't use.
-  if (isLoading) return <>{fallback ?? <DefaultSpinner />}</>;
+  if (status === "loading") return <>{fallback ?? <DefaultSpinner />}</>;
+  // Unreadable is not signed-out. Redirecting here would bounce a signed-in
+  // user to the sign-in page over a transient 5xx, and rendering the spinner
+  // would strand them on a screen that never resolves.
+  if (status === "unavailable") {
+    return <SessionUnavailableNotice retry={retry} />;
+  }
   if (!session) {
     if (redirect) return <>{fallback ?? <DefaultSpinner />}</>;
     return <>{signedOut ?? null}</>;
   }
   return <>{children}</>;
+}
+
+function SessionUnavailableNotice({ retry }: { retry: () => void }) {
+  return (
+    <div className="flex h-screen w-full flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="max-w-md text-sm text-muted-foreground">
+        We couldn&apos;t reach the server to confirm you&apos;re signed in. This
+        is usually temporary.
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={retry}
+          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
+        >
+          Try again
+        </button>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-md border border-border px-3 py-1.5 text-sm font-medium"
+        >
+          Reload page
+        </button>
+      </div>
+    </div>
+  );
 }

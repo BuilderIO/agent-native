@@ -1,0 +1,148 @@
+---
+title: "插件"
+description: "server/plugins/ 中的启动插件——它们是什么、每个应用都自带的两个插件、可选的数据库插件，以及如何编写自己的插件。"
+---
+
+# 插件
+
+插件是启动钩子。`server/plugins/` 中的每个文件都导出一个函数,Nitro 会在服务器初始化时调用它一次，早于任何路由被处理之前。它们是执行一次性设置的合适位置：配置身份验证、挂载 Agent 循环、运行数据库迁移，或者注册其他任何需要在请求到达之前完成的初始化代码。
+
+Nitro 会自动从文件系统中发现插件，不需要注册或导入。文件按字母顺序运行，因此执行顺序由文件名前缀控制。
+
+每个代理本机应用默认自带两个插件：
+
+```text
+server/plugins/
+  auth.ts        -> 配置身份验证提供商和公开路径
+  agent-chat.ts  -> 用你的 actions 和系统提示挂载 Agent 循环
+```
+
+需要自定义数据库表的应用会再添加第三个：
+
+```text
+server/plugins/
+  db.ts          -> 在启动时运行迁移
+```
+
+## 身份验证插件 {#auth-plugin}
+
+`server/plugins/auth.ts` 配置用户如何登录。来自 `@agent-native/core/server` 的 `createAuthPlugin` 负责接入身份验证提供商，并设置登录页面的品牌信息：
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: ["Feature one", "Feature two", "Feature three"],
+  },
+});
+```
+
+要向未经身份验证的用户开放特定路由，传入 `publicPaths`：
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+身份验证插件负责配置守卫，`server/middleware/auth.ts` 中的中间件则在每个请求上强制执行它。参见[中间件](/docs/server-middleware)。
+
+## Agent-Chat 插件 {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts` 用你应用的 actions、系统提示和初始工具集挂载 Agent 循环。正是这个插件让你的应用成为一个代理本机应用。
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry` 通过生成的注册表,拾取从 `actions/` 导出的每一个 action。`initialToolNames` 控制代理在会话开始时可以使用哪些 actions，代理仍然可以按需调用其他 actions。
+
+## 数据库插件 {#database-plugin}
+
+如果你的应用定义了自定义数据库表，添加 `server/plugins/db.ts` 来在启动时运行 schema 迁移。它使用 `@agent-native/core/db` 中的 `runMigrations`：
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+每条记录都需要一个 `version` 编号和一个 `sql` 字符串。`table` 选项指定迁移跟踪表的名称，请使用你的应用专属的名称，以免与框架迁移冲突。完整的 schema 编写指南参见[数据库](/docs/server-database)。
+
+<Callout tone="warning">
+  迁移必须是增量式的。切勿在启动插件中放入破坏性 SQL（`DROP TABLE`、 `ALTER
+  TABLE ... DROP COLUMN`、`DELETE FROM`）。
+</Callout>
+
+## 编写自定义插件 {#custom-plugins}
+
+框架助手（`createAuthPlugin`、`createAgentChatPlugin`、`runMigrations`）各自返回一个 Nitro 插件函数。对于这些助手之外的场景，使用 `defineNitroPlugin` 编写插件：
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // runs on every request
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // runs when the server shuts down
+  });
+});
+```
+
+插件可以使用 Nitro 的任何生命周期钩子：`request`、`beforeResponse`、`close` 等。[Nitro 插件文档](https://nitro.build/guide/plugins)详细介绍了完整的钩子 API 和插件约定。
+
+## 启动顺序 {#startup-order}
+
+Nitro 按文件名的字母顺序运行插件。在单个插件文件内，默认导出会先被等待完成，然后才会启动下一个插件。典型的顺序是：
+
+1. `db.ts` —— 在任何路由或插件读取数据库之前完成迁移
+2. `auth.ts` —— 在请求到达之前就绪身份验证配置
+3. `agent-chat.ts` —— 在身份验证配置完成后挂载 Agent 相关路由
+
+如果你添加了自定义插件，可以给文件名加前缀来控制它们在这个顺序中的位置。
+
+## 下一步 {#whats-next}
+
+- [**数据库**](/docs/server-database)：插件内部使用的 schema 助手和 `getDb` 模式
+- [**中间件**](/docs/server-middleware)：强制执行身份验证插件所配置内容的守卫
+- [**路由**](/docs/server-routes)：在插件执行完毕后被处理的自定义文件路由
+- [**编写 Agent 指令**](/docs/writing-agent-instructions)：如何在 agent-chat 插件中撰写 `systemPrompt`
+- [**Nitro 插件文档**](https://nitro.build/guide/plugins)：完整的插件 API 和生命周期钩子

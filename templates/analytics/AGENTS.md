@@ -4,8 +4,8 @@ Analytics is an agent-native BI workspace for data sources, queries, dashboards,
 charts, and warehouse integrations. Dashboards are the canonical user-facing
 artifact; legacy analyses remain readable only for compatibility.
 
-**This agent is Claude with BigQuery/Gong/HubSpot/Prometheus access.** Reason
-over fetched data here; do not suggest another AI tool.
+Use all connected sources and MCP tools; reason over fetched data here, and do
+not suggest another AI tool.
 
 Prompt cap: 6,000; put detail in `.agents/skills/*`.
 
@@ -81,7 +81,7 @@ ladder.
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
-  selection. `navigate` moves the user, including `view="catalog"`,
+  selection. `navigate` moves the user between supported Analytics surfaces,
   `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
@@ -97,7 +97,7 @@ Read the relevant skill before deeper work:
 - `cross-source-analysis` for questions spanning sources (identity stitching,
   de-duplication).
 - `dashboard-management` for dashboard/panel storage, layout, extensions,
-  mutation, sharing, and the template catalog.
+  mutation and sharing.
 - `adhoc-analysis` and `analysis-workspace` for one-off answers and large
   multi-source work.
 - `provider-api` and `data-programs` for the escape hatch and durable,

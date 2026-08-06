@@ -69,6 +69,9 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
   boundary, and stack original/generated review vertically by default.
 - Every AI-labeled button must call `sendToAgentChat()` with
   `openSidebar: true`; label deterministic local actions as local or preview.
+- Before visual work, read `frontend-design` and `DESIGN.md`. Shared workspace
+  chrome stays semantic and neutral; each app chooses a named visual direction
+  and palette family rather than inheriting the last app's accent.
 
 ## Workspace Resources
 

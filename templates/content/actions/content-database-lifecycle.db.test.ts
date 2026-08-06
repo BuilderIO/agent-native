@@ -922,6 +922,7 @@ describe("document trash lifecycle", () => {
       backingParentId: rootId,
       deletedAt: databaseDeletedAt,
     });
+    const before = await databaseRow(databaseId);
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
       deleteDocumentAction.run({ id: rootId }),
@@ -932,6 +933,7 @@ describe("document trash lifecycle", () => {
 
     expect(await databaseRow(databaseId)).toMatchObject({
       deletedAt: databaseDeletedAt,
+      updatedAt: before?.updatedAt,
     });
     expect(await documentRow(databaseDocumentId)).toMatchObject({
       trashedAt: null,
@@ -954,6 +956,72 @@ describe("document trash lifecycle", () => {
       permanentlyDeleteDocumentAction.run({ id: documentId }),
     );
     expect(await documentRow(documentId)).toBeUndefined();
+  });
+
+  it("removes migration receipts with a permanently deleted database", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabase({});
+    const retainedDatabase = await createDatabase({});
+    const receiptId = nextId("migration_receipt");
+    const retainedReceiptId = nextId("migration_receipt");
+    const stamp = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseMigrationReceipts)
+      .values([
+        {
+          id: receiptId,
+          ownerEmail: OWNER,
+          databaseId,
+          databaseDocumentId,
+          idempotencyKey: nextId("migration_key"),
+          planHash: "synthetic-plan-hash",
+          state: "verified",
+          preDigest: "synthetic-pre-digest",
+          postDigest: "synthetic-post-digest",
+          rollbackJson: JSON.stringify({ content: "synthetic rollback body" }),
+          resultJson: JSON.stringify({ content: "synthetic migrated body" }),
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+        {
+          id: retainedReceiptId,
+          ownerEmail: OWNER,
+          databaseId: retainedDatabase.databaseId,
+          databaseDocumentId: retainedDatabase.databaseDocumentId,
+          idempotencyKey: nextId("migration_key"),
+          planHash: "retained-plan-hash",
+          state: "verified",
+          preDigest: "retained-pre-digest",
+          postDigest: "retained-post-digest",
+          rollbackJson: "{}",
+          resultJson: "{}",
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+      ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentAction.run({ id: databaseDocumentId }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      permanentlyDeleteDocumentAction.run({ id: databaseDocumentId }),
+    );
+
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseMigrationReceipts)
+        .where(eq(schema.contentDatabaseMigrationReceipts.id, receiptId)),
+    ).toHaveLength(0);
+    expect(await databaseRow(databaseId)).toBeUndefined();
+    expect(
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseMigrationReceipts)
+        .where(
+          eq(schema.contentDatabaseMigrationReceipts.id, retainedReceiptId),
+        ),
+    ).toHaveLength(1);
+    expect(await databaseRow(retainedDatabase.databaseId)).toBeDefined();
   });
 
   it("permanently deletes only a selected Trash root", async () => {

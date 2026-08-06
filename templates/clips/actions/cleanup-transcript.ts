@@ -272,7 +272,7 @@ function buildCleanupConfigurationError({
   builderFailureMessage: string | null;
 }): FeatureNotConfiguredError {
   let message =
-    "Transcript cleanup needs Builder.io Connect or a fallback AI key.";
+    "Transcript cleanup needs Builder.io Connect (free tier available) or a fallback AI key.";
 
   if (builderConfigured && builderReturnedEmpty) {
     message =
@@ -285,7 +285,7 @@ function buildCleanupConfigurationError({
     message = `Builder.io is connected, but the cleanup/title service failed: ${detail}`;
   } else if (builderPartiallyConfigured) {
     message =
-      "Builder.io Connect is incomplete. Reconnect Builder.io in Settings or add a fallback AI key.";
+      "Builder.io Connect is incomplete. Reconnect Builder.io (free tier available) in Settings or add a fallback AI key.";
   }
 
   return new FeatureNotConfiguredError({

@@ -644,16 +644,21 @@ const messages = {
     showMineDecks: "내가 만든 덱 표시",
     mine: "내 것",
     deckCount_other: "덱",
-    createDeckOrVisual: "덱 또는 시각 자료 만들기",
+    createDeckOrVisual: "프레젠테이션 만들기",
     noMineDecks: "아직 내가 만든 덱이 없습니다.",
     deleteDeckTitle: "덱을 삭제할까요?",
     deleteDeckDescription:
       "이 덱과 모든 슬라이드가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
     cancel: "취소",
     delete: "삭제",
-    newDeckPromptTitle: "새 덱",
-    newDeckPlaceholder: "덱, 시각 자료 또는 다이어그램을 설명하세요...",
+    newDeckPromptTitle: "새 프레젠테이션",
+    newDeckPlaceholder: "생성할 프레젠테이션을 설명해 주세요...",
     skipPrompt: "프롬프트 건너뛰기",
+    firstDeckPromptTitle: "어떤 프레젠테이션을 생성할까요?",
+    firstDeckSkip: "건너뛰기",
+    chooseReferences: "참조 선택",
+    addDesignSystem: "+ 디자인 시스템",
+    importFrom: "가져오기",
     designSystem: "디자인 시스템",
     referenceDeck: "참고 덱",
     referenceDeckPlaceholder: "기존 덱의 스타일을 따르기",
@@ -698,9 +703,9 @@ const messages = {
     signInDescriptionWithFiles:
       "덱을 생성하기 전에 로그인해야 합니다. 프롬프트를 저장했으니 돌아오면 파일을 다시 첨부하세요.",
     signIn: "로그인",
-    emptyTitle: "첫 덱 또는 시각 자료 만들기",
-    emptyDescription:
-      "AI 생성으로 아름다운 프레젠테이션, 독립형 시각 자료, 다이어그램, 이미지 중심 스토리를 만드세요.",
+    emptyTitle: "아직 덱이 없습니다",
+    createFirstDeck: "첫 덱 만들기",
+    emptyDescription: "AI 생성으로 아름다운 프레젠테이션을 만드세요.",
   },
 };
 

@@ -489,9 +489,6 @@ export default function AgentsPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/catalog">{t("agents.openCatalog")}</Link>
-          </Button>
           {canManageOrg ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

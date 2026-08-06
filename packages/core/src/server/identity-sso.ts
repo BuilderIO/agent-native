@@ -52,6 +52,7 @@ import {
   GOOGLE_AUTH_REQUIRED_MESSAGE,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
+import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
 import { getAppName } from "./app-name.js";
 import { getSession, safeReturnPath, isExpectedAuthFailure } from "./auth.js";
 import {
@@ -366,7 +367,7 @@ export async function handleIdentitySso(
     "",
   );
   const origin = getOrigin(event);
-  const loginPath = "/_agent-native/sign-in";
+  const loginPath = SIGN_IN_ENTRY_PATH;
 
   // ---- GET /login → 302 to the hub authorize endpoint ------------------
   if (sub === "/login") {

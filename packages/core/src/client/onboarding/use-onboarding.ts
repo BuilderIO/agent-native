@@ -13,7 +13,6 @@ import type {
   OnboardingMethod,
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
-import { FIRST_RUN_ONBOARDING_COOKIE } from "../../shared/first-run-onboarding.js";
 import { agentNativePath } from "../api-path.js";
 
 export interface UseOnboardingResult {
@@ -43,13 +42,6 @@ export interface UseOnboardingResult {
   completeFirstRun: () => Promise<void>;
 }
 
-function hasFirstRunCookie(): boolean {
-  if (typeof document === "undefined") return false;
-  return document.cookie
-    .split(";")
-    .some((part) => part.trim().startsWith(`${FIRST_RUN_ONBOARDING_COOKIE}=`));
-}
-
 export function useOnboarding(
   options: { preview?: boolean } = {},
 ): UseOnboardingResult {
@@ -59,13 +51,11 @@ export function useOnboarding(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [firstRun, setFirstRun] = useState(
-    () => preview || hasFirstRunCookie(),
-  );
+  const [firstRun, setFirstRun] = useState(preview);
   const mountedRef = useRef(true);
 
   useEffect(() => {
-    setFirstRun(preview || hasFirstRunCookie());
+    setFirstRun(preview);
   }, [preview]);
 
   const fetchAll = useCallback(async () => {
@@ -75,11 +65,18 @@ export function useOnboarding(
           ? "/_agent-native/onboarding/steps?preview=1"
           : "/_agent-native/onboarding/steps",
       );
-      const [stepsRes, dismissRes, profileRes] = await Promise.all([
-        fetch(stepsUrl),
-        fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
-        fetch(agentNativePath("/_agent-native/onboarding/profile")),
-      ]);
+      const [stepsRes, dismissRes, profileRes, firstRunRes] = await Promise.all(
+        [
+          fetch(stepsUrl),
+          fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
+          fetch(agentNativePath("/_agent-native/onboarding/profile")),
+          preview
+            ? Promise.resolve(null)
+            : fetch(
+                agentNativePath("/_agent-native/onboarding/first-run/status"),
+              ),
+        ],
+      );
       if (!mountedRef.current) return;
       if (!stepsRes.ok) {
         throw new Error(`steps: ${stepsRes.status}`);
@@ -91,6 +88,18 @@ export function useOnboarding(
         throw new Error(`profile: ${profileRes.status}`);
       }
       setProfile((await profileRes.json()) as OnboardingAppProfile);
+
+      if (preview) {
+        setFirstRun(true);
+      } else {
+        if (!firstRunRes || !firstRunRes.ok) {
+          throw new Error(`first-run status: ${firstRunRes?.status ?? 500}`);
+        }
+        const firstRunData = (await firstRunRes.json()) as {
+          firstRun?: boolean;
+        };
+        setFirstRun(firstRunData.firstRun === true);
+      }
 
       if (dismissRes.ok) {
         const d = (await dismissRes.json()) as {

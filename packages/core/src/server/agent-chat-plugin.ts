@@ -141,6 +141,10 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import {
   McpClientManager,
@@ -326,7 +330,10 @@ import {
   promptResourceManifestSections,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
-import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
+import {
+  isNetlifyRecurringJobsRuntime,
+  shouldDisableRecurringJobsRuntime,
+} from "./agent-chat/recurring-jobs-runtime.js";
 import {
   isLocalhost,
   shouldBlockInProductCodeEditingSurface,
@@ -358,6 +365,7 @@ export {
 };
 export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
+export { isNetlifyRecurringJobsRuntime };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
@@ -5833,7 +5841,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
-      const disableRecurringJobsRuntime = shouldDisableRecurringJobsRuntime();
+      const isBackgroundRuntime = isInBackgroundFunctionRuntime();
+      const disableRecurringJobsRuntime =
+        isBackgroundRuntime || shouldDisableRecurringJobsRuntime();
 
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
@@ -5875,10 +5885,55 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         };
         runNowSchedulerDeps = schedulerDeps;
 
+        // Platform schedulers use the existing durable background function as
+        // the long-lived worker. Keeping the sweep behind a signed, fixed
+        // route prevents a public request from choosing an owner or job.
+        getH3App(nitroApp).use(
+          RECURRING_JOBS_SWEEP_PATH,
+          defineEventHandler(async (event) => {
+            if (getMethod(event) !== "POST") {
+              setResponseStatus(event, 405);
+              return { error: "Method not allowed" };
+            }
+            const token = extractBearerToken(getHeader(event, "authorization"));
+            if (
+              !token ||
+              !verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token)
+            ) {
+              setResponseStatus(event, 401);
+              return { error: "Invalid or expired internal token" };
+            }
+            if (
+              isNetlifyRecurringJobsRuntime() &&
+              !isInBackgroundFunctionRuntime()
+            ) {
+              setResponseStatus(event, 503);
+              return {
+                error:
+                  "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
+              };
+            }
+            try {
+              await processRecurringJobs(schedulerDeps);
+              return { ok: true };
+            } catch (error) {
+              console.error("[recurring-jobs] Sweep route failed:", error);
+              setResponseStatus(event, 500);
+              return { error: "Recurring-job sweep failed" };
+            }
+          }),
+        );
+
         if (disableRecurringJobsRuntime) {
           if (process.env.DEBUG) {
             console.log(
               "[recurring-jobs] Scheduler disabled for local development",
+            );
+          }
+        } else if (isNetlifyRecurringJobsRuntime()) {
+          if (process.env.DEBUG) {
+            console.log(
+              "[recurring-jobs] Using the durable Netlify scheduled sweep",
             );
           }
         } else {
@@ -5906,27 +5961,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // A non-Netlify self-dispatch only waits for the request to leave the
       // current invocation. Keep the durable history row as a retryable queue
       // so a frozen serverless handoff is recovered on the next sweep.
-      (() => {
-        let inFlight = false;
-        const sweep = async () => {
-          if (inFlight) return;
-          inFlight = true;
-          try {
-            const { redispatchUnclaimedAutomationRuns } =
-              await import("../jobs/run-now.js");
-            await redispatchUnclaimedAutomationRuns();
-          } catch (error) {
-            console.warn(
-              "[automations] queued-run sweep failed; retrying next tick:",
-              error,
-            );
-          } finally {
-            inFlight = false;
-          }
-        };
-        setTimeout(() => void sweep(), 15_000);
-        setInterval(() => void sweep(), 30_000);
-      })();
+      if (!isBackgroundRuntime) {
+        (() => {
+          let inFlight = false;
+          const sweep = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            try {
+              const { redispatchUnclaimedAutomationRuns } =
+                await import("../jobs/run-now.js");
+              await redispatchUnclaimedAutomationRuns();
+            } catch (error) {
+              console.warn(
+                "[automations] queued-run sweep failed; retrying next tick:",
+                error,
+              );
+            } finally {
+              inFlight = false;
+            }
+          };
+          setTimeout(() => void sweep(), 15_000);
+          setInterval(() => void sweep(), 30_000);
+        })();
+      }
 
       mcpInitializationPromise = initializeMcpManager().catch((err) => {
         console.warn(
@@ -5941,6 +5998,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // per instance; cheap (one indexed query when no active tasks are found).
       // Throttled by the same per-owner interval guard inside reconcileAgentTeamRunsForOwner.
       (() => {
+        if (isBackgroundRuntime) return;
         // Track when this instance last ran the sweep so only one sweep fires
         // per 2-min window even if multiple timers fire in overlapping invocations.
         let lastSweep = 0;
@@ -6100,47 +6158,50 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // FAST sweep — redispatch-only, tight cadence. See the invariant
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
-      setTimeout(() => {
-        (async () => {
-          const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
-            await import("../agent/run-store.js");
-          startIntervalJob(
-            async () => {
-              const {
-                listUnclaimedBackgroundRunRows,
-                shouldRedispatchUnclaimedBackgroundRun,
-                reapAllStaleRuns,
-              } = await import("../agent/run-store.js");
-              // The unclaimed-background sweep below only matches
-              // dispatch_mode='background' — handoffs a worker never
-              // claimed. Once a worker CLAIMS a row nothing periodic looked
-              // at it again, so a dead producer was only reaped when some
-              // client request path or an unrelated run's cleanup happened
-              // to notice (prod: 24 minutes after the last heartbeat,
-              // against a 45s window). `reapAllStaleRuns` is per-row,
-              // idempotent, re-checks staleness at UPDATE time and honours
-              // the in-flight grace, so it is safe on this cadence.
-              await reapAllStaleRuns().catch(() => {});
-              let rows: UnclaimedBackgroundRunRow[];
-              try {
-                rows = await listUnclaimedBackgroundRunRows();
-              } catch {
-                return; // Table may not exist yet on first boot
-              }
-              for (const row of rows) {
-                if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
-                await attemptUnclaimedBackgroundRunRedispatch(row).catch(
-                  () => {},
-                );
-              }
-            },
-            { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
-          );
-        })().catch(() => {
-          // best-effort — if run-store fails to load, the slow sweep below
-          // still provides eventual (loud) recovery.
-        });
-      }, 10_000); // Start 10s after init — before the slow sweep's first tick.
+      (() => {
+        if (isBackgroundRuntime) return;
+        setTimeout(() => {
+          (async () => {
+            const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
+              await import("../agent/run-store.js");
+            startIntervalJob(
+              async () => {
+                const {
+                  listUnclaimedBackgroundRunRows,
+                  shouldRedispatchUnclaimedBackgroundRun,
+                  reapAllStaleRuns,
+                } = await import("../agent/run-store.js");
+                // The unclaimed-background sweep below only matches
+                // dispatch_mode='background' — handoffs a worker never
+                // claimed. Once a worker CLAIMS a row nothing periodic looked
+                // at it again, so a dead producer was only reaped when some
+                // client request path or an unrelated run's cleanup happened
+                // to notice (prod: 24 minutes after the last heartbeat,
+                // against a 45s window). `reapAllStaleRuns` is per-row,
+                // idempotent, re-checks staleness at UPDATE time and honours
+                // the in-flight grace, so it is safe on this cadence.
+                await reapAllStaleRuns().catch(() => {});
+                let rows: UnclaimedBackgroundRunRow[];
+                try {
+                  rows = await listUnclaimedBackgroundRunRows();
+                } catch {
+                  return; // Table may not exist yet on first boot
+                }
+                for (const row of rows) {
+                  if (!shouldRedispatchUnclaimedBackgroundRun(row)) continue;
+                  await attemptUnclaimedBackgroundRunRedispatch(row).catch(
+                    () => {},
+                  );
+                }
+              },
+              { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
+            );
+          })().catch(() => {
+            // best-effort — if run-store fails to load, the slow sweep below
+            // still provides eventual (loud) recovery.
+          });
+        }, 10_000); // Start 10s after init — before the slow sweep's first tick.
+      })();
 
       // SLOW sweep — redispatch AND the loud-failure reap fallback past the
       // redispatch bound. Kept on its original 2-minute cadence: it is not
@@ -6149,6 +6210,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // still fails loud, and it survives the fast sweep having missed a row
       // entirely (e.g. a restart landed between fast-sweep ticks).
       (() => {
+        if (isBackgroundRuntime) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
