@@ -62,6 +62,9 @@ export interface DashboardSummaryRecord {
   id: string;
   kind: DashboardKind;
   name: string;
+  configName: string | null;
+  catalogTemplateId: string | null;
+  demoId: string | null;
   parentId: string | null;
   ownerEmail: string;
   orgId: string | null;
@@ -287,6 +290,24 @@ function configFromSettings(data: Record<string, unknown>): {
   return { title, config: data };
 }
 
+function stringProperty(value: unknown, key: string): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const property = (value as Record<string, unknown>)[key];
+  return typeof property === "string" ? property : null;
+}
+
+function catalogMetadataFromConfig(config: Record<string, unknown>): {
+  configName: string | null;
+  catalogTemplateId: string | null;
+  demoId: string | null;
+} {
+  return {
+    configName: typeof config.name === "string" ? config.name : null,
+    catalogTemplateId: stringProperty(config.catalog, "templateId"),
+    demoId: stringProperty(config.demo, "id"),
+  };
+}
+
 async function migrateDashboardFromSettings(
   id: string,
   kind: DashboardKind,
@@ -510,11 +531,13 @@ export async function listDashboardSummaries(
     kind?: DashboardKind;
     archived?: DashboardArchiveFilter;
     hidden?: DashboardHiddenFilter;
+    includeCatalogMetadata?: boolean;
   },
 ): Promise<DashboardSummaryRecord[]> {
   const db = getDb() as any;
   const archived = filter?.archived ?? "active";
   const hidden = filter?.hidden ?? "visible";
+  const includeCatalogMetadata = filter?.includeCatalogMetadata === true;
   const conditions: any[] = [
     accessFilter(schema.dashboards, schema.dashboardShares, {
       userEmail: ctx.email,
@@ -535,11 +558,31 @@ export async function listDashboardSummaries(
     : sql<
         string | null
       >`json_extract(${schema.dashboards.config}, '$.parentId')`;
+  const configName = isPostgres()
+    ? sql<string | null>`(${schema.dashboards.config}::jsonb ->> 'name')`
+    : sql<string | null>`json_extract(${schema.dashboards.config}, '$.name')`;
+  const catalogTemplateId = isPostgres()
+    ? sql<
+        string | null
+      >`(${schema.dashboards.config}::jsonb -> 'catalog' ->> 'templateId')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.catalog.templateId')`;
+  const demoId = isPostgres()
+    ? sql<
+        string | null
+      >`(${schema.dashboards.config}::jsonb -> 'demo' ->> 'id')`
+    : sql<
+        string | null
+      >`json_extract(${schema.dashboards.config}, '$.demo.id')`;
   const rows = await db
     .select({
       id: schema.dashboards.id,
       kind: schema.dashboards.kind,
       name: schema.dashboards.title,
+      ...(includeCatalogMetadata
+        ? { configName, catalogTemplateId, demoId }
+        : {}),
       parentId,
       ownerEmail: schema.dashboards.ownerEmail,
       orgId: schema.dashboards.orgId,
@@ -554,6 +597,10 @@ export async function listDashboardSummaries(
     .where(where);
   const out: DashboardSummaryRecord[] = rows.map((row: any) => ({
     ...row,
+    configName: typeof row.configName === "string" ? row.configName : null,
+    catalogTemplateId:
+      typeof row.catalogTemplateId === "string" ? row.catalogTemplateId : null,
+    demoId: typeof row.demoId === "string" ? row.demoId : null,
     parentId: typeof row.parentId === "string" ? row.parentId : null,
     orgId: row.orgId ?? null,
     archivedAt: row.archivedAt ?? null,
@@ -590,12 +637,20 @@ export async function listDashboardSummaries(
       seen.add(id);
       const config = value as Record<string, unknown>;
       const { title } = configFromSettings(config);
+      const catalogMetadata = includeCatalogMetadata
+        ? catalogMetadataFromConfig(config)
+        : {
+            configName: null,
+            catalogTemplateId: null,
+            demoId: null,
+          };
       const createdAt =
         typeof config.createdAt === "string" ? config.createdAt : nowIso();
       out.push({
         id,
         kind,
         name: title,
+        ...catalogMetadata,
         parentId: typeof config.parentId === "string" ? config.parentId : null,
         ownerEmail: ctx.email,
         orgId,

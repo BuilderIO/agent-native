@@ -1,9 +1,7 @@
 import {
   deferMigration,
   ensureAdditiveColumns,
-  getDialect,
   getDbExec,
-  isPostgres,
   runMigrations,
 } from "@agent-native/core/db";
 import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
@@ -12,7 +10,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY } from "../lib/first-party-analytics-rollups.js";
+import { isHistoricalAnalyticsRollupBackfillComplete } from "../jobs/analytics-rollup-backfill.js";
 import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
@@ -32,182 +30,6 @@ function isDrizzleTable(value: unknown): value is object {
 }
 
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
-
-const ANALYTICS_ROLLUP_BACKFILL_STATEMENTS = {
-  postgres: [
-    `
-      INSERT INTO analytics_event_daily_rollups (
-        id, tenant_key, owner_email, org_id, event_date, event_name,
-        app, template, event_count
-      )
-      SELECT
-        md5(random()::text || clock_timestamp()::text), tenant_key,
-        MIN(owner_email), MIN(org_id), event_date, event_name, app, template,
-        COUNT(*)::INTEGER
-      FROM (
-        SELECT
-          CASE
-            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
-            ELSE 'user:' || owner_email
-          END AS tenant_key,
-          owner_email,
-          org_id,
-          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
-          event_name,
-          COALESCE(app, '') AS app,
-          COALESCE(template, '') AS template
-        FROM analytics_events
-      ) AS historical_events
-      WHERE event_date <> ''
-      GROUP BY tenant_key, event_date, event_name, app, template
-      ON CONFLICT (tenant_key, event_date, event_name, app, template)
-      DO UPDATE SET event_count = GREATEST(
-        analytics_event_daily_rollups.event_count,
-        EXCLUDED.event_count
-      )
-    `,
-    `
-      INSERT INTO analytics_user_days (
-        id, tenant_key, owner_email, org_id, event_date, user_key
-      )
-      SELECT
-        md5(random()::text || clock_timestamp()::text), tenant_key,
-        owner_email, org_id, event_date, user_key
-      FROM (
-        SELECT DISTINCT
-          CASE
-            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
-            ELSE 'user:' || owner_email
-          END AS tenant_key,
-          owner_email,
-          org_id,
-          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
-          user_key
-        FROM analytics_events
-        WHERE user_key IS NOT NULL AND TRIM(user_key) <> ''
-      ) AS historical_user_days
-      WHERE event_date <> ''
-      ON CONFLICT (tenant_key, event_date, user_key) DO NOTHING
-    `,
-  ],
-  sqlite: [
-    `
-      INSERT INTO analytics_event_daily_rollups (
-        id, tenant_key, owner_email, org_id, event_date, event_name,
-        app, template, event_count
-      )
-      SELECT
-        lower(hex(randomblob(16))), tenant_key, MIN(owner_email), MIN(org_id),
-        event_date, event_name, app, template, COUNT(*)
-      FROM (
-        SELECT
-          CASE
-            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
-            ELSE 'user:' || owner_email
-          END AS tenant_key,
-          owner_email,
-          org_id,
-          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
-          event_name,
-          COALESCE(app, '') AS app,
-          COALESCE(template, '') AS template
-        FROM analytics_events
-      ) AS historical_events
-      WHERE event_date <> ''
-      GROUP BY tenant_key, event_date, event_name, app, template
-      ON CONFLICT (tenant_key, event_date, event_name, app, template)
-      DO UPDATE SET event_count = excluded.event_count
-    `,
-    `
-      INSERT INTO analytics_user_days (
-        id, tenant_key, owner_email, org_id, event_date, user_key
-      )
-      SELECT
-        lower(hex(randomblob(16))), tenant_key, owner_email, org_id,
-        event_date, user_key
-      FROM (
-        SELECT DISTINCT
-          CASE
-            WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id
-            ELSE 'user:' || owner_email
-          END AS tenant_key,
-          owner_email,
-          org_id,
-          COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) AS event_date,
-          user_key
-        FROM analytics_events
-        WHERE user_key IS NOT NULL AND TRIM(user_key) <> ''
-      ) AS historical_user_days
-      WHERE event_date <> ''
-      ON CONFLICT (tenant_key, event_date, user_key) DO NOTHING
-    `,
-  ],
-} as const;
-
-async function runHistoricalAnalyticsRollupBackfill() {
-  // Durable agent workers share this plugin bundle with the regular server,
-  // but they must not become a second migration runner for an expensive
-  // historical scan. The keep-warm/regular server path owns this work.
-  if (isInBackgroundFunctionRuntime()) {
-    console.info(
-      "[db] Deferring historical Analytics rollup backfill from durable background runtime",
-    );
-    return deferMigration();
-  }
-
-  const db = getDbExec();
-
-  if (isPostgres()) {
-    if (!db.transaction) {
-      throw new Error(
-        "Analytics rollup backfill requires a Postgres transaction",
-      );
-    }
-
-    const result = await db.transaction(async (tx) => {
-      // Only one serverless instance should perform the expensive scan. A
-      // A try-lock keeps competing cold starts from holding pooled Neon
-      // connections while waiting for the winner. A lock loser defers without
-      // recording the migration so a failed winner can be retried safely.
-      // The monotonic rollup upsert below keeps a live increment from being
-      // overwritten if ingest commits during the historical snapshot. Live
-      // ingest takes this same lock before inserting its raw event.
-      const lockResult = await tx.execute({
-        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
-        args: [FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY],
-      });
-      const acquired = lockResult.rows[0]?.acquired;
-      if (acquired !== true && acquired !== "t") {
-        console.info(
-          "[db] Deferring historical Analytics rollup backfill; another instance owns the advisory lock",
-        );
-        return deferMigration();
-      }
-      for (const statement of ANALYTICS_ROLLUP_BACKFILL_STATEMENTS.postgres) {
-        await tx.execute(statement);
-      }
-    });
-    return result;
-  }
-
-  const statements = ANALYTICS_ROLLUP_BACKFILL_STATEMENTS.sqlite;
-  if (getDialect() === "d1") {
-    if (!db.atomicBatch) {
-      throw new Error("D1 analytics rollup backfill requires an atomic batch");
-    }
-    await db.atomicBatch(statements);
-    return;
-  }
-
-  if (!db.transaction) {
-    throw new Error(
-      "Analytics rollup backfill requires a database transaction",
-    );
-  }
-  await db.transaction(async (tx) => {
-    for (const statement of statements) await tx.execute(statement);
-  });
-}
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
@@ -1548,14 +1370,56 @@ const runAnalyticsMigrations = runMigrations(
       name: "analytics-query-pressure-daily-key-idx",
       sql: `CREATE UNIQUE INDEX IF NOT EXISTS analytics_query_pressure_daily_key_idx ON analytics_query_pressure_daily (tenant_key, event_date, query_class)`,
     },
-    // Rebuild the compact analytics rollups from raw history once when the
-    // tables first ship. The run-only migration takes the same write lock as
-    // ingest so a live increment cannot be overwritten by its snapshot.
+    // Keep this historical migration name reserved, but record it without a
+    // boot-time run. Scanning analytics_events here makes every concurrent
+    // serverless migration runner hold a database connection for the full
+    // history; v126-v131 continue to maintain the compact tables incrementally.
+    // Any future one-shot backfill must use a new migration identity or an
+    // explicit out-of-band job because this marker is permanently applied.
     {
       version: 132,
       name: "analytics-rollups-historical-backfill",
       sql: {},
-      run: runHistoricalAnalyticsRollupBackfill,
+    },
+    {
+      version: 133,
+      name: "analytics-rollups-historical-backfill-state",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      completed_at TEXT,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_rollup_backfill_state (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      completed_at TEXT,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+      },
+    },
+    {
+      version: 134,
+      name: "analytics-rollups-historical-backfill-repair",
+      sql: {},
+      run: async () => {
+        if (!(await isHistoricalAnalyticsRollupBackfillComplete())) {
+          return deferMigration();
+        }
+      },
+    },
+    {
+      version: 135,
+      name: "analytics-rollups-historical-backfill-lease",
+      sql: `
+        ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_token TEXT;
+        ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_expires_at TEXT;
+      `,
     },
   ],
   { table: "analytics_migrations" },
@@ -1572,10 +1436,17 @@ const runAnalyticsMigrations = runMigrations(
  * swallowed so it can never fail boot.
  */
 export default async (nitroApp: any): Promise<void> => {
-  if (isInBackgroundFunctionRuntime()) {
-    // Durable workers execute signed internal routes against a schema owned by
-    // the regular server. A second migration runner only adds a Neon pool
-    // probe to every worker cold start.
+  const isScheduledRollupRuntime =
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ === true;
+  if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {
+    // Most durable workers execute signed internal routes against a schema
+    // owned by the regular server. A second migration runner only adds a Neon
+    // pool probe to every worker cold start. The scheduled rollup worker is
+    // the exception because it can be the first post-deploy invocation.
     console.info(
       "[db] Skipping Analytics migrations in durable background runtime",
     );

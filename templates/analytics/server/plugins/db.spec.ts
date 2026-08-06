@@ -22,8 +22,8 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
-const analyticsIngestTsSource = readFileSync(
-  new URL("../lib/first-party-analytics.ts", import.meta.url),
+const analyticsRollupsTsSource = readFileSync(
+  new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
 );
 
@@ -182,39 +182,34 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("backfills historical events into both compact rollup tables", () => {
+  it("records the historical rollup migration without scanning history at boot", () => {
     expect(dbTsSource).toMatch(/name: "analytics-rollups-historical-backfill"/);
-    expect(dbTsSource).toMatch(/run: runHistoricalAnalyticsRollupBackfill/);
-    expect(dbTsSource).toMatch(/pg_try_advisory_xact_lock\(hashtextextended\(/);
+    expect(dbTsSource).toMatch(
+      /version: 132,[\s\S]*?name: "analytics-rollups-historical-backfill",[\s\S]*?sql: \{\},[\s\S]*?\n\s*\},/,
+    );
+    expect(dbTsSource).not.toMatch(
+      /run:\s*runHistoricalAnalyticsRollupBackfill/,
+    );
+    expect(dbTsSource).not.toContain("FROM analytics_events");
     expect(dbTsSource).not.toContain(
       "LOCK TABLE analytics_event_daily_rollups",
     );
     expect(dbTsSource).not.toContain("LOCK TABLE analytics_events");
-    expect(dbTsSource).toMatch(
-      /MIN\(owner_email\)[\s\S]*GROUP BY tenant_key, event_date/,
-    );
-    expect(dbTsSource).toMatch(/DO UPDATE SET event_count = GREATEST\(/);
-    expect(dbTsSource).toMatch(
-      /INSERT INTO analytics_event_daily_rollups[\s\S]*FROM analytics_events[\s\S]*COUNT\(\*\)/,
-    );
-    expect(dbTsSource).toMatch(
-      /INSERT INTO analytics_user_days[\s\S]*FROM analytics_events[\s\S]*SELECT DISTINCT/,
-    );
-    expect(dbTsSource).toMatch(
-      /ON CONFLICT \(tenant_key, event_date, event_name, app, template\)/,
-    );
-    expect(dbTsSource).toMatch(
-      /ON CONFLICT \(tenant_key, event_date, user_key\) DO NOTHING/,
-    );
+    expect(dbTsSource).toContain("new migration identity");
+    expect(dbTsSource).toContain("out-of-band job");
   });
 
-  it("coordinates the historical backfill with live Postgres ingest", () => {
-    expect(dbTsSource).toContain("FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY");
-    expect(analyticsIngestTsSource).toContain(
-      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+  it("keeps the incremental rollup lock inside the rollup write transaction", () => {
+    const writeIdx = analyticsRollupsTsSource.indexOf(
+      "const writeRollups = async (tx: any) => {",
     );
-    expect(analyticsIngestTsSource).toMatch(
-      /if \(isPostgres\(\)\)[\s\S]*?FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL/,
+    const lockIdx = analyticsRollupsTsSource.lastIndexOf(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
+    );
+    expect(writeIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(writeIdx);
+    expect(analyticsRollupsTsSource).toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
     );
   });
 
@@ -224,12 +219,15 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("does not run Analytics migrations in durable background functions", () => {
+  it("skips Analytics migrations in non-rollup durable background functions", () => {
     const pluginSource = dbTsSource.slice(
       dbTsSource.lastIndexOf("export default async"),
     );
     expect(pluginSource).toMatch(
-      /if \(isInBackgroundFunctionRuntime\(\)\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
+      /if \(isInBackgroundFunctionRuntime\(\) && !isScheduledRollupRuntime\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
+    );
+    expect(pluginSource).toContain(
+      "__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__",
     );
   });
 });
