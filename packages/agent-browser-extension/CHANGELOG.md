@@ -1,5 +1,18 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.52
+
+### Patch Changes
+
+- Updated dependencies [6ad7634]
+- Updated dependencies [b872cde]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+  - @agent-native/core@0.143.0
+
 ## 0.1.51
 
 ### Patch Changes
