@@ -51,4 +51,23 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("<InsightsPanel");
     expect(route).toContain("{viewerCanEdit ? (");
   });
+
+  it("does not expose the insights tab to viewers", () => {
+    const shareRoute = readRoute("share.$shareId.tsx");
+    const shareTrigger = shareRoute.indexOf(
+      '<TabsTrigger value="insights" className="text-xs">',
+    );
+    const shareTriggerGuard = shareRoute.lastIndexOf(
+      "{viewerCanEdit ? (",
+      shareTrigger,
+    );
+    expect(shareTrigger).toBeGreaterThan(-1);
+    expect(shareTriggerGuard).toBeGreaterThan(-1);
+
+    const recordingRoute = readRoute("r.$recordingId.tsx");
+    expect(recordingRoute).toContain(
+      'canEdit ? trigger("insights", t("recordingPage.insights")) : null,',
+    );
+    expect(recordingRoute).not.toContain("InsightsUnavailableState");
+  });
 });
