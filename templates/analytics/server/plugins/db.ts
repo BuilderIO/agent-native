@@ -1421,6 +1421,14 @@ const runAnalyticsMigrations = runMigrations(
         ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_expires_at TEXT;
       `,
     },
+    {
+      version: 136,
+      name: "analytics-events-backfill-cursor-indexes",
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id)`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

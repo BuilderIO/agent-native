@@ -71,6 +71,17 @@ describe("analytics db migrations cover every schema.ts column", () => {
   }
 });
 
+describe("analytics backfill has scoped cursor indexes", () => {
+  it("indexes both organization and personal received_at cursors", () => {
+    expect(dbTsSource).toContain(
+      "analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id)",
+    );
+    expect(dbTsSource).toContain(
+      "analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id)",
+    );
+  });
+});
+
 /**
  * Guard for the name-based migration tracking convention (see the
  * `runMigrations` doc comment in packages/core/src/db/migrations.ts for the

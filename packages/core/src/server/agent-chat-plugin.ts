@@ -1686,6 +1686,34 @@ export function createAgentChatPlugin(
           // so they must also receive the native-tool prompt. The interactive
           // dev prompt teaches `pnpm action` and would send this receiver back
           // into the shell loop the native action surface exists to prevent.
+          // A peer app asked this agent a question. Two things make that turn
+          // behave worse than the same app's own chat, and both are prompt
+          // problems rather than protocol ones:
+          //
+          // 1. `basePrompt` is always the PROD framework prompt, which states
+          //    "You cannot edit source code or access the filesystem directly."
+          //    In dev mode the A2A tool registry below DOES register `shell`.
+          //    The model is then told a tool it can see does not exist, and
+          //    reasoning around that contradiction is what shows up as the
+          //    reported "I think I should use bash over and over".
+          // 2. Nothing tells it the fast path is its own registered actions —
+          //    so it explores instead of routing, and the caller waits minutes
+          //    for an answer one action could have produced.
+          //
+          // This says only what is true for the registry actually built below.
+          const a2aCalleeNote =
+            `\n\n## Answering another app\n\n` +
+            `This request came from a peer app over A2A, not from a person at a screen. ` +
+            `Reach for your own registered actions first and by name — they are the same actions ` +
+            `this app's interactive chat uses, and they are almost always the shortest path to the answer. ` +
+            `Do not rediscover your own capabilities by exploring, and never use a shell or code-execution ` +
+            `tool to do what one of your actions already does.` +
+            (devActive
+              ? ` A shell tool is available here despite the note above about production mode; treat it as a ` +
+                `last resort for genuine gaps only.`
+              : ``) +
+            ` If you cannot answer, say so plainly and briefly rather than continuing to search.\n`;
+
           const systemPrompt =
             basePrompt +
             SYSTEM_PROMPT_CACHE_SPLIT +
@@ -1693,6 +1721,7 @@ export function createAgentChatPlugin(
             schemaBlock +
             extra +
             modelOverlay +
+            a2aCalleeNote +
             runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 

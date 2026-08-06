@@ -164,6 +164,9 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain('id="use-password-link"');
     expect(html).toContain('class="link-button auth-mode-link"');
+    expect(html).toContain(
+      'style="margin-top:0.75rem;font-size:0.75rem;text-align:start"',
+    );
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain("/_agent-native/auth/magic-link");
     expect(html).toContain(
@@ -178,6 +181,24 @@ describe("getOnboardingHtml", () => {
     expect(html).not.toContain("Email me a sign-in link");
     expect(html).toContain("magicLinkTitle");
     expect(html).toContain("magicLinkSubtitle");
+  });
+
+  it("renders a quiet centered auth surface for an initial prompt", () => {
+    const html = getOnboardingHtml({
+      authMode: "magic-link",
+      initialPrompt: true,
+      marketing: {
+        appName: "Slides",
+        tagline: "Build presentations alongside your agent.",
+      },
+    });
+
+    expect(html).toContain('<body class="simplified-auth">');
+    expect(html).toContain("body.simplified-auth { background: #141414; }");
+    expect(html).toContain("box-shadow: none;");
+    expect(html).not.toContain('id="starfield"');
+    expect(html).not.toContain('class="marketing-panel"');
+    expect(html).not.toContain('class="app-name"');
   });
 
   it("localizes the magic-link copy through the existing auth catalogs", () => {

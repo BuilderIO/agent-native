@@ -895,6 +895,29 @@ async function _doEnsureTable(): Promise<void> {
     "expires_at",
   ]);
 
+  // `cleanupExpiredAgentScratchResources` filters on exactly these two columns
+  // and, without this, full-scans `resources` — a table shared by every
+  // template and read from agent discovery, docs, chat scratch and remote-agent
+  // manifests. Its 60s throttle is a module-scope timestamp that starts at 0 in
+  // a fresh isolate, so the first resource read after EVERY cold start pays
+  // that scan. Idempotent and dialect-agnostic, per the `performance` skill.
+  await client
+    .execute({
+      sql: `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+      args: [],
+    })
+    .catch((err) => {
+      // An index is an optimization, not a correctness requirement: a
+      // concurrent creator or a permissions edge must not fail table init and
+      // take the app down with it. The scan it avoids is slow, not wrong — but
+      // say so, because "silently slow forever" is the outcome nobody notices.
+      // coercion-ok: absence of an index degrades latency, never correctness
+      console.warn(
+        "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
+        (err as Error)?.message ?? err,
+      );
+    });
+
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();
   const seedSql = isPostgres()

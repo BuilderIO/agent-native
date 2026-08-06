@@ -11,3 +11,5 @@ Record the cause when a background continuation handoff fails. The run went term
 Record why a cross-app (A2A) call ended on the `agent_call` event. The terminal code was already computed for telemetry but left off the persisted event, so a failed cross-app call was stored as "failed after N ms" with no reason — undiagnosable without a repro.
 
 Attach the remote task id to every cross-app call, not only failed ones. A call that succeeded slowly carried no task id, so the question worth asking about a four-minute A2A call — what was the other app doing? — could not be traced into that app's own task record.
+
+Index the `resources` cleanup filter. `cleanupExpiredAgentScratchResources` filters on `(visibility, expires_at)` with no index, and its 60s throttle is a module-scope timestamp that starts at 0 in a fresh isolate — so the first resource read after every serverless cold start full-scanned a table shared by every template and read from agent discovery, docs, chat scratch and remote-agent manifests.

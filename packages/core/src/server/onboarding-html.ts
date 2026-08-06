@@ -1362,6 +1362,8 @@ export interface OnboardingHtmlOptions {
   googleOnly?: boolean;
   /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
+  /** Render the quiet, centered auth surface used when the app has an initial prompt. */
+  initialPrompt?: boolean;
   /**
    * Product marketing content shown alongside the sign-in form.
    * When provided, the page uses a split layout: marketing on the left,
@@ -1412,6 +1414,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const googleOnly = !!opts.googleOnly;
   const authMode = opts.authMode ?? "password";
   const magicLinkMode = authMode === "magic-link";
+  const simplifiedAuth = opts.initialPrompt === true;
   // In a Google-only app, Google is the sole sign-in method, so always render
   // a working button — never gate it on env vars detected at render time. The
   // login page is a public, CDN-cacheable shell served to everyone (per-user
@@ -1434,7 +1437,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestHost: opts.requestHost,
       requestPath: opts.requestPath,
     });
-  const hasMarketing = !!marketing;
+  const hasMarketing = !!marketing && !simplifiedAuth;
   const marketingSlug = resolveBuiltInMarketingSlug(marketing);
   const defaultMarketingCopy: Partial<AuthMarketingLocalization> | undefined =
     marketing
@@ -2565,9 +2568,12 @@ ${
   .local-note a { color: #888; text-decoration: none; }
   .local-note a:hover { color: #bbb; }
 ${marketingStyles}
+  body.simplified-auth { background: #141414; }
+  body.simplified-auth .card { border-color: transparent; box-shadow: none; }
+  body.simplified-auth .local-note { display: none !important; }
 </style>
 </head>
-<body${hasMarketing ? ' class="has-marketing"' : ""}>
+<body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
 ${localePickerHtml}
 ${marketingPanelHtml}
 <div class="card">
@@ -2599,7 +2605,7 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}  <div class="tabs" id="auth-tabs"${magicLinkMode ? " hidden" : ""}>
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}  <div class="tabs" id="auth-tabs"${magicLinkMode ? " hidden" : ""}>
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
