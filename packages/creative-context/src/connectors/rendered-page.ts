@@ -464,9 +464,30 @@ async function installNavigationGuard(
   let finalNavigationUrl: string | undefined;
   let resourceCount = 0;
   let resourceBytes = 0;
+  let reservedResourceBytes = 0;
+  const bodyBudgetWaiters: Array<() => void> = [];
   let resourceLimitWarningAdded = false;
   let blockedResourceWarningAdded = false;
   let failedResourceWarningAdded = false;
+
+  const reserveBodyBudget = async (): Promise<() => void> => {
+    while (
+      reservedResourceBytes + MAX_BROWSER_RESOURCE_BYTES >
+      MAX_BROWSER_RESOURCE_BYTES_TOTAL
+    ) {
+      await new Promise<void>((resolve) => {
+        bodyBudgetWaiters.push(resolve);
+      });
+    }
+    reservedResourceBytes += MAX_BROWSER_RESOURCE_BYTES;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      reservedResourceBytes -= MAX_BROWSER_RESOURCE_BYTES;
+      bodyBudgetWaiters.shift()?.();
+    };
+  };
 
   const addWarning = (value: string): void => {
     if (!warnings.includes(value)) warnings.push(value);
@@ -516,6 +537,14 @@ async function installNavigationGuard(
       return;
     }
 
+    // Reserve the request slot before the first await. Browser route handlers
+    // overlap, so incrementing only after the proxy response arrives lets a
+    // burst of requests all pass the limit check.
+    resourceCount += 1;
+    let bodyBudgetRelease: (() => void) | undefined;
+    let committedBytes = 0;
+    let fulfilled = false;
+
     try {
       await assertPublicBrowserUrl(parsed.href);
       const response = await ssrfSafeFetch(
@@ -532,10 +561,13 @@ async function installNavigationGuard(
         },
         { maxRedirects: 5 },
       );
+      bodyBudgetRelease = await reserveBodyBudget();
       const body = await readBoundedResponseBytes(
         response,
         MAX_BROWSER_RESOURCE_BYTES,
       );
+      bodyBudgetRelease();
+      bodyBudgetRelease = undefined;
       if (resourceBytes + body.byteLength > MAX_BROWSER_RESOURCE_BYTES_TOTAL) {
         await route.abort("blockedbyclient");
         if (!resourceLimitWarningAdded) {
@@ -546,8 +578,8 @@ async function installNavigationGuard(
         }
         return;
       }
-      resourceCount += 1;
       resourceBytes += body.byteLength;
+      committedBytes = body.byteLength;
       if (browserRequest.isNavigationRequest()) {
         finalNavigationUrl = response.url || parsed.href;
       }
@@ -556,7 +588,12 @@ async function installNavigationGuard(
         headers: browserResponseHeaders(response),
         body: Buffer.from(body),
       });
+      fulfilled = true;
     } catch (error) {
+      if (committedBytes > 0) {
+        resourceBytes -= committedBytes;
+        committedBytes = 0;
+      }
       await route.abort("blockedbyclient");
       if (isSsrfError(error)) {
         if (!blockedResourceWarningAdded) {
@@ -571,6 +608,9 @@ async function installNavigationGuard(
           "Some browser resources could not be fetched through the safe network proxy.",
         );
       }
+    } finally {
+      bodyBudgetRelease?.();
+      if (!fulfilled) resourceCount -= 1;
     }
   });
   return () => finalNavigationUrl;

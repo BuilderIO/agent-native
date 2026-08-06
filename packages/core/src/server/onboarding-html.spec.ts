@@ -182,10 +182,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
     );
-    expect(html).toContain("if (initial === 'magicLink') showMagicLinkForm()");
-    expect(html).toContain('class="tabs" id="auth-tabs" hidden');
+    expect(html).toContain("var initial = 'signup';");
+    expect(html).toContain('class="tabs" id="auth-tabs"');
+    expect(html).not.toContain('class="tabs" id="auth-tabs" hidden');
     expect(html).toContain(
-      '<h1 id="heading" data-i18n="magicLinkTitle">Welcome</h1>',
+      '<h1 id="heading" data-i18n="welcomeTitle">Welcome</h1>',
     );
     expect(html).toContain("Create an account or sign in");
     expect(html).not.toContain("Email me a sign-in link");

@@ -395,8 +395,8 @@ export default function PromptPopover({
                   autoFocus
                   type="url"
                   value={googleSlidesUrl}
-                  placeholder={t("home.googleSlidesReferenceChoose")}
-                  aria-label={t("home.googleSlidesReferenceChoose")}
+                  placeholder={t("home.googleSlidesReferenceUrl")}
+                  aria-label={t("home.googleSlidesReferenceUrl")}
                   className="h-8 text-xs"
                   disabled={importingSource !== null || loading || uploading}
                   onChange={(event) => setGoogleSlidesUrl(event.target.value)}

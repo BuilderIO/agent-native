@@ -251,4 +251,130 @@ describe("renderWithPlaywright lifecycle", () => {
       "user-agent": "fixture-browser",
     });
   });
+
+  it("reserves browser resource slots before overlapping proxy fetches", async () => {
+    let releaseFetch!: () => void;
+    const fetchGate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    let fetchCount = 0;
+    ssrfSafeFetch.mockImplementation(async () => {
+      fetchCount += 1;
+      await fetchGate;
+      return new Response("resource", { status: 200 });
+    });
+
+    let routeHandler:
+      | ((route: {
+          request: () => {
+            url: () => string;
+            isNavigationRequest: () => boolean;
+            resourceType: () => string;
+            method: () => string;
+            headers: () => Record<string, string>;
+          };
+          continue: () => Promise<void>;
+          abort: (reason?: string) => Promise<void>;
+          fulfill: (options: {
+            status: number;
+            headers: Record<string, string>;
+            body: Uint8Array;
+          }) => Promise<void>;
+        }) => Promise<void>)
+      | undefined;
+    let abortCount = 0;
+
+    const page = {
+      async route(_pattern: string, handler: (route: never) => Promise<void>) {
+        routeHandler = handler as typeof routeHandler;
+      },
+      async goto() {
+        if (!routeHandler) throw new Error("route handler was not installed");
+        const requests = Array.from({ length: 401 }, (_, index) =>
+          routeHandler!({
+            request: () => ({
+              url: () => `https://example.com/resource-${index}`,
+              isNavigationRequest: () => index === 0,
+              resourceType: () => "script",
+              method: () => "GET",
+              headers: () => ({}),
+            }),
+            continue: async () => undefined,
+            abort: async () => {
+              abortCount += 1;
+            },
+            fulfill: async () => undefined,
+          }),
+        );
+        while (fetchCount < 400) await Promise.resolve();
+        releaseFetch();
+        await Promise.all(requests);
+      },
+      async waitForLoadState() {},
+      async title() {
+        return "Example";
+      },
+      url() {
+        return "https://example.com/";
+      },
+      locator() {
+        return { innerText: async () => "Example" };
+      },
+      async setViewportSize() {},
+      async screenshot() {
+        return new Uint8Array([1]);
+      },
+      async evaluate<T>() {
+        return {
+          title: "Example",
+          text: "Example",
+          assets: [],
+          internalLinks: [],
+          designTokens: {
+            colors: [],
+            typography: [],
+            spacing: [],
+            radii: [],
+            cssVariables: {},
+          },
+        } as T;
+      },
+    };
+    const context = {
+      pages: () => [],
+      async newPage() {
+        return page;
+      },
+      async close() {},
+    };
+    const browser = {
+      contexts: () => [],
+      async newContext() {
+        return context;
+      },
+      async close() {},
+    };
+
+    const result = await renderWithPlaywright(
+      {
+        chromium: {
+          async launch() {
+            return browser;
+          },
+          async connectOverCDP() {
+            return browser;
+          },
+        },
+      } as never,
+      { url: "https://example.com/", timeoutMs: 5_000 },
+      [],
+      "local-playwright",
+    );
+
+    expect(fetchCount).toBe(400);
+    expect(abortCount).toBe(1);
+    expect(result.warnings).toContain(
+      "Browser resource budget reached (400 requests).",
+    );
+  });
 });

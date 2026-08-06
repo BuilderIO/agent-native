@@ -674,6 +674,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides 덱을 가져오려면 Google Drive를 연결하세요.",
     googleSlidesReferenceChoose: "Google Slides 덱 선택",
+    googleSlidesReferenceUrl: "Google Slides 링크 붙여넣기",
     googleSlidesReferencePicking: "처리 중...",
     googleSlidesReferenceConnected:
       "연결되었습니다. 재사용 가능한 참조로 가져올 Google Slides 덱을 선택하세요.",

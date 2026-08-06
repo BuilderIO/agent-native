@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   runMigrations,
   deferMigration,
@@ -127,6 +129,107 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
       );
     }
   }
+}
+
+const RECORDING_ORG_ID_BACKFILL_BATCH_SIZE = 250;
+const RECORDING_ORG_ID_BACKFILL_LEASE_MS = 30_000;
+const RECORDING_ORG_ID_BACKFILL_DELAY_MS = 100;
+const RECORDING_ORG_ID_BACKFILL_LEASE_KEY = "recording-org-id";
+const recordingOrgIdBackfillHolder = randomUUID();
+
+async function acquireRecordingOrgIdBackfillLease(): Promise<boolean> {
+  const exec = getDbExec();
+  const now = Date.now();
+  const expiresAt = now + RECORDING_ORG_ID_BACKFILL_LEASE_MS;
+  await exec.execute({
+    sql: `INSERT INTO clips_backfill_leases (lease_key, holder, expires_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT (lease_key) DO UPDATE SET
+        holder = excluded.holder,
+        expires_at = excluded.expires_at
+      WHERE clips_backfill_leases.expires_at <= ?`,
+    args: [
+      RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+      recordingOrgIdBackfillHolder,
+      expiresAt,
+      now,
+    ],
+  });
+  const result = await exec.execute({
+    sql: `SELECT holder FROM clips_backfill_leases
+      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+    args: [
+      RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+      recordingOrgIdBackfillHolder,
+      now,
+    ],
+  });
+  return result.rows.length > 0;
+}
+
+async function renewRecordingOrgIdBackfillLease(): Promise<boolean> {
+  const result = await getDbExec().execute({
+    sql: `UPDATE clips_backfill_leases
+      SET expires_at = ?
+      WHERE lease_key = ? AND holder = ? AND expires_at > ?`,
+    args: [
+      Date.now() + RECORDING_ORG_ID_BACKFILL_LEASE_MS,
+      RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+      recordingOrgIdBackfillHolder,
+      Date.now(),
+    ],
+  });
+  return result.rowsAffected > 0;
+}
+
+async function backfillRecordingOrgIdsInBatches(): Promise<void> {
+  if (!(await acquireRecordingOrgIdBackfillLease())) return;
+  const exec = getDbExec();
+  try {
+    for (;;) {
+      if (!(await renewRecordingOrgIdBackfillLease())) return;
+      // guard:allow-unscoped — this is a leased, bounded one-time repair over
+      // historical recordings whose org id was never populated.
+      const result = await exec.execute({
+        sql: `UPDATE recordings
+          SET org_id = workspace_id
+          WHERE id IN (
+            SELECT id FROM recordings
+            WHERE org_id IS NULL AND workspace_id IS NOT NULL
+            ORDER BY id
+            LIMIT ?
+          )`,
+        args: [RECORDING_ORG_ID_BACKFILL_BATCH_SIZE],
+      });
+      if (result.rowsAffected === 0) return;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, RECORDING_ORG_ID_BACKFILL_DELAY_MS),
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[db] recording org-id backfill failed; it will retry in a later process:",
+      (err as Error)?.message ?? err,
+    );
+  } finally {
+    await exec
+      .execute({
+        sql: `DELETE FROM clips_backfill_leases
+          WHERE lease_key = ? AND holder = ?`,
+        args: [
+          RECORDING_ORG_ID_BACKFILL_LEASE_KEY,
+          recordingOrgIdBackfillHolder,
+        ],
+      })
+      .catch(() => undefined);
+  }
+}
+
+function scheduleRecordingOrgIdBackfill(): void {
+  const timer = setTimeout(() => {
+    void backfillRecordingOrgIdsInBatches();
+  }, 1_000);
+  if (typeof timer.unref === "function") timer.unref();
 }
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
@@ -989,12 +1092,13 @@ const migrations = runMigrations(
     {
       version: 59,
       name: "backfill-recording-org-id",
-      // Was a plugin-body call, so it re-ran on every cold start: after the
-      // first pass it updated nothing but still had to scan `recordings` for
-      // `org_id IS NULL` before the app could serve. As a migration it runs
-      // once, is recorded in `clips_migrations`, and is skipped thereafter by
-      // the existing `SELECT MAX(version)` fast path.
-      sql: `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
+      // Keep the repair's lease in schema migrations, but run the historical
+      // data update below in bounded background batches after boot.
+      sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
+        lease_key TEXT PRIMARY KEY,
+        holder TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      )`,
     },
     {
       version: 60,
@@ -1029,6 +1133,18 @@ const migrations = runMigrations(
       // No-ops on SQLite, which never had the wrong type.
       sql: {},
       run: retypeBooleanColumnsOnPostgres,
+    },
+    {
+      version: 63,
+      name: "recording-org-id-backfill-lease-table",
+      // v59 was already applied on some deployments before the data repair was
+      // moved off startup. This additive no-op makes the lease table available
+      // there as well, without re-running or blocking on the old UPDATE.
+      sql: `CREATE TABLE IF NOT EXISTS clips_backfill_leases (
+        lease_key TEXT PRIMARY KEY,
+        holder TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      )`,
     },
   ],
   { table: "clips_migrations" },
@@ -1577,6 +1693,7 @@ export default async (nitroApp: any): Promise<void> => {
       err instanceof Error ? err.message : err,
     );
   }
+  scheduleRecordingOrgIdBackfill();
 
   // ---------------------------------------------------------------------------
   // Register Clips template events for the automations system.

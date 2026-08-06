@@ -210,6 +210,24 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).toContain("out-of-band job");
   });
 
+  it("records the repair marker without making the backfill a boot dependency", () => {
+    const repairStart = dbTsSource.indexOf("version: 134,");
+    const repairEnd = dbTsSource.indexOf("version: 135,", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-rollups-historical-backfill-repair"',
+    );
+    expect(repairEntry).toContain("sql: {},");
+    expect(repairEntry).not.toContain("run:");
+    expect(dbTsSource).not.toContain("deferMigration");
+    expect(dbTsSource).not.toContain(
+      "isHistoricalAnalyticsRollupBackfillComplete",
+    );
+  });
+
   it("keeps the incremental rollup lock inside the rollup write transaction", () => {
     const writeIdx = analyticsRollupsTsSource.indexOf(
       "const writeRollups = async (tx: any) => {",

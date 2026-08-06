@@ -20,7 +20,6 @@ const INITIAL_TOOL_NAMES = [
   "add-slide",
   "update-slide",
   "patch-deck",
-  "generate-slides-ai",
   "generate-image-api",
   "import-file",
   "import-google-doc",
@@ -49,7 +48,7 @@ export default createAgentChatPlugin({
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   prepareRequest: prepareSlidesChatAttachments,
-  systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state.
+  systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. For a newly created presentation, use create-deck with slides: [] only when you are creating the deck yourself, then add-slide sequentially with full rendered HTML. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow.
 
 Layout-fit workflow is strict. When the user asks to fix overflow, first call view-screen and inspect the deck-wide layout-fit section. If it says measurements are unknown, do not claim the deck fits. Call get-layout-overflows when you need the structured per-slide results. Read the affected slides with get-deck, then make one bounded structural repair pass with one patch-slide operation per affected slide in a single patch-deck call. Wait for the action result and verify the persisted HTML with get-deck before saying it is fixed. If a fresh measurement still reports overflow, make at most one focused follow-up repair based on that measurement; never loop, repeatedly re-measure, or claim success after a chat response alone.
 

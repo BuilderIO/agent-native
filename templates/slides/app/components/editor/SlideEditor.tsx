@@ -3877,7 +3877,7 @@ export default function SlideEditor({
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
       const target = e.target instanceof Element ? e.target : null;
-      if (target?.closest(".slide-image-clickable")) return;
+      if (target && slideCanvasRef.current?.contains(target)) return;
       clearCanvasSelection();
     },
     [clearCanvasSelection],

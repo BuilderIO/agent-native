@@ -56,6 +56,16 @@ describe("new deck generation flow", () => {
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
   });
 
+  it("keeps presentation generation multi-slide and persisted", () => {
+    expect(flow).toContain(
+      "infer a coherent multi-slide outline from the scope",
+    );
+    expect(flow).toContain("Do not call the legacy generate-slides-ai action");
+    expect(flow).toContain(
+      "Treat each successful add-slide result as confirmation",
+    );
+  });
+
   it("turns an imported PPTX into a reusable reference deck", () => {
     expect(flow).toContain('callAction("import-pptx"');
     expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");

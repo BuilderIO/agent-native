@@ -1,5 +1,4 @@
 import {
-  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
@@ -10,7 +9,6 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { isHistoricalAnalyticsRollupBackfillComplete } from "../jobs/analytics-rollup-backfill.js";
 import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
@@ -1407,11 +1405,9 @@ const runAnalyticsMigrations = runMigrations(
       version: 134,
       name: "analytics-rollups-historical-backfill-repair",
       sql: {},
-      run: async () => {
-        if (!(await isHistoricalAnalyticsRollupBackfillComplete())) {
-          return deferMigration();
-        }
-      },
+      // The historical rebuild is an out-of-band job. Do not defer this
+      // marker until it completes: a pending named migration is retried by
+      // every cold start and turns a recoverable backfill into a boot blocker.
     },
     {
       version: 135,

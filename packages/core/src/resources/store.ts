@@ -7,7 +7,11 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   canUseLocalWorkspaceResourcePath,
@@ -901,22 +905,20 @@ async function _doEnsureTable(): Promise<void> {
   // manifests. Its 60s throttle is a module-scope timestamp that starts at 0 in
   // a fresh isolate, so the first resource read after EVERY cold start pays
   // that scan. Idempotent and dialect-agnostic, per the `performance` skill.
-  await client
-    .execute({
-      sql: `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
-      args: [],
-    })
-    .catch((err) => {
-      // An index is an optimization, not a correctness requirement: a
-      // concurrent creator or a permissions edge must not fail table init and
-      // take the app down with it. The scan it avoids is slow, not wrong — but
-      // say so, because "silently slow forever" is the outcome nobody notices.
-      // coercion-ok: absence of an index degrades latency, never correctness
-      console.warn(
-        "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
-        (err as Error)?.message ?? err,
-      );
-    });
+  await ensureIndexExists(
+    "resources_visibility_expires_idx",
+    `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+  ).catch((err) => {
+    // An index is an optimization, not a correctness requirement: a
+    // concurrent creator or a permissions edge must not fail table init and
+    // take the app down with it. The scan it avoids is slow, not wrong — but
+    // say so, because "silently slow forever" is the outcome nobody notices.
+    // coercion-ok: absence of an index degrades latency, never correctness
+    console.warn(
+      "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
+      (err as Error)?.message ?? err,
+    );
+  });
 
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();
