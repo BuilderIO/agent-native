@@ -23,12 +23,19 @@ import {
 const MAX_DESIGN_MD_CHARS = 20_000;
 const MAX_TOKENS = 500;
 const FALLBACK_COLORS = {
+  // guard:allow-raw-color - fallback design-token data, not rendered UI color
   primary: "#111827",
+  // guard:allow-raw-color - fallback design-token data, not rendered UI color
   secondary: "#374151",
+  // guard:allow-raw-color - fallback design-token data, not rendered UI color
   accent: "#2563EB",
+  // guard:allow-raw-color - fallback design-token data, not rendered UI color
   background: "#FFFFFF",
+  // guard:allow-raw-color - fallback design-token data, not rendered UI color
   surface: "#F9FAFB",
+  // guard:allow-raw-color - fallback design-token data, not rendered UI color
   text: "#111827",
+  // guard:allow-raw-color - fallback design-token data, not rendered UI color
   textMuted: "#6B7280",
 } as const;
 

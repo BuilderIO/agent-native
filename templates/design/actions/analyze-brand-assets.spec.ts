@@ -9,10 +9,7 @@ vi.mock("@agent-native/core/brand-kit", async () => {
   const actual = await vi.importActual<
     typeof import("@agent-native/core/brand-kit")
   >("@agent-native/core/brand-kit");
-  return {
-    ...actual,
-    fetchBrandWebsiteSignals: mocks.fetchBrandWebsiteSignals,
-  };
+  return actual;
 });
 
 vi.mock("@agent-native/creative-context/server", () => ({

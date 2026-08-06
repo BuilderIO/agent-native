@@ -598,10 +598,18 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
   const isOpaque = (value: string): boolean => {
     const normalized = value.trim().toLowerCase();
     if (!normalized || normalized === "transparent") return false;
-    const alpha = normalized.match(
-      /rgba?\([^)]*,\s*(?:[^,)]*,\s*)?([\d.]+)\s*\)$/,
-    )?.[1];
-    return alpha === undefined || Number(alpha) > 0.02;
+    const functionBody = normalized.match(/^[a-z-]+\((.*)\)$/)?.[1];
+    if (!functionBody) return true;
+    const alphaValue = functionBody.includes("/")
+      ? functionBody.split("/").at(-1)?.trim()
+      : functionBody.split(",").length === 4
+        ? functionBody.split(",").at(-1)?.trim()
+        : undefined;
+    if (!alphaValue) return true;
+    const alpha = alphaValue.endsWith("%")
+      ? Number.parseFloat(alphaValue) / 100
+      : Number.parseFloat(alphaValue);
+    return Number.isNaN(alpha) || alpha > 0.02;
   };
 
   const addColor = (value: string): void => {
