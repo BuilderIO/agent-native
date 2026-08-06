@@ -9,7 +9,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -1471,17 +1471,19 @@ export default async (nitroApp: any): Promise<void> => {
     return;
   }
   await runAnalyticsMigrations(nitroApp);
-  try {
-    if (await repairPersistedFirstPartyDashboardQueries()) {
-      console.info(
-        "[db] Repaired bounded recurring-user queries on the canonical first-party dashboard.",
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
-      err instanceof Error ? err.message : err,
+  const isNetlifyServerlessRuntime =
+    isProductionServerlessRuntime() ||
+    process.env.NETLIFY === "true" ||
+    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT);
+  if (isNetlifyServerlessRuntime) {
+    // The migration list is authoritative; repeating repair and schema
+    // introspection on every function cold start only adds pool pressure.
+    console.info(
+      "[db] Skipping post-migration schema convergence in production serverless runtime",
     );
+    return;
   }
   try {
     const summary = await ensureAdditiveColumns({
