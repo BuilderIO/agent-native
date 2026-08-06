@@ -1,4 +1,9 @@
-import type { ParsedSlide, ParsedTextRun } from "./pptx-parser.js";
+import type {
+  ParsedElement,
+  ParsedParagraph,
+  ParsedSlide,
+  ParsedTextRun,
+} from "./pptx-parser.js";
 
 /** Escape HTML special characters. */
 function esc(text: string): string {
@@ -107,9 +112,13 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
  */
 export function convertToSlideHtml(
   slide: ParsedSlide,
-  imageUrl?: string,
+  imageUrls?: string | Record<string, string>,
   themeFont?: string,
 ): string {
+  if (slide.elements?.length) {
+    return buildFidelitySlide(slide, imageUrls, themeFont);
+  }
+
   const paragraphs = groupIntoParagraphs(slide.texts);
   const fontFamily = cssFontFamily(themeFont);
 
@@ -125,6 +134,160 @@ export function convertToSlideHtml(
   }
 
   return buildContentSlide(paragraphs, slide, fontFamily);
+}
+
+const DEFAULT_SLIDE_WIDTH_EMU = 9144000;
+const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
+const CSS_PX_PER_POINT = 96 / 72;
+
+function buildFidelitySlide(
+  slide: ParsedSlide,
+  imageUrls: string | Record<string, string> | undefined,
+  themeFont: string | undefined,
+): string {
+  const widthEmu = slide.widthEmu || DEFAULT_SLIDE_WIDTH_EMU;
+  const heightEmu = slide.heightEmu || DEFAULT_SLIDE_HEIGHT_EMU;
+  const background = slide.backgroundColor ?? "#000000";
+  const elements = slide.elements ?? [];
+  const html = elements
+    .map((element, index) =>
+      buildFidelityElement(
+        element,
+        index,
+        widthEmu,
+        heightEmu,
+        imageUrls,
+        themeFont,
+      ),
+    )
+    .join("\n");
+
+  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="${widthEmu}" data-slide-height-emu="${heightEmu}" style="position: relative; width: 100%; height: 100%; overflow: hidden; background: ${esc(background)}; font-family: ${cssFontFamily(themeFont)};">${html}
+</div>`;
+}
+
+function buildFidelityElement(
+  element: ParsedElement,
+  index: number,
+  widthEmu: number,
+  heightEmu: number,
+  imageUrls: string | Record<string, string> | undefined,
+  themeFont: string | undefined,
+): string {
+  const position = `position: absolute; left: ${toSlidePxX(element.x, widthEmu)}px; top: ${toSlidePxY(element.y, heightEmu)}px; width: ${toSlidePxX(element.width, widthEmu)}px; height: ${toSlidePxY(element.height, heightEmu)}px; z-index: ${index}; box-sizing: border-box;`;
+  const rotation = element.rotation
+    ? ` transform: rotate(${element.rotation}deg); transform-origin: center center;`
+    : "";
+  const objectId = ` data-slide-object-id="${esc(element.id)}"`;
+
+  if (element.kind === "image") {
+    const url = imageUrlForElement(element, imageUrls);
+    const imageStyle = imageRenderStyle(element);
+    return `<div class="fmd-pptx-image" data-pptx-element-kind="image" data-pptx-image-name="${esc(element.image?.name ?? "image")}"${objectId} style="${position}${rotation} overflow: hidden;">${url ? `<img src="${esc(url)}" alt="" style="${imageStyle}" />` : `<div class="fmd-img-placeholder" style="width:100%;height:100%;">Imported image: ${esc(element.image?.name ?? "image")}</div>`}</div>`;
+  }
+
+  const decoration = shapeDecoration(element, widthEmu);
+  if (element.kind === "shape") {
+    return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}"></div>`;
+  }
+
+  const textStyle = textBoxStyle(element, widthEmu, heightEmu, themeFont);
+  const paragraphs = (element.paragraphs ?? [])
+    .map((paragraph, paragraphIndex) =>
+      buildFidelityParagraph(paragraph, paragraphIndex, widthEmu, themeFont),
+    )
+    .join("\n");
+  return `<div class="fmd-pptx-text" data-pptx-element-kind="text"${objectId} style="${position}${rotation}${decoration}${textStyle}">${paragraphs}</div>`;
+}
+
+function toSlidePxX(valueEmu: number, slideWidthEmu: number): number {
+  return Math.round((valueEmu / slideWidthEmu) * 960 * 1000) / 1000;
+}
+
+function toSlidePxY(valueEmu: number, slideHeightEmu: number): number {
+  return Math.round((valueEmu / slideHeightEmu) * 540 * 1000) / 1000;
+}
+
+function imageUrlForElement(
+  element: ParsedElement,
+  imageUrls: string | Record<string, string> | undefined,
+): string | undefined {
+  if (typeof imageUrls === "string") return imageUrls;
+  return imageUrls?.[element.id];
+}
+
+function imageRenderStyle(element: ParsedElement): string {
+  const crop = element.image?.crop;
+  if (!crop) return "display:block;width:100%;height:100%;object-fit:fill;";
+  const visibleWidth = Math.max(0.001, 1 - crop.left - crop.right);
+  const visibleHeight = Math.max(0.001, 1 - crop.top - crop.bottom);
+  return `display:block;position:absolute;left:${(-crop.left / visibleWidth) * 100}%;top:${(-crop.top / visibleHeight) * 100}%;width:${(1 / visibleWidth) * 100}%;height:${(1 / visibleHeight) * 100}%;object-fit:fill;`;
+}
+
+function shapeDecoration(element: ParsedElement, widthEmu: number): string {
+  const fill = element.fill ? `background: ${esc(element.fill)};` : "";
+  const line = element.lineColor
+    ? `border: ${Math.max(1, toSlidePxX(element.lineWidth ?? 12700, widthEmu))}px solid ${esc(element.lineColor)};`
+    : "";
+  const radius = element.shapeType === "roundRect" ? "border-radius: 6px;" : "";
+  return `${fill}${line}${radius}`;
+}
+
+function textBoxStyle(
+  element: ParsedElement,
+  widthEmu: number,
+  heightEmu: number,
+  themeFont: string | undefined,
+): string {
+  const padding = element.padding;
+  const left = padding ? toSlidePxX(padding.left, widthEmu) : 0;
+  const right = padding ? toSlidePxX(padding.right, widthEmu) : 0;
+  const top = padding ? toSlidePxY(padding.top, heightEmu) : 0;
+  const bottom = padding ? toSlidePxY(padding.bottom, heightEmu) : 0;
+  const align = element.paragraphs?.[0]?.alignment ?? "left";
+  const vertical =
+    element.verticalAlign === "middle"
+      ? "justify-content:center;"
+      : element.verticalAlign === "bottom"
+        ? "justify-content:flex-end;"
+        : "justify-content:flex-start;";
+  return `display:flex;flex-direction:column;${vertical}padding:${top}px ${right}px ${bottom}px ${left}px;font-family:${cssFontFamily(themeFont)};text-align:${align};overflow:hidden;`;
+}
+
+function buildFidelityParagraph(
+  paragraph: ParsedParagraph,
+  paragraphIndex: number,
+  widthEmu: number,
+  themeFont: string | undefined,
+): string {
+  const firstRun = paragraph.runs[0];
+  const fontSize = (firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT;
+  const lineHeight = paragraph.lineSpacing ?? 1.2;
+  const bullet = paragraph.bulletChar
+    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? "#ffffff")};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${(paragraph.bulletSize ?? firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT}px;">${esc(paragraph.bulletChar)}</span>`
+    : "";
+  const marginLeft = paragraph.marginLeftEmu
+    ? toSlidePxX(paragraph.marginLeftEmu, widthEmu)
+    : 0;
+  const indent = paragraph.indentEmu
+    ? toSlidePxX(paragraph.indentEmu, widthEmu)
+    : 0;
+  const spacingBefore = paragraph.spaceBeforePt ?? 0;
+  const spacingAfter = paragraph.spaceAfterPt ?? 0;
+  const text = paragraph.runs.map(formatFidelityRun).join("");
+  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:flex;align-items:flex-start;justify-content:${paragraph.alignment ?? "left"};margin:${spacingBefore}px 0 ${spacingAfter}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${indent}px;">${bullet}${text}</p>`;
+}
+
+function formatFidelityRun(run: ParsedTextRun): string {
+  const styles = [
+    `font-size:${(run.fontSize ?? 18) * CSS_PX_PER_POINT}px`,
+    `font-family:${cssFontFamily(run.fontFamily)}`,
+    `color:${esc(run.color ?? "#ffffff")}`,
+    `font-weight:${run.bold ? 700 : 400}`,
+    `font-style:${run.italic ? "italic" : "normal"}`,
+    `text-decoration:${run.underline ? "underline" : "none"}`,
+  ].join(";");
+  return `<span style="${styles};">${esc(run.content)}</span>`;
 }
 
 function buildTitleSlide(
