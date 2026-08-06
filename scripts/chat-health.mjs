@@ -64,6 +64,8 @@ const postgres = loadPostgres();
 
 /** Share of non-user-aborted turns that may end badly before --strict fails. */
 const BAD_TURN_BUDGET = 0.1;
+/** Share of received A2A tasks that may fail or hang before --strict fails. */
+const A2A_FAIL_BUDGET = 0.1;
 const CONNECT_TIMEOUT_S = 20;
 
 const args = process.argv.slice(2);
@@ -138,6 +140,43 @@ GROUP BY 1
 ORDER BY turns DESC
 LIMIT 5`;
 
+// Inbound app-to-app work, from the receiving app's own task table — the
+// authoritative record. The CALLER's `agent_call` events carry no failure
+// reason at all, so a caller-side view can only say "it failed", never why.
+//
+// Latency is reported alongside the failure rate because for A2A they are the
+// same complaint: a failed task usually takes LONGER than a successful one
+// (the remote agent runs until it runs out of time), so callers wait minutes
+// to be told it did not work.
+const A2A_SQL = `
+SELECT
+  count(*)::int AS tasks,
+  count(*) FILTER (WHERE status_state = 'completed')::int AS ok,
+  count(*) FILTER (WHERE status_state = 'failed')::int AS failed,
+  count(*) FILTER (WHERE status_state NOT IN ('completed','failed'))::int AS unfinished,
+  coalesce(round(percentile_cont(0.5) WITHIN GROUP (
+    ORDER BY (updated_at - created_at) / 1000.0
+  ) FILTER (WHERE status_state = 'completed'))::int, 0) AS p50_ok_s,
+  coalesce(round(percentile_cont(0.9) WITHIN GROUP (
+    ORDER BY (updated_at - created_at) / 1000.0
+  ) FILTER (WHERE status_state = 'completed'))::int, 0) AS p90_ok_s,
+  coalesce(round(avg((updated_at - created_at) / 1000.0)
+    FILTER (WHERE status_state = 'failed'))::int, 0) AS avg_fail_s
+FROM a2a_tasks
+WHERE created_at > $1`;
+
+// `status_message` is an A2A message envelope; the human sentence is the first
+// `text` part. Trimmed to a prefix so distinct causes group together instead of
+// splintering on ids and token counts embedded later in the sentence.
+const A2A_REASONS_SQL = `
+SELECT
+  left(regexp_replace(coalesce(status_message, '(none)'),
+       '.*"text":"([^"]{0,60}).*', '\\1'), 60) AS reason,
+  count(*)::int AS tasks
+FROM a2a_tasks
+WHERE status_state = 'failed' AND created_at > $1
+GROUP BY 1 ORDER BY tasks DESC LIMIT 4`;
+
 async function measure({ name, url }, since) {
   const sql = postgres(url, {
     ssl: "require",
@@ -149,7 +188,18 @@ async function measure({ name, url }, since) {
   try {
     const [totals] = await sql.unsafe(TURN_OUTCOME_SQL, [since]);
     const reasons = await sql.unsafe(TURN_REASONS_SQL, [since]);
-    return { name, ...totals, reasons };
+    // Not every app receives A2A work, and an older one may predate the table.
+    // "No a2a_tasks table" is a real, different answer from "zero tasks", so it
+    // is carried as null rather than folded into a zero.
+    let a2a = null;
+    try {
+      const [t] = await sql.unsafe(A2A_SQL, [since]);
+      const r = await sql.unsafe(A2A_REASONS_SQL, [since]);
+      a2a = { ...t, reasons: r };
+    } catch {
+      a2a = null;
+    }
+    return { name, ...totals, reasons, a2a };
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -236,6 +286,42 @@ if (asJson) {
   console.log(
     `\n  fleet: ${fleet.bad}/${fleet.scored} turns ended without an answer (${(fleetRate * 100).toFixed(1)}%)`,
   );
+
+  const withA2a = scored.filter((r) => r.a2a && r.a2a.tasks > 0);
+  if (withA2a.length > 0) {
+    console.log(`\nApp-to-app (A2A) tasks received, last ${hours}h\n`);
+    console.log(
+      `  ${"app".padEnd(11)}${"tasks".padStart(6)}${"ok".padStart(5)}${"fail".padStart(6)}${"stuck".padStart(6)}${"fail%".padStart(7)}${"p50s".padStart(6)}${"p90s".padStart(6)}${"failAvgs".padStart(9)}  top reasons`,
+    );
+    for (const r of withA2a.sort(
+      (a, b) => b.a2a.failed / b.a2a.tasks - a.a2a.failed / a.a2a.tasks,
+    )) {
+      const a = r.a2a;
+      const rate = a.tasks > 0 ? (a.failed + a.unfinished) / a.tasks : 0;
+      const top = a.reasons
+        .slice(0, 2)
+        .map((x) => `${x.reason.trim()}(${x.tasks})`)
+        .join(" | ");
+      const mark = rate > A2A_FAIL_BUDGET ? "!" : " ";
+      console.log(
+        `${mark} ${r.name.padEnd(11)}${String(a.tasks).padStart(6)}${String(a.ok).padStart(5)}${String(a.failed).padStart(6)}${String(a.unfinished).padStart(6)}${`${(rate * 100).toFixed(0)}%`.padStart(7)}${String(a.p50_ok_s).padStart(6)}${String(a.p90_ok_s).padStart(6)}${String(a.avg_fail_s).padStart(9)}  ${top}`,
+      );
+    }
+    const at = withA2a.reduce(
+      (acc, r) => ({
+        tasks: acc.tasks + r.a2a.tasks,
+        failed: acc.failed + r.a2a.failed + r.a2a.unfinished,
+      }),
+      { tasks: 0, failed: 0 },
+    );
+    console.log(
+      `\n  fleet: ${at.failed}/${at.tasks} A2A tasks did not complete (${((at.failed / Math.max(at.tasks, 1)) * 100).toFixed(1)}%)`,
+    );
+    console.log(
+      "  failAvgs is how long a caller waits before being told it failed.",
+    );
+  }
+
   for (const u of unreachable) {
     console.log(`  ✗ ${u.name}: UNREACHABLE — ${u.error}`);
   }
@@ -245,3 +331,14 @@ if (asJson) {
 // in strict mode rather than quietly averaging it away.
 if (unreachable.length > 0 && strict) process.exit(1);
 if (strict && scored.some((r) => r.badRate > BAD_TURN_BUDGET)) process.exit(1);
+if (
+  strict &&
+  scored.some(
+    (r) =>
+      r.a2a &&
+      r.a2a.tasks > 0 &&
+      (r.a2a.failed + r.a2a.unfinished) / r.a2a.tasks > A2A_FAIL_BUDGET,
+  )
+) {
+  process.exit(1);
+}

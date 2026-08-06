@@ -11,7 +11,7 @@ import { test, expect } from "@playwright/test";
 const AUTH_ENTRYPOINTS = [
   { path: "/signup", label: "signup" },
   { path: "/login", label: "login" },
-  { path: "/_agent-native/sign-in?return=%2Fplans", label: "sign-in" },
+  { path: "/sign-in?return=%2Fplans", label: "sign-in" },
 ];
 
 for (const entrypoint of AUTH_ENTRYPOINTS) {

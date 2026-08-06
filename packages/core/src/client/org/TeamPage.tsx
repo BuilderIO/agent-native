@@ -652,71 +652,73 @@ function DangerZoneCard({ orgName }: { orgName: string }) {
     <section className="rounded-lg border border-destructive/40 bg-card p-4 space-y-3">
       <div className="flex items-start gap-2.5">
         <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-        <div className="space-y-1">
-          <h3 className="text-sm font-medium text-destructive">
-            {t("org.dangerZone")}
-          </h3>
-          <p className="text-sm leading-6 text-muted-foreground">
-            <OrganizationDescription help={t("org.deleteOrgDescription")}>
-              Delete this organization and all of its members.
-            </OrganizationDescription>
-          </p>
+        <div className="min-w-0 space-y-3">
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium text-destructive">
+              {t("org.dangerZone")}
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">
+              <OrganizationDescription help={t("org.deleteOrgDescription")}>
+                Delete this organization and all of its members.
+              </OrganizationDescription>
+            </p>
+          </div>
+          <AlertDialog
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) setConfirmText("");
+            }}
+          >
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                intent="danger"
+                emphasis="outline"
+                className="cursor-pointer rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+              >
+                {t("org.deleteOrg")}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("org.deleteOrgConfirmPrompt", { name: orgName })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder={t("org.deleteOrgConfirmPlaceholder")}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-destructive"
+                autoFocus
+              />
+              <ErrorText error={deleteOrg.error} />
+              <AlertDialogFooter>
+                <AlertDialogCancel className="cursor-pointer">
+                  {t("org.cancel")}
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={!canConfirm || deleteOrg.isPending}
+                  onClick={handleConfirm}
+                  className="cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deleteOrg.isPending ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <IconLoader2 size={14} className="animate-spin" />
+                      {t("org.deleteOrgPending")}
+                    </span>
+                  ) : (
+                    t("org.deleteOrgConfirmCta")
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
-      <AlertDialog
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) setConfirmText("");
-        }}
-      >
-        <AlertDialogTrigger asChild>
-          <Button
-            type="button"
-            intent="danger"
-            emphasis="outline"
-            className="cursor-pointer rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-          >
-            {t("org.deleteOrg")}
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("org.deleteOrgConfirmPrompt", { name: orgName })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <input
-            type="text"
-            value={confirmText}
-            onChange={(e) => setConfirmText(e.target.value)}
-            placeholder={t("org.deleteOrgConfirmPlaceholder")}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-destructive"
-            autoFocus
-          />
-          <ErrorText error={deleteOrg.error} />
-          <AlertDialogFooter>
-            <AlertDialogCancel className="cursor-pointer">
-              {t("org.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!canConfirm || deleteOrg.isPending}
-              onClick={handleConfirm}
-              className="cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {deleteOrg.isPending ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <IconLoader2 size={14} className="animate-spin" />
-                  {t("org.deleteOrgPending")}
-                </span>
-              ) : (
-                t("org.deleteOrgConfirmCta")
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </section>
   );
 }

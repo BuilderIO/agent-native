@@ -380,7 +380,7 @@ function MyComponent() {
 Vorlagen mit **öffentlichen Seiten** (Freigabelinks, Einbettungen, Marketingseiten) benötigen häufig einen In-Page-CTA, der anonyme Betrachter auffordert, sich anzumelden, und sie zu der Seite zurückführt, auf der sie sich befanden. Das Framework bietet hierfür einen einzigen Einstiegspunkt:
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 Wenn ein anonymer Betrachter auf dieses URL trifft, wird die Anmeldeseite des Frameworks bereitgestellt. Nach einer erfolgreichen Anmeldung (beliebiger Ablauf – Token, E-Mail/Passwort oder Google OAuth) wird der Betrachter zu `return` weitergeleitet.
@@ -396,7 +396,7 @@ function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
     window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+      "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -404,13 +404,13 @@ function SignInCta() {
 
 ### Private Pfade mit Lesezeichen versehen
 
-Normale App-Seiten verwenden für alle Besucher dieselbe unpersönliche, öffentlich cachebare SSR-Shell. `AppProviders` prüft die Sitzung im Client und leitet anonyme Besucher auf privaten Pfaden wie `/dashboard` zu `/_agent-native/sign-in?return=%2Fdashboard` weiter, bevor private App-UI gerendert wird. Nach der Anmeldung kehren sie zu `/dashboard` zurück. Verwenden Sie `isPublicPath` für öffentliche/SEO-Routen oder `sessionBypass` für Oberflächen mit einem anderen begrenzten Authentifizierungsmechanismus, etwa einem MCP-Embed-Token.
+Normale App-Seiten verwenden für alle Besucher dieselbe unpersönliche, öffentlich cachebare SSR-Shell. `AppProviders` prüft die Sitzung im Client und leitet anonyme Besucher auf privaten Pfaden wie `/dashboard` zu `/sign-in?return=%2Fdashboard` weiter, bevor private App-UI gerendert wird. Nach der Anmeldung kehren sie zu `/dashboard` zurück. Verwenden Sie `isPublicPath` für öffentliche/SEO-Routen oder `sessionBypass` für Oberflächen mit einem anderen begrenzten Authentifizierungsmechanismus, etwa einem MCP-Embed-Token.
 
 Wie lange diese Shell zwischengespeichert wird, ist eine bereitstellungsweite Einstellung – siehe [SSR-Caching](/docs/deployment#ssr-caching) für `AGENT_NATIVE_SSR_CACHE`. Das Verkürzen oder Deaktivieren des Caches ändert nur die Dauer; SSR rendert weiterhin den anonymen Zweig mit entfernten Cookies.
 
 ### Hinter den Kulissen: Google OAuth
 
-Beide Flüsse (der explizite `/_agent-native/sign-in`-Einstiegspunkt und der Fall des mit Lesezeichen versehenen Pfads) führen den zurückgegebenen URL durch den OAuth-Status. Der Status ist HMAC-signiert und kann daher während der Übertragung nicht gefälscht werden. Beim Rückruf wird der zurückgegebene URL vor der Umleitung erneut als Same-Origin validiert – ein durchgesickerter Signaturschlüssel kann also immer noch nicht in ein Open-Redirect-Orakel umgewandelt werden.
+Beide Flüsse (der explizite `/sign-in`-Einstiegspunkt und der Fall des mit Lesezeichen versehenen Pfads) führen den zurückgegebenen URL durch den OAuth-Status. Der Status ist HMAC-signiert und kann daher während der Übertragung nicht gefälscht werden. Beim Rückruf wird der zurückgegebene URL vor der Umleitung erneut als Same-Origin validiert – ein durchgesickerter Signaturschlüssel kann also immer noch nicht in ein Open-Redirect-Orakel umgewandelt werden.
 
 Wenn Ihre Vorlage `/_agent-native/google/auth-url` direkt umschließt (z. B. E-Mail- und Kalendervorlagen, um den Umfang zu erweitern), akzeptieren Sie eine `?return=<path>`-Abfrage und leiten Sie sie über die Optionsobjektform von `encodeOAuthState` weiter:
 

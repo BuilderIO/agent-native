@@ -669,8 +669,10 @@ function isLocalBaseUrl(baseUrl: string | undefined): boolean {
   let host: string;
   try {
     host = new URL(baseUrl).hostname.toLowerCase();
-  } catch {
-    return false;
+  } catch (error) {
+    // An invalid URL is never a local exemption; fail closed.
+    if (error instanceof TypeError) return false;
+    throw error;
   }
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   if (host === "::1" || host === "[::1]") return true;

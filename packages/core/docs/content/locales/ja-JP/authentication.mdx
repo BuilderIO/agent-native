@@ -380,7 +380,7 @@ function MyComponent() {
 **公開ページ** (共有リンク、埋め込み、マーケティング ページ) を含むテンプレートには、多くの場合、匿名の閲覧者にサインインを求め、元のページに戻すページ内 CTA が必要です。フレームワークは、このための単一のエントリ ポイントを提供します。
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 匿名のビューアがこの URL にアクセスすると、フレームワークのログイン ページが表示されます。サインインが成功すると (トークン、電子メール/パスワード、Google OAuth などの任意のフロー)、ブラウザーは `return` に戻ります。
@@ -396,7 +396,7 @@ function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
     window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+      "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -404,13 +404,13 @@ function SignInCta() {
 
 ### ブックマークされたプライベート パス
 
-通常のアプリページは、すべての訪問者に対して同一の非個人化された公開キャッシュ可能な SSR シェルを使用します。`AppProviders` がクライアントでセッションを確認し、`/dashboard` のような非公開パスでは、非公開 UI をマウントする前に匿名ユーザーを `/_agent-native/sign-in?return=%2Fdashboard` へリダイレクトします。サインイン後は `/dashboard` に戻ります。公開/SEO ルートには `isPublicPath` を、MCP 埋め込みトークンなど別の限定された認証方式を使う画面には `sessionBypass` を指定します。
+通常のアプリページは、すべての訪問者に対して同一の非個人化された公開キャッシュ可能な SSR シェルを使用します。`AppProviders` がクライアントでセッションを確認し、`/dashboard` のような非公開パスでは、非公開 UI をマウントする前に匿名ユーザーを `/sign-in?return=%2Fdashboard` へリダイレクトします。サインイン後は `/dashboard` に戻ります。公開/SEO ルートには `isPublicPath` を、MCP 埋め込みトークンなど別の限定された認証方式を使う画面には `sessionBypass` を指定します。
 
 そのシェルをどれだけキャッシュするかはデプロイメント全体の設定です — `AGENT_NATIVE_SSR_CACHE` については [SSR Caching](/docs/deployment#ssr-caching) を参照してください。キャッシュを短縮または無効化しても変わるのは期間だけであり、SSR は引き続き Cookie を取り除いた匿名ブランチをレンダリングします。
 
 ### 舞台裏: Google OAuth
 
-両方のフロー (明示的な `/_agent-native/sign-in` エントリポイントとブックマークされたパスのケース) は、OAuth 状態を通じてリターン URL をスレッド化します。状態はHMAC署名されているため、輸送中に偽造することはできません。コールバックでは、戻り値 URL はリダイレクトの前に同一オリジンとして再検証されます。そのため、漏洩した署名キーをオープン リダイレクト オラクルに変えることはできません。
+両方のフロー (明示的な `/sign-in` エントリポイントとブックマークされたパスのケース) は、OAuth 状態を通じてリターン URL をスレッド化します。状態はHMAC署名されているため、輸送中に偽造することはできません。コールバックでは、戻り値 URL はリダイレクトの前に同一オリジンとして再検証されます。そのため、漏洩した署名キーをオープン リダイレクト オラクルに変えることはできません。
 
 テンプレートが `/_agent-native/google/auth-url` を直接ラップする場合 (例: 範囲を広げるためにメール テンプレートやカレンダー テンプレートがラップする場合)、`?return=<path>` クエリを受け入れ、`encodeOAuthState` のオプション オブジェクト形式を介して転送します。
 

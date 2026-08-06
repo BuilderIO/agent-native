@@ -285,6 +285,13 @@ export type AgentChatEvent =
       /** Remote task to resume when status is pending/input-required. */
       taskId?: string;
       durationMs?: number;
+      /**
+       * Why the call ended, on a terminal status. Already computed for
+       * telemetry; without it here the persisted event says only that a
+       * cross-app call failed after N ms and never why, so a failed A2A call
+       * cannot be diagnosed from the database without a repro.
+       */
+      terminalCode?: string;
     }
   | {
       /**

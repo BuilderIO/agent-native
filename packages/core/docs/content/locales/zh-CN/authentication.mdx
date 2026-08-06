@@ -380,7 +380,7 @@ function MyComponent() {
 具有**公共页面**（共享链接、嵌入、营销页面）的模板通常需要一个页内 CTA 来要求匿名查看者登录并将他们带回到他们所在的页面。该框架为此提供了一个入口点：
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 当匿名查看者点击此 URL 时，将提供框架的登录页面。成功登录（任何流程 - 令牌、电子邮件/密码或 谷歌OAuth）后，浏览器会返回 `return`。
@@ -396,7 +396,7 @@ function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
     window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+      "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -404,13 +404,13 @@ function SignInCta() {
 
 ### 已添加书签的私有路径
 
-普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/_agent-native/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
+普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
 
 该外壳的缓存时长是一个部署范围的设置——关于 `AGENT_NATIVE_SSR_CACHE`，参见 [SSR Caching](/docs/deployment#ssr-caching)。缩短或禁用缓存只会改变时长；SSR 仍会在剥离 cookie 后渲染匿名分支。
 
 ### 幕后花絮：谷歌OAuth
 
-两个流（显式 `/_agent-native/sign-in` 入口点和书签路径情况）都将返回 URL 线程穿过 OAuth 状态。该状态是 HMAC 签名的，因此在运输过程中无法伪造。在回调中，返回的 URL 在重定向之前被重新验证为同源 - 因此泄漏的签名密钥仍然无法转换为开放重定向预言机。
+两个流（显式 `/sign-in` 入口点和书签路径情况）都将返回 URL 线程穿过 OAuth 状态。该状态是 HMAC 签名的，因此在运输过程中无法伪造。在回调中，返回的 URL 在重定向之前被重新验证为同源 - 因此泄漏的签名密钥仍然无法转换为开放重定向预言机。
 
 如果您的模板直接包装 `/_agent-native/google/auth-url`（例如邮件和日历模板这样做，以扩大范围），则接受 `?return=<path>` 查询并通过 `encodeOAuthState` 的选项对象形式转发它：
 
