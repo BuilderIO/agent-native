@@ -59,7 +59,8 @@ When a query fans out into many series, the `series` column will hold a `metric_
 
 ## Node Exporter dashboards
 
-Node Exporter dashboards are installed from the dashboard catalog:
+Use `list-sql-dashboards` to find an existing Node Exporter dashboard, then use
+`update-dashboard` to create or repair one from the supported panel definitions:
 
 ```bash
 ```
