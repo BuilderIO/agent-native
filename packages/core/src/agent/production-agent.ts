@@ -3274,8 +3274,34 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   return null;
 }
 
+/**
+ * Collapse an error to the part that identifies the FAULT, dropping the part
+ * that merely echoes this attempt's arguments.
+ *
+ * `toolInputSchemaErrorResult` embeds `Received: {…the arguments…}` in every
+ * schema rejection, so a model that keeps changing its arguments produces a new
+ * error string every time. Any breaker keyed on the raw text then sees each
+ * attempt as a first attempt and never counts — which is precisely the
+ * keeps-guessing spiral the argument-independent breaker exists to stop. An
+ * executed counterexample ran 61 turns without it firing.
+ *
+ * Dropping the echoed input costs nothing: the fault is already named by the
+ * sentence before it, and two failures that differ ONLY in the arguments they
+ * echo are the same failure.
+ */
 function normalizeToolErrorForBreaker(error: string): string {
-  return error.replace(/\s+/g, " ").trim();
+  return (
+    error
+      // The argument echo, up to the next sentence boundary.
+      .replace(
+        /Received:\s*[\s\S]*?\.\s(?=Expected:|The tool was not executed)/g,
+        "",
+      )
+      // Bare JSON payloads some providers inline instead of a Received: span.
+      .replace(/\{[\s\S]{0,2000}?\}/g, "{}")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 function rateLimitRecoveryHint(message: string): string {
@@ -4194,7 +4220,22 @@ export async function runAgentLoop(opts: {
   );
   const repeatedToolErrors = new Map<string, number>();
   // Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS.
+  //
+  // SEEDED from earlier chunks of this turn, like `toolCallHistory` and
+  // `toolResultHistory` above. A fresh Map here would make the limit per-CHUNK
+  // rather than per-turn, and a turn may chain up to MAX_RUN_LOOP_CONTINUATIONS
+  // (6) or MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS (20) of them — so the real
+  // ceiling would be 36 or 120 identical failures, not 6, and a spiral would
+  // resume with a clean slate at every chunk boundary.
   const repeatedToolErrorsAnyArgs = new Map<string, number>();
+  for (const prior of toolResultHistory) {
+    if (!prior.isError) continue;
+    const key = `${prior.name}:${normalizeToolErrorForBreaker(prior.content)}`;
+    repeatedToolErrorsAnyArgs.set(
+      key,
+      (repeatedToolErrorsAnyArgs.get(key) ?? 0) + 1,
+    );
+  }
   const repeatedToolCalls = new Map<string, number>();
 
   let finalGuardRetries = 0;

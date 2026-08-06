@@ -1010,6 +1010,82 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("does not replay a turn after a non-retryable database response", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const databaseMessage =
+      "The database became unavailable while processing this request. Refresh before deciding whether to retry.";
+    const fetchSpy = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          error: databaseMessage,
+          code: "database_unavailable",
+          retryable: false,
+        },
+        503,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-database-unavailable",
+      threadId: "thread-database-unavailable",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "search all calls" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(results.at(-1)).toMatchObject({
+      content: [
+        { type: "text", text: `Something went wrong: ${databaseMessage}` },
+      ],
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        custom: {
+          runError: {
+            message: databaseMessage,
+            errorCode: "database_unavailable",
+            recoverable: false,
+          },
+        },
+      },
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          errorCode: "database_unavailable",
+          recoverable: false,
+        }),
+      }),
+    );
+    expect(JSON.stringify(results)).not.toContain('"retryable":false');
+  });
+
   it("treats authentication failures as auth errors, not AI setup", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -6822,7 +6898,7 @@ describe("createAgentChatAdapter", () => {
     expect(MAX_BACKGROUND_RUN_CONTINUATIONS).toBeLessThan(
       MAX_FOLLOWED_BACKGROUND_RUNS,
     );
-  });
+  }, 10_000);
 
   it("still self-POSTs a foreground continuation after run_timeout (foreground behavior pin)", async () => {
     // Foreground regression pin for the background follow-mode change: a run

@@ -117,6 +117,7 @@ export function Layout({ children }: LayoutProps) {
         scope={deckScope}
         browserTabId={TAB_ID}
         agentPageHref="/agent"
+        suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
         composerSlot={<CreativeContextComposerChip />}
       >
         <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
