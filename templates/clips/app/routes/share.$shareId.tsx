@@ -293,6 +293,8 @@ const CLIPS_AGENT_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
+const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
+const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 
 type ViewerPlatform = "mac" | "windows" | "linux";
 
@@ -404,6 +406,7 @@ export default function ShareRoute() {
   }, [recordingId, attribution.ref, attribution.via]);
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
+  const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
   const [password, setPassword] = useState<string | null>(() => {
     if (typeof window === "undefined" || !shareId) return null;
     try {
@@ -463,7 +466,26 @@ export default function ShareRoute() {
       // page auto-upgrades from "Processing" to the real player the moment
       // the server flips status to 'ready' and writes videoUrl. Mirrors
       // r.$recordingId.tsx's playerDataQ.refetchInterval.
-      if (rec.status !== "ready" || !rec.videoUrl) return 2000;
+      if (rec.status !== "ready" || !rec.videoUrl) {
+        readyMediaPollRef.current = null;
+        return 2000;
+      }
+      const mediaKey = [
+        rec.id,
+        rec.durationMs ?? "",
+        rec.videoSizeBytes ?? "",
+        rec.videoFormat ?? "",
+      ].join(":");
+      const now = Date.now();
+      if (readyMediaPollRef.current?.key !== mediaKey) {
+        readyMediaPollRef.current = {
+          key: mediaKey,
+          until: now + READY_MEDIA_SETTLE_POLL_MS,
+        };
+      }
+      if (now < readyMediaPollRef.current.until) {
+        return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+      }
       // Also keep polling while a transcript is pending so "Transcribing…"
       // auto-flips to the ready transcript (or to the failure card). The
       // public payload has no transcript.cleanup field (that's authenticated
@@ -963,6 +985,7 @@ export default function ShareRoute() {
                 initialVisibility={recording.visibility}
                 initialRole={viewerIsOwner ? "owner" : undefined}
                 videoUrl={recording.videoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
@@ -985,6 +1008,10 @@ export default function ShareRoute() {
               onVideoElementChange={setTrackedVideoEl}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
+              mediaVersion={[
+                recording.videoSizeBytes ?? "",
+                recording.updatedAt ?? "",
+              ].join(":")}
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
@@ -1102,6 +1129,7 @@ export default function ShareRoute() {
               <AgentPanel
                 emptyStateText={t("recordingPage.askAboutClip")}
                 dynamicSuggestions={false}
+                missingApiKeySetupLayout="sidebar"
                 suggestions={[
                   t("recordingPage.summarizeClip"),
                   t("recordingPage.findKeyMoments"),

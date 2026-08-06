@@ -59,7 +59,7 @@ operation. The child must read that staged input before making provider calls.
   not re-page the provider endpoint to recreate the same corpus.
 - If the named staged input is missing or unreadable, stop with an explicit
   missing-input error. Do not silently fall back to a full provider sweep.
-- For more than 500 Gong records, do not use `gong-calls(exhaustive=true)`, a
+- For 500 or more Gong records, do not use `gong-calls(exhaustive=true)`, a
   per-call transcript loop, or a single `provider-api-request` `fetchAllPages`
   call as the analysis itself. If the term is a configured keyword tracker,
   stage `/calls/extensive` tracker results and reduce them with a Data Program

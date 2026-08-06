@@ -141,6 +141,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     animatedThumbnailUrl: null,
     sourceAppName: "Screen Recorder",
     durationMs: 120_000,
+    videoSizeBytes: 1200,
     editsJson: null,
     videoFormat: "mp4",
     width: 1920,
@@ -211,7 +212,10 @@ describe("/api/public-recording route", () => {
     const result = await handler(event as any);
 
     expect(result).toMatchObject({
-      recording: { videoUrl: "/api/video/rec-1?t=media-token" },
+      recording: {
+        videoUrl: "/api/video/rec-1?t=media-token",
+        videoSizeBytes: 1200,
+      },
     });
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
       resourceId: "rec-1",

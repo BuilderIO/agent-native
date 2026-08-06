@@ -11,7 +11,9 @@ type Translate = ReturnType<typeof useT>;
 
 function resolveTitle(t: Translate, pathname: string): string {
   if (pathname === "/tasks") return t("header.pageTasks");
-  if (pathname === "/settings") return t("header.pageSettings");
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return t("header.pageSettings");
+  }
   if (pathname === "/team") return t("header.pageTeam");
   if (pathname.startsWith("/extensions")) return t("header.pageExtensions");
   return APP_TITLE;

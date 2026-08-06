@@ -1,5 +1,125 @@
 # @agent-native/core
 
+## 0.141.7
+
+### Patch Changes
+
+- abb0cf5: Stop ending long agent chat turns early. The client's whole-turn follow budget was shorter than a single background chunk the server is allowed to run, so turns that were still streaming were cut off; it is now a backstop above the server's own limits, with a test pinning that order. Also explains the gateway's email-verification block instead of showing a dead-end error, and no longer claims a stopped turn was looping when it was still working.
+
+  Also require a provider key when an `ai-sdk:*` engine points at a public gateway. The keyless exemption was meant for a self-hosted gateway but accepted any `baseUrl`, so pointing at a hosted provider without a key sent an unauthenticated request that came back as `http_401` "Missing Authentication header" — a transport error naming the wrong cause, repeated on every retry. Only loopback, private-range, and `.local`/`.internal` hosts are exempt now.
+
+  Record the cause when a background continuation handoff fails. The run went terminal with `error_code` and `error_detail` both NULL, so every query read it as a failure with no known cause and the real message was only recoverable by parsing the `diag_stage` JSON blob.
+
+  Record why a cross-app (A2A) call ended on the `agent_call` event. The terminal code was already computed for telemetry but left off the persisted event, so a failed cross-app call was stored as "failed after N ms" with no reason — undiagnosable without a repro.
+
+  Attach the remote task id to every cross-app call, not only failed ones. A call that succeeded slowly carried no task id, so the question worth asking about a four-minute A2A call — what was the other app doing? — could not be traced into that app's own task record.
+
+- abb0cf5: Use `/sign-in` as the clean browser-facing sign-in URL across apps while retaining the legacy framework path for compatibility.
+- abb0cf5: Explain MCP connection failures in the integrations list and let users reconnect saved integrations.
+- abb0cf5: Simplify the magic-link sign-in screen with a Welcome heading, a Continue email action, and a progressive password fallback.
+- abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
+
+## 0.141.6
+
+### Patch Changes
+
+- 158965b: Show Connect Builder.io and provider-key recovery actions when a saved model key is rejected.
+
+## 0.141.5
+
+### Patch Changes
+
+- f836d7e: Replace the single Server doc with a Server section (overview, database, middleware, plugins, routes), translated into all 10 locales, and add a draft-docs mechanism (`draft: true` frontmatter) so in-progress pages stay hidden from nav and 404 outside preview.
+
+## 0.141.4
+
+### Patch Changes
+
+- 2765110: Keep recurring automations alive on serverless deployments with a durable scheduler handoff, persisted health diagnostics, and clearer interrupted-run errors.
+- 2765110: Expose an optional first-run onboarding extension registry so apps can add continuous full-screen new-user steps.
+- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
+- 2765110: Make URL-based design extraction include bounded, SSRF-safe linked stylesheets and report stylesheet failures instead of silently dropping them.
+
+## 0.141.3
+
+### Patch Changes
+
+- c20e838: Keep durable background workers from retrying serialized startup migrations and maintenance sweeps while processing an agent task.
+- c20e838: Strip source-map references from published core build artifacts when the maps are excluded from the package.
+
+## 0.141.2
+
+### Patch Changes
+
+- b4fc77a: Restructure agent-surfaces doc to match table order, add Native inline UI and Generated inline UI sections
+
+## 0.141.1
+
+### Patch Changes
+
+- f101f20: Strip source-map references from published core build artifacts when the maps are excluded from the package.
+
+## 0.141.0
+
+### Minor Changes
+
+- 277be3f: Make the portable security guard contract automatic for every CLI-generated app and workspace.
+- 277be3f: Use magic-link sign-in by default when outbound email is configured, while keeping password sign-in available and adding optional password management in account settings.
+- 277be3f: Add a bounded `framework-search` tool that searches version-matched docs and readable framework source together, with substring, glob, SQL-like, and safe-regex modes.
+
+### Patch Changes
+
+- 277be3f: Show the AI connection setup card before an unconfigured chat can be submitted.
+- 277be3f: Avoid empty-plugin database startup work and keep cold-start route and chat surfaces responsive.
+- 277be3f: Keep agent-triggered action refresh notifications from blocking tool completion on a slow local database.
+- 277be3f: Stop interrupted extension-update reconnect cards from appearing to run indefinitely.
+- 277be3f: Keep run-only database migrations on the shared pool so serverless cold starts do not open an unnecessary direct Postgres connection.
+- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
+- 277be3f: Keep Neon connection pools bounded in concurrent durable background workers so async A2A tasks do not starve the database before they can complete.
+- 277be3f: Persist first-run onboarding completion so the signup flow does not replay after sign-in.
+- 277be3f: Show a delayed destination spinner during slow client-side route loading and move route warmup to the persistent app provider shell.
+- 277be3f: Keep assistant threads scoped to the active resource so a Slides deck cannot display another deck's agent run or completion message.
+- 277be3f: Keep magic-link onboarding callbacks session-bound and document the password fallback accurately.
+- 277be3f: Add typed `agent-native.json` and `agent-native.config.ts` app defaults for shared first-run onboarding.
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
+  - @agent-native/toolkit@0.13.2
+
+## 0.140.0
+
+### Minor Changes
+
+- 0c105dd: Brand Kits can store a design system's own named tokens, not just the seven color roles.
+
+  `BrandKitData.tokens` holds `{ name, cssVar, value, type, group?, source? }` entries so an imported system keeps the vocabulary its team actually uses (`interactive-01`, `md-sys-color-primary-container`) instead of being squashed into `primary`/`secondary`/`accent`. A new `@agent-native/core/brand-kit/tokens` subpath exports the pure helpers: `normalizeBrandKitTokens` (which reports rejected entries rather than silently storing a subset), `parseBrandKitTokensFromCss`, `resolveBrandKitTokens`, `brandKitRoleTokens`, `groupBrandKitTokens`, `classifyBrandKitToken`, and the canonical `isSafeCssVarName` / `isSafeCssTokenValue` predicates.
+
+  Kits with no stored `tokens` fall back to the names their `customCSS` declares, so existing Brand Kits gain named tokens without a migration.
+
+## 0.139.0
+
+### Minor Changes
+
+- 008b97c: Add a transactional email catalog.
+
+  Apps declare the transactional emails they send with `defineTransactionalEmail`
+  from `@agent-native/core/email-catalog`, giving each one a stable id, a
+  plain-language trigger, recipient and sender logic, and a preview rendered from
+  dummy data. Three actions (`list-transactional-emails`,
+  `render-transactional-email-preview`, `list-email-log`) mount into every app
+  automatically, so the catalog is readable without each app opting in.
+
+  `sendEmail` now accepts a `templateId`. It tags the message at the provider so
+  delivery and open metrics attribute to one email instead of the whole account,
+  and records every attempt — success and failure — to a new additive `email_log`
+  table, which keeps send counts and last-sent independent of the provider's short
+  activity retention window.
+
+  Dispatch gains a Transactional email screen listing every app's emails with
+  previews, send counts, open rates, and a per-message activity feed, plus a
+  read-only detail page per email. Metrics distinguish "not yet sent" from "could
+  not be read": an unreadable send log renders as unknown rather than zero, and an
+  unconfigured provider surfaces the reason instead of a 0% open rate.
+
 ## 0.138.0
 
 ### Minor Changes

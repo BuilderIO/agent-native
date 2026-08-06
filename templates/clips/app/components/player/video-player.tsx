@@ -156,6 +156,8 @@ export interface VideoPlayerHandle {
 export interface VideoPlayerProps {
   recordingId: string;
   videoUrl: string | null | undefined;
+  /** Version of the stored media bytes, used when a stable URL is replaced. */
+  mediaVersion?: string | number | null;
   /**
    * Container format of `videoUrl`, when known. Used only to pick an accurate
    * `canPlayType` MIME check (e.g. Safari cannot play `video/webm`) — Clips
@@ -228,6 +230,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const t = useT();
     const {
       videoUrl,
+      mediaVersion,
       videoFormat,
       embedProvider,
       durationMs,
@@ -261,10 +264,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       onCommentClick,
     } = props;
 
-    const resolvedVideoSrc = useMemo(
-      () => resolveLocalUrl(videoUrl),
-      [videoUrl],
-    );
+    const resolvedVideoSrc = useMemo(() => {
+      const localUrl = resolveLocalUrl(videoUrl);
+      if (
+        !localUrl ||
+        mediaVersion == null ||
+        embedProvider === "loom" ||
+        isLoomEmbedUrl(localUrl)
+      ) {
+        return localUrl;
+      }
+      // Some storage providers keep the public URL stable while replacing the
+      // object behind it. Keep the player source identity aligned with the
+      // recording row so a repaired asset cannot stay cached in the player.
+      return setUrlSearchParam(localUrl, "media", String(mediaVersion));
+    }, [embedProvider, mediaVersion, videoUrl]);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const [playbackVideoEl, setPlaybackVideoEl] =
       useState<HTMLVideoElement | null>(null);
@@ -569,11 +583,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         return;
       }
 
-      if (recoveringFromErrorRef.current) return;
-
       const v = videoRef.current;
       const sameResource =
         activeVideoSourceIdentity === incomingVideoSourceIdentity;
+      if (recoveringFromErrorRef.current && sameResource) return;
+
       const playbackActive =
         playAttemptPendingRef.current ||
         isPlayPending ||

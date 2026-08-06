@@ -50,7 +50,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, monitoring, agents, catalog, data-dictionary, data-sources, settings)",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, monitoring, agents, data-dictionary, data-sources, settings)",
       ),
     dashboardId: z
       .string()

@@ -4112,7 +4112,7 @@ export default function SlideEditor({
   // to stay mounted or that background becomes uneditable.
   const contextToolbar = !readOnly ? (
     <div
-      className="hidden shrink-0 lg:block"
+      className="shrink-0"
       // Snapshotting the range is only half the job: without this marker the
       // click-outside handler exits the edit and clears the snapshot before
       // the button's onClick runs, so partial-text formatting would silently

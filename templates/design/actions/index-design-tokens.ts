@@ -22,24 +22,31 @@ function classifyVar(
 ): "color" | "typography" | "spacing" | "radius" | "shadow" | "other" {
   const n = name.toLowerCase();
   if (
-    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
-      n,
-    ) ||
     /^(#[0-9a-fA-F]{3,8}|rgba?\(|hsla?\(|oklch\(|color\()/.test(value.trim())
   ) {
     return "color";
   }
-  if (/font|size|leading|tracking|weight|heading|body|type/i.test(n)) {
-    return "typography";
-  }
   if (/radius|rounded/i.test(n)) {
     return "radius";
+  }
+  if (/font|size|leading|tracking|weight|heading|body|type/i.test(n)) {
+    return "typography";
   }
   if (/spacing|gap|padding|margin|space/i.test(n)) {
     return "spacing";
   }
   if (/shadow|blur|drop/i.test(n)) {
     return "shadow";
+  }
+  if (
+    /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
+      n,
+    ) &&
+    !/^-?\d*\.?\d+(px|rem|em|ex|ch|%|vh|vw|vmin|vmax|pt|pc|cm|mm|in|s|ms|deg|fr)?$/i.test(
+      value.trim(),
+    )
+  ) {
+    return "color";
   }
   return "other";
 }

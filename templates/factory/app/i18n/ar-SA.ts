@@ -170,6 +170,33 @@ const messages = {
     pastRunsEmpty: "لم يتم تسجيل عمليات تشغيل بعد.",
     saveAutomation: "حفظ",
     runNow: "تشغيل الآن",
+    automationHealthTitle: "صحة المجدول",
+    automationHealthDescription:
+      "توضح نبضة الحياة ما إذا كان عامل المهام المتكررة المنشور لا يزال يفحص الجداول.",
+    automationHealthHealthy: "سليم",
+    automationHealthStale: "متقادم",
+    automationHealthError: "خطأ",
+    automationHealthNoData: "لا توجد نبضة",
+    automationLastCheck: "آخر فحص",
+    automationLastDispatch: "آخر إرسال",
+    automationRuntime: "بيئة التشغيل",
+    automationHealthNoDataHint:
+      "لم تُسجّل نبضة للمجدول بعد. انشر أحدث إصدار من Factory ثم تحقق مرة أخرى.",
+    automationHealthStaleHint:
+      "لم يفحص المجدول مؤخرًا. يعني هذا عادةً أن الوظيفة المجدولة المنشورة أو عامل الخلفية لا يعمل.",
+    automationHealthErrorDetail: "آخر خطأ للمجدول",
+    automationOpenThread: "فتح سلسلة المحادثة",
+    automationFailureAlertsTitle: "تنبيهات فشل الأتمتة",
+    automationFailureAlertsDescription:
+      "أرسل تنبيهًا داخل التطبيق وبريدًا إلكترونيًا عند فشل أتمتة Factory. تُجمّع الإخفاقات المتطابقة لمدة 15 دقيقة.",
+    automationFailureAlertsEnabled: "أرسل لي بريدًا عند فشل الأتمتة",
+    automationFailureAlertEmail: "بريد التنبيه",
+    automationFailureAlertEmailPlaceholder: "الافتراضي لمالك مساحة العمل",
+    automationFailureEmailReadiness: "مزود البريد الإلكتروني",
+    automationDiagnosticsLoadError:
+      "تعذر تحميل تشخيصات Factory. تحقق من الوصول والنشر وترحيلات قاعدة البيانات ثم حاول مرة أخرى.",
+    automationEmailReadinessHint:
+      "يستخدم البريد خزنة Dispatch الخاصة بالمؤسسة. كوّن مزودًا هناك إذا لم تكن الحالة جاهزة.",
   },
   factoryCanvas: {
     dragHint: "اسحب العقد لإعادة تشكيل المصنع",

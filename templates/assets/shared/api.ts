@@ -129,6 +129,18 @@ export type GenerationSessionStatus =
 export interface StyleBrief {
   description?: string;
   palette?: string[];
+  sourceUrl?: string;
+  rendered?: boolean;
+  designMd?: string;
+  semanticColors?: Record<string, string>;
+  spacing?: string[];
+  radii?: string[];
+  shadows?: string[];
+  backgrounds?: string[];
+  componentStyles?: Array<Record<string, unknown>>;
+  cssVariables?: Record<string, string>;
+  brandKit?: Record<string, unknown>;
+  warnings?: string[];
   medium?: string;
   mood?: string;
   subjectMatter?: string;

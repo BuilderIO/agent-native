@@ -673,16 +673,21 @@ const messages = {
     deckCount_few: "عروض",
     deckCount_many: "عرضًا",
     deckCount_other: "عرض",
-    createDeckOrVisual: "إنشاء عرض أو مرئي",
+    createDeckOrVisual: "إنشاء عرض تقديمي",
     noMineDecks: "لم تنشئ أي عروض بعد.",
     deleteDeckTitle: "حذف العرض؟",
     deleteDeckDescription:
       "سيؤدي هذا إلى حذف هذا العرض وكل شرائحه نهائيًا. لا يمكن التراجع عن هذا الإجراء.",
     cancel: "إلغاء",
     delete: "حذف",
-    newDeckPromptTitle: "عرض جديد",
-    newDeckPlaceholder: "صف عرضك أو المرئي أو المخطط...",
+    newDeckPromptTitle: "عرض تقديمي جديد",
+    newDeckPlaceholder: "صِف العرض التقديمي الذي تريد إنشاءه...",
     skipPrompt: "تخطي المطالبة",
+    firstDeckPromptTitle: "ما نوع العرض التقديمي الذي تريد أن ننشئه؟",
+    firstDeckSkip: "تخطي",
+    chooseReferences: "اختر المراجع",
+    addDesignSystem: "+ نظام تصميم",
+    importFrom: "استيراد من",
     designSystem: "نظام التصميم",
     referenceDeck: "عرض مرجعي",
     referenceDeckPlaceholder: "اتّبع أسلوب عرض موجود",
@@ -726,9 +731,10 @@ const messages = {
     signInDescriptionWithFiles:
       "تحتاج إلى تسجيل الدخول قبل إنشاء عرض. حفظنا مطالبتك؛ أعد إرفاق أي ملفات عند عودتك.",
     signIn: "تسجيل الدخول",
-    emptyTitle: "أنشئ أول عرض أو مرئي لك",
+    emptyTitle: "لا توجد عروض بعد",
+    createFirstDeck: "أنشئ أول عرض لك",
     emptyDescription:
-      "أنشئ عروضًا جميلة ومرئيات مستقلة ومخططات وقصصًا غنية بالصور باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
+      "أنشئ عروضًا تقديمية جميلة باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
   },
 };
 

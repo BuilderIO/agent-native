@@ -10,7 +10,10 @@ type RecurringJobsRuntimeEnvKey =
   | "APP_URL"
   | "BETTER_AUTH_URL"
   | "DEPLOY_URL"
+  | "NETLIFY"
+  | "NETLIFY_LOCAL"
   | "NODE_ENV"
+  | "SITE_ID"
   | "URL"
   | "VITE_APP_URL"
   | "VITE_WORKSPACE_GATEWAY_URL"
@@ -77,4 +80,17 @@ export function shouldDisableRecurringJobsRuntime(
   }
 
   return isLocalRuntime;
+}
+
+/**
+ * Hosted Netlify deploys get a durable scheduled sweep emitted by the build.
+ * The in-process timer must stay off there: a scale-to-zero recycle destroys
+ * that timer, which is exactly the failure mode the emitted sweep fixes.
+ */
+export function isNetlifyRecurringJobsRuntime(
+  env: RecurringJobsRuntimeEnv = process.env,
+): boolean {
+  if (env.NETLIFY_LOCAL === "true") return false;
+  if (env.NETLIFY === "false") return false;
+  return Boolean((env.NETLIFY && env.NETLIFY !== "false") || env.SITE_ID);
 }

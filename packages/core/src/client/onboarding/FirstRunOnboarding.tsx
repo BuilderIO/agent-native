@@ -38,6 +38,7 @@ import {
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
+import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
@@ -47,7 +48,8 @@ type FirstRunScreen =
   | "manual"
   | "tools"
   | "connecting"
-  | "ready";
+  | "ready"
+  | "extension";
 
 const BUILDER_MORE_SERVICES = [
   "Voice input",
@@ -73,6 +75,7 @@ export function FirstRunOnboarding({
     { preview: previewMode },
   );
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
+  const [extensionIndex, setExtensionIndex] = useState(0);
   const [integrationQuery, setIntegrationQuery] = useState("");
   const [integrationDialogId, setIntegrationDialogId] = useState<string | null>(
     null,
@@ -81,6 +84,7 @@ export function FirstRunOnboarding({
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();
@@ -172,8 +176,13 @@ export function FirstRunOnboarding({
     await completeFirstRun();
   };
 
-  const handleFinish = async () => {
-    await completeFirstRun();
+  const handleFinish = () => {
+    if (extensions.length === 0) {
+      void completeFirstRun();
+      return;
+    }
+    setExtensionIndex(0);
+    setScreen("extension");
   };
 
   const returnUrl =
@@ -242,6 +251,28 @@ export function FirstRunOnboarding({
 
     setIntegrationDialogId(integration.id);
   };
+
+  if (screen === "extension") {
+    const extension = extensions[extensionIndex];
+    if (!extension) {
+      void completeFirstRun();
+      return null;
+    }
+    const Extension = extension.component;
+    const advanceExtension = () => {
+      if (extensionIndex < extensions.length - 1) {
+        setExtensionIndex((current) => current + 1);
+        return;
+      }
+      void completeFirstRun();
+    };
+    return (
+      <Extension
+        onComplete={advanceExtension}
+        onSkip={() => void completeFirstRun()}
+      />
+    );
+  }
 
   if (screen === "intro") {
     return (

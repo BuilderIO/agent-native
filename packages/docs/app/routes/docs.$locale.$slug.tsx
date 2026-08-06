@@ -6,7 +6,11 @@ import {
 } from "react-router";
 
 import DocContent from "../components/DocContent";
-import { loadDoc, type DocEntry } from "../components/docs-content";
+import DocDraftBanner from "../components/DocDraftBanner";
+import {
+  loadDocRespectingDraftVisibility,
+  type DocEntry,
+} from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
   docsPathForSlug,
@@ -32,6 +36,9 @@ const SLUG_REDIRECTS: Record<string, string> = {
   "toolkit-sharing-ui": "toolkit-sharing",
   // Migration workbench folded into the code-agents-ui /migrate section.
   "migration-workbench": "code-agents-ui",
+  // server.mdx split into the Server section (server-overview, -database,
+  // -middleware, -plugins, -routes).
+  server: "server-overview",
 };
 
 function requireLocale(value: unknown): DocsLocale {
@@ -57,7 +64,7 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
     throw redirect(docsPathForSlug(slug, locale), 301);
   }
 
-  const doc = await loadDoc(slug, locale);
+  const doc = await loadDocRespectingDraftVisibility(slug, locale);
   if (!doc) {
     throw new Response("Not Found", { status: 404 });
   }
@@ -106,6 +113,7 @@ export default function LocalizedDocPage() {
       toc={toc}
       markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
     >
+      {doc.draft && <DocDraftBanner />}
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

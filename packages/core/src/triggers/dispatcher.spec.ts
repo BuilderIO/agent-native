@@ -13,6 +13,7 @@ const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
+const registerEventMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
@@ -37,6 +38,7 @@ vi.mock("../resources/store.js", () => ({
 }));
 
 vi.mock("../event-bus/index.js", () => ({
+  registerEvent: registerEventMock,
   subscribe: subscribeMock,
   unsubscribe: unsubscribeMock,
 }));

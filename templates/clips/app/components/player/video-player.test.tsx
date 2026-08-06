@@ -198,6 +198,40 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
+  it("reloads stable media URLs when the stored media version changes", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="raw"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=raw");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="repaired"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain("media=repaired");
+  });
+
   it("starts after an intro cut instead of rewinding into the excluded range", () => {
     act(() => {
       root.render(

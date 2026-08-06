@@ -97,6 +97,18 @@ export function assetUrls(asset: {
   };
 }
 
+export function imageArtifactLinks(input: {
+  id: string;
+  runId: string;
+  previewUrl: string;
+  downloadUrl: string;
+}) {
+  return [
+    `previewUrl: ${input.previewUrl} (ID: ${input.id}, Run: ${input.runId})`,
+    `downloadUrl: ${input.downloadUrl}`,
+  ];
+}
+
 export function serializeLibrary(row: any) {
   return {
     id: row.id,

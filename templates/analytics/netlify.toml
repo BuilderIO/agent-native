@@ -34,3 +34,7 @@ timeout = 120
 
 [functions.uptime-monitor-sweep-background]
 timeout = 120
+
+[functions.analytics-rollup-backfill-background]
+timeout = 300
+memory = "2gb"

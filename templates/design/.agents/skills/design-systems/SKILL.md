@@ -191,7 +191,12 @@ The design system setup page collects brand assets from multiple sources. When t
 pnpm action import-from-url --url "https://acme.com"
 ```
 
-Returns CSS custom properties, colors, fonts, Google Fonts links, theme-color, OG image, favicon.
+Renders the live page in a real browser first, then returns a bounded
+design.md-style visual system: computed semantic colors, typography, spacing,
+radii, shadows, representative component styles, CSS variables, logo
+references, screenshots evidence metadata, and reusable Brand Kit data. This
+works for React/CSS-in-JS/Tailwind pages because it reads the computed cascade;
+it reports an explicit static SSRF-safe fallback when no browser is available.
 
 ### Source: GitHub Repository
 

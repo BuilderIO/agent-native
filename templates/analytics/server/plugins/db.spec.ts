@@ -22,6 +22,10 @@ import * as schema from "../db/schema";
  */
 
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
+const analyticsRollupsTsSource = readFileSync(
+  new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
+  "utf8",
+);
 
 interface DrizzleColumn {
   name: string;
@@ -178,9 +182,52 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("records the historical rollup migration without scanning history at boot", () => {
+    expect(dbTsSource).toMatch(/name: "analytics-rollups-historical-backfill"/);
+    expect(dbTsSource).toMatch(
+      /version: 132,[\s\S]*?name: "analytics-rollups-historical-backfill",[\s\S]*?sql: \{\},[\s\S]*?\n\s*\},/,
+    );
+    expect(dbTsSource).not.toMatch(
+      /run:\s*runHistoricalAnalyticsRollupBackfill/,
+    );
+    expect(dbTsSource).not.toContain("FROM analytics_events");
+    expect(dbTsSource).not.toContain(
+      "LOCK TABLE analytics_event_daily_rollups",
+    );
+    expect(dbTsSource).not.toContain("LOCK TABLE analytics_events");
+    expect(dbTsSource).toContain("new migration identity");
+    expect(dbTsSource).toContain("out-of-band job");
+  });
+
+  it("keeps the incremental rollup lock inside the rollup write transaction", () => {
+    const writeIdx = analyticsRollupsTsSource.indexOf(
+      "const writeRollups = async (tx: any) => {",
+    );
+    const lockIdx = analyticsRollupsTsSource.lastIndexOf(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
+    );
+    expect(writeIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(writeIdx);
+    expect(analyticsRollupsTsSource).toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+    );
+  });
+
   it("does not scan every dashboard during serverless startup", () => {
     expect(dbTsSource).not.toContain(
       "repairUnboundedFirstPartyPanelsAcrossDashboards",
+    );
+  });
+
+  it("skips Analytics migrations in non-rollup durable background functions", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).toMatch(
+      /if \(isInBackgroundFunctionRuntime\(\) && !isScheduledRollupRuntime\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
+    );
+    expect(pluginSource).toContain(
+      "__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__",
     );
   });
 });

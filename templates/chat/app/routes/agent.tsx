@@ -21,20 +21,20 @@ export default function AgentRoute() {
     "learnings",
   ]);
   const destination = resourceTabs.has(legacyTab)
-    ? `/settings#agent:resources:${legacyTab}`
+    ? `/settings/agent/resources/${legacyTab}`
     : legacyTab === "remote-agents"
-      ? "/settings#agent:agents"
+      ? "/settings/agent/agents"
       : legacyTab === "connections"
-        ? "/settings#integrations"
+        ? "/settings/integrations"
         : legacyTab === "jobs"
-          ? "/settings#agent:automations"
+          ? "/settings/agent/automations"
           : legacyTab === "access"
-            ? "/settings#agent:access"
+            ? "/settings/agent"
             : ["llm", "app-models", "limits", "voice", "background"].includes(
                   legacyTab,
                 )
-              ? `/settings#${legacyTab}`
-              : "/settings#agent";
+              ? `/settings/agent/${legacyTab}`
+              : "/settings/agent";
 
   return <Navigate to={destination} replace />;
 }

@@ -61,12 +61,22 @@ function normalizeLeadingPath(path: string): string {
 }
 
 function normalizeTabId(tab: string): string {
-  return tab
+  const normalized = tab
     .trim()
     .replace(/^#/, "")
     .toLowerCase()
     .replace(/['"]/g, "")
     .replace(/[\s_]+/g, "-");
+  if (normalized === "connections") return "integrations";
+  if (normalized === "team" || normalized === "org") return "organization";
+  if (
+    normalized === "changelog" ||
+    normalized === "what-s-new" ||
+    normalized === "updates"
+  ) {
+    return "whats-new";
+  }
+  return normalized;
 }
 
 function pathSegment(value: string): string {
@@ -87,10 +97,11 @@ export function buildSettingsRoute(
 ): string {
   const path = normalizeLeadingPath(basePath);
   const normalizedTab = tab ? normalizeTabId(tab) : null;
-  if (!normalizedTab || normalizedTab === STANDARD_SETTINGS_TABS.general) {
-    return path;
-  }
-  return `${path}#${encodeURIComponent(normalizedTab)}`;
+  const segments = (normalizedTab || STANDARD_SETTINGS_TABS.general)
+    .split(":")
+    .map((segment) => pathSegment(segment))
+    .filter(Boolean);
+  return `${path}/${segments.join("/")}`;
 }
 
 export function buildTeamRoute(

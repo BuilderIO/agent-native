@@ -466,6 +466,10 @@ const messages = {
     agentLinkUnavailable: "No se pudo crear el enlace para agentes.",
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
+    copyEmailPreview: "Copiar vista previa del correo electrónico",
+    emailPreviewCopied: "Vista previa del correo electrónico copiada",
+    emailPreviewCopyFailed:
+      "No se pudo copiar la vista previa del correo electrónico",
     openPlayer: "jugador abierto",
     chooseFile: "Elige el archivo",
     remove: "Eliminar",

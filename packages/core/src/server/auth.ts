@@ -94,6 +94,8 @@ import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
   normalizeAppPath,
   signInJourney,
@@ -1932,11 +1934,12 @@ function createAuthGuardFn(): (
     }
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
-    // (share links, embeds) here with a `?return=<path>` query. The cached
-    // login document validates that return path in the browser and redirects
-    // there after sign-in or when its client-side session check finds an
-    // existing session.
-    if (p === "/_agent-native/sign-in") {
+    // (share links, embeds) here with a `?return=<path>` query. The clean
+    // `/sign-in` path is canonical; keep the old framework path as a
+    // compatibility alias. The cached login document validates that return
+    // path in the browser and redirects there after sign-in or when its
+    // client-side session check finds an existing session.
+    if (p === SIGN_IN_ENTRY_PATH || p === SIGN_IN_LEGACY_ENTRY_PATH) {
       // Preserve the zero-setup localhost experience without putting a
       // session lookup back on the cacheable app-shell URL. The client gate
       // reaches this explicit entrypoint after discovering there is no
@@ -1946,7 +1949,8 @@ function createAuthGuardFn(): (
           queryStart >= 0 ? url.slice(queryStart + 1) : "",
         );
         // `?return=` is read as a fallback FOREVER. Generated apps in the wild
-        // hand-write `/_agent-native/sign-in?return=…` and cannot be upgraded;
+        // hand-write the legacy `/_agent-native/sign-in?return=…` path and
+        // cannot be upgraded;
         // dropping the fallback would send them all to "/" — a UX quirk no
         // test would catch. New producers emit `c`; only NEW `?return=`
         // producers are forbidden, never this consumer.
@@ -3695,7 +3699,9 @@ async function mountBetterAuthRoutes(
       const rawReturn = Array.isArray(query.return)
         ? query.return[0]
         : query.return;
-      setFirstRunOnboardingCookie(event);
+      if (await getSession(event)) {
+        setFirstRunOnboardingCookie(event);
+      }
       return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );

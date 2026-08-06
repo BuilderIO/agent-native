@@ -1163,7 +1163,7 @@ Do some work.`,
     expect(putCall).toBe("jobs/stuck-job.md");
     const putContent: string = resourcePutMock.mock.calls[0][2]; // content argument
     expect(putContent).toContain("lastStatus: error");
-    expect(putContent).toContain("timed out or server crashed");
+    expect(putContent).toContain("timed out or been recycled");
   });
 
   it("does not reset a job that has been running for less than 10 minutes", async () => {

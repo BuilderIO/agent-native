@@ -38,6 +38,10 @@ import {
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
 } from "../integrations/integration-durable-dispatch-config.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -2593,7 +2597,8 @@ export function isDurableBackgroundDeployEnabled(): boolean {
 function isDurableBackgroundEmitRequired(): boolean {
   return (
     isDurableBackgroundDeployEnabled() ||
-    isIntegrationDurableDispatchDeployEnabled()
+    isIntegrationDurableDispatchDeployEnabled() ||
+    isRecurringJobsDeployEnabled()
   );
 }
 
@@ -2605,6 +2610,13 @@ export function isIntegrationDurableDispatchDeployEnabled(): boolean {
 }
 
 const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
+export const NETLIFY_RECURRING_JOBS_FUNCTION_NAME =
+  "agent-native-recurring-jobs";
+
+export function isRecurringJobsDeployEnabled(): boolean {
+  const value = process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS?.trim();
+  return !value || !["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
 
 /**
  * Emit a site-local Netlify Scheduled Function that wakes the public server
@@ -2690,7 +2702,7 @@ export default async function handler(request) {
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
+    const body = await response.text();
     throw new Error(
       "[agent-native-keep-warm] Health request failed with " +
         response.status +
@@ -2718,6 +2730,95 @@ export const config = {
   );
   console.log(
     `[build] Emitted Netlify scheduled keep-warm function "${NETLIFY_KEEP_WARM_FUNCTION_NAME}".`,
+  );
+}
+
+/**
+ * Emit the durable recurring-job trigger. Netlify's scheduled function only
+ * hands off work; the existing `-background` function owns the long sweep so
+ * a model run is not constrained by the synchronous scheduled-function wall.
+ */
+export function emitSingleTemplateNetlifyRecurringJobsFunction(
+  projectCwd: string,
+): void {
+  if (!isRecurringJobsDeployEnabled()) return;
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const backgroundEntry = path.join(
+    internalDir,
+    AGENT_BACKGROUND_FUNCTION_NAME,
+    `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+  );
+  if (!fs.existsSync(backgroundEntry)) {
+    throw new Error(
+      "[build] Recurring-job trigger cannot be emitted without the durable background function.",
+    );
+  }
+
+  const functionName = NETLIFY_RECURRING_JOBS_FUNCTION_NAME;
+  const dest = path.join(internalDir, functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+  const entry = `import { createHmac } from "node:crypto";
+
+const BACKGROUND_PATH = ${JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)};
+const SWEEP_PATH = ${JSON.stringify(RECURRING_JOBS_SWEEP_PATH)};
+const TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+const PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+
+function siteOrigin(request) {
+  const configured = process.env.URL || process.env.DEPLOY_URL;
+  if (configured) return configured;
+  return new URL(request.url).origin;
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`\${TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+export default async function handler(request) {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const url = new URL(BACKGROUND_PATH, siteOrigin(request));
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+      "user-agent": "agent-native-recurring-jobs",
+    },
+    body: JSON.stringify({
+      [PROCESSOR_FIELD]: PROCESSOR_ROUTE,
+      [PROCESSOR_ROUTE_FIELD]: SWEEP_PATH,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      \`[recurring-jobs] Durable sweep handoff failed (\${response.status}): \${body.slice(0, 500)}\`,
+    );
+  }
+  console.log("[recurring-jobs] Durable sweep handed off", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: "agent-native recurring jobs",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+  console.log(
+    `[build] Emitted Netlify scheduled recurring-job function "${functionName}".`,
   );
 }
 
@@ -2830,6 +2931,7 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   const backgroundProcessorRouteField = JSON.stringify(
     AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   );
+  const recurringJobsSweepPath = JSON.stringify(RECURRING_JOBS_SWEEP_PATH);
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
@@ -2848,6 +2950,7 @@ const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${backgroundProcessorIntegration};
 const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
+const RECURRING_JOBS_SWEEP_PATH = ${recurringJobsSweepPath};
 
 function processorPathFromBody(body) {
   if (!body) return null;
@@ -2867,7 +2970,8 @@ function processorPathFromBody(body) {
       parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
       typeof route === "string" &&
       route.startsWith("/") &&
-      route.includes("/api/_agent-native-background/") &&
+      (route === RECURRING_JOBS_SWEEP_PATH ||
+        route.includes("/api/_agent-native-background/")) &&
       !route.includes("?") &&
       !route.includes("#")
     ) {
@@ -4170,6 +4274,8 @@ export default bundle;
     if (isDurableBackgroundEmitRequired()) {
       emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
+
+    emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
 
     // Emit keep-warm after the background artifact so it only pings a function
     // that this build actually produced.

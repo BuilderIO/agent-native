@@ -3679,6 +3679,28 @@ function createAgentNativeConfig(
   };
 }
 
+function createAgentNativeConfigPlugin(
+  options: ClientConfigOptions | AgentNativeVitePluginOptions,
+): Plugin {
+  return {
+    name: "agent-native-config",
+    enforce: "pre",
+    async config(config: UserConfig, env: ConfigEnv) {
+      const projectConfig =
+        options.agentNativeConfig === undefined
+          ? await loadAgentNativeConfigFile(process.cwd())
+          : undefined;
+      return createAgentNativeConfig(
+        options,
+        env.command,
+        config,
+        env.mode,
+        projectConfig,
+      );
+    },
+  };
+}
+
 /**
  * Agent-Native's Vite plugin preset.
  *
@@ -3699,23 +3721,7 @@ export function agentNative(
   options: AgentNativeVitePluginOptions = {},
 ): Plugin[] {
   return [
-    {
-      name: "agent-native-config",
-      enforce: "pre",
-      async config(config: UserConfig, env: ConfigEnv) {
-        const projectConfig =
-          options.agentNativeConfig === undefined
-            ? await loadAgentNativeConfigFile(process.cwd())
-            : undefined;
-        return createAgentNativeConfig(
-          options,
-          env.command,
-          config,
-          env.mode,
-          projectConfig,
-        );
-      },
-    },
+    createAgentNativeConfigPlugin(options),
     ...createAgentNativePlugins(options, {
       includeReactTransform: options.legacySpa === true,
       useServeOnlyNitroPlugin: true,
@@ -3734,10 +3740,13 @@ export function defineConfig(options: ClientConfigOptions = {}): UserConfig {
     !hasReactRouterPlugin(options.plugins) && !options.reactRouter;
   return {
     ...createAgentNativeConfig(options),
-    plugins: createAgentNativePlugins(options, {
-      includeReactTransform,
-      userPlugins: options.plugins,
-    }),
+    plugins: [
+      createAgentNativeConfigPlugin(options),
+      ...createAgentNativePlugins(options, {
+        includeReactTransform,
+        userPlugins: options.plugins,
+      }),
+    ],
   };
 }
 

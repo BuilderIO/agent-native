@@ -1,5 +1,17 @@
 # @agent-native/creative-context
 
+## 0.6.0
+
+### Minor Changes
+
+- abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
+
+## 0.5.12
+
+### Patch Changes
+
+- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
+
 ## 0.5.11
 
 ### Patch Changes

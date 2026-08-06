@@ -50,6 +50,13 @@ describe("query-agent-native-analytics", () => {
   it("teaches the agent to prefer rollups and bound raw reads", () => {
     expect(action.description).toContain("analytics_event_daily_rollups");
     expect(action.description).toContain("analytics_user_days");
+    expect(action.description).toMatch(
+      /updated transactionally with new ingest/i,
+    );
+    expect(action.description).toMatch(/explicit BigQuery cutover/i);
+    expect(action.description).toMatch(
+      /cross-backend joins are not supported/i,
+    );
     expect(action.description).toMatch(/bounded recent drill-downs/i);
     expect(action.description).toMatch(/all-time|lifetime/i);
     expect(action.schema.shape.sql.description).toMatch(
