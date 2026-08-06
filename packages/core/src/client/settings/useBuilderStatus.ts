@@ -633,6 +633,8 @@ export function useBuilderConnectFlow(
           authError?: { message: string; at: number };
         };
       } catch {
+        // coercion-ok: null means "status unknown this tick" and callers hold
+        // their previous state rather than rendering a disconnected Builder.
         return null;
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
@@ -917,8 +919,9 @@ export function useBuilderConnectFlow(
         try {
           await onConnectedRef.current?.({ orgName: org });
         } catch {
-          // Consumer's callback failed; we've already flipped the UI state
-          // to connected. Swallow so we don't re-arm the flow.
+          // coercion-ok: the connection itself succeeded and the UI state is
+          // already flipped; re-arming the flow on a consumer callback failure
+          // would reconnect an account that is connected.
         }
       } else if (isCurrentConnectError(s?.connectError, started)) {
         // OAuth callback ran but writeBuilderCredentials threw \u2014 surface the

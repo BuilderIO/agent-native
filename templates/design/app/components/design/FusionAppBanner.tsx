@@ -86,14 +86,21 @@ export function FusionAppBanner({
   const syncInFlightRef = useRef(false);
   useEffect(() => {
     if (status !== "building") return;
-    syncMutateRef.current({ designId } as any);
-    const interval = window.setInterval(() => {
-      if (document.hidden || syncInFlightRef.current) return;
+    // The leading sync goes through the same guard as the interval ticks: a
+    // container check still pending at the first tick would otherwise let a
+    // second status sync start and race the provisioning/screen-upsert work.
+    const runSync = (): void => {
+      if (syncInFlightRef.current) return;
       syncInFlightRef.current = true;
       syncMutateRef.current(
         { designId } as any,
         { onSettled: () => (syncInFlightRef.current = false) } as any,
       );
+    };
+    runSync();
+    const interval = window.setInterval(() => {
+      if (document.hidden) return;
+      runSync();
     }, SYNC_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [designId, status]);

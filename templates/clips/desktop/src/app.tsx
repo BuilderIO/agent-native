@@ -1681,7 +1681,10 @@ export function App() {
           "list-rewind-extension-requests",
           {},
           { method: "GET", signal: controller.signal },
-        ).catch(() => null);
+        )
+          // coercion-ok: nothing to process this sweep either way; the next
+          // tick re-reads the pending requests.
+          .catch(() => null);
         if (cancelled) return;
         for (const request of result?.requests ?? []) {
           void processRewindExtension(request);
@@ -1764,7 +1767,10 @@ export function App() {
       try {
         const due = await invoke<DueRewindAgentHandoff[]>(
           "screen_memory_due_agent_handoffs",
-        ).catch(() => []);
+        )
+          // coercion-ok: handoffs stay due in the local store, so an empty
+          // sweep and a failed one both retry on the next tick.
+          .catch(() => []);
         if (cancelled) return;
         for (const item of due) {
           try {

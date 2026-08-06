@@ -88,7 +88,8 @@ function useRunsTrayState({
         const rows = (await res.json()) as AgentRunDto[];
         setRuns(rows);
       } catch {
-        // best-effort
+        // coercion-ok: `runs` keeps its last good value rather than being
+        // cleared to an empty tray; the next poll tick retries.
       }
     },
     [includeRecent, limit],

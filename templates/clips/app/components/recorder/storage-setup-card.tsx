@@ -143,7 +143,8 @@ export function StorageSetupCard({
           setErr(t("storageSetup.builderTimeout"));
         }
       } catch {
-        // transient poll error
+        // coercion-ok: a transient poll error keeps the loop running; the
+        // timeoutMs bound above surfaces builderTimeout if it never succeeds.
       } finally {
         clearTimeout(abortTimer);
         inFlightRef.current = false;

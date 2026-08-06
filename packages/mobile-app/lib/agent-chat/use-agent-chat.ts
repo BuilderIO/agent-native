@@ -606,7 +606,12 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         const command = await withPollTimeout(
           fetchNavigateCommand(origin),
           NAVIGATE_POLL_TIMEOUT_MS,
-        ).catch(() => null);
+        ).catch((err: unknown) => {
+          // A failed or timed-out probe is not "no command pending" — the two
+          // are indistinguishable downstream, so say which one happened.
+          console.warn("[agent-chat] navigate command poll failed:", err);
+          return null;
+        });
         if (!command) return;
 
         const dedupKey = navigateCommandDedupKey(command);

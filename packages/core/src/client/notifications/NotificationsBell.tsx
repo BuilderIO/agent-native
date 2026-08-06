@@ -121,13 +121,15 @@ export function NotificationsBell({
             try {
               new Notification(n.title, { body: n.body, tag: n.id });
             } catch {
-              // Safari / restricted contexts may throw even when permission
-              // claims to be granted — silent no-op.
+              // coercion-ok: Safari / restricted contexts may throw even when
+              // permission claims to be granted; one failed OS notification
+              // must not abort the unread sweep around it.
             }
           }
           seenIdsRef.current = seen;
         } catch {
-          // best-effort
+          // coercion-ok: the bell renders from the rows it already has; a
+          // failed sweep is retried by the next poll tick.
         }
         return;
       }

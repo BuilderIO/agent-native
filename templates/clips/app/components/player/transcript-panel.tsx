@@ -686,7 +686,8 @@ function TranscriptSetupCard({
           setConnectError(t("transcriptPanel.builderNoResponse"));
         }
       } catch {
-        // transient poll error — keep trying
+        // coercion-ok: a transient poll error keeps the loop running; the
+        // 5-minute bound above surfaces builderNoResponse if it never succeeds.
       } finally {
         clearTimeout(abortTimer);
         inFlightRef.current = false;

@@ -251,11 +251,20 @@ export default function SessionsScreen() {
         pending.push(loadRunDetail(selectedRunId));
         pending.push(loadTranscript(selectedRunId, true));
       }
-      void withPollTimeout(Promise.all(pending), POLL_TIMEOUT_MS)
-        .catch(() => undefined)
-        .finally(() => {
-          inFlight = false;
-        });
+      // The relay loaders take no abort signal, so the timeout can only
+      // report a slow cycle — it must not release `inFlight`. Releasing there
+      // would let the next tick run against still-live requests whose late
+      // responses then overwrite the newer hosts/runs/events state.
+      const work = Promise.all(pending).then(
+        () => {},
+        () => {},
+      );
+      void withPollTimeout(work, POLL_TIMEOUT_MS).catch((err: unknown) => {
+        console.warn("[sessions] poll cycle slow:", err);
+      });
+      void work.finally(() => {
+        inFlight = false;
+      });
     };
     const interval = setInterval(tick, POLL_INTERVAL_MS);
     const subscription = AppState.addEventListener("change", (state) => {

@@ -1,5 +1,6 @@
 import { registerEvent } from "@agent-native/core/event-bus";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
+import { startIntervalJob } from "@agent-native/core/server/interval-job";
 import { z } from "zod";
 
 import { processAutomations } from "../lib/automation-engine.js";
@@ -19,11 +20,10 @@ import {
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
 // Backstop for the whole tick (job sends + Gmail watch renewal, both outbound
-// network calls with no timeout of their own). Without this a single hung
-// call would leave `running` stuck forever instead of just double-firing.
+// network calls with no timeout of their own), reported through the job's
+// onError so a wedged tick is loud rather than silent.
 const TICK_ABORT_MS = Math.max(10_000, INTERVAL_MS * 4);
 let lastWatchRenewalAt = 0;
-let running = false;
 // Vite's dev server initializes Nitro plugins more than once during boot
 // (initial load + post-init). Module-scope flag ensures the "skipping" log
 // fires at most once per process.
@@ -129,12 +129,13 @@ export default () => {
     return;
   }
 
-  setInterval(async () => {
-    if (running) return;
-    running = true;
-    let timedOut = false;
-
-    const work = (async () => {
+  // The overlap guard and the hung-tick timeout both come from
+  // startIntervalJob rather than a module-level `running` flag here: these
+  // are outbound Google calls with no timeout of their own, and releasing the
+  // guard on the timeout while a hung call kept running is what let a tick
+  // overlap the next one and send duplicate mail.
+  startIntervalJob(
+    async () => {
       try {
         await processJobs();
       } catch (err) {
@@ -153,22 +154,13 @@ export default () => {
           console.error("[mail-jobs] renewAllWatches failed:", err);
         }
       }
-    })().finally(() => {
-      // Only release the guard here if the timeout below hasn't already
-      // released it for a newer cycle — a late-settling hung call must not
-      // clobber that cycle's `running` state.
-      if (!timedOut) running = false;
-    });
-
-    const timeout = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        timedOut = true;
-        console.error("[mail-jobs] tick exceeded time budget; releasing guard");
-        running = false;
-        resolve();
-      }, TICK_ABORT_MS);
-    });
-
-    await Promise.race([work, timeout]);
-  }, INTERVAL_MS);
+    },
+    {
+      intervalMs: INTERVAL_MS,
+      timeoutMs: TICK_ABORT_MS,
+      leading: false,
+      onError: (err) =>
+        console.error("[mail-jobs] tick exceeded time budget:", err),
+    },
+  );
 };

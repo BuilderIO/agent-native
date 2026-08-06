@@ -2902,6 +2902,8 @@ const AssistantChatInner = forwardRef<
           if (!repo) return null;
           return importThreadData(repo);
         } catch {
+          // coercion-ok: callers treat null as "keep the thread already
+          // rendered", the same handling an absent repo needs.
           return null;
         }
       }
@@ -2923,6 +2925,8 @@ const AssistantChatInner = forwardRef<
         if (!refreshData.threadData) return null;
         return importThreadData(refreshData.threadData);
       } catch {
+        // coercion-ok: an aborted or failed refresh keeps the thread already
+        // rendered; the next poll tick retries.
         return null;
       } finally {
         if (ownAbortTimer) clearTimeout(ownAbortTimer);

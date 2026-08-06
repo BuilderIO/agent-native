@@ -184,6 +184,86 @@ describe("createPollEngine", () => {
     expect(attempt).toHaveBeenCalledTimes(1);
   });
 
+  it("stop() aborts the in-flight attempt's signal", async () => {
+    let seenSignal: AbortSignal | undefined;
+    const attempt = vi.fn().mockImplementation(
+      (signal: AbortSignal) =>
+        new Promise<void>((resolve) => {
+          seenSignal = signal;
+          signal.addEventListener("abort", () => resolve());
+        }),
+    );
+    const engine = createPollEngine(attempt, { intervalMs: 1000 });
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seenSignal?.aborted).toBe(false);
+
+    engine.stop();
+    expect(seenSignal?.aborted).toBe(true);
+  });
+
+  it("stays alive when start() lands while a stopped attempt is still settling", async () => {
+    let resolveFirst: (() => void) | undefined;
+    // Ignores its signal, so stop() cannot make it settle — the case that
+    // used to leave the engine running with no timer armed.
+    const attempt = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveFirst = resolve)),
+      )
+      .mockResolvedValue(undefined);
+    const engine = createPollEngine(attempt, { intervalMs: 1000 });
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attempt).toHaveBeenCalledTimes(1);
+
+    engine.stop();
+    engine.start();
+    // The first attempt still holds the slot — no overlapping second attempt.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(attempt).toHaveBeenCalledTimes(1);
+
+    resolveFirst?.();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(attempt).toHaveBeenCalledTimes(2);
+    engine.stop();
+  });
+
+  it("holds the in-flight slot past the timeout until the attempt settles", async () => {
+    const onError = vi.fn();
+    let resolveFirst: (() => void) | undefined;
+    // Ignores its signal — the shape that made a timed-out server job overlap
+    // the next tick and duplicate work.
+    const attempt = vi
+      .fn()
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (resolveFirst = resolve)),
+      )
+      .mockResolvedValue(undefined);
+    const engine = createPollEngine(attempt, {
+      intervalMs: 1000,
+      timeoutMs: 5000,
+      onError,
+    });
+    engine.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attempt).toHaveBeenCalledTimes(1);
+
+    // Timeout fires: reported immediately, but the slot is not released.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(onError).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(attempt).toHaveBeenCalledTimes(1);
+
+    // Once it finally settles the loop resumes, and the late settlement does
+    // not re-report the error.
+    resolveFirst?.();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(attempt).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(1);
+    engine.stop();
+  });
+
   it("passes an AbortSignal that is not pre-aborted for a healthy attempt", async () => {
     let seenSignal: AbortSignal | undefined;
     const attempt = vi.fn().mockImplementation((signal: AbortSignal) => {

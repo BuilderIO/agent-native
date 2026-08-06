@@ -8,9 +8,12 @@
  *    This also avoids the latency `setInterval` + skip-if-busy introduces —
  *    a skipped tick there means waiting a full extra cadence before the next
  *    retry; here the gap after completion is always exactly `intervalMs`.
- * 2. Never stalls forever: every attempt is bounded by a timeout (paired
+ * 2. Never stalls silently: every attempt is bounded by a timeout (paired
  *    with an `AbortController` so a `fetch` can actually cancel, not just be
- *    abandoned), so a hung request can't wedge the loop shut.
+ *    abandoned), and that timeout reports through `onError` the moment it
+ *    fires. An attempt that ignores its `signal` keeps holding the loop —
+ *    reported, not hidden — because releasing the slot to the next attempt
+ *    would trade a visible stall for a silent overlap.
  * 3. Never double-fires: a single internal in-flight flag, owned by this
  *    engine rather than duplicated in every caller.
  */
@@ -31,7 +34,7 @@ export interface PollEngineOptions {
 export interface PollEngineHandle {
   /** Arm the loop. No-op if already running. */
   start(): void;
-  /** Halt the loop. Any in-flight attempt is abort-signaled; its eventual settlement is a no-op. */
+  /** Halt the loop and abort any in-flight attempt; its eventual settlement is a no-op. */
   stop(): void;
   /** Cancel the pending wait and run now. No-op if not running or an attempt is already in flight. */
   pollNow(): void;
@@ -79,6 +82,7 @@ export function createPollEngine(
   let running = false;
   let inFlight = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let activeController: AbortController | null = null;
 
   function clearTimer(): void {
     if (timer != null) {
@@ -97,15 +101,48 @@ export function createPollEngine(
   }
 
   async function tick(gen: number): Promise<void> {
-    if (gen !== generation || !running || inFlight) return;
+    if (gen !== generation || !running) return;
+    if (inFlight) {
+      // An attempt from a superseded generation is still settling — stop()
+      // aborted it but the caller has not returned yet. Its own `finally`
+      // sees a stale generation and will not reschedule, so re-arming here
+      // is what keeps a stop()/start() cycle (tab hidden then visible) from
+      // leaving the engine alive-but-timerless, i.e. permanently dead.
+      schedule(gen);
+      return;
+    }
     inFlight = true;
     const controller = new AbortController();
+    activeController = controller;
     const timeoutMs = getTimeoutMs();
     const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
     maybeUnref(abortTimer);
+
+    let reported = false;
+    const report = (err: unknown): void => {
+      if (reported) return;
+      reported = true;
+      onError(err);
+    };
+
+    // The attempt is retained separately from the timeout race below. The
+    // timeout reports a slow attempt immediately, but the in-flight slot is
+    // only released once the attempt itself settles: releasing on the
+    // timeout would let the next tick start while an attempt that ignores
+    // `signal` is still doing work, which is the overlap (duplicate external
+    // requests, racing writes) this engine exists to prevent. An attempt that
+    // never settles blocks further attempts by design — `onError` has already
+    // fired, so it is loud rather than silent.
+    const settled = Promise.resolve()
+      .then(() => attempt(controller.signal))
+      .then(
+        () => {},
+        (err: unknown) => report(err),
+      );
+
     try {
       await Promise.race([
-        Promise.resolve().then(() => attempt(controller.signal)),
+        settled,
         new Promise<never>((_, reject) => {
           controller.signal.addEventListener(
             "abort",
@@ -116,9 +153,11 @@ export function createPollEngine(
         }),
       ]);
     } catch (err) {
-      onError(err);
+      report(err);
     } finally {
+      await settled;
       clearTimeout(abortTimer);
+      if (activeController === controller) activeController = null;
       inFlight = false;
       if (gen === generation && running) schedule(gen);
     }
@@ -137,6 +176,7 @@ export function createPollEngine(
       running = false;
       generation++;
       clearTimer();
+      activeController?.abort();
     },
     pollNow(): void {
       if (!running || inFlight) return;

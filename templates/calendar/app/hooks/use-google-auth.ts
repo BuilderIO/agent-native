@@ -327,7 +327,8 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
               return;
             }
           } catch {
-            // Keep polling; the status endpoint below may still observe success.
+            // coercion-ok: keep polling; the status endpoint below may still
+            // observe success, and the timeout below reports desktop_auth_timeout.
           }
 
           try {
@@ -347,7 +348,8 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
               }
             }
           } catch {
-            // Keep polling until the timeout.
+            // coercion-ok: keep polling until the bounded timeout below, which
+            // reports desktop_auth_timeout rather than failing silently.
           }
 
           if (Date.now() - startedAt > timeoutMs) {

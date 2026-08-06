@@ -124,6 +124,7 @@ const SESSION_BRIDGE_SCRIPT = `
             }));
           }
         })
+        // coercion-ok: the page keeps its current session and the 5s repost retries
         .catch(function () {})
         .then(function () { clearTimeout(abortTimer); tokenFetchInFlight = false; });
     };

@@ -76,6 +76,12 @@ export interface GoogleDocsPollerOptions {
 }
 
 let pollerJob: IntervalJobHandle | null = null;
+// Held only for the startup delay below. It counts as "already running" for
+// both the idempotency guard and stop(): `pollerJob` is still null during that
+// window, so without this a second start() would build a second independent
+// poller, and a stop() inside the window could not prevent the loop from
+// arming itself afterwards.
+let pollerStartTimer: ReturnType<typeof setTimeout> | null = null;
 let activeOptions: GoogleDocsPollerOptions | null = null;
 
 // ─── Watch Channel Management ───────────────────────────────────────────────
@@ -628,7 +634,7 @@ async function persistThreadData(
 export async function startGoogleDocsPoller(
   options: GoogleDocsPollerOptions,
 ): Promise<void> {
-  if (pollerJob) {
+  if (pollerJob || pollerStartTimer) {
     console.warn("[google-docs] Already running");
     return;
   }
@@ -707,7 +713,9 @@ function startPollLoop(
   // (adapters/google-docs.ts), none of whose fetch()s carry a request
   // timeout — startIntervalJob's own cadence-scaled timeout backstops a hung
   // call, same convention as SyncTransport's poll abort.
-  setTimeout(() => {
+  if (pollerStartTimer) clearTimeout(pollerStartTimer);
+  pollerStartTimer = setTimeout(() => {
+    pollerStartTimer = null;
     pollerJob = startIntervalJob(poll, { intervalMs });
   }, 5000);
 
@@ -723,6 +731,10 @@ function startPollLoop(
  * Stop the Google Docs integration.
  */
 export async function stopGoogleDocsPoller(): Promise<void> {
+  if (pollerStartTimer) {
+    clearTimeout(pollerStartTimer);
+    pollerStartTimer = null;
+  }
   if (pollerJob) {
     pollerJob.stop();
     pollerJob = null;

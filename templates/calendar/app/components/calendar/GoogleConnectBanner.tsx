@@ -183,7 +183,11 @@ export function GoogleConnectBanner({
         const res = await fetch(
           agentNativePath("/_agent-native/google/status"),
           { signal: controller.signal },
-        ).catch(() => null);
+        )
+          // coercion-ok: a failed probe and a not-yet-connected response both
+          // mean "stay on the connect banner"; this loop only ever acts on an
+          // observed success, and credential errors surface via authUrl.error.
+          .catch(() => null);
         if (res?.ok) {
           const data = await res.json();
           if (data.connected) {
@@ -273,7 +277,11 @@ export function GoogleConnectBanner({
         const res = await fetch(
           agentNativePath("/_agent-native/google/status"),
           { signal: controller.signal },
-        ).catch(() => null);
+        )
+          // coercion-ok: a failed probe and a not-yet-connected response both
+          // mean "stay on the connect banner"; this loop only ever acts on an
+          // observed success, and credential errors surface via authUrl.error.
+          .catch(() => null);
         if (res?.ok) {
           const data = await res.json();
           if (data.accounts?.length > prevCount) {

@@ -2508,7 +2508,11 @@ function AccountPopover({
         const res = await fetch(
           agentNativePath("/_agent-native/google/status"),
           { signal: controller.signal },
-        ).catch(() => null);
+        )
+          // coercion-ok: a failed probe and a not-yet-added-account response
+          // both mean "keep waiting"; this loop only acts on an observed
+          // account-count increase.
+          .catch(() => null);
         if (res?.ok) {
           const data = await res.json();
           if (data.accounts?.length > accounts.length) {
