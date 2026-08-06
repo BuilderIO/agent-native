@@ -97,7 +97,11 @@ function useExitSelectionOnOutsideClick() {
       const target = e.target as HTMLElement;
       if (
         target.closest(".slide-content") ||
-        target.closest(".slide-image-clickable")
+        target.closest(".slide-image-clickable") ||
+        target.closest("[data-slide-context-toolbar]") ||
+        target.closest(
+          '[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-radix-menu-content]',
+        )
       ) {
         return;
       }
