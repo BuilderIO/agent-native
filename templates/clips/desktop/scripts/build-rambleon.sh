@@ -6,6 +6,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# whisper.cpp's Metal backend uses @available checks that reference
+# __isPlatformVersionAtLeast from clang's compiler runtime. rustc links with
+# -nodefaultlibs, so the runtime archive must be added explicitly or the final
+# link fails with "Undefined symbols: ___isPlatformVersionAtLeast".
+CLANG_RT="$(xcrun clang --print-runtime-dir)/libclang_rt.osx.a"
+if [ -f "$CLANG_RT" ]; then
+  export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=$CLANG_RT"
+fi
+
 pnpm tauri build --config src-tauri/tauri.rambleon.conf.json --bundles app
 
 APP=src-tauri/target/release/bundle/macos/RambleOn.app
