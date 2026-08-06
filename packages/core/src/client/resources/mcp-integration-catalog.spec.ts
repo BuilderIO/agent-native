@@ -324,7 +324,7 @@ describe("MCP integration catalog", () => {
       url: "https://mcp.linear.app/sse?tenant=one&mode=oauth",
       description: "Read and write issues",
       scope: "org",
-      returnUrl: "/settings?tab=mcp#linear",
+      returnUrl: "/settings/integrations",
     });
     const params = new URL(url, "https://example.com").searchParams;
 
@@ -337,7 +337,7 @@ describe("MCP integration catalog", () => {
     );
     expect(params.get("description")).toBe("Read and write issues");
     expect(params.get("scope")).toBe("org");
-    expect(params.get("return")).toBe("/settings?tab=mcp#linear");
+    expect(params.get("return")).toBe("/settings/integrations");
   });
 
   it("falls back to personal scope when organization access is unavailable", () => {

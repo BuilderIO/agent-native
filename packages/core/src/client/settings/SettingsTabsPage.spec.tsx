@@ -276,7 +276,7 @@ describe("SettingsTabsPage", () => {
                 id: "workspace",
                 label: "Workspace",
                 group: "workspace",
-                href: "/settings#workspace",
+                href: "/settings/workspace",
                 content: <div>Workspace settings</div>,
               },
             ]}
@@ -292,7 +292,7 @@ describe("SettingsTabsPage", () => {
     ).toEqual(["General", "Integrations", "Team", "What's new", "Workspace"]);
 
     const workspaceLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/settings#workspace"]',
+      'a[href="/settings/workspace"]',
     );
     expect(workspaceLink).not.toBeNull();
     expect(workspaceLink?.querySelector("svg")).not.toBeNull();

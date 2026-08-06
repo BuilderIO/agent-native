@@ -32,11 +32,13 @@ describe("Analytics settings command items", () => {
         expect.objectContaining({
           label: "Voice Transcription",
           keywords: expect.stringContaining("microphone"),
-          href: "/settings/agent#voice",
+          href: "/settings/agent/voice",
         }),
       ]),
     );
-    expect(items.some((item) => item.href === "/settings#about")).toBe(false);
+    expect(items.some((item) => item.href === "/settings/general/about")).toBe(
+      false,
+    );
   });
 
   it("merges duplicate destinations without dropping shared search metadata", () => {
@@ -72,7 +74,7 @@ describe("Analytics settings command items", () => {
 
     expect(items.filter((item) => item.label === "Account")).toEqual([
       expect.objectContaining({ href: "/settings/account" }),
-      expect.objectContaining({ href: "/settings/general#account-security" }),
+      expect.objectContaining({ href: "/settings/general/account-security" }),
     ]);
   });
 });

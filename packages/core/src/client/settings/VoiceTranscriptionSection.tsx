@@ -22,6 +22,7 @@ import {
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import { agentNativePath } from "../api-path.js";
 import { SettingsRow } from "./SettingsRow.js";
 import {
@@ -318,7 +319,12 @@ export function VoiceTranscriptionSection({
 
   const focusKey = (key: string) => {
     if (typeof window === "undefined") return;
-    window.location.hash = `#secrets:${key}`;
+    window.history.pushState(
+      null,
+      "",
+      buildSettingsRoute(`integrations:secrets:${key}`),
+    );
+    window.dispatchEvent(new Event("popstate"));
   };
 
   const chooseSource = (next: TranscriptionMode) => {

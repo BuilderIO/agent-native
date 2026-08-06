@@ -208,15 +208,24 @@ function activeTabFromLocation(
   return resolveTabId(tabs, window.location.hash) ?? defaultTab;
 }
 
-function updateRouteForTab(tabId: string, hash?: string) {
+function buildSettingsEntryRoute(tabId: string, section?: string): string {
+  const normalizedSection = section?.replace(/^#/, "").trim();
+  if (!normalizedSection || normalizedSection === tabId) {
+    return buildSettingsRoute(tabId);
+  }
+  if (normalizedSection.startsWith("agent:")) {
+    return buildSettingsRoute(normalizedSection);
+  }
+  if (normalizedSection.startsWith(`${tabId}:`)) {
+    return buildSettingsRoute(normalizedSection);
+  }
+  return buildSettingsRoute(`${tabId}:${normalizedSection}`);
+}
+
+function updateRouteForTab(tabId: string, section?: string) {
   if (typeof window === "undefined") return;
-  const route = buildSettingsRoute(tabId);
-  const nextHash = hash ? `#${hash.replace(/^#/, "")}` : "";
-  window.history.pushState(
-    null,
-    "",
-    `${route}${window.location.search}${nextHash}`,
-  );
+  const route = buildSettingsEntryRoute(tabId, section);
+  window.history.pushState(null, "", `${route}${window.location.search}`);
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -389,10 +398,14 @@ export function SettingsTabsPage({
       const fromPath = window.location.pathname.startsWith("/settings/")
         ? activeTabFromLocation(tabs, defaultTab)
         : null;
-      const fromHash = resolveTabId(tabs, window.location.hash);
+      const hashValue = window.location.hash.replace(/^#/, "");
+      const fromHash = hashValue ? resolveTabId(tabs, hashValue) : null;
       const next = fromPath ?? fromHash;
       const key = `${window.location.pathname}${window.location.hash}`;
-      if (!next || next === value || controlledHashRef.current === key) return;
+      if (!next || next === value || controlledHashRef.current === key) {
+        controlledHashRef.current = key;
+        return;
+      }
       controlledHashRef.current = key;
       onValueChange?.(next);
     };
@@ -500,15 +513,15 @@ export function SettingsTabsPage({
     changeTab(entry.tabId);
     setQuery("");
     if (typeof window === "undefined") return;
-    const hash = entry.hash?.replace(/^#/, "");
-    if (hash) {
-      updateRouteForTab(entry.tabId, hash);
+    const section = entry.hash?.replace(/^#/, "");
+    if (section) {
+      updateRouteForTab(entry.tabId, section);
       // Let the inner panels open + scroll to their section.
       window.dispatchEvent(new Event("popstate"));
       window.dispatchEvent(new Event("hashchange"));
       window.requestAnimationFrame(() => {
         document
-          .getElementById(hash)
+          .getElementById(section)
           ?.scrollIntoView({ block: "start", behavior: "smooth" });
       });
     } else if (!isControlled) {
@@ -583,15 +596,9 @@ export function SettingsTabsPage({
                 const entryHash = entry.hash?.replace(/^#/, "");
                 const resultHref = tab?.href
                   ? entryHash
-                    ? `${tab.href.split("#", 1)[0]}#${entryHash}`
+                    ? buildSettingsEntryRoute(entry.tabId, entryHash)
                     : tab.href
-                  : entryHash?.startsWith("agent:")
-                    ? buildSettingsRoute(entryHash)
-                    : entryHash === entry.tabId
-                      ? buildSettingsRoute(entry.tabId)
-                      : entryHash
-                        ? `${buildSettingsRoute(entry.tabId)}#${entryHash}`
-                        : buildSettingsRoute(entry.tabId);
+                  : buildSettingsEntryRoute(entry.tabId, entryHash);
                 const result = (
                   <>
                     {Icon ? (

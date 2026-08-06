@@ -67,6 +67,22 @@ function firstVisibleSection(
   return sections[0] ?? "llm";
 }
 
+function settingsPathParts(): string[] {
+  if (typeof window === "undefined") return [];
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const settingsIndex = pathParts.indexOf("settings");
+  return settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
+}
+
+function secretKeyFromPath(pathParts: readonly string[]): string | undefined {
+  const secretsIndex = pathParts.findIndex(
+    (part) => part.toLowerCase() === "secrets",
+  );
+  if (secretsIndex === -1) return undefined;
+  const key = pathParts.slice(secretsIndex + 1).join("/");
+  return key || undefined;
+}
+
 function initialOpenSection(
   sections: readonly SettingsSectionId[],
 ): SettingsSectionId {
@@ -77,10 +93,7 @@ function initialOpenSection(
   if (hashSection && sections.includes(hashSection)) return hashSection;
 
   if (typeof window !== "undefined") {
-    const pathParts = window.location.pathname.split("/").filter(Boolean);
-    const settingsIndex = pathParts.indexOf("settings");
-    const routeParts =
-      settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
+    const routeParts = settingsPathParts();
     for (let index = routeParts.length - 1; index >= 0; index -= 1) {
       const pathSection = normalizeSettingsSection(routeParts[index]);
       if (pathSection && sections.includes(pathSection)) return pathSection;
@@ -140,13 +153,10 @@ export function useSettingsPanelController({
     const handleLocationChange = () => {
       const hash = window.location.hash?.replace(/^#/, "") ?? "";
       let section = normalizeSettingsSection(hash);
+      const pathParts = settingsPathParts();
       if (!section) {
-        const pathParts = window.location.pathname.split("/").filter(Boolean);
-        const settingsIndex = pathParts.indexOf("settings");
-        const routeParts =
-          settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
-        for (let index = routeParts.length - 1; index >= 0; index -= 1) {
-          const pathSection = normalizeSettingsSection(routeParts[index]);
+        for (let index = pathParts.length - 1; index >= 0; index -= 1) {
+          const pathSection = normalizeSettingsSection(pathParts[index]);
           if (pathSection) {
             section = pathSection;
             break;
@@ -157,6 +167,8 @@ export function useSettingsPanelController({
       if (hash.startsWith("secrets:") || hash === "secrets") {
         const key = hash.slice("secrets:".length);
         setFocusSecretKey(key || undefined);
+      } else if (section === "secrets") {
+        setFocusSecretKey(secretKeyFromPath(pathParts));
       } else {
         setFocusSecretKey(undefined);
       }

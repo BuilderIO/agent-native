@@ -58,7 +58,7 @@ const qaEmail = "qa-sign-in-matrix@example.test";
 const qaPassword = "local-dev-account";
 
 /** The protected route the anonymous visitor asks for, query and hash included. */
-const PROTECTED_ROUTE = "/settings?tab=general#profile";
+const PROTECTED_ROUTE = "/settings/general";
 
 interface RunningApp {
   origin: string;

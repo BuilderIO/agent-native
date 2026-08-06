@@ -13,6 +13,20 @@ interface SettingsCommandItem {
 
 type Translate = (key: string) => string;
 
+function buildSettingsEntryRoute(tabId: string, section?: string): string {
+  const normalizedSection = section?.replace(/^#/, "").trim();
+  if (!normalizedSection || normalizedSection === tabId) {
+    return buildSettingsRoute(tabId);
+  }
+  if (normalizedSection.startsWith("agent:")) {
+    return buildSettingsRoute(normalizedSection);
+  }
+  if (normalizedSection.startsWith(`${tabId}:`)) {
+    return buildSettingsRoute(normalizedSection);
+  }
+  return buildSettingsRoute(`${tabId}:${normalizedSection}`);
+}
+
 export function buildAnalyticsGeneralSettingsSearchEntries(
   t: Translate,
   replayStorageConfigured: boolean,
@@ -104,13 +118,7 @@ export function buildAnalyticsSettingsCommandItems(
   for (const tab of tabs) {
     const entryHref = (entry: SettingsSearchEntry, tabId: string) => {
       const hash = entry.hash?.replace(/^#/, "");
-      if (hash?.startsWith("agent:")) {
-        return buildSettingsRoute(hash);
-      }
-      if (hash === tabId) return buildSettingsRoute(tabId);
-      return hash
-        ? `${buildSettingsRoute(tabId)}#${hash}`
-        : buildSettingsRoute(tabId);
+      return buildSettingsEntryRoute(tabId, hash);
     };
     add({
       id: `tab:${tab.id}`,

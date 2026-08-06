@@ -52,6 +52,7 @@ import React, {
 } from "react";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
+import { buildSettingsRoute } from "../../navigation/index.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
 import { agentNativePath } from "../api-path.js";
@@ -1682,7 +1683,10 @@ function AppDefaultModelPicker({
 
   const openIntegrations = () => {
     setOpen(false);
-    if (typeof window !== "undefined") window.location.hash = "integrations";
+    if (typeof window !== "undefined") {
+      window.history.pushState(null, "", buildSettingsRoute("integrations"));
+      window.dispatchEvent(new Event("popstate"));
+    }
   };
 
   return (
