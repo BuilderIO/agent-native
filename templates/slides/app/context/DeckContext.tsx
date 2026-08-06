@@ -835,14 +835,22 @@ const DECK_FETCH_RETRY_ATTEMPTS = 3;
 const DECK_FETCH_RETRY_DELAY_MS = 400;
 
 // `get-deck` returns a real 404/403 only when the deck is genuinely gone or
-// the caller genuinely lacks access (see actions/get-deck.ts). Any other
-// failure (network blip, 5xx, timeout) is transient and must not be coerced
-// into the same "not found" null the caller uses to show the owner-facing
-// "deck unavailable" pane — that flashed a wrong message on brief server
-// hiccups even though the deck still existed.
+// the caller genuinely lacks access (see actions/get-deck.ts). A network blip
+// or 5xx is transient and must not be coerced into the same "not found" null
+// the caller uses to show the owner-facing "deck unavailable" pane — that
+// flashed a wrong message on brief server hiccups even though the deck still
+// existed.
 function isConfirmedDeckAbsence(err: unknown): boolean {
   const status = (err as { status?: unknown } | null)?.status;
   return status === 404 || status === 403;
+}
+
+// A timeout already made the caller wait the full action timeout window once
+// (see DEFAULT_ACTION_TIMEOUT_MS in use-action.ts); retrying would multiply
+// that wait instead of surfacing the failure — same reasoning as
+// `isActionTimeout` in the shared action-query retry policy.
+function isDeckFetchTimeout(err: unknown): boolean {
+  return (err as { timedOut?: unknown } | null)?.timedOut === true;
 }
 
 async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
@@ -857,6 +865,7 @@ async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
     } catch (err) {
       if (
         isConfirmedDeckAbsence(err) ||
+        isDeckFetchTimeout(err) ||
         attempt === DECK_FETCH_RETRY_ATTEMPTS
       ) {
         console.error(`Failed to fetch deck ${id}:`, err);
