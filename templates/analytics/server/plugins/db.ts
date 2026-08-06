@@ -1470,13 +1470,27 @@ export default async (nitroApp: any): Promise<void> => {
     );
     return;
   }
-  await runAnalyticsMigrations(nitroApp);
   const isNetlifyServerlessRuntime =
     isProductionServerlessRuntime() ||
     process.env.NETLIFY === "true" ||
     Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
     Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
     Boolean(process.env.LAMBDA_TASK_ROOT);
+  if (
+    isNetlifyServerlessRuntime &&
+    process.env.ANALYTICS_SKIP_BOOT_MIGRATIONS === "1"
+  ) {
+    console.info(
+      "[db] Skipping Analytics migrations in production serverless runtime by explicit incident flag",
+    );
+    return;
+  }
+  // The schema must exist before the first query. Measured cost on this
+  // database (180 tables): ~5.5s for the version check alone, which is why the
+  // serverless runtime skips this entirely via ANALYTICS_SKIP_BOOT_MIGRATIONS
+  // above rather than paying it on every cold start.
+  // guard:allow-boot-data-work — schema must exist before the first query
+  await runAnalyticsMigrations(nitroApp);
   if (isNetlifyServerlessRuntime) {
     // The migration list is authoritative; repeating repair and schema
     // introspection on every function cold start only adds pool pressure.

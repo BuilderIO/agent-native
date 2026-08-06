@@ -204,9 +204,14 @@ export default async (nitroApp) => {
 };
 ```
 
-Schema DDL at boot is the sanctioned migration path and is fine: it is bounded
-and a fast no-op once applied. What must not go there is **work whose cost grows
-with the data** — backfills, retypes, aggregations, recomputes, re-syncs,
+Schema DDL is **not** exempt, though it reads like it should be. Measured on a
+180-table production database: the migration "fast path" (`SELECT MAX(version)`)
+took **5.5s** and the `information_schema` probe **8.3s** — paid on every cold
+start, until health checks timed out and the app was down. Bounded is not the
+same as fast, and "it short-circuits cheaply" is an assumption until someone
+measures it on the largest database you have.
+
+The same applies doubly to **work whose cost grows with the data** — backfills, retypes, aggregations, recomputes, re-syncs,
 sweeps, cache warming, index rebuilds. Those have three better homes, all of
 which already exist:
 
