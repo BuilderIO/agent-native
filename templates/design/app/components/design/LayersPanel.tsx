@@ -1159,12 +1159,22 @@ function LayersPanelImpl(
     [onRename, renameDraft],
   );
 
+  // L12: id of a layer whose rename was started externally (beginRename) and
+  // is waiting for its row to become visible/mounted so the input can be
+  // focused. Ancestor expansion is asynchronous (it flows out through
+  // onExpandedIdsChange and back in via the expandedIds prop), so we can't
+  // synchronously focus the input the same tick beginRename runs — the row
+  // may not exist in the DOM yet. The effect below watches for the row to
+  // appear in rowElementRefs and finishes the job once it does.
+  const pendingRenameFocusIdRef = useRef<string | null>(null);
+
   const startRename = useCallback(
     (node: LayersPanelNode) => {
       if (!onRename || node.renamable === false) return;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
       setRenameDraft(node.name);
+      pendingRenameFocusIdRef.current = node.id;
     },
     [onRename],
   );
@@ -1179,15 +1189,6 @@ function LayersPanelImpl(
     },
     [],
   );
-
-  // L12: id of a layer whose rename was started externally (beginRename) and
-  // is waiting for its row to become visible/mounted so the input can be
-  // focused. Ancestor expansion is asynchronous (it flows out through
-  // onExpandedIdsChange and back in via the expandedIds prop), so we can't
-  // synchronously focus the input the same tick beginRename runs — the row
-  // may not exist in the DOM yet. The effect below watches for the row to
-  // appear in rowElementRefs and finishes the job once it does.
-  const pendingRenameFocusIdRef = useRef<string | null>(null);
 
   const focusSearch = useCallback(() => {
     setSearchOpen(true);
@@ -1722,6 +1723,7 @@ const LayerRow = memo(function LayerRow({
   // Tracks whether the user pressed Escape to cancel rename so that the
   // subsequent blur event does not commit the edit.
   const renameCancelledRef = useRef(false);
+  const preventContextMenuFocusRestoreRef = useRef(false);
   // L20: spring-loaded expand. Tracks the pending timer id for "hovering
   // this collapsed container during a drag" so a sustained hover expands it
   // (Figma-style) without requiring the user to drop and re-drag. Cleared on
@@ -2186,24 +2188,21 @@ const LayerRow = memo(function LayerRow({
                     onCommitRename(node.id);
                   }}
                   onKeyDown={(event) => {
+                    // The input is rendered inside the row button, whose handler
+                    // treats Space as a layer-selection command. Keep every rename
+                    // keystroke local so spaces can be entered normally.
+                    event.stopPropagation();
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      // Stop propagation so the keydown does not bubble up to the
-                      // parent row <button>'s handleKeyDown, which would fire
-                      // onSelect and potentially trigger canvas-level side effects
-                      // (e.g. switching to overview mode or selecting a wrong layer).
-                      event.stopPropagation();
                       onCommitRename(node.id);
                     } else if (event.key === "Tab") {
                       // Commit the rename on Tab (Figma behavior) and prevent the
                       // keydown from reaching the global design hotkeys handler which
                       // would cycle the active file when Tab fires outside an input.
                       event.preventDefault();
-                      event.stopPropagation();
                       onCommitRename(node.id);
                     } else if (event.key === "Escape") {
                       event.preventDefault();
-                      event.stopPropagation();
                       renameCancelledRef.current = true;
                       onCancelRename(node.id);
                     }
@@ -2311,7 +2310,14 @@ const LayerRow = memo(function LayerRow({
         </div>
       </ContextMenuTrigger>
       {showContextMenu ? (
-        <ContextMenuContent className="z-[300] min-w-[200px] text-[12px]">
+        <ContextMenuContent
+          className="z-[300] min-w-[200px] text-[12px]"
+          onCloseAutoFocus={(event) => {
+            if (!preventContextMenuFocusRestoreRef.current) return;
+            event.preventDefault();
+            preventContextMenuFocusRestoreRef.current = false;
+          }}
+        >
           {/* LIVE-VERIFIED Figma layer-row menu order: Copy, Paste to
               replace — Bring to front, Send to back — Group selection,
               (Ungroup, container rows only), Frame selection, Rename —
@@ -2406,7 +2412,10 @@ const LayerRow = memo(function LayerRow({
           {onRename && node.renamable !== false ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
-              onSelect={() => onStartRename(node)}
+              onSelect={() => {
+                preventContextMenuFocusRestoreRef.current = true;
+                onStartRename(node);
+              }}
             >
               <IconPencil className="size-3.5 text-muted-foreground" />
               {labels.rename}
