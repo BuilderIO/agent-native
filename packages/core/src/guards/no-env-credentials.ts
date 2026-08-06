@@ -42,6 +42,10 @@ import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
 const ALLOWLIST_EXACT = new Set([
   "DATABASE_URL",
+  // Direct (non-pooler) connection to the same database as DATABASE_URL, used by
+  // drizzle-kit for migrations. Builder-hosted apps get it unprefixed; the
+  // NETLIFY_DATABASE_URL_UNPOOLED spelling is covered by the NETLIFY_ prefix.
+  "DATABASE_URL_UNPOOLED",
   "DATABASE_AUTH_TOKEN",
   "NODE_ENV",
   "CI",
@@ -76,6 +80,9 @@ const ALLOWLIST_PREFIX = [
   "NETLIFY_",
   "VERCEL_",
   "CF_",
+  // Builder/Fusion hosting, alongside the other platform prefixes above. These
+  // are impersonal deploy metadata (e.g. FUSION_BRANCH_KIND), never per-user.
+  "FUSION_",
 ];
 
 /** Dev-only paths where ANTHROPIC_API_KEY etc. may legitimately be read

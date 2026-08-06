@@ -42,6 +42,29 @@ describe("scanEnvCredentials", () => {
     expect(result.findings[0].message).toMatch(/STRIPE_SECRET_KEY/);
   });
 
+  it("does not flag the platform database and Fusion deploy vars the scaffold generates", () => {
+    // The Builder database scaffold writes both of these files verbatim, so
+    // flagging them fails the build of every hosted app that has a database.
+    const root = makeTempAppRoot({
+      "drizzle.config.ts": [
+        'import { defineConfig } from "drizzle-kit";',
+        "",
+        "export default defineConfig({",
+        '  dialect: "postgresql",',
+        "  dbCredentials: { url: process.env.DATABASE_URL_UNPOOLED! },",
+        "});",
+        "",
+      ].join("\n"),
+      "scripts/maybe-migrate.mjs": [
+        "const branchKind = process.env.FUSION_BRANCH_KIND;",
+        "if (!process.env.DATABASE_URL_UNPOOLED) process.exit(0);",
+        "",
+      ].join("\n"),
+    });
+    const result = scanEnvCredentials({ root });
+    expect(result.findings).toEqual([]);
+  });
+
   it("does not flag a read with a valid opt-out marker", () => {
     const root = makeTempAppRoot({
       "actions/get-stripe-key.ts": [
