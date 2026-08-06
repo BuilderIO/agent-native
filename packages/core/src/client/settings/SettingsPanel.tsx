@@ -2956,6 +2956,7 @@ interface SettingsPanelContentProps extends SettingsPanelProps {
   className?: string;
   surface?: SettingsSurface;
   builderConnectionOwnedExternally?: boolean;
+  agentAdditionalContent?: React.ReactNode;
 }
 
 function SettingsPanelContent({

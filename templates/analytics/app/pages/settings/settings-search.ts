@@ -2,6 +2,7 @@ import {
   getAgentSettingsSearchTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 
 interface SettingsCommandItem {
   id: string;
@@ -50,12 +51,6 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       label: t("settings.errorEmailNotifications"),
       keywords: "email notifications errors alerts javascript monitoring",
       hash: "error-email-notifications",
-    },
-    {
-      id: "analytics-bell-sound",
-      label: t("settings.bellSound"),
-      keywords: "sound audio ding agent completion notification",
-      hash: "bell-sound",
     },
   ];
 }
@@ -106,18 +101,26 @@ export function buildAnalyticsSettingsCommandItems(
   };
 
   for (const tab of tabs) {
+    const entryHref = (entry: SettingsSearchEntry, tabId: string) => {
+      const hash = entry.hash?.replace(/^#/, "");
+      if (hash?.startsWith("agent:")) {
+        return buildSettingsRoute(hash);
+      }
+      return hash ? `${buildSettingsRoute(tabId)}#${hash}` : buildSettingsRoute(tabId);
+    };
     add({
       id: `tab:${tab.id}`,
       label: tab.label,
       keywords: `${tab.keywords} settings`,
-      href: `/settings#${tab.id}`,
+      href: buildSettingsRoute(tab.id),
     });
     for (const entry of tab.searchEntries ?? []) {
+      const tabId = entry.tabId ?? tab.id;
       add({
         id: entry.id,
         label: entry.label,
         keywords: `${entry.keywords ?? ""} ${entry.description ?? ""} ${tab.label} settings`,
-        href: `/settings#${entry.hash ?? entry.tabId ?? tab.id}`,
+        href: entryHref(entry, tabId),
       });
     }
   }

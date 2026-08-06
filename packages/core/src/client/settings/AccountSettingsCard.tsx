@@ -397,7 +397,7 @@ export function AccountSettingsCard({ className }: AccountSettingsCardProps) {
       elevation="low"
       padding="none"
       className={cn(
-        "mx-auto w-full max-w-2xl scroll-mt-4 rounded-lg border border-border bg-card p-5 text-card-foreground shadow-sm",
+        "w-full scroll-mt-4 rounded-lg border border-border bg-card p-5 text-card-foreground shadow-sm",
         className,
       )}
     >

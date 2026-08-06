@@ -1990,7 +1990,7 @@ export function TeamPage({
   const { data: org, isLoading } = useOrg();
 
   const content = (
-    <div className={`space-y-6 ${className ?? "max-w-2xl"}`}>
+    <div className={`w-full space-y-6 ${className ?? ""}`}>
       {showTitle ? (
         <h2 className="text-2xl font-bold tracking-tight">
           {title ?? t("org.team")}

@@ -98,7 +98,7 @@ export function useNavigationState() {
         state.view = "data-sources";
       } else if (pathname === "/data-dictionary") {
         state.view = "data-dictionary";
-      } else if (pathname === "/settings") {
+      } else if (pathname === "/settings" || pathname.startsWith("/settings/")) {
         state.view = "settings";
       }
 
@@ -112,7 +112,7 @@ export function useNavigationState() {
       if (cmd.view === "analyses") return "/dashboards";
       if (cmd.view === "extensions" && cmd.extensionId)
         return `/extensions/${cmd.extensionId}`;
-      if (cmd.view === "extensions") return "/settings#extensions";
+      if (cmd.view === "extensions") return "/settings/extensions";
       if (cmd.view === "sessions" && cmd.recordingId)
         return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
       if (cmd.view === "sessions") return "/sessions";

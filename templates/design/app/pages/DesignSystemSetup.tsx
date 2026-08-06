@@ -903,7 +903,7 @@ export default function DesignSystemSetup() {
                 <p className="mt-2 text-xs text-muted-foreground/80">
                   {t("designSystemSetup.privateRepoPrefix")}{" "}
                   <a
-                    href="/settings#secrets:GITHUB_TOKEN"
+                    href="/settings/integrations#secrets:GITHUB_TOKEN"
                     className="font-medium text-foreground/80 underline-offset-2 hover:underline"
                   >
                     GITHUB_TOKEN

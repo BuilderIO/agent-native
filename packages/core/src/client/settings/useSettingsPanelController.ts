@@ -74,9 +74,20 @@ function initialOpenSection(
     typeof window === "undefined"
       ? null
       : normalizeSettingsSection(window.location.hash);
-  return hashSection && sections.includes(hashSection)
-    ? hashSection
-    : firstVisibleSection(sections);
+  if (hashSection && sections.includes(hashSection)) return hashSection;
+
+  if (typeof window !== "undefined") {
+    const pathParts = window.location.pathname.split("/").filter(Boolean);
+    const settingsIndex = pathParts.indexOf("settings");
+    const routeParts =
+      settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
+    for (let index = routeParts.length - 1; index >= 0; index -= 1) {
+      const pathSection = normalizeSettingsSection(routeParts[index]);
+      if (pathSection && sections.includes(pathSection)) return pathSection;
+    }
+  }
+
+  return firstVisibleSection(sections);
 }
 
 export function useSettingsPanelController({
@@ -126,9 +137,22 @@ export function useSettingsPanelController({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const handleHashChange = () => {
+    const handleLocationChange = () => {
       const hash = window.location.hash?.replace(/^#/, "") ?? "";
-      const section = normalizeSettingsSection(hash);
+      let section = normalizeSettingsSection(hash);
+      if (!section) {
+        const pathParts = window.location.pathname.split("/").filter(Boolean);
+        const settingsIndex = pathParts.indexOf("settings");
+        const routeParts =
+          settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
+        for (let index = routeParts.length - 1; index >= 0; index -= 1) {
+          const pathSection = normalizeSettingsSection(routeParts[index]);
+          if (pathSection) {
+            section = pathSection;
+            break;
+          }
+        }
+      }
       if (!section || !isSectionVisible(section)) return;
       if (hash.startsWith("secrets:") || hash === "secrets") {
         const key = hash.slice("secrets:".length);
@@ -138,9 +162,13 @@ export function useSettingsPanelController({
       }
       openSettingsSection(section, { scroll: true });
     };
-    handleHashChange();
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
+    handleLocationChange();
+    window.addEventListener("hashchange", handleLocationChange);
+    window.addEventListener("popstate", handleLocationChange);
+    return () => {
+      window.removeEventListener("hashchange", handleLocationChange);
+      window.removeEventListener("popstate", handleLocationChange);
+    };
   }, [isSectionVisible, openSettingsSection]);
 
   return {
