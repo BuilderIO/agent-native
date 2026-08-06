@@ -144,6 +144,20 @@ export function normalizeChatError(
     };
   }
 
+  // Reaches us as a bare gateway 403 with no upgradeUrl, so before this case
+  // it fell all the way through to the raw upstream sentence under a generic
+  // "The agent hit an error" headline, with no retry and no action — a dead
+  // end. It was the single largest cause of turns ending without an answer in
+  // one app, and reads to the user as the chat being broken rather than as
+  // something one person can fix in a minute.
+  if (code === "email_verification_required") {
+    return {
+      message:
+        "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+      details: text,
+    };
+  }
+
   // A model/parameter combination this provider will never accept. Retrying is
   // pointless and the raw sentence names an API surface the reader has no way
   // to act on, so say what they can actually change.

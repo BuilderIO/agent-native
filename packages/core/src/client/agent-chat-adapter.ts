@@ -194,8 +194,30 @@ export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 210_000;
 // every poll tick and the follow loop never exits (prod: 26 chained runs over
 // 22 minutes, all error:stale_run, user watching a spinner). These bound the
 // whole turn instead, and an identical repeated failure counts as no progress.
-export const MAX_FOLLOWED_BACKGROUND_RUNS = 6;
-export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 10 * 60_000;
+//
+// CLIENT-ABOVE-SERVER INVARIANT (asserted in agent-chat-adapter.spec.ts).
+// These are a backstop for a server that has gone silent in a way the idle
+// timeout misses — NOT the primary limit. They must stay ABOVE the server's
+// own ceilings so the server, which can actually tell progress from looping,
+// always terminates a turn first and writes a truthful terminal reason:
+//   BACKGROUND_SOFT_TIMEOUT_CEILING_MS  (13 min, run-manager.ts)  — one chunk
+//   MAX_TURN_WALL_CLOCK_MS              (90 min, production-agent.ts) — one turn
+//   MAX_BACKGROUND_RUN_CONTINUATIONS    (20,     production-agent.ts)
+//
+// They were originally set to 10 min / 6 runs, which put the whole-turn client
+// budget BELOW the 13-minute ceiling of a single legal chunk. Any turn needing
+// a second full-length chunk was killed by the client while the server was
+// healthy and had 80 minutes left — measured in prod as turns dying at 11-25
+// minutes with `last_progress_at` tracking the abort, i.e. still streaming
+// tokens and completing tools when the client gave up. That is the top
+// non-auth cause of "the chat just stopped" reports.
+//
+// Killing a turn that is NOT progressing is already covered twice over, by
+// mechanisms that read progress rather than a clock: the 210s idle timeout
+// above, and MAX_REPEATED_BACKGROUND_TERMINAL_REASONS below. Do not re-tighten
+// these two to catch a stuck turn — fix the progress signal instead.
+export const MAX_FOLLOWED_BACKGROUND_RUNS = 24;
+export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 95 * 60_000;
 const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 
 // A re-observed terminal run whose outcome would be an ERROR (never a
@@ -2701,7 +2723,12 @@ export function createAgentChatAdapter(
               MAX_BACKGROUND_FOLLOW_WALL_TIME_MS
             ) {
               yield* stopBackgroundTurnBeforeReporting({
-                message: `The agent kept restarting this step for ${Math.round(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 60_000)} minutes without finishing it. It was stopped so you can retry from the preserved chat context — a smaller request usually gets through.`,
+                // Says only what this backstop actually knows. It fires on a
+                // clock, so it cannot tell a looping turn from one that was
+                // still working — the old copy asserted "kept restarting
+                // without finishing", which prod runs contradicted: they were
+                // streaming tokens right up to the abort.
+                message: `This turn ran for ${Math.round(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 60_000)} minutes without finishing, so it was stopped. Your chat context is preserved — retrying, or splitting this into smaller requests, usually gets through.`,
                 errorCode: "background_follow_time_budget_exhausted",
                 details: `followed_runs: ${followedRunIds.size}`,
               });

@@ -3016,6 +3016,7 @@ function SettingsPanelContent({
   );
 
   const isPage = surface === "page";
+  const isWorkspacePage = isPage && sections.includes("hosting");
 
   return (
     <SettingsSurfaceProvider surface={surface}>
@@ -3157,6 +3158,143 @@ function SettingsPanelContent({
             </SettingsGroup>
           )}
 
+        {isWorkspacePage && (
+          <SettingsGroup title="Workspace">
+            {shouldShowSection("demo-mode") && (
+              <SettingsRow
+                id={settingsSectionDomId("demo-mode")}
+                label="Demo mode"
+                description="Use sample data in this browser for presentations."
+                control={<DemoModeSection compact />}
+              />
+            )}
+            {shouldShowSection("hosting") && (
+              <SettingsRow
+                id={settingsSectionDomId("hosting")}
+                label="Hosting"
+                description="Deploy the app to the cloud."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="hosting_settings"
+                      trackingFlow="hosting"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("database") && (
+              <SettingsRow
+                id={settingsSectionDomId("database")}
+                label="Database"
+                description="Connect persistent app storage."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="database_settings"
+                      trackingFlow="database"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Set DATABASE_URL in your .env to connect a supported database."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("uploads") && (
+              <SettingsRow
+                id={settingsSectionDomId("uploads")}
+                label="File uploads"
+                description="Store avatars and chat attachments."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="file_upload_settings"
+                      trackingFlow="file_upload"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Configure your own file or object storage provider."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("auth") && (
+              <SettingsRow
+                id={settingsSectionDomId("auth")}
+                label="Authentication"
+                description="Set up sign-in and access control."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="auth_settings"
+                      trackingFlow="auth"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Configure Better Auth and optional Google or GitHub providers."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+          </SettingsGroup>
+        )}
+
         {!isPage && shouldShowSection("llm") && (
           <LLMSectionInner
             builderFlow={builderFlow}
@@ -3200,7 +3338,7 @@ function SettingsPanelContent({
         )}
 
         {/* Demo mode */}
-        {shouldShowSection("demo-mode") && (
+        {!isPage && shouldShowSection("demo-mode") && (
           <SettingsSection
             id={settingsSectionDomId("demo-mode")}
             icon={<IconEyeOff size={14} />}
@@ -3245,7 +3383,7 @@ function SettingsPanelContent({
         )}
 
         {/* Hosting */}
-        {shouldShowSection("hosting") && (
+        {!isPage && shouldShowSection("hosting") && (
           <SettingsSection
             id={settingsSectionDomId("hosting")}
             icon={<IconCloud size={14} />}
@@ -3277,7 +3415,7 @@ function SettingsPanelContent({
         )}
 
         {/* Database */}
-        {shouldShowSection("database") && (
+        {!isPage && shouldShowSection("database") && (
           <SettingsSection
             id={settingsSectionDomId("database")}
             icon={<IconDatabase size={14} />}
@@ -3309,7 +3447,7 @@ function SettingsPanelContent({
         )}
 
         {/* File uploads */}
-        {shouldShowSection("uploads") && (
+        {!isPage && shouldShowSection("uploads") && (
           <SettingsSection
             id={settingsSectionDomId("uploads")}
             icon={<IconUpload size={14} />}
@@ -3341,7 +3479,7 @@ function SettingsPanelContent({
         )}
 
         {/* Authentication */}
-        {shouldShowSection("auth") && (
+        {!isPage && shouldShowSection("auth") && (
           <SettingsSection
             id={settingsSectionDomId("auth")}
             icon={<IconShield size={14} />}

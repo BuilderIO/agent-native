@@ -452,63 +452,62 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const hasMultipleOrgs = (org.orgs?.length ?? 0) > 1;
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-lg border border-border bg-card p-4 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-              <IconUsersGroup className="h-5 w-5 text-primary" />
-            </div>
-            <div className="min-w-0">
+    <div className="space-y-6">
+      <SettingsGroup title="Organization">
+        <SettingsRow
+          id="organization"
+          label={
+            <span className="flex items-center gap-2">
+              <IconUsersGroup className="size-4 text-muted-foreground" />
               <OrgNameDisplay
                 name={org.orgName ?? ""}
                 canEdit={isOwnerOrAdmin}
               />
-              <div className="text-xs text-muted-foreground">
-                {t("org.memberCount", { count: members.length })} ·{" "}
-                {t("org.youAreRole", { role: org.role })}
-              </div>
-            </div>
-          </div>
-          {hasMultipleOrgs && (
-            <Select
-              value={org.orgId ?? ""}
-              onValueChange={(value) => switchOrg.mutate(value || null)}
-              disabled={switchOrg.isPending}
-            >
-              <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {org.orgs.map((o) => (
-                  <SelectItem key={o.orgId} value={o.orgId}>
-                    {o.orgName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+            </span>
+          }
+          description={`${t("org.memberCount", { count: members.length })} · ${t("org.youAreRole", { role: org.role })}`}
+          control={
+            hasMultipleOrgs ? (
+              <Select
+                value={org.orgId ?? ""}
+                onValueChange={(value) => switchOrg.mutate(value || null)}
+                disabled={switchOrg.isPending}
+              >
+                <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {org.orgs.map((o) => (
+                    <SelectItem key={o.orgId} value={o.orgId}>
+                      {o.orgName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : undefined
+          }
+        />
 
         {isOwnerOrAdmin && (
-          <div className="grid gap-5 border-t border-border pt-4 lg:grid-cols-2">
+          <>
             <DomainSettingsSection
               domain={org.allowedDomain}
               ownerEmail={org.email}
             />
-
             <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
-
             <AuthProviderSettingsSection
               requiredAuthProvider={org.requiredAuthProvider}
             />
-
             {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
-          </div>
+          </>
         )}
 
-        <ErrorText error={switchOrg.error} />
-      </section>
+        {switchOrg.error && (
+          <div className="px-5 pb-4">
+            <ErrorText error={switchOrg.error} />
+          </div>
+        )}
+      </SettingsGroup>
 
       <MembersTableCard
         members={members}
@@ -664,11 +663,10 @@ function DangerZoneCard({ orgName }: { orgName: string }) {
         <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
         <div className="space-y-1">
           <h3 className="text-sm font-medium text-destructive">
-            {t("org.dangerZone")}
+            <OrganizationSettingLabel help={t("org.deleteOrgDescription")}>
+              {t("org.dangerZone")}
+            </OrganizationSettingLabel>
           </h3>
-          <p className="text-sm text-muted-foreground">
-            {t("org.deleteOrgDescription")}
-          </p>
         </div>
       </div>
       <AlertDialog
@@ -1543,108 +1541,108 @@ function WorkspaceUrlSettingsSection({
   }
 
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Your workspace
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        If your team runs its own workspace, members who land on a different
-        deployment — opening a template from the catalog, for instance — get
-        pointed here instead of an app that looks empty.
-      </p>
-      {!editing ? (
-        <div className="flex items-center gap-2">
-          {workspaceUrl ? (
-            <>
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
-                <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                {workspaceUrl}
-              </span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setDraft(workspaceUrl);
-                      setEditing(true);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <IconPencil size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Edit workspace URL</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    intent="danger"
-                    emphasis="ghost"
-                    disabled={setWorkspaceUrl.isPending}
-                    onClick={() => setWorkspaceUrl.mutate(null)}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                  >
-                    <IconX size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Remove workspace URL</TooltipContent>
-              </Tooltip>
-            </>
-          ) : (
+    <SettingsRow
+      id="workspace-url"
+      label={
+        <OrganizationSettingLabel help="Members who land on another deployment can be sent to this workspace URL instead of an empty app.">
+          Workspace URL
+        </OrganizationSettingLabel>
+      }
+      control={
+        !editing ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {workspaceUrl ? (
+              <>
+                <span className="inline-flex max-w-72 items-center gap-1.5 truncate rounded-md border border-border bg-background px-2.5 py-1.5 text-sm">
+                  <IconExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{workspaceUrl}</span>
+                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setDraft(workspaceUrl);
+                        setEditing(true);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <IconPencil size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit workspace URL</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      intent="danger"
+                      emphasis="ghost"
+                      disabled={setWorkspaceUrl.isPending}
+                      onClick={() => setWorkspaceUrl.mutate(null)}
+                      className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    >
+                      <IconX size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Remove workspace URL</TooltipContent>
+                </Tooltip>
+              </>
+            ) : (
+              <Button
+                type="button"
+                intent="neutral"
+                emphasis="outline"
+                onClick={() => setEditing(true)}
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              >
+                Set URL
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") save();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              placeholder="workspace.example.com"
+              className="w-56 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              autoFocus
+            />
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              disabled={setWorkspaceUrl.isPending}
+              onClick={save}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {setWorkspaceUrl.isPending ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
             <Button
               type="button"
               intent="neutral"
               emphasis="outline"
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              <IconExternalLink size={14} />
-              Set workspace URL
+              Cancel
             </Button>
-          )}
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") save();
-              if (e.key === "Escape") setEditing(false);
-            }}
-            placeholder="workspace.example.com"
-            className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
-            autoFocus
-          />
-          <Button
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            disabled={setWorkspaceUrl.isPending}
-            onClick={save}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {setWorkspaceUrl.isPending ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : (
-              "Save"
-            )}
-          </Button>
-          <Button
-            type="button"
-            intent="neutral"
-            emphasis="outline"
-            onClick={() => setEditing(false)}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            Cancel
-          </Button>
-        </div>
-      )}
+          </div>
+        )
+      }
+    >
       <ErrorText error={setWorkspaceUrl.error} />
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -1666,26 +1664,27 @@ function AuthProviderSettingsSection({
   }
 
   return (
-    <div className="space-y-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Organization sign-in
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Require Google sign-in for every member of this organization. Enabling
-        this revokes all current sessions, and future password or non-Google
-        sign-ins will be rejected.
-      </p>
-      <div className="flex items-center gap-3">
-        <Switch
-          checked={enabled}
-          disabled={setAuthProvider.isPending}
-          onCheckedChange={changeProvider}
-          aria-label="Require Google sign-in"
-        />
-        <span className="text-sm font-medium">
-          {enabled ? "Google sign-in required" : "Google sign-in optional"}
-        </span>
-      </div>
+    <SettingsRow
+      id="organization-sign-in"
+      label={
+        <OrganizationSettingLabel help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins.">
+          Organization sign-in
+        </OrganizationSettingLabel>
+      }
+      control={
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium">
+            {enabled ? "Google required" : "Google optional"}
+          </span>
+          <Switch
+            checked={enabled}
+            disabled={setAuthProvider.isPending}
+            onCheckedChange={changeProvider}
+            aria-label="Require Google sign-in"
+          />
+        </div>
+      }
+    >
       <ErrorText error={setAuthProvider.error} />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -1718,7 +1717,7 @@ function AuthProviderSettingsSection({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -1804,208 +1803,180 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
   const masked = isSet ? "••••••••••••" : "Not set";
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        <span>Cross-app authentication</span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <a
-              href="/docs/a2a-protocol#organization-secret-sync"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Read the cross-app authentication documentation"
-              className="inline-flex size-3.5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
-            >
-              <IconHelpCircle className="size-3" />
-            </a>
-          </TooltipTrigger>
-          <TooltipContent>
-            Read the cross-app authentication documentation
-          </TooltipContent>
-        </Tooltip>
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        This secret authenticates cross-app delegation (e.g. Dispatch to
-        Analytics). All apps in your organization need the same secret.
-      </p>
-
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
-          <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
-          {secret ?? masked}
-        </span>
-        {isSet && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  onClick={toggleReveal}
-                  disabled={revealA2ASecret.isPending}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {secret ? "Hide secret" : "Reveal secret"}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  onClick={copyToClipboard}
-                  disabled={revealA2ASecret.isPending}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {copied ? (
-                    <IconCheck size={14} className="text-primary" />
-                  ) : (
-                    <IconCopy size={14} />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Copy secret</TooltipContent>
-            </Tooltip>
-          </>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              intent="danger"
-              emphasis="outline"
-              onClick={regenerate}
-              disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-            >
-              {setA2ASecret.isPending ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                <IconRefresh size={14} />
-              )}
-              Regenerate
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Regenerate secret and sync to connected apps
-          </TooltipContent>
-        </Tooltip>
-        {isSet && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="outline"
-                onClick={() => syncToApps()}
-                disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-              >
-                {syncA2ASecret.isPending ? (
-                  <IconLoader2 size={14} className="animate-spin" />
-                ) : (
-                  <IconCloudUpload size={14} />
-                )}
-                Sync to apps
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Push this secret to every connected app
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-
-      {syncA2ASecret.isPending && (
-        <p className="text-[11px] text-muted-foreground">
-          Syncing to connected apps…
-        </p>
-      )}
-
-      {syncResult && !syncA2ASecret.isPending && (
-        <div className="space-y-1">
-          <p className="text-[11px] text-muted-foreground">
-            Synced to {syncResult.succeeded}/{syncResult.total} app
-            {syncResult.total === 1 ? "" : "s"}
-            {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
-          </p>
-          {syncResult.failed > 0 && (
-            <ul className="text-[11px] text-destructive list-disc ps-5 space-y-0.5">
-              {syncResult.results
-                .filter((r) => !r.ok)
-                .map((r) => (
-                  <li key={r.id}>
-                    {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
-                  </li>
-                ))}
-            </ul>
+    <SettingsRow
+      id="cross-app-authentication"
+      label={
+        <OrganizationSettingLabel help="This secret authenticates cross-app delegation. Every app in the organization must share it.">
+          Cross-app authentication
+        </OrganizationSettingLabel>
+      }
+      control={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
+            <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
+            {secret ?? masked}
+          </span>
+          {isSet && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    onClick={toggleReveal}
+                    disabled={revealA2ASecret.isPending}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {secret ? "Hide secret" : "Reveal secret"}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    onClick={copyToClipboard}
+                    disabled={revealA2ASecret.isPending}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    {copied ? (
+                      <IconCheck size={14} className="text-primary" />
+                    ) : (
+                      <IconCopy size={14} />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Copy secret</TooltipContent>
+              </Tooltip>
+            </>
           )}
-        </div>
-      )}
-
-      {!pasteMode ? (
-        <Button
-          type="button"
-          intent="neutral"
-          emphasis="outline"
-          onClick={() => setPasteMode(true)}
-          className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
-        >
-          <IconKey size={14} />
-          Paste secret from another app
-        </Button>
-      ) : (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={pasteValue}
-            onChange={(e) => setPasteValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") saveSecret();
-              if (e.key === "Escape") {
-                setPasteMode(false);
-                setPasteValue("");
-              }
-            }}
-            placeholder="Paste A2A secret"
-            className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
-            autoFocus
-          />
           <Button
             type="button"
-            intent="primary"
-            emphasis="solid"
-            disabled={!pasteValue.trim() || setA2ASecret.isPending}
-            onClick={saveSecret}
-            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            intent="danger"
+            emphasis="outline"
+            onClick={regenerate}
+            disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
           >
             {setA2ASecret.isPending ? (
               <IconLoader2 size={14} className="animate-spin" />
             ) : (
-              "Save"
+              <IconRefresh size={14} />
             )}
+            Regenerate
           </Button>
+          {isSet && (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={() => syncToApps()}
+              disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+            >
+              {syncA2ASecret.isPending ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                <IconCloudUpload size={14} />
+              )}
+              Sync
+            </Button>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        {syncA2ASecret.isPending && (
+          <p className="text-xs text-muted-foreground">
+            Syncing to connected apps…
+          </p>
+        )}
+
+        {syncResult && !syncA2ASecret.isPending && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">
+              Synced to {syncResult.succeeded}/{syncResult.total} app
+              {syncResult.total === 1 ? "" : "s"}
+              {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
+            </p>
+            {syncResult.failed > 0 && (
+              <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
+                {syncResult.results
+                  .filter((r) => !r.ok)
+                  .map((r) => (
+                    <li key={r.id}>
+                      {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {!pasteMode ? (
           <Button
             type="button"
             intent="neutral"
             emphasis="outline"
-            onClick={() => {
-              setPasteMode(false);
-              setPasteValue("");
-            }}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setPasteMode(true)}
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
           >
-            Cancel
+            <IconKey size={14} />
+            Paste secret from another app
           </Button>
-        </div>
-      )}
+        ) : (
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={pasteValue}
+              onChange={(e) => setPasteValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveSecret();
+                if (e.key === "Escape") {
+                  setPasteMode(false);
+                  setPasteValue("");
+                }
+              }}
+              placeholder="Paste A2A secret"
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
+              autoFocus
+            />
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              disabled={!pasteValue.trim() || setA2ASecret.isPending}
+              onClick={saveSecret}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {setA2ASecret.isPending ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={() => {
+                setPasteMode(false);
+                setPasteValue("");
+              }}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
 
-      <ErrorText error={revealA2ASecret.error} />
-      <ErrorText error={setA2ASecret.error} />
-      <ErrorText error={syncA2ASecret.error} />
-    </div>
+        <ErrorText error={revealA2ASecret.error} />
+        <ErrorText error={setA2ASecret.error} />
+        <ErrorText error={syncA2ASecret.error} />
+      </div>
+    </SettingsRow>
   );
 }
 

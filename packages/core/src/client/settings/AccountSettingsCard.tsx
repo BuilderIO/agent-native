@@ -244,7 +244,7 @@ export function AccountSettingsForm({
   compact = false,
 }: AccountSettingsFormProps) {
   const t = useT();
-  const { session, isLoading } = useSession();
+  const { session } = useSession();
   const email = session?.email;
   const profileQuery = useActionQuery<UserProfile>(
     "get-user-profile",

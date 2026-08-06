@@ -90,7 +90,9 @@ scrape_configs:
 brew services restart prometheus    # Prometheus UI at http://localhost:9090
 ```
 
-Paste `http://localhost:9090` as the Prometheus URL in Data Sources, then install the desired Node Exporter dashboard from Catalog.
+Paste `http://localhost:9090` as the Prometheus URL in Data Sources, then use
+`list-sql-dashboards` and `update-dashboard` to manage the desired Node Exporter
+dashboard.
 
 ## Incident Investigation Pattern
 

@@ -117,6 +117,21 @@ describe("formatChatErrorText", () => {
     );
   });
 
+  it("normalizes the gateway's email-verification block into something actionable", () => {
+    // Arrives as a bare gateway 403 with no upgradeUrl, so with no case here
+    // it fell through to the raw upstream sentence under a generic "The agent
+    // hit an error" headline with no retry — a dead end, and in production the
+    // largest single cause of chat turns ending without an answer.
+    const raw =
+      "At least one user in this space must verify their email before using AI.";
+    const normalized = normalizeChatError(raw, "email_verification_required");
+
+    expect(normalized.message).toBe(
+      "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+  });
+
   it("normalizes provider API key authentication failures", () => {
     const raw =
       '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_example"}';

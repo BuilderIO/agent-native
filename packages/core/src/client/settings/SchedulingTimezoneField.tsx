@@ -20,7 +20,11 @@ const SYSTEM = "system";
  * browser at all (cron ticks, chat integrations, A2A), and those callers would
  * otherwise fall back to the host zone and schedule the user's 8am job in UTC.
  */
-export function SchedulingTimezoneField({ compact = false }: { compact?: boolean }) {
+export function SchedulingTimezoneField({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
   const t = useT();
   const detected = browserTimezone();
   const preference = useActionQuery<LocalizationPreferenceResult>(
