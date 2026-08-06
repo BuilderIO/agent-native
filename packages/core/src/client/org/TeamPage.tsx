@@ -159,34 +159,54 @@ function ErrorText({ error }: { error: unknown }) {
   );
 }
 
-function OrganizationHelp({ content }: { content: string }) {
+function OrganizationHelpIcon({
+  content,
+  docsUrl,
+}: {
+  content: string;
+  docsUrl?: string;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
           type="button"
           aria-label="More information"
-          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
-          <IconHelpCircle className="size-3.5" />
+          <IconHelpCircle className="size-3" />
         </Button>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs leading-5">{content}</TooltipContent>
+      <TooltipContent className="max-w-xs leading-5">
+        <p>{content}</p>
+        {docsUrl ? (
+          <a
+            href={docsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 inline-block underline underline-offset-2"
+          >
+            Learn more
+          </a>
+        ) : null}
+      </TooltipContent>
     </Tooltip>
   );
 }
 
-function OrganizationSettingLabel({
+function OrganizationDescription({
   children,
   help,
+  docsUrl,
 }: {
   children: ReactNode;
-  help: string;
+  help?: string;
+  docsUrl?: string;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      {children}
-      <OrganizationHelp content={help} />
+    <span className="inline-flex max-w-full items-center gap-1.5">
+      <span>{children}</span>
+      {help ? <OrganizationHelpIcon content={help} docsUrl={docsUrl} /> : null}
     </span>
   );
 }
@@ -634,10 +654,13 @@ function DangerZoneCard({ orgName }: { orgName: string }) {
         <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
         <div className="space-y-1">
           <h3 className="text-sm font-medium text-destructive">
-            <OrganizationSettingLabel help={t("org.deleteOrgDescription")}>
-              {t("org.dangerZone")}
-            </OrganizationSettingLabel>
+            {t("org.dangerZone")}
           </h3>
+          <p className="text-sm leading-6 text-muted-foreground">
+            <OrganizationDescription help={t("org.deleteOrgDescription")}>
+              Delete this organization and all of its members.
+            </OrganizationDescription>
+          </p>
         </div>
       </div>
       <AlertDialog
@@ -1371,12 +1394,14 @@ function DomainSettingsSection({
   return (
     <SettingsRow
       id="email-domain"
-      label={
-        <OrganizationSettingLabel
+      label="Email domain auto-join"
+      description={
+        <OrganizationDescription
           help={`Anyone who signs up with an email at this domain joins the organization automatically. Only your own email domain (${ownDomain || "—"}) can be used; free email providers are not allowed.`}
+          docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=domain_auto_join"
         >
-          Email domain auto-join
-        </OrganizationSettingLabel>
+          Automatically add members with your work email.
+        </OrganizationDescription>
       }
       control={
         !editing ? (
@@ -1503,10 +1528,14 @@ function WorkspaceUrlSettingsSection({
   return (
     <SettingsRow
       id="workspace-url"
-      label={
-        <OrganizationSettingLabel help="Members who land on another deployment can be sent to this workspace URL instead of an empty app.">
-          Workspace URL
-        </OrganizationSettingLabel>
+      label="Workspace URL"
+      description={
+        <OrganizationDescription
+          help="Members who land on another deployment can be sent to this workspace URL instead of an empty app."
+          docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=workspace_url"
+        >
+          Send members to this workspace from another deployment.
+        </OrganizationDescription>
       }
       control={
         !editing ? (
@@ -1629,10 +1658,14 @@ function AuthProviderSettingsSection({
     <>
       <SettingsRow
         id="organization-sign-in"
-        label={
-          <OrganizationSettingLabel help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins.">
-            Organization sign-in
-          </OrganizationSettingLabel>
+        label="Organization sign-in"
+        description={
+          <OrganizationDescription
+            help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins."
+            docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=organization_sign_in"
+          >
+            Choose how members sign in.
+          </OrganizationDescription>
         }
         control={
           <div className="flex items-center gap-3">
@@ -1771,10 +1804,11 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
   return (
     <SettingsRow
       id="cross-app-authentication"
-      label={
-        <OrganizationSettingLabel help="This secret authenticates cross-app delegation. Every app in the organization must share it.">
-          Cross-app authentication
-        </OrganizationSettingLabel>
+      label="Cross-app authentication"
+      description={
+        <OrganizationDescription help="This secret authenticates cross-app delegation. Every app in the organization must share it.">
+          Share one secret across connected apps.
+        </OrganizationDescription>
       }
       control={
         <div className="flex flex-wrap items-center justify-end gap-2">

@@ -265,9 +265,16 @@ class AISDKEngine implements AgentEngine {
     // `builder-engine` and `anthropic-engine` already fail closed here; this
     // engine was the only one that did not.
     //
-    // A configured `baseUrl` is exempt: a self-hosted or local gateway may
-    // legitimately accept unauthenticated requests.
-    if (!this.apiKey && !this.baseUrl && this.requiredEnvVars.length > 0) {
+    // A LOCAL `baseUrl` is exempt: a self-hosted gateway on the same machine or
+    // private network may legitimately accept unauthenticated requests. A public
+    // one may not — every hosted provider requires a key, so exempting any
+    // baseUrl at all reopened the same doomed unauthenticated request this
+    // guard exists to stop, just for anyone pointing at a remote gateway.
+    if (
+      !this.apiKey &&
+      !isLocalBaseUrl(this.baseUrl) &&
+      this.requiredEnvVars.length > 0
+    ) {
       yield {
         type: "stop",
         reason: "error",
@@ -646,6 +653,36 @@ async function importProviderPackage(provider: AISDKProvider): Promise<any> {
     case "ollama":
       return import("ai-sdk-ollama");
   }
+}
+
+/**
+ * True only for a gateway on this machine or a private network — the case the
+ * keyless exemption was written for. Anything routable on the public internet
+ * (openrouter.ai, an api.* host, a cloud proxy) needs credentials, so treating
+ * it as keyless just sends a request that cannot succeed.
+ *
+ * An unparseable value is NOT local: this gates a security-shaped decision, so
+ * the ambiguous case has to take the safe branch and require a key.
+ */
+function isLocalBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) return false;
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1" || host === "[::1]") return true;
+  if (host.endsWith(".local") || host.endsWith(".internal")) return true;
+  // IPv4 loopback and the RFC1918 private ranges.
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!v4) return false;
+  const [a, b] = [Number(v4[1]), Number(v4[2])];
+  if (a === 127 || a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
 }
 
 function capitalize(s: string): string {
