@@ -1,8 +1,10 @@
 import {
   runMigrations,
+  deferMigration,
   getDbExec,
   isPostgres,
   ensureAdditiveColumns,
+  type MigrationRunResult,
 } from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
@@ -994,6 +996,40 @@ const migrations = runMigrations(
       // the existing `SELECT MAX(version)` fast path.
       sql: `UPDATE recordings SET org_id = workspace_id WHERE org_id IS NULL AND workspace_id IS NOT NULL`,
     },
+    {
+      version: 60,
+      name: "backfill-legacy-clips-tables",
+      // Run-only: this copies legacy rows forward in a way SQL alone cannot
+      // express. It used to sit in the plugin body and re-ran on every cold
+      // start; nothing writes the legacy tables any more, so it is a one-time
+      // historical migration and belongs here. A throw leaves it unrecorded
+      // and it retries on the next boot.
+      sql: {},
+      run: backfillLegacyClipsTables,
+    },
+    {
+      version: 61,
+      name: "sync-workspaces-to-organizations",
+      // Run-only, and ordered after the legacy backfill exactly as the plugin
+      // body ran them. Nothing inserts into `workspaces` anywhere in the app
+      // any more, so this is a one-time backfill of historical rows rather
+      // than an ongoing reconciliation — there is nothing new to sync. It
+      // returns `deferMigration()` while the framework's org tables are still
+      // missing, so a first-boot race leaves it pending instead of applied.
+      sql: {},
+      run: syncWorkspacesToOrganizations,
+    },
+    {
+      version: 62,
+      name: "retype-boolean-columns-postgres",
+      // Run-only: the retype is driven by a fixed historical list of columns
+      // that predate BOOLEAN, and it probes information_schema to decide. Once
+      // applied it can never have anything left to do, so recording it removes
+      // the probe from the boot path entirely instead of paying it forever.
+      // No-ops on SQLite, which never had the wrong type.
+      sql: {},
+      run: retypeBooleanColumnsOnPostgres,
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -1014,7 +1050,7 @@ const migrations = runMigrations(
  * inserts are guarded with WHERE-NOT-EXISTS so it only writes rows that
  * aren't there yet.
  */
-async function syncWorkspacesToOrganizations(): Promise<void> {
+async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {
   const exec = getDbExec();
   const pg = isPostgres();
 
@@ -1048,7 +1084,12 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
     !(await hasTable("org_members")) ||
     !(await hasTable("organization_settings"))
   ) {
-    return;
+    // As a tracked migration this must NOT be recorded as applied when the
+    // framework's org tables simply have not been created yet — recording it
+    // would mean the sync never runs and historical workspaces never become
+    // organizations. Deferring leaves the entry pending so the next boot
+    // retries it, without logging a startup failure.
+    return deferMigration();
   }
 
   // 1) Copy workspaces → organizations. Use the workspace id as the org id
@@ -1517,9 +1558,6 @@ async function backfillLegacyClipsTables(): Promise<void> {
  */
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
-  await retypeBooleanColumnsOnPostgres();
-  await backfillLegacyClipsTables();
-  await syncWorkspacesToOrganizations();
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

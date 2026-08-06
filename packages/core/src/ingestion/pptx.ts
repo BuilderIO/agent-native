@@ -209,8 +209,9 @@ export function parsePptxSlideMetadata(
   value: unknown,
 ): ParsedPptxSlideMetadata {
   const slide = record(value)?.["p:sld"] ?? value;
+  const transition = parsePptxTransition(slide);
   return {
-    ...(parsePptxTransition(slide) ? { transition: parsePptxTransition(slide) } : {}),
+    ...(transition ? { transition } : {}),
     ...(detectSplitByParagraph(slide) ? { splitByParagraph: true } : {}),
   };
 }
@@ -275,7 +276,14 @@ function collectTextRuns(
   }
   for (const [key, child] of Object.entries(node)) {
     if (key.startsWith("@_") || key === "a:r" || key === "a:t") continue;
-    for (const item of asArray(child)) collectTextRuns(item, runs, inherited);
+    const items = asArray(child);
+    items.forEach((item, index) => {
+      const before = runs.length;
+      collectTextRuns(item, runs, inherited);
+      if (key === "p:sp" && index < items.length - 1 && runs.length > before) {
+        runs.push({ content: "\n" });
+      }
+    });
   }
 }
 
@@ -288,9 +296,7 @@ const PPTX_TRANSITION_MAP: Record<string, ParsedPptxTransition> = {
   "p:cut": "instant",
 };
 
-function parsePptxTransition(
-  value: unknown,
-): ParsedPptxTransition | undefined {
+function parsePptxTransition(value: unknown): ParsedPptxTransition | undefined {
   const node = record(value);
   const transition = record(node?.["p:transition"]);
   if (!transition) return undefined;

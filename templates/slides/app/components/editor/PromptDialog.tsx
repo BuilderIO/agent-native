@@ -13,7 +13,6 @@ import { toast } from "sonner";
 
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 
 export interface UploadedFile {
@@ -334,7 +333,7 @@ export default function PromptPopover({
                 type="file"
                 accept=".pdf,application/pdf"
                 className="sr-only"
-                aria-label="Import PDF"
+                aria-label={t("editorToolbar.importFile")}
                 onChange={(event) => {
                   handleFileImport("pdf", event.target.files?.[0]);
                   event.target.value = "";
@@ -345,7 +344,7 @@ export default function PromptPopover({
                 type="file"
                 accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
                 className="sr-only"
-                aria-label="Import PowerPoint"
+                aria-label={t("editorToolbar.importFile")}
                 onChange={(event) => {
                   handleFileImport("pptx", event.target.files?.[0]);
                   event.target.value = "";
@@ -371,7 +370,7 @@ export default function PromptPopover({
                 onClick={() => setGoogleSlidesInputOpen((current) => !current)}
               >
                 <IconBrandGoogle className="size-3.5" />
-                Google Slides
+                {t("home.googleSlidesReferenceTitle")}
               </Button>
               <Button
                 type="button"
@@ -396,8 +395,8 @@ export default function PromptPopover({
                   autoFocus
                   type="url"
                   value={googleSlidesUrl}
-                  placeholder="Paste a Google Slides link"
-                  aria-label="Google Slides link"
+                  placeholder={t("home.googleSlidesReferenceChoose")}
+                  aria-label={t("home.googleSlidesReferenceChoose")}
                   className="h-8 text-xs"
                   disabled={importingSource !== null || loading || uploading}
                   onChange={(event) => setGoogleSlidesUrl(event.target.value)}

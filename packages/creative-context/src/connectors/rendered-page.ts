@@ -666,7 +666,7 @@ interface ServerlessChromiumLike {
 async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike | null> {
   try {
     const module = (await import(
-      /* @vite-ignore */ "@sparticuz/chromium"
+      "@sparticuz/chromium"
     )) as unknown as {
       default?: Partial<ServerlessChromiumLike>;
     } & Partial<ServerlessChromiumLike>;

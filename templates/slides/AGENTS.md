@@ -7,10 +7,8 @@ state.
 Detailed deck, slide-editing, image, design-system, and export workflows live in
 `.agents/skills/`.
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+Before building common workspace or agent UI, read `agent-native-toolkit` and
+`customizing-agent-native` for the public kit and configure/eject seams.
 
 ## Core Rules
 
@@ -32,8 +30,6 @@ ladder.
   normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
 - Read `slide-editing` before creating slides; it covers fit, density, and overflow.
 - Follow linked design-system tokens; read `design-systems` for per-source actions.
-- Build reusable design systems from Figma, code, GitHub, or `design.md` via
-  Builder-backed DSI indexing, never a duplicate local copy.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
@@ -41,9 +37,8 @@ ladder.
 - `import-google-slides-reference` accepts either a Picker `fileId` or a
   `presentationUrl`; imported PPTX timing metadata, including by-paragraph
   reveals, stays on the deck's slide records.
-- Images: call `generate-image-api`, not an image API or Assets directly; keep
-  provenance. Show results as `![alt](url)`.
-- Use sharing actions for visibility and grants.
+- For images, use `generate-image-api` with provenance; show results as
+  `![alt](url)`.
 - Ask a sibling app's agent with a natural-language `call-agent` message by
   default. Let that specialist use its own instructions, skills, sources, and
   tools. Direct action invocation is only for an exact bounded read with a
