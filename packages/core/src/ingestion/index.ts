@@ -31,6 +31,7 @@ export {
   parsePptxPresentation,
   type ParsedPptxImage,
   type ParsedPptxElement,
+  type ParsedPptxGrid,
   type ParsedPptxParagraph,
   type ParsedPptxPresentation,
   type ParsedPptxSlide,

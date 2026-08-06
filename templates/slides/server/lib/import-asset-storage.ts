@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -83,6 +83,43 @@ export function decodeLocalImportedAssetToken(
     throw new Error("Invalid imported asset descriptor");
   }
   return descriptor;
+}
+
+/** Read a local development import asset after rechecking its owner scope. */
+export async function readLocalImportedAsset(args: {
+  token: string;
+  email: string;
+}): Promise<{ data: Uint8Array; mimeType: string } | null> {
+  if (!isLocalImportAssetFallbackAvailable()) return null;
+
+  let descriptor: LocalImportedAssetDescriptor;
+  try {
+    descriptor = decodeLocalImportedAssetToken(decodeURIComponent(args.token));
+  } catch {
+    return null;
+  }
+  if (descriptor.ownerKey !== tenantFileKey(args.email)) return null;
+
+  const directory = path.resolve(
+    process.cwd(),
+    "data",
+    "import-assets",
+    descriptor.ownerKey,
+  );
+  const filepath = path.resolve(
+    directory,
+    `${descriptor.id}-${descriptor.filename}`,
+  );
+  if (!filepath.startsWith(directory + path.sep)) return null;
+
+  try {
+    return {
+      data: await readFile(filepath),
+      mimeType: descriptor.mimeType,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export { IMPORT_ASSET_PREFIX };

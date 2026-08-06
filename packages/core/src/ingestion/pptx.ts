@@ -78,10 +78,21 @@ export interface ParsedPptxSlide {
   widthEmu?: number;
   heightEmu?: number;
   backgroundColor?: string;
+  /** A decorative grid inherited from the slide master, when one is present. */
+  backgroundGrid?: ParsedPptxGrid;
   notes?: string;
   layoutHint?: string;
   transition?: ParsedPptxTransition;
   splitByParagraph?: boolean;
+}
+
+export interface ParsedPptxGrid {
+  color: string;
+  stepXEmu: number;
+  stepYEmu: number;
+  offsetXEmu: number;
+  offsetYEmu: number;
+  lineWidthEmu: number;
 }
 
 export interface ParsedPptxSlideMetadata {
@@ -129,6 +140,15 @@ export async function parsePptxPresentation(
   const relationships = relationshipsXml
     ? parseRelationships(parseXml(relationshipsXml))
     : new Map<string, { target: string; type: string }>();
+  const slideMasterRelationship = [...relationships.values()].find((value) =>
+    value.type.endsWith("/slideMaster"),
+  );
+  const backgroundGrid = slideMasterRelationship
+    ? await parseMasterGrid({
+        zip,
+        target: slideMasterRelationship.target,
+      })
+    : undefined;
   const slidePaths = slideIds.flatMap((id) => {
     const relationship = relationships.get(id);
     if (!relationship) return [];
@@ -201,6 +221,7 @@ export async function parsePptxPresentation(
       widthEmu: slideWidthEmu,
       heightEmu: slideHeightEmu,
       backgroundColor: extractSlideBackgroundColor(slide),
+      ...(backgroundGrid ? { backgroundGrid } : {}),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
       ...metadata,
@@ -213,6 +234,100 @@ export async function parsePptxPresentation(
       ?.content.trim()
       .slice(0, 200) || "Imported Presentation";
   return { title, slides, theme };
+}
+
+/**
+ * Google Slides exports decorative grids as connector shapes on the slide
+ * master instead of as a slide background. Preserve the repeated geometry as
+ * metadata so the HTML renderer can reproduce it without making the lines
+ * editable slide objects.
+ */
+async function parseMasterGrid(args: {
+  zip: ZipArchive;
+  target: string;
+}): Promise<ParsedPptxGrid | undefined> {
+  const path = args.target.startsWith("/")
+    ? args.target.slice(1)
+    : `ppt/${args.target.replace(/^\.\.\//, "")}`;
+  const xml = await args.zip.file(path)?.async("string");
+  if (!xml) return undefined;
+
+  const connectors = xml.match(/<p:cxnSp\b[\s\S]*?<\/p:cxnSp>/gi) ?? [];
+  const candidates = connectors.flatMap((fragment) => {
+    const color = fragment.match(
+      /<a:solidFill>\s*<a:srgbClr\s+val="([0-9a-f]{6})"/i,
+    )?.[1];
+    const transform = fragment.match(
+      /<a:xfrm[^>]*>\s*<a:off\s+x="(-?\d+)"\s+y="(-?\d+)"\s*\/>\s*<a:ext\s+cx="(-?\d+)"\s+cy="(-?\d+)"/i,
+    );
+    const lineWidth = fragment.match(/<a:ln[^>]*\bw="(\d+)"/i)?.[1];
+    if (!color || !transform || !lineWidth) return [];
+    return [
+      {
+        color: color.toLowerCase(),
+        x: Number(transform[1]),
+        y: Number(transform[2]),
+        width: Number(transform[3]),
+        height: Number(transform[4]),
+        lineWidth: Number(lineWidth),
+      },
+    ];
+  });
+  if (candidates.length < 20) return undefined;
+
+  const colorCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    colorCounts.set(
+      candidate.color,
+      (colorCounts.get(candidate.color) ?? 0) + 1,
+    );
+  }
+  const [color] =
+    [...colorCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!color) return undefined;
+
+  const xPositions = [
+    ...new Set(
+      candidates
+        .filter((candidate) => candidate.color === color)
+        .map((candidate) => candidate.x),
+    ),
+  ].sort((a, b) => a - b);
+  const gaps = xPositions
+    .slice(1)
+    .map((value, index) => value - xPositions[index])
+    .filter((value) => value > 100_000);
+  if (gaps.length < 3) return undefined;
+  gaps.sort((a, b) => a - b);
+  const stepXEmu = gaps[Math.floor(gaps.length / 2)];
+  if (!stepXEmu) return undefined;
+
+  const offsetXEmu = xPositions.find((value) => value >= 0) ?? xPositions[0];
+  const lineWidthEmu = Math.max(
+    1,
+    Math.round(
+      candidates
+        .filter((candidate) => candidate.color === color)
+        .reduce((sum, candidate) => sum + candidate.lineWidth, 0) /
+        candidates.filter((candidate) => candidate.color === color).length,
+    ),
+  );
+
+  // The same repeated connector lattice is used for both axes in the Google
+  // export. Its horizontal phase is the master group's first repeated offset.
+  // Keeping the phase relative to the detected step also works for custom
+  // slide sizes that preserve the source grid's square-cell geometry.
+  const stepYEmu = stepXEmu;
+  const offsetYEmu = Math.round(stepYEmu * 0.9);
+
+  return {
+    color: `#${color}`,
+    stepXEmu,
+    stepYEmu,
+    offsetXEmu,
+    offsetYEmu,
+    lineWidthEmu,
+  };
 }
 
 interface ParsedShapeTransform {

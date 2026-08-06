@@ -159,6 +159,9 @@ function buildFidelitySlide(
   const widthEmu = slide.widthEmu || DEFAULT_SLIDE_WIDTH_EMU;
   const heightEmu = slide.heightEmu || DEFAULT_SLIDE_HEIGHT_EMU;
   const background = slide.backgroundColor ?? DEFAULT_PPTX_BACKGROUND;
+  const gridStyle = slide.backgroundGrid
+    ? `background-image:linear-gradient(to right, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu))}px, transparent ${Math.max(0.5, toSlidePxX(slide.backgroundGrid.lineWidthEmu, widthEmu))}px),linear-gradient(to bottom, ${esc(slide.backgroundGrid.color)} 0 ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu))}px, transparent ${Math.max(0.5, toSlidePxY(slide.backgroundGrid.lineWidthEmu, heightEmu))}px);background-size:${toSlidePxX(slide.backgroundGrid.stepXEmu, widthEmu)}px ${toSlidePxY(slide.backgroundGrid.stepYEmu, heightEmu)}px;background-position:${toSlidePxX(slide.backgroundGrid.offsetXEmu, widthEmu)}px ${toSlidePxY(slide.backgroundGrid.offsetYEmu, heightEmu)}px;background-repeat:repeat;`
+    : "";
   const elements = slide.elements ?? [];
   const html = elements
     .map((element, index) =>
@@ -173,7 +176,7 @@ function buildFidelitySlide(
     )
     .join("\n");
 
-  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="${widthEmu}" data-slide-height-emu="${heightEmu}" style="position: relative; width: 100%; height: 100%; overflow: hidden; background: ${esc(background)}; font-family: ${cssFontFamily(themeFont)};">${html}
+  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="${widthEmu}" data-slide-height-emu="${heightEmu}" style="position: relative; width: 100%; height: 100%; overflow: hidden; background: ${esc(background)};${gridStyle} font-family: ${cssFontFamily(themeFont)};">${html}
 </div>`;
 }
 
