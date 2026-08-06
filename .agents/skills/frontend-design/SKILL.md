@@ -133,7 +133,7 @@ passed this requirement yet.
 - Never guess a Tabler icon name. Names like `IconPartyPopper` or `IconConfettiCannon` feel
   plausible but don't exist and crash Vite with a "Named export not found" error. Before importing
   an icon you haven't used elsewhere in this app, confirm it exists by grepping
-  `node_modules/@tabler/icons-react/dist/esm/tabler-icons-react.d.ts` (or the package's icon list)
+  `node_modules/@tabler/icons-react/dist/tabler-icons-react.d.ts` (or the package's icon list)
   for the exact name, and pick the closest real match if your first guess isn't there.
 - Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` for action-backed UI. Standard CRUD should go through actions, not custom `/api/` routes.
 - Keep UI optimistic where possible: update cache and navigation immediately, then reconcile or roll back on mutation result.
