@@ -85,7 +85,10 @@ export function usePollLoop(
       leading,
     });
     pollNowRef.current = () => engine.pollNow();
-    engine.start();
+    // Mounting in an already-hidden tab (background restore, prerender) must
+    // not fire the leading attempt when pauseWhenHidden promises a full pause
+    // while hidden — the visibility handler below starts the loop instead.
+    if (!pauseWhenHidden || !isDocumentHidden()) engine.start();
 
     const onVisibilityChange = (): void => {
       if (isDocumentHidden()) {

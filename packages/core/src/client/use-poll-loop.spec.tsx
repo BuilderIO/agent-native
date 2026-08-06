@@ -93,6 +93,36 @@ describe("usePollLoop", () => {
     expect(attempt).toHaveBeenCalledTimes(2);
   });
 
+  it("does not run a leading attempt when mounted hidden with pauseWhenHidden", async () => {
+    const attempt = vi.fn().mockResolvedValue(undefined);
+    // Hidden before mount — a background restore or prerendered tab.
+    setHidden(true);
+    const root = mount();
+    await act(async () =>
+      root.render(
+        <Probe attempt={attempt} intervalMs={1000} pauseWhenHidden={true} />,
+      ),
+    );
+    expect(attempt).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(attempt).not.toHaveBeenCalled();
+
+    // Becoming visible is what arms the loop.
+    await act(async () => setHidden(false));
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("still runs a leading attempt when mounted hidden without pauseWhenHidden", async () => {
+    const attempt = vi.fn().mockResolvedValue(undefined);
+    setHidden(true);
+    const root = mount();
+    await act(async () =>
+      root.render(<Probe attempt={attempt} intervalMs={1000} />),
+    );
+    // This mode must still reach a backgrounded tab (e.g. notifications).
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
   it("does nothing when enabled is false", async () => {
     const attempt = vi.fn().mockResolvedValue(undefined);
     const root = mount();
