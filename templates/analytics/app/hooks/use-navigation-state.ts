@@ -98,7 +98,10 @@ export function useNavigationState() {
         state.view = "data-sources";
       } else if (pathname === "/data-dictionary") {
         state.view = "data-dictionary";
-      } else if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+      } else if (
+        pathname === "/settings" ||
+        pathname.startsWith("/settings/")
+      ) {
         state.view = "settings";
       }
 

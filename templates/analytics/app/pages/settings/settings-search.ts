@@ -108,7 +108,9 @@ export function buildAnalyticsSettingsCommandItems(
         return buildSettingsRoute(hash);
       }
       if (hash === tabId) return buildSettingsRoute(tabId);
-      return hash ? `${buildSettingsRoute(tabId)}#${hash}` : buildSettingsRoute(tabId);
+      return hash
+        ? `${buildSettingsRoute(tabId)}#${hash}`
+        : buildSettingsRoute(tabId);
     };
     add({
       id: `tab:${tab.id}`,

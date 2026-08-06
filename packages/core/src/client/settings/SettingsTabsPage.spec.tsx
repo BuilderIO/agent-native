@@ -129,7 +129,7 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(teamTab);
   });
 
-  it("opens integrations by default when the route has no hash", () => {
+  it("opens general settings by default when the route has no hash", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -145,8 +145,8 @@ describe("SettingsTabsPage", () => {
       );
     });
 
-    expect(container.textContent).toContain("Integration content");
-    expect(container.textContent).not.toContain("General content");
+    expect(container.textContent).toContain("General content");
+    expect(container.textContent).not.toContain("Integration content");
   });
 
   it("opens the team tab from the hash and avoids rendering a settings title", () => {
@@ -167,7 +167,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Settings");
   });
 
-  it("updates the hash when switching tabs", () => {
+  it("updates the semantic route when switching tabs", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -187,7 +187,8 @@ describe("SettingsTabsPage", () => {
       whatsNewTab!.click();
     });
 
-    expect(window.location.hash).toBe("#whats-new");
+    expect(window.location.pathname).toBe("/settings/whats-new");
+    expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Recent updates");
     expect(container.textContent).not.toContain("General content");
   });

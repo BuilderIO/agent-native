@@ -386,11 +386,13 @@ export function SettingsTabsPage({
   useEffect(() => {
     if (!isControlled) return;
     const syncControlledLocation = () => {
-      const fromPath = activeTabFromLocation(tabs, defaultTab);
+      const fromPath = window.location.pathname.startsWith("/settings/")
+        ? activeTabFromLocation(tabs, defaultTab)
+        : null;
       const fromHash = resolveTabId(tabs, window.location.hash);
       const next = fromPath ?? fromHash;
       const key = `${window.location.pathname}${window.location.hash}`;
-      if (!next || controlledHashRef.current === key) return;
+      if (!next || next === value || controlledHashRef.current === key) return;
       controlledHashRef.current = key;
       onValueChange?.(next);
     };
