@@ -1,11 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeRequest = vi.fn();
+let action: any;
 vi.mock("../server/lib/provider-api", () => ({
   getAnalyticsProviderApiRuntime: () => ({ executeRequest }),
 }));
 
 describe("test-custom-api-connection", () => {
+  beforeAll(async () => {
+    action = (await import("./test-custom-api-connection"))["default"];
+  }, 60_000);
+
+  beforeEach(() => {
+    executeRequest.mockReset();
+  });
+
   it("summarizes successful JSON rows without returning transport details", async () => {
     executeRequest.mockResolvedValue({
       response: {
@@ -15,9 +24,6 @@ describe("test-custom-api-connection", () => {
         json: { data: [{ id: 1, name: "A", token: "secret" }] },
       },
     });
-    const action = (await import("./test-custom-api-connection"))[
-      "default"
-    ] as any;
     expect(action.agentTool).toBe(false);
     expect(action.readOnly).toBe(true);
     expect(action.http).toEqual({ method: "POST" });
@@ -40,9 +46,6 @@ describe("test-custom-api-connection", () => {
   });
 
   it("returns useful non-2xx and runtime errors", async () => {
-    const action = (await import("./test-custom-api-connection"))[
-      "default"
-    ] as any;
     executeRequest.mockResolvedValueOnce({
       response: { ok: false, status: 401, statusText: "Unauthorized" },
     });
