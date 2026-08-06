@@ -82,6 +82,32 @@ describe("crawl-design-reference", () => {
     });
   });
 
+  it("normalizes bare HSL channel values", async () => {
+    ssrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify(
+            extractionPayload({
+              designSystemData: {
+                colors: { primary: "20 90% 48%", accent: "47 100% 96%" },
+                typography: {},
+              },
+            }),
+          ),
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ colors: [] })));
+
+    const output = await crawlDesignReference.run({
+      url: "https://saltandwisdom.com",
+    });
+
+    expect(output).toMatchObject({
+      primaryColor: "#e9560c",
+      accentColor: "#fffbeb",
+    });
+  });
+
   it("uses secondary color when no accent is returned", async () => {
     ssrfSafeFetch
       .mockResolvedValueOnce(
