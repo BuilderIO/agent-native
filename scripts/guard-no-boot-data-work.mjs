@@ -85,7 +85,7 @@ const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
  * exemption written by someone who never measured it.
  */
 const DATA_WORK = new RegExp(
-  String.raw`\bawait\s+(` +
+  String.raw`\bawait\s+(?:[$\w]+\.)*(` +
     [
       // Schema/migration work. Bounded in principle, 5-8s in practice on a
       // large database — and paid on every cold start, forever.
