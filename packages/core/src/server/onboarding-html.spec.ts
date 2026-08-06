@@ -158,7 +158,17 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="magic-link-submit"');
     expect(html).toContain('class="magic-link-submit"');
     expect(html).toContain(".magic-link-submit { display: none; }");
+    expect(html).toContain('id="magic-link-success"');
+    expect(html).toContain('id="magic-link-success-email"');
+    expect(html).toContain("function showMagicLinkSuccess(email)");
     expect(html).toContain("button.classList.toggle('is-visible', isValid)");
+    expect(html).toContain(
+      "googleButton.classList.toggle('magic-link-secondary', isValid)",
+    );
+    expect(html).toContain(".btn-google.magic-link-secondary");
+    expect(html).toContain("margin-top: 0.375rem;");
+    expect(html).toContain("margin-bottom: 0.875rem;");
+    expect(html).toContain("text-align: start;");
     expect(html).toContain(
       "magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState)",
     );

@@ -3439,9 +3439,34 @@ ${
 	    function clearRememberedPendingSignupEmail() {
 	      rememberPendingSignupEmail('');
 	    }
+    function hideMagicLinkSuccess() {
+      var card = document.querySelector('.card');
+      if (card) card.classList.remove('magic-link-complete');
+      var success = document.getElementById('magic-link-success');
+      if (success) {
+        success.classList.remove('is-visible');
+        success.setAttribute('hidden', '');
+      }
+    }
+    function showMagicLinkSuccess(email) {
+      var card = document.querySelector('.card');
+      if (card) card.classList.add('magic-link-complete');
+      var success = document.getElementById('magic-link-success');
+      var successEmail = document.getElementById('magic-link-success-email');
+      if (successEmail) successEmail.textContent = email || '';
+      if (success) {
+        success.removeAttribute('hidden');
+        success.classList.add('is-visible');
+      }
+      forms.forEach(function(x) { x.classList.remove('active'); });
+      var authTabs = document.getElementById('auth-tabs');
+      if (authTabs) authTabs.hidden = true;
+      __anSetAuthView('magicLinkSent');
+    }
     function showMagicLinkForm() {
       var form = document.getElementById('magic-link-form');
       if (!form) return;
+      hideMagicLinkSuccess();
       forms.forEach(function(x) { x.classList.remove('active'); });
       form.classList.add('active');
       var authTabs = document.getElementById('auth-tabs');
@@ -3456,6 +3481,8 @@ ${
       var isValid = __anIsValidAuthEmail(emailInput.value);
       button.classList.toggle('is-visible', isValid);
       button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
+      var googleButton = document.getElementById('google-btn');
+      if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
     }
     function setActiveTab(name, opts) {
 	      if (name !== 'signup' && name !== 'login') return;
@@ -3765,6 +3792,14 @@ ${
     e.preventDefault();
     showMagicLinkForm();
   });
+  var magicLinkBack = document.getElementById('magic-link-back');
+  if (magicLinkBack) magicLinkBack.addEventListener('click', function(e) {
+    e.preventDefault();
+    var magicLinkEmailInput = document.getElementById('m-email');
+    if (magicLinkEmailInput) magicLinkEmailInput.value = '';
+    showMagicLinkForm();
+    if (magicLinkEmailInput) magicLinkEmailInput.focus();
+  });
 
   var magicLinkForm = document.getElementById('magic-link-form');
   var magicLinkEmail = document.getElementById('m-email');
@@ -3798,9 +3833,9 @@ ${
         return null;
       });
       if (res.ok) {
-        msg.textContent = __anT('magicLinkSent') + '. ' + __anT('magicLinkSentCopy') + ' ' + email + '.';
-        msg.classList.add('show', 'success');
-        btn.textContent = __anT('sent');
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        showMagicLinkSuccess(email);
         return;
       }
       msg.textContent = (data && (data.error || data.message)) || __anT('magicLinkFailed');
