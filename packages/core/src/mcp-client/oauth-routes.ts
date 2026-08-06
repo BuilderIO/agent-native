@@ -16,6 +16,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
+import { resolveSecret } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getAppUrl, resolveOAuthRedirectUri } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -37,6 +38,22 @@ const FLOW_TTL_SECONDS = 10 * 60;
 const FLOW_COOKIE_CHUNK_SIZE = 2_800;
 const FLOW_COOKIE_MAX_CHUNKS = 8;
 const CHUNKED_COOKIE_PREFIX = "__chunked__";
+
+const MANAGED_MCP_OAUTH_CLIENTS = [
+  {
+    serverOrigin: "https://mcp.hubspot.com",
+    clientIdKeys: [
+      "HUBSPOT_MCP_CLIENT_ID",
+      "HUBSPOT_INTEGRATION_CLIENT_ID",
+      "HUBSPOT_CLIENT_ID",
+    ],
+    clientSecretKeys: [
+      "HUBSPOT_MCP_CLIENT_SECRET",
+      "HUBSPOT_INTEGRATION_CLIENT_SECRET",
+      "HUBSPOT_CLIENT_SECRET",
+    ],
+  },
+] as const;
 
 export interface McpOAuthFlow {
   name: string;
@@ -166,16 +183,32 @@ async function handleMcpOAuthStart(
 
   const state = crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
+  const requestContext = {
+    userEmail: session.email,
+    orgId: org?.orgId ?? undefined,
+  };
   try {
-    const started = await runWithRequestContext(
-      { userEmail: session.email, orgId: org?.orgId ?? undefined },
-      () =>
-        startMcpOAuthAuthorization({
-          serverUrl: urlCheck.url!.toString(),
-          redirectUrl: redirectUri,
-          state,
-        }),
-    );
+    const started = await runWithRequestContext(requestContext, async () => {
+      const clientInformation = await resolveManagedMcpOAuthClient(
+        urlCheck.url!,
+      );
+      if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
+        return null;
+      }
+      return startMcpOAuthAuthorization({
+        serverUrl: urlCheck.url!.toString(),
+        redirectUrl: redirectUri,
+        state,
+        ...(clientInformation ? { clientInformation } : {}),
+      });
+    });
+    if (!started) {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          "HubSpot personal MCP connect is not configured for this workspace. A workspace owner must register the HubSpot MCP Auth App once; after that, any workspace member can connect a personal account.",
+      };
+    }
     const flow: McpOAuthFlow = {
       name,
       url: urlCheck.url!.toString(),
@@ -203,6 +236,36 @@ async function handleMcpOAuthStart(
         "This MCP server could not start OAuth. It may not support standard MCP OAuth discovery or dynamic client registration.",
     };
   }
+}
+
+function isManagedMcpOAuthServer(serverUrl: URL): boolean {
+  return MANAGED_MCP_OAUTH_CLIENTS.some(
+    (client) => client.serverOrigin === serverUrl.origin,
+  );
+}
+
+export async function resolveManagedMcpOAuthClient(
+  serverUrl: URL,
+): Promise<StoredOAuthClientInformation | undefined> {
+  const client = MANAGED_MCP_OAUTH_CLIENTS.find(
+    (candidate) => candidate.serverOrigin === serverUrl.origin,
+  );
+  if (!client) return undefined;
+
+  for (let index = 0; index < client.clientIdKeys.length; index += 1) {
+    const [clientId, clientSecret] = await Promise.all([
+      resolveSecret(client.clientIdKeys[index]),
+      resolveSecret(client.clientSecretKeys[index]),
+    ]);
+    if (clientId && clientSecret) {
+      return {
+        client_id: clientId,
+        client_secret: clientSecret,
+        token_endpoint_auth_method: "client_secret_post",
+      } as StoredOAuthClientInformation;
+    }
+  }
+  return undefined;
 }
 
 async function handleMcpOAuthCallback(

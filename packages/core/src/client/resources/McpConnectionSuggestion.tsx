@@ -90,8 +90,9 @@ function returnUrl(): string {
 function canStartOAuth(integration: DefaultMcpIntegration): boolean {
   return (
     integration.authMode === "oauth" &&
-    integration.connectionMode === "oauth" &&
-    integration.availability === "ready"
+    ((integration.connectionMode === "oauth" &&
+      integration.availability === "ready") ||
+      integration.managedOAuth === true)
   );
 }
 

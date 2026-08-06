@@ -148,4 +148,40 @@ describe("McpIntegrationDialog", () => {
     ).toBeUndefined();
     expect(document.body.textContent).toContain("View setup");
   });
+
+  it("offers personal OAuth for a managed setup-gated integration", () => {
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="hubspot"
+            defaultScope="org"
+            canCreateOrgMcp={false}
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[hubspot]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const connectButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect",
+    );
+    expect(connectButton).toBeTruthy();
+
+    act(() => connectButton?.click());
+
+    expect(mocks.navigateToMcpOAuthStart).toHaveBeenCalledOnce();
+    const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(url, "https://analytics.example.com").searchParams.get("scope"),
+    ).toBe("user");
+  });
 });

@@ -185,6 +185,7 @@ export function McpIntegrationDialog({
 
   const selectedRequiresSetup = Boolean(
     selected &&
+    !selected.managedOAuth &&
     (selected.connectionMode === "manual" ||
       selected.availability === "provider-setup" ||
       selected.availability === "client-restricted"),
@@ -250,7 +251,7 @@ export function McpIntegrationDialog({
       url: string;
       description: string;
     },
-    options?: { quickId?: string },
+    options?: { quickId?: string; scope?: McpServerScope },
   ) => {
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
@@ -272,7 +273,7 @@ export function McpIntegrationDialog({
           name: args.name,
           url: args.url,
           description: args.description,
-          scope,
+          scope: options?.scope ?? scope,
           returnUrl,
         }),
       ),
@@ -289,7 +290,10 @@ export function McpIntegrationDialog({
         url: integration.url,
         description: integration.description,
       },
-      options,
+      {
+        ...options,
+        ...(integration.managedOAuth ? { scope: "user" as const } : {}),
+      },
     );
 
   const connectCustomWithOAuth = () => {
@@ -345,8 +349,9 @@ export function McpIntegrationDialog({
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
     if (
-      integration.connectionMode === "manual" ||
-      integration.availability === "provider-setup"
+      !integration.managedOAuth &&
+      (integration.connectionMode === "manual" ||
+        integration.availability === "provider-setup")
     ) {
       return;
     }
@@ -404,6 +409,7 @@ export function McpIntegrationDialog({
   };
 
   const renderScopeSelector = () => {
+    if (selected?.managedOAuth) return null;
     if (!shouldOfferMcpOrganizationScope(hasOrg, canCreateOrgMcp)) return null;
 
     return (
@@ -486,9 +492,10 @@ export function McpIntegrationDialog({
                   );
                   const requiresHeaders = integration.authMode === "headers";
                   const setupOnly =
-                    integration.connectionMode === "manual" ||
-                    integration.availability === "provider-setup" ||
-                    integration.availability === "client-restricted";
+                    !integration.managedOAuth &&
+                    (integration.connectionMode === "manual" ||
+                      integration.availability === "provider-setup" ||
+                      integration.availability === "client-restricted");
                   return (
                     <article
                       key={integration.id}

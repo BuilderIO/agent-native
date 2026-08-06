@@ -163,6 +163,14 @@ describe("MCP integration catalog", () => {
       verification: "restricted",
     });
     expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "hubspot"),
+    ).toMatchObject({
+      authMode: "oauth",
+      availability: "provider-setup",
+      managedOAuth: true,
+      verification: "restricted",
+    });
+    expect(
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "intercom"),
     ).toMatchObject({ url: "https://mcp.intercom.com/mcp" });
     expect(

@@ -88,6 +88,7 @@ beforeEach(() => {
   delete process.env.AGENT_NATIVE_WORKSPACE;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
   delete process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV;
+  delete process.env.AGENT_VAULT_ORG_ID;
   delete process.env.FUSION_ENVIRONMENT;
   delete process.env.FUSION_ENV_ORIGIN;
   delete process.env.VITE_FUSION_ENV_ORIGIN;
@@ -1228,6 +1229,26 @@ describe("resolveSecret (generic)", () => {
         scopeId: "solo:solo@b.com",
       },
     ]);
+  });
+
+  it("falls back to the designated Dispatch vault organization", async () => {
+    process.env.AGENT_VAULT_ORG_ID = "dispatch-vault";
+    mockGetRequestUserEmail.mockReturnValue("builder@b.com");
+    mockGetRequestOrgId.mockReturnValue("app-org");
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "org" && scopeId === "dispatch-vault"
+        ? { value: "workspace-vault-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    expect(await resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).toBe(
+      "workspace-vault-secret",
+    );
+    expect(
+      mockReadAppSecret.mock.calls.some(
+        ([call]) => call.scope === "org" && call.scopeId === "dispatch-vault",
+      ),
+    ).toBe(true);
   });
 
   it("recovers the org-scoped row when request org context is transiently missing", async () => {

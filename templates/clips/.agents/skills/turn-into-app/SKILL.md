@@ -5,6 +5,7 @@ description: >-
   with simple buttons, visible agent steps, preview, and deployment handoff.
   Use when a user invokes `/turn-into-app` or asks to make a workflow into an
   app.
+user-invocable: true
 scope: both
 metadata:
   internal: true

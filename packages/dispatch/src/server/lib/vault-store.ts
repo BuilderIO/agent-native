@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { getDbExec } from "@agent-native/core/db";
 import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
@@ -140,6 +141,43 @@ function scopedFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
   return ctxScope(table, requireVaultCtx());
 }
 
+/**
+ * Shared vault values and grants are organization administration data. Keep
+ * the member path available for request creation and safe key metadata, but
+ * fail closed before a member can read or mutate a raw secret.
+ */
+export async function assertCanManageVault(): Promise<void> {
+  const orgId = currentOrgId();
+  if (!orgId) return;
+
+  const email = currentOwnerEmail().trim().toLowerCase();
+  let role: unknown = null;
+  try {
+    const result = await getDbExec().execute({
+      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
+      args: [orgId, email],
+    });
+    role = result.rows[0]?.role;
+  } catch {
+    // A failed membership check must not become an authorization bypass.
+  }
+
+  if (role !== "owner" && role !== "admin") {
+    throw new Error(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+  }
+}
+
+async function canManageVault(): Promise<boolean> {
+  try {
+    await assertCanManageVault();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeCredentialKey(value: string) {
   return value.trim();
 }
@@ -169,6 +207,7 @@ export async function getVaultAccessSettings(): Promise<VaultAccessSettings> {
 export async function setVaultAccessSettings(input: {
   mode: VaultAccessMode;
 }): Promise<VaultAccessSettings> {
+  await assertCanManageVault();
   const scope = vaultAccessScope();
   const next = { mode: parseVaultAccessMode(input.mode) };
   if (scope.scope === "org") {
@@ -215,6 +254,7 @@ export async function recordVaultAudit(input: {
 }
 
 export async function listVaultAudit(limit = 50) {
+  await assertCanManageVault();
   const db = getDb();
   return db
     .select()
@@ -227,6 +267,7 @@ export async function listVaultAudit(limit = 50) {
 // ─── Secrets ──────────────────────────────────────────────────────
 
 export async function listSecrets() {
+  await assertCanManageVault();
   const db = getDb();
   return db
     .select()
@@ -235,7 +276,24 @@ export async function listSecrets() {
     .orderBy(desc(schema.vaultSecrets.updatedAt));
 }
 
+/** Safe metadata for app creation and integration readiness checks. */
+export async function listSecretOptions() {
+  const db = getDb();
+  return db
+    .select({
+      id: schema.vaultSecrets.id,
+      name: schema.vaultSecrets.name,
+      credentialKey: schema.vaultSecrets.credentialKey,
+      provider: schema.vaultSecrets.provider,
+      description: schema.vaultSecrets.description,
+    })
+    .from(schema.vaultSecrets)
+    .where(scopedFilter(schema.vaultSecrets))
+    .orderBy(desc(schema.vaultSecrets.updatedAt));
+}
+
 export async function getSecret(secretId: string, ctx: VaultCtx) {
+  await assertCanManageVault();
   const db = getDb();
   const [row] = await db
     .select()
@@ -260,6 +318,7 @@ export async function createSecret(
   },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const timestamp = now();
   const credentialKey = normalizeCredentialKey(input.credentialKey);
@@ -372,6 +431,7 @@ export async function updateSecret(
       },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
@@ -478,6 +538,7 @@ export async function deleteSecret(
   secretId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const existing = await getSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
@@ -562,6 +623,7 @@ export async function createGrant(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const secret = await getSecret(secretId, ctx);
   if (!secret) throw new Error("Secret not found");
@@ -657,6 +719,7 @@ export async function grantSecretsToApp(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const access = await getVaultAccessSettings();
   const uniqueSecretIds = Array.from(new Set(secretIds));
   if (access.mode === "all-apps") {
@@ -695,6 +758,7 @@ export async function revokeGrant(
   grantId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const grant = await getGrant(grantId, ctx);
   if (!grant) throw new Error("Grant not found");
@@ -878,6 +942,7 @@ export async function syncGrantsToApp(
   appId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const access = await getVaultAccessSettings();
   const agents = await discoverAgents("dispatch");
@@ -1023,7 +1088,13 @@ export async function syncGrantsToApp(
 
 export async function listRequests(filter?: { status?: string }) {
   const db = getDb();
-  const conditions = [scopedFilter(schema.vaultRequests)];
+  const ctx = requireVaultCtx();
+  const isAdmin = await canManageVault();
+  const conditions = [
+    isAdmin
+      ? ctxScope(schema.vaultRequests, ctx)
+      : eq(schema.vaultRequests.ownerEmail, ctx.ownerEmail),
+  ];
   if (filter?.status) {
     conditions.push(eq(schema.vaultRequests.status, filter.status) as any);
   }
@@ -1095,6 +1166,7 @@ export async function approveRequest(
   secretName?: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
@@ -1218,6 +1290,7 @@ export async function denyRequest(
   reason?: string | null,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
@@ -1283,7 +1356,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
   const access = await getVaultAccessSettings();
   const agents = await discoverAgents("dispatch");
   const grants = await listGrants();
-  const secrets = await listSecrets();
+  const secrets = await listSecretOptions();
 
   const secretByKey = new Map(secrets.map((s) => [s.credentialKey, s]));
 
@@ -1367,7 +1440,7 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
 
 export async function listVaultOverview() {
   const [secrets, grants, requests, access] = await Promise.all([
-    listSecrets(),
+    listSecretOptions(),
     listGrants(),
     listRequests(),
     getVaultAccessSettings(),

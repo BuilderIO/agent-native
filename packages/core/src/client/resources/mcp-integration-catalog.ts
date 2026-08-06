@@ -41,6 +41,11 @@ export interface DefaultMcpIntegration {
   availability: McpIntegrationAvailability;
   verification: McpIntegrationVerification;
   logoUrl: string;
+  /**
+   * The server has a first-party OAuth client configured for this provider.
+   * Keep the connection user-scoped even when the client itself is shared.
+   */
+  managedOAuth?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -452,6 +457,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "provider-setup",
     verification: "restricted",
     logoUrl: mcpIntegrationLogo("hubspot"),
+    managedOAuth: true,
     docsUrl:
       "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server",
     setupNoteKey: "mcpIntegrations.catalog.hubspot.setupNote",

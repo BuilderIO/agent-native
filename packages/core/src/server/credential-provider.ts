@@ -1354,9 +1354,9 @@ export async function prefetchSecrets(keys: readonly string[]): Promise<void> {
 
 /**
  * Resolve a request-scoped secret. Reads from `app_secrets` first (current
- * user override, active org, workspace row for that org, then the solo
- * workspace row); falls back to `process.env` only when the deploy fallback
- * policy allows it.
+ * user override, active org, workspace row for that org, the solo workspace
+ * row, then the explicitly designated workspace vault organization); falls
+ * back to `process.env` only when the deploy fallback policy allows it.
  *
  * Resolving several keys in one request? Call `prefetchSecrets` first.
  */
@@ -1471,6 +1471,41 @@ export async function resolveSecretDetailed(
           );
         }
         return { value: soloWorkspaceSecret.value, lookupFailed: false };
+      }
+
+      // Dispatch's workspace vault is stored under the organization that
+      // performed the sync. AGENT_VAULT_ORG_ID is an explicit single-workspace
+      // deployment assertion; without it, never guess which other tenant owns
+      // a shared key. This fallback keeps workspace apps from requiring every
+      // builder to copy a vault key into app-local settings.
+      const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
+      if (vaultOrgId && vaultOrgId !== orgId) {
+        const [vaultOrgRead, vaultWorkspaceRead] = await Promise.allSettled([
+          readAppSecret({ key, scope: "org", scopeId: vaultOrgId }),
+          readAppSecret({ key, scope: "workspace", scopeId: vaultOrgId }),
+        ]);
+        const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
+          if (settled.status === "rejected") throw settled.reason;
+          return settled.value;
+        };
+        const vaultOrgSecret = unwrap(vaultOrgRead);
+        if (vaultOrgSecret?.value) {
+          if (traceLookup) {
+            console.log(
+              `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=org-vault hit=true`,
+            );
+          }
+          return { value: vaultOrgSecret.value, lookupFailed: false };
+        }
+        const vaultWorkspaceSecret = unwrap(vaultWorkspaceRead);
+        if (vaultWorkspaceSecret?.value) {
+          if (traceLookup) {
+            console.log(
+              `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=workspace-vault hit=true`,
+            );
+          }
+          return { value: vaultWorkspaceSecret.value, lookupFailed: false };
+        }
       }
     } catch (err) {
       if (traceLookup) {

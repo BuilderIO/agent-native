@@ -34,6 +34,12 @@ Dispatch vault access is workspace-wide by default: every saved vault key is
 available to every workspace app. Only create or request per-app vault grants
 when Dispatch's vault access setting is switched to manual mode.
 
+When an app needs a provider credential, use the app's scoped secret or
+workspace-connection resolver so Dispatch remains the source of truth. Do not
+ask a non-admin builder to add a key to local project settings or `.env`; use
+Dispatch's vault request workflow for a missing key and keep the value out of
+app code.
+
 ## Discovery, Links, And The UI Stack
 
 Workspace apps are discovered from `apps/<app-name>/package.json`. There is no

@@ -50,6 +50,33 @@ beforeEach(async () => {
   await runMigrations(dispatchMigrations, {
     table: "dispatch_migrations",
   })({});
+
+  const { getDbExec } = await import("@agent-native/core/db");
+  const exec = getDbExec();
+  await exec.execute({
+    sql: `CREATE TABLE IF NOT EXISTS org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
+    )`,
+    args: [],
+  });
+  await exec.execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: ["approval-owner", orgId, ownerEmail, "owner", Date.now()],
+  });
+  await exec.execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: [
+      "approval-other-owner",
+      otherOrgId,
+      otherOwnerEmail,
+      "owner",
+      Date.now(),
+    ],
+  });
 });
 
 afterEach(async () => {

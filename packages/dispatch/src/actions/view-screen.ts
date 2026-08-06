@@ -22,7 +22,7 @@ import {
 import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 import {
   listVaultOverview,
-  listSecrets,
+  listSecretOptions,
   listGrants,
   listRequests,
   getVaultAccessSettings,
@@ -171,7 +171,7 @@ export default defineAction({
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {
       const [secrets, grants, requests, access] = await Promise.all([
-        listSecrets(),
+        listSecretOptions(),
         listGrants(),
         listRequests({ status: "pending" }),
         getVaultAccessSettings(),

@@ -249,7 +249,8 @@ describe("RequireSession", () => {
     expect(replaceMock).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="protected"]')).toBeNull();
     expect(container.querySelector('[aria-label="Loading"]')).toBeNull();
-    expect(container.textContent).toContain("Try again");
+    expect(container.textContent).toContain("Retry connection");
+    expect(container.textContent).toContain("Reload page starts the app over");
   });
 
   it("bypass renders children even with no session", () => {
