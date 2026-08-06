@@ -203,6 +203,10 @@ describe("contrastingDefaultColor", () => {
   it("defaults to black when no background was detected (plain paper)", () => {
     expect(contrastingDefaultColor(undefined)).toBe("#000000");
   });
+
+  it("defaults to white when no vector fill was found but a full-bleed photo covers the page", () => {
+    expect(contrastingDefaultColor(undefined, true)).toBe("#ffffff");
+  });
 });
 
 function fakePage(fnArray: number[], argsArray: unknown[][]) {

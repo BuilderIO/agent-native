@@ -99,14 +99,27 @@ function cmykToHex(c: number, m: number, y: number, k: number): string {
  * fixed black is invisible on a dark deck background — this reads black on
  * a light page and white on a dark one instead, using the same background
  * this page already resolved to.
+ *
+ * `backgroundColor` only ever comes from a page-covering *vector* fill —
+ * there's no cheap, reliable way to sample a raster background photo's
+ * actual luminance here (decoding it would mean pulling in the same
+ * fragile native-canvas path `pdf-parse-setup.ts` deliberately avoids for
+ * text extraction). But a full-bleed photo is still almost never "blank
+ * white paper", and design decks overwhelmingly lay light text over
+ * full-bleed photos — so when a page has no vector background fill AND
+ * covers itself edge-to-edge with an image, assume dark rather than
+ * defaulting to the invisible black-on-photo case this was written for.
  */
 export function contrastingDefaultColor(
   backgroundColor: string | undefined,
+  hasFullBleedImage = false,
 ): string {
-  const hex = backgroundColor ?? "#ffffff"; // guard:allow-raw-color - plain-paper fallback, not a design-system token
-  const r = parseInt(hex.slice(1, 3), 16) / 255;
-  const g = parseInt(hex.slice(3, 5), 16) / 255;
-  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  if (backgroundColor === undefined) {
+    return hasFullBleedImage ? "#ffffff" : "#000000"; // guard:allow-raw-color - plain-paper vs. full-bleed-photo fallback, not a design-system token
+  }
+  const r = parseInt(backgroundColor.slice(1, 3), 16) / 255;
+  const g = parseInt(backgroundColor.slice(3, 5), 16) / 255;
+  const b = parseInt(backgroundColor.slice(5, 7), 16) / 255;
   const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   return luminance < 0.5 ? "#ffffff" : "#000000"; // guard:allow-raw-color - contrast fallback, not a design-system token
 }
@@ -620,6 +633,12 @@ export async function parsePdfFidelity(
       });
       const linkRects = await collectLinkRects(page, viewportTransform);
       const imageRects = graphics.imageRects;
+      const hasFullBleedImage = imageRects.some(
+        (rect) =>
+          rect.right - rect.left >=
+            viewport.width * BACKGROUND_COVERAGE_RATIO &&
+          rect.bottom - rect.top >= viewport.height * BACKGROUND_COVERAGE_RATIO,
+      );
       const imageBytes = imageBytesByPage.get(pageNumber) ?? [];
       const imageElements: ParsedElement[] = imageRects
         .map((rect, index) => ({ rect, data: imageBytes[index] }))
@@ -648,7 +667,7 @@ export async function parsePdfFidelity(
         viewportTransform,
         pageNumber,
         graphics.textColors,
-        contrastingDefaultColor(graphics.backgroundColor),
+        contrastingDefaultColor(graphics.backgroundColor, hasFullBleedImage),
         graphics.underlineRects,
         linkRects,
       );
