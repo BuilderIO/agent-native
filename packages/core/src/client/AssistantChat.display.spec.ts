@@ -26,6 +26,7 @@ import {
   AssistantUiStaleIndexErrorBoundary,
   assistantMessageRunId,
   assistantChatAutoscrollStatusKey,
+  assistantUiMessageListStructureKey,
   assistantUiRecoverableRenderErrorKind,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
@@ -47,6 +48,65 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("assistantUiMessageListStructureKey", () => {
+  it("ignores text changes within existing message resources", () => {
+    const before = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "before", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const after = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ text: "after", toolCallId: undefined }],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+
+    expect(after).toBe(before);
+  });
+
+  it("changes when indexed message resources grow or shrink", () => {
+    const onePart = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }],
+      },
+    ]);
+    const twoParts = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [{ toolCallId: undefined }, { toolCallId: "tool-1" }],
+      },
+    ]);
+    const noMessages = assistantUiMessageListStructureKey([]);
+
+    expect(twoParts).not.toBe(onePart);
+    expect(noMessages).not.toBe(twoParts);
+  });
+
+  it("tracks attachment resource ids", () => {
+    const firstAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-1" }],
+      },
+    ]);
+    const secondAttachment = assistantUiMessageListStructureKey([
+      {
+        id: "message-1",
+        content: [],
+        attachments: [{ id: "attachment-2" }],
+      },
+    ]);
+
+    expect(secondAttachment).not.toBe(firstAttachment);
+  });
+});
 
 describe("queuedMessageImageSources", () => {
   it("renders images serialized into queued attachment content", () => {
@@ -2520,6 +2580,49 @@ describe("AssistantMessageListErrorBoundary", () => {
 
     expect(container.textContent).toContain("Recovered messages");
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
+  });
+
+  it("keeps the message list visibly updating during recovery", async () => {
+    let shouldFail = false;
+    function FlakyMessageList() {
+      if (shouldFail) {
+        throw new Error("tapClientLookup: Index 79 out of bounds (length: 78)");
+      }
+      return React.createElement("div", null, "Current messages");
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages" },
+          React.createElement(FlakyMessageList),
+        ),
+      );
+    });
+
+    shouldFail = true;
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages" },
+          React.createElement(FlakyMessageList),
+        ),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+
+    shouldFail = false;
+    await act(async () => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(container.textContent).toContain("Current messages");
   });
 
   it("preserves message disclosure state when the message reset key changes", () => {

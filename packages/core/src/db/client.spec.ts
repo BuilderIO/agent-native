@@ -106,8 +106,12 @@ describe("db/client dialect detection", () => {
 
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const { neonPoolMax, pgPoolOptions, isBackgroundFunctionPoolContext } =
-      await import("./client.js");
+    const {
+      neonPoolMax,
+      neonPoolOptions,
+      pgPoolOptions,
+      isBackgroundFunctionPoolContext,
+    } = await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
     // Small enough that many warm instances stay under the provider's cap, but
@@ -115,6 +119,13 @@ describe("db/client dialect detection", () => {
     expect(neonPoolMax()).toBe(2);
     expect(neonPoolMax()).toBeLessThan(4);
     expect(pgPoolOptions("postgres://example.test/db").max).toBe(2);
+    expect(neonPoolOptions()).toMatchObject({
+      max: 2,
+      idle_in_transaction_session_timeout: 30_000,
+    });
+    expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
+      idle_in_transaction_session_timeout: 30_000,
+    });
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
@@ -1071,6 +1082,49 @@ describe("Neon foreground statement budgets", () => {
       "COMMIT",
     ]);
     expect(client.release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("discards a connection when transaction rollback fails", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const transactionError = Object.assign(new Error("lock timeout"), {
+      code: "55P03",
+    });
+    const rollbackError = new Error("connection closed");
+    const query = vi.fn(async (sql: string) => {
+      if (sql === "ROLLBACK") throw rollbackError;
+      return { rows: [], rowCount: 0 };
+    });
+    const client = {
+      query,
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+
+    await expect(
+      exec.transaction?.(async () => {
+        throw transactionError;
+      }),
+    ).rejects.toBe(transactionError);
+
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(client.release).toHaveBeenCalledWith(true);
   });
 });
 
