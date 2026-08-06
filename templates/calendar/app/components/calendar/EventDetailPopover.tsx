@@ -31,6 +31,7 @@ import {
   type AttendeeRecipient,
 } from "@/components/calendar/AttendeeAutocomplete";
 import { EventAttendeesSection } from "@/components/calendar/EventAttendeesSection";
+import { EventCalendarSelect } from "@/components/calendar/EventCalendarSelect";
 import {
   RenderedDescription,
   AutoGrowTextarea,
@@ -58,7 +59,6 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -71,12 +71,8 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
-import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
-import { defaultColorForAccount } from "@/lib/calendar-view-preferences";
-import { shouldShowEventAccountSelector } from "@/lib/event-account-selection";
 import {
   attachmentsToDrafts,
   buildRecurrenceRules,
@@ -113,7 +109,6 @@ import {
 
 const ZOOM_AFTER_CONNECT_EVENT_ID_KEY = "calendar.zoomAfterConnectEventId";
 const ZOOM_AFTER_CONNECT_MAX_AGE_MS = 10 * 60 * 1000;
-const EMPTY_CONNECTED_ACCOUNTS: Array<{ email: string }> = [];
 
 function buildEventDetailSlotContext(event: CalendarEvent) {
   return {
@@ -306,6 +301,7 @@ type EventUpdatePatch = Partial<CalendarEvent> & {
   addGoogleMeet?: boolean;
   addZoom?: boolean;
   addAttendees?: CalendarEvent["attendees"];
+  targetAccountEmail?: string;
   scope?: UpdateEventScope;
   workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
   workingLocationLabel?: string;
@@ -425,68 +421,6 @@ function formatEventDateRange(start: string, end: string, allDay?: boolean) {
   return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
 }
 
-function DraftEventAccountSelect({
-  event,
-  onAccountChange,
-}: {
-  event: CalendarEvent;
-  onAccountChange: (accountEmail: string) => void;
-}) {
-  const t = useT();
-  const googleStatus = useGoogleAuthStatus();
-  const connectedAccounts =
-    googleStatus.data?.accounts ?? EMPTY_CONNECTED_ACCOUNTS;
-  const connectedAccountEmails = useMemo(
-    () => connectedAccounts.map((account) => account.email),
-    [connectedAccounts],
-  );
-  const { prefs: viewPrefs } = useViewPreferences();
-
-  if (
-    !shouldShowEventAccountSelector(connectedAccounts) ||
-    !event.accountEmail
-  ) {
-    return null;
-  }
-
-  return (
-    <div className="flex items-center gap-3 py-1.5">
-      <IconCalendarTime className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <Select value={event.accountEmail} onValueChange={onAccountChange}>
-        <SelectTrigger
-          aria-label={t("navigation.calendar")}
-          className="h-8 flex-1 text-sm"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {connectedAccounts.map((account) => (
-              <SelectItem key={account.email} value={account.email}>
-                <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{
-                      backgroundColor:
-                        viewPrefs.accountColors[account.email] ??
-                        viewPrefs.singleColor ??
-                        defaultColorForAccount(
-                          account.email,
-                          connectedAccountEmails,
-                        ),
-                    }}
-                  />
-                  <span className="truncate">{account.email}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
 interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
@@ -590,6 +524,9 @@ export function EventDetailPopover({
     () => attachmentsToDrafts(event.attachments),
   );
   const [editMeetingLink, setEditMeetingLink] = useState("");
+  const [selectedAccountEmail, setSelectedAccountEmail] = useState(
+    event.accountEmail,
+  );
   const [editTimeScope, setEditTimeScope] =
     useState<UpdateEventScope>("single");
   const [pendingVideoProvider, setPendingVideoProvider] = useState<
@@ -619,6 +556,54 @@ export function EventDetailPopover({
   const connectZoom = useConnectZoom();
   const locationRef = useRef<HTMLInputElement>(null);
   const meetingLinkRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setSelectedAccountEmail(event.accountEmail);
+  }, [event.id, event.accountEmail]);
+
+  const handleAccountChange = useCallback(
+    (targetAccountEmail: string) => {
+      if (isDraft) {
+        onDraftUpdate?.(event.id, { accountEmail: targetAccountEmail });
+        return;
+      }
+      if (
+        !event.accountEmail ||
+        targetAccountEmail === event.accountEmail ||
+        updateEvent.isPending
+      ) {
+        return;
+      }
+
+      setSelectedAccountEmail(targetAccountEmail);
+      void (async () => {
+        const guestNotification = await promptGuestNotification({
+          event,
+          action: "update",
+        });
+        if (!guestNotification) {
+          setSelectedAccountEmail(event.accountEmail);
+          return;
+        }
+        updateEvent.mutate(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            targetAccountEmail,
+            ...guestNotification,
+          },
+          {
+            onSuccess: () => toast.success(t("eventForm.eventUpdated")),
+            onError: () => {
+              setSelectedAccountEmail(event.accountEmail);
+              toast.error(t("eventForm.updateFailed"));
+            },
+          },
+        );
+      })();
+    },
+    [event, isDraft, onDraftUpdate, promptGuestNotification, t, updateEvent],
+  );
 
   // Sync editing state when the event changes (incl. live agent/other-user
   // edits picked up by polling). Skip the field the user is actively editing so
@@ -1587,12 +1572,13 @@ export function EventDetailPopover({
             </div>
 
             <div className="px-4 space-y-1">
-              {isDraft && (
-                <DraftEventAccountSelect
-                  event={event}
-                  onAccountChange={(accountEmail) =>
-                    onDraftUpdate?.(event.id, { accountEmail })
+              {(isDraft || (!isOverlay && event.source === "google")) && (
+                <EventCalendarSelect
+                  accountEmail={
+                    isDraft ? event.accountEmail : selectedAccountEmail
                   }
+                  onAccountChange={handleAccountChange}
+                  disabled={updateEvent.isPending}
                 />
               )}
 

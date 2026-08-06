@@ -57,6 +57,13 @@ ladder.
   `query-staged-dataset` or a Data Program; if raw transcript bodies are
   required, use `provider-corpus-job`. See `provider-api`, `data-programs`, and
   `gong`.
+- Custom APIs use the `provider-api-register` action for public HTTPS provider
+  metadata and `test-custom-api-connection` for bounded GET previews. Store
+  credential values in Settings, pass only key names to provider actions, and
+  hand successful endpoint tests to `save-data-program` for refreshable panels.
+- Hosted Analytics cannot reach localhost or private network APIs. Use a
+  deployed HTTPS endpoint or an explicitly supported secure tunnel; never
+  weaken the provider runtime's SSRF boundary.
 - Create dashboards, panels, or saved artifacts only when explicitly asked;
   suggest and wait otherwise. Scope them to the question, avoid decorative
   metrics, and never modify existing dashboards without a directive.

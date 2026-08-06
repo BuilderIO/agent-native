@@ -262,6 +262,10 @@
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
     },
+    "./cli/agent-plugin": {
+      "types": "./dist/cli/agent-plugin.d.ts",
+      "default": "./dist/cli/agent-plugin.js"
+    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"

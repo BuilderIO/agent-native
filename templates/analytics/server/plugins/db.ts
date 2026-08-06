@@ -1425,6 +1425,20 @@ const runAnalyticsMigrations = runMigrations(
         sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
       },
     },
+    {
+      version: 137,
+      name: "dashboard-name-locks",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -13,6 +13,7 @@ function platformSchedulerOwnsBackfill(): boolean {
   return (
     process.env.NETLIFY === "true" ||
     Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    process.env.NITRO_PRESET === "netlify" ||
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ ===
       true
   );

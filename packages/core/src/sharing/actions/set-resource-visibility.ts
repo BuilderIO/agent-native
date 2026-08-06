@@ -76,10 +76,21 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
     );
-    await db
-      .update(reg.resourceTable)
-      .set(update)
-      .where(eq(reg.resourceTable.id, args.resourceId));
+    if (reg.persistVisibilityChange) {
+      await reg.persistVisibilityChange({
+        resource: access.resource,
+        resourceId: args.resourceId,
+        visibility: args.visibility,
+        update,
+        userEmail: rawAccess.userEmail,
+        orgId: currentOrgId,
+      });
+    } else {
+      await db
+        .update(reg.resourceTable)
+        .set(update)
+        .where(eq(reg.resourceTable.id, args.resourceId));
+    }
     invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,
