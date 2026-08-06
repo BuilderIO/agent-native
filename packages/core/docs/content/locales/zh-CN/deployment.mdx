@@ -316,6 +316,23 @@ Netlify 构建会生成一个计划函数，**每分钟**请求一次 `/_agent-n
 
 如果你使用免费或受配额限制的数据库套餐，请设置 `AGENT_NATIVE_DISABLE_KEEP_WARM=1` 或选择更慢的节奏。
 
+### 按需 schema DDL {#skip-ensure-tables}
+
+每个 store 在首次接触数据库时调用 `ensureTable()`，它会探测 `information_schema` / `pg_indexes`，并只对确实缺失的对象执行 `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX`。在长期运行的 Node 服务器上，这个开销每次启动只付一次，几乎不可见。在 serverless 上，「首次接触」发生在**每一次冷启动**，涉及约 57 个 store —— 因此一个冷请求可能在做任何实际工作之前先付出数百次串行往返。
+
+有两点可以减少它：
+
+- 这些探测由**每个数据库一次批量 introspection**（两条查询）来回答，而不是每张表、每个列、每个索引各一条查询。这是自动的，无需配置。
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` 会完全跳过探测与 DDL 流程，这是可获得的最大冷启动延迟收益。
+
+当你的数据库 schema 已经迁移完毕、并且不希望应用启动去创建或修改表时，设置 `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` —— 这是具备真实迁移步骤的生产部署的常规情况。
+
+<Callout tone="risk">
+
+**这个开关不会、也无法「失败即关闭」。** 如果 schema 确实缺失，第一条真实查询会大声失败，而不是被就地修复 —— 这正是目的，但也意味着迁移由你负责。不要在依赖应用启动来创建表的部署上设置它。
+
+</Callout>
+
 ## Cloudflare 页面 {#cloudflare-pages}
 
 ```ts
@@ -405,6 +422,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE` | 用 5 字段 cron 表达式覆盖 keep-warm 节奏（默认 `* * * * *`）。无法解析的值会使构建失败。参见 [Keep-warm](#netlify-keep-warm)。 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 仅取消后台函数的预热，仍保持服务器温热。参见 [Keep-warm](#netlify-keep-warm)。 |
 | `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS` | 关闭进程内的兜底清扫定时器（自动化重派发、agent-teams 对账、沙箱执行恢复）。在 serverless 上它们按每个温实例运行，因此查询速率随实例数增长。**仅**在已有持久调度器驱动同样的恢复时才设置，否则排队的工作不会被重试。 |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES` | 完全跳过按需 schema DDL。移除每次冷启动在做任何工作前都要支付的 schema 探测往返。要求 schema 已经迁移完毕 —— 参见 [按需 schema DDL](#skip-ensure-tables)。 |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用于预览安全的 Builder 授权中继的专用 32+ 字符共享 HMAC 密钥。只有当授权结果必须写入隔离的预览数据库时，才在获批的企业回调部署和预览部署上设置相同的值。                                                                                                                              |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 仅用于企业回调的、以逗号分隔的精确可信预览来源允许列表（例如 `https://0123456789abcdef01234567--content.netlify.app`）。仅在企业回调部署中设置。Netlify 来源必须使用包含 24 位十六进制 ID、不可变且特定于部署的永久链接；可变的 `deploy-preview-*` 别名、通配符和域名后缀均会被拒绝。 |
 

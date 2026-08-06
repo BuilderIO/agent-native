@@ -34,6 +34,175 @@ import { isPostgres, getDbExec, type DbExec } from "./client.js";
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * Skip on-demand schema DDL entirely. For deployments that run real migrations,
+ * where the probe → DDL machinery below is pure cold-start latency.
+ *
+ * Implemented at the PROBE layer, not per store: every `ensureTable()` in the
+ * codebase reaches the database through these three helpers, and there are ~390
+ * call sites across ~57 stores. Reporting "present" here makes
+ * `ensureSchemaObject` a no-op without touching any of them.
+ *
+ * This does not fail closed, and cannot: the only honest signal that schema is
+ * missing is the real query failing, which it will, loudly, at the first read.
+ * Silently reporting "absent" instead would be worse — it would send every store
+ * down the DDL path this flag exists to avoid.
+ */
+function schemaEnsureDisabled(): boolean {
+  const raw = process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES?.trim();
+  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
+/**
+ * One introspection pass per database, instead of one probe per object.
+ *
+ * `ensureTable()` fans out to N probes on a store's first DB touch, and on
+ * serverless "first touch" is EVERY cold start. Across ~390 probe sites that is
+ * up to ~390 serial round trips before any real work, on the critical path of a
+ * user request. Production showed 608k of them. Two queries build the whole
+ * picture instead.
+ *
+ * ## Keyed per client, never process-globally
+ *
+ * `pgTableExists`/`pgIndexExists` accept an `injectedClient` because the hosted
+ * multi-app gateway probes a DIFFERENT app's Postgres database from a process
+ * whose own global DB may be absent or SQLite. A single shared `Set` would
+ * answer one app's probe with another app's schema — a correctness bug, not a
+ * perf regression. The global singleton gets its own slot; injected clients are
+ * keyed on the client object itself.
+ */
+type SchemaSnapshot = {
+  tables: Set<string>;
+  /** `table.column`, lowercased. */
+  columns: Set<string>;
+  indexes: Set<string>;
+};
+
+const injectedSnapshots = new WeakMap<DbExec, Promise<SchemaSnapshot | null>>();
+let globalSnapshot: Promise<SchemaSnapshot | null> | undefined;
+
+/**
+ * Drop the cached picture after any successful DDL, so a freshly created object
+ * is visible to the next probe rather than reported absent for the life of the
+ * process.
+ */
+export function invalidateSchemaSnapshot(injectedClient?: DbExec): void {
+  // The global snapshot always goes: a store may create an object through an
+  // injected client and later probe through the global one (or the reverse), so
+  // after DDL neither picture is trustworthy and both are cheap to rebuild.
+  globalSnapshot = undefined;
+  if (injectedClient) injectedSnapshots.delete(injectedClient);
+}
+
+/** Test seam — the snapshots are module state, so suites must clear them. */
+export function __resetSchemaSnapshotForTests(): void {
+  globalSnapshot = undefined;
+}
+
+async function loadSchemaSnapshot(
+  client: DbExec,
+): Promise<SchemaSnapshot | null> {
+  try {
+    const [columnRows, indexRows] = await Promise.all([
+      client.execute(
+        `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`,
+      ),
+      client.execute(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`,
+      ),
+    ]);
+    // An EMPTY result is a valid snapshot (a fresh database really has nothing
+    // in `public`). A result whose rows lack the columns we asked for is not —
+    // it means something other than Postgres answered, and treating it as "these
+    // are the objects that exist" would report every table absent and send every
+    // store down the DDL path. Fall back to per-object probes instead.
+    const columnData = columnRows.rows as Record<string, unknown>[];
+    const indexData = indexRows.rows as Record<string, unknown>[];
+    if (columnData.length > 0 && !("table_name" in columnData[0])) return null;
+    if (indexData.length > 0 && !("indexname" in indexData[0])) return null;
+
+    const tables = new Set<string>();
+    const columns = new Set<string>();
+    for (const row of columnData) {
+      const table = String(row.table_name ?? "").toLowerCase();
+      const column = String(row.column_name ?? "").toLowerCase();
+      if (!table) continue;
+      tables.add(table);
+      if (column) columns.add(`${table}.${column}`);
+    }
+    const indexes = new Set<string>();
+    for (const row of indexData) {
+      const name = String(row.indexname ?? "").toLowerCase();
+      if (name) indexes.add(name);
+    }
+    return { tables, columns, indexes };
+  } catch (err) {
+    // `information_schema` unreadable (permissions / non-standard backend).
+    // `null` is a typed "no snapshot" the caller tells apart from an empty one:
+    // each probe falls back to its original per-object query. It does NOT mean
+    // "the schema is empty", which would make every store issue DDL it does not
+    // need. Say so once — the fallback is correct but costs a few hundred round
+    // trips per cold start, which is invisible otherwise.
+    warnIntrospectionUnavailableOnce(err);
+    return null;
+  }
+}
+
+let _warnedIntrospectionUnavailable = false;
+
+function warnIntrospectionUnavailableOnce(err: unknown): void {
+  if (_warnedIntrospectionUnavailable) return;
+  _warnedIntrospectionUnavailable = true;
+  console.warn(
+    "[db] batched schema introspection unavailable; falling back to one probe " +
+      "per table/column/index (slower cold starts, same behaviour): " +
+      ((err as Error)?.message ?? err),
+  );
+}
+
+// `loadSchemaSnapshot` resolves to `null` on failure rather than rejecting, so
+// these need no `.catch()` — adding one would be dead code hiding that contract.
+function schemaSnapshot(client: DbExec, injected: boolean) {
+  if (injected) {
+    let pending = injectedSnapshots.get(client);
+    if (!pending) {
+      pending = loadSchemaSnapshot(client);
+      injectedSnapshots.set(client, pending);
+    }
+    return pending;
+  }
+  if (!globalSnapshot) {
+    globalSnapshot = loadSchemaSnapshot(client);
+  }
+  return globalSnapshot;
+}
+
+/**
+ * `true`/`false` from the cached picture, or `undefined` when there is no usable
+ * snapshot and the caller must fall back to its own single-object probe.
+ *
+ * A snapshot MISS is authoritative: the snapshot lists every object in `public`,
+ * so "not in the set" means the object really is absent and the caller should
+ * proceed to DDL. That is what makes this a replacement for the per-object
+ * probe rather than a layer in front of it.
+ */
+async function snapshotHas(
+  kind: "table" | "column" | "index",
+  key: string,
+  client: DbExec,
+  injected: boolean,
+): Promise<boolean | undefined> {
+  const snapshot = await schemaSnapshot(client, injected);
+  if (!snapshot) return undefined;
+  const set =
+    kind === "table"
+      ? snapshot.tables
+      : kind === "column"
+        ? snapshot.columns
+        : snapshot.indexes;
+  return set.has(key.toLowerCase());
+}
+
+/**
  * True when running against Postgres AND the given table already exists in the
  * `public` schema. Returns `false` on SQLite (callers gate their own behaviour
  * there), for invalid identifiers, or when `information_schema` is unreadable —
@@ -54,7 +223,10 @@ export async function pgTableExists(
   if (!(dialectIsPostgres ?? isPostgres()) || !PLAIN_IDENTIFIER.test(table)) {
     return false;
   }
+  if (schemaEnsureDisabled()) return true;
   const client = injectedClient ?? getDbExec();
+  const cached = await snapshotHas("table", table, client, !!injectedClient);
+  if (cached !== undefined) return cached;
   try {
     const { rows } = await client.execute({
       sql: `SELECT 1 FROM information_schema.tables
@@ -85,7 +257,15 @@ export async function pgColumnExists(
   if (!PLAIN_IDENTIFIER.test(table) || !PLAIN_IDENTIFIER.test(column)) {
     return false;
   }
+  if (schemaEnsureDisabled()) return true;
   const client = injectedClient ?? getDbExec();
+  const cached = await snapshotHas(
+    "column",
+    `${table}.${column}`,
+    client,
+    !!injectedClient,
+  );
+  if (cached !== undefined) return cached;
   try {
     const { rows } = await client.execute({
       sql: `SELECT 1 FROM information_schema.columns
@@ -120,7 +300,15 @@ export async function pgIndexExists(
   ) {
     return false;
   }
+  if (schemaEnsureDisabled()) return true;
   const client = injectedClient ?? getDbExec();
+  const cached = await snapshotHas(
+    "index",
+    indexName,
+    client,
+    !!injectedClient,
+  );
+  if (cached !== undefined) return cached;
   try {
     const { rows } = await client.execute({
       sql: `SELECT 1 FROM pg_indexes
@@ -181,6 +369,10 @@ export async function ensureSchemaObject(options: {
     injectedClient,
     dialectIsPostgres,
   });
+  // The cached picture predates this object. Drop it before anyone probes again,
+  // or a sibling `ensureTable` in the same boot is told the object it just
+  // created does not exist.
+  invalidateSchemaSnapshot(injectedClient);
   if (ran) return true;
   // The DDL was swallowed by a lock-timeout. The object is virtually always
   // already correct by the time a contended boot retries (a concurrent

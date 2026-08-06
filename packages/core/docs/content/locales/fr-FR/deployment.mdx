@@ -316,6 +316,23 @@ Le build Netlify émet une fonction planifiée qui appelle `/_agent-native/healt
 
 Si vous êtes sur une offre de base de données gratuite ou limitée par quota, définissez `AGENT_NATIVE_DISABLE_KEEP_WARM=1` ou choisissez une cadence plus lente.
 
+### DDL de schéma à la demande {#skip-ensure-tables}
+
+Chaque store appelle `ensureTable()` à son premier contact avec la base, ce qui sonde `information_schema` / `pg_indexes` et n'émet `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX` que pour ce qui manque réellement. Sur un serveur Node de longue durée, ce coût est payé une fois par démarrage et reste invisible. En serverless, le « premier contact » a lieu à **chaque démarrage à froid**, sur ~57 stores — une requête à froid peut donc payer quelques centaines d'allers-retours en série avant tout travail réel.
+
+Deux choses le réduisent :
+
+- Les sondes sont satisfaites depuis **une seule passe d'introspection par base** (deux requêtes) au lieu d'une requête par table, colonne et index. C'est automatique et ne demande aucune configuration.
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` ignore entièrement la machinerie sonde-puis-DDL, le plus gros gain de latence à froid disponible.
+
+Définissez `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` lorsque le schéma de votre base est déjà migré et que vous ne voulez pas que le démarrage de l'application crée ou modifie des tables — le cas normal d'un déploiement de production doté d'une véritable étape de migration.
+
+<Callout tone="risk">
+
+**Ce drapeau n'échoue pas en mode fermé, et ne peut pas le faire.** Si le schéma manque réellement, la première requête réelle échoue bruyamment au lieu d'être réparée à la volée — c'est le but, mais la migration devient votre responsabilité. Ne l'activez pas sur un déploiement qui compte sur le démarrage de l'application pour provisionner ses tables.
+
+</Callout>
+
 ## Pages Cloudflare {#cloudflare-pages}
 
 ```ts
@@ -405,6 +422,7 @@ Trois points à garder à l'esprit :
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE` | Remplace la cadence de keep-warm par une expression cron à 5 champs (par défaut `* * * * *`). Une valeur non analysable fait échouer le build. Voir [Keep-warm](#netlify-keep-warm). |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Abandonne seulement le préchauffage de la fonction d'arrière-plan et garde le serveur chaud. Voir [Keep-warm](#netlify-keep-warm). |
 | `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS` | Désactive les minuteurs de balayage de secours en cours de processus (redispatch d'automatisations, réconciliation agent-teams, reprise des exécutions en sandbox). En serverless, ils s'exécutent par conteneur chaud : leur taux de requêtes croît donc avec le nombre d'instances. Ne l'activez **que** là où un planificateur durable pilote déjà la même reprise, sinon le travail en file d'attente ne sera pas réessayé. |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES` | Ignore entièrement le DDL de schéma à la demande. Supprime les allers-retours de sondage de schéma que chaque démarrage à froid paie avant tout travail. Exige un schéma déjà migré — voir [DDL de schéma à la demande](#skip-ensure-tables). |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Secret HMAC partagé et dédié d'au moins 32 caractères pour le relais sécurisé de l'autorisation Builder vers les aperçus. Définissez la même valeur sur le déploiement de rappel d'entreprise approuvé et sur les déploiements d'aperçu uniquement lorsque l'autorisation doit être enregistrée dans une base de données d'aperçu isolée.                                                                                                                                                          |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Liste séparée par des virgules des origines d'aperçu approuvées exactes, réservée au rappel d'entreprise (par exemple `https://0123456789abcdef01234567--content.netlify.app`). Définissez-la uniquement sur le déploiement de rappel d'entreprise. Les origines Netlify doivent utiliser un permalien immuable propre au déploiement avec un identifiant hexadécimal de 24 caractères ; les alias mutables `deploy-preview-*`, les caractères génériques et les suffixes de domaine sont rejetés. |
 
