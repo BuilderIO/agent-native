@@ -271,7 +271,7 @@ function buildFidelityParagraph(
   const fontSize = (firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT;
   const lineHeight = paragraph.lineSpacing ?? 1.2;
   const bullet = paragraph.bulletChar
-    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${(paragraph.bulletSize ?? firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT}px;">${esc(paragraph.bulletChar)}</span>`
+    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${(paragraph.bulletSize ?? firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT}px;">${esc(paragraph.bulletChar)}</span>`
     : "";
   const marginLeft = paragraph.marginLeftEmu
     ? toSlidePxX(paragraph.marginLeftEmu, widthEmu)
@@ -281,20 +281,35 @@ function buildFidelityParagraph(
     : 0;
   const spacingBefore = paragraph.spaceBeforePt ?? 0;
   const spacingAfter = paragraph.spaceAfterPt ?? 0;
-  const text = paragraph.runs.map(formatFidelityRun).join("");
-  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:flex;align-items:flex-start;justify-content:${paragraph.alignment ?? "left"};margin:${spacingBefore}px 0 ${spacingAfter}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${indent}px;">${bullet}${text}</p>`;
+  const text = paragraph.runs
+    .map((run) => formatFidelityRun(run, themeFont))
+    .join("");
+  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;text-align:${paragraph.alignment ?? "left"};margin:${spacingBefore * CSS_PX_PER_POINT}px 0 ${spacingAfter * CSS_PX_PER_POINT}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${indent}px;">${bullet}${text}</p>`;
 }
 
-function formatFidelityRun(run: ParsedTextRun): string {
+function formatFidelityRun(
+  run: ParsedTextRun,
+  themeFont: string | undefined,
+): string {
   const styles = [
     `font-size:${(run.fontSize ?? 18) * CSS_PX_PER_POINT}px`,
-    `font-family:${cssFontFamily(run.fontFamily)}`,
+    `font-family:${cssFontFamily(run.fontFamily ?? themeFont)}`,
     `color:${esc(run.color ?? DEFAULT_PPTX_FOREGROUND)}`,
-    `font-weight:${run.bold ? 700 : 400}`,
+    `font-weight:${run.bold ? 700 : fontWeightForFamily(run.fontFamily)}`,
     `font-style:${run.italic ? "italic" : "normal"}`,
     `text-decoration:${run.underline ? "underline" : "none"}`,
   ].join(";");
   return `<span style="${styles};">${esc(run.content)}</span>`;
+}
+
+function fontWeightForFamily(fontFamily: string | undefined): number {
+  const normalized = fontFamily?.toLowerCase() ?? "";
+  if (/(?:semi|demi)bold|semibold/.test(normalized)) return 600;
+  if (/extra[- ]?bold|heavy/.test(normalized)) return 800;
+  if (/bold/.test(normalized)) return 700;
+  if (/medium/.test(normalized)) return 500;
+  if (/light|thin/.test(normalized)) return 300;
+  return 400;
 }
 
 function buildTitleSlide(

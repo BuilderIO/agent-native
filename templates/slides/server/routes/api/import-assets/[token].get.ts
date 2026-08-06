@@ -17,13 +17,20 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
 
-  const token = getRouterParam(event, "token") ?? "";
+  const rawToken = getRouterParam(event, "token") ?? "";
+  let token = rawToken;
+  try {
+    token = decodeURIComponent(rawToken);
+  } catch {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
   let descriptor;
   try {
     descriptor = decodeLocalImportedAssetToken(token);
