@@ -16,7 +16,7 @@ import {
   prepareLocalSqliteUrl,
   sqliteFilenameFromUrl,
   pgPoolOptions,
-  neonPoolMax,
+  neonPoolOptions,
   attachNeonPoolErrorLogger,
   withDbTimeout,
   retryOnConnectionError,
@@ -504,7 +504,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           const rawPool = sharedDbPool(
             "neon",
             url,
-            () => new Pool({ connectionString: url, max: neonPoolMax() }),
+            () => new Pool({ connectionString: url, ...neonPoolOptions() }),
           );
           attachNeonPoolErrorLogger(rawPool);
           // Wrap the pool with the resilience layer so Drizzle queries get the

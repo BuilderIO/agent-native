@@ -970,9 +970,33 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
+    ...(serverless
+      ? {
+          connection: {
+            idle_in_transaction_session_timeout: 30_000,
+          },
+        }
+      : {}),
     // Supabase's connection pooler (Transaction mode) requires prepare:false.
     // Only disable for Supabase URLs to avoid degrading other deployments.
     ...(url.includes("supabase") ? { prepare: false } : {}),
+  };
+}
+
+/**
+ * Shared options for every Neon serverless pool. The startup parameter is
+ * applied by Postgres before the first transaction, so a killed function
+ * cannot return a connection that remains idle in transaction indefinitely.
+ */
+export function neonPoolOptions(): {
+  max: number;
+  idle_in_transaction_session_timeout?: number;
+} {
+  return {
+    max: neonPoolMax(),
+    ...(isServerlessRuntime()
+      ? { idle_in_transaction_session_timeout: 30_000 }
+      : {}),
   };
 }
 
@@ -1355,7 +1379,7 @@ async function createDbExecInternal(
       // The foreground and transaction surface keep the WebSocket pool.
       const bgHttp = isBackgroundFunctionPoolContext();
       const makePool = () =>
-        new Pool({ connectionString: url, max: neonPoolMax() });
+        new Pool({ connectionString: url, ...neonPoolOptions() });
       // The singleton exec shares the process pool; `createDbExec()` callers own
       // a `close()` and so must not be handed it.
       const pool = trackSingletonResources

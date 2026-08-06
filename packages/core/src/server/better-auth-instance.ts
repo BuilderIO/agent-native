@@ -37,7 +37,7 @@ import {
   isPgliteUrl,
   loadPgliteDrizzle,
   pgPoolOptions,
-  neonPoolMax,
+  neonPoolOptions,
   attachNeonPoolErrorLogger,
   sharedDbPool,
   onSharedDbPoolsClosed,
@@ -1590,7 +1590,7 @@ async function buildDatabaseConfig(
       _neonAuthPool = sharedDbPool(
         "neon",
         url,
-        () => new Pool({ connectionString: url, max: neonPoolMax() }),
+        () => new Pool({ connectionString: url, ...neonPoolOptions() }),
       );
       attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");

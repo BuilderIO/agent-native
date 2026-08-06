@@ -106,8 +106,12 @@ describe("db/client dialect detection", () => {
 
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const { neonPoolMax, pgPoolOptions, isBackgroundFunctionPoolContext } =
-      await import("./client.js");
+    const {
+      neonPoolMax,
+      neonPoolOptions,
+      pgPoolOptions,
+      isBackgroundFunctionPoolContext,
+    } = await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
     // Small enough that many warm instances stay under the provider's cap, but
@@ -115,6 +119,13 @@ describe("db/client dialect detection", () => {
     expect(neonPoolMax()).toBe(2);
     expect(neonPoolMax()).toBeLessThan(4);
     expect(pgPoolOptions("postgres://example.test/db").max).toBe(2);
+    expect(neonPoolOptions()).toMatchObject({
+      max: 2,
+      idle_in_transaction_session_timeout: 30_000,
+    });
+    expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
+      idle_in_transaction_session_timeout: 30_000,
+    });
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
