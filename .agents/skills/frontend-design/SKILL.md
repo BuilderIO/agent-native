@@ -130,6 +130,11 @@ passed this requirement yet.
 - Do not build custom dropdowns, menus, popovers, modals, or confirmations with manual absolute positioning and click-outside effects.
 - Never use browser dialogs (`window.alert`, `window.confirm`, `window.prompt`). Use `AlertDialog`, `Dialog`, or app-specific confirmation UI.
 - Use Tabler icons for all first-party UI icons. Do not add Lucide, Heroicons, inline SVG icon sets, or emoji icons.
+- Never guess a Tabler icon name. Names like `IconPartyPopper` or `IconConfettiCannon` feel
+  plausible but don't exist and crash Vite with a "Named export not found" error. Before importing
+  an icon you haven't used elsewhere in this app, confirm it exists by grepping
+  `node_modules/@tabler/icons-react/dist/esm/tabler-icons-react.d.ts` (or the package's icon list)
+  for the exact name, and pick the closest real match if your first guess isn't there.
 - Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` for action-backed UI. Standard CRUD should go through actions, not custom `/api/` routes.
 - Keep UI optimistic where possible: update cache and navigation immediately, then reconcile or roll back on mutation result.
 - Custom styles belong in Tailwind classes, component CSS, or the existing global CSS theme file; avoid inline styles.
