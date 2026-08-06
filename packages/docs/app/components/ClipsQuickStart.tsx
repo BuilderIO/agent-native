@@ -4,10 +4,8 @@ import {
   IconCamera,
   IconDeviceDesktop,
   IconDeviceScreen,
-  IconLink,
   IconMicrophone,
   IconPlayerRecord,
-  IconUpload,
   IconVideo,
   IconVolume,
 } from "@tabler/icons-react";
@@ -191,26 +189,6 @@ export function ClipsQuickStart() {
           <IconPlayerRecord size={18} stroke={1.8} />
           {tq("startRecording")}
         </a>
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
-          <a
-            href="https://clips.agent-native.com/record?autoUpload=1"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:no-underline"
-          >
-            <IconUpload size={16} stroke={1.8} />
-            {tq("uploadVideo")}
-          </a>
-          <a
-            href="https://clips.agent-native.com/import"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:no-underline"
-          >
-            <IconLink size={16} stroke={1.8} />
-            {tq("importLoom")}
-          </a>
-        </div>
       </div>
     </div>
   );
