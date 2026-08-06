@@ -10,6 +10,7 @@ type ViewRow = {
 };
 
 const state = vi.hoisted(() => ({
+  accessCalls: [] as unknown[][],
   views: [] as ViewRow[],
 }));
 
@@ -139,7 +140,10 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ kind: "access" }),
   assertAccess: async () => ({ role: "owner" }),
-  resolveAccess: async () => ({ resource: dashboard, role: "owner" }),
+  resolveAccess: async (...args: unknown[]) => {
+    state.accessCalls.push(args);
+    return { resource: dashboard, role: "owner" };
+  },
   roleSatisfies: () => true,
 }));
 
@@ -200,6 +204,7 @@ const { deleteDashboardView, saveDashboardView } =
   await import("./dashboards-store.js");
 
 beforeEach(() => {
+  state.accessCalls = [];
   state.views = [
     {
       id: "existing",
@@ -221,6 +226,19 @@ beforeEach(() => {
 });
 
 describe("dashboard views", () => {
+  it("checks parent access without loading the dashboard config", async () => {
+    const { listDashboardViews } = await import("./dashboards-store.js");
+
+    await listDashboardViews("dashboard-a", ctx);
+
+    expect(state.accessCalls).toContainEqual([
+      "dashboard",
+      "dashboard-a",
+      { userEmail: "alice@example.com", orgId: undefined },
+      { skipResourceBody: true },
+    ]);
+  });
+
   it("inserts a new view when the client supplies a new id", async () => {
     const result = await saveDashboardView(
       "dashboard-a",

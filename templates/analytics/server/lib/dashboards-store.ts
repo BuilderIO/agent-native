@@ -2067,8 +2067,16 @@ export async function listDashboardViews(
   ctx: AccessCtx,
 ): Promise<DashboardViewRecord[]> {
   // Parent access gates view visibility.
-  const dash = await getDashboard(dashboardId, ctx);
-  if (!dash) return [];
+  const access = await resolveAccess(
+    "dashboard",
+    dashboardId,
+    {
+      userEmail: ctx.email,
+      orgId: ctx.orgId ?? undefined,
+    },
+    { skipResourceBody: true },
+  );
+  if (!access) return [];
   const db = getDb() as any;
   const rows = await db
     .select()
