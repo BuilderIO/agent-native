@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.17.6
+
+### Patch Changes
+
+- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
+
 ## 0.17.5
 
 ### Patch Changes
