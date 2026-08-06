@@ -193,15 +193,16 @@ function describeUploadedFilesForAgent(
     .join("\n");
   return [
     "",
-    `The user uploaded ${files.length} file(s). These paths are real uploaded files; process them with import actions before using their contents:`,
+    `The user uploaded ${files.length} file(s). These are mandatory source material, not optional references — process every one of them with the matching import action BEFORE adding the first slide:`,
     fileList,
     "",
     "File handling rules:",
     `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` before adding or editing slides.`,
-    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed.`,
+    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed. Do not proceed to add-slide until this call has returned for every PDF/DOCX in the list above.`,
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
-    '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
+    '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
+    "- Before your final response, verify every uploaded file above was either imported (PPTX/PDF/DOCX) or placed as requested (images). If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
   ].join("\n");
 }
 

@@ -70,25 +70,6 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 import { enterSelectionMode } from "@/root";
 
-function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg backdrop-blur"
-          onClick={props.onExit}
-          aria-label={props.label}
-        >
-          <IconX className="h-4 w-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{props.label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import {
@@ -152,6 +133,25 @@ import { type SlideStylePatch, type SlideStyleSnapshot } from "./slide-style";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import { SpeakerNotesPanel } from "./SpeakerNotesPanel";
+
+function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg backdrop-blur"
+          onClick={props.onExit}
+          aria-label={props.label}
+        >
+          <IconX className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{props.label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 let builderIdCounter = 0;
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
