@@ -442,9 +442,10 @@ typed app actions से गुजरते हैं, जब तक ऐप स�
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,17 +456,42 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` - डिफ़ॉल्ट। केवल `db-schema` और `db-query` पंजीकृत करता है;
+- `database: "read"` - डिफ़ॉल्ट। केवल `db-schema` और `db-query` पंजीकृत करता है;
   एजेंट SQL से डेटा देखते हैं लेकिन writes के लिए typed app actions का उपयोग करते हैं।
-- `databaseTools: "write"` या `true` - deliberate raw SQL maintenance के लिए
+- `database: "write"` या `true` - deliberate raw SQL maintenance के लिए
   `db-exec` और `db-patch` भी पंजीकृत करता है। writes मौजूदा उपयोगकर्ता/संगठन
   तक scoped रहते हैं और schema changes blocked रहते हैं।
-- `databaseTools: "off"` या `false` - कच्चे डेटाबेस टूल को हटा देता है
+- `database: "off"` या `false` - कच्चे डेटाबेस टूल को हटा देता है
   एजेंट सतह इसलिए ऐप का actions ही एकमात्र डेटा एक्सेस पथ है।
-- `extensionTools: true` - ऐप के लिए फ्रेमवर्क एक्सटेंशन-प्रबंधन actions और
+- `extensions: true` - ऐप के लिए फ्रेमवर्क एक्सटेंशन-प्रबंधन actions और
   मार्गदर्शन (`create-extension`, `update-extension`, आदि) चालू करता है।
   प्रमाणित REST निर्माण की अनुमति देने के लिए इसे दोनों plugins पर सेट करें।
   एक्सटेंशन डिफ़ॉल्ट रूप से बंद रहते हैं।
+
+बाकी समूह बूलियन हैं और डिफ़ॉल्ट रूप से सभी चालू हैं: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`।
+वॉइस-फ़र्स्ट या single-purpose ऐप में `frameworkTools: "minimal"` से सभी एक बार
+में बंद करें, या `frameworkTools: { preset: "minimal", resources: true }` से
+सिर्फ़ एक रखें — स्पष्ट रूप से दी गई समूह कुंजी हमेशा preset पर भारी पड़ती है।
+
+कोई समूह बंद करने पर वह केवल **एजेंट** सतहों से हटता है: इंटरैक्टिव चैट, MCP,
+A2A और बैकग्राउंड रन। संबंधित HTTP action रूट माउंट रहते हैं, क्योंकि UI उन्हें
+क्लाइंट hooks से कॉल करती है — `sharing` बंद करने से स्क्रीन पर दिख रहे शेयर
+डायलॉग को 404 नहीं मिलना चाहिए। यह parity लागत पहले तोलें: फ़्रेमवर्क का अनुबंध
+है कि जो UI कर सकती है वह एजेंट भी कर सकता है, इसलिए दिखते शेयर बटन के साथ
+`sharing: false` एक जानबूझकर किया गया उल्लंघन है और तभी उचित है जब ऐप में वह
+सतह ही न हो।
+
+इस विकल्प से स्वतंत्र, फ़्रेमवर्क टूल अब डिफ़ॉल्ट रूप से पहली मॉडल रिक्वेस्ट में
+लोड नहीं होते। वे खोजने योग्य रजिस्ट्री में रहते हैं और `tool-search` से आते हैं,
+या तुरंत यदि ऐप उन्हें `initialToolNames` में नाम दे।
+
+<Callout type="warning">
+  शीर्ष-स्तरीय `databaseTools` और `extensionTools` विकल्प
+  `frameworkTools.database` और `frameworkTools.extensions` के पक्ष में deprecated
+  हैं। वे अभी भी मान्य हैं, लेकिन कोई शीर्ष-स्तरीय फ़्लैग और उसका
+  `frameworkTools` समकक्ष परस्पर विरोधी मानों पर सेट होने पर plugin स्टार्टअप पर
+  त्रुटि देता है, बजाय ऐसी टूल सतह के साथ चलने के जिसे किसी ने नहीं चुना।
+</Callout>
 
 ## उत्पादन कोड निष्पादन {#production-code-execution}
 

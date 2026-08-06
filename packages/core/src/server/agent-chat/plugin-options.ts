@@ -5,6 +5,7 @@ import type {
   AgentChatReference,
   MentionProvider,
 } from "../../agent/types.js";
+import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import type { PromptExamples } from "../prompts/index.js";
@@ -261,6 +262,29 @@ export interface AgentChatPluginOptions {
    */
   nativeActionsInDev?: boolean;
   /**
+   * Which of the framework's OWN agent tools this app exposes — raw SQL,
+   * extensions, sharing, review comments, version history, feature flags,
+   * localization, audit, context X-Ray, profile, automations, docs, resources,
+   * web, cross-app delegation, chat, email.
+   *
+   * Every group defaults to today's behavior, so omitting this leaves the tool
+   * surface unchanged. `"minimal"` (or `{ preset: "minimal" }`) turns them all
+   * off for voice-first and single-purpose apps; an explicit group key wins over
+   * the preset.
+   *
+   * Disabling a group removes it from the AGENT surfaces only — chat, MCP, A2A,
+   * background runs. The matching HTTP action routes stay mounted because the UI
+   * reaches them through client hooks. Weigh the parity cost first: the
+   * framework's contract is that anything the UI can do, the agent can do, so
+   * `sharing: false` alongside a visible `ShareButton` is a deliberate break and
+   * only makes sense when the app has no such surface.
+   *
+   * Independent of this option, framework tools are no longer promoted into the
+   * first model request by default — they are reachable through `tool-search`,
+   * or by naming them in `initialToolNames`.
+   */
+  frameworkTools?: FrameworkToolsConfig;
+  /**
    * Expose raw SQL/native database tools to the app agent.
    *
    * Defaults to `"read"`: `db-schema`/`db-query` are available for inspection,
@@ -268,6 +292,9 @@ export interface AgentChatPluginOptions {
    * `true`) to expose `db-exec`/`db-patch` for scoped raw SQL maintenance.
    * Set to `"off"` (also `false`) for chat-first apps that want agents to use
    * typed actions only.
+   *
+   * @deprecated Use `frameworkTools: { database: … }`. Still honored for one
+   * minor; setting both to conflicting values throws at plugin init.
    */
   databaseTools?: DatabaseToolsOption;
   /**
@@ -276,6 +303,9 @@ export interface AgentChatPluginOptions {
    * false. Set to true for apps that intentionally let the LLM create or
    * manage sandboxed extension mini-apps. Core extension routes may still be
    * mounted for compatibility and app-owned surfaces.
+   *
+   * @deprecated Use `frameworkTools: { extensions: … }`. Still honored for one
+   * minor; setting both to conflicting values throws at plugin init.
    */
   extensionTools?: boolean;
   /**

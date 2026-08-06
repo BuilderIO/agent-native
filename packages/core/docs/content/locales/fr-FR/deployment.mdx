@@ -442,9 +442,10 @@ passent par des actions d’application typées, sauf si l’application active 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,18 +456,46 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — par défaut. Enregistre uniquement `db-schema` et `db-query`;
+- `database: "read"` — par défaut. Enregistre uniquement `db-schema` et `db-query`;
   les agents inspectent les données avec SQL, mais doivent utiliser les actions typées de l’application pour écrire.
-- `databaseTools: "write"` ou `true` — enregistre aussi `db-exec` et `db-patch`
+- `database: "write"` ou `true` — enregistre aussi `db-exec` et `db-patch`
   pour une maintenance SQL brute délibérée. Les écritures sont limitées à
   l’utilisateur/l’organisation actuel(le) et les modifications de schéma sont bloquées.
-- `databaseTools: "off"` ou `false` : supprime les outils de base de données brutes du
+- `database: "off"` ou `false` : supprime les outils de base de données brutes du
   surface de l'agent afin que les actions de l'application soient le seul chemin d'accès aux données.
-- `extensionTools: true` — active pour l’application les actions et les
+- `extensions: true` — active pour l’application les actions et les
   instructions de gestion des extensions (`create-extension`,
   `update-extension`, etc.). Définissez-la sur les deux plugins pour autoriser
   également la création REST authentifiée. Les extensions sont désactivées par
   défaut.
+
+Les autres groupes sont des booléens, tous activés par défaut : `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`.
+Utilisez `frameworkTools: "minimal"` pour tout désactiver d'un coup dans une app
+vocale ou monofonctionnelle, ou `frameworkTools: { preset: "minimal", resources: true }`
+pour n'en garder qu'un : une clé de groupe explicite l'emporte toujours sur le preset.
+
+Désactiver un groupe le retire uniquement des surfaces **agent** : chat
+interactif, MCP, A2A et exécutions en arrière-plan. Les routes HTTP
+correspondantes restent montées, car l'UI y accède via des hooks client —
+désactiver `sharing` ne doit pas provoquer un 404 sur une boîte de dialogue de
+partage toujours affichée. Pesez ce coût de parité : le contrat du framework est
+que tout ce que l'UI peut faire, l'agent peut le faire ; `sharing: false` à côté
+d'un bouton de partage visible est donc une rupture délibérée, justifiée
+seulement si l'app n'a pas cette surface.
+
+Indépendamment de cette option, les outils du framework ne sont plus chargés
+dans la première requête au modèle par défaut. Ils restent dans le registre
+interrogeable et sont chargés via `tool-search`, ou immédiatement si l'app les
+nomme dans `initialToolNames`.
+
+<Callout type="warning">
+  Les options de premier niveau `databaseTools` et `extensionTools` sont
+  dépréciées au profit de `frameworkTools.database` et
+  `frameworkTools.extensions`. Elles restent prises en compte, mais définir une
+  option de premier niveau et son équivalent `frameworkTools` avec des valeurs
+  contradictoires lève une erreur au démarrage du plugin plutôt que de démarrer
+  avec une surface d'outils que personne n'a choisie.
+</Callout>
 
 ## Exécution du code de production {#production-code-execution}
 

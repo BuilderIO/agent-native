@@ -442,9 +442,10 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,17 +456,42 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — 기본값. `db-schema`와 `db-query`만 등록합니다.
+- `database: "read"` — 기본값. `db-schema`와 `db-query`만 등록합니다.
   에이전트는 SQL로 데이터를 검사하지만 쓰기에는 typed app actions를 사용해야 합니다.
-- `databaseTools: "write"` 또는 `true` — 의도적인 raw SQL 유지보수를 위해
+- `database: "write"` 또는 `true` — 의도적인 raw SQL 유지보수를 위해
   `db-exec`와 `db-patch`도 등록합니다. 쓰기는 현재 사용자/조직으로 scoped되고
   스키마 변경은 차단됩니다.
-- `databaseTools: "off"` 또는 `false` — 원시 데이터베이스 도구를 제거합니다.
+- `database: "off"` 또는 `false` — 원시 데이터베이스 도구를 제거합니다.
   에이전트 표면이므로 앱의 actions가 유일한 데이터 액세스 경로입니다.
-- `extensionTools: true` — 앱에서 프레임워크 확장 관리 actions와 안내
+- `extensions: true` — 앱에서 프레임워크 확장 관리 actions와 안내
   (`create-extension`, `update-extension` 등)를 활성화합니다. 인증된
   REST 생성도 허용하려면 두 plugins 모두에 설정하세요. 확장 프로그램은
   기본적으로 비활성화됩니다.
+
+나머지 그룹은 불리언이며 기본적으로 모두 켜져 있습니다: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`.
+음성 우선 앱이나 단일 목적 앱에서는 `frameworkTools: "minimal"`로 모든 그룹을
+한 번에 끌 수 있고, `frameworkTools: { preset: "minimal", resources: true }`처럼
+하나만 남길 수도 있습니다. 명시적인 그룹 키는 항상 프리셋을 이깁니다.
+
+그룹을 끄면 대화형 채팅, MCP, A2A, 백그라운드 실행 같은 **에이전트** 표면에서만
+제거됩니다. 해당 HTTP action 라우트는 계속 마운트됩니다. UI가 클라이언트 hooks로
+그것들을 호출하기 때문입니다 — `sharing`을 끈다고 해서 화면에 떠 있는 공유
+다이얼로그가 404가 되어서는 안 됩니다. 이 패리티 비용을 먼저 따져 보세요.
+UI가 할 수 있는 일은 에이전트도 할 수 있다는 것이 프레임워크의 계약이므로,
+공유 버튼이 보이는 상태의 `sharing: false`는 의도적인 위반이며 앱에 그 표면이
+아예 없을 때만 타당합니다.
+
+이 옵션과 무관하게, 프레임워크 도구는 더 이상 기본으로 첫 모델 요청에
+포함되지 않습니다. 검색 가능한 레지스트리에는 남아 있어 `tool-search`로
+불러오며, 앱이 `initialToolNames`에 명시하면 즉시 로드됩니다.
+
+<Callout type="warning">
+  최상위 `databaseTools`와 `extensionTools` 옵션은 `frameworkTools.database`와
+  `frameworkTools.extensions`로 대체되어 더 이상 권장되지 않습니다. 여전히
+  동작하지만, 최상위 플래그와 `frameworkTools`의 동등한 값이 서로 충돌하면
+  아무도 선택하지 않은 도구 표면으로 부팅하는 대신 plugin 시작 시 오류가
+  발생합니다.
+</Callout>
 
 ## 생산 코드 실행 {#production-code-execution}
 

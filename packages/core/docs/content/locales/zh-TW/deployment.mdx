@@ -442,9 +442,10 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,15 +456,36 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — 預設。僅註冊 `db-schema` 和 `db-query`；
+- `database: "read"` — 預設。僅註冊 `db-schema` 和 `db-query`；
   代理使用 SQL 檢查資料，但必須使用型別化應用程式 actions 進行寫入。
-- `databaseTools: "write"` 或 `true` — 也會註冊 `db-exec` 和 `db-patch`
+- `database: "write"` 或 `true` — 也會註冊 `db-exec` 和 `db-patch`
   供有意的原始 SQL 維護使用。寫入範圍限定為目前使用者/組織，並阻止架構變更。
-- `databaseTools: "off"` 或 `false` — 從
+- `database: "off"` 或 `false` — 從
   代理表面，因此應用程式的 actions 是唯一的資料存取路徑。
-- `extensionTools: true` — 為應用啟用框架擴充功能管理 actions 與提示
+- `extensions: true` — 為應用啟用框架擴充功能管理 actions 與提示
   指引（`create-extension`、`update-extension` 等）。在兩個 plugins 上都
   設定此選項，也可允許已驗證的 REST 建立。擴充功能預設關閉。
+
+其餘分組都是布林值，預設全部開啟：`sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`。
+在語音優先或單一用途的應用中，可用 `frameworkTools: "minimal"` 一次關閉全部；
+若只想保留一個，可寫成 `frameworkTools: { preset: "minimal", resources: true }`——
+明確指定的分組鍵永遠優先於預設。
+
+關閉某個分組只會將它從**代理**側的表面移除：互動式聊天、MCP、A2A 與背景執行。
+對應的 HTTP action 路由仍然掛載，因為 UI 是透過用戶端 hooks 呼叫它們的——關閉
+`sharing` 不應讓仍顯示在畫面上的分享對話框回傳 404。請先權衡這項對等性代價：
+框架的約定是 UI 能做的事代理也能做，所以在分享按鈕可見的情況下設定
+`sharing: false` 是一次刻意的破壞，只有當應用根本沒有該表面時才合理。
+
+與此選項無關，框架工具預設不再載入第一次模型請求。它們仍留在可搜尋的註冊表中，
+透過 `tool-search` 載入；若應用在 `initialToolNames` 中指定，則會立即載入。
+
+<Callout type="warning">
+  頂層的 `databaseTools` 與 `extensionTools` 選項已棄用，請改用
+  `frameworkTools.database` 和 `frameworkTools.extensions`。它們仍會被識別，但當
+  頂層標誌與 `frameworkTools` 中的對應值衝突時，plugin 會在啟動時拋出錯誤，而不是
+  以無人選擇的工具表面啟動。
+</Callout>
 
 ## 正式環境程式碼執行 {#production-code-execution}
 

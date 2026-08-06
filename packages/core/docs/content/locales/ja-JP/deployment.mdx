@@ -442,9 +442,10 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,17 +456,44 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — デフォルト。`db-schema` と `db-query` のみを登録します。
+- `database: "read"` — デフォルト。`db-schema` と `db-query` のみを登録します。
   エージェントは SQL でデータを検査しますが、書き込みには型付きアプリ actions を使用します。
-- `databaseTools: "write"` または `true` — 意図的な raw SQL メンテナンス用に
+- `database: "write"` または `true` — 意図的な raw SQL メンテナンス用に
   `db-exec` と `db-patch` も登録します。書き込みは現在のユーザー/組織に
   スコープされ、スキーマ変更はブロックされます。
-- `databaseTools: "off"` または `false` — 生のデータベース ツールを
+- `database: "off"` または `false` — 生のデータベース ツールを
   エージェント サーフェスのため、アプリの actions が唯一のデータ アクセス パスになります。
-- `extensionTools: true` — フレームワークの拡張管理 actions と
+- `extensions: true` — フレームワークの拡張管理 actions と
   ガイダンス（`create-extension`、`update-extension` など）をアプリで
   有効にします。認証済み REST 作成も許可するには、両方の plugins に
   設定します。拡張機能は既定で無効です。
+
+残りのグループは真偽値で、すべて既定で有効です: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`。
+音声中心のアプリや単一目的のアプリでは `frameworkTools: "minimal"` を使って
+すべてを一度に無効化できます。1 つだけ残したい場合は
+`frameworkTools: { preset: "minimal", resources: true }` のように書きます。
+明示的なグループキーは常にプリセットより優先されます。
+
+グループを無効にすると、対話チャット・MCP・A2A・バックグラウンド実行という
+**エージェント**側のサーフェスからのみ削除されます。対応する HTTP action
+ルートはマウントされたままです。UI はクライアント hooks 経由でそれらを呼ぶため、
+`sharing` を無効にしても画面に出ている共有ダイアログが 404 になってはいけません。
+このパリティの代償を検討してください。UI にできることはエージェントにもできる、
+というのがフレームワークの契約です。共有ボタンが見えている状態での
+`sharing: false` は意図的な逸脱であり、そのサーフェス自体をアプリが持たない
+場合にのみ妥当です。
+
+このオプションとは独立に、フレームワークツールは既定で最初のモデルリクエストへ
+読み込まれなくなりました。検索可能なレジストリには残り、`tool-search` 経由で
+読み込まれます。アプリが `initialToolNames` に明記した場合は即時に読み込まれます。
+
+<Callout type="warning">
+  トップレベルの `databaseTools` と `extensionTools` は非推奨で、
+  `frameworkTools.database` と `frameworkTools.extensions` に置き換わりました。
+  引き続き解釈されますが、トップレベルのフラグと `frameworkTools` 側の同等の
+  設定が矛盾する値の場合、誰も選んでいないツールサーフェスで起動するのではなく
+  plugin の起動時にエラーになります。
+</Callout>
 
 ## 本番コードの実行 {#production-code-execution}
 
