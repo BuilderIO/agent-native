@@ -4,6 +4,10 @@ import { and, gte, inArray, lte } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { hasCredential } from "./credentials.js";
+import {
+  getFirstPartyAnalyticsBackend,
+  getFirstPartyAnalyticsBigQueryMetrics,
+} from "./first-party-analytics-backend.js";
 import type { AnalyticsScope } from "./first-party-analytics.js";
 
 export const FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS = {
@@ -320,19 +324,30 @@ export async function getFirstPartyAnalyticsHealth(
   const rollups = schema.analyticsEventDailyRollups;
   const pressure = schema.analyticsQueryPressureDaily;
   const db = getDb() as any;
+  const backend = await getFirstPartyAnalyticsBackend(scope);
+
+  const rollupRowsPromise =
+    backend.sink === "bigquery"
+      ? getFirstPartyAnalyticsBigQueryMetrics(scope, backend.table).then(
+          (metrics) => [metrics],
+        )
+      : db
+          .select({
+            eventCount: sql<number>`coalesce(sum(${rollups.eventCount}), 0)`,
+            dailyRollupRows: sql<number>`count(*)`,
+            firstEventDate: sql<string | null>`min(${rollups.eventDate})`,
+            lastEventDate: sql<string | null>`max(${rollups.eventDate})`,
+          })
+          .from(rollups)
+          .where(
+            and(
+              inArray(rollups.tenantKey, keys),
+              lte(rollups.eventDate, today),
+            ),
+          );
 
   const [rollupRows, pressureRows, externalBackends] = await Promise.all([
-    db
-      .select({
-        eventCount: sql<number>`coalesce(sum(${rollups.eventCount}), 0)`,
-        dailyRollupRows: sql<number>`count(*)`,
-        firstEventDate: sql<string | null>`min(${rollups.eventDate})`,
-        lastEventDate: sql<string | null>`max(${rollups.eventDate})`,
-      })
-      .from(rollups)
-      .where(
-        and(inArray(rollups.tenantKey, keys), lte(rollups.eventDate, today)),
-      ),
+    rollupRowsPromise,
     db
       .select({
         queryClass: pressure.queryClass,
@@ -409,11 +424,15 @@ export async function getFirstPartyAnalyticsHealth(
       FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS.recommendEventCount / 4 ||
     slowQueryCount24h > 0;
   const status: FirstPartyAnalyticsHealthStatus =
-    reasons.length > 0
-      ? "recommend_bigquery"
-      : hasMonitorSignal
+    backend.sink === "bigquery"
+      ? slowQueryCount24h > 0 || timeoutCount24h > 0
         ? "monitor"
-        : "healthy";
+        : "healthy"
+      : reasons.length > 0
+        ? "recommend_bigquery"
+        : hasMonitorSignal
+          ? "monitor"
+          : "healthy";
 
   return {
     status,

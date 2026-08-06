@@ -1,6 +1,6 @@
 ---
 name: library-management
-description: Schema, CRUD, sharing, and cascade-delete patterns for asset libraries, collections, and assets.
+description: Schema, CRUD, sharing, URL style imports, and cascade-delete patterns for asset libraries, collections, and assets. Use when managing a library or importing visual brand evidence from a URL.
 ---
 
 # Library management
@@ -117,6 +117,21 @@ URLs, import each URL into the target `libraryId`, then wire the returned
 for the exact logo. Imported assets are stored as `status: "reference"` with
 `sourceUrl` provenance, so downstream generation, preset boards, and logo
 compositing can use them like uploaded reference assets.
+
+## Importing a rendered visual system
+
+Use `import-style-from-url` when a public website should contribute more than
+images to a library or collection. It uses the same layered browser extractor
+as Design and Slides, so CSS-in-JS, Tailwind, hydration, web fonts, computed
+colors, component styles, spacing, radii, shadows, CSS variables, and logo
+references are captured from the live cascade. The action persists a bounded
+`designMd` summary plus structured fields in `styleBrief`, with the source URL
+and any browser/static-fallback warnings preserved for provenance.
+
+Prefer this action over copying raw HTML into a style brief. If the result is
+`partial`, the structured values are still usable but the warnings must remain
+visible to the agent; `failed` is an error and must not be treated as an empty
+style brief.
 
 ## When to add a collection
 

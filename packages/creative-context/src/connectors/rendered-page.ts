@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 
 import {
   isBlockedExtensionUrlWithDns,
@@ -29,6 +30,7 @@ const MAX_TYPOGRAPHY = 100;
 const MAX_SPACING = 100;
 const MAX_RADII = 64;
 const MAX_CSS_VARIABLES = 128;
+const MAX_COMPONENT_STYLES = 24;
 
 export interface RenderedPageRequest {
   url: string;
@@ -88,6 +90,10 @@ interface PlaywrightPageLike {
     url: string,
     options: { timeout: number; waitUntil: string },
   ): Promise<unknown>;
+  waitForLoadState?(
+    state: "load" | "domcontentloaded" | "networkidle",
+    options?: { timeout: number },
+  ): Promise<void>;
   title(): Promise<string>;
   url(): string;
   locator(selector: string): { innerText(): Promise<string> };
@@ -99,18 +105,23 @@ interface PlaywrightPageLike {
 interface PlaywrightContextLike {
   pages(): PlaywrightPageLike[];
   newPage(): Promise<PlaywrightPageLike>;
+  close?(): Promise<void>;
 }
 
 interface PlaywrightBrowserLike {
   contexts(): PlaywrightContextLike[];
-  newContext(): Promise<PlaywrightContextLike>;
+  newContext?(): Promise<PlaywrightContextLike>;
   close(): Promise<void>;
 }
 
 interface PlaywrightLike {
   chromium: {
     connectOverCDP(endpoint: string): Promise<PlaywrightBrowserLike>;
-    launch(options: { headless: boolean }): Promise<PlaywrightBrowserLike>;
+    launch(options: {
+      headless: boolean;
+      args?: string[];
+      executablePath?: string;
+    }): Promise<PlaywrightBrowserLike>;
   };
 }
 
@@ -223,9 +234,21 @@ async function renderWithPlaywright(
 ): Promise<RenderedPageResult> {
   const browser = wsUrl
     ? await playwright.chromium.connectOverCDP(wsUrl)
-    : await playwright.chromium.launch({ headless: true });
+    : await launchChromium(playwright.chromium);
   try {
-    const context = browser.contexts()[0] ?? (await browser.newContext());
+    // A hosted CDP browser can already contain the user's other tabs. Prefer a
+    // fresh context so extraction never reads ambient browser state, cookies,
+    // or a page left behind by another workflow. Older browser adapters may not
+    // expose newContext, so retain the existing-context fallback.
+    let isolatedContext: PlaywrightContextLike | undefined;
+    try {
+      isolatedContext = await browser.newContext?.();
+    } catch {
+      isolatedContext = undefined;
+    }
+    const context = isolatedContext ?? browser.contexts()[0];
+    if (!context)
+      throw new Error("Browser did not provide an isolated context.");
     const page = context.pages()[0] ?? (await context.newPage());
     await installNavigationGuard(page);
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -233,6 +256,24 @@ async function renderWithPlaywright(
       timeout: boundedTimeout(request.timeoutMs),
       waitUntil: request.waitUntil ?? "domcontentloaded",
     });
+    await page
+      .waitForLoadState?.("load", {
+        timeout: Math.min(8_000, boundedTimeout(request.timeoutMs)),
+      })
+      .catch(() => undefined);
+    // React hydration, CSS-in-JS insertion, and web fonts commonly finish just
+    // after `load`. Give those layers a bounded chance to settle, then capture
+    // the computed cascade rather than the server HTML.
+    await page
+      .waitForLoadState?.("networkidle", { timeout: 4_000 })
+      .catch(() => undefined);
+    await page
+      .evaluate(async () => {
+        if (document.fonts?.ready) await document.fonts.ready;
+      })
+      .catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await page.evaluate(dismissConsentOverlays).catch(() => undefined);
     const finalUrl = page.url();
     await assertPublicBrowserUrl(finalUrl);
     const [title, text, desktopScreenshot, extraction] = await Promise.all([
@@ -349,6 +390,74 @@ async function installNavigationGuard(page: PlaywrightPageLike): Promise<void> {
   });
 }
 
+const SYSTEM_CHROME_EXECUTABLES = [
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+];
+
+async function launchChromium(
+  chromium: PlaywrightLike["chromium"],
+): Promise<PlaywrightBrowserLike> {
+  const launchOptions = {
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  };
+  try {
+    return await chromium.launch(launchOptions);
+  } catch (error) {
+    if (!isMissingBrowserError(error)) throw error;
+    for (const executablePath of SYSTEM_CHROME_EXECUTABLES) {
+      if (!existsSync(executablePath)) continue;
+      try {
+        return await chromium.launch({ ...launchOptions, executablePath });
+      } catch {
+        continue;
+      }
+    }
+    throw error;
+  }
+}
+
+function isMissingBrowserError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
+    message,
+  );
+}
+
+/** Close common consent banners without accepting tracking or changing page data. */
+function dismissConsentOverlays(): void {
+  const selectors = [
+    '[aria-label*="reject" i]',
+    '[aria-label*="decline" i]',
+    '[aria-label*="close" i]',
+    '[data-testid*="reject" i]',
+    '[data-testid*="decline" i]',
+    '[data-testid*="close" i]',
+    'button[id*="reject" i]',
+    'button[id*="decline" i]',
+    'button[class*="reject" i]',
+    'button[class*="decline" i]',
+  ];
+  for (const selector of selectors) {
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) continue;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    if (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      style.visibility !== "hidden" &&
+      style.display !== "none"
+    ) {
+      element.click();
+      return;
+    }
+  }
+}
+
 async function renderStatic(
   request: RenderedPageRequest,
   warnings: string[],
@@ -443,8 +552,16 @@ async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
   const specifier = "playwright";
   try {
     return (await import(specifier)) as PlaywrightLike;
-  } catch {
-    return null;
+  } catch (playwrightError) {
+    try {
+      const testSpecifier = "@playwright/test";
+      return (await import(testSpecifier)) as unknown as PlaywrightLike;
+    } catch {
+      // Keep the optional capability optional. The caller records the exact
+      // fallback warning and can still use SSRF-safe static extraction.
+      void playwrightError;
+      return null;
+    }
   }
 }
 
@@ -455,6 +572,8 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
   const MAX_TYPE_STYLES = 100;
   const MAX_SPACING_VALUES = 100;
   const MAX_RADIUS_VALUES = 64;
+  const MAX_SHADOWS = 32;
+  const MAX_BACKGROUNDS = 32;
   const MAX_VARIABLES = 128;
   const MAX_TEXT = 2_000_000;
   const assets = new Map<string, WebsiteExtraction["assets"][number]>();
@@ -466,7 +585,153 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
   >();
   const spacing = new Set<string>();
   const radii = new Set<string>();
+  const shadows = new Set<string>();
+  const backgrounds = new Set<string>();
+  const components: NonNullable<
+    WebsiteExtraction["designTokens"]["components"]
+  > = [];
   const cssVariables: Record<string, string> = {};
+  const semanticColors: NonNullable<
+    WebsiteExtraction["designTokens"]["semanticColors"]
+  > = {};
+
+  const isOpaque = (value: string): boolean => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || normalized === "transparent") return false;
+    const alpha = normalized.match(
+      /rgba?\([^)]*,\s*(?:[^,)]*,\s*)?([\d.]+)\s*\)$/,
+    )?.[1];
+    return alpha === undefined || Number(alpha) > 0.02;
+  };
+
+  const addColor = (value: string): void => {
+    if (colors.length >= MAX_COLOR_VALUES || !isOpaque(value)) return;
+    const normalized = value.trim();
+    if (!colors.includes(normalized)) colors.push(normalized);
+  };
+
+  const visible = (element: Element): boolean => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      Number(style.opacity || 1) > 0.02
+    );
+  };
+
+  const firstVisible = (selector: string): Element | undefined =>
+    Array.from(document.querySelectorAll(selector)).find(visible);
+
+  const opaqueValue = (value: string): string | undefined =>
+    isOpaque(value) ? value.trim() : undefined;
+
+  const recordComputedStyle = (
+    element: Element,
+    role?: NonNullable<
+      WebsiteExtraction["designTokens"]["components"]
+    >[number]["role"],
+  ) => {
+    const style = getComputedStyle(element);
+    const values = [
+      style.color,
+      style.backgroundColor,
+      style.borderTopColor,
+      style.borderRightColor,
+      style.borderBottomColor,
+      style.borderLeftColor,
+    ];
+    values.forEach(addColor);
+    if (style.boxShadow && style.boxShadow !== "none") {
+      if (shadows.size < MAX_SHADOWS) shadows.add(style.boxShadow);
+    }
+    if (style.backgroundImage && style.backgroundImage !== "none") {
+      if (backgrounds.size < MAX_BACKGROUNDS) {
+        backgrounds.add(style.backgroundImage);
+      }
+    }
+    for (const value of [
+      style.marginTop,
+      style.marginRight,
+      style.marginBottom,
+      style.marginLeft,
+      style.paddingTop,
+      style.paddingRight,
+      style.paddingBottom,
+      style.paddingLeft,
+      style.gap,
+      style.rowGap,
+      style.columnGap,
+    ]) {
+      if (
+        spacing.size < MAX_SPACING_VALUES &&
+        value &&
+        value !== "0px" &&
+        value !== "normal"
+      ) {
+        spacing.add(value);
+      }
+    }
+    for (const value of [
+      style.borderTopLeftRadius,
+      style.borderTopRightRadius,
+      style.borderBottomRightRadius,
+      style.borderBottomLeftRadius,
+    ]) {
+      if (radii.size < MAX_RADIUS_VALUES && value && value !== "0px") {
+        radii.add(value);
+      }
+    }
+    const type = {
+      family: style.fontFamily,
+      size: style.fontSize,
+      weight: style.fontWeight,
+      lineHeight: style.lineHeight,
+      letterSpacing: style.letterSpacing,
+    };
+    if (typography.size < MAX_TYPE_STYLES && type.family) {
+      typography.set(JSON.stringify(type), type);
+    }
+    if (!role || components.length >= MAX_COMPONENT_STYLES) return style;
+    components.push({
+      role,
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      lineHeight: style.lineHeight,
+      letterSpacing: style.letterSpacing,
+      color: opaqueValue(style.color),
+      backgroundColor: opaqueValue(style.backgroundColor),
+      backgroundImage:
+        style.backgroundImage !== "none" ? style.backgroundImage : undefined,
+      border:
+        style.borderStyle !== "none" && style.borderWidth !== "0px"
+          ? style.border
+          : undefined,
+      borderRadius:
+        style.borderTopLeftRadius !== "0px" ? style.borderRadius : undefined,
+      boxShadow: style.boxShadow !== "none" ? style.boxShadow : undefined,
+      padding: style.padding !== "0px" ? style.padding : undefined,
+      gap: style.gap !== "normal" ? style.gap : undefined,
+      textTransform:
+        style.textTransform !== "none" ? style.textTransform : undefined,
+    });
+    return style;
+  };
+
+  const styleFor = (
+    selector: string,
+    role?: NonNullable<
+      WebsiteExtraction["designTokens"]["components"]
+    >[number]["role"],
+  ): CSSStyleDeclaration | undefined => {
+    const element = firstVisible(selector);
+    if (!element) return undefined;
+    return recordComputedStyle(element, role);
+  };
+
   const addAsset = (
     raw: string | null | undefined,
     kind: WebsiteExtraction["assets"][number]["kind"],
@@ -548,64 +813,99 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
       }
     }
   }
-  const elements = Array.from(document.querySelectorAll("body *")).slice(
-    0,
-    500,
+
+  const bodyStyle = document.body
+    ? recordComputedStyle(document.body)
+    : undefined;
+  const rootBackground = opaqueValue(rootStyle.backgroundColor);
+  const bodyBackground = bodyStyle
+    ? opaqueValue(bodyStyle.backgroundColor)
+    : undefined;
+  const headingStyle = styleFor("h1, h2, h3", "heading");
+  const textStyle = styleFor("p, li, label, body", "body");
+  const buttonStyle = styleFor(
+    'button, [role="button"], input[type="submit"], a[class*="button" i], a[class*="cta" i]',
+    "button",
   );
+  const linkStyle = styleFor("a[href]", "link");
+  const cardStyle = styleFor(
+    'article, [class*="card" i], [class*="panel" i], [class*="surface" i], section',
+    "card",
+  );
+  styleFor("input, textarea, select", "input");
+  styleFor("nav, header", "nav");
+  styleFor('main, [class*="hero" i]', "hero");
+
+  const setSemantic = (
+    role: keyof NonNullable<
+      WebsiteExtraction["designTokens"]["semanticColors"]
+    >,
+    value: string | undefined,
+  ): void => {
+    if (value) semanticColors[role] = value;
+  };
+  setSemantic("background", bodyBackground ?? rootBackground);
+  setSemantic(
+    "surface",
+    cardStyle ? opaqueValue(cardStyle.backgroundColor) : undefined,
+  );
+  setSemantic("text", textStyle ? opaqueValue(textStyle.color) : undefined);
+  const mutedElement = firstVisible("small, figcaption, [class*='muted' i]");
+  setSemantic(
+    "textMuted",
+    mutedElement
+      ? opaqueValue(getComputedStyle(mutedElement).color)
+      : undefined,
+  );
+  setSemantic(
+    "accent",
+    linkStyle
+      ? opaqueValue(linkStyle.color)
+      : buttonStyle
+        ? opaqueValue(buttonStyle.backgroundColor)
+        : undefined,
+  );
+  setSemantic(
+    "primary",
+    buttonStyle
+      ? (opaqueValue(buttonStyle.backgroundColor) ??
+          opaqueValue(buttonStyle.color))
+      : colors[0],
+  );
+  setSemantic(
+    "secondary",
+    semanticColors.surface ?? colors[1] ?? semanticColors.background,
+  );
+
+  const layoutElement = firstVisible("main, [role='main'], body > div");
+  const layoutStyle = layoutElement
+    ? getComputedStyle(layoutElement)
+    : undefined;
+  const layoutRect = layoutElement?.getBoundingClientRect();
+  const layout = {
+    contentWidth:
+      layoutStyle?.maxWidth && layoutStyle.maxWidth !== "none"
+        ? layoutStyle.maxWidth
+        : layoutRect && layoutRect.width > 0
+          ? `${Math.round(layoutRect.width)}px`
+          : undefined,
+    pagePadding:
+      bodyStyle?.padding && bodyStyle.padding !== "0px"
+        ? bodyStyle.padding
+        : undefined,
+    sectionGap:
+      firstVisible("section, article") &&
+      getComputedStyle(firstVisible("section, article")!).gap !== "normal" &&
+      getComputedStyle(firstVisible("section, article")!).gap !== "0px"
+        ? getComputedStyle(firstVisible("section, article")!).gap
+        : undefined,
+  };
+
+  const elements = Array.from(document.querySelectorAll("body *"))
+    .filter(visible)
+    .slice(0, 700);
   for (const element of elements) {
-    const style = getComputedStyle(element);
-    if (colors.length < MAX_COLOR_VALUES) {
-      colors.push(
-        style.color,
-        style.backgroundColor,
-        style.borderTopColor,
-        style.borderRightColor,
-        style.borderBottomColor,
-        style.borderLeftColor,
-      );
-    }
-    const type = {
-      family: style.fontFamily,
-      size: style.fontSize,
-      weight: style.fontWeight,
-      lineHeight: style.lineHeight,
-      letterSpacing: style.letterSpacing,
-    };
-    if (typography.size < MAX_TYPE_STYLES) {
-      typography.set(JSON.stringify(type), type);
-    }
-    for (const value of [
-      style.marginTop,
-      style.marginRight,
-      style.marginBottom,
-      style.marginLeft,
-      style.paddingTop,
-      style.paddingRight,
-      style.paddingBottom,
-      style.paddingLeft,
-      style.gap,
-      style.rowGap,
-      style.columnGap,
-    ]) {
-      if (
-        spacing.size < MAX_SPACING_VALUES &&
-        value &&
-        value !== "0px" &&
-        value !== "normal"
-      ) {
-        spacing.add(value);
-      }
-    }
-    for (const value of [
-      style.borderTopLeftRadius,
-      style.borderTopRightRadius,
-      style.borderBottomRightRadius,
-      style.borderBottomLeftRadius,
-    ]) {
-      if (radii.size < MAX_RADIUS_VALUES && value && value !== "0px") {
-        radii.add(value);
-      }
-    }
+    recordComputedStyle(element);
   }
   return {
     title: document.title,
@@ -618,6 +918,11 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
       spacing: [...spacing],
       radii: [...radii],
       cssVariables,
+      semanticColors,
+      shadows: [...shadows],
+      backgrounds: [...backgrounds],
+      components,
+      layout,
     },
   };
 }
@@ -625,6 +930,16 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
 export function boundWebsiteExtraction(
   extraction: WebsiteExtraction,
 ): WebsiteExtraction {
+  const boundedComponents = extraction.designTokens.components
+    ?.slice(0, MAX_COMPONENT_STYLES)
+    .map((component) =>
+      Object.fromEntries(
+        Object.entries(component).map(([key, value]) => [
+          key,
+          typeof value === "string" ? value.slice(0, 500) : value,
+        ]),
+      ),
+    ) as WebsiteExtraction["designTokens"]["components"];
   return {
     title: normalizeWhitespace(extraction.title).slice(0, 500),
     text: normalizeWhitespace(extraction.text).slice(
@@ -648,6 +963,39 @@ export function boundWebsiteExtraction(
           .slice(0, MAX_CSS_VARIABLES)
           .map(([name, value]) => [name.slice(0, 500), value.slice(0, 4_096)]),
       ),
+      ...(extraction.designTokens.semanticColors
+        ? {
+            semanticColors: Object.fromEntries(
+              Object.entries(extraction.designTokens.semanticColors)
+                .filter(([, value]) => typeof value === "string" && value)
+                .map(([name, value]) => [name, value.slice(0, 200)]),
+            ),
+          }
+        : {}),
+      ...(extraction.designTokens.shadows
+        ? {
+            shadows: extraction.designTokens.shadows
+              .slice(0, 32)
+              .map((value) => value.slice(0, 500)),
+          }
+        : {}),
+      ...(extraction.designTokens.backgrounds
+        ? {
+            backgrounds: extraction.designTokens.backgrounds
+              .slice(0, 32)
+              .map((value) => value.slice(0, 500)),
+          }
+        : {}),
+      ...(boundedComponents ? { components: boundedComponents } : {}),
+      ...(extraction.designTokens.layout
+        ? {
+            layout: Object.fromEntries(
+              Object.entries(extraction.designTokens.layout)
+                .filter(([, value]) => typeof value === "string" && value)
+                .map(([name, value]) => [name, value.slice(0, 200)]),
+            ),
+          }
+        : {}),
     },
   };
 }

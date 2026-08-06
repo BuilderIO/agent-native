@@ -40,7 +40,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { Deck } from "@/context/DeckContext";
+import {
+  describeDeckPersistenceFailure,
+  type Deck,
+} from "@/context/DeckContext";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
@@ -571,14 +574,17 @@ export default function Index() {
     setNewDeckPromptOpen(false);
 
     const persisted = await ensureDeckPersisted(deck.id);
-    if (!persisted) {
+    if (!persisted.persisted) {
       if (!savePromptForRetry(prompt)) {
         setNewDeckInitialPrompt({ text: prompt, key: Date.now() });
       }
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deckId);
       toast.error(t("home.generationStartFailed"), {
-        description: t("home.generationStartFailedDescription"),
+        description: describeDeckPersistenceFailure(
+          persisted,
+          t("home.generationStartFailedDescription"),
+        ),
       });
       setShowNewDeckPrompt(true);
       return;
@@ -747,9 +753,14 @@ export default function Index() {
             noDefaultSlides: true,
           });
           const persisted = await ensureDeckPersisted(referenceDeck.id);
-          if (!persisted) {
+          if (!persisted.persisted) {
             deleteDeck(referenceDeck.id);
-            throw new Error("The PDF reference deck could not be saved.");
+            throw new Error(
+              describeDeckPersistenceFailure(
+                persisted,
+                "The PDF reference deck could not be saved.",
+              ),
+            );
           }
           try {
             const imported = (await callAction("import-file", {
