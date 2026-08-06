@@ -1,10 +1,14 @@
 import { defineAction } from "@agent-native/core";
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 import { getGoogleDocsAccessToken } from "../server/lib/google-docs-oauth.js";
-import { importPptxBufferToDeck } from "./import-pptx.js";
+import {
+  importPptxBufferToDeck,
+  type ImportedImageFallback,
+} from "./import-pptx.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -68,6 +72,136 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
   return Buffer.from(bytes);
 }
 
+interface GoogleSlidesImageElement {
+  objectId?: string;
+  size?: {
+    width?: { magnitude?: number };
+    height?: { magnitude?: number };
+  };
+  transform?: {
+    scaleX?: number;
+    scaleY?: number;
+    translateX?: number;
+    translateY?: number;
+  };
+  image?: {
+    contentUrl?: string;
+    imageProperties?: {
+      cropProperties?: {
+        leftOffset?: number;
+        rightOffset?: number;
+        topOffset?: number;
+        bottomOffset?: number;
+      };
+    };
+  };
+}
+
+interface GoogleSlidesPresentationImages {
+  slides?: Array<{
+    pageElements?: GoogleSlidesImageElement[];
+  }>;
+}
+
+function finiteNumber(value: number | undefined): number | undefined {
+  return value != null && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Google Drive's PPTX export can omit image page elements that remain present
+ * in the native Slides document. Read those native objects as a fidelity
+ * fallback so a direct Google Slides import does not silently lose artwork.
+ */
+async function fetchGoogleSlidesImageFallbacks(
+  fileId: string,
+  accessToken: string,
+): Promise<ImportedImageFallback[]> {
+  const fields =
+    "slides(pageElements(objectId,size,transform,image(contentUrl,imageProperties(cropProperties))))";
+  const response = await ssrfSafeFetch(
+    `https://slides.googleapis.com/v1/presentations/${encodeURIComponent(fileId)}?fields=${encodeURIComponent(fields)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    { httpsOnly: true, maxRedirects: 2 },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Google Slides returned HTTP ${response.status} while reading native image elements. Reconnect Google Drive and try the import again.`,
+    );
+  }
+  const presentation =
+    (await response.json()) as GoogleSlidesPresentationImages;
+  const fallbacks: ImportedImageFallback[] = [];
+
+  for (const [slideIndex, slide] of (presentation.slides ?? []).entries()) {
+    for (const [imageIndex, element] of (slide.pageElements ?? []).entries()) {
+      const contentUrl = element.image?.contentUrl;
+      const baseWidth = finiteNumber(element.size?.width?.magnitude);
+      const baseHeight = finiteNumber(element.size?.height?.magnitude);
+      const scaleX = finiteNumber(element.transform?.scaleX) ?? 1;
+      const scaleY = finiteNumber(element.transform?.scaleY) ?? 1;
+      const x = finiteNumber(element.transform?.translateX);
+      const y = finiteNumber(element.transform?.translateY);
+      const width =
+        baseWidth == null ? undefined : baseWidth * Math.abs(scaleX);
+      const height =
+        baseHeight == null ? undefined : baseHeight * Math.abs(scaleY);
+      if (
+        !contentUrl ||
+        x == null ||
+        y == null ||
+        width == null ||
+        height == null ||
+        width <= 0 ||
+        height <= 0
+      ) {
+        continue;
+      }
+
+      const imageResponse = await ssrfSafeFetch(
+        contentUrl,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+        { httpsOnly: true, maxRedirects: 2 },
+      );
+      if (!imageResponse.ok) {
+        throw new Error(
+          `Google Slides returned HTTP ${imageResponse.status} while downloading image ${imageIndex + 1} on slide ${slideIndex + 1}.`,
+        );
+      }
+      const mimeType =
+        imageResponse.headers.get("content-type")?.split(";", 1)[0] ||
+        "image/png";
+      if (!mimeType.startsWith("image/")) {
+        throw new Error(
+          `Google Slides returned a non-image asset for image ${imageIndex + 1} on slide ${slideIndex + 1}.`,
+        );
+      }
+      const data = new Uint8Array(await imageResponse.arrayBuffer());
+      const cropProperties = element.image?.imageProperties?.cropProperties;
+      const crop = cropProperties
+        ? {
+            left: cropProperties.leftOffset ?? 0,
+            top: cropProperties.topOffset ?? 0,
+            right: cropProperties.rightOffset ?? 0,
+            bottom: cropProperties.bottomOffset ?? 0,
+          }
+        : undefined;
+      fallbacks.push({
+        slideIndex,
+        x,
+        y,
+        width,
+        height,
+        data,
+        mimeType,
+        name: `google-slides-${slideIndex + 1}-${element.objectId ?? imageIndex}.png`,
+        ...(crop ? { crop } : {}),
+      });
+    }
+  }
+
+  return fallbacks;
+}
+
 export default defineAction({
   description:
     "Import a Google Slides deck selected from Google Picker or provided as a Google Slides URL and save it as a reusable Slides reference deck. " +
@@ -112,10 +246,15 @@ export default defineAction({
       presentationId,
       connection.accessToken,
     );
+    const imageFallbacks = await fetchGoogleSlidesImageFallbacks(
+      presentationId,
+      connection.accessToken,
+    );
     return importPptxBufferToDeck({
       fileBuffer,
       title,
       source: "import-google-slides-reference",
+      imageFallbacks,
     });
   },
   link: ({ result }) => {

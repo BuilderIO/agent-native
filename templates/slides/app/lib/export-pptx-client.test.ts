@@ -4,10 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   exportToPptx: vi.fn(),
+  rasterize: vi.fn(),
 }));
 
 vi.mock("dom-to-pptx", () => ({
   exportToPptx: mocks.exportToPptx,
+}));
+
+vi.mock("modern-screenshot", () => ({
+  domToPng: mocks.rasterize,
 }));
 
 import {
@@ -78,6 +83,7 @@ beforeEach(async () => {
     value: cssShim,
   });
   mocks.exportToPptx.mockResolvedValue(await buildMinimalPptxBlob());
+  mocks.rasterize.mockResolvedValue("data:image/png;base64,AAAA");
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pptx");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
@@ -139,6 +145,20 @@ describe("exportDeckAsPptx", () => {
     expect(image?.src).toMatch(/^data:image\/(png|svg\+xml)/);
     expect(image?.style.width).toBe("120px");
     expect(image?.style.height).toBe("80px");
+  });
+
+  it("rasterizes imported slides to preserve the rendered canvas during export", async () => {
+    setRenderedSlide(
+      '<div class="fmd-imported-pptx"><div data-pptx-element-kind="text">Editable imported title</div></div>',
+    );
+
+    await exportDeckAsPptx("Imported Deck", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    expect(target.querySelector('[data-pptx-element-kind="text"]')).toBeNull();
+    expect(target.querySelector("img")?.src).toMatch(/^data:image\/png/);
+    expect(mocks.rasterize).toHaveBeenCalledTimes(1);
   });
 
   it("passes custom aspect-ratio dimensions to the native exporter", async () => {

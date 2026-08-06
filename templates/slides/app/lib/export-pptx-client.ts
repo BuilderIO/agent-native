@@ -313,6 +313,133 @@ function widenNoWrapTextElements(root: HTMLElement) {
   }
 }
 
+/**
+ * dom-to-pptx serializes CSS gradients as one malformed diagonal SVG. Imported
+ * slides use a repeated master grid, so materialize that grid as a transparent
+ * image before handing the clone to the exporter and leave the real text and
+ * image objects editable.
+ */
+function materializeImportedBackgroundGrid(root: HTMLElement) {
+  const slideRoot = root.matches(".fmd-imported-pptx")
+    ? root
+    : root.querySelector<HTMLElement>(".fmd-imported-pptx");
+  if (!slideRoot) return;
+  const computed = window.getComputedStyle(slideRoot);
+  if (!computed.backgroundImage.includes("linear-gradient")) return;
+
+  const color = computed.backgroundImage.match(/rgb\([^)]*\)/)?.[0];
+  const size = computed.backgroundSize
+    .split(",")[0]
+    ?.trim()
+    .split(/\s+/)
+    .map((value) => Number.parseFloat(value));
+  const position = computed.backgroundPosition
+    .split(",")[0]
+    ?.trim()
+    .split(/\s+/)
+    .map((value) => Number.parseFloat(value));
+  const declaredLineWidth = computed.backgroundImage.match(
+    /\b0(?:px)?\s+([\d.]+)px\b/i,
+  )?.[1];
+  const lineWidth = declaredLineWidth
+    ? Number.parseFloat(declaredLineWidth)
+    : Number.NaN;
+  if (
+    !color ||
+    !size ||
+    size.length < 2 ||
+    !Number.isFinite(size[0]) ||
+    !Number.isFinite(size[1]) ||
+    !position ||
+    position.length < 2 ||
+    !Number.isFinite(position[0]) ||
+    !Number.isFinite(position[1]) ||
+    !Number.isFinite(lineWidth)
+  ) {
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(slideRoot.clientWidth));
+  canvas.height = Math.max(1, Math.round(slideRoot.clientHeight));
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.strokeStyle = color;
+  context.lineWidth = Math.max(0.5, lineWidth);
+
+  for (let x = position[0]; x < canvas.width; x += size[0]) {
+    context.beginPath();
+    context.moveTo(x + context.lineWidth / 2, 0);
+    context.lineTo(x + context.lineWidth / 2, canvas.height);
+    context.stroke();
+  }
+  for (let y = position[1]; y < canvas.height; y += size[1]) {
+    context.beginPath();
+    context.moveTo(0, y + context.lineWidth / 2);
+    context.lineTo(canvas.width, y + context.lineWidth / 2);
+    context.stroke();
+  }
+
+  const gridImage = document.createElement("img");
+  gridImage.alt = "";
+  gridImage.src = canvas.toDataURL("image/png");
+  Object.assign(gridImage.style, {
+    height: "100%",
+    left: "0",
+    pointerEvents: "none",
+    position: "absolute",
+    top: "0",
+    width: "100%",
+    zIndex: "0",
+  });
+  slideRoot.insertBefore(gridImage, slideRoot.firstChild);
+  slideRoot.style.backgroundImage = "none";
+  slideRoot.style.backgroundSize = "auto";
+  slideRoot.style.backgroundPosition = "0 0";
+  slideRoot.style.backgroundRepeat = "no-repeat";
+}
+
+async function rasterizeImportedSlide(
+  root: HTMLElement,
+  dims: { width: number; height: number },
+): Promise<boolean> {
+  const imported = root.querySelector<HTMLElement>(".fmd-imported-pptx");
+  if (!imported) return false;
+  const backgroundColor = window.getComputedStyle(imported).backgroundColor;
+
+  const { domToPng } = await importExportModule(
+    () => import("modern-screenshot"),
+  );
+  await preloadImagesWithCors(imported);
+  const dataUrl = await domToPng(imported, {
+    backgroundColor,
+    fetch: {
+      requestInit: { cache: "no-cache", credentials: "include", mode: "cors" },
+    },
+    height: dims.height,
+    scale: 2,
+    width: dims.width,
+  });
+
+  const image = document.createElement("img");
+  image.alt = "";
+  image.src = dataUrl;
+  Object.assign(image.style, {
+    display: "block",
+    height: `${dims.height}px`,
+    left: "0",
+    position: "absolute",
+    top: "0",
+    width: `${dims.width}px`,
+  });
+  root.replaceChildren(image);
+  root.style.background = backgroundColor;
+  root.style.position = "relative";
+  root.style.overflow = "hidden";
+  await image.decode();
+  return true;
+}
+
 export async function buildDeckPptxBlob(
   deckTitle: string,
   slides: PptxExportSlide[],
@@ -341,9 +468,16 @@ export async function buildDeckPptxBlob(
         height: dims.height,
       });
       exportClones.push(clone);
-      widenNoWrapTextElements(clone.element);
-      await replaceInlineSvgsWithImages(clone.element);
-      await preloadImagesWithCors(clone.element);
+      const isRasterized = await rasterizeImportedSlide(clone.element, {
+        width: dims.width,
+        height: dims.height,
+      });
+      if (!isRasterized) {
+        materializeImportedBackgroundGrid(clone.element);
+        widenNoWrapTextElements(clone.element);
+        await replaceInlineSvgsWithImages(clone.element);
+        await preloadImagesWithCors(clone.element);
+      }
     }
 
     const initialBlob = await exportToPptx(
