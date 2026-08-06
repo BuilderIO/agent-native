@@ -53,6 +53,25 @@ function rectFromCorners(corners: [number, number][]): Rect {
   };
 }
 
+function rectArea(rect: Rect): number {
+  return (
+    Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top)
+  );
+}
+
+/** Fraction of `rect`'s own area that falls inside `other` (0 when they don't overlap, 1 when `rect` is fully contained). */
+function rectOverlapFraction(rect: Rect, other: Rect): number {
+  const overlapLeft = Math.max(rect.left, other.left);
+  const overlapRight = Math.min(rect.right, other.right);
+  const overlapTop = Math.max(rect.top, other.top);
+  const overlapBottom = Math.min(rect.bottom, other.bottom);
+  const overlapWidth = Math.max(0, overlapRight - overlapLeft);
+  const overlapHeight = Math.max(0, overlapBottom - overlapTop);
+  const rectOwnArea = rectArea(rect);
+  if (rectOwnArea === 0) return 0;
+  return (overlapWidth * overlapHeight) / rectOwnArea;
+}
+
 export interface TextRunBox extends Rect {
   text: string;
   fontSize: number;
@@ -365,12 +384,16 @@ export function groupIntoBlocks(lines: TextRunBox[]): TextRunBox[][] {
   return blocks;
 }
 
+/** A run needs to overlap most of a candidate background image to inherit its "assume dark" contrast — a run merely near a small inset photo shouldn't be treated as sitting on top of it. */
+const BACKGROUND_IMAGE_OVERLAP_RATIO = 0.5;
+
 async function buildTextElements(
   page: PDFPageProxy,
   viewportTransform: Mat,
   pageNumber: number,
   textColors: (string | undefined)[],
-  fallbackColor: string,
+  backgroundColor: string | undefined,
+  backgroundImageRect: Rect | undefined,
   underlineRects: UnderlineRect[],
   linkRects: LinkRect[],
 ): Promise<ParsedElement[]> {
@@ -384,13 +407,23 @@ async function buildTextElements(
   // wrong color, which is worse than the uniform default.
   const colorsAlign = textColors.length === rawItems.length;
   const boxes = rawItems
-    .map((item, i) =>
-      textItemToBox(
-        item,
-        viewportTransform,
-        (colorsAlign ? textColors[i] : undefined) ?? fallbackColor,
-      ),
-    )
+    .map((item, i) => {
+      const knownColor = colorsAlign ? textColors[i] : undefined;
+      const box = textItemToBox(item, viewportTransform, knownColor);
+      if (!box || knownColor !== undefined) return box;
+      // No recovered color for this run — rather than guessing "blank
+      // white paper" for the whole page, check what's actually behind
+      // THIS run: a title over a background photo needs a different
+      // default than body text below it on plain canvas, same page.
+      const sitsOnBackgroundImage =
+        backgroundImageRect !== undefined &&
+        rectOverlapFraction(box, backgroundImageRect) >=
+          BACKGROUND_IMAGE_OVERLAP_RATIO;
+      return {
+        ...box,
+        color: contrastingDefaultColor(backgroundColor, sitsOnBackgroundImage),
+      };
+    })
     .filter((b): b is TextRunBox => b !== undefined);
   if (boxes.length === 0) return [];
 
@@ -633,12 +666,15 @@ export async function parsePdfFidelity(
       });
       const linkRects = await collectLinkRects(page, viewportTransform);
       const imageRects = graphics.imageRects;
-      const hasFullBleedImage = imageRects.some(
-        (rect) =>
-          rect.right - rect.left >=
-            viewport.width * BACKGROUND_COVERAGE_RATIO &&
-          rect.bottom - rect.top >= viewport.height * BACKGROUND_COVERAGE_RATIO,
-      );
+      // The largest image that covers a substantial share of the page is
+      // this page's background candidate for contrast purposes — it need
+      // not reach every edge (a design's photo can have a slight margin
+      // or be one of several stacked decorative layers) to still be what
+      // text is actually sitting on top of.
+      const pageArea = viewport.width * viewport.height;
+      const backgroundImageRect = imageRects
+        .filter((rect) => rectArea(rect) >= pageArea * 0.4)
+        .sort((a, b) => rectArea(b) - rectArea(a))[0];
       const imageBytes = imageBytesByPage.get(pageNumber) ?? [];
       const imageElements: ParsedElement[] = imageRects
         .map((rect, index) => ({ rect, data: imageBytes[index] }))
@@ -667,7 +703,8 @@ export async function parsePdfFidelity(
         viewportTransform,
         pageNumber,
         graphics.textColors,
-        contrastingDefaultColor(graphics.backgroundColor, hasFullBleedImage),
+        graphics.backgroundColor,
+        backgroundImageRect,
         graphics.underlineRects,
         linkRects,
       );
