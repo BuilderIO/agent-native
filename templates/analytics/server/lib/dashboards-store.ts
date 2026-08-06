@@ -538,8 +538,9 @@ export async function listDashboardSummaries(
     includeCatalogMetadata?: boolean;
     legacyScan?: "best-effort" | "strict";
   },
+  dbOverride?: any,
 ): Promise<DashboardSummaryRecord[]> {
-  const db = getDb() as any;
+  const db = (dbOverride ?? getDb()) as any;
   const archived = filter?.archived ?? "active";
   const hidden = filter?.hidden ?? "visible";
   const includeCatalogMetadata = filter?.includeCatalogMetadata === true;
@@ -684,11 +685,12 @@ export async function assertDashboardNameIsAvailable(
   name: string,
   ctx: AccessCtx,
   excludeId?: string,
+  dbOverride?: any,
 ): Promise<void> {
   const normalized = normalizeDashboardName(name);
   if (!normalized) return;
   const conflict = (
-    await listDashboardSummaries(ctx, { legacyScan: "strict" })
+    await listDashboardSummaries(ctx, { legacyScan: "strict" }, dbOverride)
   ).find(
     (dashboard) =>
       dashboard.id !== excludeId &&
@@ -698,6 +700,23 @@ export async function assertDashboardNameIsAvailable(
   throw new Error(
     `Dashboard name "${name.trim()}" is already used by visible dashboard "${conflict.name}". Choose a different name.`,
   );
+}
+
+async function lockDashboardNames(db: any, names: string[]): Promise<void> {
+  const nameKeys = [
+    ...new Set(names.map(normalizeDashboardName).filter(Boolean)),
+  ].sort();
+  for (const nameKey of nameKeys) {
+    await db
+      .insert(schema.dashboardNameLocks)
+      .values({ nameKey, createdAt: nowIso() })
+      .onConflictDoNothing();
+    if (isPostgres()) {
+      await db.execute(
+        sql`SELECT name_key FROM dashboard_name_locks WHERE name_key = ${nameKey} FOR UPDATE`,
+      );
+    }
+  }
 }
 
 async function pruneDashboardRevisions(
@@ -784,59 +803,73 @@ export async function upsertDashboard(
   if (nameChanged) {
     await assertDashboardNameIsAvailable(title, ctx, existing?.id);
   }
-  if (existing) {
-    const changed =
-      existing.kind !== kind ||
-      existing.title !== title ||
-      JSON.stringify(existing.config) !== configJson;
-    const setValues = {
-      kind,
-      title,
-      config: configJson,
-      updatedAt: nowIso(),
-      updatedBy: ctx.email,
-    };
-    if (expectedUpdatedAt !== undefined) {
-      // Fenced write. Snapshot the revision only after we know this exact
-      // write actually landed — otherwise a lost race would record a
-      // revision for a save that never happened.
-      const updateResult = await db
-        .update(schema.dashboards)
-        .set(setValues)
-        .where(
-          and(
-            eq(schema.dashboards.id, id),
-            eq(schema.dashboards.updatedAt, expectedUpdatedAt),
-          ),
-        );
-      const affected = affectedRowCount(updateResult);
-      if (affected === undefined) {
-        throw new Error(
-          "The database driver did not report an affected-row count for the fenced dashboard update.",
-        );
+  const persist = async (writeDb: any): Promise<void> => {
+    if (existing) {
+      const changed =
+        existing.kind !== kind ||
+        existing.title !== title ||
+        JSON.stringify(existing.config) !== configJson;
+      const setValues = {
+        kind,
+        title,
+        config: configJson,
+        updatedAt: nowIso(),
+        updatedBy: ctx.email,
+      };
+      if (expectedUpdatedAt !== undefined) {
+        // Fenced write. Snapshot the revision only after we know this exact
+        // write actually landed — otherwise a lost race would record a
+        // revision for a save that never happened.
+        const updateResult = await writeDb
+          .update(schema.dashboards)
+          .set(setValues)
+          .where(
+            and(
+              eq(schema.dashboards.id, id),
+              eq(schema.dashboards.updatedAt, expectedUpdatedAt),
+            ),
+          );
+        const affected = affectedRowCount(updateResult);
+        if (affected === undefined) {
+          throw new Error(
+            "The database driver did not report an affected-row count for the fenced dashboard update.",
+          );
+        }
+        if (affected === 0) {
+          throw new DashboardConflictError(id);
+        }
+        if (changed) await snapshotDashboardRevision(writeDb, existing, ctx);
+      } else {
+        if (changed) await snapshotDashboardRevision(writeDb, existing, ctx);
+        await writeDb
+          .update(schema.dashboards)
+          .set(setValues)
+          .where(eq(schema.dashboards.id, id));
       }
-      if (affected === 0) {
-        throw new DashboardConflictError(id);
-      }
-      if (changed) await snapshotDashboardRevision(db, existing, ctx);
     } else {
-      if (changed) await snapshotDashboardRevision(db, existing, ctx);
-      await db
-        .update(schema.dashboards)
-        .set(setValues)
-        .where(eq(schema.dashboards.id, id));
+      await writeDb.insert(schema.dashboards).values({
+        id,
+        kind,
+        title,
+        config: JSON.stringify(config),
+        ownerEmail: ctx.email,
+        orgId: ctx.orgId,
+        visibility: "private",
+        updatedBy: ctx.email,
+      });
     }
-  } else {
-    await db.insert(schema.dashboards).values({
-      id,
-      kind,
-      title,
-      config: JSON.stringify(config),
-      ownerEmail: ctx.email,
-      orgId: ctx.orgId,
-      visibility: "private",
-      updatedBy: ctx.email,
+  };
+  if (nameChanged) {
+    await db.transaction(async (tx: any) => {
+      await lockDashboardNames(tx, [
+        title,
+        ...(existing ? [existing.title] : []),
+      ]);
+      await assertDashboardNameIsAvailable(title, ctx, existing?.id, tx);
+      await persist(tx);
     });
+  } else {
+    await persist(db);
   }
   const [row] = await db
     .select()
@@ -971,7 +1004,23 @@ export async function restoreDashboardRevision(
   if (!revisionRow) return null;
   const revision = rowToDashboardRevision(revisionRow);
   const updatedAt = nowIso();
+  const nameChanged =
+    normalizeDashboardName(existing.title) !==
+    normalizeDashboardName(revision.title);
+  const becomesVisible = !existing.archivedAt && !existing.hiddenAt;
+  if (nameChanged && becomesVisible) {
+    await assertDashboardNameIsAvailable(revision.title, ctx, dashboardId);
+  }
   const restored = await db.transaction(async (tx: any) => {
+    if (nameChanged && becomesVisible) {
+      await lockDashboardNames(tx, [existing.title, revision.title]);
+      await assertDashboardNameIsAvailable(
+        revision.title,
+        ctx,
+        dashboardId,
+        tx,
+      );
+    }
     const updateResult = await tx
       .update(schema.dashboards)
       .set({
@@ -1080,10 +1129,21 @@ export async function unarchiveDashboard(
     await assertDashboardNameIsAvailable(existing.title, ctx, id);
   }
   const db = getDb() as any;
-  await db
-    .update(schema.dashboards)
-    .set({ archivedAt: null, updatedAt: nowIso(), updatedBy: ctx.email })
-    .where(eq(schema.dashboards.id, id));
+  const persist = async (writeDb: any) => {
+    await writeDb
+      .update(schema.dashboards)
+      .set({ archivedAt: null, updatedAt: nowIso(), updatedBy: ctx.email })
+      .where(eq(schema.dashboards.id, id));
+  };
+  if (!existing.hiddenAt) {
+    await db.transaction(async (tx: any) => {
+      await lockDashboardNames(tx, [existing.title]);
+      await assertDashboardNameIsAvailable(existing.title, ctx, id, tx);
+      await persist(tx);
+    });
+  } else {
+    await persist(db);
+  }
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -1172,10 +1232,21 @@ export async function unhideDashboard(
   if (!existing.ownerEmail) {
     patch.ownerEmail = ctx.email;
   }
-  await db
-    .update(schema.dashboards)
-    .set(patch)
-    .where(eq(schema.dashboards.id, id));
+  const persist = async (writeDb: any) => {
+    await writeDb
+      .update(schema.dashboards)
+      .set(patch)
+      .where(eq(schema.dashboards.id, id));
+  };
+  if (!existing.archivedAt) {
+    await db.transaction(async (tx: any) => {
+      await lockDashboardNames(tx, [existing.title]);
+      await assertDashboardNameIsAvailable(existing.title, ctx, id, tx);
+      await persist(tx);
+    });
+  } else {
+    await persist(db);
+  }
   const [row] = await db
     .select()
     .from(schema.dashboards)

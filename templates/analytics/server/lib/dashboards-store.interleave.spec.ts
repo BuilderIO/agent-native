@@ -181,6 +181,10 @@ vi.mock("../db/index.js", () => {
       hiddenAt: { name: "hiddenAt" },
       hiddenBy: { name: "hiddenBy" },
     },
+    dashboardNameLocks: {
+      nameKey: { name: "nameKey" },
+      createdAt: { name: "createdAt" },
+    },
     dashboardShares: {},
     dashboardRevisions: {
       id: { name: "id" },
@@ -281,6 +285,8 @@ vi.mock("../db/index.js", () => {
         },
       }),
     }),
+    transaction: async (callback: (transactionDb: any) => unknown) =>
+      callback(db),
   };
 
   return { schema, getDb: () => db };

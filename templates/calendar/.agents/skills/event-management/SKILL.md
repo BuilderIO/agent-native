@@ -15,6 +15,12 @@ Create, search, list, update, and delete calendar events. Events come from the G
 
 **Events live in Google Calendar, not SQL.** Never use `db-query` or `db-exec` to work with events. Always use the dedicated scripts which query the Google Calendar API directly.
 
+Event detail panels and popovers expose `calendar.event-detail.bottom` as an
+`ExtensionSlot` with `slotContext` containing the event id, title, times,
+timezones, location, attendees, and account email. Use the first-party
+attendee-timezone UI or a source edit for adornments next to guest rows; the
+slot does not inject per-row UI.
+
 ## Scripts
 
 ### list-events

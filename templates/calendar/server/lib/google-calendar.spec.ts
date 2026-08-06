@@ -1303,7 +1303,7 @@ describe("owner-aware Google Calendar writes", () => {
       expect.objectContaining({
         summary: "Move me",
         description: "Agenda",
-        attendees: [{ email: ownerEmail }, { email: "guest@example.com" }],
+        attendees: [{ email: "guest@example.com" }],
       }),
       { sendUpdates: "all" },
     );
@@ -1340,6 +1340,7 @@ describe("owner-aware Google Calendar writes", () => {
           accountEmail: ownerEmail,
         },
         destinationAccount: account,
+        sendUpdates: "all",
       }),
     ).rejects.toThrow("source delete failed");
 
@@ -1348,8 +1349,58 @@ describe("owner-aware Google Calendar writes", () => {
       "secondary-access-token",
       "primary",
       "destination-event",
-      "none",
+      "all",
     );
+  });
+
+  it("rejects moving a recurring series master before creating or deleting anything", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "series-master",
+      summary: "Recurring meeting",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+      recurrence: ["RRULE:FREQ=WEEKLY;COUNT=4"],
+    });
+
+    await expect(
+      moveEvent("series-master", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+      }),
+    ).rejects.toThrow("Recurring series masters cannot be moved");
+
+    expect(calendarInsertEventMock).not.toHaveBeenCalled();
+    expect(calendarDeleteEventMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the destination when source and rollback deletion both fail", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+    });
+    calendarInsertEventMock.mockResolvedValue({ id: "destination-event" });
+    calendarDeleteEventMock.mockRejectedValue(new Error("delete failed"));
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+      }),
+    ).rejects.toMatchObject({
+      name: "CalendarMoveRollbackError",
+      code: "CALENDAR_MOVE_ROLLBACK_FAILED",
+      replacementId: "destination-event",
+      destinationAccountEmail: secondaryEmail,
+      message: expect.stringContaining("destination-event"),
+    });
   });
 });
 

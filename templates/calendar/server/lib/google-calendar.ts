@@ -154,6 +154,27 @@ const LIST_EVENT_TYPES = [
 ];
 const GOOGLE_READ_CONCURRENCY = 4;
 
+export class CalendarMoveRollbackError extends Error {
+  readonly code = "CALENDAR_MOVE_ROLLBACK_FAILED" as const;
+  readonly cause: unknown;
+  readonly replacementId: string;
+  readonly destinationAccountEmail: string;
+
+  constructor(
+    replacementId: string,
+    destinationAccountEmail: string,
+    cause: unknown,
+  ) {
+    super(
+      `Calendar move cleanup failed after Google created destination event "${replacementId}" in calendar "${destinationAccountEmail}". The destination may still exist; inspect or delete it before retrying.`,
+    );
+    this.name = "CalendarMoveRollbackError";
+    this.cause = cause;
+    this.replacementId = replacementId;
+    this.destinationAccountEmail = destinationAccountEmail;
+  }
+}
+
 async function mapWithConcurrency<T, R>(
   values: T[],
   map: (value: T) => Promise<R>,
@@ -1286,6 +1307,11 @@ export async function moveEvent(
   ) {
     throw new Error("This Google Calendar event type cannot be moved.");
   }
+  if (sourceEvent.recurrence?.length && !sourceEvent.recurringEventId) {
+    throw new Error(
+      "Recurring series masters cannot be moved; move a single occurrence instead.",
+    );
+  }
 
   const replacement = await createEvent(
     {
@@ -1294,6 +1320,7 @@ export async function moveEvent(
       googleEventId: undefined,
       recurringEventId: undefined,
       accountEmail: options.destinationAccount.accountEmail,
+      attendees: sourceEvent.attendees?.filter((attendee) => !attendee.self),
     },
     {
       account: options.destinationAccount,
@@ -1320,11 +1347,12 @@ export async function moveEvent(
     try {
       await deleteEvent(replacement.id, options.destinationAccount, {
         scope: "single",
-        sendUpdates: "none",
+        sendUpdates: options.sendUpdates === "all" ? "all" : "none",
       });
     } catch (cleanupError) {
-      console.error(
-        "Failed to clean up a moved event after the original could not be deleted.",
+      throw new CalendarMoveRollbackError(
+        replacement.id,
+        options.destinationAccount.accountEmail,
         cleanupError,
       );
     }
