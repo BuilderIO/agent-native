@@ -2762,6 +2762,23 @@ const INTERRUPTED_TOOL_RESULT_MARKER =
 const MAX_WRITE_TOOL_INTERRUPTIONS = 2;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 /**
+ * Same tool, same error, ANY arguments. `MAX_IDENTICAL_TOOL_ERRORS` keys on the
+ * arguments too, so it only catches a model that repeats itself verbatim — and
+ * a model that is genuinely lost does the opposite: it keeps changing the
+ * arguments. Every variation mints a fresh key, the count never reaches three,
+ * and nothing stops it. That is how a delegated turn burned five minutes
+ * against an app that answers the same question in twenty-seven seconds.
+ *
+ * Higher than the exact-repeat limit on purpose: a capable model reads a schema
+ * error and fixes its arguments within a try or two, so this must not cut off
+ * honest correction. It only fires once a tool has rejected six attempts the
+ * same way, which no amount of further guessing is going to fix.
+ *
+ * This is the floor that has to hold on ANY model. A stronger model recovering
+ * on its own is not a substitute for it — it just hides its absence.
+ */
+export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 6;
+/**
  * Identical (tool, arguments) invocations tolerated in one turn before the turn
  * is stopped, whether or not they errored.
  *
@@ -4176,6 +4193,8 @@ export async function runAgentLoop(opts: {
     actions,
   );
   const repeatedToolErrors = new Map<string, number>();
+  // Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS.
+  const repeatedToolErrorsAnyArgs = new Map<string, number>();
   const repeatedToolCalls = new Map<string, number>();
 
   let finalGuardRetries = 0;
@@ -5082,6 +5101,33 @@ export async function runAgentLoop(opts: {
         )}:${normalizeToolErrorForBreaker(sanitizedResult)}`;
         const count = (repeatedToolErrors.get(errorKey) ?? 0) + 1;
         repeatedToolErrors.set(errorKey, count);
+
+        // Same tool, same error, arguments ignored. Catches the lost-model
+        // shape the exact-match counter above cannot: new arguments every
+        // attempt, so every attempt looks like a first attempt.
+        const anyArgsKey = `${toolCall.name}:${normalizeToolErrorForBreaker(
+          sanitizedResult,
+        )}`;
+        const anyArgsCount =
+          (repeatedToolErrorsAnyArgs.get(anyArgsKey) ?? 0) + 1;
+        repeatedToolErrorsAnyArgs.set(anyArgsKey, anyArgsCount);
+        if (
+          count < MAX_IDENTICAL_TOOL_ERRORS &&
+          anyArgsCount >= MAX_SAME_ERROR_ACROSS_ARGUMENTS
+        ) {
+          const result =
+            `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
+            `with different arguments. Last error: ${sanitizedResult}`;
+          requestedActionStop ??= {
+            message:
+              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way, ` +
+              "so changing the arguments again would not have worked. Anything completed before this is saved. " +
+              `Error: ${sanitizedResult}`,
+            errorCode: "repeated_tool_error_across_arguments",
+          };
+          return result;
+        }
+
         if (count < MAX_IDENTICAL_TOOL_ERRORS) return sanitizedResult;
         const result =
           `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
