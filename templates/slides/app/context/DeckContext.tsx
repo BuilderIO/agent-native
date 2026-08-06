@@ -855,7 +855,10 @@ async function fetchDeckFromAPI(id: string): Promise<Deck | null> {
       );
       return normalizeActionDeck(result);
     } catch (err) {
-      if (isConfirmedDeckAbsence(err) || attempt === DECK_FETCH_RETRY_ATTEMPTS) {
+      if (
+        isConfirmedDeckAbsence(err) ||
+        attempt === DECK_FETCH_RETRY_ATTEMPTS
+      ) {
         console.error(`Failed to fetch deck ${id}:`, err);
         return null;
       }
