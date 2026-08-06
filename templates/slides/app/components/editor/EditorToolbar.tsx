@@ -645,9 +645,8 @@ export default function EditorToolbar({
     C --> E[End]
     D --> E`;
                   try {
-                    const { convertMermaidToExcalidraw } = await import(
-                      "./MermaidToExcalidrawPanel"
-                    );
+                    const { convertMermaidToExcalidraw } =
+                      await import("./MermaidToExcalidrawPanel");
                     const data = await convertMermaidToExcalidraw(
                       defaultMermaidDefinition,
                     );
