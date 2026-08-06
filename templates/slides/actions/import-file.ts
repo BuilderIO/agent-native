@@ -2,7 +2,6 @@ import path from "path";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -237,15 +236,16 @@ export default defineAction({
       const { PDFParse, canvasFactory } = await setupPdfParse();
       const title = titleFromPath(filename);
 
-      // Designed slide PDFs (photo backgrounds, gradients, custom
-      // typography) bake their visuals into vector/image page content with
-      // no reliable text/shape structure to reconstruct, so importing into a
-      // deck rasterizes each page instead of flattening it to generic bullet
-      // text. Falls through to the text-only path below when the optional
-      // canvas renderer isn't available in this runtime.
-      if (importIntoDeck && canvasFactory) {
+      // Reconstruct each page's real layout — positioned text blocks at
+      // their actual sizes plus every embedded image at its actual
+      // placement — instead of flattening the page to one guessed
+      // background photo and a canned text template. Image placement needs
+      // the optional canvas renderer; text positioning does not, so this
+      // still beats the old bullet-text fallback even when canvasFactory is
+      // unavailable in this runtime.
+      if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        return importPdfPagesAsFullBleedSlides({
+        return importPdfPagesWithFidelity({
           fileBuffer,
           title,
           deckId,
@@ -334,112 +334,119 @@ function nearestAspectRatio(width: number, height: number): AspectRatio {
   return best;
 }
 
-async function importPdfPagesAsFullBleedSlides(args: {
+async function importPdfPagesWithFidelity(args: {
   fileBuffer: Buffer;
   title: string;
   deckId: string;
   PDFParse: Awaited<ReturnType<typeof setupPdfParse>>["PDFParse"];
-  canvasFactory: object;
+  canvasFactory: object | undefined;
 }) {
   const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
-  const { buildFullBleedImageSlideHtml, convertSectionsToSlides } =
+  const { convertToSlideHtml, convertSectionsToSlides } =
     await import("../server/handlers/import/html-converter.js");
+  const { parsePdfFidelity } =
+    await import("../server/handlers/import/pdf-fidelity-parser.js");
 
   const pdf = new PDFParse({
     data: new Uint8Array(fileBuffer),
     CanvasFactory: canvasFactory,
   });
   let pages: { num: number; text: string }[];
-  let imagesByPage: Map<
-    number,
-    { data: Uint8Array; width: number; height: number }
-  >;
+  let fidelityPages: Awaited<ReturnType<typeof parsePdfFidelity>>;
   try {
     pages = normalizePdfPages(await pdf.getText());
-    // Reuse the page's own embedded photo rather than rasterizing the whole
-    // page: headless canvas text rendering depends on the PDF's embedded
-    // fonts resolving in this runtime, which is unreliable, so real
-    // extracted text is drawn as HTML below instead of trusting the render.
-    const imageResult = await pdf.getImage({
-      imageBuffer: true,
-      imageDataUrl: false,
-    });
-    imagesByPage = new Map();
-    for (const page of imageResult.pages) {
-      const largest = page.images.reduce<
-        { data: Uint8Array; width: number; height: number } | undefined
-      >((best, image) => {
-        if (!best || image.width * image.height > best.width * best.height) {
-          return { data: image.data, width: image.width, height: image.height };
-        }
-        return best;
-      }, undefined);
-      if (largest) imagesByPage.set(page.pageNumber, largest);
-    }
+    // Image placement needs the optional canvas renderer to decode pixel
+    // data; skip it (text still gets real positions/sizes) when the native
+    // canvas binding isn't available in this runtime.
+    const imageResult = canvasFactory
+      ? await pdf
+          .getImage({
+            imageBuffer: true,
+            imageDataUrl: false,
+            imageThreshold: 0,
+          })
+          .catch((err) => {
+            console.warn(
+              "[import-file] PDF image extraction failed, importing text-only fidelity:",
+              err instanceof Error ? err.message : String(err),
+            );
+            return undefined;
+          })
+      : undefined;
+
+    // `pdf-parse` memoizes the loaded pdfjs document behind `load()` (a
+    // TS-only `private` method — a real, callable runtime property).
+    // Reaching into it reuses the exact document `getText`/`getImage` above
+    // already parsed instead of parsing the file a second time.
+    const doc = await (
+      pdf as unknown as {
+        load(): Promise<
+          import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentProxy
+        >;
+      }
+    ).load();
+    // coercion-ok: undefined here means either canvasFactory was absent or
+    // getImage() already failed and logged a warning above — text-only
+    // fidelity is the intended degrade, not a swallowed failure.
+    fidelityPages = await parsePdfFidelity(doc, imageResult?.pages ?? []);
   } finally {
     await pdf.destroy();
   }
 
   // Source decks (e.g. Instagram carousel exports) are commonly portrait or
   // square, not the deck editor's 16:9 default — match the canvas to the
-  // first embedded photo's own proportions instead of stretching/cropping it.
-  const firstImage = pages
-    .map((page) => imagesByPage.get(page.num))
-    .find((image): image is NonNullable<typeof image> => Boolean(image));
-  const aspectRatio = firstImage
-    ? nearestAspectRatio(firstImage.width, firstImage.height)
+  // PDF's own real page proportions instead of stretching/cropping it.
+  const firstSizedPage = fidelityPages.find((p) => p.widthEmu > 0);
+  const aspectRatio = firstSizedPage
+    ? nearestAspectRatio(firstSizedPage.widthEmu, firstSizedPage.heightEmu)
     : undefined;
 
   const ownerEmail = getRequestUserEmail();
-  const slides = await Promise.all(
-    pages.map(async (page) => {
-      const lines = page.text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      const backgroundImage = imagesByPage.get(page.num);
+  if (!ownerEmail) throw new Error("no authenticated user");
 
-      if (!backgroundImage) {
+  const slides = await Promise.all(
+    pages.map(async (page, index) => {
+      const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
+
+      if (!fidelity || fidelity.elements.length === 0) {
+        // Fidelity parsing failed or found nothing placeable on this page
+        // (e.g. a fully blank page) — fall back to plain extracted text
+        // instead of producing a silently blank slide.
+        const firstLine = page.text.split(/\r?\n/)[0]?.trim();
         const [content] = convertSectionsToSlides([
-          { heading: lines[0] ?? `Page ${page.num}`, content: page.text },
+          { heading: firstLine || `Page ${page.num}`, content: page.text },
         ]);
         return {
           id: newSlideId(),
           content: content ?? '<div class="fmd-slide"></div>',
           layout: "content",
-          notes: "",
+          notes: page.text,
         };
       }
 
-      const uploadResult = await uploadFile({
-        data: Buffer.from(backgroundImage.data),
-        filename: `slide-import-${Date.now()}-p${page.num}.png`,
-        mimeType: "image/png",
-        ownerEmail: ownerEmail ?? undefined,
-        recordAsset: false,
+      const slideForUpload = {
+        texts: [],
+        images: [],
+        elements: fidelity.elements,
+      };
+      const uploaded = await uploadPptxSlideImages({
+        slide: slideForUpload,
+        slideIndex: index,
+        ownerEmail,
       });
-      if (!uploadResult?.url) {
-        throw new Error(
-          "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before importing PDF slides.",
-        );
-      }
-      // pdf-parse breaks wrapped text across lines with no way to tell a
-      // wrapped title from a heading followed by a body paragraph. Treat a
-      // couple of short lines as one wrapped title (join them so the
-      // sentence isn't cut off); three or more lines as a heading plus body
-      // text, rendered with distinct sizes so they don't collapse into one
-      // flat paragraph.
-      const heading =
-        lines.length > 2 ? lines[0] : lines.join(" ") || undefined;
-      const subtitle = lines.length > 2 ? lines.slice(1).join(" ") : undefined;
+      const content = convertToSlideHtml({
+        texts: [],
+        images: [],
+        elements: fidelity.elements,
+        widthEmu: fidelity.widthEmu,
+        heightEmu: fidelity.heightEmu,
+        backgroundColor: "#ffffff", // guard:allow-raw-color - a PDF page's own paper background, not a design-system token
+      }, uploaded.urls);
+
       return {
         id: newSlideId(),
-        content: buildFullBleedImageSlideHtml(
-          uploadResult.url,
-          heading,
-          subtitle,
-        ),
-        layout: "full-image",
+        content,
+        layout: "content",
         notes: page.text,
       };
     }),
