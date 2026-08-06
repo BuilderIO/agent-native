@@ -27,7 +27,7 @@ At runtime, every agent-native app is three things working together:
 - **Application** — The product surface around the agent. It may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
 - **Computer** — The database, browser, and configured tool runtimes the agent acts through. Agents work through the app's own action and data surface; that same surface can optionally be exposed over MCP, but external MCP servers stay an add-on, not the foundation.
 
-The diagram below is the point of this whole page: the agent and the application are drawn side by side, both with two-way arrows into one shared computer layer underneath. Neither one owns the data — they read and write the same SQL store, so a change either side makes is visible to the other immediately, with no sync layer to build in between.
+The diagram below shows the agent and the application side by side, both with two-way arrows into one shared computer layer underneath. Neither one owns the data. Instead, they read and write the same SQL store, so a change either side makes is visible to the other immediately, with no sync layer to build in between.
 
 <Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
 
@@ -95,7 +95,8 @@ That same agent-application-computer loop is what runs locally and in production
 ## Agent building blocks {#agent-building-blocks}
 
 Every agent-native app has the same agent building blocks, regardless of whether
-the product surface is chat-first, automation-first, or a full UI:
+the product surface is chat-first, automation-first, or a full UI. Each one lives
+in its own file:
 
 <FileTree
   id="doc-block-1ae57y4"
@@ -116,11 +117,13 @@ the product surface is chat-first, automation-first, or a full UI:
   ]}
 />
 
-| Building block   | Use it for                                                                                          | Loaded when                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| **Instructions** | Stable guidance the agent should carry into every task: what the app is, invariants, tone, indexes  | Every turn                                            |
-| **Skills**       | Reusable behavior: how to follow a workflow, apply a policy, inspect evidence, or verify an output  | On demand when the skill description matches the task |
-| **Actions**      | Real operations: read or write data, call APIs, send messages, run approvals, produce typed results | Listed as tools every turn; executed only when called |
+A turn is one exchange with the agent: it reads its context, decides what to do, and responds. Loaded every turn means the file re-enters that context each time, not just once at session start.
+
+| Building block   | File                             | Use it for                                                                                          | Loaded when                                           |
+| ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Instructions** | `AGENTS.md`                       | Stable guidance the agent should carry into every task: what the app is, invariants, tone, indexes  | Every turn                                            |
+| **Skills**       | `.agents/skills/<name>/SKILL.md`  | Reusable behavior: how to follow a workflow, apply a policy, inspect evidence, or verify an output  | On demand when the skill description matches the task |
+| **Actions**      | `actions/<name>.ts`               | Real operations: read or write data, call APIs, send messages, run approvals, produce typed results | Listed as tools every turn; executed only when called |
 
 Skills and actions work together. A skill teaches the agent how to do a class of
 work; an action is the code path it can call while doing that work. For example,
@@ -130,53 +133,20 @@ and write the actual data.
 
 Five rules govern the architecture:
 
-<Cards>
-
-### 1. Data lives in SQL
-
-All app state lives in the database via Drizzle ORM.
-
-### 2. All AI goes through the agent
-
-No inline LLM calls — every AI interaction flows through the agent chat bridge.
-
-### 3. Actions for agent operations
-
-Complex work runs as a typed action, not inline code.
-
-### 4. Live sync keeps the UI in sync
-
-Database changes stream over SSE, with polling as the universal fallback.
-
-### 5. Application state in SQL
-
-Ephemeral UI state lives in the database, readable by both agent and UI.
-
-</Cards>
+1. **Data lives in SQL** — all app state lives in the database via Drizzle ORM.
+2. **All AI goes through the agent** — no inline LLM calls; every AI interaction flows through the agent chat bridge.
+3. **Actions for agent operations** — complex work runs as a typed action, not inline code.
+4. **Live sync keeps the UI in sync** — database changes stream over SSE, with polling as the universal fallback.
+5. **Application state in SQL** — ephemeral UI state lives in the database, readable by both agent and UI.
 
 ## The four-area checklist {#four-area-checklist}
 
 Every user-facing feature should update all applicable areas. Skipping an applicable area breaks the agent-native contract; forcing a screen onto an automation that no human needs to browse is also a smell.
 
-<Cards>
-
-### 1. UI
-
-Page, component, or dialog the user interacts with.
-
-### 2. Action
-
-Agent-callable action in `actions/` for the same operation.
-
-### 3. Skills
-
-Update `AGENTS.md` and/or create a skill documenting the pattern.
-
-### 4. App-State
-
-Navigation state, view-screen data, and navigate commands.
-
-</Cards>
+- **1. UI** — Page, component, or dialog the user interacts with.
+- **2. Action** — Agent-callable action in `actions/` for the same operation.
+- **3. Skills** — Update `AGENTS.md` and/or create a skill documenting the pattern.
+- **4. App-State** — Navigation state, view-screen data, and navigate commands.
 
 A feature with only UI is invisible to the agent. A full UI feature with only actions is invisible to the user. A feature without app-state means the agent is blind to what the user is doing. An automation-first operation can legitimately start with action + instructions and add chat, UI, or app-state later when humans need to browse, approve, configure, or share it.
 
