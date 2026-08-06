@@ -46,9 +46,10 @@ import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
+import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
-import { invalidateRequestMemberOrgIds } from "./request-org-cache.js";
+import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type { OrgRole, RequiredAuthProvider } from "./types.js";
 import { parseWorkspaceUrl } from "./workspace-url.js";
 
@@ -520,7 +521,7 @@ export const acceptInvitationHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
@@ -590,7 +591,7 @@ export const removeMemberHandler = defineEventHandler(
       sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -789,7 +790,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  invalidateRequestMemberOrgIds();
+  invalidateMemberOrgCaches();
 
   const nextRes = await e.execute({
     sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
@@ -894,7 +895,7 @@ export const joinByDomainHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
       args: [nanoid(), orgId, email, Date.now()],
     });
-    invalidateRequestMemberOrgIds();
+    invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
@@ -975,6 +976,10 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
     args: [raw, ctx.orgId],
   });
+  // A domain that previously matched nothing now matches this org. Without this
+  // the negative cache keeps every account at that domain out of it for the
+  // rest of the TTL, right after an owner deliberately turned domain-join on.
+  invalidateDomainMatchCache();
 
   return { domain: raw };
 });

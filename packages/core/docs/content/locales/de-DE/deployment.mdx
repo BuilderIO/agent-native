@@ -302,6 +302,20 @@ npx @agent-native/core@latest deploy --preset netlify
 
 Der Workspace-Build schreibt statische Assets unter `dist/_workspace_static/` und leitet jede App ohne erzwungene Asset-Umleitungen an ihre eigene Netlify-Funktion weiter, sodass Dateien wie `/mail/assets/...` statisch bereitgestellt werden, bevor die Serverfunktion App-Routen verarbeitet.
 
+### Keep-warm und Scale-to-Zero-Datenbanken {#netlify-keep-warm}
+
+Der Netlify-Build erzeugt eine geplante Funktion, die **jede Minute** `/_agent-native/health` aufruft. Das hält die Server-Funktion und ihre Datenbank warm, damit der nächste Besucher nach einer Leerlaufphase keinen Kaltstart bezahlt (1–5 s bei Neon). Auf bereitgestellter Rechenleistung ist das die richtige Voreinstellung.
+
+**Bei einer nach Verbrauch abgerechneten Scale-to-Zero-Datenbank ist es die falsche Voreinstellung.** Ein Aufwecken pro Minute bedeutet, dass Autosuspend nie greift; die Datenbank rechnet ab und begrenzt das Kontingent, als wäre sie dauerhaft wach, obwohl niemand die App nutzt. Bei einem Neon-Gratis-Tarif erschöpft das das Rechenkontingent, und die Datenbank lehnt danach **alle** Lesevorgänge mitten in der Sitzung ab — das Symptom ist eine tote App, nicht eine langsame.
+
+| Variable | Wirkung |
+| --- | --- |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM` | Überspringt die geplante Funktion vollständig. Die Datenbank darf autosuspendieren; der nächste Besucher nach einer Leerlaufphase bezahlt deren Kaltstart. |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE` | Überschreibt die Kadenz mit einem 5-Feld-Cron-Ausdruck, z. B. `*/5 * * * *`. Ein nicht parsebarer Wert **lässt den Build fehlschlagen**, statt stillschweigend auf einmal pro Minute zurückzufallen. |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion und hält den Server warm. `server` aufzuwärmen ist eine Anfrage; `-background` aufzuwärmen startet einen frischen Container, der das Schema erneut prüft. |
+
+Wenn du einen kostenlosen oder anderweitig kontingentierten Datenbank-Tarif nutzt, setze `AGENT_NATIVE_DISABLE_KEEP_WARM=1` oder wähle eine langsamere Kadenz.
+
 ## Cloudflare-Seiten {#cloudflare-pages}
 
 ```ts
@@ -388,6 +402,10 @@ Drei Dinge sind zu beachten:
 | `APP_BASE_PATH`                             | Mounten Sie die App unter einem Präfix (z. B. `/mail`). Automatisch eingestellt durch `npx @agent-native/core@latest deploy`; Für Standalone deaktiviert lassen.                                                                                                                                                                                                                                                                                                                                            |
 | `AGENT_PROD_CODE_EXECUTION`                 | Optionaler Produktionscode-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                                                                                   |
 | `AGENT_NATIVE_SSR_CACHE`                    | Bereitstellungsweite Cache-Richtlinie für die SSR-Shell: nicht gesetzt/`on` behält den standardmäßigen Hard-Cache bei, `off` sendet `no-store`, oder eine Dauer wie `30s` / `5m` setzt ein kürzeres Frische-Fenster. Siehe [SSR-Caching](#ssr-caching).                                                                                                                                                                                                                                                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM` | Überspringt die geplante Netlify-Keep-warm-Funktion, damit eine Scale-to-Zero-Datenbank autosuspendieren kann. Siehe [Keep-warm](#netlify-keep-warm). |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE` | Überschreibt die Keep-warm-Kadenz mit einem 5-Feld-Cron-Ausdruck (Standard `* * * * *`). Ein nicht parsebarer Wert lässt den Build fehlschlagen. Siehe [Keep-warm](#netlify-keep-warm). |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion und hält den Server warm. Siehe [Keep-warm](#netlify-keep-warm). |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS` | Schaltet die In-Process-Backstop-Sweep-Timer ab (Automatisierungs-Redispatch, Agent-Teams-Abgleich, Wiederherstellung von Sandbox-Ausführungen). Auf Serverless laufen sie pro warmem Container, ihre Abfragerate skaliert also mit der Instanzzahl. Setze dies **nur**, wenn ein dauerhafter Scheduler dieselbe Wiederherstellung bereits antreibt — sonst werden wartende Aufgaben nicht erneut versucht. |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dediziertes, gemeinsam verwendetes HMAC-Geheimnis mit mindestens 32 Zeichen für die previewsichere Builder-Autorisierungsweiterleitung. Legen Sie denselben Wert in der genehmigten Unternehmens-Callback-Bereitstellung und in Preview-Bereitstellungen nur fest, wenn die Autorisierung in einer isolierten Preview-Datenbank gespeichert werden muss.                                                                                                                                                    |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Nur für den Unternehmens-Callback bestimmte, kommagetrennte Zulassungsliste exakt übereinstimmender, vertrauenswürdiger Preview-Origins (zum Beispiel `https://0123456789abcdef01234567--content.netlify.app`). Legen Sie sie nur in der Unternehmens-Callback-Bereitstellung fest. Netlify-Origins müssen einen unveränderlichen, bereitstellungsspezifischen Permalink mit einer 24-stelligen Hex-ID verwenden; veränderliche `deploy-preview-*`-Aliase, Platzhalter und Domain-Suffixe werden abgelehnt. |
 

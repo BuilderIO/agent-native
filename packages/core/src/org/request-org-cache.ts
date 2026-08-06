@@ -1,4 +1,5 @@
 import { getRequestContext } from "../server/request-context.js";
+import { createTtlCache } from "../shared/ttl-cache.js";
 
 /**
  * Per-request memo of the `org_members` read behind `resolveOrgIdForEmail`,
@@ -60,12 +61,65 @@ export function requestMemberOrgIds(
 }
 
 /**
- * Drop this request's memoized memberships after a write to `org_members`.
+ * Cross-request cache for the full membership rows behind `getOrgContext`.
+ *
+ * The per-request memo above only collapses repeated reads inside ONE request.
+ * Every authenticated request still paid its own `org_members` round trip, and
+ * production showed 494,785 of them — one per request, 1:1 with the session
+ * lookup, for memberships that change on the order of days.
+ *
+ * Only a SUCCESSFUL read is stored. `loadMemberships` returns `null` for an
+ * unreadable `org_members` (no such table on a template that skips the org
+ * module, a role without SELECT); caching that would turn a permissions blip
+ * into a minute of silently org-less requests, which drops org scope and hides
+ * every org-scoped credential behind a permanent-sounding "not configured".
+ */
+const MEMBER_ORGS_TTL_MS = 15_000;
+
+const processMemberships = createTtlCache<unknown[]>({
+  ttlMs: MEMBER_ORGS_TTL_MS,
+  maxEntries: 2_048,
+});
+
+/**
+ * Read `email`'s memberships through the process cache, falling back to `load`.
+ *
+ * `load` returning `null`/empty-on-failure is the caller's contract to signal
+ * "unreadable"; pass `cacheable: false` for such a result and it is not stored.
+ */
+export async function cachedMemberships<T>(
+  email: string,
+  load: () => Promise<T[] | null>,
+): Promise<T[] | null> {
+  const key = email.trim().toLowerCase();
+  const hit = processMemberships.get(key);
+  if (hit) return hit as T[];
+  const rows = await load();
+  // `null` is "unreadable", never "no memberships" — see the doc comment above.
+  if (rows !== null) processMemberships.set(key, rows as unknown[]);
+  return rows;
+}
+
+/**
+ * Drop the memoized memberships after a write to `org_members`, in BOTH the
+ * per-request memo and the cross-request cache.
+ *
  * Clears every email rather than one: deleting an organization or removing a
  * member changes the answer for accounts other than the one being written.
  * Requests already in flight elsewhere keep their own snapshot for the rest of
  * their (short) lifetime, the same tradeoff the settings cache documents.
+ *
+ * Every membership write must route through here. A caller that clears only the
+ * request memo leaves the process cache serving the pre-write answer for the
+ * rest of the TTL — the user joins an org and the app keeps insisting they
+ * haven't.
  */
-export function invalidateRequestMemberOrgIds(): void {
+export function invalidateMemberOrgCaches(): void {
   cacheForRequest(false)?.clear();
+  processMemberships.clear();
+}
+
+/** Test seam — the process cache is module state, so suites must clear it. */
+export function __resetProcessMemberOrgCacheForTests(): void {
+  processMemberships.clear();
 }
