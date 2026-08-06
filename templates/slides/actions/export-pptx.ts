@@ -136,6 +136,15 @@ interface ShapeElement {
   order?: number;
 }
 
+interface GridElement {
+  color: string;
+  stepX: number;
+  stepY: number;
+  offsetX: number;
+  offsetY: number;
+  lineWidth: number;
+}
+
 export function assertServerPptxExportable(
   html: string,
   slideNumber: number,
@@ -168,6 +177,7 @@ export function parseSlideHtml(
   texts: TextElement[];
   images: ImageElement[];
   shapes: ShapeElement[];
+  grid?: GridElement;
   bgColor: string;
 } {
   assertServerPptxExportable(html, slideNumber);
@@ -368,6 +378,7 @@ function parseImportedSlideHtml(
   texts: TextElement[];
   images: ImageElement[];
   shapes: ShapeElement[];
+  grid?: GridElement;
   bgColor: string;
 } {
   const texts: TextElement[] = [];
@@ -381,6 +392,7 @@ function parseImportedSlideHtml(
       ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - PPTX background fallback
       : "#000000", // guard:allow-raw-color - PPTX background fallback
   );
+  const grid = outerStyle ? parseImportedGrid(outerStyle) : undefined;
   const elementRegex =
     /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape)["'][^>]*)>([\s\S]*?)<\/div>/gi;
   let match: RegExpExecArray | null;
@@ -450,7 +462,42 @@ function parseImportedSlideHtml(
     });
   }
 
-  return { texts, images, shapes, bgColor };
+  return { texts, images, shapes, grid, bgColor };
+}
+
+function parseImportedGrid(style: string): GridElement | undefined {
+  const backgroundImage = getStyle(style, "background-image");
+  const size = getStyle(style, "background-size")
+    ?.split(/\s+/)
+    .map((value) => Number.parseFloat(value));
+  const position = getStyle(style, "background-position")
+    ?.split(/\s+/)
+    .map((value) => Number.parseFloat(value));
+  const color = backgroundImage?.match(/#[0-9a-f]{6}|rgb\([^)]*\)/i)?.[0];
+  const lineWidth = backgroundImage
+    ?.match(/\s0\s+([\d.]+)px/i)?.[1];
+  if (
+    !color ||
+    !size ||
+    size.length < 2 ||
+    !Number.isFinite(size[0]) ||
+    !Number.isFinite(size[1]) ||
+    !position ||
+    position.length < 2 ||
+    !Number.isFinite(position[0]) ||
+    !Number.isFinite(position[1]) ||
+    !lineWidth
+  ) {
+    return undefined;
+  }
+  return {
+    color: colorToHex(color),
+    stepX: size[0],
+    stepY: size[1],
+    offsetX: position[0],
+    offsetY: position[1],
+    lineWidth: Number.parseFloat(lineWidth),
+  };
 }
 
 function importedGeometry(
