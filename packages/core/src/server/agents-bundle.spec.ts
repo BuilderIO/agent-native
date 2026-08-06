@@ -379,15 +379,21 @@ describe("readAgentsBundleFromFs", () => {
     expect(promptBlock).toContain('docs-search --slug "skill-visual-edit"');
   });
 
-  it("exposes turn-into-app to the app runtime skill picker", () => {
+  it("exposes workflow packaging skills to the app runtime skill picker", () => {
     const bundle = readAgentsBundleFromFs(repoPath("templates", "chat"));
-    const skill = getRuntimeSkills(bundle).find(
-      (candidate) => candidate.meta.name === "turn-into-app",
-    );
+    const runtimeSkills = getRuntimeSkills(bundle);
 
-    expect(skill).toBeDefined();
-    expect(skill!.meta.scope).toBe("both");
-    expect(skill!.meta.description).toContain("Use when");
-    expect(generateSkillsPromptBlock(bundle)).toContain("`turn-into-app`");
+    for (const name of ["turn-into-app", "turn-into-skill"]) {
+      const skill = runtimeSkills.find(
+        (candidate) => candidate.meta.name === name,
+      );
+      expect(skill, `expected runtime skill ${name}`).toBeDefined();
+      expect(skill!.meta.scope).toBe("both");
+      expect(skill!.meta.description).toContain("Use when");
+    }
+
+    const promptBlock = generateSkillsPromptBlock(bundle);
+    expect(promptBlock).toContain("`turn-into-app`");
+    expect(promptBlock).toContain("`turn-into-skill`");
   });
 });

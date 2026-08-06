@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
@@ -461,18 +462,6 @@ function newSlideId(): string {
   return `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// EMF/WMF (Windows metafiles) and TIFF are valid PPTX embed formats but
-// browsers can't render them in an <img> tag — uploading and linking one
-// would just produce a broken image icon.
-const PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/svg+xml",
-  "image/bmp",
-]);
-
 async function buildPptxSlide(
   slide: import("../server/handlers/import/pptx-parser.js").ParsedSlide,
   slideIndex: number,
@@ -491,44 +480,21 @@ async function buildPptxSlide(
 }> {
   const { convertToSlideHtml } =
     await import("../server/handlers/import/html-converter.js");
-  const image = slide.images[0];
-  const uploadable =
-    image && PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)
-      ? image
-      : undefined;
-  const imageUrl = uploadable
-    ? await uploadFile({
-        data: Buffer.from(uploadable.data),
-        filename:
-          "pptx-import-" +
-          Date.now() +
-          "-s" +
-          slideIndex +
-          "-" +
-          uploadable.name,
-        mimeType: uploadable.mimeType,
-        ownerEmail,
-        recordAsset: false,
-      })
-        .then((result) => result?.url)
-        // A single slide's upload failing (network/API/rate-limit)
-        // shouldn't abort the whole deck replacement — fall back to a
-        // placeholder like an unsupported format would.
-        .catch(() => undefined)
-    : undefined;
+  const uploadedImages = await uploadPptxSlideImages({
+    slide,
+    slideIndex,
+    ownerEmail,
+  });
   return {
     slide: {
       id: newSlideId(),
-      content: convertToSlideHtml(slide, imageUrl, themeFont),
+      content: convertToSlideHtml(slide, uploadedImages.urls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
       ...(slide.transition ? { transition: slide.transition } : {}),
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
-    // Only the first image on a slide is ever uploaded, so every other
-    // image on that slide is unconditionally dropped too — not just the
-    // first one when it's unsupported.
-    imageSkippedCount: Math.max(0, slide.images.length - (imageUrl ? 1 : 0)),
+    imageSkippedCount: uploadedImages.imageSkippedCount,
   };
 }
 
