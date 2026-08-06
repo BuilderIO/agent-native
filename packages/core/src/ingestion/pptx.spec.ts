@@ -163,6 +163,28 @@ describe("parsePptxPresentation", () => {
       "Third shape",
     ]);
   });
+
+  it("preserves spaces at run boundaries", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p><a:r><a:t>before </a:t></a:r><a:r><a:t>after</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    expect(presentation.slides[0]?.texts.map((run) => run.content)).toEqual([
+      "before ",
+      "after",
+    ]);
+  });
 });
 
 async function buildMinimalPptxBuffer(slideXml: string): Promise<Uint8Array> {

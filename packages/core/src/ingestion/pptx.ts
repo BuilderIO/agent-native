@@ -26,6 +26,7 @@ export interface ParsedPptxParagraph {
 export interface ParsedPptxElement {
   id: string;
   name?: string;
+  placeholderType?: string;
   kind: "text" | "image" | "shape";
   x: number;
   y: number;
@@ -350,6 +351,9 @@ async function parseShapeFragment(
   const transform = applyTransform(readTransform(node, "p:spPr"), args.context);
   const id = readShapeId(node);
   const name = readShapeName(node);
+  const placeholderType = stringValue(
+    record(record(record(node["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"])?.["@_type"],
+  );
   const shapeProperties = record(node["p:spPr"]);
   const text = parseTextBody(node);
   const fill = parseShapeFill(shapeProperties);
@@ -395,6 +399,7 @@ async function parseShapeFragment(
       {
         id,
         name,
+        ...(placeholderType ? { placeholderType } : {}),
         kind: "text",
         ...transform,
         shapeType,
@@ -1019,6 +1024,7 @@ async function loadPptxDependencies(): Promise<{
     const parser = new xmlModule.XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
+      trimValues: false,
     });
     return {
       loadZip: (data) => zipModule.default.loadAsync(data),

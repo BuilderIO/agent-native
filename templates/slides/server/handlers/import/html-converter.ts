@@ -68,7 +68,11 @@ const DEFAULT_IMPORT_FONT = "'Poppins', sans-serif";
 function cssFontFamily(themeFont: string | undefined): string {
   if (!themeFont) return DEFAULT_IMPORT_FONT;
   const safeName = themeFont.replace(/["']/g, "").trim();
-  return safeName ? `'${safeName}', sans-serif` : DEFAULT_IMPORT_FONT;
+  if (!safeName) return DEFAULT_IMPORT_FONT;
+  if (safeName.toLowerCase().startsWith("poppins")) {
+    return "'Poppins', sans-serif";
+  }
+  return `'${safeName}', sans-serif`;
 }
 
 /**
@@ -199,9 +203,16 @@ function buildFidelityElement(
   }
 
   const textStyle = textBoxStyle(element, widthEmu, heightEmu, themeFont);
+  const defaultFontWeight = element.placeholderType === "title" ? 700 : 400;
   const paragraphs = (element.paragraphs ?? [])
     .map((paragraph, paragraphIndex) =>
-      buildFidelityParagraph(paragraph, paragraphIndex, widthEmu, themeFont),
+      buildFidelityParagraph(
+        paragraph,
+        paragraphIndex,
+        widthEmu,
+        themeFont,
+        defaultFontWeight,
+      ),
     )
     .join("\n");
   return `<div class="fmd-pptx-text" data-pptx-element-kind="text"${objectId} style="${position}${rotation}${decoration}${textStyle}">${paragraphs}</div>`;
@@ -266,6 +277,7 @@ function buildFidelityParagraph(
   paragraphIndex: number,
   widthEmu: number,
   themeFont: string | undefined,
+  defaultFontWeight: number,
 ): string {
   const firstRun = paragraph.runs[0];
   const fontSize = (firstRun?.fontSize ?? 18) * CSS_PX_PER_POINT;
@@ -281,29 +293,35 @@ function buildFidelityParagraph(
     : 0;
   const spacingBefore = paragraph.spaceBeforePt ?? 0;
   const spacingAfter = paragraph.spaceAfterPt ?? 0;
+  const bulletMargin = paragraph.bulletChar ? `margin-left:${indent}px;` : "";
   const text = paragraph.runs
-    .map((run) => formatFidelityRun(run, themeFont))
+    .map((run) => formatFidelityRun(run, themeFont, defaultFontWeight))
     .join("");
-  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;text-align:${paragraph.alignment ?? "left"};margin:${spacingBefore * CSS_PX_PER_POINT}px 0 ${spacingAfter * CSS_PX_PER_POINT}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${indent}px;">${bullet}${text}</p>`;
+  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;text-align:${paragraph.alignment ?? "left"};white-space:pre-wrap;margin:${spacingBefore * CSS_PX_PER_POINT}px 0 ${spacingAfter * CSS_PX_PER_POINT}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
 }
 
 function formatFidelityRun(
   run: ParsedTextRun,
   themeFont: string | undefined,
+  defaultFontWeight = 400,
 ): string {
   const styles = [
     `font-size:${(run.fontSize ?? 18) * CSS_PX_PER_POINT}px`,
     `font-family:${cssFontFamily(run.fontFamily ?? themeFont)}`,
     `color:${esc(run.color ?? DEFAULT_PPTX_FOREGROUND)}`,
-    `font-weight:${run.bold ? 700 : fontWeightForFamily(run.fontFamily)}`,
+    `font-weight:${run.bold ? 700 : fontWeightForFamily(run.fontFamily, defaultFontWeight)}`,
     `font-style:${run.italic ? "italic" : "normal"}`,
     `text-decoration:${run.underline ? "underline" : "none"}`,
   ].join(";");
   return `<span style="${styles};">${esc(run.content)}</span>`;
 }
 
-function fontWeightForFamily(fontFamily: string | undefined): number {
+function fontWeightForFamily(
+  fontFamily: string | undefined,
+  fallback: number,
+): number {
   const normalized = fontFamily?.toLowerCase() ?? "";
+  if (!normalized) return fallback;
   if (/(?:semi|demi)bold|semibold/.test(normalized)) return 600;
   if (/extra[- ]?bold|heavy/.test(normalized)) return 800;
   if (/bold/.test(normalized)) return 700;
