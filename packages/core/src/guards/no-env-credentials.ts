@@ -46,6 +46,11 @@ const ALLOWLIST_EXACT = new Set([
   // drizzle-kit for migrations. Builder-hosted apps get it unprefixed; the
   // NETLIFY_DATABASE_URL_UNPOOLED spelling is covered by the NETLIFY_ prefix.
   "DATABASE_URL_UNPOOLED",
+  // Builder/Fusion deploy metadata: which branch kind the app was built for.
+  // Exact, not a FUSION_ prefix — a prefix would let an app secret named
+  // FUSION_STRIPE_SECRET_KEY through, and this is the only FUSION_ key any
+  // generated app code reads.
+  "FUSION_BRANCH_KIND",
   "DATABASE_AUTH_TOKEN",
   "NODE_ENV",
   "CI",
@@ -80,9 +85,6 @@ const ALLOWLIST_PREFIX = [
   "NETLIFY_",
   "VERCEL_",
   "CF_",
-  // Builder/Fusion hosting, alongside the other platform prefixes above. These
-  // are impersonal deploy metadata (e.g. FUSION_BRANCH_KIND), never per-user.
-  "FUSION_",
 ];
 
 /** Dev-only paths where ANTHROPIC_API_KEY etc. may legitimately be read

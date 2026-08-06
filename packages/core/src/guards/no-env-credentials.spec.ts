@@ -65,6 +65,20 @@ describe("scanEnvCredentials", () => {
     expect(result.findings).toEqual([]);
   });
 
+  it("still flags an app secret that merely starts with a platform name", () => {
+    // FUSION_BRANCH_KIND is allowlisted exactly, never as a FUSION_ prefix, so a
+    // credential cannot smuggle itself through by borrowing the platform's name.
+    const root = makeTempAppRoot({
+      "actions/charge.ts": [
+        "export const key = process.env.FUSION_STRIPE_SECRET_KEY;",
+        "",
+      ].join("\n"),
+    });
+    const result = scanEnvCredentials({ root });
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].message).toMatch(/FUSION_STRIPE_SECRET_KEY/);
+  });
+
   it("does not flag a read with a valid opt-out marker", () => {
     const root = makeTempAppRoot({
       "actions/get-stripe-key.ts": [
