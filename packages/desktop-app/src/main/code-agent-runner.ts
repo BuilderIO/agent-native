@@ -167,6 +167,7 @@ function resolveExecutable(
       fs.accessSync(candidate, fs.constants.X_OK);
       return candidate;
     } catch {
+      // coercion-ok: an unreadable candidate is an expected search miss.
       // Continue through the standard package-manager locations.
     }
   }

@@ -63,6 +63,8 @@ export async function pgTableExists(
     });
     return rows.length > 0;
   } catch {
+    // coercion-ok: undefined is a typed unreadable state; callers throw rather
+    // than issuing DDL against an unverified schema.
     // A failed probe is not evidence that the table is absent. Let the caller
     // fail loudly rather than issuing DDL against a database it cannot read.
     return undefined;
@@ -95,6 +97,8 @@ export async function pgColumnExists(
     });
     return rows.length > 0;
   } catch {
+    // coercion-ok: undefined distinguishes an unreadable schema probe from an
+    // absent column, and ensureSchemaObject fails closed on it.
     return undefined;
   }
 }
@@ -129,6 +133,8 @@ export async function pgIndexExists(
     });
     return rows.length > 0;
   } catch {
+    // coercion-ok: undefined distinguishes an unreadable schema probe from an
+    // absent index, and ensureSchemaObject fails closed on it.
     return undefined;
   }
 }

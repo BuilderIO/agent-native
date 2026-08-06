@@ -159,6 +159,7 @@ export async function assertCanManageVault(): Promise<void> {
     });
     role = result.rows[0]?.role;
   } catch {
+    // coercion-ok: unknown membership is treated as unauthorized below.
     // A failed membership check must not become an authorization bypass.
   }
 
@@ -174,6 +175,7 @@ async function canManageVault(): Promise<boolean> {
     await assertCanManageVault();
     return true;
   } catch {
+    // coercion-ok: the UI must treat an authorization lookup failure as no access.
     return false;
   }
 }
