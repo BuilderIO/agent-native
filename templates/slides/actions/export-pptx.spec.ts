@@ -151,4 +151,21 @@ describe("parseSlideHtml", () => {
       }),
     ]);
   });
+
+  it("ignores imported grids with non-positive spacing", () => {
+    for (const backgroundSize of [
+      "0px 24px",
+      "-1px 24px",
+      "24px 0px",
+      "24px -1px",
+    ]) {
+      const result = parseSlideHtml(
+        `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background-image:linear-gradient(#ffffff 0 1px, transparent 1px);background-size:${backgroundSize};background-position:0px 0px;"><div data-pptx-element-kind="text" style="left:0px;top:0px;width:100px;height:40px;">Title</div></div>`,
+        "16:9",
+        1,
+      );
+
+      expect(result.grid).toBeUndefined();
+    }
+  });
 });

@@ -724,28 +724,11 @@ async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike 
  * serverless Chromium package and still use Builder Browser or system Chrome.
  */
 async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
-  const specifier = "playwright";
   try {
-    return (await import(/* @vite-ignore */ specifier)) as PlaywrightLike;
-  } catch (playwrightError) {
-    try {
-      const testSpecifier = "@playwright/test";
-      return (await import(
-        /* @vite-ignore */ testSpecifier
-      )) as unknown as PlaywrightLike;
-    } catch (testError) {
-      try {
-        const coreSpecifier = "playwright-core";
-        return (await import(
-          /* @vite-ignore */ coreSpecifier
-        )) as unknown as PlaywrightLike;
-      } catch {
-        // coercion-ok: browser packages are optional in non-Node runtimes.
-        void playwrightError;
-        void testError;
-        return null;
-      }
-    }
+    return (await import("playwright")) as unknown as PlaywrightLike;
+  } catch {
+    // coercion-ok: the declared browser capability is optional in non-Node runtimes.
+    return null;
   }
 }
 

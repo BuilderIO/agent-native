@@ -5737,11 +5737,12 @@ describe("runAgentLoop", () => {
     // The shape a lost model actually makes: it never repeats itself, it keeps
     // guessing. Every call carries new arguments, so the identical-arguments
     // breaker never counts past one and cannot stop this on its own.
-    const run = vi.fn(async () => {
-      throw new Error(
-        "Invalid action parameters: input must have required property 'sql'",
-      );
-    });
+    // NOT a thrown constant: the real shape is SCHEMA REJECTION, whose message
+    // embeds `Received: {…the arguments…}`. That echo is what made the error
+    // text differ on every attempt and defeated the breaker's key. A test that
+    // throws a fixed string never exercises this and passes either way — the
+    // first version of this test did exactly that.
+    const run = vi.fn(async () => "should never execute");
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -5779,7 +5780,14 @@ describe("runAgentLoop", () => {
       systemPrompt: "system",
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      actions: { "query-analytics": { ...actionEntry({}), run } },
+      // Required `action` property the model never supplies, so every call is
+      // rejected by the schema before `run` is reached.
+      actions: {
+        "query-analytics": {
+          ...actionEntry({ actions: ["only-valid-choice"] }),
+          run,
+        },
+      },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
     });
@@ -5788,9 +5796,9 @@ describe("runAgentLoop", () => {
     // Without it this turn runs until it exhausts a budget — which is how a
     // delegated call spent five minutes on a question the same app answers
     // directly in twenty-seven seconds.
-    expect(run.mock.calls.length).toBeLessThanOrEqual(
-      MAX_SAME_ERROR_ACROSS_ARGUMENTS,
-    );
+    // The schema rejects before `run`, so the model turns are the count that
+    // matters. Without an argument-independent breaker this ran 61 turns.
+    expect(run).not.toHaveBeenCalled();
     expect(streamCalls).toBeLessThanOrEqual(MAX_SAME_ERROR_ACROSS_ARGUMENTS);
   });
 

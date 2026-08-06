@@ -128,15 +128,36 @@ describe("first-party BigQuery backend", () => {
     expect(query.sql).toContain("UNION ALL");
     expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
     expect(query.sql).not.toContain("org_id = ? OR");
+    expect(query.sql).not.toContain("received_at > ?");
+    expect(query.args).toEqual(["org_builder", "owner@example.com", 25]);
+  });
+
+  it("applies the tuple cursor after the initial backfill batch", async () => {
+    execute.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        JSON.stringify({
+          receivedAt: "2026-07-25T11:01:33.023Z",
+          id: "evt_last",
+        }),
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toMatchObject({ copied: 0, complete: true });
+
+    const [query] = execute.mock.calls[0] ?? [];
+    expect(query.sql).toContain("received_at > ?");
     expect(query.args).toEqual([
       "org_builder",
-      "",
-      "",
-      "",
+      "2026-07-25T11:01:33.023Z",
+      "2026-07-25T11:01:33.023Z",
+      "evt_last",
       "owner@example.com",
-      "",
-      "",
-      "",
+      "2026-07-25T11:01:33.023Z",
+      "2026-07-25T11:01:33.023Z",
+      "evt_last",
       25,
     ]);
   });

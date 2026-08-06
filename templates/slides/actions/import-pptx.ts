@@ -13,15 +13,78 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
 import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
-import { parsePptx } from "../server/handlers/import/pptx-parser.js";
+import {
+  parsePptx,
+  type ParsedElement,
+  type ParsedImage,
+  type ParsedPresentation,
+} from "../server/handlers/import/pptx-parser.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
+
+export interface ImportedImageFallback {
+  slideIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  data: Uint8Array;
+  mimeType: string;
+  name: string;
+  crop?: ParsedImage["crop"];
+}
+
+/** Add source-native image objects that a Google Slides PPTX export omitted. */
+export function applyImageFallbacks(
+  presentation: Awaited<ReturnType<typeof parsePptx>>,
+  fallbacks: ImportedImageFallback[] = [],
+): number {
+  let added = 0;
+  for (const [fallbackIndex, fallback] of fallbacks.entries()) {
+    const slide = presentation.slides[fallback.slideIndex];
+    if (!slide || fallback.width <= 0 || fallback.height <= 0) continue;
+
+    const duplicate = slide.elements.some(
+      (element) =>
+        element.kind === "image" &&
+        Math.abs(element.x - fallback.x) < 1000 &&
+        Math.abs(element.y - fallback.y) < 1000 &&
+        Math.abs(element.width - fallback.width) < 1000 &&
+        Math.abs(element.height - fallback.height) < 1000,
+    );
+    if (duplicate) continue;
+
+    const image: ParsedImage = {
+      data: fallback.data,
+      mimeType: fallback.mimeType,
+      name: fallback.name,
+      aspectRatio: fallback.width / fallback.height,
+      ...(fallback.crop ? { crop: fallback.crop } : {}),
+    };
+    const element: ParsedElement = {
+      id: `image-fallback-${fallback.slideIndex}-${fallbackIndex}`,
+      name: fallback.name,
+      kind: "image",
+      x: fallback.x,
+      y: fallback.y,
+      width: fallback.width,
+      height: fallback.height,
+      image,
+    };
+    slide.images.push(image);
+    slide.elements.push(element);
+    added++;
+  }
+  return added;
+}
 
 export async function importPptxBufferToDeck(args: {
   fileBuffer: Buffer;
   title?: string;
   deckId?: string;
   source?: string;
+  imageFallbacks?: ImportedImageFallback[];
+  parsedPresentation?: ParsedPresentation;
 }): Promise<{
   id: string;
   title: string;
@@ -31,8 +94,16 @@ export async function importPptxBufferToDeck(args: {
   url: string;
   imagesSkipped?: number;
 }> {
-  const { fileBuffer, title, deckId, source = "import-pptx" } = args;
-  const presentation = await parsePptx(fileBuffer);
+  const {
+    fileBuffer,
+    title,
+    deckId,
+    source = "import-pptx",
+    imageFallbacks,
+    parsedPresentation,
+  } = args;
+  const presentation = parsedPresentation ?? (await parsePptx(fileBuffer));
+  applyImageFallbacks(presentation, imageFallbacks);
   const deckTitle = title || presentation.title || "Imported Presentation";
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");

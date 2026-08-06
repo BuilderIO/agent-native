@@ -272,7 +272,7 @@ function textBoxStyle(
       : element.verticalAlign === "bottom"
         ? "justify-content:flex-end;"
         : "justify-content:flex-start;";
-  return `display:flex;flex-direction:column;${vertical}padding:${top}px ${right}px ${bottom}px ${left}px;font-family:${cssFontFamily(themeFont)};text-align:${align};overflow:hidden;`;
+  return `display:flex;flex-direction:column;${vertical}padding:${top}px ${right}px ${bottom}px ${left}px;font-family:${cssFontFamily(themeFont)};text-align:${align};overflow:visible;`;
 }
 
 function buildFidelityParagraph(
@@ -300,7 +300,7 @@ function buildFidelityParagraph(
   const text = paragraph.runs
     .map((run) => formatFidelityRun(run, themeFont, defaultFontWeight))
     .join("");
-  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;text-align:${paragraph.alignment ?? "left"};white-space:pre-wrap;margin:${spacingBefore * CSS_PX_PER_POINT}px 0 ${spacingAfter * CSS_PX_PER_POINT}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
+  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;flex:0 0 auto;text-align:${paragraph.alignment ?? "left"};white-space:pre-wrap;margin:${spacingBefore * CSS_PX_PER_POINT}px 0 ${spacingAfter * CSS_PX_PER_POINT}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
 }
 
 function formatFidelityRun(

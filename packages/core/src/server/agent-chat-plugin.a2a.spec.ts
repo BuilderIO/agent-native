@@ -213,6 +213,13 @@ describe("delegated A2A final response guards", () => {
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
       "never use a shell, filesystem, or code-execution tool",
     );
+    // The callee must be told the wall clock it actually gets. Production
+    // iterations average ~34s against a 40s foreground wall, so a callee that
+    // does not know the budget plans work it cannot finish — "I ran out of
+    // time before finishing this step" was 39% of failed inbound A2A tasks.
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "This step is cut off after about 12 seconds",
+    );
   });
 
   it("keeps the MCP-local ask_app loop on the same guard contract", async () => {
