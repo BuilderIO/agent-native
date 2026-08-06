@@ -929,7 +929,7 @@ export default function Index() {
                     </div>
                     {/* Three-dot menu */}
                     <div className="absolute top-2 end-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                      <DropdownMenu modal={false}>
+                      <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
@@ -944,7 +944,9 @@ export default function Index() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => startRename(design)}
+                            onClick={() =>
+                              setTimeout(() => startRename(design))
+                            }
                             className="cursor-pointer"
                           >
                             <IconPencil className="w-3.5 h-3.5 me-2" />
@@ -970,7 +972,9 @@ export default function Index() {
                             )}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => setDeleteId(design.id)}
+                            onClick={() =>
+                              setTimeout(() => setDeleteId(design.id))
+                            }
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
                             <IconTrash className="w-3.5 h-3.5 me-2" />
