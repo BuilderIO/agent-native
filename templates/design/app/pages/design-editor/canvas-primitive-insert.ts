@@ -11,7 +11,10 @@ import {
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
   defaultCanvasTextColor,
 } from "./canvas-primitives";
-import { BOARD_TEXT_AUTO_COLOR_MARKER } from "./cross-screen-text-color";
+import {
+  BOARD_TEXT_AUTO_COLOR_MARKER,
+  destinationBackgroundIsLightForNode,
+} from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
 import type { DesignFile } from "./types";
@@ -183,6 +186,61 @@ export function polygonPointsForHtmlShape(
  * adaptAutoTextColorForCrossScreenNode. Any explicit user color edit must
  * remove this attribute so the text is never "helpfully" overridden again.
  */
+
+/** Inline absolute rect, or null when the element is not absolutely placed. */
+function absoluteRect(
+  element: Element,
+): { x: number; y: number; w: number; h: number } | null {
+  const style = (element as HTMLElement).style;
+  if (style.position !== "absolute") return null;
+  const read = (value: string) => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const x = read(style.left);
+  const y = read(style.top);
+  const w = read(style.width);
+  const h = read(style.height);
+  if (x === null || y === null || w === null || h === null) return null;
+  return { x, y, w, h };
+}
+
+/**
+ * Figma's frame is the container primitive and a rectangle is not, so only
+ * `data-an-primitive="frame"` adopts. Bounds come from inline geometry
+ * because this document is parsed, never laid out.
+ */
+function deepestFrameContaining(
+  root: Element,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): { element: Element; x: number; y: number } | null {
+  const contained = Array.from(
+    root.querySelectorAll('[data-an-primitive="frame"]'),
+  )
+    .map((element) => ({ element, rect: absoluteRect(element) }))
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        element: Element;
+        rect: { x: number; y: number; w: number; h: number };
+      } =>
+        candidate.rect !== null &&
+        x >= candidate.rect.x &&
+        y >= candidate.rect.y &&
+        x + w <= candidate.rect.x + candidate.rect.w &&
+        y + h <= candidate.rect.y + candidate.rect.h,
+    )
+    .sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
+  const best = contained[0];
+  return best
+    ? { element: best.element, x: best.rect.x, y: best.rect.y }
+    : null;
+}
+
 export function appendCanvasPrimitiveToHtml(
   content: string,
   primitive: CanvasPrimitiveInsert,
@@ -428,16 +486,15 @@ export function appendCanvasPrimitiveToHtml(
         // not centered — match that instead of centering the text block.
         element.style.alignItems = "flex-start";
       }
-      // Board (dark infinite-canvas) text needs an explicit default fill —
-      // "currentColor" inherits the unstyled document's black body text,
-      // invisible on the dark canvas background. The board surface is
-      // always dark regardless of the editor chrome theme, so this keys off
-      // the target surface only (see defaultCanvasTextColor). Screens keep
-      // "currentColor" so text dropped into an existing (often light)
-      // screen still inherits its surrounding styles/theme as before.
+      // "currentColor" inherits the unstyled document's black body text, so
+      // it is invisible on any dark surface — the always-dark board, and
+      // equally a screen whose own background is dark. Light screens keep
+      // "currentColor" so text still inherits their theme.
+      const autoTextNeedsLightFill =
+        options?.isBoardTarget === true ||
+        !destinationBackgroundIsLightForNode(doc.body);
       const resolvedTextColor =
-        primitive.fill ??
-        defaultCanvasTextColor(options?.isBoardTarget === true);
+        primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;
       // Stamp the auto-color marker whenever the color came from the
       // default (no explicit primitive.fill) rather than a user-chosen
@@ -477,7 +534,14 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    doc.body.appendChild(element);
+    const host = deepestFrameContaining(doc.body, left, top, width, height);
+    if (host) {
+      element.style.left = `${left - host.x}px`;
+      element.style.top = `${top - host.y}px`;
+      host.element.appendChild(element);
+    } else {
+      doc.body.appendChild(element);
+    }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return null;

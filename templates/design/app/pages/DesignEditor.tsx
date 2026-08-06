@@ -2057,6 +2057,52 @@ function isSupersededSelectionEcho(
  * selections, and per-screen caches from one design can never leak into the
  * next design during client-side navigation.
  */
+/**
+ * A code-layer-derived ElementInfo carries authored inline styles and a zero
+ * rect, so the inspector shows 0 for anything the source does not state
+ * (hug sizing, in-flow position). Measure the live preview node instead.
+ */
+function withMeasuredGeometry(info: ElementInfo): ElementInfo {
+  const rect = info.boundingRect;
+  if (rect && (rect.width > 0 || rect.height > 0)) return info;
+  if (typeof document === "undefined") return info;
+  const selector = info.runtimeSelector ?? info.selector;
+  if (!selector) return info;
+  for (const frame of Array.from(
+    document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    ),
+  )) {
+    let node: Element | null = null;
+    try {
+      node = frame.contentDocument?.querySelector(selector) ?? null;
+    } catch {
+      node = null;
+    }
+    if (!node) continue;
+    const box = node.getBoundingClientRect();
+    if (box.width <= 0 && box.height <= 0) continue;
+    const computed = frame.contentWindow?.getComputedStyle(node);
+    return {
+      ...info,
+      boundingRect: {
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+      },
+      computedStyles: computed
+        ? {
+            width: computed.width,
+            height: computed.height,
+            ...info.computedStyles,
+          }
+        : info.computedStyles,
+    };
+  }
+  return info;
+}
+
 export default function DesignEditorRoute() {
   const { id } = useParams<{ id: string }>();
   return <DesignEditor key={id ?? "missing-design"} />;
@@ -14846,10 +14892,19 @@ function DesignEditor() {
       );
       const patch = applyVisualEdit(baseContent, {
         kind: "moveNode",
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
+        // Keep the bridge's stable source id on the fallback: resolving by
+        // selector alone fails for stamped nodes, and the resolver tries
+        // nodeId first before falling back to the selector anyway.
+        target: targetNode
+          ? { nodeId: targetNode.id }
+          : details?.sourceId
+            ? { nodeId: details.sourceId, selector }
+            : { selector },
         anchor: anchorNode
           ? { nodeId: anchorNode.id }
-          : { selector: anchorSelector },
+          : details?.anchorSourceId
+            ? { nodeId: details.anchorSourceId, selector: anchorSelector }
+            : { selector: anchorSelector },
         placement,
       });
       dndHostLog("persist:rewrite", {
@@ -18284,8 +18339,12 @@ function DesignEditor() {
       // Overview, 2+ selected SCREENS: align each screen's frame geometry to
       // the selection's combined bounding box through the same
       // handleGeometryCommit path drags/nudges use — one undo step for the
-      // whole align.
-      if (viewModeRef.current === "overview") {
+      // whole align. A layer selection must fall through to the element path
+      // below instead, as Figma aligns whatever is selected.
+      if (
+        viewModeRef.current === "overview" &&
+        selectedLayerIdsState.length === 0
+      ) {
         if (overviewSelectedScreenIds.length < 2) return;
         const before = getCanvasFrameGeometry(designDataJsonRef.current);
         const screenRects: AlignableRect[] = [];
@@ -18398,6 +18457,7 @@ function DesignEditor() {
       handleGeometryCommit,
       overviewScreens,
       overviewSelectedScreenIds,
+      selectedLayerIdsState,
       rectFromCodeLayerNode,
     ],
   );
@@ -18843,7 +18903,12 @@ function DesignEditor() {
   const handleAddAutoLayout = useCallback(() => {
     if (!canEditDesign) return;
 
-    if (viewModeRef.current === "overview") {
+    // Overview handles whole screens; a layer selection must still reach the
+    // element path below, as Figma applies Shift+A to whatever is selected.
+    if (
+      viewModeRef.current === "overview" &&
+      selectedLayerIdsState.length === 0
+    ) {
       if (overviewSelectedScreenIds.length === 0) return;
       if (overviewSelectedScreenIds.length !== 1 || selectedElement !== null) {
         toast(t("designEditor.toasts.autoLayoutScreensUnsupported"));
@@ -19012,7 +19077,11 @@ function DesignEditor() {
     // zero-padding auto-layout frame; an existing container is converted.
     const soleNode = nodesById.get(nodeIds[0]!);
     if (!soleNode) return;
-    if (soleNode.children.length === 0) {
+    // An empty frame is a container, not a leaf: Figma converts it in place
+    // and only wraps a true leaf (text, shape) in a new auto-layout frame.
+    const soleIsFrame =
+      soleNode.dataAttributes["data-an-primitive"] === "frame";
+    if (soleNode.children.length === 0 && !soleIsFrame) {
       const wrapped = applyVisualEdit(baseContent, {
         kind: "wrapNodes",
         targetIds: [soleNode.id],
@@ -19064,7 +19133,8 @@ function DesignEditor() {
     const childNodes = soleNode.children
       .map((childId) => nodesById.get(childId))
       .filter((node): node is CodeLayerNode => Boolean(node));
-    if (childNodes.length === 0) return;
+    // An empty frame still takes auto layout in Figma, and
+    // inferAutoLayoutFromChildren already defaults that case to a column.
     const containerRect = rectFromCodeLayerNode(soleNode);
     const childRects = childNodes.map(rectFromCodeLayerNode);
     const inferred = inferAutoLayoutFromChildren(containerRect, childRects);
@@ -19086,6 +19156,30 @@ function DesignEditor() {
       return;
     }
     let nextContent = patch.content;
+    // Figma reflows children when auto layout is enabled; opting one out is the
+    // explicit "ignore auto layout" toggle. wrapNodes already strips these on
+    // the multi-selection path — do the same for a single container.
+    // An empty value is rejected by isSafeStyleValue, so neutralise with CSS
+    // initial values rather than trying to remove the declarations.
+    const reflowResets: Array<[string, string]> = [
+      ["position", "static"],
+      ["left", "auto"],
+      ["top", "auto"],
+      ["right", "auto"],
+      ["bottom", "auto"],
+    ];
+    for (const childNode of childNodes) {
+      for (const [property, value] of reflowResets) {
+        const stripped = applyVisualEdit(nextContent, {
+          kind: "style",
+          target: { nodeId: childNode.id },
+          property,
+          value,
+        });
+        if (stripped.result.status === "applied")
+          nextContent = stripped.content;
+      }
+    }
     if (inferred.padding > 0) {
       const paddingPatch = applyVisualEdit(nextContent, {
         kind: "style",
@@ -20839,11 +20933,17 @@ function DesignEditor() {
         return;
       }
 
-      if (!selectedElement?.selector) return;
+      // Selecting in the layers tree fills selectedLayerTargets before the
+      // bridge round-trip fills selectedElement, so keying off the latter
+      // alone silently drops the first nudge after every tree selection.
+      const nudgeTarget = selectedElement?.selector
+        ? selectedElement
+        : selectedLayerTargetsRef.current[0]?.elementInfo;
+      if (!nudgeTarget?.selector) return;
 
       const intent = resolveElementNudgeIntent({
         content: activeFile ? getFreshActiveContent() : "",
-        selectedElement,
+        selectedElement: nudgeTarget,
         direction,
         largeStep,
         amounts: nudgeAmounts,
@@ -20880,13 +20980,13 @@ function DesignEditor() {
       }
 
       hideSelectionChromeForNudge();
-      const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
-      const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
-      commitVisualStyles(selectedElement.selector, {
+      const left = parseFloat(nudgeTarget.computedStyles.left || "0") || 0;
+      const top = parseFloat(nudgeTarget.computedStyles.top || "0") || 0;
+      commitVisualStyles(nudgeTarget.selector, {
         position:
-          selectedElement.computedStyles.position === "static"
+          nudgeTarget.computedStyles.position === "static"
             ? "relative"
-            : selectedElement.computedStyles.position || "relative",
+            : nudgeTarget.computedStyles.position || "relative",
         left: `${Math.round(left + intent.dx)}px`,
         top: `${Math.round(top + intent.dy)}px`,
       });
@@ -23657,7 +23757,13 @@ function DesignEditor() {
     onCopyProps: canEditDesign ? handleCopyProps : undefined,
     onPasteProps: canEditDesign ? handlePasteProps : undefined,
     onDuplicate: canEditDesign ? handleDuplicateSelection : undefined,
-    onDelete: canEditDesign ? handleDeleteSelection : undefined,
+    // Routes screen-vs-element itself; selecting a screen in the layers panel
+    // never reaches MultiScreenCanvas' capture-phase Delete.
+    onDelete: canEditDesign
+      ? () => {
+          handleDeleteOverviewSelection(selectedLayerIdsState);
+        }
+      : undefined,
     // L12: Cmd+R (and the context-menu Rename item, both routed through
     // useDesignHotkeys' onRename) previously always renamed the DESIGN
     // TITLE, even while a layer was selected — surprising when the user's
@@ -26381,9 +26487,11 @@ function DesignEditor() {
   const selectedInspectorElements = useMemo(
     () =>
       selectedLayerTargets.length > 0
-        ? selectedLayerTargets.map((target) => target.elementInfo)
+        ? selectedLayerTargets.map((target) =>
+            withMeasuredGeometry(target.elementInfo),
+          )
         : selectedElement
-          ? [selectedElement]
+          ? [withMeasuredGeometry(selectedElement)]
           : [],
     [selectedElement, selectedLayerTargets],
   );

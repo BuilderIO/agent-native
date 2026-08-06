@@ -1780,6 +1780,9 @@ const LayerRow = memo(function LayerRow({
   // doing so.
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+      // Figma drills into the selection on Enter and walks up on Shift+Enter;
+      // re-selecting an already-selected row here would swallow both.
+      if (event.key === "Enter" && isSelected) return;
       event.preventDefault();
       if (!selectable) return;
       onSelect(node.id, {
@@ -1795,12 +1798,21 @@ const LayerRow = memo(function LayerRow({
       onStartRename(node);
       return;
     }
-    if (event.key === "ArrowRight" && hasChildren && !isExpanded) {
+    // Only the PLAIN chord toggles the chevron: Shift+Arrow is Figma's big
+    // nudge and every modified arrow belongs to the canvas hotkeys below.
+    const plainArrow =
+      !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+    if (
+      plainArrow &&
+      event.key === "ArrowRight" &&
+      hasChildren &&
+      !isExpanded
+    ) {
       event.preventDefault();
       onToggleExpanded(node.id, true);
       return;
     }
-    if (event.key === "ArrowLeft" && hasChildren && isExpanded) {
+    if (plainArrow && event.key === "ArrowLeft" && hasChildren && isExpanded) {
       event.preventDefault();
       onToggleExpanded(node.id, false);
       return;
@@ -2075,17 +2087,22 @@ const LayerRow = memo(function LayerRow({
         >
           {activeDrop === "before" ? (
             <span
+              data-layer-drop-indicator="before"
               className="pointer-events-none absolute right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]"
               style={{ left: rowIndent(depth) }}
             />
           ) : null}
           {activeDrop === "after" ? (
             <span
+              data-layer-drop-indicator="after"
               className="pointer-events-none absolute bottom-0 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]"
               style={{ left: rowIndent(depth) }}
             />
           ) : null}
           <div
+            data-layer-drop-indicator={
+              activeDrop === "inside" ? "inside" : undefined
+            }
             className={cn(
               "group flex h-7 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
               activeDrop === "inside" &&

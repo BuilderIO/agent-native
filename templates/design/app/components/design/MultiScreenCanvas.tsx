@@ -2224,6 +2224,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const hasIdentifier = !!(payload.selector || payload.sourceId);
       if (!hasIdentifier || !sourceScreenId) return;
       if (!lastBoardPoint) return;
+      // No candidate means the pointer never left the source screen, so the
+      // bridge already handled it as an in-place reorder. Falling back to the
+      // board here re-persists the move against a file that does not contain
+      // the element, which fails to resolve and silently discards the drop.
+      const sourceFrameGeometry = frameGeometryRef.current?.[sourceScreenId];
+      const droppedInsideSourceScreen =
+        !candidate &&
+        !!sourceFrameGeometry &&
+        lastBoardPoint.x >= sourceFrameGeometry.x &&
+        lastBoardPoint.x <= sourceFrameGeometry.x + sourceFrameGeometry.width &&
+        lastBoardPoint.y >= sourceFrameGeometry.y &&
+        lastBoardPoint.y <= sourceFrameGeometry.y + sourceFrameGeometry.height;
+      if (droppedInsideSourceScreen) return;
       const targetCandidate =
         candidate ??
         (boardFileId && sourceScreenId !== boardFileId && boardFrameGeometry
@@ -3671,11 +3684,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             getScreenMetadata?.(targetScreen),
           )
         : undefined;
+      // Metadata defaults to 1280x2560 while the renderer lays the iframe out
+      // at the frame's own size; trusting metadata scales every drawn
+      // primitive by metadataWidth/frameWidth. Same precedence as the marquee.
+      const targetIframe = targetScreen
+        ? surfaceRef.current?.querySelector<HTMLIFrameElement>(
+            `[data-screen-iframe-id="${CSS.escape(getActiveScreenIframeId(targetScreen))}"]`,
+          )
+        : null;
+      const measuredMetadata =
+        targetMetadata && targetIframe?.clientWidth && targetIframe.clientHeight
+          ? {
+              ...targetMetadata,
+              width: targetIframe.clientWidth,
+              height: targetIframe.clientHeight,
+            }
+          : targetMetadata;
 
       const localPrimitive = draftPrimitiveToInsert(
         draft,
         targetFrame.geometry,
-        targetMetadata,
+        measuredMetadata,
       );
       const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
       if (!persisted) {

@@ -58,6 +58,62 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     );
     expect(inserted).toContain('data-agent-native-node-id="rect-1"');
   });
+
+  const textAt = (bodyStyle: string) =>
+    appendCanvasPrimitiveToHtml(
+      `<!doctype html><html><head><title>S</title></head><body style="${bodyStyle}"></body></html>`,
+      {
+        kind: "text",
+        nodeId: "t-1",
+        geometry: { x: 0, y: 0, width: 80, height: 24 },
+        text: "Hello",
+      },
+    );
+
+  it("gives drawn text a light fill on a dark screen, not currentColor", () => {
+    expect(textAt("background:#0b0f19")).toContain("color: #ffffff");
+  });
+
+  it("leaves drawn text inheriting currentColor on a light screen", () => {
+    expect(textAt("background:#ffffff")).toContain("color: currentcolor");
+  });
+
+  const withContainer = (kind: "frame" | "rectangle") =>
+    appendCanvasPrimitiveToHtml(
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind,
+        nodeId: "box",
+        geometry: { x: 20, y: 150, width: 280, height: 300 },
+      }) ?? "",
+      {
+        kind: "text",
+        nodeId: "inner",
+        geometry: { x: 60, y: 260, width: 100, height: 20 },
+        text: "Inside",
+      },
+    ) ?? "";
+
+  it("nests a primitive drawn inside a frame's bounds into that frame", () => {
+    const html = withContainer("frame");
+    const frameAt = html.indexOf('data-an-primitive="frame"');
+    expect(html.indexOf('nodeId="inner"') === -1).toBe(true);
+    expect(html.indexOf('data-agent-native-node-id="inner"')).toBeGreaterThan(
+      frameAt,
+    );
+    expect(html.indexOf('data-agent-native-node-id="inner"')).toBeLessThan(
+      html.indexOf("</div>", frameAt) + "</div>".length,
+    );
+  });
+
+  it("never nests into a rectangle — it is a shape, not a container", () => {
+    const html = withContainer("rectangle");
+    const rectCloses =
+      html.indexOf("</div>", html.indexOf('data-an-primitive="rectangle"')) +
+      "</div>".length;
+    expect(
+      html.indexOf('data-agent-native-node-id="inner"'),
+    ).toBeGreaterThan(rectCloses);
+  });
 });
 
 describe("extractCanvasPrimitiveHtml", () => {

@@ -544,33 +544,39 @@ export function PositionLayoutProperties({
               hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
             />
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={
-                  "Constraints" /* i18n-ignore design inspector action */
-                }
-                aria-pressed={constraintsExpanded}
-                onClick={() => setConstraintsExpanded((expanded) => !expanded)}
-                className={cn(
-                  "flex size-7 items-center justify-center rounded-md transition-colors",
-                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  constraintsExpanded
-                    ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
-                    : "text-muted-foreground",
-                )}
-              >
-                <ConstraintsPreview value={constraintsValue} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {"Constraints" /* i18n-ignore design inspector tooltip */}
-            </TooltipContent>
-          </Tooltip>
+          {/* Figma: constraints cannot apply to a child of an auto layout
+              frame — the parent's layout owns the position. */}
+          {element.isFlexChild ? null : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={
+                    "Constraints" /* i18n-ignore design inspector action */
+                  }
+                  aria-pressed={constraintsExpanded}
+                  onClick={() =>
+                    setConstraintsExpanded((expanded) => !expanded)
+                  }
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-md transition-colors",
+                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    constraintsExpanded
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  <ConstraintsPreview value={constraintsValue} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {"Constraints" /* i18n-ignore design inspector tooltip */}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
-        {constraintsExpanded ? (
+        {constraintsExpanded && !element.isFlexChild ? (
           <ConstraintsWidget
             value={constraintsValue}
             onChange={handleConstraintsChange}
