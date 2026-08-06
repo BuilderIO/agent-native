@@ -77,6 +77,7 @@ const messages = {
     zoomIn: "ズームイン",
     fitSlideToScreen: "スライドを画面に合わせる",
     fitToScreen: "画面に合わせる",
+    exitExcalidrawCanvas: "描画キャンバスを終了",
     agentWorking: "エージェントが作業中",
     openChat: "チャットを開く",
     cloudAuthToken: "認証トークン",

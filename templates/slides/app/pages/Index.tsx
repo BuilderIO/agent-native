@@ -1,10 +1,15 @@
-import { callAction, useSession } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  deleteClientAppState,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertTriangle,
@@ -53,6 +58,7 @@ import {
   rememberRecentReference,
   type RecentReference,
 } from "@/lib/recent-references";
+import { TAB_ID } from "@/lib/tab-id";
 
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
@@ -665,6 +671,14 @@ export default function Index() {
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
+
+    // See the matching comment in create-deck-generation.ts: clear any
+    // guided-question card left over from the previous deck's still-finishing
+    // run so it can't surface on top of the deck we're navigating to now.
+    deleteClientAppState(
+      appStateKeyForBrowserTab("guided-questions", TAB_ID),
+    ).catch(() => {});
+    deleteClientAppState("guided-questions").catch(() => {});
 
     navigate(`/deck/${deck.id}?generating=1`, {
       replace: true,

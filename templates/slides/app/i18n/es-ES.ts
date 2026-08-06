@@ -78,6 +78,7 @@ const messages = {
     zoomIn: "Acercar",
     fitSlideToScreen: "Ajustar diapositiva a la pantalla",
     fitToScreen: "Ajustar a la pantalla",
+    exitExcalidrawCanvas: "Salir del lienzo de dibujo",
     agentWorking: "El agente está trabajando",
     openChat: "Abrir chat",
     cloudAuthToken: "Token de autenticación",

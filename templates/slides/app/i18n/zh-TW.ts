@@ -74,6 +74,7 @@ const messages = {
     zoomIn: "放大",
     fitSlideToScreen: "使幻燈片適應螢幕",
     fitToScreen: "適應螢幕",
+    exitExcalidrawCanvas: "退出繪圖畫布",
     agentWorking: "代理正在工作",
     openChat: "開啟聊天",
     cloudAuthToken: "認證權杖",

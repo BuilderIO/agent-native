@@ -1,4 +1,8 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  deleteClientAppState,
+} from "@agent-native/core/client/hooks";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { extractGoogleDocUrls } from "@shared/google-docs";
 import { flushSync } from "react-dom";
 
@@ -6,6 +10,7 @@ import type { NewDeckReferenceSelection } from "@/components/editor/NewDeckRefer
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { Deck } from "@/context/DeckContext";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
+import { TAB_ID } from "@/lib/tab-id";
 
 interface DesignSystemGenerationContextResult {
   agentContext?: string;
@@ -286,11 +291,22 @@ export async function startDeckGeneration({
     `After reading any requested or imported source material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Call \`patch-deck\` with \`deckId: \"${deckId}\"\` and \`operations: [{ \"op\": \"patch-deck-fields\", \"fields\": { \"title\": \"<generated title>\" } }]\`. Include only \`title\` in \`fields\`; omit all other optional fields. Never leave a generated deck named \"Untitled Deck\" or another placeholder.`,
     "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
     `Add slides ONE AT A TIME using the \`add-slide\` action with --deckId=${deckId}. Wait for each \`add-slide\` result before calling it again; do not batch or parallelize slide writes.`,
-    "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you.",
+    "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you. If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
     "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
     "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
     "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
   ].join("\n");
+
+  // A guided-question card from the previous deck's still-finishing agent run
+  // shares this browser tab's single "guided-questions" slot. Without
+  // clearing it here, a late answer to that stale question can render on top
+  // of the deck we're about to navigate to. Best-effort: if the previous
+  // run's question arrives after this clear, it can still reappear, but this
+  // closes the common case where it's already pending when a new deck starts.
+  deleteClientAppState(
+    appStateKeyForBrowserTab("guided-questions", TAB_ID),
+  ).catch(() => {});
+  deleteClientAppState("guided-questions").catch(() => {});
 
   navigate(`/deck/${deck.id}?generating=1`, {
     replace: true,

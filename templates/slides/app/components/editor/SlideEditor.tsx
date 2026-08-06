@@ -17,7 +17,12 @@ import {
 } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
-import { IconMaximize, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
+import {
+  IconMaximize,
+  IconX,
+  IconZoomIn,
+  IconZoomOut,
+} from "@tabler/icons-react";
 import {
   useState,
   useCallback,
@@ -64,6 +69,25 @@ import {
 } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
 import { enterSelectionMode } from "@/root";
+
+function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg backdrop-blur"
+          onClick={props.onExit}
+          aria-label={props.label}
+        >
+          <IconX className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{props.label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 import type { DesignSystemData } from "../../../shared/api";
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
@@ -4145,7 +4169,11 @@ export default function SlideEditor({
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
-            <div className="h-full bg-background">
+            <div className="relative h-full bg-background">
+              <ExcalidrawExitButton
+                onExit={() => onUpdateSlide({ excalidrawData: undefined })}
+                label={t("raw.exitExcalidrawCanvas")}
+              />
               <ExcalidrawSlide
                 initialData={slide.excalidrawData}
                 onChange={(data) => onUpdateSlide({ excalidrawData: data })}

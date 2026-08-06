@@ -78,6 +78,7 @@ const messages = {
     zoomIn: "Zoomer",
     fitSlideToScreen: "Ajuster la diapositive à l’écran",
     fitToScreen: "Ajuster à l’écran",
+    exitExcalidrawCanvas: "Quitter le canevas de dessin",
     agentWorking: "L’agent travaille",
     openChat: "Ouvrir le chat",
     cloudAuthToken: "Jeton d’authentification",

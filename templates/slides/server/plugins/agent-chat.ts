@@ -20,7 +20,6 @@ const INITIAL_TOOL_NAMES = [
   "add-slide",
   "update-slide",
   "patch-deck",
-  "generate-slides-ai",
   "generate-image-api",
   "import-file",
   "import-google-doc",

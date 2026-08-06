@@ -77,6 +77,7 @@ const messages = {
     zoomIn: "확대",
     fitSlideToScreen: "슬라이드를 화면에 맞추기",
     fitToScreen: "화면에 맞추기",
+    exitExcalidrawCanvas: "그리기 캔버스 나가기",
     agentWorking: "에이전트 작업 중",
     openChat: "채팅 열기",
     cloudAuthToken: "認証トークン",
