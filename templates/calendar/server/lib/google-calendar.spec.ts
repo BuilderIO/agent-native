@@ -97,6 +97,7 @@ import {
   getFreeBusy,
   getPrimaryAccountPhotoUrl,
   createEvent,
+  moveEvent,
   deleteEvent,
   getClientForAccount,
   getDefaultAccountSelection,
@@ -1267,6 +1268,87 @@ describe("owner-aware Google Calendar writes", () => {
       "primary",
       "event-secondary",
       undefined,
+    );
+  });
+
+  it("recreates an event on the destination account before deleting the source", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      description: "Agenda",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+      attendees: [
+        { email: ownerEmail, self: true, organizer: true },
+        { email: "guest@example.com" },
+      ],
+    });
+    calendarInsertEventMock.mockResolvedValue({
+      id: "destination-event",
+      htmlLink: "https://calendar.google.com/destination-event",
+    });
+
+    const result = await moveEvent("source-event", {
+      sourceAccount: {
+        ownerEmail,
+        accountEmail: ownerEmail,
+      },
+      destinationAccount: account,
+      sendUpdates: "all",
+    });
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "secondary-access-token",
+      "primary",
+      expect.objectContaining({
+        summary: "Move me",
+        description: "Agenda",
+        attendees: [{ email: ownerEmail }, { email: "guest@example.com" }],
+      }),
+      { sendUpdates: "all" },
+    );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "owner-access-token",
+      "primary",
+      "source-event",
+      "all",
+    );
+    expect(result).toEqual({
+      id: "destination-event",
+      htmlLink: "https://calendar.google.com/destination-event",
+      meetLink: undefined,
+      conferenceData: undefined,
+    });
+  });
+
+  it("cleans up the destination copy when deleting the source fails", async () => {
+    calendarGetEventMock.mockResolvedValue({
+      id: "source-event",
+      summary: "Move me",
+      start: { dateTime: "2026-07-09T16:00:00.000Z" },
+      end: { dateTime: "2026-07-09T16:30:00.000Z" },
+    });
+    calendarInsertEventMock.mockResolvedValue({ id: "destination-event" });
+    calendarDeleteEventMock
+      .mockRejectedValueOnce(new Error("source delete failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(
+      moveEvent("source-event", {
+        sourceAccount: {
+          ownerEmail,
+          accountEmail: ownerEmail,
+        },
+        destinationAccount: account,
+      }),
+    ).rejects.toThrow("source delete failed");
+
+    expect(calendarDeleteEventMock).toHaveBeenNthCalledWith(
+      2,
+      "secondary-access-token",
+      "primary",
+      "destination-event",
+      "none",
     );
   });
 });

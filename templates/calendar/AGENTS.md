@@ -84,6 +84,10 @@ ladder.
   `addAttendees` (not a replacement `attendees` list) when inviting more people.
   See `event-management` for RSVP notes, optional guests, recurring guest scope,
   and `get-attendee-timezones` / `set-attendee-timezone` overrides.
+- Use `update-event` with the event's current `accountEmail` and a different
+  `targetAccountEmail` to move an existing Google event between connected
+  account calendars. The action recreates it on the destination and removes
+  the source event; do not combine a calendar move with other event changes.
 
 ## Application State
 
@@ -95,4 +99,6 @@ ladder.
 - Preserve `accountEmail` on every Google event write. When more than one
   Google account is connected, pass the chosen account to `create-event`, and
   pass the event's returned `accountEmail` to `update-event`, `delete-event`,
-  and `rsvp-event`. These actions target that account's primary calendar.
+  and `rsvp-event`. These actions target that account's primary calendar. For a
+  move, pass the original account as `accountEmail` and the destination as
+  `targetAccountEmail` to `update-event`.

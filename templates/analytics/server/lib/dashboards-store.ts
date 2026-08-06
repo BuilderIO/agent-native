@@ -138,6 +138,10 @@ const ANALYSIS_PREFIX = "adhoc-analysis-";
 const DASHBOARD_REVISION_LIMIT = 50;
 const ANALYSIS_REVISION_LIMIT = 30;
 
+export function normalizeDashboardName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -532,6 +536,7 @@ export async function listDashboardSummaries(
     archived?: DashboardArchiveFilter;
     hidden?: DashboardHiddenFilter;
     includeCatalogMetadata?: boolean;
+    legacyScan?: "best-effort" | "strict";
   },
 ): Promise<DashboardSummaryRecord[]> {
   const db = getDb() as any;
@@ -663,10 +668,36 @@ export async function listDashboardSummaries(
         hiddenBy: null,
       });
     }
-  } catch {
+  } catch (error) {
+    if (filter?.legacyScan === "strict") throw error;
     // Legacy scan is best-effort.
   }
   return out;
+}
+
+/**
+ * Reject a name that would collide with another dashboard visible to the
+ * caller. Archived and hidden dashboards are intentionally excluded because
+ * they are not part of the navigation surface this protects.
+ */
+export async function assertDashboardNameIsAvailable(
+  name: string,
+  ctx: AccessCtx,
+  excludeId?: string,
+): Promise<void> {
+  const normalized = normalizeDashboardName(name);
+  if (!normalized) return;
+  const conflict = (
+    await listDashboardSummaries(ctx, { legacyScan: "strict" })
+  ).find(
+    (dashboard) =>
+      dashboard.id !== excludeId &&
+      normalizeDashboardName(dashboard.name) === normalized,
+  );
+  if (!conflict) return;
+  throw new Error(
+    `Dashboard name "${name.trim()}" is already used by visible dashboard "${conflict.name}". Choose a different name.`,
+  );
 }
 
 async function pruneDashboardRevisions(
@@ -746,6 +777,14 @@ export async function upsertDashboard(
       userEmail: ctx.email,
       orgId: ctx.orgId ?? undefined,
     });
+  }
+  const nameChanged =
+    !existing ||
+    normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
+  if (nameChanged) {
+    await assertDashboardNameIsAvailable(title, ctx, existing?.id);
+  }
+  if (existing) {
     const changed =
       existing.kind !== kind ||
       existing.title !== title ||
@@ -1037,6 +1076,9 @@ export async function unarchiveDashboard(
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
+  if (!existing.hiddenAt) {
+    await assertDashboardNameIsAvailable(existing.title, ctx, id);
+  }
   const db = getDb() as any;
   await db
     .update(schema.dashboards)
@@ -1116,6 +1158,9 @@ export async function unhideDashboard(
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
+  if (!existing.archivedAt) {
+    await assertDashboardNameIsAvailable(existing.title, ctx, id);
+  }
   const db = getDb() as any;
   const now = nowIso();
   const patch: Record<string, unknown> = {

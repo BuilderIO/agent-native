@@ -232,6 +232,25 @@ Update an existing Google Calendar event. Use the event `id` from `list-events`,
 `search-events`, or `get-event`. Always preserve the event's `accountEmail` on
 the update so multi-account calendars use the right connected account.
 
+To move an existing event between connected Google account calendars, pass its
+current account as `--accountEmail` and the destination account as
+`--targetAccountEmail`:
+
+```bash
+pnpm action update-event \
+  --id google-event-id \
+  --accountEmail work@example.com \
+  --targetAccountEmail personal@example.com
+```
+
+The action creates a copy on the destination account and deletes the source
+event. It preserves the supported event fields and creates a fresh Google Meet
+when the original has one. Do not combine a calendar move with other event
+field changes. If guests are present, pass `--sendUpdates all` or
+`--sendUpdates none` explicitly when the desired notification behavior matters.
+Moving an entire recurring series is not supported; use `--scope single` for
+one occurrence.
+
 ```bash
 pnpm action update-event --id google-event-id --accountEmail secondary@example.com --title "New title"
 pnpm action update-event --id google-event-id --start 2026-04-03T10:00:00 --end 2026-04-03T10:30:00
@@ -385,6 +404,7 @@ When the user says:
 | "schedule a meeting"                           | `create-event --title ... --start ... --end ...`                             |
 | "draft an invite"                              | `manage-event-draft --action create --title ... --start ... --end ...`       |
 | "schedule a Zoom meeting"                      | `create-event --title ... --start ... --end ... --addZoom=true`              |
+| "move an event to another connected calendar"   | `update-event --id ... --accountEmail ... --targetAccountEmail ...`         |
 | "move/rename/update a meeting"                 | `update-event --id ...`                                                      |
 | "add Zoom to this meeting"                     | `update-event --id ... --addZoom=true`                                       |
 | "delete/remove a meeting"                      | `delete-event --id ...`                                                      |

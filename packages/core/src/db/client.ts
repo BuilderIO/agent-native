@@ -966,7 +966,7 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? (isLowConnectionBackgroundRuntime() ? 1 : 4) : 20,
+    max: serverless ? serverlessPoolMax() : 20,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -992,24 +992,22 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
  */
 export function neonPoolMax(): number {
   if (!isServerlessRuntime()) return 20;
+  return serverlessPoolMax();
+}
+
+function serverlessPoolMax(): number {
   // Scheduled Analytics workers run independently and may overlap across
   // invocations. They process work sequentially, so one connection prevents
   // a slow sweep from multiplying Neon connections while foreground requests
-  // still retain four slots for their concurrent reads.
+  // retain two slots for their concurrent reads.
   if (isLowConnectionBackgroundRuntime()) return 1;
-  // Netlify can run several background workers concurrently; a background
-  // worker is not a global singleton and must not hold a larger pool than the
-  // foreground path. The agent's
-  // pre-send setup fires ~6 concurrent DB reads in parallel; with only 2
-  // connections that burst exhausts the pool and a single stalled connection
-  // freezes the worker before it can claim — observed on analytics' heavier
-  // action surface, where the worker froze right after `model_done` and never
-  // recorded `env_config`/`presend`, while the foreground path ran the
-  // identical code in ~2s. Four connections preserve the concurrent
-  // read burst while keeping foreground and background caps aligned, avoiding
-  // "Max client connections reached" across many warm instances.
+  // Netlify can run several background workers concurrently. Keep their four
+  // slots: the agent pre-send setup fires ~6 concurrent DB reads, and two
+  // connections previously froze the worker before it could claim. Foreground
+  // requests use two slots instead, leaving more headroom across warm
+  // instances where the user-facing routes are the pressure source.
   if (isBackgroundFunctionPoolContext()) return 4;
-  return 4;
+  return 2;
 }
 
 function isLowConnectionBackgroundRuntime(): boolean {

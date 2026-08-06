@@ -25,6 +25,12 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip.js";
 import type { MentionItem, SkillResult, SlashCommand } from "./types.js";
 
 export interface MentionPopoverRef {
@@ -137,6 +143,29 @@ function LoadingSkeletonRow() {
       <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse" />
       <div className="h-3 w-24 rounded bg-muted animate-pulse" />
     </div>
+  );
+}
+
+function FullDescriptionTooltip({
+  description,
+  children,
+}: {
+  description?: string;
+  children: React.ReactElement;
+}) {
+  if (!description) return children;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent
+        side="right"
+        align="start"
+        className="max-w-[280px] whitespace-normal break-words"
+      >
+        {description}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -369,34 +398,40 @@ export const MentionPopover = forwardRef<
                               Skills
                             </div>
                           )}
-                          {(skills as SkillResult[]).map((skill) => {
-                            const i = idx++;
-                            return (
-                              <button
-                                key={skill.path}
-                                data-mention-index={i}
-                                className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
-                                  i === selectedIndex
-                                    ? "bg-accent text-accent-foreground"
-                                    : "hover:bg-accent/50"
-                                }`}
-                                onMouseEnter={() => setSelectedIndex(i)}
-                                onClick={() => onSelectSkill(skill)}
-                              >
-                                <IconStack2 {...iconProps} />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-sm">
-                                    {skill.name}
-                                  </span>
-                                  {skill.description && (
-                                    <span className="block truncate text-xs text-muted-foreground">
-                                      {skill.description}
+                          <TooltipProvider delayDuration={200}>
+                            {(skills as SkillResult[]).map((skill) => {
+                              const i = idx++;
+                              return (
+                                <FullDescriptionTooltip
+                                  key={skill.path}
+                                  description={skill.description}
+                                >
+                                  <button
+                                    data-mention-index={i}
+                                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm ${
+                                      i === selectedIndex
+                                        ? "bg-accent text-accent-foreground"
+                                        : "hover:bg-accent/50"
+                                    }`}
+                                    onMouseEnter={() => setSelectedIndex(i)}
+                                    onClick={() => onSelectSkill(skill)}
+                                  >
+                                    <IconStack2 {...iconProps} />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-sm">
+                                        {skill.name}
+                                      </span>
+                                      {skill.description && (
+                                        <span className="block truncate text-xs text-muted-foreground">
+                                          {skill.description}
+                                        </span>
+                                      )}
                                     </span>
-                                  )}
-                                </span>
-                              </button>
-                            );
-                          })}
+                                  </button>
+                                </FullDescriptionTooltip>
+                              );
+                            })}
+                          </TooltipProvider>
                         </div>
                       )}
                     </>

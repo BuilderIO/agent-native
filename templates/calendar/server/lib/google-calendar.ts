@@ -1261,6 +1261,79 @@ export async function createEvent(
   };
 }
 
+export async function moveEvent(
+  googleEventId: string,
+  options: {
+    sourceAccount: GoogleAccountSelection;
+    destinationAccount: GoogleAccountSelection;
+    sendUpdates?: "all" | "none";
+  },
+): Promise<{
+  id?: string;
+  htmlLink?: string;
+  meetLink?: string;
+  conferenceData?: CalendarEvent["conferenceData"];
+}> {
+  const sourceEvent = await getEvent(googleEventId, options.sourceAccount);
+  if (sourceEvent.status === "cancelled") {
+    throw new Error("Cancelled events cannot be moved.");
+  }
+  if (
+    sourceEvent.eventType &&
+    !["default", "outOfOffice", "focusTime", "workingLocation"].includes(
+      sourceEvent.eventType,
+    )
+  ) {
+    throw new Error("This Google Calendar event type cannot be moved.");
+  }
+
+  const replacement = await createEvent(
+    {
+      ...sourceEvent,
+      id: "",
+      googleEventId: undefined,
+      recurringEventId: undefined,
+      accountEmail: options.destinationAccount.accountEmail,
+    },
+    {
+      account: options.destinationAccount,
+      addGoogleMeet: Boolean(
+        sourceEvent.hangoutLink ||
+        sourceEvent.conferenceData?.entryPoints?.some(
+          (entry) => entry.entryPointType === "video",
+        ),
+      ),
+      sendUpdates: options.sendUpdates,
+    },
+  );
+
+  if (!replacement.id) {
+    throw new Error("Google did not return an id for the moved event.");
+  }
+
+  try {
+    await deleteEvent(googleEventId, options.sourceAccount, {
+      scope: "single",
+      sendUpdates: options.sendUpdates,
+    });
+  } catch (error) {
+    try {
+      await deleteEvent(replacement.id, options.destinationAccount, {
+        scope: "single",
+        sendUpdates: "none",
+      });
+    } catch (cleanupError) {
+      console.error(
+        "Failed to clean up a moved event after the original could not be deleted.",
+        cleanupError,
+      );
+    }
+    throw error;
+  }
+
+  return replacement;
+}
+
 export async function updateEvent(
   googleEventId: string,
   event: Partial<CalendarEvent>,
