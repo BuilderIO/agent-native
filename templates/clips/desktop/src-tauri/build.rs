@@ -131,6 +131,27 @@ fn add_swift_runtime_rpaths() {
             "{developer_dir}/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx"
         ));
     }
+
+    // whisper.cpp's Metal backend uses @available checks that reference
+    // __isPlatformVersionAtLeast from clang's compiler runtime. rustc links
+    // with -nodefaultlibs, so without the runtime archive the release link
+    // fails with "Undefined symbols: ___isPlatformVersionAtLeast".
+    if let Some(clang_rt) = clang_runtime_archive() {
+        println!("cargo:rustc-link-arg={clang_rt}");
+    }
+}
+
+fn clang_runtime_archive() -> Option<String> {
+    let output = Command::new("xcrun")
+        .args(["clang", "--print-runtime-dir"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let archive = format!("{dir}/libclang_rt.osx.a");
+    Path::new(&archive).exists().then_some(archive)
 }
 
 fn xcode_developer_dir() -> Option<String> {
