@@ -310,7 +310,7 @@ export function ExportMenu({
               onClick={() => {
                 const target = googleSlidesImportTarget.current;
                 if (target && !target.closed) {
-                  target.focus();
+                  target.focus?.();
                 } else {
                   window.open(GOOGLE_SLIDES_IMPORT_URL, "_blank");
                 }
