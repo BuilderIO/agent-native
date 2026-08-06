@@ -159,6 +159,7 @@ interface DeckContextType {
     sourceDeckId: string,
     newId: string,
     title?: string,
+    onFailure?: () => void,
   ) => Deck | null;
   deleteDeck: (id: string) => void;
   updateDeck: (
@@ -1743,7 +1744,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const duplicateDeck = useCallback(
-    (sourceDeckId: string, newId: string, title?: string): Deck | null => {
+    (
+      sourceDeckId: string,
+      newId: string,
+      title?: string,
+      onFailure?: () => void,
+    ): Deck | null => {
       if (pendingDuplicateSourceIdsRef.current.has(sourceDeckId)) return null;
       const source = decks.find((d) => d.id === sourceDeckId);
       if (!source) return null;
@@ -1795,8 +1801,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       duplicatePromise
         .catch((err) => {
           console.error("Duplicate failed:", err);
-          // Roll back: drop the optimistic deck from local state.
+          // Roll back: drop the optimistic deck from local state. The caller
+          // (via onFailure) is responsible for navigating away if the user is
+          // still sitting on this now-gone deck's route — otherwise they're
+          // stranded on a "Deck unavailable" screen with no way back.
           setDecks((prev) => prev.filter((d) => d.id !== newId));
+          onFailure?.();
         })
         .finally(() => {
           pendingCreateIdsRef.current.delete(newId);
