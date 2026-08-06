@@ -1582,8 +1582,17 @@ async function createDbExecInternal(
               releaseClient();
               return result;
             } catch (err) {
-              await queryNeonClient(client, "ROLLBACK").catch(() => {});
-              releaseClient(isConnectionError(err) ? true : undefined);
+              let rollbackFailed = false;
+              try {
+                await queryNeonClient(client, "ROLLBACK");
+              } catch {
+                rollbackFailed = true;
+              }
+              // A failed rollback can leave the backend inside the transaction.
+              // Do not return that client to PgBouncer as if it were clean.
+              releaseClient(
+                isConnectionError(err) || rollbackFailed ? true : undefined,
+              );
               throw err;
             }
           }, 1);
