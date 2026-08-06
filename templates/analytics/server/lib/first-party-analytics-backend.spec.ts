@@ -22,6 +22,7 @@ vi.mock("./credentials-context.js", () => ({
 }));
 
 import {
+  backfillFirstPartyAnalyticsBatch,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   renderFirstPartyAnalyticsBigQuerySql,
@@ -109,6 +110,35 @@ describe("first-party BigQuery backend", () => {
       fullyQualified:
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     });
+  });
+
+  it("uses separate indexed tenant branches for the backfill cursor", async () => {
+    execute.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        null,
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toMatchObject({ copied: 0, complete: true });
+
+    const [query] = execute.mock.calls[0] ?? [];
+    expect(query.sql).toContain("UNION ALL");
+    expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
+    expect(query.sql).not.toContain("org_id = ? OR");
+    expect(query.args).toEqual([
+      "org_builder",
+      "",
+      "",
+      "",
+      "owner@example.com",
+      "",
+      "",
+      "",
+      25,
+    ]);
   });
 
   it("persists the cutover setting with its table and completion marker", async () => {

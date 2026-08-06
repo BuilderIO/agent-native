@@ -204,6 +204,15 @@ describe("delegated A2A final response guards", () => {
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
       "Do not bounce the work back",
     );
+    // Callees were exploring instead of routing to an action they already had,
+    // which is what made cross-app calls take minutes. Two sentences carry it:
+    // prefer your own registered actions, and stop rather than keep searching.
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "Reach for your own registered actions first",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "never use a shell, filesystem, or code-execution tool",
+    );
   });
 
   it("keeps the MCP-local ask_app loop on the same guard contract", async () => {

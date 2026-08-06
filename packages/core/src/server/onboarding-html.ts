@@ -1362,6 +1362,8 @@ export interface OnboardingHtmlOptions {
   googleOnly?: boolean;
   /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
+  /** Render the quiet, centered auth surface used when the app has an initial prompt. */
+  initialPrompt?: boolean;
   /**
    * Product marketing content shown alongside the sign-in form.
    * When provided, the page uses a split layout: marketing on the left,
@@ -1412,6 +1414,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const googleOnly = !!opts.googleOnly;
   const authMode = opts.authMode ?? "password";
   const magicLinkMode = authMode === "magic-link";
+  const simplifiedAuth = opts.initialPrompt === true;
   // In a Google-only app, Google is the sole sign-in method, so always render
   // a working button — never gate it on env vars detected at render time. The
   // login page is a public, CDN-cacheable shell served to everyone (per-user
@@ -1434,7 +1437,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestHost: opts.requestHost,
       requestPath: opts.requestPath,
     });
-  const hasMarketing = !!marketing;
+  const hasMarketing = !!marketing && !simplifiedAuth;
   const marketingSlug = resolveBuiltInMarketingSlug(marketing);
   const defaultMarketingCopy: Partial<AuthMarketingLocalization> | undefined =
     marketing
@@ -1535,6 +1538,13 @@ ${localeMenuItemsHtml}
   const signupLegalNoteHtml = signupLegalNotice
     ? `      <p class="legal-note">${localizedValue(signupLegalNotice.prefix, "legalPrefix")} <a href="${esc(signupLegalNotice.termsUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.termsLabel, "legalTerms")}</a> ${localizedValue(signupLegalNotice.connector, "legalConnector")} <a href="${esc(signupLegalNotice.privacyUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.privacyLabel, "legalPrivacy")}</a>${localizedValue(signupLegalNotice.suffix, "legalSuffix")}</p>`
     : "";
+  const magicLinkSuccessHtml = magicLinkMode
+    ? `    <div class="magic-link-success" id="magic-link-success" aria-live="polite" hidden>
+      <p class="magic-link-success-copy"><span${i18nAttr("magicLinkSentCopy")}>${esc(t("magicLinkSentCopy"))}</span> <strong id="magic-link-success-email"></strong>.</p>
+      <button type="button" class="link-button magic-link-back" id="magic-link-back"${i18nAttr("back")}>${esc(t("back"))}</button>
+    </div>
+`
+    : "";
   const signupLocalModeNoteHtml = signupLocalModeNote
     ? `      <div class="signup-local-mode-note" id="signup-local-mode-note" data-command="${esc(signupLocalModeNote.command)}">
         <p>${esc(signupLocalModeNote.text)}</p>
@@ -1598,6 +1608,9 @@ ${googleNoticeRunLocalPanelHtml}
   </div>`
       : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
+  const identitySsoMagicLinkSelector = identitySsoHtml
+    ? "  .card.magic-link-complete #identity-sso-btn,\n"
+    : "";
   const identitySsoScript = identitySsoHtml
     ? `
     function __anIdentitySsoUrl() {
@@ -2220,11 +2233,12 @@ ${
   }
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
   .legal-note {
-    margin-top: 0.625rem;
+    margin-top: 0.375rem;
+    margin-bottom: 0.875rem;
     color: #666;
     font-size: 0.6875rem;
     line-height: 1.45;
-    text-align: center;
+    text-align: start;
   }
   .legal-note a {
     color: #777;
@@ -2368,6 +2382,40 @@ ${
   .link-button:disabled { cursor: wait; opacity: 0.5; }
   .magic-link-submit { display: none; }
   .magic-link-submit.is-visible { display: block; }
+  .magic-link-success { display: none; }
+  .magic-link-success.is-visible { display: block; }
+  .magic-link-success-copy {
+    margin: 0;
+    color: rgba(255,255,255,0.62); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .magic-link-success-copy strong {
+    color: inherit;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .magic-link-back {
+    margin-top: 1.5rem;
+    text-decoration: none;
+  }
+  .btn-google.magic-link-secondary {
+    background: transparent;
+    color: inherit;
+    border: 1px solid rgba(255,255,255,0.16); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  }
+  .btn-google.magic-link-secondary:hover {
+    background: rgba(255,255,255,0.05); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  }
+  .card.magic-link-complete .subtitle,
+  .card.magic-link-complete #google-signin,
+${identitySsoMagicLinkSelector}
+  .card.magic-link-complete #auth-divider,
+  .card.magic-link-complete #auth-tabs,
+  .card.magic-link-complete #upgrade-note,
+  .card.magic-link-complete .form {
+    display: none;
+  }
   .divider {
     display: flex;
     align-items: center;
@@ -2565,14 +2613,18 @@ ${
   .local-note a { color: #888; text-decoration: none; }
   .local-note a:hover { color: #bbb; }
 ${marketingStyles}
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  body.simplified-auth { background: #141414; }
+  body.simplified-auth .card { border-color: transparent; box-shadow: none; }
+  body.simplified-auth .local-note { display: none !important; }
 </style>
 </head>
-<body${hasMarketing ? ' class="has-marketing"' : ""}>
+<body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
 ${localePickerHtml}
 ${marketingPanelHtml}
 <div class="card">
-  <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : magicLinkMode ? "magicLinkTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : magicLinkMode ? "magicLinkTitle" : "welcomeTitle"))}</h1>
-  <p class="subtitle" id="subtitle"${i18nAttr(googleOnly ? "googleOnlySubtitle" : magicLinkMode ? "magicLinkSubtitle" : "createAccountSubtitle")}>${esc(t(googleOnly ? "googleOnlySubtitle" : magicLinkMode ? "magicLinkSubtitle" : "createAccountSubtitle"))}</p>
+  <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : "welcomeTitle"))}</h1>
+  <p class="subtitle" id="subtitle"${i18nAttr(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle")}>${esc(t(googleOnly ? "googleOnlySubtitle" : "createAccountSubtitle"))}</p>
   <p
     class="upgrade-note"
     id="upgrade-note"
@@ -2599,7 +2651,7 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}  <div class="tabs" id="auth-tabs"${magicLinkMode ? " hidden" : ""}>
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:start">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}${magicLinkSuccessHtml}  <div class="tabs" id="auth-tabs">
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
@@ -2699,7 +2751,7 @@ ${signInJourneyInlineScript()}
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
-    var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : magicLinkMode ? "magicLink" : "signup")};
+    var __anAuthView = ${JSON.stringify(googleOnly ? "googleOnly" : "signup")};
     function __anAuthLocaleIsSupported(value) {
       return __AN_AUTH_SUPPORTED_LOCALES.indexOf(value) !== -1;
     }
@@ -2767,6 +2819,7 @@ ${signInJourneyInlineScript()}
       if (view === 'forgot') return { heading: 'resetPasswordTitle', subtitle: 'resetPasswordSubtitle' };
       if (view === 'verification') return { heading: 'checkEmailTitle', subtitle: 'finishAccountSubtitle' };
       if (view === 'googleOnly') return { heading: 'signInTitle', subtitle: 'googleOnlySubtitle' };
+      if (view === 'magicLinkSent') return { heading: 'magicLinkSent', subtitle: 'magicLinkSentCopy' };
       if (view === 'magicLink') return { heading: 'magicLinkTitle', subtitle: 'magicLinkSubtitle' };
       return { heading: 'welcomeTitle', subtitle: 'createAccountSubtitle' };
     }
@@ -3389,9 +3442,34 @@ ${
 	    function clearRememberedPendingSignupEmail() {
 	      rememberPendingSignupEmail('');
 	    }
+    function hideMagicLinkSuccess() {
+      var card = document.querySelector('.card');
+      if (card) card.classList.remove('magic-link-complete');
+      var success = document.getElementById('magic-link-success');
+      if (success) {
+        success.classList.remove('is-visible');
+        success.setAttribute('hidden', '');
+      }
+    }
+    function showMagicLinkSuccess(email) {
+      var card = document.querySelector('.card');
+      if (card) card.classList.add('magic-link-complete');
+      var success = document.getElementById('magic-link-success');
+      var successEmail = document.getElementById('magic-link-success-email');
+      if (successEmail && typeof email === 'string') successEmail.textContent = email;
+      if (success) {
+        success.removeAttribute('hidden');
+        success.classList.add('is-visible');
+      }
+      forms.forEach(function(x) { x.classList.remove('active'); });
+      var authTabs = document.getElementById('auth-tabs');
+      if (authTabs) authTabs.hidden = true;
+      __anSetAuthView('magicLinkSent');
+    }
     function showMagicLinkForm() {
       var form = document.getElementById('magic-link-form');
       if (!form) return;
+      hideMagicLinkSuccess();
       forms.forEach(function(x) { x.classList.remove('active'); });
       form.classList.add('active');
       var authTabs = document.getElementById('auth-tabs');
@@ -3406,6 +3484,8 @@ ${
       var isValid = __anIsValidAuthEmail(emailInput.value);
       button.classList.toggle('is-visible', isValid);
       button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
+      var googleButton = document.getElementById('google-btn');
+      if (googleButton) googleButton.classList.toggle('magic-link-secondary', isValid);
     }
     function setActiveTab(name, opts) {
 	      if (name !== 'signup' && name !== 'login') return;
@@ -3662,7 +3742,7 @@ ${
       }
     }
     (function initActiveTab() {
-    var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';
+    var initial = 'signup';
     try {
       var params = new URLSearchParams(location.search);
       var qp = params.get('tab');
@@ -3681,8 +3761,7 @@ ${
         if (stored === 'login' || stored === 'signup') initial = stored;
       }
     } catch (e) {}
-    if (initial === 'magicLink') showMagicLinkForm();
-    else setActiveTab(initial, { persist: false });
+    setActiveTab(initial, { persist: false });
 	      try {
 	        if (__anIsVerifiedRedirectSuccess()) {
 	          var rememberedEmail = readRememberedPendingSignupEmail();
@@ -3714,6 +3793,14 @@ ${
   if (backToMagicLink) backToMagicLink.addEventListener('click', function(e) {
     e.preventDefault();
     showMagicLinkForm();
+  });
+  var magicLinkBack = document.getElementById('magic-link-back');
+  if (magicLinkBack) magicLinkBack.addEventListener('click', function(e) {
+    e.preventDefault();
+    var magicLinkEmailInput = document.getElementById('m-email');
+    if (magicLinkEmailInput) magicLinkEmailInput.value = '';
+    showMagicLinkForm();
+    if (magicLinkEmailInput) magicLinkEmailInput.focus();
   });
 
   var magicLinkForm = document.getElementById('magic-link-form');
@@ -3748,9 +3835,9 @@ ${
         return null;
       });
       if (res.ok) {
-        msg.textContent = __anT('magicLinkSent') + '. ' + __anT('magicLinkSentCopy') + ' ' + email + '.';
-        msg.classList.add('show', 'success');
-        btn.textContent = __anT('sent');
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+        showMagicLinkSuccess(email);
         return;
       }
       msg.textContent = (data && (data.error || data.message)) || __anT('magicLinkFailed');

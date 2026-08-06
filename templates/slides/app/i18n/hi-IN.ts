@@ -676,6 +676,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides डेक इंपोर्ट करने के लिए Google Drive कनेक्ट करें।",
     googleSlidesReferenceChoose: "Google Slides डेक चुनें",
+    googleSlidesReferenceUrl: "Google Slides लिंक पेस्ट करें",
     googleSlidesReferencePicking: "काम हो रहा है...",
     googleSlidesReferenceConnected:
       "कनेक्ट हो गया। दोबारा उपयोग योग्य रेफरेंस के रूप में इंपोर्ट करने के लिए Google Slides डेक चुनें।",

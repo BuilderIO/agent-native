@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { getDefaultMcpIntegrations } from "./mcp-integration-catalog.js";
-import { findMcpConnectionSuggestionIntegration } from "./McpConnectionSuggestion.js";
+import {
+  findMcpConnectionSuggestionIntegration,
+  shouldRenderMcpIntegrationFallback,
+} from "./McpConnectionSuggestion.js";
 
 describe("findMcpConnectionSuggestionIntegration", () => {
   it("never selects a connection from assistant-authored response text", () => {
@@ -35,5 +38,18 @@ describe("findMcpConnectionSuggestionIntegration", () => {
         integrations,
       }),
     ).toBeNull();
+  });
+
+  it("does not render a fallback initial underneath a loaded logo", () => {
+    expect(
+      shouldRenderMcpIntegrationFallback(
+        "data:image/svg+xml;base64,...",
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      shouldRenderMcpIntegrationFallback("data:image/svg+xml;base64,...", true),
+    ).toBe(true);
+    expect(shouldRenderMcpIntegrationFallback("", false)).toBe(true);
   });
 });

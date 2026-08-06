@@ -7,7 +7,7 @@ export default defineAction({
     "Analyze a website URL with an SSRF-safe bounded extractor and return a design.md-style " +
     "visual system: computed colors, typography, spacing, radii, shadows, " +
     "component styles, CSS variables, logo references, and reusable Brand Kit data. " +
-    "Uses static SSRF-safe extraction until Chromium navigation has a connect-time SSRF guard.",
+    "Uses a real browser with an SSRF-safe network proxy and falls back to static extraction only when browser rendering is unavailable.",
   schema: z.object({
     url: z.string().describe("Website URL to analyze"),
   }),

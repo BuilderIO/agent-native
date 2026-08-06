@@ -21,6 +21,10 @@ describe("db/client dialect detection", () => {
       globalThis as Record<string, unknown>,
       "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
     );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__",
+    );
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     vi.resetModules();
   });
@@ -141,6 +145,18 @@ describe("db/client dialect detection", () => {
 
     expect(isBackgroundFunctionPoolContext()).toBe(true);
     expect(neonPoolMax()).toBe(4);
+  });
+
+  it("uses one connection for scheduled background workers", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const runtime = globalThis as Record<string, unknown>;
+    runtime.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+    runtime.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true;
+
+    const { neonPoolMax, pgPoolOptions } = await import("./client.js");
+
+    expect(neonPoolMax()).toBe(1);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
   });
 });
 

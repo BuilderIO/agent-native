@@ -662,6 +662,7 @@ const messages = {
     googleSlidesReferenceTitle: "Google Slides 幻灯片",
     googleSlidesReferenceConnect: "连接 Google Drive 以导入 Slides 幻灯片。",
     googleSlidesReferenceChoose: "选择 Google Slides 幻灯片",
+    googleSlidesReferenceUrl: "粘贴 Google Slides 链接",
     googleSlidesReferencePicking: "处理中...",
     googleSlidesReferenceConnected:
       "已连接。选择一个 Google Slides 幻灯片并将其导入为可重复使用的参考内容。",

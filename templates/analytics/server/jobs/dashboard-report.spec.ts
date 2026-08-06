@@ -457,7 +457,8 @@ describe("dashboard report sweep", () => {
     const workerSections = [
       ["emitBackgroundWorker", "emitAlertScheduledTrigger"],
       ["emitAlertBackgroundWorker", "emitUptimeScheduledTrigger"],
-      ["emitUptimeBackgroundWorker", "isDirectRun"],
+      ["emitUptimeBackgroundWorker", "emitRollupScheduledTrigger"],
+      ["emitRollupBackgroundWorker", "isDirectRun"],
     ] as const;
 
     for (const [startName, endName] of workerSections) {
@@ -467,11 +468,15 @@ describe("dashboard report sweep", () => {
       const marker = workerSource.indexOf(
         "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
       );
+      const lowConnectionMarker = workerSource.indexOf(
+        "globalThis.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true",
+      );
       const serverImport = workerSource.indexOf('await import("./main.mjs")');
 
       expect(start).toBeGreaterThan(-1);
       expect(end).toBeGreaterThan(start);
       expect(marker).toBeGreaterThan(-1);
+      expect(lowConnectionMarker).toBeGreaterThan(marker);
       expect(serverImport).toBeGreaterThan(marker);
     }
   });

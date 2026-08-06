@@ -25,6 +25,7 @@ import {
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
   cloudflareWorkerStubAliasArgs,
   configureCloudflareModuleWorkerOutput,
+  copyInstalledBrowserRuntimePackages,
   copyDir,
   createCloudflareModuleStubPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
@@ -32,6 +33,7 @@ import {
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
   findInstalledFfmpegStaticPackage,
+  findInstalledPackageRoot,
   findInstalledResvgPackages,
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
@@ -1311,6 +1313,96 @@ describe("findInstalledFfmpegStaticPackage", () => {
     expect(shouldBundleFfmpegStaticForServerless("win32", "x64", "x64")).toBe(
       false,
     );
+  });
+});
+
+describe("copyInstalledBrowserRuntimePackages", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const directory of dirs.splice(0)) {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("copies Chromium assets and its runtime dependencies from pnpm output", () => {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-browser-runtime-test-"),
+    );
+    dirs.push(root);
+    const nodeModules = path.join(root, "node_modules");
+    const chromiumDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@sparticuz+chromium@149.0.0",
+      "node_modules",
+      "@sparticuz",
+      "chromium",
+    );
+    const chromiumDependenciesDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "@sparticuz+chromium@149.0.0",
+      "node_modules",
+    );
+    const tarFsDir = path.join(chromiumDependenciesDir, "tar-fs");
+    const playwrightCoreDir = path.join(
+      nodeModules,
+      ".pnpm",
+      "playwright-core@1.61.1",
+      "node_modules",
+      "playwright-core",
+    );
+    fs.mkdirSync(path.join(chromiumDir, "bin"), { recursive: true });
+    fs.mkdirSync(path.join(chromiumDir, "build"), { recursive: true });
+    fs.mkdirSync(tarFsDir, { recursive: true });
+    fs.mkdirSync(playwrightCoreDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(chromiumDir, "package.json"),
+      JSON.stringify({
+        name: "@sparticuz/chromium",
+        dependencies: { "tar-fs": "3.1.3" },
+        main: "build/index.js",
+      }),
+    );
+    fs.writeFileSync(path.join(chromiumDir, "bin", "chromium.br"), "binary");
+    fs.writeFileSync(path.join(chromiumDir, "build", "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(tarFsDir, "package.json"),
+      JSON.stringify({ name: "tar-fs", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(tarFsDir, "index.js"), "export {};");
+    fs.writeFileSync(
+      path.join(playwrightCoreDir, "package.json"),
+      JSON.stringify({ name: "playwright-core", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(playwrightCoreDir, "index.js"), "export {};");
+
+    const serverDir = path.join(root, "server");
+    fs.mkdirSync(serverDir, { recursive: true });
+
+    expect(findInstalledPackageRoot("@sparticuz/chromium", [nodeModules])).toBe(
+      chromiumDir,
+    );
+    expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+    expect(
+      fs.existsSync(
+        path.join(
+          serverDir,
+          "node_modules",
+          "@sparticuz",
+          "chromium",
+          "bin",
+          "chromium.br",
+        ),
+      ),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(serverDir, "node_modules", "tar-fs"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(serverDir, "node_modules", "playwright-core")),
+    ).toBe(true);
   });
 });
 

@@ -51,6 +51,7 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
+  MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
@@ -5729,6 +5730,68 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(events).toContainEqual(expect.objectContaining({ type: "text" }));
+  });
+
+  it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
+    let streamCalls = 0;
+    // The shape a lost model actually makes: it never repeats itself, it keeps
+    // guessing. Every call carries new arguments, so the identical-arguments
+    // breaker never counts past one and cannot stop this on its own.
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Invalid action parameters: input must have required property 'sql'",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `guess-${streamCalls}`,
+              name: "query-analytics",
+              // Different every attempt — that is the whole point.
+              input: { attempt: streamCalls, guess: `variant-${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "query-analytics": { ...actionEntry({}), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // Must stop on the same-error floor, nowhere near the iteration ceiling.
+    // Without it this turn runs until it exhausts a budget — which is how a
+    // delegated call spent five minutes on a question the same app answers
+    // directly in twenty-seven seconds.
+    expect(run.mock.calls.length).toBeLessThanOrEqual(
+      MAX_SAME_ERROR_ACROSS_ARGUMENTS,
+    );
+    expect(streamCalls).toBeLessThanOrEqual(MAX_SAME_ERROR_ACROSS_ARGUMENTS);
   });
 
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
