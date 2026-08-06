@@ -5,6 +5,7 @@ import {
   activeRunLooksAlive,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
   MAX_FOLLOWED_BACKGROUND_RUNS,
 } from "./agent-chat-adapter.js";
 import { SSE_NO_PROGRESS_TIMEOUT_MS } from "./sse-event-processor.js";
@@ -6786,6 +6787,40 @@ describe("createAgentChatAdapter", () => {
     );
     expect(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS).toBeLessThan(
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
+    );
+  });
+
+  it("per-turn follow budgets stay above the server's own ceilings", async () => {
+    // Regression pin for the top non-auth cause of "the chat just stopped".
+    // These client budgets were 10 min / 6 runs while ONE legal background
+    // chunk may run 13 min and the server allows a 90-min turn over 20
+    // continuations — so the client killed healthy turns that the server was
+    // still streaming, measured in prod as aborts at 11-25 minutes with
+    // progress recorded right up to the abort.
+    //
+    // The client is a backstop for a silent server, not the primary limit:
+    // it fires on a clock and cannot tell looping from working. Anything that
+    // is NOT progressing is already caught by BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
+    // and the repeated-terminal-reason detector. Imports the REAL server
+    // constants so this breaks the moment either side drifts.
+    const { BACKGROUND_SOFT_TIMEOUT_CEILING_MS } =
+      await import("../agent/run-manager.js");
+    const { MAX_TURN_WALL_CLOCK_MS, MAX_BACKGROUND_RUN_CONTINUATIONS } =
+      await import("../agent/production-agent.js");
+
+    // A single full-length chunk must fit inside the whole-turn client budget
+    // with room for more than one of them; this is the exact inversion that
+    // shipped.
+    expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS * 2).toBeLessThan(
+      MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+    );
+    // The server terminates first, so the turn ends with a terminal reason
+    // written by the side that can actually distinguish progress from a loop.
+    expect(MAX_TURN_WALL_CLOCK_MS).toBeLessThan(
+      MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+    );
+    expect(MAX_BACKGROUND_RUN_CONTINUATIONS).toBeLessThan(
+      MAX_FOLLOWED_BACKGROUND_RUNS,
     );
   });
 

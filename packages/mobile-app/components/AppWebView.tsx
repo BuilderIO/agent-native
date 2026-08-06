@@ -76,7 +76,10 @@ const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const FORCE_REDIRECT_AUTH_SCRIPT = `
   (function () {
     try {
-      if (location.pathname.indexOf('/_agent-native/sign-in') !== -1) {
+      if (
+        location.pathname.endsWith('/sign-in') ||
+        location.pathname.endsWith('/_agent-native/sign-in')
+      ) {
         window.open = function () { return null; };
       }
     } catch (e) {}

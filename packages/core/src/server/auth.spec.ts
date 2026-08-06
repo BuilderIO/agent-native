@@ -1389,6 +1389,7 @@ describe("server/auth", () => {
       for (const path of [
         "/dispatch/login",
         "/dispatch/signup",
+        "/dispatch/sign-in?c=clean-entry",
         "/dispatch/_agent-native/sign-in?return=%2Fdispatch%2Foverview",
       ]) {
         const result = await guard(createMockEvent({ path }));

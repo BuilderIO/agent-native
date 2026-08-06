@@ -109,7 +109,9 @@ function navigationFromPath(pathname: string, search = "") {
   const extension = pathname.match(/^\/extensions\/([^/]+)/);
   if (extension) return { view: "extensions", extensionId: extension[1] };
   if (pathname === "/audit") return { view: "audit" };
-  if (pathname === "/settings") return { view: "settings" };
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return { view: "settings" };
+  }
   return { view: "create" };
 }
 

@@ -22,8 +22,10 @@ For events recorded by the analytics template itself via its `/track` endpoint, 
 
 For first-party counts, active-user, and retention questions, prefer the compact
 tenant-scoped daily event and user-day rollups. Use `analytics_events` only for a
-bounded recent drill-down with an explicit date/time range; the built-in source
-does not require a customer warehouse connection.
+bounded recent drill-down with an explicit date/time range. For the Builder.io
+production organization after the BigQuery cutover, these logical tables are
+served by partitioned BigQuery data and views; the source still does not require
+an end user's separate warehouse connection.
 
 Before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
@@ -37,10 +39,13 @@ a requirement to use BigQuery. The health result lists the supported options:
 
 If a suitable backend is not configured, use its returned setup link or
 `data-source-status --key <provider>` to guide the user through the existing
-Data Sources walkthrough. Do not silently move the collector: `/track` still
-lands in first-party Analytics, and connecting a query backend does not
-automatically copy existing Neon events. Use the provider's explicit collection
-or export path before querying that backend.
+Data Sources walkthrough. Connecting a query backend alone does not move the
+collector or copy existing Neon events. For the Builder.io production
+organization, the hidden `migrate-first-party-analytics-to-bigquery` action is
+the explicit state machine: prepare dual-write, backfill with its cursor, then
+cut over with confirmation. After cutover, `/track` writes and event queries
+use BigQuery; public-key metadata, derived exception issues, and session-replay
+data remain in SQL.
 
 Example pageviews query for a local calendar day:
 

@@ -19,7 +19,9 @@ Design systems are stored in the `design_systems` SQL table. Each has a `data` c
 ## Creating a Design System
 
 1. User provides brand context (company name, website, assets, notes)
-2. `analyze-brand-assets` gathers raw data (extracts CSS, fonts, colors from website)
+2. `analyze-brand-assets` renders a website in a real browser and gathers the
+   computed visual system (colors, fonts, spacing, radii, shadows, components,
+   CSS variables, logos, and design.md-style guidance)
 3. Agent analyzes the data and calls `create-design-system` with extracted tokens
 4. The design system is published and becomes available for deck creation
 

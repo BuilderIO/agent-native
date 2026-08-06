@@ -6801,6 +6801,7 @@ export interface ChainServerDrivenContinuationDeps {
   updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
   markRunAborted?: typeof markRunAborted;
   setRunTerminalReason?: typeof setRunTerminalReason;
+  setRunError?: typeof setRunError;
   recordRunDiagnostic?: typeof recordRunDiagnostic;
   markBackgroundContinuationChunkTerminal?: typeof markBackgroundContinuationChunkTerminal;
   generateRunId?: typeof generateRunId;
@@ -7033,6 +7034,7 @@ export async function chainServerDrivenContinuation(opts: {
     markRunAborted: opts.deps?.markRunAborted ?? markRunAborted,
     setRunTerminalReason:
       opts.deps?.setRunTerminalReason ?? setRunTerminalReason,
+    setRunError: opts.deps?.setRunError ?? setRunError,
     recordRunDiagnostic: opts.deps?.recordRunDiagnostic ?? recordRunDiagnostic,
     markBackgroundContinuationChunkTerminal:
       opts.deps?.markBackgroundContinuationChunkTerminal ??
@@ -7380,6 +7382,17 @@ export async function chainServerDrivenContinuation(opts: {
     if (statusUpdated) {
       await d
         .setRunTerminalReason(runId, "background_continuation_dispatch_failed")
+        .catch(() => {});
+      // Record the cause on the row itself, not only inside diag_stage's JSON.
+      // Without this the run goes terminal with error_code and error_detail
+      // both NULL, so every dashboard and query reads it as a failure with no
+      // known cause and the real message is only findable by parsing a blob.
+      await d
+        .setRunError(
+          runId,
+          "background_continuation_dispatch_failed",
+          chainErr instanceof Error ? chainErr.message : String(chainErr),
+        )
         .catch(() => {});
     }
   }

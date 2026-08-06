@@ -190,7 +190,7 @@ export function StorageSetupCard({
               <span className="text-sm text-muted-foreground">
                 Or{" "}
                 <a
-                  href={appPath("/settings#video-storage")}
+                  href={appPath("/settings/general#video-storage")}
                   className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
                 >
                   {t("storageSetup.configureS3")}

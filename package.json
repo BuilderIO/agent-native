@@ -100,6 +100,7 @@
     "guard:no-raw-colors": "node scripts/guard-no-raw-colors.mjs",
     "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guards": "tsx scripts/run-guards.ts",
+    "chat-health": "node scripts/chat-health.mjs",
     "contribute:template": "tsx scripts/contribute-template-changes.ts",
     "sync:netlify-env": "tsx scripts/sync-template-netlify-env.ts",
     "sync:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts",

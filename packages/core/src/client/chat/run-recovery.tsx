@@ -565,7 +565,12 @@ export function RunErrorRecoveryCard({
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
   );
-  const canRetry = canRecover || isProviderAuthError;
+  // Blocked on something the reader goes and fixes elsewhere, then comes back
+  // to. Without a retry the card is a dead end and its own copy ("then retry")
+  // points at a button that isn't there.
+  const isUnblockableExternally =
+    info.errorCode === "email_verification_required";
+  const canRetry = canRecover || isProviderAuthError || isUnblockableExternally;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&

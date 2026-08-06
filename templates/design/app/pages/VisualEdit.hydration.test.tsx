@@ -10,7 +10,7 @@ import VisualEditPage from "./VisualEdit";
 const mocks = vi.hoisted(() => ({
   buildSignInReturnHref: vi.fn(
     (_options?: { returnTo?: string }) =>
-      "/_agent-native/sign-in?c=hydration-safe-continuation",
+      "/sign-in?c=hydration-safe-continuation",
   ),
   session: null as { email: string } | null,
 }));
@@ -60,7 +60,7 @@ afterEach(async () => {
 describe("VisualEditPage hydration", () => {
   it("defers the anonymous sign-in href through hydration, then adds its continuation", async () => {
     const html = renderToString(<VisualEditPage />);
-    expect(html).not.toContain("/_agent-native/sign-in");
+    expect(html).not.toContain("/sign-in");
     expect(html).not.toContain("?c=hydration-safe-continuation");
     expect(mocks.buildSignInReturnHref).not.toHaveBeenCalled();
 

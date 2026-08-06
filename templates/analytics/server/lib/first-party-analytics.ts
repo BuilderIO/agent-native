@@ -1,4 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull, or } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
@@ -8,6 +9,12 @@ import {
   ingestAnalyticsExceptionEvents,
   type DerivedExceptionFields,
 } from "./error-capture.js";
+import {
+  getFirstPartyAnalyticsBackend,
+  getFirstPartyAnalyticsTable,
+  insertFirstPartyAnalyticsRows,
+  queryFirstPartyAnalyticsInBigQuery,
+} from "./first-party-analytics-backend.js";
 import {
   firstPartyCacheKey,
   withFirstPartyCache,
@@ -504,11 +511,33 @@ export async function recordAnalyticsEvents(
     };
   });
 
-  if (rows.length) {
+  const backend = await getFirstPartyAnalyticsBackend({
+    userEmail: key.ownerEmail,
+    orgId: key.orgId ?? null,
+  });
+
+  if (rows.length && (backend.sink === "dual" || backend.sink === "bigquery")) {
+    try {
+      await runWithRequestContext(
+        {
+          userEmail: key.ownerEmail,
+          orgId: key.orgId ?? undefined,
+        },
+        () => insertFirstPartyAnalyticsRows(rows, backend.table),
+      );
+    } catch (error) {
+      if (backend.sink === "bigquery") throw error;
+      // Dual-write mode keeps Postgres as the recoverable source until the
+      // backfill has completed. A BigQuery outage must not lose live events.
+      console.error(
+        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+        error,
+      );
+    }
+  }
+
+  if (rows.length && backend.sink !== "bigquery") {
     await db.transaction(async (tx: any) => {
-      // Raw events and incremental rollups share this transaction. The
-      // historical boot backfill is disabled, so no global cross-request lock
-      // is needed to coordinate a second writer.
       await tx.insert(schema.analyticsEvents).values(rows);
       await tx
         .update(schema.analyticsPublicKeys)
@@ -516,6 +545,12 @@ export async function recordAnalyticsEvents(
         .where(eq(schema.analyticsPublicKeys.id, key.id));
       await upsertFirstPartyAnalyticsRollups(rows, tx);
     });
+  }
+  if (rows.length && backend.sink === "bigquery") {
+    await db
+      .update(schema.analyticsPublicKeys)
+      .set({ lastUsedAt: receivedAt })
+      .where(eq(schema.analyticsPublicKeys.id, key.id));
   }
 
   // Fork captured exceptions into the dedicated error-capture tables. This is
@@ -973,6 +1008,24 @@ export async function queryFirstPartyAnalytics(
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
   validateFirstPartyAnalyticsSql(sql);
+  const backend = await getFirstPartyAnalyticsBackend(scope);
+  if (backend.sink === "bigquery") {
+    const usesSessionRecordings = /\bsession_recordings\b/i.test(sql);
+    const usesEventTables =
+      /\banalytics_events\b|\banalytics_event_daily_rollups\b|\banalytics_user_days\b/i.test(
+        sql,
+      );
+    if (usesSessionRecordings && usesEventTables) {
+      throw new Error(
+        "Cross-backend joins are not supported; query first-party event tables in BigQuery and session_recordings in the Analytics SQL store separately.",
+      );
+    }
+    if (!usesSessionRecordings) {
+      const table = await getFirstPartyAnalyticsTable(backend.table);
+      const scoped = scopedAnalyticsSql(sql, scope);
+      return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
+    }
+  }
   const scoped = scopedAnalyticsSql(sql, scope);
   const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
   const timeoutMs = Math.max(

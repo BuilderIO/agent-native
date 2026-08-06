@@ -53,8 +53,9 @@ describe("query-agent-native-analytics", () => {
     expect(action.description).toMatch(
       /updated transactionally with new ingest/i,
     );
+    expect(action.description).toMatch(/explicit BigQuery cutover/i);
     expect(action.description).toMatch(
-      /durable scheduled job backfills existing analytics_events/i,
+      /cross-backend joins are not supported/i,
     );
     expect(action.description).toMatch(/bounded recent drill-downs/i);
     expect(action.description).toMatch(/all-time|lifetime/i);

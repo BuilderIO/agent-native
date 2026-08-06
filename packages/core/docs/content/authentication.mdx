@@ -384,7 +384,7 @@ function MyComponent() {
 Templates with **public pages** (share links, embeds, marketing pages) often need an in-page CTA that asks anonymous viewers to sign in and brings them back to the page they were on. The framework provides a single entry point for this:
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 When an anonymous viewer hits this URL, the framework's login page is served. After a successful sign-in (magic link, email/password, token, or Google OAuth), the browser returns to `return`.
@@ -399,8 +399,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -408,13 +407,13 @@ function SignInCta() {
 
 ### Bookmarked private paths
 
-Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/_agent-native/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
+Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
 
 How long that shell is cached is a deployment-wide setting — see [SSR Caching](/docs/deployment#ssr-caching) for `AGENT_NATIVE_SSR_CACHE`. Shortening or disabling the cache changes duration only; SSR still renders the anonymous branch with cookies stripped.
 
 ### Behind the scenes: Google OAuth
 
-Both flows (the explicit `/_agent-native/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.
+Both flows (the explicit `/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The legacy `/_agent-native/sign-in` alias remains accepted for older links. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.
 
 If your template wraps `/_agent-native/google/auth-url` directly (e.g. mail and calendar templates do, to widen scopes), accept a `?return=<path>` query and forward it via the options-object form of `encodeOAuthState`:
 

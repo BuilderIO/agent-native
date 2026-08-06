@@ -1,5 +1,6 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
+import { ensureEmbedAuthFetchInterceptor } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -22,9 +23,11 @@ export async function uploadPromptFiles(
   if (files.length === 0) return [];
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
+  ensureEmbedAuthFetchInterceptor();
   const response = await fetch(`${appBasePath()}/api/uploads`, {
     method: "POST",
     body: formData,
+    credentials: "include",
   });
   if (!response.ok) {
     let message = "Upload failed";

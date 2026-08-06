@@ -29,7 +29,7 @@ import {
 
 /**
  * Push the saved config through the collab layer so open dashboard editors get
- * the change in real time (mirrors update-dashboard / install-dashboard-template).
+ * the change in real time (mirrors update-dashboard).
  */
 async function syncToCollab(
   dashboardId: string,

@@ -19,7 +19,6 @@ const enUS = {
     monitoringErrors: "Errors",
     admin: "Admin",
     agents: "Agents",
-    templateCatalog: "Catalog",
     dashboards: "Dashboards",
     analyses: "Analyses",
     explorer: "Explorer",
@@ -28,6 +27,7 @@ const enUS = {
     navigation: "Navigation",
     openNavigation: "Open navigation",
     loadingDashboardTitle: "Loading dashboard title",
+    templateCatalog: "Catalog",
   },
   dashboardHeader: {
     updated: "Updated {{date}}",
@@ -188,10 +188,6 @@ const enUS = {
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
-    dashboardTemplates: "Dashboard templates",
-    dashboardTemplatesDescription:
-      "Install a source-controlled dashboard when you need a starting point.",
-    openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
     errorEmailNotifications: "Email new error alerts",
@@ -202,11 +198,6 @@ const enUS = {
     bellSoundDescription:
       "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
-    about: "About",
-    aboutDescription:
-      "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
-    aboutUsage:
-      "Use the Data Sources page to manage connections. Use the Query Explorer for ad-hoc BigQuery SQL.",
     replayStorage: "Session replay storage",
     replayStorageDescription:
       "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
@@ -461,8 +452,8 @@ const enUS = {
     visibilityorg: "Shared with org",
     visibilitypublic: "Public",
     advanced: "Advanced",
-    database: "App Databases",
     openCatalog: "Open catalog",
+    database: "App Databases",
     dbConnectionsTitle: "Connected app databases",
     dbConnectionsDescription:
       "Connect other agent-native app databases for admin-only inspection and repair. This does not expose Analytics data to every user.",
@@ -4439,9 +4430,6 @@ export const messagesByLocale = {
       credentials: "数据源凭据",
       credentialsDescription: "API 密钥和凭据在数据源页面管理。",
       manageDataSources: "管理数据源",
-      dashboardTemplates: "仪表板模板",
-      dashboardTemplatesDescription: "需要起点时，安装受源码管理的仪表板。",
-      openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
       errorEmailNotifications: "通过电子邮件接收新的错误提醒",
@@ -4451,10 +4439,6 @@ export const messagesByLocale = {
       bellSound: "提示音",
       bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
       bellSoundSaveFailed: "无法保存提示音偏好设置。",
-      about: "关于",
-      aboutDescription:
-        "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
-      aboutUsage: "在数据源页面管理连接。使用查询探索器运行临时 BigQuery SQL。",
     },
     chat: {
       emptyState: "让我分析仪表板、比较趋势或深入查看数据...",
@@ -4663,10 +4647,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Las claves API y credenciales se gestionan en la página Fuentes de datos.",
       manageDataSources: "Gestionar fuentes de datos",
-      dashboardTemplates: "Plantillas de paneles",
-      dashboardTemplatesDescription:
-        "Instala un panel controlado por código fuente cuando necesites un punto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
       errorEmailNotifications: "Recibir nuevas alertas de errores por email",
@@ -4678,11 +4658,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
       bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
-      about: "Acerca de",
-      aboutDescription:
-        "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
-      aboutUsage:
-        "Usa Fuentes de datos para gestionar conexiones. Usa el Explorador de consultas para SQL ad hoc de BigQuery.",
     },
     chat: {
       emptyState:
@@ -4894,10 +4869,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Les clés API et identifiants sont gérés sur la page Sources de données.",
       manageDataSources: "Gérer les sources de données",
-      dashboardTemplates: "Modèles de tableaux de bord",
-      dashboardTemplatesDescription:
-        "Installez un tableau de bord suivi dans le code source lorsque vous avez besoin d'un point de départ.",
-      openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
       errorEmailNotifications:
@@ -4910,11 +4881,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
       bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
-      about: "À propos",
-      aboutDescription:
-        "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
-      aboutUsage:
-        "Utilisez Sources de données pour gérer les connexions. Utilisez l'explorateur de requêtes pour le SQL BigQuery ad hoc.",
     },
     chat: {
       emptyState:
@@ -5133,10 +5099,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API-Schlüssel und Anmeldedaten werden auf der Seite Datenquellen verwaltet.",
       manageDataSources: "Datenquellen verwalten",
-      dashboardTemplates: "Dashboard-Vorlagen",
-      dashboardTemplatesDescription:
-        "Installiere ein quellkontrolliertes Dashboard, wenn du einen Ausgangspunkt brauchst.",
-      openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
       errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
@@ -5149,11 +5111,6 @@ export const messagesByLocale = {
         "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
       bellSoundSaveFailed:
         "Die Toneinstellung konnte nicht gespeichert werden.",
-      about: "Info",
-      aboutDescription:
-        "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
-      aboutUsage:
-        "Verwalte Verbindungen auf der Seite Datenquellen. Nutze den Query Explorer für Ad-hoc-BigQuery-SQL.",
     },
     chat: {
       emptyState:
@@ -5363,10 +5320,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API キーと認証情報はデータソースページで管理します。",
       manageDataSources: "データソースを管理",
-      dashboardTemplates: "ダッシュボードテンプレート",
-      dashboardTemplatesDescription:
-        "出発点が必要なときは、ソース管理されたダッシュボードをインストールします。",
-      openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
       errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
@@ -5377,11 +5330,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
       bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
-      about: "概要",
-      aboutDescription:
-        "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
-      aboutUsage:
-        "接続はデータソースページで管理します。アドホックな BigQuery SQL にはクエリエクスプローラーを使います。",
     },
     chat: {
       emptyState:
@@ -5590,10 +5538,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API 키와 자격 증명은 데이터 소스 페이지에서 관리합니다.",
       manageDataSources: "데이터 소스 관리",
-      dashboardTemplates: "대시보드 템플릿",
-      dashboardTemplatesDescription:
-        "시작점이 필요할 때 소스 제어된 대시보드를 설치하세요.",
-      openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
       errorEmailNotifications: "새 오류 알림을 이메일로 받기",
@@ -5604,11 +5548,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
       bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
-      about: "정보",
-      aboutDescription:
-        "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
-      aboutUsage:
-        "데이터 소스 페이지에서 연결을 관리합니다. 임시 BigQuery SQL은 쿼리 탐색기를 사용하세요.",
     },
     chat: {
       emptyState:
@@ -5821,10 +5760,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
       manageDataSources: "Gerenciar fontes de dados",
-      dashboardTemplates: "Modelos de dashboard",
-      dashboardTemplatesDescription:
-        "Instale um dashboard controlado por código-fonte quando precisar de um ponto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
       errorEmailNotifications: "Receber novos alertas de erro por e-mail",
@@ -5836,11 +5771,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
       bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
-      about: "Sobre",
-      aboutDescription:
-        "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
-      aboutUsage:
-        "Use Fontes de dados para gerenciar conexões. Use o Explorador de consultas para SQL ad hoc do BigQuery.",
     },
     chat: {
       emptyState:
@@ -6048,10 +5978,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API कुंजियां और क्रेडेंशियल डेटा स्रोत पेज पर प्रबंधित होते हैं।",
       manageDataSources: "डेटा स्रोत प्रबंधित करें",
-      dashboardTemplates: "डैशबोर्ड टेम्पलेट",
-      dashboardTemplatesDescription:
-        "जब आपको शुरुआत का आधार चाहिए, तो स्रोत-नियंत्रित डैशबोर्ड इंस्टॉल करें।",
-      openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
       errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
@@ -6061,11 +5987,6 @@ export const messagesByLocale = {
       bellSound: "पूर्णता ध्वनि",
       bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
       bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
-      about: "परिचय",
-      aboutDescription:
-        "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
-      aboutUsage:
-        "कनेक्शन प्रबंधित करने के लिए डेटा स्रोत पेज का उपयोग करें। ad-hoc BigQuery SQL के लिए Query Explorer उपयोग करें।",
     },
     chat: {
       emptyState:
@@ -6272,10 +6193,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "تتم إدارة مفاتيح API وبيانات الاعتماد من صفحة مصادر البيانات.",
       manageDataSources: "إدارة مصادر البيانات",
-      dashboardTemplates: "قوالب لوحات المعلومات",
-      dashboardTemplatesDescription:
-        "ثبّت لوحة معلومات مضبوطة في المصدر عندما تحتاج إلى نقطة بداية.",
-      openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
       errorEmailNotifications:
@@ -6286,11 +6203,6 @@ export const messagesByLocale = {
       bellSound: "صوت الجرس",
       bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
       bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
-      about: "حول",
-      aboutDescription:
-        "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",
-      aboutUsage:
-        "استخدم صفحة مصادر البيانات لإدارة الاتصالات. استخدم مستكشف الاستعلامات لاستعلامات BigQuery SQL المخصصة.",
     },
     chat: {
       emptyState:

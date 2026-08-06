@@ -478,6 +478,7 @@ export async function run(
           status: terminalStatus,
           agentCallId,
           durationMs: Date.now() - startedAt,
+          ...(terminalCode ? { terminalCode } : {}),
         });
       }
     }
@@ -663,6 +664,12 @@ export async function run(
       let lastProgressEmitAt = callStartedAt;
       let lastActivitySequence = -1;
       const onRemotePollUpdate = (task: Task) => {
+        // Capture the remote task id on every poll, not only on the timeout and
+        // error branches that used to set it. Without this a call that SUCCEEDS
+        // slowly carries no task id, so "why did this one take four minutes?"
+        // cannot be traced into the receiving app's own task record — which is
+        // the question worth asking about a slow cross-app call.
+        if (task?.id) invocationTaskId = task.id;
         const state = task?.status?.state;
         const parts = task.status?.message?.parts;
         const snapshot = Array.isArray(parts)
@@ -830,6 +837,9 @@ export async function run(
         agentCallId,
         ...(invocationTaskId ? { taskId: invocationTaskId } : {}),
         durationMs: Date.now() - callStartedAt,
+        ...(invocationTerminalCode
+          ? { terminalCode: invocationTerminalCode }
+          : {}),
       });
 
       return (
