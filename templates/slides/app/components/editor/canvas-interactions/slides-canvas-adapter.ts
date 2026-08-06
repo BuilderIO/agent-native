@@ -95,6 +95,24 @@ export type SlidesCanvasPointerIntent =
   | "move-object-perimeter"
   | "none";
 
+/** Prefer the current selection when the pointer is inside it; otherwise the
+ * object under the pointer becomes the drag candidate, including on the first
+ * press before its click has updated selection state. */
+export function resolveSlidesCanvasDragTarget(
+  selectedObject: HTMLElement | null,
+  pointerObject: HTMLElement | null,
+): HTMLElement | null {
+  if (
+    selectedObject &&
+    pointerObject &&
+    (selectedObject.contains(pointerObject) ||
+      pointerObject.contains(selectedObject))
+  ) {
+    return selectedObject;
+  }
+  return pointerObject ?? selectedObject;
+}
+
 /**
  * Slides supplies hit testing and this policy decision, while the shared
  * gesture controller owns threshold, coordinate, modifier, and resize math.

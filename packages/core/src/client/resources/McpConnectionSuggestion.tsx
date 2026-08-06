@@ -51,6 +51,13 @@ export function findMcpConnectionSuggestionIntegration({
   );
 }
 
+export function shouldRenderMcpIntegrationFallback(
+  logoUrl: string,
+  logoLoadFailed: boolean,
+): boolean {
+  return !logoUrl || logoLoadFailed;
+}
+
 function compareUrl(value: string): string {
   try {
     const url = new URL(value.trim());
@@ -107,6 +114,7 @@ export function McpConnectionSuggestion({
   const [dismissedId, setDismissedId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const integrations = useMemo(
     () => integrationOptions ?? getDefaultMcpIntegrations(),
     [integrationOptions],
@@ -142,7 +150,8 @@ export function McpConnectionSuggestion({
   useEffect(() => {
     setError(null);
     setConnecting(false);
-  }, [integration?.id, variant]);
+    setLogoLoadFailed(false);
+  }, [integration?.id, integration?.logoUrl, variant]);
 
   if (!shouldSuggest) return null;
 
@@ -216,21 +225,25 @@ export function McpConnectionSuggestion({
       <div
         className={
           variant === "response"
-            ? "mt-3 flex max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
-            : "mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),680px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            ? "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--response mt-3 flex max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            : "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--composer mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),684px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
         }
         data-mcp-connection-suggestion={integration.id}
+        data-mcp-connection-suggestion-variant={variant}
       >
         <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[10px] font-semibold text-muted-foreground">
-          <span aria-hidden="true">{integration.name.slice(0, 1)}</span>
+          {shouldRenderMcpIntegrationFallback(
+            integration.logoUrl,
+            logoLoadFailed,
+          ) ? (
+            <span aria-hidden="true">{integration.name.slice(0, 1)}</span>
+          ) : null}
           {integration.logoUrl && (
             <img
               src={integration.logoUrl}
               alt=""
-              className="absolute h-5 w-5 object-contain"
-              onError={(event) => {
-                event.currentTarget.hidden = true;
-              }}
+              className={`absolute h-5 w-5 object-contain${logoLoadFailed ? " hidden" : ""}`}
+              onError={() => setLogoLoadFailed(true)}
             />
           )}
         </div>
@@ -275,7 +288,13 @@ export function McpConnectionSuggestion({
         </button>
       </div>
       {error && (
-        <div className="mx-auto mb-2 w-[min(100%,680px)] text-[11px] text-destructive">
+        <div
+          className={
+            variant === "response"
+              ? "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--response mt-1 max-w-[520px] text-[11px] text-destructive"
+              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer mx-auto mb-2 w-[min(calc(100%_-_1.5rem),684px)] text-[11px] text-destructive"
+          }
+        >
           {error}
         </div>
       )}

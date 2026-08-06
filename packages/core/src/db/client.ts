@@ -966,7 +966,7 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 4 : 20,
+    max: serverless ? (isLowConnectionBackgroundRuntime() ? 1 : 4) : 20,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -992,6 +992,11 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
  */
 export function neonPoolMax(): number {
   if (!isServerlessRuntime()) return 20;
+  // Scheduled Analytics workers run independently and may overlap across
+  // invocations. They process work sequentially, so one connection prevents
+  // a slow sweep from multiplying Neon connections while foreground requests
+  // still retain four slots for their concurrent reads.
+  if (isLowConnectionBackgroundRuntime()) return 1;
   // Netlify can run several background workers concurrently; a background
   // worker is not a global singleton and must not hold a larger pool than the
   // foreground path. The agent's
@@ -1005,6 +1010,13 @@ export function neonPoolMax(): number {
   // "Max client connections reached" across many warm instances.
   if (isBackgroundFunctionPoolContext()) return 4;
   return 4;
+}
+
+function isLowConnectionBackgroundRuntime(): boolean {
+  return (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ === true
+  );
 }
 
 /**

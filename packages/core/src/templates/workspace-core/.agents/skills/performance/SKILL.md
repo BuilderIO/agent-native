@@ -182,6 +182,50 @@ another visitor's shared CDN entry.
 - **Virtualize** very long rendered lists on the client so off-screen rows aren't
   parsed/rendered every update.
 
+## 8. Don't do data work at startup
+
+A server plugin's body is not "once per deploy." These apps run as serverless
+functions, so it runs **once per cold start** — on the critical path of whichever
+user's request woke the process, and again on the next cold start. An in-process
+`let done = false` memo does not help: the new isolate starts with `false`.
+
+This has already cost real outages and sustained slowness here, not hypothetical
+ones — Slides startup slowness, Analytics paying startup cost on API calls, and a
+production incident. The shape that did it:
+
+```ts
+// templates/<app>/server/plugins/db.ts — every cold start pays all of this
+export default async (nitroApp) => {
+  await migrations(nitroApp);
+  await retypeBooleanColumnsOnPostgres();   // rewrites tables on Postgres
+  await backfillLegacyTables();
+  await syncWorkspacesToOrganizations();
+  await backfillRecordingOrgId();
+};
+```
+
+Schema DDL at boot is the sanctioned migration path and is fine: it is bounded
+and a fast no-op once applied. What must not go there is **work whose cost grows
+with the data** — backfills, retypes, aggregations, recomputes, re-syncs,
+sweeps, cache warming, index rebuilds. Those have three better homes, all of
+which already exist:
+
+- a **scheduled job** (`recurring-jobs`, `automations` skills),
+- a **one-off CLI or release-time script**, run deliberately, once,
+- **lazily behind the first caller that needs it**, memoized — accepting that
+  the memo is per-isolate, so the work must be small enough to repeat.
+
+If it truly must complete before the app can serve a correct response, it is a
+migration, not a backfill — say so on the line and keep it bounded:
+
+```ts
+await backfillOneRow(); // guard:allow-boot-data-work — single row, bounded
+```
+
+`guard:no-boot-data-work` fails on new boot-time data work, scoped to lines this
+branch adds. It cannot see everything — a helper that hides the work one call
+deeper reads as innocent — so the rule matters more than the check.
+
 ## Checklist — run before shipping a list/read or a new table
 
 - [ ] List selects only displayed columns; heavy blobs excluded or `substr`-truncated.
@@ -193,5 +237,7 @@ another visitor's shared CDN entry.
 - [ ] Unbounded lists are paginated/windowed; large blobs aren't inlined on the hot path.
 - [ ] SSR HTML/`.data` path stays session-blind and cacheable — no `private`,
       `no-store`, `Vary: Cookie`, or auth branch added to it.
+- [ ] No data work added to a server plugin body / module scope — backfills,
+      aggregations and re-syncs run on every cold start there (see §8).
 - [ ] Mutation-fresh reads go through actions + `useActionQuery`, not SSR loader
       data.

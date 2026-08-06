@@ -97,6 +97,7 @@ import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
+  decodeContinuation,
   normalizeAppPath,
   signInJourney,
 } from "../shared/sign-in-journey.js";
@@ -116,6 +117,7 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -1145,6 +1147,40 @@ function getRequestHost(event: H3Event): string | undefined {
   );
 }
 
+function parseRequestUrl(rawUrl: string | undefined): URL | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl, "http://an.invalid");
+  } catch {
+    // coercion-ok: an invalid request URL has no query context to classify.
+    return null;
+  }
+}
+
+function hasInitialPromptQuery(rawUrl: string | undefined): boolean {
+  return !!parseRequestUrl(rawUrl)?.searchParams.get("initialPrompt")?.trim();
+}
+
+function requestHasInitialPrompt(event: H3Event): boolean {
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  if (hasInitialPromptQuery(rawUrl)) return true;
+
+  const requestUrl = parseRequestUrl(rawUrl);
+  if (!requestUrl) return false;
+  const continuation = requestUrl.searchParams.get(SIGN_IN_CONTINUATION_PARAM);
+  if (
+    continuation &&
+    hasInitialPromptQuery(
+      decodeContinuation(continuation, getConfiguredAppBasePath()) ?? undefined,
+    )
+  ) {
+    return true;
+  }
+
+  const legacyReturn = requestUrl.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM);
+  return legacyReturn ? hasInitialPromptQuery(legacyReturn) : false;
+}
+
 function getOnboardingHtmlOptions(
   options: AuthOptions,
   event?: H3Event,
@@ -1161,6 +1197,7 @@ function getOnboardingHtmlOptions(
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
+    initialPrompt: event ? requestHasInitialPrompt(event) : false,
   };
 }
 

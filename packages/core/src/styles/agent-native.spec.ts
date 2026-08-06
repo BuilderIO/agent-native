@@ -45,6 +45,16 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  it("keeps expanded left drawer contents at the revealed width", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-layout-left-drawer\[data-collapsed="false"\] > \* \{[\s\S]*?width: var\(--agent-layout-left-drawer-expanded-width, 14rem\);[\s\S]*?min-width: var\(--agent-layout-left-drawer-expanded-width, 14rem\);[\s\S]*?max-width: var\(--agent-layout-left-drawer-expanded-width, 14rem\);/,
+    );
+  });
+
   it("does not double-animate a named chat handoff through the drawer entry", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",

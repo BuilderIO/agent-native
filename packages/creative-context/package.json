@@ -92,6 +92,7 @@
     }
   },
   "optionalDependencies": {
+    "@sparticuz/chromium": "149.0.0",
     "officeparser": "^7.3.0",
     "playwright": "^1.61.1"
   },

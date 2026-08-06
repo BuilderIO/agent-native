@@ -707,6 +707,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Connectez Google Drive pour importer un deck Slides.",
     googleSlidesReferenceChoose: "Choisir un deck Google Slides",
+    googleSlidesReferenceUrl: "Collez un lien Google Slides",
     googleSlidesReferencePicking: "Traitement...",
     googleSlidesReferenceConnected:
       "Connecté. Choisissez un deck Google Slides à importer comme référence réutilisable.",

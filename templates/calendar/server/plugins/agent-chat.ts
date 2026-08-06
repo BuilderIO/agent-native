@@ -83,6 +83,12 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "calendar",
+  // A delegated (A2A) turn served from the foreground gets the 40s
+  // serverless wall, and "I ran out of time before finishing this step"
+  // was 39% of this fleet's failed inbound A2A tasks — clustered at
+  // 35-46s, the wall to the second. Opting in routes the task to the
+  // background worker, as content, slides and analytics already do.
+  durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
   // Enable sandboxed JavaScript execution so Calendar agents can fetch,

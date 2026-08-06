@@ -8,6 +8,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { readLocalImportedAsset } from "../server/lib/import-asset-storage.js";
 import {
   safeGeneratedFilename,
   tenantExportDir,
@@ -98,6 +99,20 @@ interface TextElement {
   align?: "left" | "center" | "right";
   letterSpacing?: number;
   lineSpacing?: number;
+  runs?: TextRunElement[];
+  order?: number;
+}
+
+interface TextRunElement {
+  text: string;
+  options: {
+    fontSize?: number;
+    fontFace?: string;
+    color?: string;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: { style: "sng" };
+  };
 }
 
 interface ImageElement {
@@ -106,6 +121,28 @@ interface ImageElement {
   y: number;
   w: number;
   h: number;
+  order?: number;
+}
+
+interface ShapeElement {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fill?: string;
+  lineColor?: string;
+  lineWidth?: number;
+  rounded?: boolean;
+  order?: number;
+}
+
+interface GridElement {
+  color: string;
+  stepX: number;
+  stepY: number;
+  offsetX: number;
+  offsetY: number;
+  lineWidth: number;
 }
 
 export function assertServerPptxExportable(
@@ -118,6 +155,7 @@ export function assertServerPptxExportable(
   const hasPersistedFreeformObject =
     /\bdata-slide-object-id\s*=/i.test(html) ||
     /\bclass\s*=\s*["'][^"']*\bfmd-freeform-object\b/i.test(html);
+  if (html.includes('data-imported-pptx="true"')) return;
   if (!hasPersistedFreeformObject) return;
 
   const error = new Error(
@@ -138,14 +176,21 @@ export function parseSlideHtml(
 ): {
   texts: TextElement[];
   images: ImageElement[];
+  shapes: ShapeElement[];
+  grid?: GridElement;
   bgColor: string;
 } {
   assertServerPptxExportable(html, slideNumber);
+  const dims = getAspectRatioDims(aspectRatio);
+  if (html.includes('data-imported-pptx="true"')) {
+    return parseImportedSlideHtml(html, dims);
+  }
+
   const texts: TextElement[] = [];
   const images: ImageElement[] = [];
+  const shapes: ShapeElement[] = [];
   let bgColor = "000000";
 
-  const dims = getAspectRatioDims(aspectRatio);
   const slideW = dims.pptxInches.w;
   const slideH = dims.pptxInches.h;
 
@@ -321,7 +366,241 @@ export function parseSlideHtml(
     }
   }
 
-  return { texts, images, bgColor };
+  return { texts, images, shapes, bgColor };
+}
+
+type SlideDims = ReturnType<typeof getAspectRatioDims>;
+
+function parseImportedSlideHtml(
+  html: string,
+  dims: SlideDims,
+): {
+  texts: TextElement[];
+  images: ImageElement[];
+  shapes: ShapeElement[];
+  grid?: GridElement;
+  bgColor: string;
+} {
+  const texts: TextElement[] = [];
+  const images: ImageElement[] = [];
+  const shapes: ShapeElement[] = [];
+  const outerStyle = html.match(
+    /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
+  )?.[1];
+  const bgColor = colorToHex(
+    outerStyle
+      ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - PPTX background fallback
+      : "#000000", // guard:allow-raw-color - PPTX background fallback
+  );
+  const grid = outerStyle ? parseImportedGrid(outerStyle) : undefined;
+  const elementRegex =
+    /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape)["'][^>]*)>([\s\S]*?)<\/div>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = elementRegex.exec(html)) !== null) {
+    const attrs = match[1];
+    const kind = match[2].toLowerCase();
+    const innerHtml = match[3];
+    const style = getAttribute(attrs, "style") ?? "";
+    const geometry = importedGeometry(style, dims);
+    if (!geometry) continue;
+
+    if (kind === "image") {
+      const imageAttrs = innerHtml.match(/<img\b([^>]*)>/i)?.[1] ?? "";
+      const src = getAttribute(imageAttrs, "src");
+      if (src) {
+        images.push({ src, ...geometry, order: match.index });
+      }
+      continue;
+    }
+
+    if (kind === "shape") {
+      const fill = getStyle(style, "background(?:-color)?");
+      const border = getStyle(style, "border");
+      const borderMatch = border?.match(/([\d.]+)px\s+solid\s+(.+)/i);
+      shapes.push({
+        ...geometry,
+        ...(fill && !fill.includes("gradient")
+          ? { fill: colorToHex(fill) }
+          : {}),
+        ...(borderMatch
+          ? {
+              lineColor: colorToHex(borderMatch[2]),
+              lineWidth: Number(borderMatch[1]),
+            }
+          : {}),
+        rounded: style.includes("border-radius"),
+        order: match.index,
+      });
+      continue;
+    }
+
+    const runs = importedTextRuns(innerHtml);
+    const firstRun = runs.find((run) => run.text.trim()) ?? runs[0];
+    const firstParagraph = innerHtml.match(
+      /<p\b[^>]*style=["']([^"']*)["']/i,
+    )?.[1];
+    const lineHeight = firstParagraph
+      ? getStyle(firstParagraph, "line-height")
+      : null;
+    const fontSize = firstRun?.options.fontSize ?? 18;
+    const alignValue = getStyle(style, "text-align");
+    texts.push({
+      text: runs.map((run) => run.text).join(""),
+      fontSize,
+      fontFace: firstRun?.options.fontFace ?? "Poppins",
+      color: firstRun?.options.color ?? "FFFFFF",
+      bold: firstRun?.options.bold ?? false,
+      align:
+        alignValue === "center" || alignValue === "right" ? alignValue : "left",
+      lineSpacing: lineHeight ? Number(lineHeight) * fontSize : undefined,
+      x: geometry.x,
+      y: geometry.y,
+      w: geometry.w,
+      h: geometry.h,
+      runs,
+      order: match.index,
+    });
+  }
+
+  return { texts, images, shapes, grid, bgColor };
+}
+
+function parseImportedGrid(style: string): GridElement | undefined {
+  const backgroundImage = getStyle(style, "background-image");
+  const size = getStyle(style, "background-size")
+    ?.split(/\s+/)
+    .map((value) => Number.parseFloat(value));
+  const position = getStyle(style, "background-position")
+    ?.split(/\s+/)
+    .map((value) => Number.parseFloat(value));
+  const color = backgroundImage?.match(/#[0-9a-f]{6}|rgb\([^)]*\)/i)?.[0];
+  const lineWidth = backgroundImage?.match(/\s0\s+([\d.]+)px/i)?.[1];
+  if (
+    !color ||
+    !size ||
+    size.length < 2 ||
+    !Number.isFinite(size[0]) ||
+    !Number.isFinite(size[1]) ||
+    size[0] <= 0 ||
+    size[1] <= 0 ||
+    !position ||
+    position.length < 2 ||
+    !Number.isFinite(position[0]) ||
+    !Number.isFinite(position[1]) ||
+    !lineWidth
+  ) {
+    return undefined;
+  }
+  return {
+    color: colorToHex(color),
+    stepX: size[0],
+    stepY: size[1],
+    offsetX: position[0],
+    offsetY: position[1],
+    lineWidth: Number.parseFloat(lineWidth),
+  };
+}
+
+function importedGeometry(
+  style: string,
+  dims: SlideDims,
+): { x: number; y: number; w: number; h: number } | null {
+  const left = cssPx(style, "left");
+  const top = cssPx(style, "top");
+  const width = cssPx(style, "width");
+  const height = cssPx(style, "height");
+  if (left == null || top == null || width == null || height == null)
+    return null;
+  return {
+    x: pxToIn(left, dims),
+    y: pxToInY(top, dims),
+    w: pxToIn(width, dims),
+    h: pxToInY(height, dims),
+  };
+}
+
+function pxToInY(px: number, dims: SlideDims): number {
+  return (px / dims.height) * dims.pptxInches.h;
+}
+
+function importedTextRuns(html: string): TextRunElement[] {
+  const paragraphs = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(
+    (match) => match[1],
+  );
+  const blocks = paragraphs.length > 0 ? paragraphs : [html];
+  const runs: TextRunElement[] = [];
+  blocks.forEach((block, paragraphIndex) => {
+    if (paragraphIndex > 0) runs.push({ text: "\n", options: {} });
+    const spans = [...block.matchAll(/<span\b([^>]*)>([\s\S]*?)<\/span>/gi)];
+    if (spans.length === 0) {
+      const text = decodeHtmlText(stripTags(block));
+      if (text) runs.push({ text, options: {} });
+      return;
+    }
+    for (const span of spans) {
+      const attrs = span[1];
+      const style = getAttribute(attrs, "style") ?? "";
+      const text = decodeHtmlText(stripTags(span[2]));
+      if (!text) continue;
+      runs.push({ text, options: importedRunOptions(style) });
+    }
+  });
+  return runs;
+}
+
+function importedRunOptions(style: string): TextRunElement["options"] {
+  const fontSizePx = cssPx(style, "font-size");
+  const fontFamily = getStyle(style, "font-family")
+    ?.replace(/["']/g, "")
+    .split(",")[0]
+    ?.trim();
+  const fontWeight = getStyle(style, "font-weight");
+  return {
+    ...(fontSizePx != null ? { fontSize: pxToPt(fontSizePx) } : {}),
+    ...(fontFamily ? { fontFace: fontFamily } : {}),
+    ...(getStyle(style, "color")
+      ? { color: colorToHex(getStyle(style, "color") ?? "#FFFFFF") } // guard:allow-raw-color - PPTX text fallback
+      : {}),
+    ...(fontWeight
+      ? {
+          bold: Number.parseInt(fontWeight, 10) >= 700 || fontWeight === "bold",
+        }
+      : {}),
+    ...(getStyle(style, "font-style") === "italic" ? { italic: true } : {}),
+    ...(getStyle(style, "text-decoration")?.includes("underline")
+      ? { underline: { style: "sng" as const } }
+      : {}),
+  };
+}
+
+function cssPx(style: string, property: string): number | null {
+  const value = getStyle(style, property);
+  if (!value) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getAttribute(attrs: string, name: string): string | null {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = attrs.match(
+    new RegExp(`\\b${escapedName}\\s*=\\s*(["'])(.*?)\\1`, "i"),
+  );
+  return match?.[2] ?? null;
+}
+
+function stripTags(value: string): string {
+  return value.replace(/<br\s*\/?\s*>/gi, "\n").replace(/<[^>]+>/g, "");
+}
+
+function decodeHtmlText(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#x27;|&#39;/gi, "'")
+    .replace(/&#x25cf;/gi, "●");
 }
 
 /**
@@ -334,8 +613,23 @@ export function parseSlideHtml(
  * image so a 200 OK from an internal HTML / JSON endpoint can't smuggle bytes
  * into the .pptx.
  */
-export async function fetchImageAsBase64(url: string): Promise<string | null> {
+export async function fetchImageAsBase64(
+  url: string,
+  ownerEmail?: string,
+): Promise<string | null> {
   try {
+    const parsedUrl = new URL(url, "http://slides.local");
+    if (parsedUrl.pathname.startsWith("/api/import-assets/") && ownerEmail) {
+      const token = parsedUrl.pathname.slice("/api/import-assets/".length);
+      const localAsset = await readLocalImportedAsset({
+        token,
+        email: ownerEmail,
+      });
+      if (localAsset) {
+        return `data:${localAsset.mimeType};base64,${Buffer.from(localAsset.data).toString("base64")}`;
+      }
+      return null;
+    }
     const response = await ssrfSafeFetch(
       url,
       { signal: AbortSignal.timeout(10_000) },
@@ -356,7 +650,7 @@ export async function fetchImageAsBase64(url: string): Promise<string | null> {
 
 export default defineAction({
   description:
-    "Export a normal-flow deck as a PowerPoint (.pptx) file. Decks with freeform positioned objects must use the Slides editor's Export > PowerPoint flow so browser-rendered geometry is preserved. Returns a download URL for the generated file.",
+    "Export a deck as a PowerPoint (.pptx) file, preserving imported PPTX geometry, text styles, shapes, and images. Freeform editor objects must use the Slides editor's Export > PowerPoint flow so browser-rendered geometry is preserved. Returns a download URL for the generated file.",
   schema: z.object({
     deckId: z.string().describe("Deck ID to export"),
     includeNotes: z
@@ -409,7 +703,7 @@ export default defineAction({
         slide && typeof slide === "object" && typeof slide.content === "string"
           ? slide.content
           : "";
-      const { texts, images, bgColor } = parseSlideHtml(
+      const { texts, images, shapes, grid, bgColor } = parseSlideHtml(
         slideContent,
         aspectRatio,
         slideIndex + 1,
@@ -417,39 +711,111 @@ export default defineAction({
 
       pptxSlide.background = { color: bgColor };
 
-      // Add text elements
-      for (const t of texts) {
-        pptxSlide.addText(t.text, {
-          x: t.x,
-          y: t.y,
-          w: t.w,
-          h: t.h,
-          fontSize: t.fontSize,
-          fontFace: t.fontFace,
-          color: t.color,
-          bold: t.bold,
-          align: t.align || "left",
-          valign: "top",
-          wrap: true,
-          ...(t.letterSpacing != null ? { charSpacing: t.letterSpacing } : {}),
-          ...(t.lineSpacing != null
-            ? { lineSpacingMultiple: t.lineSpacing / t.fontSize }
-            : {}),
-        });
+      if (grid) {
+        const gridWidth = pxToIn(grid.stepX, dims);
+        const gridHeight = pxToInY(grid.stepY, dims);
+        const gridX = pxToIn(grid.offsetX, dims);
+        const gridY = pxToInY(grid.offsetY, dims);
+        const lineWidth = Math.max(0.5, grid.lineWidth * 0.75);
+
+        for (let x = gridX; x < dims.pptxInches.w; x += gridWidth) {
+          pptxSlide.addShape(pptx.ShapeType.line, {
+            x,
+            y: 0,
+            w: 0,
+            h: dims.pptxInches.h,
+            line: { color: grid.color, width: lineWidth },
+          });
+        }
+        for (let y = gridY; y < dims.pptxInches.h; y += gridHeight) {
+          pptxSlide.addShape(pptx.ShapeType.line, {
+            x: 0,
+            y,
+            w: dims.pptxInches.w,
+            h: 0,
+            line: { color: grid.color, width: lineWidth },
+          });
+        }
       }
 
-      // Add images
-      for (const img of images) {
-        // Try to fetch and embed as base64
-        const dataUri = await fetchImageAsBase64(img.src);
-        if (dataUri) {
-          pptxSlide.addImage({
-            data: dataUri,
-            x: img.x,
-            y: img.y,
-            w: img.w,
-            h: img.h,
-          });
+      const orderedTexts = [...texts].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
+      const orderedImages = [...images].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
+      const orderedShapes = [...shapes].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
+
+      // Imported elements are parsed separately because PptxGenJS needs real
+      // slide objects. Keep their source order so overlapping objects retain
+      // the same paint order as the editor preview.
+      const orderedObjects = [
+        ...orderedTexts.map((value) => ({ kind: "text" as const, value })),
+        ...orderedImages.map((value) => ({ kind: "image" as const, value })),
+        ...orderedShapes.map((value) => ({ kind: "shape" as const, value })),
+      ].sort((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0));
+
+      for (const object of orderedObjects) {
+        if (object.kind === "text") {
+          const t = object.value;
+          const options = {
+            x: t.x,
+            y: t.y,
+            w: t.w,
+            h: t.h,
+            fontSize: t.fontSize,
+            fontFace: t.fontFace,
+            color: t.color,
+            bold: t.bold,
+            align: t.align || "left",
+            valign: "top" as const,
+            wrap: true,
+            ...(t.letterSpacing != null
+              ? { charSpacing: t.letterSpacing }
+              : {}),
+            ...(t.lineSpacing != null
+              ? { lineSpacingMultiple: t.lineSpacing / t.fontSize }
+              : {}),
+          };
+          if (t.runs?.length) {
+            pptxSlide.addText(t.runs, options);
+          } else {
+            pptxSlide.addText(t.text, options);
+          }
+        } else if (object.kind === "image") {
+          const img = object.value;
+          const dataUri = await fetchImageAsBase64(img.src, userEmail);
+          if (dataUri) {
+            pptxSlide.addImage({
+              data: dataUri,
+              x: img.x,
+              y: img.y,
+              w: img.w,
+              h: img.h,
+            });
+          }
+        } else {
+          const shape = object.value;
+          pptxSlide.addShape(
+            shape.rounded ? pptx.ShapeType.roundRect : pptx.ShapeType.rect,
+            {
+              x: shape.x,
+              y: shape.y,
+              w: shape.w,
+              h: shape.h,
+              ...(shape.fill ? { fill: { color: shape.fill } } : {}),
+              ...(shape.lineColor
+                ? {
+                    line: {
+                      color: shape.lineColor,
+                      width: shape.lineWidth ?? 1,
+                    },
+                  }
+                : {}),
+            },
+          );
         }
       }
 

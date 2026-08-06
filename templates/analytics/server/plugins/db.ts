@@ -1,5 +1,4 @@
 import {
-  deferMigration,
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
@@ -10,7 +9,6 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { isHistoricalAnalyticsRollupBackfillComplete } from "../jobs/analytics-rollup-backfill.js";
 import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
@@ -1407,11 +1405,9 @@ const runAnalyticsMigrations = runMigrations(
       version: 134,
       name: "analytics-rollups-historical-backfill-repair",
       sql: {},
-      run: async () => {
-        if (!(await isHistoricalAnalyticsRollupBackfillComplete())) {
-          return deferMigration();
-        }
-      },
+      // The historical rebuild is an out-of-band job. Do not defer this
+      // marker until it completes: a pending named migration is retried by
+      // every cold start and turns a recoverable backfill into a boot blocker.
     },
     {
       version: 135,
@@ -1420,6 +1416,14 @@ const runAnalyticsMigrations = runMigrations(
         ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_token TEXT;
         ALTER TABLE analytics_rollup_backfill_state ADD COLUMN IF NOT EXISTS lease_expires_at TEXT;
       `,
+    },
+    {
+      version: 136,
+      name: "analytics-events-backfill-cursor-indexes",
+      sql: {
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
+      },
     },
   ],
   { table: "analytics_migrations" },
