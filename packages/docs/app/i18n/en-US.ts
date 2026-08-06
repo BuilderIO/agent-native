@@ -471,7 +471,7 @@ const enUS = {
   },
   templates: {
     clips: {
-      replaces: "Agent-Native Loom",
+      replaces: "Screen clips for humans and agents",
       description:
         "Screen recordings with browser debug capture, calendar-synced meeting notes, and Fn-hold voice dictation — all transcribed, summarized, and searchable, with an agent that can edit any of it.",
     },
