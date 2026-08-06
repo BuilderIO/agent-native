@@ -260,18 +260,30 @@ async function renderWithPlaywright(
       .waitForLoadState?.("load", {
         timeout: Math.min(8_000, boundedTimeout(request.timeoutMs)),
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        warnings.push(
+          `Browser load stabilization unavailable: ${errorMessage(error)}`,
+        );
+      });
     // React hydration, CSS-in-JS insertion, and web fonts commonly finish just
     // after `load`. Give those layers a bounded chance to settle, then capture
     // the computed cascade rather than the server HTML.
     await page
       .waitForLoadState?.("networkidle", { timeout: 4_000 })
-      .catch(() => undefined);
+      .catch((error) => {
+        warnings.push(
+          `Browser network-idle stabilization unavailable: ${errorMessage(error)}`,
+        );
+      });
     await page
       .evaluate(async () => {
         if (document.fonts?.ready) await document.fonts.ready;
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        warnings.push(
+          `Browser font readiness unavailable: ${errorMessage(error)}`,
+        );
+      });
     await new Promise((resolve) => setTimeout(resolve, 150));
     await page.evaluate(dismissConsentOverlays).catch(() => undefined);
     const finalUrl = page.url();
@@ -286,9 +298,12 @@ async function renderWithPlaywright(
         .screenshot({ type: "png", fullPage: false })
         .then(boundedScreenshot)
         .catch(() => undefined),
-      page
-        .evaluate(captureRenderedWebsiteContext)
-        .catch(() => emptyExtraction()),
+      page.evaluate(captureRenderedWebsiteContext).catch((error) => {
+        warnings.push(
+          `Browser style extraction unavailable: ${errorMessage(error)}`,
+        );
+        return emptyExtraction();
+      }),
     ]);
     await page.setViewportSize({ width: 390, height: 844 });
     const mobileScreenshot = await page
@@ -576,6 +591,7 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
   const MAX_BACKGROUNDS = 32;
   const MAX_VARIABLES = 128;
   const MAX_TEXT = 2_000_000;
+  const MAX_COMPONENT_STYLES = 24;
   const assets = new Map<string, WebsiteExtraction["assets"][number]>();
   const links = new Set<string>();
   const colors: string[] = [];
