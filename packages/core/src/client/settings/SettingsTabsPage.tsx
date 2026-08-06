@@ -1,6 +1,5 @@
 import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
-  IconArrowLeft,
   IconArrowUpRight,
   IconHistory,
   IconSearch,
@@ -20,6 +19,7 @@ import {
 } from "react";
 import { Link } from "react-router";
 
+import { buildSettingsRoute } from "../../navigation/index.js";
 import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
@@ -97,8 +97,8 @@ export interface SettingsTabsPageProps {
    * Controlled active tab id. When provided, the parent owns tab state (and is
    * responsible for URL/app-state sync). Recognized top-level tab hashes still
    * report through `onValueChange`, so shared links such as
-   * `/settings#organization` can select the matching controlled Team tab.
-   * Leave undefined for the default uncontrolled, hash-driven behavior.
+   * `/settings/organization` can select the matching controlled Team tab.
+   * Legacy hash links remain supported and are canonicalized on load.
    */
   value?: string;
   /**
@@ -179,19 +179,44 @@ function resolveTabId(
   return null;
 }
 
-function activeTabFromHash(
+function activeTabFromLocation(
   tabs: SettingsTabItem[],
   defaultTab: string,
 ): string {
   if (typeof window === "undefined") return defaultTab;
+  const settingsPrefix = "/settings";
+  if (window.location.pathname === settingsPrefix) {
+    return resolveTabId(tabs, window.location.hash) ?? defaultTab;
+  }
+  if (window.location.pathname.startsWith(`${settingsPrefix}/`)) {
+    const segments = window.location.pathname
+      .slice(`${settingsPrefix}/`.length)
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      });
+    for (let length = segments.length; length > 0; length -= 1) {
+      const tabId = resolveTabId(tabs, segments.slice(0, length).join(":"));
+      if (tabId) return tabId;
+    }
+  }
   return resolveTabId(tabs, window.location.hash) ?? defaultTab;
 }
 
-function updateHashForTab(tabId: string) {
+function updateRouteForTab(tabId: string, hash?: string) {
   if (typeof window === "undefined") return;
-  const { pathname, search } = window.location;
-  const hash = tabId === "general" ? "" : `#${tabId}`;
-  window.history.pushState(null, "", `${pathname}${search}${hash}`);
+  const route = buildSettingsRoute(tabId);
+  const nextHash = hash ? `#${hash.replace(/^#/, "")}` : "";
+  window.history.pushState(
+    null,
+    "",
+    `${route}${window.location.search}${nextHash}`,
+  );
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -216,7 +241,7 @@ export function SettingsTabsPage({
   teamLabel = "Team",
   whatsNewLabel = "What's new",
   ariaLabel = "Settings sections",
-  defaultTab = "integrations",
+  defaultTab = "general",
   className,
   navClassName,
   contentClassName,
@@ -313,7 +338,7 @@ export function SettingsTabsPage({
   };
   const isControlled = value !== undefined;
   const [internalTab, setInternalTab] = useState(() =>
-    activeTabFromHash(tabs, fallbackTab),
+    activeTabFromLocation(tabs, fallbackTab),
   );
   const activeTab = isControlled ? value : internalTab;
   const [query, setQuery] = useState("");
@@ -338,37 +363,45 @@ export function SettingsTabsPage({
   }, [fallbackTab, internalTab, isControlled, tabs]);
 
   useEffect(() => {
-    // Hash-driven tab tracking only applies to the uncontrolled mode. Only
-    // react to hashes that name a top-level tab. Section-level hashes
-    // (e.g. `#llm`, `#secrets`) are consumed by the inner panels, so leave
-    // the active tab untouched to avoid bouncing back to General.
     if (isControlled) return;
-    const handleHashChange = () => {
-      const fromHash = resolveTabId(tabs, window.location.hash);
-      if (fromHash) {
-        setInternalTab(fromHash);
-      }
+    const syncLocation = () => {
+      const fromPath = activeTabFromLocation(tabs, fallbackTab);
+      if (fromPath) setInternalTab(fromPath);
+      if (window.location.pathname.startsWith("/settings/")) return;
+      const hashValue = window.location.hash.replace(/^#/, "");
+      const fromHash = resolveTabId(tabs, hashValue);
+      if (!fromHash || !hashValue) return;
+      const isTabHash = fromHash === hashValue;
+      updateRouteForTab(fromHash, isTabHash ? undefined : hashValue);
     };
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [isControlled, tabs]);
+    syncLocation();
+    window.addEventListener("hashchange", syncLocation);
+    window.addEventListener("popstate", syncLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncLocation);
+      window.removeEventListener("popstate", syncLocation);
+    };
+  }, [fallbackTab, isControlled, tabs]);
 
   useEffect(() => {
-    // Controlled pages retain ownership of their active state, but shared
-    // organization navigation uses a hash deep link. Report only recognized
-    // top-level tab hashes; section hashes remain available to inner panels.
     if (!isControlled) return;
-    const syncControlledHash = () => {
-      const hash = window.location.hash;
-      const fromHash = resolveTabId(tabs, hash);
-      if (!fromHash || controlledHashRef.current === hash) return;
-      controlledHashRef.current = hash;
-      onValueChange?.(fromHash);
+    const syncControlledLocation = () => {
+      const fromPath = activeTabFromLocation(tabs, defaultTab);
+      const fromHash = resolveTabId(tabs, window.location.hash);
+      const next = fromPath ?? fromHash;
+      const key = `${window.location.pathname}${window.location.hash}`;
+      if (!next || controlledHashRef.current === key) return;
+      controlledHashRef.current = key;
+      onValueChange?.(next);
     };
-    syncControlledHash();
-    window.addEventListener("hashchange", syncControlledHash);
-    return () => window.removeEventListener("hashchange", syncControlledHash);
-  }, [isControlled, onValueChange, tabs, value]);
+    syncControlledLocation();
+    window.addEventListener("hashchange", syncControlledLocation);
+    window.addEventListener("popstate", syncControlledLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncControlledLocation);
+      window.removeEventListener("popstate", syncControlledLocation);
+    };
+  }, [defaultTab, isControlled, onValueChange, tabs, value]);
 
   useEffect(() => {
     if (!enableSearch || autoFocusedSearchRef.current) return;
@@ -467,9 +500,9 @@ export function SettingsTabsPage({
     if (typeof window === "undefined") return;
     const hash = entry.hash?.replace(/^#/, "");
     if (hash) {
-      const { pathname, search } = window.location;
-      window.history.pushState(null, "", `${pathname}${search}#${hash}`);
+      updateRouteForTab(entry.tabId, hash);
       // Let the inner panels open + scroll to their section.
+      window.dispatchEvent(new Event("popstate"));
       window.dispatchEvent(new Event("hashchange"));
       window.requestAnimationFrame(() => {
         document
@@ -477,7 +510,7 @@ export function SettingsTabsPage({
           ?.scrollIntoView({ block: "start", behavior: "smooth" });
       });
     } else if (!isControlled) {
-      updateHashForTab(entry.tabId);
+      updateRouteForTab(entry.tabId);
     }
   };
 
@@ -497,13 +530,6 @@ export function SettingsTabsPage({
           navClassName,
         )}
       >
-        <a
-          href="/"
-          className="flex min-h-8 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-        >
-          <IconArrowLeft className="size-4 shrink-0 rtl:-scale-x-100" />
-          <span>Back to app</span>
-        </a>
         {enableSearch ? (
           <div className="relative sm:mb-2">
             <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -556,7 +582,9 @@ export function SettingsTabsPage({
                   ? entry.hash
                     ? `${tab.href.split("#", 1)[0]}#${entry.hash.replace(/^#/, "")}`
                     : tab.href
-                  : null;
+                  : entry.hash
+                    ? `${buildSettingsRoute(entry.tabId)}#${entry.hash.replace(/^#/, "")}`
+                    : buildSettingsRoute(entry.tabId);
                 const result = (
                   <>
                     {Icon ? (
@@ -611,7 +639,7 @@ export function SettingsTabsPage({
             onChange={(tabId) => {
               const nextTab = String(tabId);
               changeTab(nextTab);
-              if (!isControlled) updateHashForTab(nextTab);
+              if (!isControlled) updateRouteForTab(nextTab);
             }}
             orientation="vertical"
             aria-label={ariaLabel}
@@ -688,7 +716,7 @@ export function SettingsTabsPage({
                         id={`settings-tab-${tab.id}`}
                         onClick={() => {
                           changeTab(tab.id);
-                          if (!isControlled) updateHashForTab(tab.id);
+                          if (!isControlled) updateRouteForTab(tab.id);
                         }}
                         className={cn(
                           "flex min-h-9 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-start text-sm font-medium transition-colors sm:w-full",

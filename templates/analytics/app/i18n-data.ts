@@ -19,7 +19,6 @@ const enUS = {
     monitoringErrors: "Errors",
     admin: "Admin",
     agents: "Agents",
-    templateCatalog: "Catalog",
     dashboards: "Dashboards",
     analyses: "Analyses",
     explorer: "Explorer",
@@ -28,6 +27,7 @@ const enUS = {
     navigation: "Navigation",
     openNavigation: "Open navigation",
     loadingDashboardTitle: "Loading dashboard title",
+    templateCatalog: "Catalog",
   },
   dashboardHeader: {
     updated: "Updated {{date}}",
@@ -202,11 +202,6 @@ const enUS = {
     bellSoundDescription:
       "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
-    about: "About",
-    aboutDescription:
-      "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
-    aboutUsage:
-      "Use the Data Sources page to manage connections. Use the Query Explorer for ad-hoc BigQuery SQL.",
     replayStorage: "Session replay storage",
     replayStorageDescription:
       "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
@@ -461,8 +456,8 @@ const enUS = {
     visibilityorg: "Shared with org",
     visibilitypublic: "Public",
     advanced: "Advanced",
-    database: "App Databases",
     openCatalog: "Open catalog",
+    database: "App Databases",
     dbConnectionsTitle: "Connected app databases",
     dbConnectionsDescription:
       "Connect other agent-native app databases for admin-only inspection and repair. This does not expose Analytics data to every user.",
@@ -4451,10 +4446,6 @@ export const messagesByLocale = {
       bellSound: "提示音",
       bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
       bellSoundSaveFailed: "无法保存提示音偏好设置。",
-      about: "关于",
-      aboutDescription:
-        "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
-      aboutUsage: "在数据源页面管理连接。使用查询探索器运行临时 BigQuery SQL。",
     },
     chat: {
       emptyState: "让我分析仪表板、比较趋势或深入查看数据...",
@@ -4678,11 +4669,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
       bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
-      about: "Acerca de",
-      aboutDescription:
-        "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
-      aboutUsage:
-        "Usa Fuentes de datos para gestionar conexiones. Usa el Explorador de consultas para SQL ad hoc de BigQuery.",
     },
     chat: {
       emptyState:
@@ -4910,11 +4896,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
       bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
-      about: "À propos",
-      aboutDescription:
-        "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
-      aboutUsage:
-        "Utilisez Sources de données pour gérer les connexions. Utilisez l'explorateur de requêtes pour le SQL BigQuery ad hoc.",
     },
     chat: {
       emptyState:
@@ -5149,11 +5130,6 @@ export const messagesByLocale = {
         "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
       bellSoundSaveFailed:
         "Die Toneinstellung konnte nicht gespeichert werden.",
-      about: "Info",
-      aboutDescription:
-        "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
-      aboutUsage:
-        "Verwalte Verbindungen auf der Seite Datenquellen. Nutze den Query Explorer für Ad-hoc-BigQuery-SQL.",
     },
     chat: {
       emptyState:
@@ -5377,11 +5353,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
       bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
-      about: "概要",
-      aboutDescription:
-        "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
-      aboutUsage:
-        "接続はデータソースページで管理します。アドホックな BigQuery SQL にはクエリエクスプローラーを使います。",
     },
     chat: {
       emptyState:
@@ -5604,11 +5575,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
       bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
-      about: "정보",
-      aboutDescription:
-        "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
-      aboutUsage:
-        "데이터 소스 페이지에서 연결을 관리합니다. 임시 BigQuery SQL은 쿼리 탐색기를 사용하세요.",
     },
     chat: {
       emptyState:
@@ -5836,11 +5802,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
       bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
-      about: "Sobre",
-      aboutDescription:
-        "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
-      aboutUsage:
-        "Use Fontes de dados para gerenciar conexões. Use o Explorador de consultas para SQL ad hoc do BigQuery.",
     },
     chat: {
       emptyState:
@@ -6061,11 +6022,6 @@ export const messagesByLocale = {
       bellSound: "पूर्णता ध्वनि",
       bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
       bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
-      about: "परिचय",
-      aboutDescription:
-        "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
-      aboutUsage:
-        "कनेक्शन प्रबंधित करने के लिए डेटा स्रोत पेज का उपयोग करें। ad-hoc BigQuery SQL के लिए Query Explorer उपयोग करें।",
     },
     chat: {
       emptyState:
@@ -6286,11 +6242,6 @@ export const messagesByLocale = {
       bellSound: "صوت الجرس",
       bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
       bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
-      about: "حول",
-      aboutDescription:
-        "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",
-      aboutUsage:
-        "استخدم صفحة مصادر البيانات لإدارة الاتصالات. استخدم مستكشف الاستعلامات لاستعلامات BigQuery SQL المخصصة.",
     },
     chat: {
       emptyState:

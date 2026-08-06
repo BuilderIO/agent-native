@@ -8,10 +8,8 @@ import {
 const translations: Record<string, string> = {
   "settings.account": "Account",
   "settings.credentials": "Credentials",
-  "settings.dashboardTemplates": "Dashboard templates",
   "sessions.storageSetupTitle": "Replay storage",
   "settings.languageTitle": "Language",
-  "settings.about": "About",
   "settings.alertsTitle": "Alert rules",
   "root.whatsNew": "What's new",
 };
@@ -28,10 +26,6 @@ describe("Analytics settings command items", () => {
     expect(items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          label: "Dashboard templates",
-          href: "/settings#dashboard-templates",
-        }),
-        expect.objectContaining({
           label: "Integrations",
           href: "/settings#integrations",
         }),
@@ -42,6 +36,7 @@ describe("Analytics settings command items", () => {
         }),
       ]),
     );
+    expect(items.some((item) => item.href === "/settings#about")).toBe(false);
   });
 
   it("merges duplicate destinations without dropping shared search metadata", () => {

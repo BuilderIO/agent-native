@@ -546,6 +546,12 @@ export async function recordAnalyticsEvents(
       await upsertFirstPartyAnalyticsRollups(rows, tx);
     });
   }
+  if (rows.length && backend.sink === "bigquery") {
+    await db
+      .update(schema.analyticsPublicKeys)
+      .set({ lastUsedAt: receivedAt })
+      .where(eq(schema.analyticsPublicKeys.id, key.id));
+  }
 
   // Fork captured exceptions into the dedicated error-capture tables. This is
   // best-effort: a malformed `$exception` payload must never reject the whole

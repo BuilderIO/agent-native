@@ -29,12 +29,6 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       keywords: "data sources api keys manage credentials",
       hash: "credentials",
     },
-    {
-      id: "analytics-dashboard-templates",
-      label: t("settings.dashboardTemplates"),
-      keywords: "templates catalog dashboards",
-      hash: "dashboard-templates",
-    },
     ...(replayStorageConfigured
       ? [
           {
@@ -62,12 +56,6 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       label: t("settings.bellSound"),
       keywords: "sound audio ding agent completion notification",
       hash: "bell-sound",
-    },
-    {
-      id: "analytics-about",
-      label: t("settings.about"),
-      keywords: "about version info usage",
-      hash: "about",
     },
   ];
 }

@@ -143,6 +143,14 @@ describe("Analytics Settings", () => {
     expect(container.textContent).not.toContain("settings.replayStorage");
   });
 
+  it("does not render an About section", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+
+    expect(container.querySelector("#about")).toBeNull();
+  });
+
   it("keeps new error alert emails disabled by default", async () => {
     await act(async () => {
       root.render(<Settings />);

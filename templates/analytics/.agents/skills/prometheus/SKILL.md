@@ -62,9 +62,6 @@ When a query fans out into many series, the `series` column will hold a `metric_
 Node Exporter dashboards are installed from the dashboard catalog:
 
 ```bash
-pnpm action list-dashboard-templates
-pnpm action install-dashboard-template --templateId=node-exporter-macos
-pnpm action install-dashboard-template --templateId=node-exporter-full
 ```
 
 `node-exporter-macos` is the comprehensive Darwin/Homebrew dashboard for macOS scrapes; it covers CPU, load, macOS memory fields, swap, APFS filesystems, disk IO, network devices, battery/power, scrape health, exporter process stats, Go runtime stats, and a metric-family coverage table. `node-exporter-full` is converted from Grafana dashboard 1860 revision 45 and lives at `seeds/dashboards/node-exporter-full.json`; it contains 124 Prometheus query panels, 16 section dividers, and native tabs for Overview, CPU & Memory, System, Storage, Network, and Exporter. The Full dashboard is Linux-focused because Grafana 1860 expects Linux collectors such as `node_memory_MemAvailable_bytes`, pressure stall information, `node_sockstat_*`, `node_netstat_*`, `node_timex_*`, `node_systemd_*`, and `node_hwmon_*`; Homebrew/macOS node_exporter omits many of those, so empty panels on macOS are expected. The templates use `job`, `instance`, and `range` filters; set `instance` to the Prometheus `instance` label from `node_uname_info`.

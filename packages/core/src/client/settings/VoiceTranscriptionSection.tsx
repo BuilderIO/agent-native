@@ -365,6 +365,20 @@ export function VoiceTranscriptionSection({
   };
 
   if (transcriptionMode === null) {
+    if (compact) {
+      return (
+        <SettingsRow
+          label="Voice transcription"
+          description="Choose how voice input is transcribed."
+          control={
+            <div
+              className="h-9 w-44 animate-pulse rounded-md border border-border bg-muted-foreground/10"
+              aria-label="Loading voice transcription"
+            />
+          }
+        />
+      );
+    }
     return (
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <IconLoader2 size={10} className="animate-spin" />

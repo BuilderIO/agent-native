@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 
 import {
@@ -31,6 +30,9 @@ const MAX_SPACING = 100;
 const MAX_RADII = 64;
 const MAX_CSS_VARIABLES = 128;
 const MAX_COMPONENT_STYLES = 24;
+const FONT_READY_TIMEOUT_MS = 4_000;
+const BROWSER_NAVIGATION_DISABLED_WARNING =
+  "Browser rendering is disabled until Chromium navigation has a connect-time SSRF guard.";
 
 export interface RenderedPageRequest {
   url: string;
@@ -126,10 +128,16 @@ interface PlaywrightLike {
 }
 
 export interface LayeredRenderedPageProviderOptions {
+  /**
+   * Retained for compatibility with the previous browser renderer. Arbitrary
+   * Chromium navigation is disabled until a connect-time SSRF guard exists.
+   */
   requestBuilderBrowserConnection?: (input: {
     sessionId: string;
   }) => Promise<Record<string, unknown>>;
+  /** @deprecated Browser navigation is disabled until it is connect-time guarded. */
   loadPlaywright?: () => Promise<PlaywrightLike | null>;
+  /** @deprecated Browser navigation is disabled until it is connect-time guarded. */
   requestAttachedBrowserConnection?: (input: {
     sessionId: string;
     url: string;
@@ -138,94 +146,28 @@ export interface LayeredRenderedPageProviderOptions {
 }
 
 export class LayeredRenderedPageProvider implements RenderedPageProvider {
-  readonly #requestBuilderBrowserConnection: (input: {
-    sessionId: string;
-  }) => Promise<Record<string, unknown>>;
-  readonly #loadPlaywright: () => Promise<PlaywrightLike | null>;
-  readonly #requestAttachedBrowserConnection?: NonNullable<
-    LayeredRenderedPageProviderOptions["requestAttachedBrowserConnection"]
-  >;
   readonly #staticFetch: typeof ssrfSafeFetch;
 
   constructor(options: LayeredRenderedPageProviderOptions = {}) {
-    this.#requestBuilderBrowserConnection =
-      options.requestBuilderBrowserConnection ?? defaultBuilderBrowserRequest;
-    this.#loadPlaywright = options.loadPlaywright ?? loadOptionalPlaywright;
-    this.#requestAttachedBrowserConnection =
-      options.requestAttachedBrowserConnection;
     this.#staticFetch = options.staticFetch ?? ssrfSafeFetch;
   }
 
   async render(request: RenderedPageRequest): Promise<RenderedPageResult> {
     await assertPublicBrowserUrl(request.url);
-    const warnings: string[] = [];
-    const playwright = await this.#loadPlaywright().catch((error) => {
-      warnings.push(`Playwright unavailable: ${errorMessage(error)}`);
-      return null;
-    });
-
-    if (request.preferHosted !== false && playwright) {
-      try {
-        const connection = await this.#requestBuilderBrowserConnection({
-          sessionId: `creative-context-${randomUUID()}`,
-        });
-        const wsUrl = stringValue(connection.wsUrl);
-        if (!wsUrl) throw new Error("Builder Browser did not return wsUrl.");
-        return await renderWithPlaywright(
-          playwright,
-          request,
-          warnings,
-          "builder-browser",
-          wsUrl,
-        );
-      } catch (error) {
-        warnings.push(`Builder Browser unavailable: ${errorMessage(error)}`);
-      }
-    }
-
-    if (playwright) {
-      try {
-        return await renderWithPlaywright(
-          playwright,
-          request,
-          warnings,
-          "local-playwright",
-        );
-      } catch (error) {
-        warnings.push(`Local Playwright unavailable: ${errorMessage(error)}`);
-      }
-    }
-
-    if (playwright && this.#requestAttachedBrowserConnection) {
-      try {
-        const connection = await this.#requestAttachedBrowserConnection({
-          sessionId: `creative-context-attached-${randomUUID()}`,
-          url: request.url,
-        });
-        if (!connection.wsUrl?.trim()) {
-          throw new Error("Approved attached browser did not return wsUrl.");
-        }
-        return await renderWithPlaywright(
-          playwright,
-          request,
-          warnings,
-          "attached-chrome",
-          connection.wsUrl,
-        );
-      } catch (error) {
-        warnings.push(`Attached Chrome unavailable: ${errorMessage(error)}`);
-      }
-    } else {
-      warnings.push(
-        "Attached Chrome unavailable: no approved browser connection adapter is configured.",
-      );
-    }
-
-    return renderStatic(request, warnings, this.#staticFetch);
+    return renderStatic(
+      request,
+      [BROWSER_NAVIGATION_DISABLED_WARNING],
+      this.#staticFetch,
+    );
   }
 }
 
-async function renderWithPlaywright(
+/**
+ * Internal browser renderer retained for a future connect-time-guarded
+ * adapter. `LayeredRenderedPageProvider` must not call this for arbitrary
+ * caller URLs until Chromium's socket connection is guarded as well.
+ */
+export async function renderWithPlaywright(
   playwright: PlaywrightLike,
   request: RenderedPageRequest,
   warnings: string[],
@@ -235,12 +177,12 @@ async function renderWithPlaywright(
   const browser = wsUrl
     ? await playwright.chromium.connectOverCDP(wsUrl)
     : await launchChromium(playwright.chromium);
+  let isolatedContext: PlaywrightContextLike | undefined;
   try {
     // A hosted CDP browser can already contain the user's other tabs. Prefer a
     // fresh context so extraction never reads ambient browser state, cookies,
     // or a page left behind by another workflow. Older browser adapters may not
     // expose newContext, so retain the existing-context fallback.
-    let isolatedContext: PlaywrightContextLike | undefined;
     try {
       isolatedContext = await browser.newContext?.();
     } catch {
@@ -275,29 +217,43 @@ async function renderWithPlaywright(
           `Browser network-idle stabilization unavailable: ${errorMessage(error)}`,
         );
       });
-    await page
-      .evaluate(async () => {
-        if (document.fonts?.ready) await document.fonts.ready;
-      })
-      .catch((error) => {
-        warnings.push(
-          `Browser font readiness unavailable: ${errorMessage(error)}`,
-        );
-      });
+    await waitForFontReadiness(
+      page,
+      Math.min(FONT_READY_TIMEOUT_MS, boundedTimeout(request.timeoutMs)),
+    ).catch((error) => {
+      warnings.push(
+        `Browser font readiness unavailable: ${errorMessage(error)}`,
+      );
+    });
     await new Promise((resolve) => setTimeout(resolve, 150));
     await page.evaluate(dismissConsentOverlays).catch(() => undefined);
     const finalUrl = page.url();
     await assertPublicBrowserUrl(finalUrl);
     const [title, text, desktopScreenshot, extraction] = await Promise.all([
-      page.title().catch(() => ""),
+      page.title().catch((error) => {
+        warnings.push(
+          `Browser title extraction unavailable: ${errorMessage(error)}`,
+        );
+        return "";
+      }),
       page
         .locator("body")
         .innerText()
-        .catch(() => ""),
+        .catch((error) => {
+          warnings.push(
+            `Browser text extraction unavailable: ${errorMessage(error)}`,
+          );
+          return "";
+        }),
       page
         .screenshot({ type: "png", fullPage: false })
         .then(boundedScreenshot)
-        .catch(() => undefined),
+        .catch((error) => {
+          warnings.push(
+            `Desktop screenshot unavailable: ${errorMessage(error)}`,
+          );
+          return undefined;
+        }),
       page.evaluate(captureRenderedWebsiteContext).catch((error) => {
         warnings.push(
           `Browser style extraction unavailable: ${errorMessage(error)}`,
@@ -309,7 +265,10 @@ async function renderWithPlaywright(
     const mobileScreenshot = await page
       .screenshot({ type: "png", fullPage: false })
       .then(boundedScreenshot)
-      .catch(() => undefined);
+      .catch((error) => {
+        warnings.push(`Mobile screenshot unavailable: ${errorMessage(error)}`);
+        return undefined;
+      });
     const unboundedText = normalizeWhitespace(text);
     const textTruncated = unboundedText.length > MAX_RENDERED_TEXT_CHARS;
     const normalizedText = unboundedText.slice(0, MAX_RENDERED_TEXT_CHARS);
@@ -373,7 +332,33 @@ async function renderWithPlaywright(
       },
     };
   } finally {
+    await isolatedContext?.close?.().catch((error) => {
+      warnings.push(
+        `Browser context cleanup unavailable: ${errorMessage(error)}`,
+      );
+    });
     await browser.close().catch(() => undefined);
+  }
+}
+
+async function waitForFontReadiness(
+  page: PlaywrightPageLike,
+  timeoutMs: number,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      page.evaluate(async () => {
+        if (document.fonts?.ready) await document.fonts.ready;
+      }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`font readiness timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
   }
 }
 
@@ -544,39 +529,6 @@ async function assertPublicBrowserUrl(value: string): Promise<void> {
     throw new Error(
       "SSRF blocked: website resolved to a private/internal host.",
     );
-  }
-}
-
-async function defaultBuilderBrowserRequest(input: {
-  sessionId: string;
-}): Promise<Record<string, unknown>> {
-  const server = (await import("@agent-native/core/server")) as unknown as {
-    requestBuilderBrowserConnection?: (value: {
-      sessionId: string;
-    }) => Promise<Record<string, unknown>>;
-  };
-  if (!server.requestBuilderBrowserConnection) {
-    throw new Error(
-      "@agent-native/core/server does not export requestBuilderBrowserConnection.",
-    );
-  }
-  return server.requestBuilderBrowserConnection(input);
-}
-
-async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
-  const specifier = "playwright";
-  try {
-    return (await import(specifier)) as PlaywrightLike;
-  } catch (playwrightError) {
-    try {
-      const testSpecifier = "@playwright/test";
-      return (await import(testSpecifier)) as unknown as PlaywrightLike;
-    } catch {
-      // Keep the optional capability optional. The caller records the exact
-      // fallback warning and can still use SSRF-safe static extraction.
-      void playwrightError;
-      return null;
-    }
   }
 }
 
@@ -1066,10 +1018,6 @@ function boundedTimeout(value: number | undefined): number {
 
 function boundedScreenshot(value: Uint8Array): Uint8Array | undefined {
   return value.byteLength <= MAX_SCREENSHOT_BYTES ? value : undefined;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function errorMessage(error: unknown): string {

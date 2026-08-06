@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   saveBackend: vi.fn(),
   assertReady: vi.fn(),
   backfill: vi.fn(),
+  requireAnalyticsAdminContext: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -22,6 +23,9 @@ vi.mock("../server/lib/first-party-analytics-backend.js", () => ({
   assertFirstPartyAnalyticsBigQueryReady: mocks.assertReady,
   backfillFirstPartyAnalyticsBatch: mocks.backfill,
 }));
+vi.mock("../server/lib/db-admin-connections.js", () => ({
+  requireAnalyticsAdminContext: mocks.requireAnalyticsAdminContext,
+}));
 
 const { default: migrateAction } =
   await import("./migrate-first-party-analytics-to-bigquery");
@@ -35,8 +39,14 @@ beforeEach(() => {
   mocks.saveBackend.mockReset();
   mocks.assertReady.mockReset();
   mocks.backfill.mockReset();
+  mocks.requireAnalyticsAdminContext.mockReset();
   mocks.getRequestOrgId.mockReturnValue("org_builder");
   mocks.getRequestUserEmail.mockReturnValue("owner@builder.io");
+  mocks.requireAnalyticsAdminContext.mockResolvedValue({
+    userEmail: "owner@builder.io",
+    orgId: "org_builder",
+    role: "owner",
+  });
   mocks.getBackend.mockResolvedValue({
     sink: "postgres",
     table: null,

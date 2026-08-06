@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
 import {
   assertFirstPartyAnalyticsBigQueryReady,
   backfillFirstPartyAnalyticsBatch,
@@ -12,7 +13,7 @@ import {
   saveFirstPartyAnalyticsBackend,
 } from "../server/lib/first-party-analytics-backend.js";
 
-function resolveScope() {
+async function resolveScope() {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const orgId = getRequestOrgId();
@@ -21,7 +22,8 @@ function resolveScope() {
       "An active organization is required for the first-party Analytics migration.",
     );
   }
-  return { userEmail, orgId };
+  const admin = await requireAnalyticsAdminContext({ userEmail, orgId });
+  return { userEmail: admin.userEmail, orgId: admin.orgId };
 }
 
 const migrationSchema = z.object({
@@ -45,7 +47,7 @@ export default defineAction({
   agentTool: false,
   needsApproval: ({ mode }) => mode === "cutover",
   run: async ({ mode, table, cursor, limit, confirm }) => {
-    const scope = resolveScope();
+    const scope = await resolveScope();
     const current = await getFirstPartyAnalyticsBackend(scope);
     const configuredTable = table ?? current.table;
 

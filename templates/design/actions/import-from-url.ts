@@ -4,10 +4,10 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Analyze a website URL in a real browser and return a bounded design.md-style " +
+    "Analyze a website URL with an SSRF-safe bounded extractor and return a design.md-style " +
     "visual system: computed colors, typography, spacing, radii, shadows, " +
     "component styles, CSS variables, logo references, and reusable Brand Kit data. " +
-    "Uses a static SSRF-safe fallback only when a browser is unavailable.",
+    "Uses static SSRF-safe extraction until Chromium navigation has a connect-time SSRF guard.",
   schema: z.object({
     url: z.string().describe("Website URL to analyze"),
   }),

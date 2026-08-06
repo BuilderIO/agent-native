@@ -15,7 +15,6 @@ const messages = {
     monitoringErrors: "錯誤",
     admin: "管理",
     agents: "代理",
-    templateCatalog: "目錄",
     dashboards: "儀表板",
     analyses: "分析",
     explorer: "探索器",
@@ -24,6 +23,7 @@ const messages = {
     navigation: "導覽",
     openNavigation: "開啟導覽",
     loadingDashboardTitle: "正在載入儀表板標題",
+    templateCatalog: "目錄",
   },
   dashboardHeader: {
     updated: "更新於 {{date}}",
@@ -132,9 +132,9 @@ const messages = {
     credentials: "資料來源憑證",
     credentialsDescription: "API 金鑰和憑證在資料來源頁面管理。",
     manageDataSources: "管理資料來源",
-    dashboardTemplates: "儀表板範本",
-    dashboardTemplatesDescription: "需要起點時，可安裝來源程式碼控制的儀表板。",
     openDashboardTemplates: "開啟目錄",
+    dashboardTemplates: "儀表板範本",
+    dashboardTemplatesDescription: "需要起點時，安裝由原始碼管理的儀表板。",
     languageTitle: "語言",
     languageLabel: "介面語言",
     errorEmailNotifications: "透過電子郵件接收新的錯誤提醒",
@@ -144,10 +144,6 @@ const messages = {
     bellSound: "提示音",
     bellSoundDescription: "代理完成工作時播放提示音。預設為關閉。",
     bellSoundSaveFailed: "無法儲存提示音偏好設定。",
-    about: "關於",
-    aboutDescription:
-      "Analytics 用於連線資料來源並建置自訂儀表板。連線 Google Analytics、BigQuery、Stripe 等，然後讓代理建立儀表板。",
-    aboutUsage: "在資料來源頁面管理連線。使用查詢探索器執行臨時 BigQuery SQL。",
     replayStorage: "工作階段回放儲存",
     replayStorageDescription:
       "工作階段回放錄製需要已設定的檔案上傳供應商。連線 Builder.io 以使用免費方案的物件儲存，或使用您自己的 S3 相容儲存桶。",
@@ -719,6 +715,7 @@ const messages = {
     monitoring: "監控",
     monitoringDescription:
       "核心可觀測性集中在這裡：執行、追蹤、評估、實驗與回饋。若需要第一方 token、延遲與成本圖表，請從目錄安裝 LLM 可觀測性儀表板。",
+    openCatalog: "開啟目錄",
     dashboardUsage: "儀表板使用情況",
     dashboardUsageTitle: "儀表板使用情況",
     dashboardUsageDescription:
@@ -760,7 +757,6 @@ const messages = {
     visibilitypublic: "公開",
     advanced: "進階",
     database: "應用程式資料庫",
-    openCatalog: "開啟目錄",
     dbConnectionsTitle: "已連接的應用程式資料庫",
     dbConnectionsDescription:
       "連接其他 agent-native 應用程式資料庫，供管理員檢查與修復。這不會把 Analytics 資料開放給所有使用者。",

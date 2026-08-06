@@ -73,10 +73,32 @@ describe("first-party BigQuery backend", () => {
     );
 
     expect(sql).toContain(
-      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw_query`",
+      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`",
+    );
+    expect(sql).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1",
     );
     expect(sql).toContain("'owner''o@example.com'");
     expect(sql).toContain("'2026-08-05'");
+  });
+
+  it("translates the PostgreSQL date expressions used by dashboard SQL", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') AS start_date FROM analytics_events",
+      [],
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+
+    expect(sql).toContain(
+      "FORMAT_DATE('%Y-%m-%d', CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) AS DATE))",
+    );
+    expect(sql).not.toMatch(/to_char|INTERVAL '30 days'/i);
   });
 
   it("uses the Builder production project and isolated raw table by default", async () => {

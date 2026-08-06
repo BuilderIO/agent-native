@@ -97,7 +97,7 @@ Read the relevant skill before deeper work:
 - `cross-source-analysis` for questions spanning sources (identity stitching,
   de-duplication).
 - `dashboard-management` for dashboard/panel storage, layout, extensions,
-  mutation, sharing, and the template catalog.
+  mutation and sharing.
 - `adhoc-analysis` and `analysis-workspace` for one-off answers and large
   multi-source work.
 - `provider-api` and `data-programs` for the escape hatch and durable,
