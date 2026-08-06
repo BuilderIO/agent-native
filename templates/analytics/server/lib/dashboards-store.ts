@@ -719,6 +719,35 @@ async function lockDashboardNames(db: any, names: string[]): Promise<void> {
   }
 }
 
+/**
+ * Persist a visibility change while holding the same name lock used by create
+ * and rename. Sharing a private duplicate must not bypass the visible-name
+ * invariant by changing visibility after the dashboard was created.
+ */
+export async function persistDashboardVisibilityChange(
+  resource: Pick<DashboardRecord, "id" | "title" | "orgId">,
+  visibility: DashboardRecord["visibility"],
+  update: Record<string, unknown>,
+  ctx: AccessCtx,
+): Promise<void> {
+  const db = getDb() as any;
+  await db.transaction(async (tx: any) => {
+    if (visibility !== "private") {
+      await lockDashboardNames(tx, [resource.title]);
+      await assertDashboardNameIsAvailable(
+        resource.title,
+        ctx,
+        resource.id,
+        tx,
+      );
+    }
+    await tx
+      .update(schema.dashboards)
+      .set(update)
+      .where(eq(schema.dashboards.id, resource.id));
+  });
+}
+
 async function pruneDashboardRevisions(
   db: any,
   dashboardId: string,

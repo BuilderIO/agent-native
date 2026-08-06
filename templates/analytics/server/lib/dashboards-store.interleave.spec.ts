@@ -296,6 +296,7 @@ const {
   getDashboard,
   upsertDashboard,
   upsertDashboardWithRetry,
+  persistDashboardVisibilityChange,
   unarchiveDashboard,
   DashboardConflictError,
   DASHBOARD_SAVE_MAX_ATTEMPTS,
@@ -366,6 +367,29 @@ describe("dashboards-store concurrency", () => {
     ).rejects.toThrow(
       'Dashboard name "Traffic" is already used by visible dashboard "Traffic"',
     );
+  });
+
+  it("rejects promoting a private duplicate to a visible dashboard", async () => {
+    state.otherDashboards = [
+      {
+        ...baseDashboard(),
+        id: "traffic-copy",
+        ownerEmail: "bob@example.com",
+        visibility: "private",
+      },
+    ];
+
+    await expect(
+      persistDashboardVisibilityChange(
+        { id: "traffic", title: "Traffic", orgId: "org-1" },
+        "org",
+        { visibility: "org", orgId: "org-1" },
+        { email: "alice@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow(
+      'Dashboard name "Traffic" is already used by visible dashboard "Traffic"',
+    );
+    expect(state.dashboard.visibility).toBe("private");
   });
 
   it("keeps an existing duplicate editable so it can be renamed away", async () => {

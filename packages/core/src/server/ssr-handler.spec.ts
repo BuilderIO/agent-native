@@ -863,10 +863,16 @@ describe("createH3SSRHandler", () => {
       );
     }
 
-    function expectCacheHeaders(response: Response, expected: string) {
-      for (const name of Object.keys(DEFAULT_SSR_CACHE_HEADERS)) {
-        expect(response.headers.get(name)).toBe(expected);
-      }
+    function expectCacheHeaders(
+      response: Response,
+      expected: string,
+      netlifyExpected = expected,
+    ) {
+      expect(response.headers.get("cache-control")).toBe(expected);
+      expect(response.headers.get("cdn-cache-control")).toBe(expected);
+      expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+        netlifyExpected,
+      );
     }
 
     it("disables SSR caching on HTML when set to off", async () => {
@@ -938,6 +944,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 
@@ -951,6 +958,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
+        "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
       );
     });
 
@@ -965,6 +973,7 @@ describe("createH3SSRHandler", () => {
       expectCacheHeaders(
         response,
         "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+        DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
       );
     });
 

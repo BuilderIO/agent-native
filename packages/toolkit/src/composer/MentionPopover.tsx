@@ -161,7 +161,7 @@ function FullDescriptionTooltip({
       <TooltipContent
         side="right"
         align="start"
-        className="max-w-[280px] whitespace-normal break-words"
+        className="z-[10001] max-w-[280px] whitespace-normal break-words"
       >
         {description}
       </TooltipContent>
