@@ -664,10 +664,9 @@ interface ServerlessChromiumLike {
 }
 
 async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike | null> {
+  const specifier = "@sparticuz/chromium";
   try {
-    const module = (await import(
-      "@sparticuz/chromium"
-    )) as unknown as {
+    const module = (await import(/* @vite-ignore */ specifier)) as unknown as {
       default?: Partial<ServerlessChromiumLike>;
     } & Partial<ServerlessChromiumLike>;
     const chromium = module.default ?? module;
@@ -694,10 +693,18 @@ async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
       return (await import(
         /* @vite-ignore */ testSpecifier
       )) as unknown as PlaywrightLike;
-    } catch {
-      // coercion-ok: the optional test-only browser package is absent in production installs.
-      void playwrightError;
-      return null;
+    } catch (testError) {
+      try {
+        const coreSpecifier = "playwright-core";
+        return (await import(
+          /* @vite-ignore */ coreSpecifier
+        )) as unknown as PlaywrightLike;
+      } catch {
+        // coercion-ok: browser packages are optional in non-Node runtimes.
+        void playwrightError;
+        void testError;
+        return null;
+      }
     }
   }
 }
