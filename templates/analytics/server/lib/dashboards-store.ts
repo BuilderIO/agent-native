@@ -2076,7 +2076,21 @@ export async function listDashboardViews(
     },
     { skipResourceBody: true },
   );
-  if (!access) return [];
+  if (!access) {
+    // Keep the migration-aware legacy fallback for dashboards that predate
+    // SQL materialization while retaining the projected SQL fast path.
+    const legacy = await findLegacyDashboard(dashboardId, ctx);
+    if (!legacy) return [];
+    await migrateDashboardFromSettings(
+      dashboardId,
+      legacy.kind,
+      legacy.data,
+      legacy.ownerEmail,
+      legacy.orgId,
+      legacy.visibility,
+      "owner",
+    );
+  }
   const db = getDb() as any;
   const rows = await db
     .select()
