@@ -11,21 +11,11 @@ How agent-native apps work under the hood — the principles and the architectur
 
 Agent Native is a framework, not a single template. It has three layers:
 
-<Cards>
-
-### Core — the framework
-
-The foundational runtime contract: actions, SQL and Drizzle helpers, auth, application state, agent execution, access checks, routing, and live sync. Every app can use Core directly.
-
-### Toolkit — optional reusable pieces
-
-Shared app-building UI and product systems such as primitives, editors, sharing, collaboration, settings, and agent UX. Apps can use, compose, or fork the pieces they need.
-
-### Templates — optional apps built on Core
-
-Complete, domain-specific apps with routes, schema, actions, instructions, and visual identity. First-party and custom templates commonly use Toolkit, and can be forked and used as starting points.
-
-</Cards>
+| Layer                            | What it is                                                                                                                                                                               |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Core — the framework**          | The foundational runtime contract: actions, SQL and Drizzle helpers, auth, application state, agent execution, access checks, routing, and live sync. Every app can use Core directly.  |
+| **Toolkit — optional reusable pieces** | Shared app-building UI and product systems such as primitives, editors, sharing, collaboration, settings, and agent UX. Apps can use, compose, or fork the pieces they need.        |
+| **Templates — optional apps built on Core** | Complete, domain-specific apps with routes, schema, actions, instructions, and visual identity. First-party and custom templates commonly use Toolkit, and can be forked and used as starting points. |
 
 Core is the foundation. Toolkit and Templates are optional: a template can use Toolkit, but Toolkit is not required to build an app on Core.
 
@@ -33,9 +23,11 @@ Core is the foundation. Toolkit and Templates are optional: a template can use T
 
 At runtime, every agent-native app is three things working together:
 
-- **Agent** — Autonomous AI that reads data, writes data, runs actions, and uses configured tools. It can also modify source when its frame is intentionally granted workspace and write tooling. Customizable with skills and instructions.
-- **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
-- **Computer** — Database, browser, and configured tool runtimes. Agents work through the app's action and data surface; an app may expose that same action surface over MCP, while external MCP servers remain optional add-ons rather than the foundation.
+- **Agent** — The autonomous AI: it reads data, writes data, runs actions, and uses whatever tools are configured. When its frame is intentionally granted workspace access and write tooling, it can also modify the app's own source. Customizable with skills and instructions.
+- **Application** — The product surface around the agent. It may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
+- **Computer** — The database, browser, and configured tool runtimes the agent acts through. Agents work through the app's own action and data surface; that same surface can optionally be exposed over MCP, but external MCP servers stay an add-on, not the foundation.
+
+The diagram below is the point of this whole page: the agent and the application are drawn side by side, both with two-way arrows into one shared computer layer underneath. Neither one owns the data — they read and write the same SQL store, so a change either side makes is visible to the other immediately, with no sync layer to build in between.
 
 <Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
 
@@ -98,7 +90,7 @@ At runtime, every agent-native app is three things working together:
 
 </Diagram>
 
-Automation-first apps can run the same production app-agent loop from the folder with `pnpm agent`, while UI apps mount the embedded agent panel and run locally with `pnpm dev`. In the cloud, Builder.io provides a managed frame — the environment that hosts the agent next to your app — with collaboration, visual editing, and managed infrastructure for teams.
+That same agent-application-computer loop is what runs locally and in production. Automation-first apps run it straight from the folder with `pnpm agent`; UI apps mount the embedded agent panel and add `pnpm dev`. In the cloud, Builder.io hosts the identical loop as a managed frame — the environment that runs the agent next to your app — with collaboration, visual editing, and infrastructure handled for you.
 
 ## Agent building blocks {#agent-building-blocks}
 
