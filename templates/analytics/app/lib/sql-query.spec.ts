@@ -64,7 +64,10 @@ describe("executeSqlQuery", () => {
         query: "SELECT date, signups FROM analytics_events",
         source: "first-party",
       },
-      { signal: controller.signal },
+      {
+        signal: controller.signal,
+        timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+      },
     );
     expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
   });

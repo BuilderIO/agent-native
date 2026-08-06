@@ -77,6 +77,7 @@ const state = vi.hoisted(() => ({
     hiddenBy: null as string | null,
   },
   revisions: [] as any[],
+  otherDashboards: [] as DashboardRow[],
   // One-shot flag: the next fenced UPDATE attempt against `dashboards`
   // simulates a concurrent writer (adding a panel of its own) landing in
   // between the caller's read and write, then reports zero affected rows —
@@ -127,6 +128,11 @@ vi.mock("drizzle-orm", () => ({
   desc: (column: unknown) => ({ kind: "desc", column }),
   isNull: (column: unknown) => ({ kind: "isNull", column }),
   isNotNull: (column: unknown) => ({ kind: "isNotNull", column }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    kind: "sql",
+    strings: [...strings],
+    values,
+  }),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -146,10 +152,14 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/sharing")>();
   return {
     ...actual,
-    resolveAccess: async () => ({
-      role: "editor",
-      resource: { ...state.dashboard },
-    }),
+    accessFilter: () => ({ kind: "access" }),
+    resolveAccess: async (_resourceType: string, id: string) =>
+      id === state.dashboard.id
+        ? {
+            role: "editor",
+            resource: { ...state.dashboard },
+          }
+        : null,
     assertAccess: async () => ({ role: "editor" }),
   };
 });
@@ -161,9 +171,21 @@ vi.mock("../db/index.js", () => {
       kind: { name: "kind" },
       title: { name: "title" },
       config: { name: "config" },
+      ownerEmail: { name: "ownerEmail" },
+      orgId: { name: "orgId" },
+      visibility: { name: "visibility" },
+      createdAt: { name: "createdAt" },
       updatedAt: { name: "updatedAt" },
       updatedBy: { name: "updatedBy" },
+      archivedAt: { name: "archivedAt" },
+      hiddenAt: { name: "hiddenAt" },
+      hiddenBy: { name: "hiddenBy" },
     },
+    dashboardNameLocks: {
+      nameKey: { name: "nameKey" },
+      createdAt: { name: "createdAt" },
+    },
+    dashboardShares: {},
     dashboardRevisions: {
       id: { name: "id" },
       dashboardId: { name: "dashboardId" },
@@ -201,9 +223,9 @@ vi.mock("../db/index.js", () => {
             );
           }
           return rowsResult(
-            matchesRow(predicate, state.dashboard)
-              ? [{ ...state.dashboard }]
-              : [],
+            [state.dashboard, ...state.otherDashboards]
+              .filter((row) => matchesRow(predicate, row))
+              .map((row) => ({ ...row, name: row.title })),
           );
         },
       }),
@@ -263,6 +285,8 @@ vi.mock("../db/index.js", () => {
         },
       }),
     }),
+    transaction: async (callback: (transactionDb: any) => unknown) =>
+      callback(db),
   };
 
   return { schema, getDb: () => db };
@@ -272,6 +296,7 @@ const {
   getDashboard,
   upsertDashboard,
   upsertDashboardWithRetry,
+  unarchiveDashboard,
   DashboardConflictError,
   DASHBOARD_SAVE_MAX_ATTEMPTS,
 } = await import("./dashboards-store.js");
@@ -288,12 +313,81 @@ function readPanelIds(): string[] {
 beforeEach(() => {
   state.dashboard = baseDashboard();
   state.revisions = [];
+  state.otherDashboards = [];
   state.loseNextCas = false;
   state.alwaysLoseCas = false;
   state.updateAttempts = 0;
 });
 
 describe("dashboards-store concurrency", () => {
+  it("rejects a new dashboard name already used by a visible dashboard", async () => {
+    state.otherDashboards = [
+      {
+        ...baseDashboard(),
+        id: "revenue",
+        title: "Revenue",
+        config: JSON.stringify({ name: "Revenue", panels: [] }),
+        ownerEmail: "bob@example.com",
+        visibility: "org",
+      },
+    ];
+
+    await expect(
+      upsertDashboard(
+        "new-revenue",
+        "sql",
+        { name: " revenue ", panels: [] },
+        { email: "alice@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow(
+      'Dashboard name "revenue" is already used by visible dashboard "Revenue"',
+    );
+    expect(state.updateAttempts).toBe(0);
+  });
+
+  it("rejects restoring an archived dashboard into a visible name collision", async () => {
+    state.dashboard = {
+      ...baseDashboard(),
+      archivedAt: "2026-07-09T00:01:00.000Z",
+    };
+    state.otherDashboards = [
+      {
+        ...baseDashboard(),
+        id: "traffic-copy",
+        ownerEmail: "bob@example.com",
+      },
+    ];
+
+    await expect(
+      unarchiveDashboard("traffic", {
+        email: "alice@example.com",
+        orgId: null,
+      }),
+    ).rejects.toThrow(
+      'Dashboard name "Traffic" is already used by visible dashboard "Traffic"',
+    );
+  });
+
+  it("keeps an existing duplicate editable so it can be renamed away", async () => {
+    state.otherDashboards = [
+      {
+        ...baseDashboard(),
+        id: "traffic-copy",
+        ownerEmail: "bob@example.com",
+      },
+    ];
+
+    await expect(
+      upsertDashboard(
+        "traffic",
+        "sql",
+        { name: "Traffic", panels: [panel("a"), panel("b")] },
+        ctx,
+      ),
+    ).resolves.toBeDefined();
+    expect(readPanelIds()).toEqual(["a", "b"]);
+  });
+
   it("fences the write and rejects a stale expectedUpdatedAt", async () => {
     const existing = await getDashboard("traffic", ctx);
     expect(existing).not.toBeNull();

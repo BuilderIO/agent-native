@@ -44,10 +44,8 @@ ladder.
   version matters, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request` against the real provider API instead of weakening the
   answer around a narrow action.
-- For relationship-history searches, prefer raw Google Calendar API calls via
-  `provider-api-request` so the agent controls `calendarId`, `timeMin`,
-  `timeMax`, `q`, `maxResults`, and pagination. For large scans, stage results
-  with `stageAs` and analyze them with `query-staged-dataset`.
+- For relationship-history searches, use `provider-api-request`; stage large
+  scans with `stageAs` and analyze them with `query-staged-dataset`.
 - For Google Calendar, distinguish an empty calendar from missing auth,
   reauth-needed, or fetch failures.
 - `list-events` returns the UI-compatible list by default and the compact
@@ -55,35 +53,14 @@ ladder.
   `sourceCoverage`, and `coverageComplete` fields — a partial source failure is
   not an empty calendar. See `event-management` for the formats and the
   `accountEmails` rules.
-- Treat Google Calendar working locations as native status events, never as
-  generic all-day events. See `event-management` for
-  `workingLocationProperties`, single-occurrence scope, and the working-hours
-  limitation.
-- Full-day out-of-office creation uses inclusive human dates plus an IANA
-  timezone. `create-event` translates them to local-midnight timed bounds and
-  sends provider `allDay: false`; do not expose Google's timed-only constraint
-  as a required pair of time inputs in the UI. See `event-management` for the
-  action contract and decline behavior.
-- Use framework sharing actions for calendars/events/booking resources when
-  applicable.
-- Booking-link sharing controls who can manage the link. Public booking access
-  is still controlled by the `/book/{username}/{slug}` URL and `isActive`.
-- `create-booking-link` and `update-booking-link` accept `hosts` for required
-  co-hosts besides the owner, e.g. `hosts: ["brent@example.com"]`. Group links
-  only offer times when the owner and all co-hosts are free, then invite
-  co-hosts to the created Google Calendar event.
+- Treat Google Calendar working locations and full-day out-of-office events as
+  native status events; see `event-management` for their action contracts.
+- Use framework sharing actions for calendar, event, and booking resources;
+  see `availability-booking` for booking-link controls and co-hosts.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
-- Event detail (panel and popover) exposes `calendar.event-detail.bottom` as an
-  `ExtensionSlot`. Extensions render as widgets there with `slotContext`
-  (eventId, title, start/end, timezones, location, attendees, accountEmail).
-  For inline adornments next to each guest email (e.g. local times), prefer the
-  first-party attendee timezone UI / `set-attendee-timezone` settings, or a
-  source edit — do not claim the slot can inject per-row UI.
-- Use `rsvp-event` for invitation responses, and `update-event` with
-  `addAttendees` (not a replacement `attendees` list) when inviting more people.
-  See `event-management` for RSVP notes, optional guests, recurring guest scope,
-  and `get-attendee-timezones` / `set-attendee-timezone` overrides.
+- Event detail extensions, attendee adornments, RSVP scope, and multi-account
+  updates are documented in `event-management`; follow that skill before edits.
 
 ## Application State
 
@@ -95,4 +72,6 @@ ladder.
 - Preserve `accountEmail` on every Google event write. When more than one
   Google account is connected, pass the chosen account to `create-event`, and
   pass the event's returned `accountEmail` to `update-event`, `delete-event`,
-  and `rsvp-event`. These actions target that account's primary calendar.
+  and `rsvp-event`. These actions target that account's primary calendar. For a
+  move, pass the original account as `accountEmail` and the destination as
+  `targetAccountEmail` to `update-event`.

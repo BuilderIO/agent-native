@@ -112,9 +112,9 @@ describe("db/client dialect detection", () => {
     expect(isBackgroundFunctionPoolContext()).toBe(false);
     // Small enough that many warm instances stay under the provider's cap, but
     // above 1 so a request's concurrent reads don't serialize behind one slot.
-    expect(neonPoolMax()).toBe(4);
-    expect(neonPoolMax()).toBeLessThan(8);
-    expect(pgPoolOptions("postgres://example.test/db").max).toBe(4);
+    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBeLessThan(4);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(2);
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
@@ -131,7 +131,7 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(4);
+    expect(neonPoolMax()).toBe(2);
   });
 
   it("keeps the background Neon pool bounded when the worker proves its runtime", async () => {

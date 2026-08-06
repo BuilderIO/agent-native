@@ -125,9 +125,7 @@ export async function executeSqlQuery(
       { query: sql, source },
       {
         signal,
-        ...(options?.reportScreenshot
-          ? { timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS }
-          : {}),
+        timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
       },
     );
   } finally {
