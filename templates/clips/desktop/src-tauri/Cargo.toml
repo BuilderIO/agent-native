@@ -166,7 +166,12 @@ windows = { version = "0.62.2", features = [
 
 [profile.release]
 panic = "abort"
-codegen-units = 1
-lto = true
+# Thin LTO + parallel codegen instead of fat LTO on one codegen unit: the
+# final crate used to sit at N-1/N for many minutes re-optimizing the whole
+# dependency graph single-threaded. The hot code (whisper.cpp / ggml Metal)
+# is C/C++ compiled separately by CMake at -O3, so fat LTO bought essentially
+# nothing here beyond a slightly smaller binary.
+codegen-units = 16
+lto = "thin"
 opt-level = "s"
 strip = true
