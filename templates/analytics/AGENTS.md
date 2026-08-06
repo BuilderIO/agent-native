@@ -81,7 +81,7 @@ ladder.
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
-  selection. `navigate` moves the user, including `view="catalog"`,
+  selection. `navigate` moves the user between supported Analytics surfaces,
   `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`

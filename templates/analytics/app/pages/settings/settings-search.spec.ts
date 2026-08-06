@@ -27,12 +27,12 @@ describe("Analytics settings command items", () => {
       expect.arrayContaining([
         expect.objectContaining({
           label: "Integrations",
-          href: "/settings#integrations",
+          href: "/settings/integrations",
         }),
         expect.objectContaining({
           label: "Voice Transcription",
           keywords: expect.stringContaining("microphone"),
-          href: "/settings#voice",
+          href: "/settings/agent#voice",
         }),
       ]),
     );
@@ -49,7 +49,7 @@ describe("Analytics settings command items", () => {
 
     expect(labels.filter((label) => label === "Account")).toHaveLength(1);
     expect(account).toMatchObject({
-      href: "/settings#account",
+      href: "/settings/account",
       keywords: expect.stringContaining("profile photo avatar"),
     });
     expect(account?.keywords).toContain("General settings");
@@ -71,8 +71,8 @@ describe("Analytics settings command items", () => {
     ]);
 
     expect(items.filter((item) => item.label === "Account")).toEqual([
-      expect.objectContaining({ href: "/settings#account" }),
-      expect.objectContaining({ href: "/settings#account-security" }),
+      expect.objectContaining({ href: "/settings/account" }),
+      expect.objectContaining({ href: "/settings/general#account-security" }),
     ]);
   });
 });

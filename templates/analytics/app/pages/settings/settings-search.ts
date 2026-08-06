@@ -22,6 +22,7 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
       id: "analytics-account",
       label: t("settings.account"),
       keywords: "profile photo avatar email signed in identity",
+      tabId: "account",
       hash: "account",
     },
     {
@@ -106,6 +107,7 @@ export function buildAnalyticsSettingsCommandItems(
       if (hash?.startsWith("agent:")) {
         return buildSettingsRoute(hash);
       }
+      if (hash === tabId) return buildSettingsRoute(tabId);
       return hash ? `${buildSettingsRoute(tabId)}#${hash}` : buildSettingsRoute(tabId);
     };
     add({
