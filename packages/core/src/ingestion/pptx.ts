@@ -270,7 +270,8 @@ async function parseSlideElements(args: {
   // picture shape. Keep it in the same ordered scene graph at the back.
   const backgroundEmbedId = extractBackgroundFillEmbedId(args.slide);
   if (backgroundEmbedId) {
-    const backgroundRelationship = args.slideRelationships.get(backgroundEmbedId);
+    const backgroundRelationship =
+      args.slideRelationships.get(backgroundEmbedId);
     if (backgroundRelationship) {
       const image = await loadPptxImage({
         relationship: backgroundRelationship,
@@ -307,7 +308,9 @@ async function parseShapeFragment(
   const parsed = record(args.parseXml(fragment));
   if (!parsed) return [];
 
-  const entry = [...SHAPE_ELEMENT_NAMES].find((name) => parsed[`p:${name}`] != null);
+  const entry = [...SHAPE_ELEMENT_NAMES].find(
+    (name) => parsed[`p:${name}`] != null,
+  );
   if (!entry) return [];
   const node = record(parsed[`p:${entry}`]);
   if (!node) return [];
@@ -324,12 +327,10 @@ async function parseShapeFragment(
     const nextContext: ShapeTransformContext = {
       originX:
         args.context.originX +
-        args.context.scaleX *
-          (groupTransform.x - childOffset.x * groupScaleX),
+        args.context.scaleX * (groupTransform.x - childOffset.x * groupScaleX),
       originY:
         args.context.originY +
-        args.context.scaleY *
-          (groupTransform.y - childOffset.y * groupScaleY),
+        args.context.scaleY * (groupTransform.y - childOffset.y * groupScaleY),
       scaleX: args.context.scaleX * groupScaleX,
       scaleY: args.context.scaleY * groupScaleY,
       rotation: args.context.rotation + (groupTransform.rotation ?? 0),
@@ -346,10 +347,7 @@ async function parseShapeFragment(
     return output;
   }
 
-  const transform = applyTransform(
-    readTransform(node, "p:spPr"),
-    args.context,
-  );
+  const transform = applyTransform(readTransform(node, "p:spPr"), args.context);
   const id = readShapeId(node);
   const name = readShapeName(node);
   const shapeProperties = record(node["p:spPr"]);
@@ -380,39 +378,46 @@ async function parseShapeFragment(
     });
     if (!image) return [];
     args.images.push(image.image);
-    return [{
-      id,
-      name,
-      kind: "image",
-      ...transform,
-      image: image.image,
-    }];
+    return [
+      {
+        id,
+        name,
+        kind: "image",
+        ...transform,
+        image: image.image,
+      },
+    ];
   }
 
-  if (text.length > 0) {
-    return [{
-      id,
-      name,
-      kind: "text",
-      ...transform,
-      shapeType,
-      ...(fill ? { fill } : {}),
-      ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
-      ...parseTextBoxProperties(node),
-      paragraphs: text,
-    }];
+  const hasText = text.some((paragraph) => paragraph.runs.length > 0);
+  if (hasText) {
+    return [
+      {
+        id,
+        name,
+        kind: "text",
+        ...transform,
+        shapeType,
+        ...(fill ? { fill } : {}),
+        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+        ...parseTextBoxProperties(node),
+        paragraphs: text,
+      },
+    ];
   }
 
   if (fill || line) {
-    return [{
-      id,
-      name,
-      kind: "shape",
-      ...transform,
-      shapeType,
-      ...(fill ? { fill } : {}),
-      ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
-    }];
+    return [
+      {
+        id,
+        name,
+        kind: "shape",
+        ...transform,
+        shapeType,
+        ...(fill ? { fill } : {}),
+        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+      },
+    ];
   }
 
   return [];
@@ -421,15 +426,11 @@ async function parseShapeFragment(
 function extractDirectShapeFragments(xml: string, container: string): string[] {
   const containerMatch = new RegExp(`<p:${container}\\b[^>]*>`, "i").exec(xml);
   if (!containerMatch) return [];
-  const containerEnd = findMatchingXmlTag(
-    xml,
-    containerMatch.index,
-    container,
-  );
+  const containerEnd = findMatchingXmlTag(xml, containerMatch.index, container);
   if (containerEnd < 0) return [];
   const start = containerMatch.index + containerMatch[0].length;
   const end = containerEnd;
-  const tagPattern = /<\\/?(?:[A-Za-z_][\\w.-]*:)?([A-Za-z_][\\w.-]*)\\b[^>]*>/g;
+  const tagPattern = /<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b[^>]*>/g;
   tagPattern.lastIndex = start;
   const stack: string[] = [];
   const fragments: string[] = [];
@@ -439,7 +440,7 @@ function extractDirectShapeFragments(xml: string, container: string): string[] {
     const token = match[0];
     const localName = match[1];
     const isClosing = token.startsWith("</");
-    const isSelfClosing = /\\/\\s*>$/.test(token);
+    const isSelfClosing = /\/\s*>$/.test(token);
     if (isClosing) {
       if (stack.length > 0) stack.pop();
       if (stack.length === 0 && shapeStart >= 0) {
@@ -456,14 +457,18 @@ function extractDirectShapeFragments(xml: string, container: string): string[] {
   return fragments;
 }
 
-function findMatchingXmlTag(xml: string, start: number, localName: string): number {
-  const tagPattern = /<\\/?(?:[A-Za-z_][\\w.-]*:)?([A-Za-z_][\\w.-]*)\\b[^>]*>/g;
+function findMatchingXmlTag(
+  xml: string,
+  start: number,
+  localName: string,
+): number {
+  const tagPattern = /<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b[^>]*>/g;
   tagPattern.lastIndex = start;
   let depth = 0;
   let match: RegExpExecArray | null;
   while ((match = tagPattern.exec(xml))) {
     const token = match[0];
-    if (match[1] !== localName || /\\/\\s*>$/.test(token)) continue;
+    if (match[1] !== localName || /\/\s*>$/.test(token)) continue;
     if (token.startsWith("</")) {
       depth -= 1;
       if (depth === 0) return match.index;
@@ -475,14 +480,17 @@ function findMatchingXmlTag(xml: string, start: number, localName: string): numb
 }
 
 function readShapeId(node: Record<string, unknown>): string {
-  const cNvPr = record(record(node["p:nvSpPr"])?.["p:cNvPr"]);
-  return stringValue(cNvPr?.["@_id"]) ?? `shape-${Math.random().toString(36).slice(2)}`;
+  const cNvPr =
+    record(record(node["p:nvSpPr"])?.["p:cNvPr"]) ??
+    record(record(node["p:nvPicPr"])?.["p:cNvPr"]);
+  return (
+    stringValue(cNvPr?.["@_id"]) ??
+    `shape-${Math.random().toString(36).slice(2)}`
+  );
 }
 
 function readShapeName(node: Record<string, unknown>): string | undefined {
-  return stringValue(
-    record(record(node["p:nvSpPr"])?.["p:cNvPr"])?.["@_name"],
-  );
+  return stringValue(record(record(node["p:nvSpPr"])?.["p:cNvPr"])?.["@_name"]);
 }
 
 function readPoint(value: unknown): { x: number; y: number } {
@@ -564,9 +572,7 @@ function parseTextBody(node: Record<string, unknown>): ParsedPptxParagraph[] {
     }
     const bullet = record(pPr?.["a:buChar"]);
     const bulletColor = parseColor(record(pPr?.["a:buClr"]));
-    const bulletFont = stringValue(
-      record(pPr?.["a:buFont"])?.["@_typeface"],
-    );
+    const bulletFont = stringValue(record(pPr?.["a:buFont"])?.["@_typeface"]);
     const bulletSize = Number(record(pPr?.["a:buSzPts"])?.["@_val"]);
     const lineSpacing = parseParagraphSpacing(pPr?.["a:lnSpc"]);
     const spaceBeforePt = parsePoints(pPr?.["a:spcBef"]);
@@ -599,10 +605,9 @@ function parseTextBody(node: Record<string, unknown>): ParsedPptxParagraph[] {
   });
 }
 
-function parseTextBoxProperties(node: Record<string, unknown>): Pick<
-  ParsedPptxElement,
-  "padding" | "verticalAlign"
-> {
+function parseTextBoxProperties(
+  node: Record<string, unknown>,
+): Pick<ParsedPptxElement, "padding" | "verticalAlign"> {
   const bodyPr = record(record(node["p:txBody"])?.["a:bodyPr"]);
   if (!bodyPr) return {};
   const anchor = stringValue(bodyPr["@_anchor"]);
@@ -691,7 +696,12 @@ function parseImageCrop(
   const right = Number(srcRect["@_r"]) || 0;
   const bottom = Number(srcRect["@_b"]) || 0;
   return left || top || right || bottom
-    ? { left: left / 100000, top: top / 100000, right: right / 100000, bottom: bottom / 100000 }
+    ? {
+        left: left / 100000,
+        top: top / 100000,
+        right: right / 100000,
+        bottom: bottom / 100000,
+      }
     : undefined;
 }
 
@@ -726,14 +736,15 @@ async function loadPptxImage(args: {
     data: new Uint8Array(await imageFile.async("nodebuffer")),
     mimeType: imageMimeType(name),
     name,
-    aspectRatio: args.width && args.height ? args.width / args.height : undefined,
+    aspectRatio:
+      args.width && args.height ? args.width / args.height : undefined,
     fullBleed: Boolean(
       args.width &&
-        args.height &&
-        args.slideWidthEmu &&
-        args.slideHeightEmu &&
-        args.width / args.slideWidthEmu >= 0.85 &&
-        args.height / args.slideHeightEmu >= 0.85,
+      args.height &&
+      args.slideWidthEmu &&
+      args.slideHeightEmu &&
+      args.width / args.slideWidthEmu >= 0.85 &&
+      args.height / args.slideHeightEmu >= 0.85,
     ),
     ...(args.crop ? { crop: args.crop } : {}),
   };
@@ -752,7 +763,9 @@ async function loadPptxImage(args: {
   };
 }
 
-function flattenElementText(elements: ParsedPptxElement[]): ParsedPptxTextRun[] {
+function flattenElementText(
+  elements: ParsedPptxElement[],
+): ParsedPptxTextRun[] {
   const output: ParsedPptxTextRun[] = [];
   const textElements = elements.filter(
     (element) => element.kind === "text" && element.paragraphs,
@@ -761,7 +774,8 @@ function flattenElementText(elements: ParsedPptxElement[]): ParsedPptxTextRun[] 
     const paragraphs = element.paragraphs ?? [];
     for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
       output.push(...paragraph.runs);
-      if (paragraphIndex < paragraphs.length - 1) output.push({ content: "\n" });
+      if (paragraphIndex < paragraphs.length - 1)
+        output.push({ content: "\n" });
     }
     if (elementIndex < textElements.length - 1) output.push({ content: "\n" });
   }
@@ -902,190 +916,6 @@ function detectSplitByParagraph(value: unknown): boolean {
   }
 }
 
-interface PictureShape {
-  embedId?: string;
-  widthEmu?: number;
-  heightEmu?: number;
-}
-
-/**
- * Recursively find every embedded picture in a slide, in document order:
- * plain `p:pic` shapes, and `p:sp` autoshapes whose fill is a picture
- * (common for "photo cutout" shapes and full-bleed decorative rectangles).
- * A group shape (`p:grpSp`) defines its own local coordinate space for its
- * children (`chOff`/`chExt`) that can be scaled arbitrarily relative to the
- * group's own placed size on the slide, so each level of nesting multiplies
- * a running scale factor into the child sizes below it — without that, a
- * picture inside a resized group would report its unscaled design-time
- * size instead of how large it actually appears on the slide.
- */
-function collectPictureShapes(
-  value: unknown,
-  out: PictureShape[],
-  scaleX = 1,
-  scaleY = 1,
-): void {
-  const node = record(value);
-  if (!node) return;
-  for (const [key, child] of Object.entries(node)) {
-    if (key.startsWith("@_")) continue;
-    if (key === "p:pic") {
-      for (const picNode of asArray(child)) {
-        const pic = record(picNode);
-        const blip = record(record(pic?.["p:blipFill"])?.["a:blip"]);
-        out.push(
-          scaledShape(
-            stringValue(blip?.["@_r:embed"]),
-            extFromSpPr(pic),
-            scaleX,
-            scaleY,
-          ),
-        );
-      }
-      continue;
-    }
-    if (key === "p:sp") {
-      for (const spNode of asArray(child)) {
-        const sp = record(spNode);
-        const blip = record(
-          record(record(sp?.["p:spPr"])?.["a:blipFill"])?.["a:blip"],
-        );
-        const embedId = stringValue(blip?.["@_r:embed"]);
-        if (embedId) {
-          out.push(scaledShape(embedId, extFromSpPr(sp), scaleX, scaleY));
-        }
-      }
-      continue;
-    }
-    if (key === "p:grpSp") {
-      for (const groupNode of asArray(child)) {
-        const scale = groupChildScale(record(groupNode), scaleX, scaleY);
-        collectPictureShapes(groupNode, out, scale.x, scale.y);
-      }
-      continue;
-    }
-    for (const item of asArray(child)) {
-      collectPictureShapes(item, out, scaleX, scaleY);
-    }
-  }
-}
-
-/** Whether an `a:xfrm` `rot` value (60,000ths of a degree) is an odd multiple of 90° — a 90/270 turn that swaps effective width and height. */
-function isOddQuarterTurn(rot: number): boolean {
-  if (!Number.isFinite(rot)) return false;
-  const quarterTurns = Math.round(rot / 60000 / 90);
-  return ((quarterTurns % 2) + 2) % 2 === 1;
-}
-
-/**
- * A group's `chExt` is the coordinate space its children are authored in;
- * `ext` is how large the group actually renders — the ratio between them is
- * the extra scale nested children need on top of their own declared size.
- * When the group itself is rotated a 90/270-degree turn, that ratio applies
- * to the perpendicular axis on the slide, so the X/Y scale factors need
- * swapping the same way a rotated picture's own width/height do.
- */
-function groupChildScale(
-  groupNode: Record<string, unknown> | null,
-  parentScaleX: number,
-  parentScaleY: number,
-): { x: number; y: number } {
-  const xfrm = record(record(groupNode?.["p:grpSpPr"])?.["a:xfrm"]);
-  const ext = record(xfrm?.["a:ext"]);
-  const chExt = record(xfrm?.["a:chExt"]);
-  const extCx = Number(ext?.["@_cx"]);
-  const extCy = Number(ext?.["@_cy"]);
-  const chExtCx = Number(chExt?.["@_cx"]);
-  const chExtCy = Number(chExt?.["@_cy"]);
-  let groupScaleX =
-    Number.isFinite(extCx) && Number.isFinite(chExtCx) && chExtCx > 0
-      ? extCx / chExtCx
-      : 1;
-  let groupScaleY =
-    Number.isFinite(extCy) && Number.isFinite(chExtCy) && chExtCy > 0
-      ? extCy / chExtCy
-      : 1;
-  if (isOddQuarterTurn(Number(xfrm?.["@_rot"]))) {
-    [groupScaleX, groupScaleY] = [groupScaleY, groupScaleX];
-  }
-  return { x: parentScaleX * groupScaleX, y: parentScaleY * groupScaleY };
-}
-
-/**
- * `a:xfrm/a:ext` always stores the shape's *unrotated* design-time width and
- * height — `a:xfrm/@rot` (in 60,000ths of a degree) rotates it around its
- * own center afterward. For a 90/270-degree turn, the shape's effective
- * on-slide footprint has its width and height swapped relative to that
- * declared size, so a rotated full-bleed photo can otherwise get treated as
- * a small inset, or a portrait image get an inverted aspect ratio.
- */
-function extFromSpPr(shapeNode: Record<string, unknown> | null): {
-  cx?: number;
-  cy?: number;
-} {
-  const xfrm = record(record(shapeNode?.["p:spPr"])?.["a:xfrm"]);
-  const ext = record(xfrm?.["a:ext"]);
-  const cx = Number(ext?.["@_cx"]);
-  const cy = Number(ext?.["@_cy"]);
-  if (!Number.isFinite(cx) || cx <= 0 || !Number.isFinite(cy) || cy <= 0) {
-    return { cx: undefined, cy: undefined };
-  }
-  return isOddQuarterTurn(Number(xfrm?.["@_rot"]))
-    ? { cx: cy, cy: cx }
-    : { cx, cy };
-}
-
-function scaledShape(
-  embedId: string | undefined,
-  size: { cx?: number; cy?: number },
-  scaleX: number,
-  scaleY: number,
-): PictureShape {
-  return {
-    embedId,
-    widthEmu: size.cx !== undefined ? size.cx * scaleX : undefined,
-    heightEmu: size.cy !== undefined ? size.cy * scaleY : undefined,
-  };
-}
-
-/**
- * fast-xml-parser groups sibling elements by tag name, so a slide whose
- * picture-bearing shapes alternate types on the page (e.g. `p:sp`, `p:pic`,
- * `p:sp`) comes out of `collectPictureShapes` re-sorted by tag rather than
- * by the order they actually appear — every `p:sp` gets visited before any
- * `p:pic`, even if a `p:pic` came first in the file. Re-derive the true
- * order from the raw XML text instead: `<a:blip r:embed="...">` occurrences
- * appear in exactly document order regardless of nesting, so they can be
- * used to restore the author's original front-to-back ordering (which
- * matters because downstream rendering treats the first image as primary).
- */
-function reorderByDocumentPosition(shapes: PictureShape[], xml: string): void {
-  const order: string[] = [];
-  const blipPattern = /<a:blip\b[^>]*\br:embed=(?:"([^"]+)"|'([^']+)')/g;
-  let match: RegExpExecArray | null;
-  while ((match = blipPattern.exec(xml))) order.push(match[1] ?? match[2]);
-
-  // The same relationship id can legitimately be reused across multiple
-  // placements (e.g. a repeated icon), so looking up a single fixed index
-  // per id would assign every reused shape the position of its first XML
-  // occurrence. Instead give each id a queue of its occurrence positions
-  // and consume one per shape, in the order shapes were collected.
-  const occurrences = new Map<string, number[]>();
-  order.forEach((embedId, index) => {
-    const queue = occurrences.get(embedId);
-    if (queue) queue.push(index);
-    else occurrences.set(embedId, [index]);
-  });
-  const positions = shapes.map((shape) => {
-    const queue = shape.embedId ? occurrences.get(shape.embedId) : undefined;
-    return queue && queue.length > 0 ? queue.shift()! : -1;
-  });
-  const sortedIndices = shapes.map((_, i) => i);
-  sortedIndices.sort((a, b) => positions[a] - positions[b]);
-  const sorted = sortedIndices.map((i) => shapes[i]);
-  shapes.splice(0, shapes.length, ...sorted);
-}
-
 /** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
 function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
   const root = record(slide);
@@ -1093,29 +923,6 @@ function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
   const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
   const blip = record(record(bgPr?.["a:blipFill"])?.["a:blip"]);
   return stringValue(blip?.["@_r:embed"]);
-}
-
-/**
- * Add the slide's background picture fill, if any, as a synthetic
- * full-slide-sized shape. It's unshifted to the front rather than appended:
- * downstream rendering only ever uses the first image in the list, and a
- * background fill is the slide's base layer — the primary visual — so a
- * smaller foreground picture (a logo, an icon) must not bump it out of that
- * slot.
- */
-function addBackgroundFillShape(
-  slide: unknown,
-  pictureShapes: PictureShape[],
-  slideWidthEmu: number | undefined,
-  slideHeightEmu: number | undefined,
-): void {
-  const embedId = extractBackgroundFillEmbedId(slide);
-  if (!embedId) return;
-  pictureShapes.unshift({
-    embedId,
-    widthEmu: slideWidthEmu,
-    heightEmu: slideHeightEmu,
-  });
 }
 
 function runProperties(
@@ -1142,9 +949,7 @@ function runProperties(
     ...(Number.isFinite(size) && size > 0 ? { fontSize: size / 100 } : {}),
     ...(rgb ? { color: `#${rgb}` } : {}),
     ...(fontFamily ? { fontFamily } : {}),
-    ...(value["@_u"] && value["@_u"] !== "none"
-      ? { underline: true }
-      : {}),
+    ...(value["@_u"] && value["@_u"] !== "none" ? { underline: true } : {}),
   };
 }
 
