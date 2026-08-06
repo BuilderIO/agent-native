@@ -267,6 +267,32 @@ describe("walkPageGraphics", () => {
     ]);
   });
 
+  it("collects a zero-height stroked hairline as an underline candidate", async () => {
+    const page = fakePage(
+      [OPS.setFillRGBColor, OPS.constructPath],
+      [
+        [0, 0, 0],
+        [OPS.stroke, [], [10, 50, 40, 50]],
+      ],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.underlineRects).toEqual([
+      { left: 10, top: 50, right: 40, bottom: 50 },
+    ]);
+  });
+
+  it("ignores a degenerate zero-length stroke (a point, not a line)", async () => {
+    const page = fakePage(
+      [OPS.setFillRGBColor, OPS.constructPath],
+      [
+        [0, 0, 0],
+        [OPS.stroke, [], [10, 50, 10, 50]],
+      ],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.underlineRects).toEqual([]);
+  });
+
   it("does not mistake a large filled block for an underline", async () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],

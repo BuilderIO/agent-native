@@ -73,6 +73,8 @@ export interface LinkRect extends Rect {
 
 /** Max stroke/fill thickness (in device px) still considered a plausible underline rather than a divider or a shape. */
 const MAX_UNDERLINE_THICKNESS = 4;
+/** A zero-height stroked hairline still needs to span a real distance to count as an underline, not a stray dot or corner join. */
+const MIN_UNDERLINE_LENGTH = 2;
 /** An underline sits just under a line's baseline; this bounds how far below the text box bottom it can be and still count. */
 const UNDERLINE_PROXIMITY = 0.6;
 
@@ -269,7 +271,7 @@ export function annotateLineDecorations(
     const width = Math.max(1, line.right - line.left);
     const underline = underlineRects.some((rect) => {
       const thickness = rect.bottom - rect.top;
-      if (thickness <= 0 || thickness > MAX_UNDERLINE_THICKNESS) return false;
+      if (thickness < 0 || thickness > MAX_UNDERLINE_THICKNESS) return false;
       const overlapLeft = Math.max(rect.left, line.left);
       const overlapRight = Math.min(rect.right, line.right);
       const horizontalOverlap = Math.max(0, overlapRight - overlapLeft);
@@ -522,11 +524,15 @@ export async function walkPageGraphics(
         const height = rect.bottom - rect.top;
         const thickness = Math.min(width, height);
         const length = Math.max(width, height);
-        if (
-          thickness > 0 &&
-          thickness <= MAX_UNDERLINE_THICKNESS &&
-          length >= thickness * 3
-        ) {
+        // A pure stroke ("S"/"s", no fill) draws a hairline whose path bbox
+        // has zero thickness — the line width isn't baked into this bbox at
+        // all — so `thickness === 0` is the *normal* shape for a stroked
+        // underline, not a degenerate case to reject.
+        const isLongEnoughForThickness =
+          thickness === 0
+            ? length >= MIN_UNDERLINE_LENGTH
+            : length >= thickness * 3;
+        if (thickness <= MAX_UNDERLINE_THICKNESS && isLongEnoughForThickness) {
           underlineRects.push(rect);
         }
       }
