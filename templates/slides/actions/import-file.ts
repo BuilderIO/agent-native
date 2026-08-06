@@ -434,14 +434,17 @@ async function importPdfPagesWithFidelity(args: {
         slideIndex: index,
         ownerEmail,
       });
-      const content = convertToSlideHtml({
-        texts: [],
-        images: [],
-        elements: fidelity.elements,
-        widthEmu: fidelity.widthEmu,
-        heightEmu: fidelity.heightEmu,
-        backgroundColor: "#ffffff", // guard:allow-raw-color - a PDF page's own paper background, not a design-system token
-      }, uploaded.urls);
+      const content = convertToSlideHtml(
+        {
+          texts: [],
+          images: [],
+          elements: fidelity.elements,
+          widthEmu: fidelity.widthEmu,
+          heightEmu: fidelity.heightEmu,
+          backgroundColor: "#ffffff", // guard:allow-raw-color - a PDF page's own paper background, not a design-system token
+        },
+        uploaded.urls,
+      );
 
       return {
         id: newSlideId(),

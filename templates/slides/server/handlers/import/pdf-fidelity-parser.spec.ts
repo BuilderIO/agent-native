@@ -97,8 +97,22 @@ describe("mergeLine", () => {
 describe("groupIntoLines", () => {
   it("keeps items with close baselines on the same line", () => {
     const lines = groupIntoLines([
-      box({ text: "A", top: 100, bottom: 112, fontSize: 12, left: 0, right: 10 }),
-      box({ text: "B", top: 101, bottom: 113, fontSize: 12, left: 10, right: 20 }),
+      box({
+        text: "A",
+        top: 100,
+        bottom: 112,
+        fontSize: 12,
+        left: 0,
+        right: 10,
+      }),
+      box({
+        text: "B",
+        top: 101,
+        bottom: 113,
+        fontSize: 12,
+        left: 10,
+        right: 20,
+      }),
     ]);
     expect(lines).toHaveLength(1);
     expect(lines[0].text).toBe("AB");
