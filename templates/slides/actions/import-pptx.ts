@@ -112,6 +112,10 @@ export async function importPptxBufferToDeck(args: {
             content: html,
             layout: parsedSlide.layoutHint ?? "content",
             notes: parsedSlide.notes,
+            ...(parsedSlide.transition
+              ? { transition: parsedSlide.transition }
+              : {}),
+            ...(parsedSlide.splitByParagraph ? { splitByParagraph: true } : {}),
           },
           // Only the first image on a slide is ever uploaded, so every
           // other image on that slide is unconditionally dropped too —

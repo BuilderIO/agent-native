@@ -4272,6 +4272,7 @@ export default function SlideEditor({
                       onPointerDown={handleSlidePointerDown}
                       onPointerMove={handleSlidePointerMove}
                       onPointerLeave={clearEdgeMoveCursor}
+                      onDragStart={(event) => event.preventDefault()}
                       onDragOver={handleSlideDragOver}
                       onDrop={handleSlideDrop}
                     >

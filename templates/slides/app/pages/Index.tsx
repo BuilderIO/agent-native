@@ -27,6 +27,7 @@ import {
 import PromptPopover, {
   uploadPromptFiles,
   type UploadedFile,
+  type PromptImportSelection,
 } from "@/components/editor/PromptDialog";
 import {
   AlertDialog,
@@ -692,6 +693,90 @@ export default function Index() {
     [setNewDeckPromptOpen],
   );
 
+  const handleDirectImport = useCallback(
+    async (selection: PromptImportSelection): Promise<boolean> => {
+      if (!session) {
+        setSignInPromptHadFiles(selection.kind !== "google-slides");
+        setShowSignInDialog(true);
+        return false;
+      }
+
+      if (selection.kind === "google-slides") {
+        const imported = (await callAction("import-google-slides-reference", {
+          presentationUrl: selection.url,
+        })) as { id?: unknown };
+        if (typeof imported.id !== "string" || !imported.id) {
+          throw new Error(
+            "The Google Slides presentation did not create a deck.",
+          );
+        }
+        await reloadDecks();
+        navigate(`/deck/${imported.id}`, { flushSync: true });
+        return true;
+      }
+
+      const uploaded = await uploadPromptFiles(selection.files);
+      const file = uploaded[0];
+      if (!file) throw new Error("The selected file could not be uploaded.");
+
+      if (selection.kind === "pptx") {
+        const imported = (await callAction("import-pptx", {
+          filePath: file.path,
+        })) as { id?: unknown };
+        if (typeof imported.id !== "string" || !imported.id) {
+          throw new Error("The PowerPoint presentation did not create a deck.");
+        }
+        await reloadDecks();
+        navigate(`/deck/${imported.id}`, { flushSync: true });
+        return true;
+      }
+
+      let deck: ReturnType<typeof createDeck> | undefined;
+      flushSync(() => {
+        deck = createDeck(undefined, { noDefaultSlides: true });
+      });
+      if (!deck) throw new Error("The PDF deck could not be created.");
+
+      const persisted = await ensureDeckPersisted(deck.id);
+      if (!persisted.persisted) {
+        deleteDeck(deck.id);
+        throw new Error(
+          describeDeckPersistenceFailure(
+            persisted,
+            "The PDF deck could not be saved.",
+          ),
+        );
+      }
+
+      try {
+        const imported = (await callAction("import-file", {
+          filePath: file.path,
+          format: "pdf",
+          deckId: deck.id,
+          importIntoDeck: true,
+        })) as { imported?: unknown; deckId?: unknown };
+        if (imported.imported !== true || imported.deckId !== deck.id) {
+          throw new Error("The PDF could not be imported into the new deck.");
+        }
+        await reloadDecks();
+        navigate(`/deck/${deck.id}`, { flushSync: true });
+        return true;
+      } catch (error) {
+        deleteDeck(deck.id);
+        throw error;
+      }
+    },
+    [
+      callAction,
+      createDeck,
+      deleteDeck,
+      ensureDeckPersisted,
+      navigate,
+      reloadDecks,
+      session,
+    ],
+  );
+
   const handleReferenceSelect = useCallback(
     async (selection: NewDeckReferenceSelection) => {
       const pending = pendingDeck;
@@ -1151,6 +1236,9 @@ export default function Index() {
         onSkip={handleCreateDeckBlank}
         skipLabel={t("home.skipPrompt")}
         onSubmit={handlePromptSubmit}
+        onImport={handleDirectImport}
+        importFromLabel={t("home.importFrom")}
+        importingLabel={t("editorToolbar.importing")}
         onBeforeUpload={(prompt, files) => {
           if (session) return true;
           preservePromptForSignIn(prompt, { hadFiles: files.length > 0 });

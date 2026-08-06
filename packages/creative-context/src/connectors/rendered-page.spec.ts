@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const isBlockedExtensionUrlWithDns = vi.hoisted(() => vi.fn(async () => false));
+const ssrfSafeFetch = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   isBlockedExtensionUrlWithDns,
-  ssrfSafeFetch: vi.fn(),
+  ssrfSafeFetch,
 }));
 
 const { renderWithPlaywright } = await import("./rendered-page.js");
@@ -12,6 +13,7 @@ const { renderWithPlaywright } = await import("./rendered-page.js");
 describe("renderWithPlaywright lifecycle", () => {
   afterEach(() => {
     vi.useRealTimers();
+    ssrfSafeFetch.mockReset();
   });
 
   it("closes isolated contexts and reports bounded stabilization failures", async () => {
@@ -90,5 +92,163 @@ describe("renderWithPlaywright lifecycle", () => {
       ]),
     );
     expect(result.diagnostics).toEqual(expect.arrayContaining(result.warnings));
+  });
+
+  it("hydrates through the SSRF-safe network proxy without forwarding cookies", async () => {
+    ssrfSafeFetch
+      .mockResolvedValueOnce(
+        new Response(
+          "<!doctype html><html><head><title>Proxy example</title></head><body>Hydrated CTA</body></html>",
+          { status: 200, headers: { "content-type": "text/html" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(".cta{color:rgb(13 20 27)}", {
+          status: 200,
+          headers: { "content-type": "text/css" },
+        }),
+      );
+
+    let routeHandler:
+      | ((route: {
+          request: () => {
+            url: () => string;
+            isNavigationRequest: () => boolean;
+            resourceType: () => string;
+            method: () => string;
+            headers: () => Record<string, string>;
+          };
+          continue: () => Promise<void>;
+          abort: () => Promise<void>;
+          fulfill: (options: {
+            status: number;
+            headers: Record<string, string>;
+            body: Uint8Array;
+          }) => Promise<void>;
+        }) => Promise<void>)
+      | undefined;
+    const fulfilled: Array<{
+      status: number;
+      headers: Record<string, string>;
+      body: Uint8Array;
+    }> = [];
+
+    const invokeRoute = async (
+      url: string,
+      navigation: boolean,
+      type: string,
+    ) => {
+      if (!routeHandler) throw new Error("route handler was not installed");
+      await routeHandler({
+        request: () => ({
+          url: () => url,
+          isNavigationRequest: () => navigation,
+          resourceType: () => type,
+          method: () => "GET",
+          headers: () => ({
+            accept: "text/html",
+            cookie: "session=must-not-forward",
+            "user-agent": "fixture-browser",
+          }),
+        }),
+        continue: async () => undefined,
+        abort: async () => undefined,
+        fulfill: async (options) => {
+          fulfilled.push(options);
+        },
+      });
+    };
+
+    let evaluateCalls = 0;
+    const page = {
+      async route(_pattern: string, handler: (route: never) => Promise<void>) {
+        routeHandler = handler as typeof routeHandler;
+      },
+      async goto() {
+        await invokeRoute("https://example.com/", true, "document");
+        await invokeRoute(
+          "https://example.com/styles.css",
+          false,
+          "stylesheet",
+        );
+      },
+      async waitForLoadState() {},
+      async title() {
+        return "Proxy example";
+      },
+      url() {
+        return "https://example.com/";
+      },
+      locator() {
+        return { innerText: async () => "Hydrated CTA" };
+      },
+      async setViewportSize() {},
+      async screenshot() {
+        return new Uint8Array([1]);
+      },
+      async evaluate<T>() {
+        evaluateCalls += 1;
+        if (evaluateCalls === 3) {
+          return {
+            title: "Proxy example",
+            text: "Hydrated CTA",
+            assets: [],
+            internalLinks: [],
+            designTokens: {
+              colors: ["rgb(13 20 27)"],
+              typography: [],
+              spacing: [],
+              radii: [],
+              cssVariables: {},
+            },
+          } as T;
+        }
+        return undefined as T;
+      },
+    };
+    const context = {
+      async newPage() {
+        return page;
+      },
+      async close() {},
+    };
+    const browser = {
+      contexts: () => [],
+      async newContext() {
+        return context;
+      },
+      async close() {},
+    };
+
+    const result = await renderWithPlaywright(
+      {
+        chromium: {
+          async launch() {
+            return browser;
+          },
+          async connectOverCDP() {
+            return browser;
+          },
+        },
+      } as never,
+      { url: "https://example.com/", timeoutMs: 5_000 },
+      [],
+      "local-playwright",
+    );
+
+    expect(result).toMatchObject({
+      rendered: true,
+      method: "local-playwright",
+      text: "Hydrated CTA",
+    });
+    expect(fulfilled).toHaveLength(2);
+    expect(new TextDecoder().decode(fulfilled[0].body)).toContain(
+      "Proxy example",
+    );
+    expect(ssrfSafeFetch).toHaveBeenCalledTimes(2);
+    expect(ssrfSafeFetch.mock.calls[0][1].headers).toEqual({
+      accept: "text/html",
+      "user-agent": "fixture-browser",
+    });
   });
 });

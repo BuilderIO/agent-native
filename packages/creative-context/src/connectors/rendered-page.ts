@@ -554,7 +554,7 @@ async function installNavigationGuard(
       await route.fulfill({
         status: response.status,
         headers: browserResponseHeaders(response),
-        body,
+        body: Buffer.from(body),
       });
     } catch (error) {
       await route.abort("blockedbyclient");
@@ -653,7 +653,9 @@ async function launchChromium(
   if (missingBrowserError) {
     throw missingBrowserError;
   }
-  throw new Error("No Chromium executable is available for browser extraction.");
+  throw new Error(
+    "No Chromium executable is available for browser extraction.",
+  );
 }
 
 interface ServerlessChromiumLike {
@@ -661,13 +663,19 @@ interface ServerlessChromiumLike {
   executablePath(): Promise<string>;
 }
 
-async function loadOptionalServerlessChromium(): Promise<
-  ServerlessChromiumLike | null
-> {
-  const specifier = "@sparticuz/chromium";
+async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike | null> {
   try {
-    return (await import(/* @vite-ignore */ specifier)) as ServerlessChromiumLike;
+    const module = (await import(
+      /* @vite-ignore */ "@sparticuz/chromium"
+    )) as unknown as {
+      default?: Partial<ServerlessChromiumLike>;
+    } & Partial<ServerlessChromiumLike>;
+    const chromium = module.default ?? module;
+    return typeof chromium.executablePath === "function"
+      ? (chromium as ServerlessChromiumLike)
+      : null;
   } catch {
+    // coercion-ok: this optional capability is absent in non-serverless installs.
     return null;
   }
 }
@@ -683,8 +691,11 @@ async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
   } catch (playwrightError) {
     try {
       const testSpecifier = "@playwright/test";
-      return (await import(/* @vite-ignore */ testSpecifier)) as unknown as PlaywrightLike;
+      return (await import(
+        /* @vite-ignore */ testSpecifier
+      )) as unknown as PlaywrightLike;
     } catch {
+      // coercion-ok: the optional test-only browser package is absent in production installs.
       void playwrightError;
       return null;
     }

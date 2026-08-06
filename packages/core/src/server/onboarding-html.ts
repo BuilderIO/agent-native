@@ -1608,6 +1608,9 @@ ${googleNoticeRunLocalPanelHtml}
   </div>`
       : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
+  const identitySsoMagicLinkSelector = identitySsoHtml
+    ? "  .card.magic-link-complete #identity-sso-btn,\n"
+    : "";
   const identitySsoScript = identitySsoHtml
     ? `
     function __anIdentitySsoUrl() {
@@ -2383,7 +2386,7 @@ ${
   .magic-link-success.is-visible { display: block; }
   .magic-link-success-copy {
     margin: 0;
-    color: rgba(255,255,255,0.62);
+    color: rgba(255,255,255,0.62); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
     font-size: 0.875rem;
     line-height: 1.5;
   }
@@ -2399,14 +2402,14 @@ ${
   .btn-google.magic-link-secondary {
     background: transparent;
     color: inherit;
-    border: 1px solid rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.16); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   }
   .btn-google.magic-link-secondary:hover {
-    background: rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.05); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   }
   .card.magic-link-complete .subtitle,
   .card.magic-link-complete #google-signin,
-  .card.magic-link-complete #identity-sso-btn,
+${identitySsoMagicLinkSelector}
   .card.magic-link-complete #auth-divider,
   .card.magic-link-complete #auth-tabs,
   .card.magic-link-complete #upgrade-note,
@@ -3453,7 +3456,7 @@ ${
       if (card) card.classList.add('magic-link-complete');
       var success = document.getElementById('magic-link-success');
       var successEmail = document.getElementById('magic-link-success-email');
-      if (successEmail) successEmail.textContent = email || '';
+      if (successEmail && typeof email === 'string') successEmail.textContent = email;
       if (success) {
         success.removeAttribute('hidden');
         success.classList.add('is-visible');

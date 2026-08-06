@@ -6,6 +6,13 @@ export interface ParsedPptxTextRun {
   color?: string;
 }
 
+export type ParsedPptxTransition =
+  | "instant"
+  | "none"
+  | "fade"
+  | "slide"
+  | "zoom";
+
 export interface ParsedPptxImage {
   data: Uint8Array;
   mimeType: string;
@@ -21,6 +28,13 @@ export interface ParsedPptxSlide {
   images: ParsedPptxImage[];
   notes?: string;
   layoutHint?: string;
+  transition?: ParsedPptxTransition;
+  splitByParagraph?: boolean;
+}
+
+export interface ParsedPptxSlideMetadata {
+  transition?: ParsedPptxTransition;
+  splitByParagraph?: boolean;
 }
 
 export interface ParsedPptxPresentation {
@@ -90,6 +104,7 @@ export async function parsePptxPresentation(
     } catch {
       continue;
     }
+    const metadata = parsePptxSlideMetadata(slide);
     const texts: ParsedPptxTextRun[] = [];
     collectTextRuns(slide, texts);
     const images: ParsedPptxImage[] = [];
@@ -178,6 +193,7 @@ export async function parsePptxPresentation(
       images,
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
+      ...metadata,
     });
   }
   const firstSlide = slides[0]?.texts ?? [];
@@ -187,6 +203,16 @@ export async function parsePptxPresentation(
       ?.content.trim()
       .slice(0, 200) || "Imported Presentation";
   return { title, slides, theme };
+}
+
+export function parsePptxSlideMetadata(
+  value: unknown,
+): ParsedPptxSlideMetadata {
+  const slide = record(value)?.["p:sld"] ?? value;
+  return {
+    ...(parsePptxTransition(slide) ? { transition: parsePptxTransition(slide) } : {}),
+    ...(detectSplitByParagraph(slide) ? { splitByParagraph: true } : {}),
+  };
 }
 
 async function parseTheme(
@@ -223,6 +249,17 @@ function collectTextRuns(
 ): void {
   const node = record(value);
   if (!node) return;
+  const paragraphs = asArray(node["a:p"]);
+  if (paragraphs.length > 0) {
+    paragraphs.forEach((paragraph, index) => {
+      const before = runs.length;
+      collectTextRuns(paragraph, runs, inherited);
+      if (runs.length > before && index < paragraphs.length - 1) {
+        runs.push({ content: "\n" });
+      }
+    });
+    return;
+  }
   for (const raw of asArray(node["a:r"])) {
     const run = record(raw);
     const content = innerText(run?.["a:t"]);
@@ -239,6 +276,53 @@ function collectTextRuns(
   for (const [key, child] of Object.entries(node)) {
     if (key.startsWith("@_") || key === "a:r" || key === "a:t") continue;
     for (const item of asArray(child)) collectTextRuns(item, runs, inherited);
+  }
+}
+
+const PPTX_TRANSITION_MAP: Record<string, ParsedPptxTransition> = {
+  "p:fade": "fade",
+  "p:zoom": "zoom",
+  "p:push": "slide",
+  "p:wipe": "slide",
+  "p:split": "slide",
+  "p:cut": "instant",
+};
+
+function parsePptxTransition(
+  value: unknown,
+): ParsedPptxTransition | undefined {
+  const node = record(value);
+  const transition = record(node?.["p:transition"]);
+  if (!transition) return undefined;
+  for (const key of Object.keys(transition)) {
+    const mapped = PPTX_TRANSITION_MAP[key];
+    if (mapped) return mapped;
+  }
+  return undefined;
+}
+
+function detectSplitByParagraph(value: unknown): boolean {
+  let clickParagraphRanges = 0;
+  walk(value, false);
+  return clickParagraphRanges > 1;
+
+  function walk(nodeValue: unknown, clickContext: boolean): void {
+    const node = record(nodeValue);
+    if (!node) return;
+    const nodeType = stringValue(node["@_nodeType"]);
+    const event = stringValue(node["@_evt"]);
+    const nextClickContext =
+      clickContext ||
+      nodeType === "clickEffect" ||
+      nodeType === "clickPar" ||
+      event === "onClick";
+    if (nextClickContext) {
+      clickParagraphRanges += asArray(node["p:pRg"]).length;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if (key.startsWith("@_") || key === "p:pRg") continue;
+      for (const item of asArray(child)) walk(item, nextClickContext);
+    }
   }
 }
 

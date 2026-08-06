@@ -176,6 +176,8 @@ export default defineAction({
           imageNames: slide.images.map((img) => img.name),
           notes: slide.notes,
           layoutHint: slide.layoutHint,
+          transition: slide.transition,
+          splitByParagraph: slide.splitByParagraph,
         })),
         theme: presentation.theme,
         deckId,
@@ -477,7 +479,14 @@ async function buildPptxSlide(
   ownerEmail: string,
   themeFont: string | undefined,
 ): Promise<{
-  slide: { id: string; content: string; layout: string; notes?: string };
+  slide: {
+    id: string;
+    content: string;
+    layout: string;
+    notes?: string;
+    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    splitByParagraph?: boolean;
+  };
   imageSkippedCount: number;
 }> {
   const { convertToSlideHtml } =
@@ -513,6 +522,8 @@ async function buildPptxSlide(
       content: convertToSlideHtml(slide, imageUrl, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
+      ...(slide.transition ? { transition: slide.transition } : {}),
+      ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
     // Only the first image on a slide is ever uploaded, so every other
     // image on that slide is unconditionally dropped too — not just the
@@ -604,6 +615,8 @@ async function appendDeckSlides(
     content: string;
     layout: string;
     notes?: string;
+    transition?: "instant" | "none" | "fade" | "slide" | "zoom";
+    splitByParagraph?: boolean;
   }>,
   source: string,
   aspectRatio?: AspectRatio,

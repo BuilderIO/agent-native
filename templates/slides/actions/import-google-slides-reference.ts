@@ -14,6 +14,38 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
+export function extractGoogleSlidesPresentationId(value: string): string {
+  const candidate = value.trim();
+  if (!candidate)
+    throw new Error("A Google Slides file ID or URL is required.");
+
+  if (!/^https?:\/\//i.test(candidate)) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(candidate)) {
+      throw new Error(
+        "Use a Google Slides file ID or a docs.google.com presentation URL.",
+      );
+    }
+    return candidate;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    throw new Error("Use a valid Google Slides presentation URL.");
+  }
+  if (url.hostname !== "docs.google.com") {
+    throw new Error("Use a docs.google.com Google Slides presentation URL.");
+  }
+  const match = url.pathname.match(
+    /^\/presentation\/d\/([a-zA-Z0-9_-]+)(?:\/|$)/,
+  );
+  if (!match) {
+    throw new Error("That URL is not a Google Slides presentation link.");
+  }
+  return match[1];
+}
+
 async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
   const response = await fetch(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation`,
@@ -38,16 +70,31 @@ async function exportGoogleSlidesAsPptx(fileId: string, accessToken: string) {
 
 export default defineAction({
   description:
-    "Import a Google Slides deck selected from Google Picker and save it as a reusable Slides reference deck. " +
+    "Import a Google Slides deck selected from Google Picker or provided as a Google Slides URL and save it as a reusable Slides reference deck. " +
     "The selected presentation is exported from Drive as PPTX, parsed, and stored as a normal deck in the caller's Slides workspace.",
-  schema: z.object({
-    fileId: z.string().describe("Google Slides file ID from Google Picker"),
-    title: z
-      .string()
-      .optional()
-      .describe("Optional title for the imported reference deck"),
-  }),
-  run: async ({ fileId, title }) => {
+  schema: z
+    .object({
+      fileId: z
+        .string()
+        .optional()
+        .describe("Google Slides file ID from Google Picker"),
+      presentationUrl: z
+        .string()
+        .url()
+        .optional()
+        .describe("A docs.google.com Google Slides presentation URL"),
+      title: z
+        .string()
+        .optional()
+        .describe("Optional title for the imported reference deck"),
+    })
+    .refine(
+      ({ fileId, presentationUrl }) => Boolean(fileId || presentationUrl),
+      {
+        message: "Provide either fileId or presentationUrl.",
+      },
+    ),
+  run: async ({ fileId, presentationUrl, title }) => {
     const owner = getRequestUserEmail();
     if (!owner) throw new Error("no authenticated user");
 
@@ -58,8 +105,11 @@ export default defineAction({
       );
     }
 
+    const presentationId = extractGoogleSlidesPresentationId(
+      presentationUrl ?? fileId ?? "",
+    );
     const fileBuffer = await exportGoogleSlidesAsPptx(
-      fileId,
+      presentationId,
       connection.accessToken,
     );
     return importPptxBufferToDeck({

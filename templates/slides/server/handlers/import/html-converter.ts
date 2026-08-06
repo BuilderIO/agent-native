@@ -166,7 +166,7 @@ function buildContentSlide(
       })
       .join("\n");
 
-    bulletsHtml = `\n    <div style="display: flex; flex-direction: column; gap: 20px;">
+    bulletsHtml = `\n    <div class="fmd-animation-container" style="display: flex; flex-direction: column; gap: 20px;">
 ${bulletItems}
     </div>`;
   }
@@ -232,15 +232,20 @@ function buildOverlayImageSlide(
   const headingHtml = headingPara.map(formatRun).join(" ") || "Slide";
 
   const captionParas = paragraphs.slice(1);
-  const captionHtml = captionParas
-    .map((para) => para.map(formatRun).join(" "))
-    .join(" ");
+  const captionHtml = captionParas.length
+    ? `<div class="fmd-animation-container" style="display: flex; flex-direction: column; gap: 8px;">${captionParas
+        .map(
+          (para) =>
+            `<p style="font-size: 18px; color: rgba(255,255,255,0.75); /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.5; margin: 0;">${para.map(formatRun).join(" ")}</p>`,
+        )
+        .join("\n")}</div>`
+    : "";
 
   return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
     <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
     <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%);"></div>
     <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 56px 70px; font-family: ${fontFamily};">
-      <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 ${captionHtml ? "12px" : "0"} 0;">${headingHtml}</h2>${captionHtml ? `\n      <p style="font-size: 18px; color: rgba(255,255,255,0.75); line-height: 1.5; margin: 0;">${captionHtml}</p>` : ""}
+      <h2 style="font-size: 40px; font-weight: 900; color: #fff; /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.15; letter-spacing: -1px; margin: 0 0 ${captionHtml ? "12px" : "0"} 0;">${headingHtml}</h2>${captionHtml ? `\n      ${captionHtml}` : ""}
     </div>
 </div>`;
 }
@@ -256,9 +261,14 @@ function buildStackedImageSlide(
   const headingText = headingPara.map(formatRun).join(" ") || "Slide";
 
   const captionParas = paragraphs.slice(1);
-  const captionText = captionParas
-    .map((para) => para.map(formatRun).join(" "))
-    .join(" ");
+  const captionText = captionParas.length
+    ? `<div class="fmd-animation-container" style="display: flex; flex-direction: column; gap: 8px;">${captionParas
+        .map(
+          (para) =>
+            `<p style="font-size: 16px; color: rgba(255,255,255,0.7); /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.5; margin: 0;">${para.map(formatRun).join(" ")}</p>`,
+        )
+        .join("\n")}</div>`
+    : "";
 
   const imageName = slide.images[0]?.name ?? "image";
   // Size the box to the image's own placed aspect ratio instead of a fixed
@@ -278,7 +288,7 @@ function buildStackedImageSlide(
 
   return `<div class="fmd-slide" style="padding: 64px 90px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
     ${imageHtml}
-    <h2 style="font-size: 32px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -0.5px; margin: 0 0 12px 0;">${headingText}</h2>${captionText ? `\n    <p style="font-size: 16px; color: rgba(255,255,255,0.7); line-height: 1.5; margin: 0;">${captionText}</p>` : ""}
+    <h2 style="font-size: 32px; font-weight: 900; color: #fff; /* guard:allow-raw-color - standalone imported slide HTML uses fixed contrast colors */ line-height: 1.2; letter-spacing: -0.5px; margin: 0 0 12px 0;">${headingText}</h2>${captionText ? `\n    ${captionText}` : ""}
 </div>`;
 }
 

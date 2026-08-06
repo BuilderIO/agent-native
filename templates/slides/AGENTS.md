@@ -38,6 +38,9 @@ ladder.
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
   large scans with `stageAs` and analyze them via `query-staged-dataset`.
+- `import-google-slides-reference` accepts either a Picker `fileId` or a
+  `presentationUrl`; imported PPTX timing metadata, including by-paragraph
+  reveals, stays on the deck's slide records.
 - Images: call `generate-image-api`, not an image API or Assets directly; keep
   provenance. Show results as `![alt](url)`.
 - Use sharing actions for visibility and grants.
