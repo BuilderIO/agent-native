@@ -30,6 +30,8 @@ export {
 export {
   parsePptxPresentation,
   type ParsedPptxImage,
+  type ParsedPptxElement,
+  type ParsedPptxParagraph,
   type ParsedPptxPresentation,
   type ParsedPptxSlide,
   type ParsedPptxTextRun,

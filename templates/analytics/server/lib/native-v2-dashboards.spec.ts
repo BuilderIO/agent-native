@@ -36,7 +36,7 @@ describe("on-demand billing native v2 dashboard", () => {
     const bindings = Object.fromEntries(
       manifest.requiredBindings.map((key) => [
         key,
-        { programId: `dp-${key.replaceAll(".", "-")}` },
+        { programId: `dp-${key.replace(/\./g, "-")}` },
       ]),
     ) as Partial<Record<NativeV2BindingKey, NativeV2Binding>>;
 

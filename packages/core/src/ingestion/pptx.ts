@@ -4,6 +4,47 @@ export interface ParsedPptxTextRun {
   italic?: boolean;
   fontSize?: number;
   color?: string;
+  fontFamily?: string;
+  underline?: boolean;
+}
+
+export interface ParsedPptxParagraph {
+  runs: ParsedPptxTextRun[];
+  alignment?: "left" | "center" | "right" | "justify";
+  bulletChar?: string;
+  bulletColor?: string;
+  bulletFontFamily?: string;
+  bulletSize?: number;
+  level?: number;
+  marginLeftEmu?: number;
+  indentEmu?: number;
+  lineSpacing?: number;
+  spaceBeforePt?: number;
+  spaceAfterPt?: number;
+}
+
+export interface ParsedPptxElement {
+  id: string;
+  name?: string;
+  kind: "text" | "image" | "shape";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  shapeType?: string;
+  fill?: string;
+  lineColor?: string;
+  lineWidth?: number;
+  padding?: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
+  verticalAlign?: "top" | "middle" | "bottom";
+  paragraphs?: ParsedPptxParagraph[];
+  image?: ParsedPptxImage;
 }
 
 export type ParsedPptxTransition =
@@ -21,11 +62,21 @@ export interface ParsedPptxImage {
   aspectRatio?: number;
   /** True when the picture shape covers at least ~85% of the slide's width and height — a full-bleed background photo rather than an inset card image. */
   fullBleed?: boolean;
+  crop?: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
 }
 
 export interface ParsedPptxSlide {
   texts: ParsedPptxTextRun[];
   images: ParsedPptxImage[];
+  elements: ParsedPptxElement[];
+  widthEmu?: number;
+  heightEmu?: number;
+  backgroundColor?: string;
   notes?: string;
   layoutHint?: string;
   transition?: ParsedPptxTransition;
@@ -105,8 +156,7 @@ export async function parsePptxPresentation(
       continue;
     }
     const metadata = parsePptxSlideMetadata(slide);
-    const texts: ParsedPptxTextRun[] = [];
-    collectTextRuns(slide, texts);
+    let elements: ParsedPptxElement[] = [];
     const images: ParsedPptxImage[] = [];
     const relationshipPath = slidePath.replace(
       /slides\/(slide\d+\.xml)/,
@@ -115,65 +165,20 @@ export async function parsePptxPresentation(
     const slideRelationshipsXml = await zip
       .file(relationshipPath)
       ?.async("string");
-    if (slideRelationshipsXml) {
-      const slideRelationships = parseRelationships(
-        parseXml(slideRelationshipsXml),
-      );
-      // Walk the slide's own picture shapes (in document order) rather than
-      // every image relationship, so each image carries the placed size the
-      // author gave it on the slide — that size is what tells a full-bleed
-      // cover photo apart from a small inset card photo, which a flat
-      // relationship scan has no way to know.
-      const pictureShapes: PictureShape[] = [];
-      collectPictureShapes(slide, pictureShapes);
-      reorderByDocumentPosition(pictureShapes, xml);
-      addBackgroundFillShape(
-        slide,
-        pictureShapes,
-        slideWidthEmu,
-        slideHeightEmu,
-      );
-      for (const shape of pictureShapes) {
-        if (!shape.embedId) continue;
-        const relationship = slideRelationships.get(shape.embedId);
-        if (!relationship) continue;
-        if (
-          !relationship.type.includes("/image") &&
-          !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
-            relationship.target,
-          )
-        ) {
-          continue;
-        }
-        const imagePath = relationship.target.startsWith("/")
-          ? relationship.target.slice(1)
-          : relationship.target.startsWith("../")
-            ? `ppt/${relationship.target.replace(/^\.\.\//, "")}`
-            : `ppt/slides/${relationship.target}`;
-        const image = zip.file(imagePath);
-        if (!image) continue;
-        const name = imagePath.split("/").at(-1) ?? "image";
-        const aspectRatio =
-          shape.widthEmu && shape.heightEmu
-            ? shape.widthEmu / shape.heightEmu
-            : undefined;
-        const fullBleed = Boolean(
-          shape.widthEmu &&
-          shape.heightEmu &&
-          slideWidthEmu &&
-          slideHeightEmu &&
-          shape.widthEmu / slideWidthEmu >= 0.85 &&
-          shape.heightEmu / slideHeightEmu >= 0.85,
-        );
-        images.push({
-          data: new Uint8Array(await image.async("nodebuffer")),
-          mimeType: imageMimeType(name),
-          name,
-          aspectRatio,
-          fullBleed,
-        });
-      }
-    }
+    const slideRelationships = slideRelationshipsXml
+      ? parseRelationships(parseXml(slideRelationshipsXml))
+      : new Map<string, { target: string; type: string }>();
+    elements = await parseSlideElements({
+      xml,
+      parseXml,
+      slide,
+      zip,
+      slideRelationships,
+      slideWidthEmu,
+      slideHeightEmu,
+      images,
+    });
+    const texts = flattenElementText(elements);
     const number = slideNumber(slidePath);
     const notesXml = await zip
       .file(`ppt/notesSlides/notesSlide${number}.xml`)
@@ -191,6 +196,10 @@ export async function parsePptxPresentation(
     slides.push({
       texts,
       images,
+      elements,
+      widthEmu: slideWidthEmu,
+      heightEmu: slideHeightEmu,
+      backgroundColor: extractSlideBackgroundColor(slide),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
       ...metadata,
