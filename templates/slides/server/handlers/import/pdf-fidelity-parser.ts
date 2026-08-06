@@ -59,7 +59,22 @@ export interface TextRunBox extends Rect {
   bold: boolean;
   italic: boolean;
   color: string;
+  underline: boolean;
+  href: string | undefined;
 }
+
+/** A thin filled/stroked rect from the content stream — the usual way PDFs draw an underline (there's no inline "underline" text attribute). */
+export type UnderlineRect = Rect;
+
+/** A "Link" annotation's clickable area plus its target URL, in device coordinates. */
+export interface LinkRect extends Rect {
+  url: string;
+}
+
+/** Max stroke/fill thickness (in device px) still considered a plausible underline rather than a divider or a shape. */
+const MAX_UNDERLINE_THICKNESS = 4;
+/** An underline sits just under a line's baseline; this bounds how far below the text box bottom it can be and still count. */
+const UNDERLINE_PROXIMITY = 0.6;
 
 const DEFAULT_TEXT_COLOR = "#000000"; // guard:allow-raw-color - fallback when the page's real fill color can't be determined
 
@@ -127,8 +142,28 @@ const FILL_PAINT_OPS = new Set([
   OPS.closeEOFillStroke,
 ]);
 
+const STROKE_PAINT_OPS = new Set([
+  OPS.stroke,
+  OPS.closeStroke,
+  OPS.fillStroke,
+  OPS.eoFillStroke,
+  OPS.closeFillStroke,
+  OPS.closeEOFillStroke,
+]);
+
+/** Any op that paints a path (fill or stroke) — an underline can be drawn either way. */
+const PAINT_OPS = new Set([...FILL_PAINT_OPS, ...STROKE_PAINT_OPS]);
+
 /** A page-covering fill is almost always the very first thing painted, so keep the earliest match. */
 const BACKGROUND_COVERAGE_RATIO = 0.9;
+
+/** Color-affecting ops that aren't decoded to a hex value (pattern/separation/ICC fills, gradients). */
+const UNTRACKED_COLOR_OPS = new Set([
+  OPS.setFillColor,
+  OPS.setFillColorN,
+  OPS.setFillColorSpace,
+  OPS.shadingFill,
+]);
 
 /**
  * `getTextContent()` gives baseline position + font size per run but no
@@ -177,6 +212,8 @@ export function textItemToBox(
     bold: /bold/i.test(fontName),
     italic: /italic|oblique/i.test(fontName),
     color,
+    underline: false,
+    href: undefined,
   };
 }
 
@@ -210,7 +247,56 @@ export function mergeLine(items: TextRunBox[]): TextRunBox {
     bold: sorted[0].bold,
     italic: sorted[0].italic,
     color: sorted[0].color,
+    underline: sorted.some((s) => s.underline),
+    href: sorted.find((s) => s.href)?.href,
   };
+}
+
+/**
+ * PDFs don't carry an inline "underline" run attribute — an underline is
+ * just a thin fill/stroke drawn under the text — and a hyperlink is a
+ * separate "Link" annotation with its own clickable rect, not part of the
+ * text run at all. Both are recovered geometrically: a line is underlined
+ * when a thin rect sits directly beneath it, and linked when its box falls
+ * inside a Link annotation's rect.
+ */
+export function annotateLineDecorations(
+  lines: TextRunBox[],
+  underlineRects: UnderlineRect[],
+  linkRects: LinkRect[],
+): TextRunBox[] {
+  return lines.map((line) => {
+    const width = Math.max(1, line.right - line.left);
+    const underline = underlineRects.some((rect) => {
+      const thickness = rect.bottom - rect.top;
+      if (thickness <= 0 || thickness > MAX_UNDERLINE_THICKNESS) return false;
+      const overlapLeft = Math.max(rect.left, line.left);
+      const overlapRight = Math.min(rect.right, line.right);
+      const horizontalOverlap = Math.max(0, overlapRight - overlapLeft);
+      if (horizontalOverlap < width * 0.5) return false;
+      const gap = rect.top - line.bottom;
+      return (
+        gap >= -MAX_UNDERLINE_THICKNESS &&
+        gap <= UNDERLINE_PROXIMITY * line.fontSize
+      );
+    });
+    const href = linkRects.find((rect) => {
+      const overlapLeft = Math.max(rect.left, line.left);
+      const overlapRight = Math.min(rect.right, line.right);
+      const overlapTop = Math.max(rect.top, line.top);
+      const overlapBottom = Math.min(rect.bottom, line.bottom);
+      const overlapWidth = Math.max(0, overlapRight - overlapLeft);
+      const overlapHeight = Math.max(0, overlapBottom - overlapTop);
+      const overlapArea = overlapWidth * overlapHeight;
+      const lineArea = width * Math.max(1, line.bottom - line.top);
+      return overlapArea >= lineArea * 0.4;
+    })?.url;
+    return {
+      ...line,
+      underline: underline || line.underline,
+      href: href ?? line.href,
+    };
+  });
 }
 
 /** Group same-baseline runs into lines, in the order pdf.js emitted them (reading order for typical single-column pages). */
@@ -268,8 +354,10 @@ async function buildTextElements(
   page: PDFPageProxy,
   viewportTransform: Mat,
   pageNumber: number,
-  textColors: string[],
+  textColors: (string | undefined)[],
   fallbackColor: string,
+  underlineRects: UnderlineRect[],
+  linkRects: LinkRect[],
 ): Promise<ParsedElement[]> {
   const content = await page.getTextContent();
   const rawItems = content.items.filter(
@@ -285,13 +373,17 @@ async function buildTextElements(
       textItemToBox(
         item,
         viewportTransform,
-        colorsAlign ? textColors[i] : fallbackColor,
+        (colorsAlign ? textColors[i] : undefined) ?? fallbackColor,
       ),
     )
     .filter((b): b is TextRunBox => b !== undefined);
   if (boxes.length === 0) return [];
 
-  const lines = groupIntoLines(boxes);
+  const lines = annotateLineDecorations(
+    groupIntoLines(boxes),
+    underlineRects,
+    linkRects,
+  );
   const blocks = groupIntoBlocks(lines);
 
   return blocks.map((blockLines, index) => {
@@ -307,6 +399,8 @@ async function buildTextElements(
           color: line.color,
           bold: line.bold,
           italic: line.italic,
+          underline: line.underline,
+          href: line.href,
         },
       ],
       alignment: "left",
@@ -327,8 +421,10 @@ interface PageGraphics {
   imageRects: Rect[];
   /** The earliest fill covering most of the page — almost always the deck's background. */
   backgroundColor: string | undefined;
-  /** Fill color active at each text-showing op, in operator-list order (for zipping against `getTextContent()` items). */
-  textColors: string[];
+  /** Fill color active at each text-showing op, in operator-list order (for zipping against `getTextContent()` items); `undefined` means it wasn't recoverable. */
+  textColors: (string | undefined)[];
+  /** Thin filled/stroked rects found anywhere on the page — underline candidates, matched against text lines afterward. */
+  underlineRects: UnderlineRect[];
 }
 
 /**
@@ -341,29 +437,36 @@ interface PageGraphics {
  * full-page background fill and each text run's real color can be read off
  * as we pass over them — `getTextContent()` alone carries neither.
  */
-async function walkPageGraphics(
+export async function walkPageGraphics(
   page: PDFPageProxy,
   viewport: { transform: Mat; width: number; height: number },
 ): Promise<PageGraphics> {
   const viewportTransform = viewport.transform;
   const opList = await page.getOperatorList();
   const imageRects: Rect[] = [];
-  const textColors: string[] = [];
+  const textColors: (string | undefined)[] = [];
+  const underlineRects: UnderlineRect[] = [];
   let backgroundColor: string | undefined;
   let fillColor = DEFAULT_TEXT_COLOR;
+  // False whenever the color was set through an operator this walk doesn't
+  // decode (a pattern/separation/ICC colorspace fill via `scn`/`SCN`, common
+  // for exact brand colors) — `fillColor` is then a stale guess, not a real
+  // reading, and must not be trusted for text or background detection.
+  let fillColorKnown = false;
   let ctm: Mat = [1, 0, 0, 1, 0, 0];
-  const stack: { ctm: Mat; fillColor: string }[] = [];
+  const stack: { ctm: Mat; fillColor: string; fillColorKnown: boolean }[] = [];
 
   for (let i = 0; i < opList.fnArray.length; i++) {
     const fn = opList.fnArray[i];
     const args = opList.argsArray[i] as unknown[];
     if (fn === OPS.save) {
-      stack.push({ ctm, fillColor });
+      stack.push({ ctm, fillColor, fillColorKnown });
     } else if (fn === OPS.restore) {
       const restored = stack.pop();
       if (restored) {
         ctm = restored.ctm;
         fillColor = restored.fillColor;
+        fillColorKnown = restored.fillColorKnown;
       }
     } else if (fn === OPS.transform) {
       ctm = Util.transform(ctm, args as Mat) as Mat;
@@ -383,15 +486,14 @@ async function walkPageGraphics(
       });
       imageRects.push(rectFromCorners(deviceCorners));
     } else if (TEXT_SHOWING_OPS.has(fn)) {
-      textColors.push(fillColor);
+      textColors.push(fillColorKnown ? fillColor : undefined);
     } else if (fn === OPS.constructPath) {
       const paintOp = args[0];
       const bbox = args[2] as number[] | undefined;
       if (
-        backgroundColor === undefined &&
-        FILL_PAINT_OPS.has(paintOp as number) &&
         bbox &&
-        bbox.every((v) => Number.isFinite(v))
+        bbox.every((v) => Number.isFinite(v)) &&
+        PAINT_OPS.has(paintOp as number)
       ) {
         const [minX, minY, maxX, maxY] = bbox;
         const deviceCorners = [
@@ -404,18 +506,77 @@ async function walkPageGraphics(
           return applyPoint(viewportTransform, ux, uy);
         });
         const rect = rectFromCorners(deviceCorners);
-        const coversPage =
-          rect.right - rect.left >=
-            viewport.width * BACKGROUND_COVERAGE_RATIO &&
-          rect.bottom - rect.top >= viewport.height * BACKGROUND_COVERAGE_RATIO;
-        if (coversPage) backgroundColor = fillColor;
+        if (
+          backgroundColor === undefined &&
+          fillColorKnown &&
+          FILL_PAINT_OPS.has(paintOp as number)
+        ) {
+          const coversPage =
+            rect.right - rect.left >=
+              viewport.width * BACKGROUND_COVERAGE_RATIO &&
+            rect.bottom - rect.top >=
+              viewport.height * BACKGROUND_COVERAGE_RATIO;
+          if (coversPage) backgroundColor = fillColor;
+        }
+        const width = rect.right - rect.left;
+        const height = rect.bottom - rect.top;
+        const thickness = Math.min(width, height);
+        const length = Math.max(width, height);
+        if (
+          thickness > 0 &&
+          thickness <= MAX_UNDERLINE_THICKNESS &&
+          length >= thickness * 3
+        ) {
+          underlineRects.push(rect);
+        }
       }
+    } else if (UNTRACKED_COLOR_OPS.has(fn)) {
+      // Pattern/separation/ICC colorspace fill (scn/SCN) or a gradient
+      // (sh) is not decoded, so the previously tracked fillColor can no
+      // longer be trusted until a recognized rg/g/k op sets it again.
+      fillColorKnown = false;
     } else {
       const color = fillColorFromOp(fn, args as number[]);
-      if (color) fillColor = color;
+      if (color) {
+        fillColor = color;
+        fillColorKnown = true;
+      }
     }
   }
-  return { imageRects, backgroundColor, textColors };
+  return { imageRects, backgroundColor, textColors, underlineRects };
+}
+
+/**
+ * Hyperlinks live outside the content stream entirely, as page-level "Link"
+ * annotations with their own clickable rect and target URL — there's no
+ * operator-list event for them at all.
+ */
+async function collectLinkRects(
+  page: PDFPageProxy,
+  viewportTransform: Mat,
+): Promise<LinkRect[]> {
+  const annotations = (await page.getAnnotations({ intent: "display" })) as {
+    subtype?: string;
+    url?: string;
+    rect?: number[];
+  }[];
+  const rects: LinkRect[] = [];
+  for (const annotation of annotations) {
+    if (annotation.subtype !== "Link" || !annotation.url) continue;
+    const rect = annotation.rect;
+    if (!rect || rect.length !== 4 || !rect.every((v) => Number.isFinite(v))) {
+      continue;
+    }
+    const [x1, y1, x2, y2] = rect;
+    const deviceCorners = [
+      [x1, y1],
+      [x2, y1],
+      [x2, y2],
+      [x1, y2],
+    ].map(([x, y]) => applyPoint(viewportTransform, x, y));
+    rects.push({ ...rectFromCorners(deviceCorners), url: annotation.url });
+  }
+  return rects;
 }
 
 const MIN_IMAGE_POINTS = 4;
@@ -451,6 +612,7 @@ export async function parsePdfFidelity(
         width: viewport.width,
         height: viewport.height,
       });
+      const linkRects = await collectLinkRects(page, viewportTransform);
       const imageRects = graphics.imageRects;
       const imageBytes = imageBytesByPage.get(pageNumber) ?? [];
       const imageElements: ParsedElement[] = imageRects
@@ -481,6 +643,8 @@ export async function parsePdfFidelity(
         pageNumber,
         graphics.textColors,
         contrastingDefaultColor(graphics.backgroundColor),
+        graphics.underlineRects,
+        linkRects,
       );
 
       pages.push({

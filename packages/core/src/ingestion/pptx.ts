@@ -6,6 +6,7 @@ export interface ParsedPptxTextRun {
   color?: string;
   fontFamily?: string;
   underline?: boolean;
+  href?: string;
 }
 
 export interface ParsedPptxParagraph {

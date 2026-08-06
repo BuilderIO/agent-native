@@ -1,14 +1,19 @@
+import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { describe, expect, it } from "vitest";
 
 import {
+  annotateLineDecorations,
   applyPoint,
   contrastingDefaultColor,
   groupIntoBlocks,
   groupIntoLines,
   mergeLine,
   textItemToBox,
+  walkPageGraphics,
+  type LinkRect,
   type Mat,
   type TextRunBox,
+  type UnderlineRect,
 } from "./pdf-fidelity-parser.js";
 
 const IDENTITY: Mat = [1, 0, 0, 1, 0, 0];
@@ -91,6 +96,8 @@ function box(partial: Partial<TextRunBox>): TextRunBox {
     bold: false,
     italic: false,
     color: "#000000",
+    underline: false,
+    href: undefined,
     ...partial,
   };
 }
@@ -195,5 +202,157 @@ describe("contrastingDefaultColor", () => {
 
   it("defaults to black when no background was detected (plain paper)", () => {
     expect(contrastingDefaultColor(undefined)).toBe("#000000");
+  });
+});
+
+function fakePage(fnArray: number[], argsArray: unknown[][]) {
+  return {
+    getOperatorList: async () => ({ fnArray, argsArray }),
+  } as unknown as Parameters<typeof walkPageGraphics>[0];
+}
+
+const VIEWPORT = { transform: IDENTITY, width: 100, height: 100 };
+
+describe("walkPageGraphics", () => {
+  it("reads the real color from a recognized rg op", async () => {
+    const page = fakePage(
+      [OPS.setFillRGBColor, OPS.showText],
+      [[0, 0, 1], [{}]],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.textColors).toEqual(["#0000ff"]);
+  });
+
+  it("marks the color unknown after an undecoded colorspace fill (scn), instead of reusing a stale value", async () => {
+    const page = fakePage(
+      [OPS.setFillColorN, OPS.showText],
+      [["Pattern1"], [{}]],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.textColors).toEqual([undefined]);
+  });
+
+  it("detects a full-page fill as the background when the color is known", async () => {
+    const page = fakePage(
+      [OPS.setFillRGBColor, OPS.constructPath],
+      [
+        [0, 0, 0],
+        [OPS.fill, [], [0, 0, 100, 100]],
+      ],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.backgroundColor).toBe("#000000");
+  });
+
+  it("does not guess a background color from an undecoded colorspace fill", async () => {
+    const page = fakePage(
+      [OPS.setFillColorN, OPS.constructPath],
+      [["Pattern1"], [OPS.fill, [], [0, 0, 100, 100]]],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.backgroundColor).toBeUndefined();
+  });
+
+  it("collects a thin filled rect as an underline candidate", async () => {
+    const page = fakePage(
+      [OPS.setFillRGBColor, OPS.constructPath],
+      [
+        [0, 0, 0],
+        [OPS.fill, [], [10, 50, 40, 51]],
+      ],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.underlineRects).toEqual([
+      { left: 10, top: 50, right: 40, bottom: 51 },
+    ]);
+  });
+
+  it("does not mistake a large filled block for an underline", async () => {
+    const page = fakePage(
+      [OPS.setFillRGBColor, OPS.constructPath],
+      [
+        [0, 0, 0],
+        [OPS.fill, [], [10, 10, 40, 40]],
+      ],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.underlineRects).toEqual([]);
+  });
+});
+
+function underlineRect(partial: Partial<UnderlineRect>): UnderlineRect {
+  return { left: 0, top: 0, right: 10, bottom: 1, ...partial };
+}
+
+function linkRect(partial: Partial<LinkRect>): LinkRect {
+  return {
+    left: 0,
+    top: 0,
+    right: 10,
+    bottom: 10,
+    url: "https://x.test",
+    ...partial,
+  };
+}
+
+describe("annotateLineDecorations", () => {
+  it("marks a line underlined when a thin rect sits just below it", () => {
+    const line = box({ text: "Link", left: 0, top: 0, right: 40, bottom: 12 });
+    const [annotated] = annotateLineDecorations(
+      [line],
+      [underlineRect({ left: 0, right: 40, top: 13, bottom: 14 })],
+      [],
+    );
+    expect(annotated.underline).toBe(true);
+  });
+
+  it("does not underline a line when the rect is far below it", () => {
+    const line = box({ text: "Plain", left: 0, top: 0, right: 40, bottom: 12 });
+    const [annotated] = annotateLineDecorations(
+      [line],
+      [underlineRect({ left: 0, right: 40, top: 60, bottom: 61 })],
+      [],
+    );
+    expect(annotated.underline).toBe(false);
+  });
+
+  it("assigns the annotation's url when a line falls inside a Link rect", () => {
+    const line = box({
+      text: "Visit us",
+      left: 0,
+      top: 0,
+      right: 40,
+      bottom: 12,
+    });
+    const [annotated] = annotateLineDecorations(
+      [line],
+      [],
+      [
+        linkRect({
+          left: 0,
+          top: 0,
+          right: 40,
+          bottom: 12,
+          url: "https://example.com",
+        }),
+      ],
+    );
+    expect(annotated.href).toBe("https://example.com");
+  });
+
+  it("leaves href undefined when no Link annotation overlaps the line", () => {
+    const line = box({
+      text: "No link",
+      left: 0,
+      top: 0,
+      right: 40,
+      bottom: 12,
+    });
+    const [annotated] = annotateLineDecorations(
+      [line],
+      [],
+      [linkRect({ left: 200, top: 200, right: 240, bottom: 212 })],
+    );
+    expect(annotated.href).toBeUndefined();
   });
 });
