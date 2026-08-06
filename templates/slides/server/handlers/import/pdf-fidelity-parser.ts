@@ -3,6 +3,7 @@ import type {
   PDFDocumentProxy,
   PDFPageProxy,
 } from "pdfjs-dist/legacy/build/pdf.mjs";
+import type { TextItem } from "pdfjs-dist/types/src/display/api.js";
 
 import type { ParsedElement, ParsedParagraph } from "./pptx-parser.js";
 
@@ -16,6 +17,8 @@ export interface PdfFidelityPage {
   pageNumber: number;
   widthEmu: number;
   heightEmu: number;
+  /** The page's own painted background, when a full-page fill was found; undefined means "plain paper" (render white). */
+  backgroundColor: string | undefined;
   /** Images first (so they paint as backgrounds), then text blocks on top. */
   elements: ParsedElement[];
 }
@@ -55,7 +58,77 @@ export interface TextRunBox extends Rect {
   fontSize: number;
   bold: boolean;
   italic: boolean;
+  color: string;
 }
+
+const DEFAULT_TEXT_COLOR = "#000000"; // guard:allow-raw-color - fallback when the page's real fill color can't be determined
+
+/** `rg`/`g`/`k` operator args (0..1 components) converted to a `#rrggbb` string. */
+function rgbToHex(r: number, g: number, b: number): string {
+  const toByte = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v * 255)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${toByte(r)}${toByte(g)}${toByte(b)}`;
+}
+
+function cmykToHex(c: number, m: number, y: number, k: number): string {
+  return rgbToHex((1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k));
+}
+
+/**
+ * When a run's real fill color can't be recovered (the color timeline
+ * didn't line up 1:1 with `getTextContent()`'s items), defaulting to a
+ * fixed black is invisible on a dark deck background — this reads black on
+ * a light page and white on a dark one instead, using the same background
+ * this page already resolved to.
+ */
+export function contrastingDefaultColor(
+  backgroundColor: string | undefined,
+): string {
+  const hex = backgroundColor ?? "#ffffff"; // guard:allow-raw-color - plain-paper fallback, not a design-system token
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance < 0.5 ? "#ffffff" : "#000000"; // guard:allow-raw-color - contrast fallback, not a design-system token
+}
+
+/** Returns the fill color set by this op, or undefined when it isn't a (simple RGB/gray/CMYK) fill-color op. */
+function fillColorFromOp(fn: number, args: unknown[]): string | undefined {
+  if (fn === OPS.setFillRGBColor) {
+    const [r, g, b] = args as number[];
+    return rgbToHex(r, g, b);
+  }
+  if (fn === OPS.setFillGray) {
+    const [gray] = args as number[];
+    return rgbToHex(gray, gray, gray);
+  }
+  if (fn === OPS.setFillCMYKColor) {
+    const [c, m, y, k] = args as number[];
+    return cmykToHex(c, m, y, k);
+  }
+  return undefined;
+}
+
+const TEXT_SHOWING_OPS = new Set([
+  OPS.showText,
+  OPS.showSpacedText,
+  OPS.nextLineShowText,
+  OPS.nextLineSetSpacingShowText,
+]);
+
+const FILL_PAINT_OPS = new Set([
+  OPS.fill,
+  OPS.eoFill,
+  OPS.fillStroke,
+  OPS.eoFillStroke,
+  OPS.closeFillStroke,
+  OPS.closeEOFillStroke,
+]);
+
+/** A page-covering fill is almost always the very first thing painted, so keep the earliest match. */
+const BACKGROUND_COVERAGE_RATIO = 0.9;
 
 /**
  * `getTextContent()` gives baseline position + font size per run but no
@@ -65,8 +138,10 @@ export interface TextRunBox extends Rect {
  * the right place even though the emitted element itself is axis-aligned.
  */
 export function textItemToBox(
-  item: { str: string; transform: number[]; width: number; fontName?: string },
+  item: Pick<TextItem, "str" | "transform" | "width"> &
+    Partial<Pick<TextItem, "fontName">>,
   viewportTransform: Mat,
+  color: string = DEFAULT_TEXT_COLOR,
 ): TextRunBox | undefined {
   const text = item.str;
   if (!text || !text.trim()) return undefined;
@@ -101,6 +176,7 @@ export function textItemToBox(
     fontSize,
     bold: /bold/i.test(fontName),
     italic: /italic|oblique/i.test(fontName),
+    color,
   };
 }
 
@@ -133,6 +209,7 @@ export function mergeLine(items: TextRunBox[]): TextRunBox {
     fontSize: sorted[0].fontSize,
     bold: sorted[0].bold,
     italic: sorted[0].italic,
+    color: sorted[0].color,
   };
 }
 
@@ -191,21 +268,25 @@ async function buildTextElements(
   page: PDFPageProxy,
   viewportTransform: Mat,
   pageNumber: number,
+  textColors: string[],
+  fallbackColor: string,
 ): Promise<ParsedElement[]> {
   const content = await page.getTextContent();
-  const boxes = content.items
-    .map((item) =>
-      "str" in item
-        ? textItemToBox(
-            item as {
-              str: string;
-              transform: number[];
-              width: number;
-              fontName?: string;
-            },
-            viewportTransform,
-          )
-        : undefined,
+  const rawItems = content.items.filter(
+    (item): item is TextItem => "str" in item,
+  );
+  // Only trust the color timeline when it lines up 1:1 with the text items —
+  // pdf.js can split one showText op into multiple items (or vice versa) for
+  // heavily kerned text, and a misaligned zip would paint the wrong run the
+  // wrong color, which is worse than the uniform default.
+  const colorsAlign = textColors.length === rawItems.length;
+  const boxes = rawItems
+    .map((item, i) =>
+      textItemToBox(
+        item,
+        viewportTransform,
+        colorsAlign ? textColors[i] : fallbackColor,
+      ),
     )
     .filter((b): b is TextRunBox => b !== undefined);
   if (boxes.length === 0) return [];
@@ -223,7 +304,7 @@ async function buildTextElements(
         {
           content: line.text,
           fontSize: line.fontSize,
-          color: "#000000", // guard:allow-raw-color - PDF text extraction carries no reliable fill-color metadata
+          color: line.color,
           bold: line.bold,
           italic: line.italic,
         },
@@ -242,31 +323,50 @@ async function buildTextElements(
   });
 }
 
+interface PageGraphics {
+  imageRects: Rect[];
+  /** The earliest fill covering most of the page — almost always the deck's background. */
+  backgroundColor: string | undefined;
+  /** Fill color active at each text-showing op, in operator-list order (for zipping against `getTextContent()` items). */
+  textColors: string[];
+}
+
 /**
  * Images are painted into a unit square [0,1]x[0,1] transformed by the CTM
  * at the time of the paint op — there is no separate "image extent"
  * operator, so real placement requires walking the operator list and
  * tracking the transform stack through save/restore/transform, exactly
- * like `pdf-parse`'s own internal path-geometry walk does for shapes.
+ * like `pdf-parse`'s own internal path-geometry walk does for shapes. The
+ * same walk also tracks the current fill color (from `rg`/`g`/`k` ops) so a
+ * full-page background fill and each text run's real color can be read off
+ * as we pass over them — `getTextContent()` alone carries neither.
  */
-async function buildImageRects(
+async function walkPageGraphics(
   page: PDFPageProxy,
-  viewportTransform: Mat,
-): Promise<Rect[]> {
+  viewport: { transform: Mat; width: number; height: number },
+): Promise<PageGraphics> {
+  const viewportTransform = viewport.transform;
   const opList = await page.getOperatorList();
-  const rects: Rect[] = [];
+  const imageRects: Rect[] = [];
+  const textColors: string[] = [];
+  let backgroundColor: string | undefined;
+  let fillColor = DEFAULT_TEXT_COLOR;
   let ctm: Mat = [1, 0, 0, 1, 0, 0];
-  const stack: Mat[] = [];
+  const stack: { ctm: Mat; fillColor: string }[] = [];
+
   for (let i = 0; i < opList.fnArray.length; i++) {
     const fn = opList.fnArray[i];
+    const args = opList.argsArray[i] as unknown[];
     if (fn === OPS.save) {
-      stack.push(ctm);
+      stack.push({ ctm, fillColor });
     } else if (fn === OPS.restore) {
       const restored = stack.pop();
-      if (restored) ctm = restored;
+      if (restored) {
+        ctm = restored.ctm;
+        fillColor = restored.fillColor;
+      }
     } else if (fn === OPS.transform) {
-      const args = opList.argsArray[i] as Mat;
-      ctm = Util.transform(ctm, args) as Mat;
+      ctm = Util.transform(ctm, args as Mat) as Mat;
     } else if (
       fn === OPS.paintImageXObject ||
       fn === OPS.paintInlineImageXObject
@@ -281,10 +381,41 @@ async function buildImageRects(
         const [ux, uy] = applyPoint(ctm, x, y);
         return applyPoint(viewportTransform, ux, uy);
       });
-      rects.push(rectFromCorners(deviceCorners));
+      imageRects.push(rectFromCorners(deviceCorners));
+    } else if (TEXT_SHOWING_OPS.has(fn)) {
+      textColors.push(fillColor);
+    } else if (fn === OPS.constructPath) {
+      const paintOp = args[0];
+      const bbox = args[2] as number[] | undefined;
+      if (
+        backgroundColor === undefined &&
+        FILL_PAINT_OPS.has(paintOp as number) &&
+        bbox &&
+        bbox.every((v) => Number.isFinite(v))
+      ) {
+        const [minX, minY, maxX, maxY] = bbox;
+        const deviceCorners = [
+          [minX, minY],
+          [maxX, minY],
+          [maxX, maxY],
+          [minX, maxY],
+        ].map(([x, y]) => {
+          const [ux, uy] = applyPoint(ctm, x, y);
+          return applyPoint(viewportTransform, ux, uy);
+        });
+        const rect = rectFromCorners(deviceCorners);
+        const coversPage =
+          rect.right - rect.left >=
+            viewport.width * BACKGROUND_COVERAGE_RATIO &&
+          rect.bottom - rect.top >= viewport.height * BACKGROUND_COVERAGE_RATIO;
+        if (coversPage) backgroundColor = fillColor;
+      }
+    } else {
+      const color = fillColorFromOp(fn, args as number[]);
+      if (color) fillColor = color;
     }
   }
-  return rects;
+  return { imageRects, backgroundColor, textColors };
 }
 
 const MIN_IMAGE_POINTS = 4;
@@ -315,7 +446,12 @@ export async function parsePdfFidelity(
       const viewport = page.getViewport({ scale: 1, rotation: page.rotate });
       const viewportTransform = viewport.transform as Mat;
 
-      const imageRects = await buildImageRects(page, viewportTransform);
+      const graphics = await walkPageGraphics(page, {
+        transform: viewportTransform,
+        width: viewport.width,
+        height: viewport.height,
+      });
+      const imageRects = graphics.imageRects;
       const imageBytes = imageBytesByPage.get(pageNumber) ?? [];
       const imageElements: ParsedElement[] = imageRects
         .map((rect, index) => ({ rect, data: imageBytes[index] }))
@@ -343,12 +479,15 @@ export async function parsePdfFidelity(
         page,
         viewportTransform,
         pageNumber,
+        graphics.textColors,
+        contrastingDefaultColor(graphics.backgroundColor),
       );
 
       pages.push({
         pageNumber,
         widthEmu: viewport.width * EMU_PER_POINT,
         heightEmu: viewport.height * EMU_PER_POINT,
+        backgroundColor: graphics.backgroundColor,
         elements: [...imageElements, ...textElements],
       });
     } catch (err) {
@@ -356,7 +495,13 @@ export async function parsePdfFidelity(
         `[import-file] PDF fidelity parse failed for page ${pageNumber}, falling back for this page:`,
         err instanceof Error ? err.message : String(err),
       );
-      pages.push({ pageNumber, widthEmu: 0, heightEmu: 0, elements: [] });
+      pages.push({
+        pageNumber,
+        widthEmu: 0,
+        heightEmu: 0,
+        backgroundColor: undefined,
+        elements: [],
+      });
     }
   }
   return pages;

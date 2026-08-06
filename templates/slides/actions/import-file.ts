@@ -441,7 +441,8 @@ async function importPdfPagesWithFidelity(args: {
           elements: fidelity.elements,
           widthEmu: fidelity.widthEmu,
           heightEmu: fidelity.heightEmu,
-          backgroundColor: "#ffffff", // guard:allow-raw-color - a PDF page's own paper background, not a design-system token
+          // A page with no detected full-page fill is plain paper.
+          backgroundColor: fidelity.backgroundColor ?? "#ffffff", // guard:allow-raw-color - fallback plain-paper background, not a design-system token
         },
         uploaded.urls,
       );

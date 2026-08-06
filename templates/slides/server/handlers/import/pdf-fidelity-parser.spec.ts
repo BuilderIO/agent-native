@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyPoint,
+  contrastingDefaultColor,
   groupIntoBlocks,
   groupIntoLines,
   mergeLine,
@@ -60,6 +61,23 @@ describe("textItemToBox", () => {
     expect(box!.bold).toBe(true);
     expect(box!.italic).toBe(true);
   });
+
+  it("defaults to black when no color is passed", () => {
+    const box = textItemToBox(
+      { str: "Plain", transform: IDENTITY, width: 10 },
+      IDENTITY,
+    );
+    expect(box!.color).toBe("#000000");
+  });
+
+  it("carries the real fill color through when one is passed", () => {
+    const box = textItemToBox(
+      { str: "Blue", transform: IDENTITY, width: 10 },
+      IDENTITY,
+      "#0066ff",
+    );
+    expect(box!.color).toBe("#0066ff");
+  });
 });
 
 function box(partial: Partial<TextRunBox>): TextRunBox {
@@ -72,6 +90,7 @@ function box(partial: Partial<TextRunBox>): TextRunBox {
     fontSize: 10,
     bold: false,
     italic: false,
+    color: "#000000",
     ...partial,
   };
 }
@@ -83,6 +102,14 @@ describe("mergeLine", () => {
       box({ text: "lo", left: 20, right: 35 }),
     ]);
     expect(merged.text).toBe("Hello");
+  });
+
+  it("carries the leftmost run color", () => {
+    const merged = mergeLine([
+      box({ text: "Nike", left: 0, right: 30, color: "#0066ff" }),
+      box({ text: "NYC", left: 32, right: 55, color: "#0066ff" }),
+    ]);
+    expect(merged.color).toBe("#0066ff");
   });
 
   it("inserts a space across a word-sized gap", () => {
@@ -154,5 +181,19 @@ describe("groupIntoBlocks", () => {
     ];
     const blocks = groupIntoBlocks(lines);
     expect(blocks).toHaveLength(2);
+  });
+});
+
+describe("contrastingDefaultColor", () => {
+  it("reads white on a dark background so text stays visible", () => {
+    expect(contrastingDefaultColor("#000000")).toBe("#ffffff");
+  });
+
+  it("reads black on a light background", () => {
+    expect(contrastingDefaultColor("#ffffff")).toBe("#000000");
+  });
+
+  it("defaults to black when no background was detected (plain paper)", () => {
+    expect(contrastingDefaultColor(undefined)).toBe("#000000");
   });
 });
