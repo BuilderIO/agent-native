@@ -19,14 +19,6 @@ import {
 } from "@agent-native/toolkit/ui/select";
 import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@agent-native/toolkit/ui/table";
-import {
   IconUserPlus,
   IconTrash,
   IconCrown,
@@ -171,13 +163,13 @@ function OrganizationHelp({ content }: { content: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <Button
           type="button"
           aria-label="More information"
           className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
         >
           <IconHelpCircle className="size-3.5" />
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs leading-5">{content}</TooltipContent>
     </Tooltip>
@@ -548,11 +540,10 @@ function MembersTableCard({
       a.role,
     ]),
   );
-  const columnCount = appRoles ? 5 : 4;
 
   return (
-    <section className="rounded-lg border border-border bg-card">
-      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
+      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-medium">{t("org.members")}</h3>
           <p className="text-xs text-muted-foreground">
@@ -580,64 +571,44 @@ function MembersTableCard({
           />
         </div>
       )}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("org.member")}</TableHead>
-            <TableHead>{t("org.role")}</TableHead>
-            {appRoles && (
-              <TableHead>{appRoles.label ?? appRoles.appId}</TableHead>
-            )}
-            <TableHead>{t("org.status")}</TableHead>
-            <TableHead className="text-end">{t("org.actions")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoadingMembers && members.length === 0 ? (
-            [0, 1, 2].map((i) => (
-              <TableRow key={i}>
-                <TableCell colSpan={columnCount}>
-                  <div
-                    className="h-3.5 rounded bg-muted animate-pulse"
-                    style={{ width: `${180 + i * 48}px` }}
-                  />
-                </TableCell>
-              </TableRow>
-            ))
-          ) : members.length === 0 && pendingInvites.length === 0 ? (
-            <TableRow>
-              <TableCell
-                colSpan={columnCount}
-                className="py-8 text-center text-sm text-muted-foreground"
-              >
-                {t("org.noMembers")}
-              </TableCell>
-            </TableRow>
-          ) : (
-            <>
-              {members.map((m) => (
-                <MemberRow
-                  key={m.email}
-                  email={m.email}
-                  role={m.role}
-                  isCurrentUser={m.email === currentUserEmail}
-                  currentUserRole={currentUserRole}
-                  appRoles={appRoles}
-                  appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
-                  canManageAppRoles={Boolean(appRoleData?.canManage)}
+      <div className="divide-y divide-border/60 border-t border-border/60">
+        {isLoadingMembers && members.length === 0 ? (
+          [0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 px-5 py-4">
+              <div className="size-8 animate-pulse rounded-full bg-muted" />
+              <div className="space-y-2">
+                <div
+                  className="h-3.5 animate-pulse rounded bg-muted"
+                  style={{ width: `${180 + i * 48}px` }}
                 />
-              ))}
-              {pendingInvites.map((inv) => (
-                <PendingInviteRow
-                  key={inv.id}
-                  invite={inv}
-                  hasAppRoleColumn={Boolean(appRoles)}
-                />
-              ))}
-            </>
-          )}
-        </TableBody>
-      </Table>
+                <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+              </div>
+            </div>
+          ))
+        ) : members.length === 0 && pendingInvites.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+            {t("org.noMembers")}
+          </div>
+        ) : (
+          <>
+            {members.map((m) => (
+              <MemberRow
+                key={m.email}
+                email={m.email}
+                role={m.role}
+                isCurrentUser={m.email === currentUserEmail}
+                currentUserRole={currentUserRole}
+                appRoles={appRoles}
+                appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
+                canManageAppRoles={Boolean(appRoleData?.canManage)}
+              />
+            ))}
+            {pendingInvites.map((inv) => (
+              <PendingInviteRow key={inv.id} invite={inv} />
+            ))}
+          </>
+        )}
+      </div>
     </section>
   );
 }
@@ -743,43 +714,41 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-function PendingInviteRow({
-  invite,
-  hasAppRoleColumn,
-}: {
-  invite: PendingInviteListItem;
-  hasAppRoleColumn?: boolean;
-}) {
+function memberInitials(email: string): string {
+  const localPart = email.split("@", 1)[0] ?? email;
+  const initials = localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+  return initials || "?";
+}
+
+function PendingInviteRow({ invite }: { invite: PendingInviteListItem }) {
   const t = useT();
   return (
-    <TableRow className="opacity-70">
-      <TableCell className="min-w-56">
-        <span className="truncate text-sm">{invite.email}</span>
-      </TableCell>
-      <TableCell>
+    <div className="flex flex-col gap-3 px-5 py-3.5 opacity-70 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground">
+          {memberInitials(invite.email)}
+        </div>
+        <span className="min-w-0 truncate text-sm">{invite.email}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
         <RoleBadge role={invite.role} />
-      </TableCell>
-      {/* App roles hang off membership, so there is nothing to assign until the
-          invitation is accepted. */}
-      {hasAppRoleColumn && (
-        <TableCell>
-          <span className="text-muted-foreground">-</span>
-        </TableCell>
-      )}
-      <TableCell>
         <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
           {t("org.invited")}
         </span>
-      </TableCell>
-      <TableCell className="text-end text-muted-foreground">-</TableCell>
-    </TableRow>
+      </div>
+    </div>
   );
 }
 
 /** Sentinel for "clear the assignment" — Select cannot carry an empty value. */
 const UNASSIGNED = "__unassigned__";
 
-function AppRoleCell({
+function AppRoleControl({
   email,
   appRoles,
   appRole,
@@ -796,44 +765,42 @@ function AppRoleCell({
 
   if (editing) {
     return (
-      <TableCell>
-        <Select
-          defaultOpen
-          value={appRole ?? UNASSIGNED}
-          onOpenChange={(open) => {
-            if (!open) setEditing(false);
-          }}
-          onValueChange={(value) => {
-            const next = value === UNASSIGNED ? null : value;
-            if (next === appRole) {
-              setEditing(false);
-              return;
-            }
-            setAppRole.mutate(
-              { email, role: next },
-              { onSuccess: () => setEditing(false) },
-            );
-          }}
-          disabled={setAppRole.isPending}
+      <Select
+        defaultOpen
+        value={appRole ?? UNASSIGNED}
+        onOpenChange={(open) => {
+          if (!open) setEditing(false);
+        }}
+        onValueChange={(value) => {
+          const next = value === UNASSIGNED ? null : value;
+          if (next === appRole) {
+            setEditing(false);
+            return;
+          }
+          setAppRole.mutate(
+            { email, role: next },
+            { onSuccess: () => setEditing(false) },
+          );
+        }}
+        disabled={setAppRole.isPending}
+      >
+        <SelectTrigger
+          autoFocus
+          className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
         >
-          <SelectTrigger
-            autoFocus
-            className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={UNASSIGNED}>
-              {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={UNASSIGNED}>
+            {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+          </SelectItem>
+          {appRoles.roles.map((r) => (
+            <SelectItem key={r} value={r}>
+              {labelFor(r)}
             </SelectItem>
-            {appRoles.roles.map((r) => (
-              <SelectItem key={r} value={r}>
-                {labelFor(r)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </TableCell>
+          ))}
+        </SelectContent>
+      </Select>
     );
   }
 
@@ -849,20 +816,16 @@ function AppRoleCell({
     </span>
   );
 
-  return (
-    <TableCell>
-      {canManage ? (
-        <Button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="cursor-pointer rounded hover:opacity-80"
-        >
-          {display}
-        </Button>
-      ) : (
-        display
-      )}
-    </TableCell>
+  return canManage ? (
+    <Button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="cursor-pointer rounded hover:opacity-80"
+    >
+      {display}
+    </Button>
+  ) : (
+    display
   );
 }
 
@@ -899,33 +862,32 @@ function MemberRow({
       (currentUserRole === "admin" && role === "member"));
 
   return (
-    <TableRow>
-      <TableCell className="min-w-56">
-        <span className="truncate text-sm">{email}</span>
-      </TableCell>
-      <TableCell>
+    <div className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground">
+          {memberInitials(email)}
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-sm">{email}</div>
+          {isCurrentUser && (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {t("org.you")}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
         <RoleBadge role={role} />
-      </TableCell>
-      {appRoles && (
-        <AppRoleCell
-          email={email}
-          appRoles={appRoles}
-          appRole={appRole ?? null}
-          canManage={Boolean(canManageAppRoles)}
-        />
-      )}
-      <TableCell>
-        {isCurrentUser ? (
-          <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {t("org.you")}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">-</span>
+        {appRoles && (
+          <AppRoleControl
+            email={email}
+            appRoles={appRoles}
+            appRole={appRole ?? null}
+            canManage={Boolean(canManageAppRoles)}
+          />
         )}
-      </TableCell>
-      <TableCell>
-        {canManage ? (
-          <div className="flex shrink-0 items-center justify-end gap-1">
+        {canManage && (
+          <div className="flex shrink-0 items-center gap-1">
             {editing ? (
               <Select
                 defaultOpen
@@ -948,7 +910,7 @@ function MemberRow({
               >
                 <SelectTrigger
                   autoFocus
-                  className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                  className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
                 >
                   <SelectValue />
                 </SelectTrigger>
@@ -1015,11 +977,9 @@ function MemberRow({
               </Tooltip>
             )}
           </div>
-        ) : (
-          <div className="text-end text-muted-foreground">-</div>
         )}
-      </TableCell>
-    </TableRow>
+      </div>
+    </div>
   );
 }
 
@@ -1515,7 +1475,7 @@ function DomainSettingsSection({
         )
       }
     >
-      <ErrorText error={setOrgDomain.error} />
+      {setOrgDomain.error ? <ErrorText error={setOrgDomain.error} /> : null}
     </SettingsRow>
   );
 }
@@ -1641,7 +1601,9 @@ function WorkspaceUrlSettingsSection({
         )
       }
     >
-      <ErrorText error={setWorkspaceUrl.error} />
+      {setWorkspaceUrl.error ? (
+        <ErrorText error={setWorkspaceUrl.error} />
+      ) : null}
     </SettingsRow>
   );
 }
@@ -1664,28 +1626,32 @@ function AuthProviderSettingsSection({
   }
 
   return (
-    <SettingsRow
-      id="organization-sign-in"
-      label={
-        <OrganizationSettingLabel help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins.">
-          Organization sign-in
-        </OrganizationSettingLabel>
-      }
-      control={
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">
-            {enabled ? "Google required" : "Google optional"}
-          </span>
-          <Switch
-            checked={enabled}
-            disabled={setAuthProvider.isPending}
-            onCheckedChange={changeProvider}
-            aria-label="Require Google sign-in"
-          />
-        </div>
-      }
-    >
-      <ErrorText error={setAuthProvider.error} />
+    <>
+      <SettingsRow
+        id="organization-sign-in"
+        label={
+          <OrganizationSettingLabel help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins.">
+            Organization sign-in
+          </OrganizationSettingLabel>
+        }
+        control={
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium">
+              {enabled ? "Google required" : "Google optional"}
+            </span>
+            <Switch
+              checked={enabled}
+              disabled={setAuthProvider.isPending}
+              onCheckedChange={changeProvider}
+              aria-label="Require Google sign-in"
+            />
+          </div>
+        }
+      >
+        {setAuthProvider.error ? (
+          <ErrorText error={setAuthProvider.error} />
+        ) : null}
+      </SettingsRow>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -1717,7 +1683,7 @@ function AuthProviderSettingsSection({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </SettingsRow>
+    </>
   );
 }
 
@@ -1884,98 +1850,106 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
               Sync
             </Button>
           )}
-        </div>
-      }
-    >
-      <div className="space-y-3">
-        {syncA2ASecret.isPending && (
-          <p className="text-xs text-muted-foreground">
-            Syncing to connected apps…
-          </p>
-        )}
-
-        {syncResult && !syncA2ASecret.isPending && (
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">
-              Synced to {syncResult.succeeded}/{syncResult.total} app
-              {syncResult.total === 1 ? "" : "s"}
-              {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
-            </p>
-            {syncResult.failed > 0 && (
-              <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
-                {syncResult.results
-                  .filter((r) => !r.ok)
-                  .map((r) => (
-                    <li key={r.id}>
-                      {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
-                    </li>
-                  ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {!pasteMode ? (
-          <Button
-            type="button"
-            intent="neutral"
-            emphasis="outline"
-            onClick={() => setPasteMode(true)}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
-          >
-            <IconKey size={14} />
-            Paste secret from another app
-          </Button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={pasteValue}
-              onChange={(e) => setPasteValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") saveSecret();
-                if (e.key === "Escape") {
-                  setPasteMode(false);
-                  setPasteValue("");
-                }
-              }}
-              placeholder="Paste A2A secret"
-              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
-              autoFocus
-            />
-            <Button
-              type="button"
-              intent="primary"
-              emphasis="solid"
-              disabled={!pasteValue.trim() || setA2ASecret.isPending}
-              onClick={saveSecret}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              {setA2ASecret.isPending ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                "Save"
-              )}
-            </Button>
+          {!pasteMode && (
             <Button
               type="button"
               intent="neutral"
               emphasis="outline"
-              onClick={() => {
-                setPasteMode(false);
-                setPasteValue("");
-              }}
-              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              onClick={() => setPasteMode(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
             >
-              Cancel
+              <IconKey size={14} />
+              Paste secret
             </Button>
-          </div>
-        )}
+          )}
+        </div>
+      }
+    >
+      {(pasteMode ||
+        syncA2ASecret.isPending ||
+        syncResult ||
+        revealA2ASecret.error ||
+        setA2ASecret.error ||
+        syncA2ASecret.error) && (
+        <div className="space-y-3">
+          {syncA2ASecret.isPending && (
+            <p className="text-xs text-muted-foreground">
+              Syncing to connected apps…
+            </p>
+          )}
 
-        <ErrorText error={revealA2ASecret.error} />
-        <ErrorText error={setA2ASecret.error} />
-        <ErrorText error={syncA2ASecret.error} />
-      </div>
+          {syncResult && !syncA2ASecret.isPending && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Synced to {syncResult.succeeded}/{syncResult.total} app
+                {syncResult.total === 1 ? "" : "s"}
+                {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
+              </p>
+              {syncResult.failed > 0 && (
+                <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
+                  {syncResult.results
+                    .filter((r) => !r.ok)
+                    .map((r) => (
+                      <li key={r.id}>
+                        {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {pasteMode ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={pasteValue}
+                onChange={(e) => setPasteValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveSecret();
+                  if (e.key === "Escape") {
+                    setPasteMode(false);
+                    setPasteValue("");
+                  }
+                }}
+                placeholder="Paste A2A secret"
+                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
+                autoFocus
+              />
+              <Button
+                type="button"
+                intent="primary"
+                emphasis="solid"
+                disabled={!pasteValue.trim() || setA2ASecret.isPending}
+                onClick={saveSecret}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {setA2ASecret.isPending ? (
+                  <IconLoader2 size={14} className="animate-spin" />
+                ) : (
+                  "Save"
+                )}
+              </Button>
+              <Button
+                type="button"
+                intent="neutral"
+                emphasis="outline"
+                onClick={() => {
+                  setPasteMode(false);
+                  setPasteValue("");
+                }}
+                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : null}
+
+          <ErrorText error={revealA2ASecret.error} />
+          <ErrorText error={setA2ASecret.error} />
+          <ErrorText error={syncA2ASecret.error} />
+        </div>
+      )}
     </SettingsRow>
   );
 }
