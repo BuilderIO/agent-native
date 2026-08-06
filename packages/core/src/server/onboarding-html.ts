@@ -95,10 +95,9 @@ const EN_AUTH_COPY = {
   passwordMinPlaceholder: "At least 8 characters",
   confirmPasswordPlaceholder: "Confirm password",
   enterPasswordPlaceholder: "Enter password",
-  magicLinkTitle: "Sign in with a link",
-  magicLinkSubtitle:
-    "Enter your email and we'll send you a secure sign-in link",
-  sendMagicLink: "Email me a sign-in link",
+  magicLinkTitle: "Welcome",
+  magicLinkSubtitle: "Create an account or sign in",
+  sendMagicLink: "Continue",
   magicLinkSent: "Check your email",
   magicLinkSentCopy: "We sent a secure sign-in link to",
   magicLinkFailed: "Could not send sign-in link.",
@@ -199,9 +198,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "至少 8 个字符",
     confirmPasswordPlaceholder: "确认密码",
     enterPasswordPlaceholder: "输入密码",
-    magicLinkTitle: "使用链接登录",
-    magicLinkSubtitle: "输入邮箱，我们会发送安全登录链接",
-    sendMagicLink: "发送登录链接到邮箱",
+    magicLinkTitle: "欢迎",
+    magicLinkSubtitle: "创建账户或登录",
+    sendMagicLink: "继续",
     magicLinkSent: "检查你的邮箱",
     magicLinkSentCopy: "我们已向以下邮箱发送安全登录链接：",
     magicLinkFailed: "无法发送登录链接。",
@@ -296,9 +295,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "至少 8 個字元",
     confirmPasswordPlaceholder: "確認密碼",
     enterPasswordPlaceholder: "輸入密碼",
-    magicLinkTitle: "使用連結登入",
-    magicLinkSubtitle: "輸入電子郵件，我們會寄送安全登入連結",
-    sendMagicLink: "寄送登入連結",
+    magicLinkTitle: "歡迎",
+    magicLinkSubtitle: "建立帳戶或登入",
+    sendMagicLink: "繼續",
     magicLinkSent: "檢查你的電子郵件",
     magicLinkSentCopy: "我們已向以下電子郵件寄送安全登入連結：",
     magicLinkFailed: "無法寄送登入連結。",
@@ -394,9 +393,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Al menos 8 caracteres",
     confirmPasswordPlaceholder: "Confirmar contraseña",
     enterPasswordPlaceholder: "Introduce la contraseña",
-    magicLinkTitle: "Inicia sesión con un enlace",
-    magicLinkSubtitle: "Introduce tu email y te enviaremos un enlace seguro",
-    sendMagicLink: "Enviarme un enlace de inicio de sesión",
+    magicLinkTitle: "Bienvenido",
+    magicLinkSubtitle: "Crea una cuenta o inicia sesión",
+    sendMagicLink: "Continuar",
     magicLinkSent: "Revisa tu email",
     magicLinkSentCopy: "Enviamos un enlace seguro a",
     magicLinkFailed: "No se pudo enviar el enlace de inicio de sesión.",
@@ -499,10 +498,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Au moins 8 caractères",
     confirmPasswordPlaceholder: "Confirmer le mot de passe",
     enterPasswordPlaceholder: "Saisir le mot de passe",
-    magicLinkTitle: "Se connecter avec un lien",
-    magicLinkSubtitle:
-      "Saisissez votre e-mail et nous vous enverrons un lien sécurisé",
-    sendMagicLink: "M'envoyer un lien de connexion",
+    magicLinkTitle: "Bienvenue",
+    magicLinkSubtitle: "Créez un compte ou connectez-vous",
+    sendMagicLink: "Continuer",
     magicLinkSent: "Vérifiez votre e-mail",
     magicLinkSentCopy: "Nous avons envoyé un lien sécurisé à",
     magicLinkFailed: "Impossible d'envoyer le lien de connexion.",
@@ -606,10 +604,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Mindestens 8 Zeichen",
     confirmPasswordPlaceholder: "Passwort bestätigen",
     enterPasswordPlaceholder: "Passwort eingeben",
-    magicLinkTitle: "Mit einem Link anmelden",
-    magicLinkSubtitle:
-      "Gib deine E-Mail ein und wir senden dir einen sicheren Anmeldelink",
-    sendMagicLink: "Anmeldelink per E-Mail senden",
+    magicLinkTitle: "Willkommen",
+    magicLinkSubtitle: "Konto erstellen oder anmelden",
+    sendMagicLink: "Weiter",
     magicLinkSent: "Prüfe deine E-Mail",
     magicLinkSentCopy: "Wir haben einen sicheren Anmeldelink gesendet an",
     magicLinkFailed: "Anmeldelink konnte nicht gesendet werden.",
@@ -713,10 +710,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "8 文字以上",
     confirmPasswordPlaceholder: "パスワードを確認",
     enterPasswordPlaceholder: "パスワードを入力",
-    magicLinkTitle: "リンクでサインイン",
-    magicLinkSubtitle:
-      "メールアドレスを入力すると、安全なサインインリンクを送信します",
-    sendMagicLink: "サインインリンクをメールで送信",
+    magicLinkTitle: "ようこそ",
+    magicLinkSubtitle: "アカウントを作成するかサインインしてください",
+    sendMagicLink: "続行",
     magicLinkSent: "メールを確認してください",
     magicLinkSentCopy: "安全なサインインリンクを送信しました：",
     magicLinkFailed: "サインインリンクを送信できませんでした。",
@@ -819,9 +815,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "8자 이상",
     confirmPasswordPlaceholder: "비밀번호 확인",
     enterPasswordPlaceholder: "비밀번호 입력",
-    magicLinkTitle: "링크로 로그인",
-    magicLinkSubtitle: "이메일을 입력하면 안전한 로그인 링크를 보내드립니다",
-    sendMagicLink: "로그인 링크 이메일 받기",
+    magicLinkTitle: "환영합니다",
+    magicLinkSubtitle: "계정을 만들거나 로그인하세요",
+    sendMagicLink: "계속",
     magicLinkSent: "이메일을 확인하세요",
     magicLinkSentCopy: "안전한 로그인 링크를 보냈습니다:",
     magicLinkFailed: "로그인 링크를 보낼 수 없습니다.",
@@ -919,9 +915,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "Pelo menos 8 caracteres",
     confirmPasswordPlaceholder: "Confirmar senha",
     enterPasswordPlaceholder: "Digite a senha",
-    magicLinkTitle: "Entrar com um link",
-    magicLinkSubtitle: "Digite seu email e enviaremos um link seguro de acesso",
-    sendMagicLink: "Enviar link de acesso por email",
+    magicLinkTitle: "Bem-vindo",
+    magicLinkSubtitle: "Crie uma conta ou entre",
+    sendMagicLink: "Continuar",
     magicLinkSent: "Confira seu email",
     magicLinkSentCopy: "Enviamos um link seguro para",
     magicLinkFailed: "Não foi possível enviar o link de acesso.",
@@ -1023,9 +1019,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "कम से कम 8 अक्षर",
     confirmPasswordPlaceholder: "पासवर्ड की पुष्टि करें",
     enterPasswordPlaceholder: "पासवर्ड दर्ज करें",
-    magicLinkTitle: "लिंक से साइन इन करें",
-    magicLinkSubtitle: "अपना ईमेल दर्ज करें और हम सुरक्षित साइन-इन लिंक भेजेंगे",
-    sendMagicLink: "मुझे साइन-इन लिंक ईमेल करें",
+    magicLinkTitle: "स्वागत है",
+    magicLinkSubtitle: "खाता बनाएं या साइन इन करें",
+    sendMagicLink: "जारी रखें",
     magicLinkSent: "अपना ईमेल देखें",
     magicLinkSentCopy: "हमने सुरक्षित साइन-इन लिंक यहां भेजा है:",
     magicLinkFailed: "साइन-इन लिंक नहीं भेजा जा सका।",
@@ -1123,9 +1119,9 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     passwordMinPlaceholder: "8 أحرف على الأقل",
     confirmPasswordPlaceholder: "تأكيد كلمة المرور",
     enterPasswordPlaceholder: "أدخل كلمة المرور",
-    magicLinkTitle: "تسجيل الدخول باستخدام رابط",
-    magicLinkSubtitle: "أدخل بريدك الإلكتروني وسنرسل لك رابط تسجيل دخول آمنًا",
-    sendMagicLink: "إرسال رابط تسجيل الدخول إلى بريدي",
+    magicLinkTitle: "مرحبًا",
+    magicLinkSubtitle: "أنشئ حسابًا أو سجّل الدخول",
+    sendMagicLink: "متابعة",
     magicLinkSent: "تحقق من بريدك الإلكتروني",
     magicLinkSentCopy: "أرسلنا رابط تسجيل دخول آمنًا إلى",
     magicLinkFailed: "تعذر إرسال رابط تسجيل الدخول.",
@@ -2156,6 +2152,7 @@ ${
     background: rgba(255,255,255,0.06);
     border-radius: 8px;
   }
+  .tabs[hidden] { display: none; }
   .tab {
     flex: 1;
     padding: 0.5rem 0.75rem;
@@ -2366,8 +2363,11 @@ ${
     text-decoration: underline;
     text-underline-offset: 2px;
   }
+  .auth-mode-link { text-decoration: none; }
   .link-button:hover { color: #bbb; }
   .link-button:disabled { cursor: wait; opacity: 0.5; }
+  .magic-link-submit { display: none; }
+  .magic-link-submit.is-visible { display: block; }
   .divider {
     display: flex;
     align-items: center;
@@ -2599,7 +2599,7 @@ ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("divid
 ${
   googleOnly
     ? ""
-    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">\n        <a href="#" id="use-password-link" class="link-button"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}  <div class="tabs"${magicLinkMode ? " hidden" : ""}>
+    : `${magicLinkMode ? '\n    <form id="magic-link-form" class="form">\n      <label for="m-email"' + i18nAttr("email") + ">" + esc(t("email")) + '</label>\n      <input id="m-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />\n      <button type="submit" id="magic-link-submit" class="magic-link-submit"' + i18nAttr("sendMagicLink") + ">" + esc(t("sendMagicLink")) + '</button>\n      <p class="msg" id="m-msg"></p>\n' + signupLegalNoteHtml + '\n      <p style="margin-top:0.75rem;font-size:0.75rem;text-align:center">\n        <a href="#" id="use-password-link" class="link-button auth-mode-link"' + i18nAttr("usePasswordInstead") + ">" + esc(t("usePasswordInstead")) + "</a>\n      </p>\n    </form>\n" : ""}  <div class="tabs" id="auth-tabs"${magicLinkMode ? " hidden" : ""}>
     <button class="tab" data-tab="signup"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
     <button class="tab" data-tab="login"${i18nAttr("signIn")}>${esc(t("signIn"))}</button>
   </div>
@@ -3394,7 +3394,18 @@ ${
       if (!form) return;
       forms.forEach(function(x) { x.classList.remove('active'); });
       form.classList.add('active');
+      var authTabs = document.getElementById('auth-tabs');
+      if (authTabs) authTabs.hidden = true;
+      updateMagicLinkSubmitState();
       __anSetAuthView('magicLink');
+    }
+    function updateMagicLinkSubmitState() {
+      var emailInput = document.getElementById('m-email');
+      var button = document.getElementById('magic-link-submit');
+      if (!emailInput || !button) return;
+      var isValid = __anIsValidAuthEmail(emailInput.value);
+      button.classList.toggle('is-visible', isValid);
+      button.setAttribute('aria-hidden', isValid ? 'false' : 'true');
     }
     function setActiveTab(name, opts) {
 	      if (name !== 'signup' && name !== 'login') return;
@@ -3402,6 +3413,8 @@ ${
 	      if (!form) return;
       var card = document.querySelector('.card');
       if (card) card.classList.remove('verifying');
+      var authTabs = document.getElementById('auth-tabs');
+      if (authTabs) authTabs.hidden = false;
       tabs.forEach(function(x) { x.classList.remove('active'); });
       forms.forEach(function(x) { x.classList.remove('active'); });
     var btn = document.querySelector('.tab[data-tab="' + name + '"]');
@@ -3704,6 +3717,12 @@ ${
   });
 
   var magicLinkForm = document.getElementById('magic-link-form');
+  var magicLinkEmail = document.getElementById('m-email');
+  if (magicLinkEmail) {
+    magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState);
+    magicLinkEmail.addEventListener('change', updateMagicLinkSubmitState);
+    updateMagicLinkSubmitState();
+  }
   if (magicLinkForm) magicLinkForm.addEventListener('submit', async function(e) {
     e.preventDefault();
     var btn = magicLinkForm.querySelector('button[type="submit"]');

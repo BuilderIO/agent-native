@@ -84,6 +84,7 @@ Uncommon actions stay discoverable through `tool-search`.
 | `duplicate-library` | Make a private copy of a Brand Kit |
 | `list-assets` / `search-assets` | Browse or search assets in accessible kits |
 | `import-asset-from-url` | Ingest external brand or blog imagery as a reference asset |
+| `import-style-from-url` | Render a website and merge its design.md-style visual language into a library or collection |
 | `set-canonical-logo` | Pin the kit's pixel-perfect logo |
 | `list-generation-presets` | List repeatable output formats before generating |
 | `create-generation-preset` / `update-generation-preset` | Author preset format, references, `includeLogo`, skeleton |

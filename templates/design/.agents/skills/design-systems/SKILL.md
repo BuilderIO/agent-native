@@ -73,14 +73,6 @@ interface DesignSystemData {
     name: string;
     variant: "light" | "dark" | "auto";
   }[];
-  tokens?: {
-    name: string;      // The source system's own name, e.g. "interactive-01"
-    cssVar: string;    // e.g. "--cds-interactive-01"
-    value: string;     // e.g. "#0F62FE" or "0.5rem"
-    type: "color" | "typography" | "spacing" | "radius" | "shadow" | "other";
-    group?: string;    // Collection path, e.g. "Colors/Interactive"
-    source?: string;   // e.g. "Carbon v11" or "globals.css"
-  }[];
   imageStyle?: {
     referenceUrls: string[];
     styleDescription: string;  // e.g., "Clean, minimal product photography"
@@ -89,29 +81,6 @@ interface DesignSystemData {
   notes?: string;        // Free-form brand notes
 }
 ```
-
-### The seven color roles are a summary, not the vocabulary
-
-`colors` exists so a generated page can be themed from any brand. It is **not**
-where a real design system goes. Carbon has `interactive-01`, Material has
-`md-sys-color-primary-container`; mapping those onto `secondary` throws away the
-only name the design team uses, and the Brand Kit page then shows the wrong
-label for a token the user recognises.
-
-So when a source names its tokens, populate **both**: `colors` for generation,
-and `tokens` for the real vocabulary. `tokens` is capped at 500 entries, every
-`cssVar` must be a valid custom property, and values may not contain `;`, `{`,
-`}`, `<`, `>`, or CSS comments — `create-design-system` and
-`update-design-system` reject the whole write and name the offending entries
-rather than storing a partial vocabulary that would read as a smaller system.
-
-`update-design-system` replaces the entire `data` object, so carry the existing
-`tokens` array through any edit or those names are lost.
-
-A kit with no stored `tokens` falls back to whatever names its `customCSS`
-declares, which is why the production templates already display real Carbon,
-Material, and Primer token names. Prefer real stored `tokens` when a source
-gives them to you.
 
 `imageStyle.styleDescription` is not just metadata — fold it into every
 `generate-asset` prompt for a design linked to this system, alongside the
@@ -222,7 +191,12 @@ The design system setup page collects brand assets from multiple sources. When t
 pnpm action import-from-url --url "https://acme.com"
 ```
 
-Returns CSS custom properties, colors, fonts, Google Fonts links, theme-color, OG image, favicon.
+Renders the live page in a real browser first, then returns a bounded
+design.md-style visual system: computed semantic colors, typography, spacing,
+radii, shadows, representative component styles, CSS variables, logo
+references, screenshots evidence metadata, and reusable Brand Kit data. This
+works for React/CSS-in-JS/Tailwind pages because it reads the computed cascade;
+it reports an explicit static SSRF-safe fallback when no browser is available.
 
 ### Source: GitHub Repository
 
@@ -487,11 +461,7 @@ When the user provides multiple sources, call all applicable import actions in p
 3. **Cross-reference with website** — validates colors/fonts are actually deployed
 4. **Documents supplement** — presentations may reveal brand colors not in code
 5. **Images inform mood** — color temperature, density, visual style
-6. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve
-   conflicts, and carry every extracted name into `tokens`. The import actions
-   return `cssCustomProperties` keyed by the source's real variable names; those
-   keys are the vocabulary, so do not reduce them to the seven `colors` roles and
-   drop the rest.
+6. **Aggregate into DesignSystemData** — merge all extracted tokens, resolve conflicts
 7. **Call `create-design-system`** with the combined result
 8. **Link to design** via `update-design --designSystemId`
 
@@ -543,14 +513,6 @@ When generating a design that has a linked design system, replace all default CS
   --radius: /* borders.radius */;
 }
 ```
-
-### Reference named tokens, do not inline their values
-
-`get-design-system` injects the kit's colour tokens and this requirement into
-the generation context, so follow it there: write `var(--cds-link-primary,
-#0f62fe)` rather than the colour. The fallback is required — exports and
-kit-less designs define no custom properties, and a bare `var()` renders
-transparent.
 
 Also update the Google Fonts `<link>` tag to include the design system's fonts:
 

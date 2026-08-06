@@ -1,9 +1,7 @@
 import { defineAction } from "@agent-native/core";
-import {
-  normalizeBrandWebsiteUrl,
-  fetchBrandWebsiteSignals,
-} from "@agent-native/core/brand-kit";
+import { normalizeBrandWebsiteUrl } from "@agent-native/core/brand-kit";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { extractRenderedDesignSystemFromUrl } from "@agent-native/creative-context/server";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -14,8 +12,9 @@ export { normalizeBrandWebsiteUrl };
 export default defineAction({
   description:
     "Gather brand data from various sources for agent analysis. " +
-    "If a websiteUrl is provided, fetches the page HTML and extracts: " +
-    "meta theme-color, CSS custom properties, font-face declarations. " +
+    "If a websiteUrl is provided, renders the page in a real browser and extracts " +
+    "computed colors, typography, spacing, radii, shadows, component styles, " +
+    "CSS custom properties, logo references, and a design.md-style summary. " +
     "If a designSystemId is provided, includes its existing data. " +
     "Returns structured data the agent can use to build or refine a design system.",
   schema: z.object({
@@ -61,7 +60,8 @@ export default defineAction({
 
     // Fetch and analyze website if URL provided
     if (websiteUrl) {
-      result.websiteAnalysis = await fetchBrandWebsiteSignals(websiteUrl);
+      result.websiteAnalysis =
+        await extractRenderedDesignSystemFromUrl(websiteUrl);
     }
 
     return result;

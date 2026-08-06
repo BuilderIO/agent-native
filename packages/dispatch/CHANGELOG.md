@@ -1,37 +1,30 @@
 # @agent-native/dispatch
 
-## 0.18.0
+## 0.17.6
 
-### Minor Changes
+### Patch Changes
 
-- 008b97c: Add a transactional email catalog.
+- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
 
-  Apps declare the transactional emails they send with `defineTransactionalEmail`
-  from `@agent-native/core/email-catalog`, giving each one a stable id, a
-  plain-language trigger, recipient and sender logic, and a preview rendered from
-  dummy data. Three actions (`list-transactional-emails`,
-  `render-transactional-email-preview`, `list-email-log`) mount into every app
-  automatically, so the catalog is readable without each app opting in.
+## 0.17.5
 
-  `sendEmail` now accepts a `templateId`. It tags the message at the provider so
-  delivery and open metrics attribute to one email instead of the whole account,
-  and records every attempt — success and failure — to a new additive `email_log`
-  table, which keeps send counts and last-sent independent of the provider's short
-  activity retention window.
+### Patch Changes
 
-  Dispatch gains a Transactional email screen listing every app's emails with
-  previews, send counts, open rates, and a per-message activity feed, plus a
-  read-only detail page per email. Metrics distinguish "not yet sent" from "could
-  not be read": an unreadable send log renders as unknown rather than zero, and an
-  unconfigured provider surfaces the reason instead of a 0% open rate.
+- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
+
+## 0.17.4
+
+### Patch Changes
+
+- 2765110: Restore the transactional email catalog and Brand Kit named-token public surfaces.
 
 ## 0.17.3
 
 ### Patch Changes
 
-- 9d271fe: Clarify that a free Builder tier is available when connecting Dispatch app creation.
-- Updated dependencies [9d271fe]
-- Updated dependencies [9d271fe]
+- 277be3f: Clarify that a free Builder tier is available when connecting Dispatch app creation.
+- Updated dependencies [277be3f]
+- Updated dependencies [277be3f]
   - @agent-native/toolkit@0.13.2
 
 ## 0.17.2

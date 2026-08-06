@@ -42,6 +42,7 @@ import {
   normalizeAppPath,
   signInJourney,
   SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
 import { safeReturnPath } from "./auth.js";
 import { normalizeEmbedTargetPath } from "./embed-session.js";
@@ -132,7 +133,7 @@ const SURFACES: Surface[] = [
     name: "top-level app at root base path (control)",
     basePath: "",
     protectedPath: "/inbox?filter=unread#thread-9",
-    siblingPath: "/_agent-native/sign-in",
+    siblingPath: "/sign-in",
     driver: "browser",
   },
   {
@@ -326,6 +327,7 @@ describe("sign-in matrix", () => {
           `${basePath}/login`,
           `${basePath}/signup`,
           `${basePath}${SIGN_IN_ENTRY_PATH}`,
+          `${basePath}${SIGN_IN_LEGACY_ENTRY_PATH}`,
         ]) {
           const result = journey.signInJourney({ at: entry });
           // Refusing to mint is what removes the "don't redirect to yourself"
@@ -342,6 +344,7 @@ describe("sign-in matrix", () => {
       (_label, journey) => {
         const forged = [
           `${basePath}${SIGN_IN_ENTRY_PATH}`,
+          `${basePath}${SIGN_IN_LEGACY_ENTRY_PATH}`,
           `${basePath}/login`,
           "https://evil.example/pwned",
           "//evil.example/pwned",
@@ -472,6 +475,7 @@ describe("sign-in matrix", () => {
         "/login",
         "/signup",
         SIGN_IN_ENTRY_PATH,
+        SIGN_IN_LEGACY_ENTRY_PATH,
         "//evil.example",
         "/\\evil.example",
         "https://evil.example/x",
@@ -527,6 +531,7 @@ describe("sign-in matrix", () => {
         "//evil.example",
         "/\\evil.example",
         SIGN_IN_ENTRY_PATH,
+        SIGN_IN_LEGACY_ENTRY_PATH,
         "/login",
         null,
         undefined,

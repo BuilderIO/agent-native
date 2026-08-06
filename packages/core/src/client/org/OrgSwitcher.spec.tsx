@@ -219,7 +219,7 @@ describe("OrgSwitcher", () => {
       settingsButton!.click();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/settings#organization");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/organization");
     expect(openPanel).not.toHaveBeenCalled();
     expect(openSettings).not.toHaveBeenCalled();
 
@@ -255,7 +255,7 @@ describe("OrgSwitcher", () => {
       profileButton!.click();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/settings#account");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
   });
 
   it("keeps Dispatch flat and shows descriptions in the apps submenu", () => {

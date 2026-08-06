@@ -91,7 +91,7 @@ function pathForView(view?: string): string {
     case "settings":
       return "/settings";
     case "team":
-      return "/settings#organization";
+      return "/settings/organization";
     default:
       return "/";
   }

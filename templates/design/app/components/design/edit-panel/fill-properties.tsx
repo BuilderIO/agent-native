@@ -23,12 +23,6 @@ import {
 import { DesignColorPicker, imageFillToBackgroundStyles } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import type { ElementInfo } from "../types";
-import {
-  hiddenColorWrite,
-  hiddenTokenReference,
-  parseTokenReference,
-  type DesignSystemColorSwatch,
-} from "./design-system-swatches";
 import { selectionColorValues } from "./document-colors";
 import { isTextElement } from "./element-classification";
 import { elementStableKey } from "./element-identity";
@@ -52,13 +46,11 @@ import {
   SectionIconButton,
   useRowDragReorder,
 } from "./inspector-controls";
-import { authoredColorValue } from "./interaction-state-helpers";
 import { ColorInput, PanelSection } from "./panel-primitives";
 import {
   colorHasVisibleAlpha,
   cssColorOrFallback,
   swatchStyle,
-  zeroAlphaLiteral,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
@@ -117,7 +109,6 @@ export function FillProperties({
   onStyleChange,
   onStylesChange,
   documentColorPalette = [],
-  designSystemColors,
   glslShaderContext,
   motionKeyframeContext,
   breakpointOverrideContext,
@@ -130,9 +121,6 @@ export function FillProperties({
    * colors below so a real, always-populated "Document colors" row is
    * available even before any file content has been scanned. */
   documentColorPalette?: string[];
-  /** Colour tokens from the design's linked Brand Kit, shown by name in the
-   * fill picker above the document palette. */
-  designSystemColors?: DesignSystemColorSwatch[];
   /**
    * Persistence context for the code-backed Shader paint type (GLSL source
    * saved into the screen HTML). Threaded into the fill picker so its
@@ -156,20 +144,9 @@ export function FillProperties({
     Record<string, string>
   >({});
   const fillStashKey = elementStableKey(element);
-  // getComputedStyle resolves `var()` before we can read it, so a token-backed
-  // fill would come back as a bare colour and lose the name it was set from.
-  // The authored inline value still holds the reference.
-  const authoredFill = authoredColorValue(element, fillProperty);
-  const computedFill = isTextFillElement
+  const fillValue = isTextFillElement
     ? styles.color || ""
     : styles.backgroundColor || "";
-  // A hidden token's `color-mix` also has to survive here, or the reference it
-  // carries is replaced by the transparent colour it computes to.
-  const fillValue =
-    authoredFill &&
-    (parseTokenReference(authoredFill) || hiddenTokenReference(authoredFill))
-      ? authoredFill
-      : computedFill;
   const backgroundLayers = isTextFillElement
     ? []
     : splitCssLayers(styles.backgroundImage || "");
@@ -206,25 +183,24 @@ export function FillProperties({
   // separately: computed style strips comments but keeps rgba() channels).
   // Showing again just restores alpha to 1 using those same channels, so no
   // stash is required and the hide survives reselect/reload.
-  const hiddenFillToken = hiddenTokenReference(fillValue);
-  const isHidden = Boolean(hiddenFillToken) || !colorHasVisibleAlpha(fillValue);
-
+  const isHidden = !colorHasVisibleAlpha(fillValue);
   const handleFillVisibilityToggle = () => {
+    const parsed = parseCssColor(fillValue);
     if (isHidden) {
-      if (hiddenFillToken) {
-        onStyleChange(fillProperty, hiddenFillToken);
-        return;
-      }
-      const parsed = parseCssColor(fillValue);
       const restored = parsed
         ? rgbaToCss(withColorOpacity(parsed, 100))
         : isTextFillElement
           ? "#000000"
           : "#ffffff";
       onStyleChange(fillProperty, restored);
-      return;
+    } else if (parsed) {
+      onStyleChange(fillProperty, rgbaToCss(withColorOpacity(parsed, 0)));
+    } else {
+      // Value wasn't a parseable color (e.g. already the literal
+      // "transparent") — nothing to preserve, transparent is the best we
+      // can do.
+      onStyleChange(fillProperty, "transparent");
     }
-    onStyleChange(fillProperty, hiddenColorWrite(fillValue, zeroAlphaLiteral));
   };
 
   // Reorder fill layers by dragging: permute all four index-aligned parallel
@@ -409,8 +385,6 @@ export function FillProperties({
                           commitStylePatch(patch, onStyleChange, onStylesChange)
                   }
                   documentColors={documentColors}
-                  designSystemColors={designSystemColors}
-                  resolvedColor={computedFill}
                   pickerKey={[
                     element.sourceId ??
                       element.id ??

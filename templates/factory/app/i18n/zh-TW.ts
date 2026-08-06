@@ -167,6 +167,33 @@ const messages = {
     pastRunsEmpty: "尚未記錄執行。",
     saveAutomation: "儲存",
     runNow: "立即執行",
+    automationHealthTitle: "排程器狀態",
+    automationHealthDescription:
+      "心跳顯示已部署的週期工作執行程序是否仍在檢查排程。",
+    automationHealthHealthy: "正常",
+    automationHealthStale: "已過期",
+    automationHealthError: "錯誤",
+    automationHealthNoData: "沒有心跳",
+    automationLastCheck: "上次檢查",
+    automationLastDispatch: "上次派送",
+    automationRuntime: "執行階段",
+    automationHealthNoDataHint:
+      "尚未記錄排程器心跳。請部署最新的 Factory 建置版本，然後再次檢查。",
+    automationHealthStaleHint:
+      "排程器最近沒有進行檢查。這通常表示已部署的排程函式或背景工作執行程序未執行。",
+    automationHealthErrorDetail: "排程器上次錯誤",
+    automationOpenThread: "開啟執行緒",
+    automationFailureAlertsTitle: "自動化失敗提醒",
+    automationFailureAlertsDescription:
+      "Factory 自動化失敗時傳送應用程式內提醒和電子郵件。相同的失敗會在 15 分鐘內合併。",
+    automationFailureAlertsEnabled: "自動化失敗時以電子郵件通知我",
+    automationFailureAlertEmail: "提醒電子郵件",
+    automationFailureAlertEmailPlaceholder: "預設為工作區擁有者",
+    automationFailureEmailReadiness: "電子郵件服務提供者",
+    automationDiagnosticsLoadError:
+      "無法載入 Factory 診斷資訊。請檢查存取權限、部署和資料庫移轉，然後再試一次。",
+    automationEmailReadinessHint:
+      "電子郵件使用組織的 Dispatch 金庫。如果尚未就緒，請在那裡設定提供者。",
   },
   factoryCanvas: {
     dragHint: "拖曳節點以調整工廠形狀",

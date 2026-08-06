@@ -9,25 +9,61 @@
 import { randomUUID } from "node:crypto";
 
 import { getDbExec, isPostgres } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
+import { getRequestOrgId } from "../server/request-context.js";
 
 let _initPromise: Promise<void> | undefined;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const { EMAIL_LOG_CREATE_SQL, EMAIL_LOG_TEMPLATE_INDEX_SQL } =
-        await import("./schema.js");
+      const {
+        EMAIL_LOG_CREATE_SQL,
+        EMAIL_LOG_ORG_APP_INDEX_SQL,
+        EMAIL_LOG_TEMPLATE_INDEX_SQL,
+      } = await import("./schema.js");
+      const client = getDbExec();
       // Generic INTEGER maps to BIGINT on Postgres, which millisecond
       // timestamps need.
       const createSql = isPostgres()
         ? EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT")
         : EMAIL_LOG_CREATE_SQL;
-      await ensureTableExists("email_log", createSql);
-      await ensureIndexExists(
-        "email_log_template_created_idx",
-        EMAIL_LOG_TEMPLATE_INDEX_SQL,
-      );
+      if (isPostgres()) {
+        await ensureTableExists("email_log", createSql);
+        await ensureColumnExists(
+          "email_log",
+          "org_id",
+          "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS org_id TEXT",
+        );
+        await ensureIndexExists(
+          "email_log_template_created_idx",
+          EMAIL_LOG_TEMPLATE_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "email_log_org_app_created_idx",
+          EMAIL_LOG_ORG_APP_INDEX_SQL,
+        );
+        return;
+      }
+
+      await client.execute(createSql);
+      try {
+        await client.execute("ALTER TABLE email_log ADD COLUMN org_id TEXT");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/already exists|duplicate column name/i.test(message)) {
+          throw error;
+        }
+        console.info(
+          "[agent-native:email] email_log.org_id already exists during local bootstrap",
+        );
+      }
+      await client.execute(EMAIL_LOG_TEMPLATE_INDEX_SQL);
+      await client.execute(EMAIL_LOG_ORG_APP_INDEX_SQL);
     })().catch((error) => {
       // Don't memoize a failed bootstrap — the next send should retry rather
       // than log nothing forever.
@@ -39,6 +75,7 @@ async function ensureTable(): Promise<void> {
 }
 
 export interface RecordEmailSendArgs {
+  orgId?: string | null;
   templateId?: string;
   app?: string;
   recipient: string;
@@ -62,12 +99,14 @@ export async function recordEmailSend(
 ): Promise<void> {
   try {
     await ensureTable();
+    const orgId = args.orgId ?? getRequestOrgId() ?? null;
     await getDbExec().execute({
       sql: `INSERT INTO email_log
-        (id, template_id, app, recipient, sender, subject, status, error, provider, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, template_id, app, recipient, sender, subject, status, error, provider, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         randomUUID(),
+        orgId,
         args.templateId ?? null,
         args.app ?? null,
         args.recipient,
@@ -99,6 +138,7 @@ export interface EmailSendStats {
 export async function getEmailSendStats(
   since: number,
   app: string,
+  orgId: string,
 ): Promise<EmailSendStats[]> {
   await ensureTable();
   const { rows } = await getDbExec().execute({
@@ -107,9 +147,9 @@ export async function getEmailSendStats(
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
         MAX(CASE WHEN status = 'sent' THEN created_at END) AS last_sent_at
       FROM email_log
-      WHERE app = ? AND template_id IS NOT NULL AND created_at >= ?
+      WHERE org_id = ? AND app = ? AND template_id IS NOT NULL AND created_at >= ?
       GROUP BY template_id`,
-    args: [app, since],
+    args: [orgId, app, since],
   });
   return rows.map((row: any) => ({
     templateId: String(row.template_id),
@@ -134,6 +174,7 @@ export interface EmailLogEntry {
 
 /** Most recent sends for one app, newest first, optionally filtered to one template. */
 export async function listEmailLog(options: {
+  orgId: string;
   app: string;
   templateId?: string;
   limit?: number;
@@ -141,11 +182,11 @@ export async function listEmailLog(options: {
   await ensureTable();
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
   const where = options.templateId
-    ? `WHERE app = ? AND template_id = ?`
-    : `WHERE app = ?`;
+    ? `WHERE org_id = ? AND app = ? AND template_id = ?`
+    : `WHERE org_id = ? AND app = ?`;
   const args = options.templateId
-    ? [options.app, options.templateId, limit]
-    : [options.app, limit];
+    ? [options.orgId, options.app, options.templateId, limit]
+    : [options.orgId, options.app, limit];
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, template_id, app, recipient, sender, subject, status, error, provider, created_at
       FROM email_log ${where} ORDER BY created_at DESC LIMIT ?`,
@@ -163,4 +204,12 @@ export async function listEmailLog(options: {
     provider: String(row.provider),
     createdAt: Number(row.created_at),
   }));
+}
+
+/** Provider category that is safe to query for one organization only. */
+export function getScopedEmailProviderCategory(
+  templateId: string,
+  orgId: string,
+): string {
+  return `${templateId}::org::${encodeURIComponent(orgId)}`;
 }

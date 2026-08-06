@@ -1,6 +1,11 @@
+import { isPostgres } from "@agent-native/core/db";
 import { sql } from "@agent-native/core/db/schema";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY,
+  FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL,
+} from "./analytics-rollup-lock.js";
 
 /**
  * The normalized subset emitted by first-party analytics ingest. Keeping this
@@ -73,12 +78,12 @@ function stableId(prefix: string, parts: readonly string[]): string {
 }
 
 /**
- * Upsert compact rollups after the corresponding raw analytics rows commit.
- * The caller owns the raw insert; this function deliberately does not read or
- * write analytics_events, so ingestion can choose its own failure boundary.
+ * Upsert compact rollups for a normalized batch. When ingestion passes its
+ * transaction through, raw events and rollups share one commit boundary.
  */
 export async function upsertFirstPartyAnalyticsRollups(
   rows: readonly NormalizedFirstPartyAnalyticsEventRow[],
+  transaction?: any,
 ): Promise<FirstPartyAnalyticsRollupResult> {
   const dailyRollups = new Map<string, DailyRollupRow>();
   const userDays = new Map<string, UserDayRow>();
@@ -140,8 +145,17 @@ export async function upsertFirstPartyAnalyticsRollups(
     };
   }
 
-  const db = getDb() as any;
-  await db.transaction(async (tx: any) => {
+  const writeRollups = async (tx: any) => {
+    if (isPostgres()) {
+      // The historical backfill takes this lock before its raw-event
+      // snapshot. Holding it through ingest's rollup increment prevents the
+      // backfill's monotonic upsert from losing a concurrently committed
+      // event.
+      await tx.execute({
+        sql: FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL,
+        args: [FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY],
+      });
+    }
     const dailyRows = [...dailyRollups.values()];
     await tx
       .insert(schema.analyticsEventDailyRollups)
@@ -172,7 +186,13 @@ export async function upsertFirstPartyAnalyticsRollups(
           ],
         });
     }
-  });
+  };
+
+  if (transaction) {
+    await writeRollups(transaction);
+  } else {
+    await (getDb() as any).transaction(writeRollups);
+  }
 
   return {
     eventCount: rows.length,

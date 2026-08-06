@@ -23,12 +23,6 @@ import {
 import { ScrubInput } from "../inspector";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
-import {
-  hiddenColorWrite,
-  hiddenTokenReference,
-  parseTokenReference,
-  type DesignSystemColorSwatch,
-} from "./design-system-swatches";
 import { isTextElement } from "./element-classification";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import { SectionIconButton } from "./inspector-controls";
@@ -47,7 +41,6 @@ import {
   strokeShowPatch,
   textStrokeAddPatch,
   textStrokeIsVisible,
-  zeroAlphaLiteral,
 } from "./position-helpers";
 import { isMixedValue } from "./selection-helpers";
 import type {
@@ -67,26 +60,6 @@ import { STROKE_POSITION_OPTIONS } from "./style-options";
  */
 const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
 
-/**
- * The stroke colour as authored: its token name when it has one, else the
- * resolved colour. Empty when no rule set it at all — the border then paints
- * CSS's `currentColor` default, and echoing the inherited text colour here
- * would claim a stroke colour the design never chose.
- */
-export function authoredStrokeColor(
-  element: ElementInfo,
-  property: string,
-  computed: string | undefined,
-): string {
-  const authored =
-    element.inlineStyles?.[property] ?? element.authoredColorStyles?.[property];
-  if (!authored) return "";
-  if (parseTokenReference(authored) || hiddenTokenReference(authored)) {
-    return authored;
-  }
-  return computed || authored;
-}
-
 type StrokeLayerKind = "border" | "outline";
 type StrokePosition = "inside" | "outside" | "center";
 
@@ -94,7 +67,6 @@ function StrokeLayerControl({
   kind,
   visible,
   color,
-  designSystemColors,
   width,
   styleValue,
   outlineOffset,
@@ -108,7 +80,6 @@ function StrokeLayerControl({
   kind: StrokeLayerKind;
   visible: boolean;
   color: string;
-  designSystemColors?: DesignSystemColorSwatch[];
   width: string;
   styleValue: string;
   /** Only meaningful when `kind === "outline"` — distinguishes outside vs
@@ -133,7 +104,6 @@ function StrokeLayerControl({
     label: t(`editPanel.labels.${option.key}`),
   }));
   const prefix = kind === "border" ? "border" : "outline";
-  const hiddenToken = hiddenTokenReference(color);
   const position: StrokePosition =
     kind === "border"
       ? "inside"
@@ -192,10 +162,11 @@ function StrokeLayerControl({
         <div className="min-w-0 flex-1">
           <ColorInput
             label=""
-            // Not cssColorOrFallback: an unset stroke must stay unset here
-            // rather than render as a black the design never chose.
-            value={hiddenToken ?? color}
-            designSystemColors={designSystemColors}
+            value={cssColorOrFallback(
+              color,
+              /* guard:allow-raw-color - ColorInput needs a concrete swatch fallback. */
+              "#000000",
+            )}
             onChange={(value, meta) =>
               onStyleChange(`${prefix}Color`, value, meta)
             }
@@ -216,18 +187,21 @@ function StrokeLayerControl({
             // style permanently, since there is no round-trippable "unset"
             // for that keyword once it's overwritten.
             if (visible) {
+              const parsed = parseCssColor(color);
               onStyleChange(
                 `${prefix}Color`,
-                hiddenColorWrite(color, zeroAlphaLiteral),
+                parsed ? rgbaToCss(withColorOpacity(parsed, 0)) : "transparent",
               );
               return;
             }
             // Restore color/width/style as ONE commit (single undo step)
             // rather than three sequential onStyleChange calls — see
             // strokeShowPatch's doc comment.
-            const showPatch = strokeShowPatch(prefix, color, width, styleValue);
-            if (hiddenToken) showPatch[`${prefix}Color`] = hiddenToken;
-            commitStylePatch(showPatch, onStyleChange, onStylesChange);
+            commitStylePatch(
+              strokeShowPatch(prefix, color, width, styleValue),
+              onStyleChange,
+              onStylesChange,
+            );
           }}
         >
           {visible ? (
@@ -323,15 +297,12 @@ export function StrokeProperties({
   element,
   onStyleChange,
   onStylesChange,
-  designSystemColors,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
-  /** Linked Brand Kit colour tokens, offered by name in the stroke picker. */
-  designSystemColors?: DesignSystemColorSwatch[];
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -482,12 +453,11 @@ export function StrokeProperties({
             <StrokeLayerControl
               kind="border"
               visible={borderVisible}
-              color={authoredStrokeColor(
-                element,
-                "borderColor",
-                styles.borderColor,
-              )}
-              designSystemColors={designSystemColors}
+              color={
+                styles.borderColor ||
+                /* guard:allow-raw-color - a new stroke needs a concrete color. */
+                "#000000"
+              }
               width={styles.borderWidth || "0px"}
               styleValue={styles.borderStyle || "none"}
               onStyleChange={onStyleChange}
@@ -508,12 +478,12 @@ export function StrokeProperties({
             <StrokeLayerControl
               kind="outline"
               visible={outlineVisible}
-              color={authoredStrokeColor(
-                element,
-                "outlineColor",
-                styles.outlineColor || styles.borderColor,
-              )}
-              designSystemColors={designSystemColors}
+              color={
+                styles.outlineColor ||
+                styles.borderColor ||
+                /* guard:allow-raw-color - a new stroke needs a concrete color. */
+                "#000000"
+              }
               width={styles.outlineWidth || "0px"}
               styleValue={styles.outlineStyle || "solid"}
               outlineOffset={styles.outlineOffset || "0px"}

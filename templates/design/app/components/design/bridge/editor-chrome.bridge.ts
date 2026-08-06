@@ -29,8 +29,6 @@
  */
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 
-import { collectAuthoredColorStyles } from "../../../../shared/authored-color-styles";
-
 declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
 declare var __EDITOR_CHROME_SCALE_X__: string;
@@ -1854,9 +1852,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // and `right` — only the inline style tells you which side was actually
   // set). Empty-string values are omitted so callers can treat key-absence as
   // "not authored".
-  // color/backgroundColor/borderColor/outlineColor are reported because
-  // getComputedStyle resolves `var()`: without the authored declaration the
-  // inspector cannot tell a design system token from the colour it resolves to.
   var INLINE_STYLE_PROPERTIES = [
     "position",
     "left",
@@ -1867,12 +1862,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     "height",
     "transform",
     "whiteSpace",
-    "color",
-    "backgroundColor",
-    "borderColor",
-    "outlineColor",
-    "boxShadow",
-    "textShadow",
   ];
 
   function collectInlineStyles(el: Element): Record<string, string> {
@@ -2132,7 +2121,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         whiteSpace: cs.whiteSpace,
       },
       inlineStyles: collectInlineStyles(el),
-      authoredColorStyles: collectAuthoredColorStyles(el),
       primitiveKind: el.getAttribute("data-an-primitive") || undefined,
       portableStyleSnapshot: collectPortableStyleSnapshot(el),
       boundingRect: {

@@ -67,6 +67,22 @@ function firstVisibleSection(
   return sections[0] ?? "llm";
 }
 
+function settingsPathParts(): string[] {
+  if (typeof window === "undefined") return [];
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const settingsIndex = pathParts.indexOf("settings");
+  return settingsIndex === -1 ? [] : pathParts.slice(settingsIndex + 1);
+}
+
+function secretKeyFromPath(pathParts: readonly string[]): string | undefined {
+  const secretsIndex = pathParts.findIndex(
+    (part) => part.toLowerCase() === "secrets",
+  );
+  if (secretsIndex === -1) return undefined;
+  const key = pathParts.slice(secretsIndex + 1).join("/");
+  return key || undefined;
+}
+
 function initialOpenSection(
   sections: readonly SettingsSectionId[],
 ): SettingsSectionId {
@@ -74,9 +90,17 @@ function initialOpenSection(
     typeof window === "undefined"
       ? null
       : normalizeSettingsSection(window.location.hash);
-  return hashSection && sections.includes(hashSection)
-    ? hashSection
-    : firstVisibleSection(sections);
+  if (hashSection && sections.includes(hashSection)) return hashSection;
+
+  if (typeof window !== "undefined") {
+    const routeParts = settingsPathParts();
+    for (let index = routeParts.length - 1; index >= 0; index -= 1) {
+      const pathSection = normalizeSettingsSection(routeParts[index]);
+      if (pathSection && sections.includes(pathSection)) return pathSection;
+    }
+  }
+
+  return firstVisibleSection(sections);
 }
 
 export function useSettingsPanelController({
@@ -126,21 +150,37 @@ export function useSettingsPanelController({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const handleHashChange = () => {
+    const handleLocationChange = () => {
       const hash = window.location.hash?.replace(/^#/, "") ?? "";
-      const section = normalizeSettingsSection(hash);
+      let section = normalizeSettingsSection(hash);
+      const pathParts = settingsPathParts();
+      if (!section) {
+        for (let index = pathParts.length - 1; index >= 0; index -= 1) {
+          const pathSection = normalizeSettingsSection(pathParts[index]);
+          if (pathSection) {
+            section = pathSection;
+            break;
+          }
+        }
+      }
       if (!section || !isSectionVisible(section)) return;
       if (hash.startsWith("secrets:") || hash === "secrets") {
         const key = hash.slice("secrets:".length);
         setFocusSecretKey(key || undefined);
+      } else if (section === "secrets") {
+        setFocusSecretKey(secretKeyFromPath(pathParts));
       } else {
         setFocusSecretKey(undefined);
       }
       openSettingsSection(section, { scroll: true });
     };
-    handleHashChange();
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
+    handleLocationChange();
+    window.addEventListener("hashchange", handleLocationChange);
+    window.addEventListener("popstate", handleLocationChange);
+    return () => {
+      window.removeEventListener("hashchange", handleLocationChange);
+      window.removeEventListener("popstate", handleLocationChange);
+    };
   }, [isSectionVisible, openSettingsSection]);
 
   return {

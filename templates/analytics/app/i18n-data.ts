@@ -19,7 +19,6 @@ const enUS = {
     monitoringErrors: "Errors",
     admin: "Admin",
     agents: "Agents",
-    templateCatalog: "Catalog",
     dashboards: "Dashboards",
     analyses: "Analyses",
     explorer: "Explorer",
@@ -28,6 +27,7 @@ const enUS = {
     navigation: "Navigation",
     openNavigation: "Open navigation",
     loadingDashboardTitle: "Loading dashboard title",
+    templateCatalog: "Catalog",
   },
   dashboardHeader: {
     updated: "Updated {{date}}",
@@ -188,10 +188,6 @@ const enUS = {
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
-    dashboardTemplates: "Dashboard templates",
-    dashboardTemplatesDescription:
-      "Install a source-controlled dashboard when you need a starting point.",
-    openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
     errorEmailNotifications: "Email new error alerts",
@@ -202,11 +198,6 @@ const enUS = {
     bellSoundDescription:
       "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
-    about: "About",
-    aboutDescription:
-      "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
-    aboutUsage:
-      "Use the Data Sources page to manage connections. Use the Query Explorer for ad-hoc BigQuery SQL.",
     replayStorage: "Session replay storage",
     replayStorageDescription:
       "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
@@ -461,8 +452,8 @@ const enUS = {
     visibilityorg: "Shared with org",
     visibilitypublic: "Public",
     advanced: "Advanced",
-    database: "App Databases",
     openCatalog: "Open catalog",
+    database: "App Databases",
     dbConnectionsTitle: "Connected app databases",
     dbConnectionsDescription:
       "Connect other agent-native app databases for admin-only inspection and repair. This does not expose Analytics data to every user.",
@@ -963,6 +954,23 @@ const enUS = {
     configuredCount: "{{count}} configured",
     searchPlaceholder: "Search data sources...",
     noMatch: 'No data sources match "{{search}}"',
+  },
+  analyticsBackend: {
+    recommendationTitle: "Use an external analytics backend for heavy history",
+    recommendationDescription:
+      "Neon remains the default for recent operational analytics. Connect BigQuery for warehouse SQL and historical analysis, or Amplitude for product analytics, funnels, and retention. Connecting one does not automatically move /track events or backfill existing Neon data.",
+    connectedTitle: "External analytics backends are ready",
+    connectedDescription:
+      "Use BigQuery for warehouse SQL and historical analysis, or Amplitude for product analytics, funnels, and retention. The built-in /track collector continues to write to first-party Analytics unless you explicitly configure another collection path.",
+    options: "External options",
+    monitorDescription:
+      "Neon is still a good fit. Keep an eye on event volume and query latency; this card will suggest an external backend if pressure grows.",
+    healthyDescription:
+      "Neon is a good fit for this first-party data right now. We will suggest BigQuery or Amplitude if volume or query latency grows.",
+    unavailableDescription:
+      "We could not check first-party Analytics pressure right now. Reload and try again before changing backends.",
+    configured: "Configured",
+    setUp: "Set up",
   },
   panelEditor: {
     chartTypeLine: "Line",
@@ -4238,6 +4246,10 @@ function mergeMessages(overrides: {
     common: { ...enUS.common, ...overrides.common },
     dataDictionary: { ...enUS.dataDictionary, ...overrides.dataDictionary },
     dataSources: { ...enUS.dataSources, ...overrides.dataSources },
+    analyticsBackend: {
+      ...enUS.analyticsBackend,
+      ...overrides.analyticsBackend,
+    },
     panelEditor: { ...enUS.panelEditor, ...overrides.panelEditor },
     legacyFusion: { ...enUS.legacyFusion, ...overrides.legacyFusion },
     dashboard: { ...enUS.dashboard, ...overrides.dashboard },
@@ -4418,9 +4430,6 @@ export const messagesByLocale = {
       credentials: "数据源凭据",
       credentialsDescription: "API 密钥和凭据在数据源页面管理。",
       manageDataSources: "管理数据源",
-      dashboardTemplates: "仪表板模板",
-      dashboardTemplatesDescription: "需要起点时，安装受源码管理的仪表板。",
-      openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
       errorEmailNotifications: "通过电子邮件接收新的错误提醒",
@@ -4430,10 +4439,6 @@ export const messagesByLocale = {
       bellSound: "提示音",
       bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
       bellSoundSaveFailed: "无法保存提示音偏好设置。",
-      about: "关于",
-      aboutDescription:
-        "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
-      aboutUsage: "在数据源页面管理连接。使用查询探索器运行临时 BigQuery SQL。",
     },
     chat: {
       emptyState: "让我分析仪表板、比较趋势或深入查看数据...",
@@ -4642,10 +4647,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Las claves API y credenciales se gestionan en la página Fuentes de datos.",
       manageDataSources: "Gestionar fuentes de datos",
-      dashboardTemplates: "Plantillas de paneles",
-      dashboardTemplatesDescription:
-        "Instala un panel controlado por código fuente cuando necesites un punto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
       errorEmailNotifications: "Recibir nuevas alertas de errores por email",
@@ -4657,11 +4658,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
       bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
-      about: "Acerca de",
-      aboutDescription:
-        "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
-      aboutUsage:
-        "Usa Fuentes de datos para gestionar conexiones. Usa el Explorador de consultas para SQL ad hoc de BigQuery.",
     },
     chat: {
       emptyState:
@@ -4873,10 +4869,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Les clés API et identifiants sont gérés sur la page Sources de données.",
       manageDataSources: "Gérer les sources de données",
-      dashboardTemplates: "Modèles de tableaux de bord",
-      dashboardTemplatesDescription:
-        "Installez un tableau de bord suivi dans le code source lorsque vous avez besoin d'un point de départ.",
-      openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
       errorEmailNotifications:
@@ -4889,11 +4881,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
       bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
-      about: "À propos",
-      aboutDescription:
-        "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
-      aboutUsage:
-        "Utilisez Sources de données pour gérer les connexions. Utilisez l'explorateur de requêtes pour le SQL BigQuery ad hoc.",
     },
     chat: {
       emptyState:
@@ -5112,10 +5099,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API-Schlüssel und Anmeldedaten werden auf der Seite Datenquellen verwaltet.",
       manageDataSources: "Datenquellen verwalten",
-      dashboardTemplates: "Dashboard-Vorlagen",
-      dashboardTemplatesDescription:
-        "Installiere ein quellkontrolliertes Dashboard, wenn du einen Ausgangspunkt brauchst.",
-      openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
       errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
@@ -5128,11 +5111,6 @@ export const messagesByLocale = {
         "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
       bellSoundSaveFailed:
         "Die Toneinstellung konnte nicht gespeichert werden.",
-      about: "Info",
-      aboutDescription:
-        "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
-      aboutUsage:
-        "Verwalte Verbindungen auf der Seite Datenquellen. Nutze den Query Explorer für Ad-hoc-BigQuery-SQL.",
     },
     chat: {
       emptyState:
@@ -5342,10 +5320,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API キーと認証情報はデータソースページで管理します。",
       manageDataSources: "データソースを管理",
-      dashboardTemplates: "ダッシュボードテンプレート",
-      dashboardTemplatesDescription:
-        "出発点が必要なときは、ソース管理されたダッシュボードをインストールします。",
-      openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
       errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
@@ -5356,11 +5330,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
       bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
-      about: "概要",
-      aboutDescription:
-        "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
-      aboutUsage:
-        "接続はデータソースページで管理します。アドホックな BigQuery SQL にはクエリエクスプローラーを使います。",
     },
     chat: {
       emptyState:
@@ -5569,10 +5538,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API 키와 자격 증명은 데이터 소스 페이지에서 관리합니다.",
       manageDataSources: "데이터 소스 관리",
-      dashboardTemplates: "대시보드 템플릿",
-      dashboardTemplatesDescription:
-        "시작점이 필요할 때 소스 제어된 대시보드를 설치하세요.",
-      openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
       errorEmailNotifications: "새 오류 알림을 이메일로 받기",
@@ -5583,11 +5548,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
       bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
-      about: "정보",
-      aboutDescription:
-        "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
-      aboutUsage:
-        "데이터 소스 페이지에서 연결을 관리합니다. 임시 BigQuery SQL은 쿼리 탐색기를 사용하세요.",
     },
     chat: {
       emptyState:
@@ -5800,10 +5760,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
       manageDataSources: "Gerenciar fontes de dados",
-      dashboardTemplates: "Modelos de dashboard",
-      dashboardTemplatesDescription:
-        "Instale um dashboard controlado por código-fonte quando precisar de um ponto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
       errorEmailNotifications: "Receber novos alertas de erro por e-mail",
@@ -5815,11 +5771,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
       bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
-      about: "Sobre",
-      aboutDescription:
-        "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
-      aboutUsage:
-        "Use Fontes de dados para gerenciar conexões. Use o Explorador de consultas para SQL ad hoc do BigQuery.",
     },
     chat: {
       emptyState:
@@ -6027,10 +5978,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API कुंजियां और क्रेडेंशियल डेटा स्रोत पेज पर प्रबंधित होते हैं।",
       manageDataSources: "डेटा स्रोत प्रबंधित करें",
-      dashboardTemplates: "डैशबोर्ड टेम्पलेट",
-      dashboardTemplatesDescription:
-        "जब आपको शुरुआत का आधार चाहिए, तो स्रोत-नियंत्रित डैशबोर्ड इंस्टॉल करें।",
-      openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
       errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
@@ -6040,11 +5987,6 @@ export const messagesByLocale = {
       bellSound: "पूर्णता ध्वनि",
       bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
       bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
-      about: "परिचय",
-      aboutDescription:
-        "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
-      aboutUsage:
-        "कनेक्शन प्रबंधित करने के लिए डेटा स्रोत पेज का उपयोग करें। ad-hoc BigQuery SQL के लिए Query Explorer उपयोग करें।",
     },
     chat: {
       emptyState:
@@ -6251,10 +6193,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "تتم إدارة مفاتيح API وبيانات الاعتماد من صفحة مصادر البيانات.",
       manageDataSources: "إدارة مصادر البيانات",
-      dashboardTemplates: "قوالب لوحات المعلومات",
-      dashboardTemplatesDescription:
-        "ثبّت لوحة معلومات مضبوطة في المصدر عندما تحتاج إلى نقطة بداية.",
-      openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
       errorEmailNotifications:
@@ -6265,11 +6203,6 @@ export const messagesByLocale = {
       bellSound: "صوت الجرس",
       bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
       bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
-      about: "حول",
-      aboutDescription:
-        "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",
-      aboutUsage:
-        "استخدم صفحة مصادر البيانات لإدارة الاتصالات. استخدم مستكشف الاستعلامات لاستعلامات BigQuery SQL المخصصة.",
     },
     chat: {
       emptyState:
@@ -6326,6 +6259,21 @@ type AnalyticsPartialMessages = {
 
 const translatedAnalyticsDebtTranslations = {
   "zh-CN": {
+    analyticsBackend: {
+      recommendationTitle: "针对大量历史数据使用外部分析后端",
+      recommendationDescription:
+        "Neon 仍是近期运营分析的默认选择。连接 BigQuery 以使用数据仓库 SQL 和历史分析，或连接 Amplitude 进行产品分析、漏斗和留存分析。连接后不会自动迁移 /track 事件或回填现有 Neon 数据。",
+      connectedTitle: "外部分析后端已就绪",
+      connectedDescription:
+        "使用 BigQuery 进行数据仓库 SQL 和历史分析，或使用 Amplitude 进行产品分析、漏斗和留存分析。内置 /track 收集器仍会写入第一方 Analytics，除非你明确配置其他收集路径。",
+      options: "外部选项",
+      monitorDescription:
+        "Neon 目前仍然适合。请关注事件量和查询延迟；如果压力增加，此卡片会建议外部后端。",
+      healthyDescription:
+        "Neon 目前适合这项第一方数据。如果事件量或查询延迟增加，我们会建议 BigQuery 或 Amplitude。",
+      unavailableDescription:
+        "现在无法检查第一方 Analytics 压力。请重新加载后再尝试更换后端。",
+    },
     analyses: {
       allAnalyses: "所有分析",
       backToAnalyses: "返回分析",
@@ -6541,6 +6489,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "es-ES": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Usa un backend de analítica externo para historiales grandes",
+      recommendationDescription:
+        "Neon sigue siendo el valor predeterminado para la analítica operativa reciente. Conecta BigQuery para SQL de almacén y análisis histórico, o Amplitude para analítica de producto, embudos y retención. Conectar uno no mueve automáticamente los eventos de /track ni rellena los datos existentes de Neon.",
+      connectedTitle: "Los backends de analítica externos están listos",
+      connectedDescription:
+        "Usa BigQuery para SQL de almacén y análisis histórico, o Amplitude para analítica de producto, embudos y retención. El recopilador /track integrado sigue escribiendo en Analytics de primera parte salvo que configures explícitamente otra ruta de recopilación.",
+      options: "Opciones externas",
+      monitorDescription:
+        "Neon sigue siendo adecuado. Vigila el volumen de eventos y la latencia de las consultas; esta tarjeta recomendará un backend externo si aumenta la presión.",
+      healthyDescription:
+        "Neon es adecuado para estos datos de primera parte. Recomendaremos BigQuery o Amplitude si aumentan el volumen o la latencia.",
+      unavailableDescription:
+        "No pudimos comprobar la presión de Analytics de primera parte. Recarga e inténtalo de nuevo antes de cambiar de backend.",
+    },
     analyses: {
       allAnalyses: "Todos los análisis",
       backToAnalyses: "Volver a los análisis",
@@ -6768,6 +6732,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "fr-FR": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Utilisez un backend analytique externe pour les historiques volumineux",
+      recommendationDescription:
+        "Neon reste la valeur par défaut pour les analyses opérationnelles récentes. Connectez BigQuery pour le SQL d'entrepôt et l'analyse historique, ou Amplitude pour l'analyse produit, les entonnoirs et la rétention. La connexion ne déplace pas automatiquement les événements /track et ne remplit pas les données Neon existantes.",
+      connectedTitle: "Les backends analytiques externes sont prêts",
+      connectedDescription:
+        "Utilisez BigQuery pour le SQL d'entrepôt et l'analyse historique, ou Amplitude pour l'analyse produit, les entonnoirs et la rétention. Le collecteur /track intégré continue d'écrire dans Analytics propriétaire, sauf si vous configurez explicitement un autre chemin de collecte.",
+      options: "Options externes",
+      monitorDescription:
+        "Neon reste adapté. Surveillez le volume d'événements et la latence des requêtes ; cette carte recommandera un backend externe si la pression augmente.",
+      healthyDescription:
+        "Neon convient actuellement à ces données propriétaires. Nous recommanderons BigQuery ou Amplitude si le volume ou la latence augmente.",
+      unavailableDescription:
+        "Impossible de vérifier la pression d'Analytics propriétaire. Rechargez la page et réessayez avant de changer de backend.",
+    },
     analyses: {
       allAnalyses: "Toutes les analyses",
       backToAnalyses: "Retour aux analyses",
@@ -6999,6 +6979,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "de-DE": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Verwende ein externes Analyse-Backend für große historische Datenmengen",
+      recommendationDescription:
+        "Neon bleibt die Standardeinstellung für aktuelle operative Analysen. Verbinde BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Durch die Verbindung werden /track-Ereignisse nicht automatisch verschoben und vorhandene Neon-Daten nicht nachgefüllt.",
+      connectedTitle: "Externe Analyse-Backends sind bereit",
+      connectedDescription:
+        "Verwende BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Der integrierte /track-Collector schreibt weiterhin in First-Party Analytics, sofern du nicht ausdrücklich einen anderen Erfassungspfad konfigurierst.",
+      options: "Externe Optionen",
+      monitorDescription:
+        "Neon passt weiterhin gut. Behalte Ereignisvolumen und Abfrage-Latenz im Blick; diese Karte empfiehlt bei wachsender Belastung ein externes Backend.",
+      healthyDescription:
+        "Neon passt derzeit zu diesen First-Party-Daten. Bei wachsendem Volumen oder wachsender Latenz empfehlen wir BigQuery oder Amplitude.",
+      unavailableDescription:
+        "Die First-Party-Analytics-Belastung konnte nicht geprüft werden. Lade neu und versuche es erneut, bevor du das Backend wechselst.",
+    },
     analyses: {
       allAnalyses: "Alle Analysen",
       backToAnalyses: "Zurück zu den Analysen",
@@ -7228,6 +7224,21 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "ja-JP": {
+    analyticsBackend: {
+      recommendationTitle: "大量の履歴データには外部分析バックエンドを使用",
+      recommendationDescription:
+        "Neon は最近の運用分析のデフォルトです。BigQuery を接続するとデータウェアハウス SQL と履歴分析を、Amplitude を接続するとプロダクト分析、ファネル、リテンション分析を利用できます。接続しても /track イベントが自動的に移行されたり、既存の Neon データが補完されたりすることはありません。",
+      connectedTitle: "外部分析バックエンドを利用できます",
+      connectedDescription:
+        "BigQuery はデータウェアハウス SQL と履歴分析に、Amplitude はプロダクト分析、ファネル、リテンション分析に使用します。明示的に別の収集経路を設定しない限り、組み込みの /track コレクターは First-party Analytics に書き込み続けます。",
+      options: "外部オプション",
+      monitorDescription:
+        "現在も Neon で問題ありません。イベント量とクエリ遅延を確認してください。負荷が増えると、このカードが外部バックエンドを提案します。",
+      healthyDescription:
+        "現在、この First-party データには Neon が適しています。量やクエリ遅延が増えると BigQuery または Amplitude を提案します。",
+      unavailableDescription:
+        "First-party Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてもう一度お試しください。",
+    },
     analyses: {
       allAnalyses: "すべての分析",
       backToAnalyses: "分析に戻る",
@@ -7453,6 +7464,21 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "ko-KR": {
+    analyticsBackend: {
+      recommendationTitle: "대규모 기록 데이터에는 외부 분석 백엔드 사용",
+      recommendationDescription:
+        "Neon은 최근 운영 분석의 기본값입니다. 웨어하우스 SQL과 기록 분석에는 BigQuery를, 제품 분석과 퍼널 및 리텐션에는 Amplitude를 연결하세요. 연결해도 /track 이벤트가 자동으로 이동하거나 기존 Neon 데이터가 백필되지는 않습니다.",
+      connectedTitle: "외부 분석 백엔드를 사용할 수 있습니다",
+      connectedDescription:
+        "BigQuery는 웨어하우스 SQL과 기록 분석에, Amplitude는 제품 분석과 퍼널 및 리텐션에 사용하세요. 다른 수집 경로를 명시적으로 설정하지 않는 한 내장 /track 수집기는 계속 First-party Analytics에 기록합니다.",
+      options: "외부 옵션",
+      monitorDescription:
+        "현재도 Neon이 적합합니다. 이벤트 양과 쿼리 지연을 확인하세요. 부하가 커지면 이 카드에서 외부 백엔드를 추천합니다.",
+      healthyDescription:
+        "현재 이 First-party 데이터에는 Neon이 적합합니다. 양이나 쿼리 지연이 늘면 BigQuery 또는 Amplitude를 추천합니다.",
+      unavailableDescription:
+        "현재 First-party Analytics 부하를 확인할 수 없습니다. 백엔드를 변경하기 전에 다시 로드해 보세요.",
+    },
     analyses: {
       allAnalyses: "모든 분석",
       backToAnalyses: "분석으로 돌아가기",
@@ -7676,6 +7702,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "pt-BR": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Use um backend de análise externo para históricos grandes",
+      recommendationDescription:
+        "Neon continua sendo o padrão para análises operacionais recentes. Conecte o BigQuery para SQL de warehouse e análise histórica, ou o Amplitude para análise de produto, funis e retenção. Conectar um deles não move eventos de /track automaticamente nem preenche dados existentes do Neon.",
+      connectedTitle: "Os backends de análise externos estão prontos",
+      connectedDescription:
+        "Use o BigQuery para SQL de warehouse e análise histórica, ou o Amplitude para análise de produto, funis e retenção. O coletor /track integrado continua gravando no Analytics próprio, a menos que você configure explicitamente outro caminho de coleta.",
+      options: "Opções externas",
+      monitorDescription:
+        "O Neon ainda é adequado. Acompanhe o volume de eventos e a latência das consultas; este cartão recomendará um backend externo se a pressão aumentar.",
+      healthyDescription:
+        "O Neon é adequado para estes dados próprios no momento. Recomendaremos BigQuery ou Amplitude se o volume ou a latência aumentarem.",
+      unavailableDescription:
+        "Não foi possível verificar a pressão do Analytics próprio. Recarregue e tente novamente antes de trocar de backend.",
+    },
     analyses: {
       allAnalyses: "Todas as análises",
       backToAnalyses: "Voltar às análises",
@@ -7904,6 +7946,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "hi-IN": {
+    analyticsBackend: {
+      recommendationTitle:
+        "बड़े ऐतिहासिक डेटा के लिए बाहरी Analytics backend इस्तेमाल करें",
+      recommendationDescription:
+        "हाल के ऑपरेशनल Analytics के लिए Neon अभी भी डिफ़ॉल्ट है। Warehouse SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या product analytics, funnels और retention के लिए Amplitude कनेक्ट करें। कनेक्ट करने से /track इवेंट अपने-आप नहीं जाते और Neon का मौजूदा डेटा backfill नहीं होता।",
+      connectedTitle: "बाहरी Analytics backends तैयार हैं",
+      connectedDescription:
+        "Warehouse SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या product analytics, funnels और retention के लिए Amplitude इस्तेमाल करें। अलग collection path स्पष्ट रूप से कॉन्फ़िगर न करने तक built-in /track collector first-party Analytics में लिखता रहेगा।",
+      options: "बाहरी विकल्प",
+      monitorDescription:
+        "Neon अभी भी उपयुक्त है। Event volume और query latency पर नज़र रखें; दबाव बढ़ने पर यह कार्ड बाहरी backend सुझाएगा।",
+      healthyDescription:
+        "इस first-party डेटा के लिए Neon अभी उपयुक्त है। Volume या query latency बढ़ने पर हम BigQuery या Amplitude सुझाएंगे।",
+      unavailableDescription:
+        "First-party Analytics pressure जाँचा नहीं जा सका। Backend बदलने से पहले reload करके फिर प्रयास करें।",
+    },
     analyses: {
       allAnalyses: "सभी विश्लेषण",
       backToAnalyses: "विश्लेषण पर वापस जाएँ",
@@ -8127,6 +8185,21 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "ar-SA": {
+    analyticsBackend: {
+      recommendationTitle: "استخدم واجهة تحليلات خارجية للسجل التاريخي الكبير",
+      recommendationDescription:
+        "يظل Neon الخيار الافتراضي للتحليلات التشغيلية الحديثة. صِل BigQuery لاستخدام SQL المستودع والتحليل التاريخي، أو Amplitude لتحليلات المنتج ومسارات التحويل والاحتفاظ. لا يؤدي الاتصال بأحدهما إلى نقل أحداث /track تلقائياً أو ملء بيانات Neon الحالية.",
+      connectedTitle: "واجهات التحليلات الخارجية جاهزة",
+      connectedDescription:
+        "استخدم BigQuery لـ SQL المستودع والتحليل التاريخي، أو Amplitude لتحليلات المنتج ومسارات التحويل والاحتفاظ. يستمر جامع /track المضمّن في الكتابة إلى Analytics للطرف الأول ما لم تضبط مسار جمع آخر صراحةً.",
+      options: "الخيارات الخارجية",
+      monitorDescription:
+        "لا يزال Neon مناسباً. راقب حجم الأحداث وزمن الاستعلام؛ ستقترح هذه البطاقة واجهة خارجية إذا زاد الضغط.",
+      healthyDescription:
+        "Neon مناسب حالياً لبيانات Analytics للطرف الأول. سنقترح BigQuery أو Amplitude إذا زاد الحجم أو زمن الاستعلام.",
+      unavailableDescription:
+        "تعذّر التحقق من ضغط Analytics للطرف الأول. أعد التحميل وحاول مرة أخرى قبل تغيير الواجهة الخلفية.",
+    },
     analyses: {
       allAnalyses: "جميع التحليلات",
       backToAnalyses: "العودة إلى التحليلات",
@@ -8349,6 +8422,173 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
 } satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+const analyticsBackendTranslations: Partial<
+  Record<LocaleCode, Partial<Messages["analyticsBackend"]>>
+> = {
+  "zh-TW": {
+    recommendationTitle: "大量歷史資料請使用外部分析後端",
+    recommendationDescription:
+      "Neon 仍是近期營運分析的預設選項。連接 BigQuery 以使用資料倉儲 SQL 和歷史分析，或連接 Amplitude 以進行產品分析、漏斗和留存分析。連接後不會自動移轉 /track 事件或回填現有的 Neon 資料。",
+    connectedTitle: "外部分析後端已就緒",
+    connectedDescription:
+      "使用 BigQuery 進行資料倉儲 SQL 和歷史分析，或使用 Amplitude 進行產品分析、漏斗和留存分析。內建的 /track 收集器仍會寫入第一方 Analytics，除非你明確設定其他收集路徑。",
+    options: "外部選項",
+    monitorDescription:
+      "Neon 目前仍然適用。請留意事件量和查詢延遲；壓力增加時，這張卡片會建議外部後端。",
+    healthyDescription:
+      "Neon 目前很適合這些第一方資料。當資料量或查詢延遲增加時，我們會建議 BigQuery 或 Amplitude。",
+    unavailableDescription:
+      "目前無法檢查第一方 Analytics 壓力。請重新載入後再決定是否更換後端。",
+  },
+  "zh-CN": {
+    recommendationTitle: "大量历史数据请使用外部分析后端",
+    recommendationDescription:
+      "Neon 仍是近期运营分析的默认选项。连接 BigQuery 以使用数据仓库 SQL 和历史分析，或连接 Amplitude 以进行产品分析、漏斗和留存分析。连接后不会自动转移 /track 事件或回填现有 Neon 数据。",
+    connectedTitle: "外部分析后端已就绪",
+    connectedDescription:
+      "使用 BigQuery 进行数据仓库 SQL 和历史分析，或使用 Amplitude 进行产品分析、漏斗和留存分析。内置的 /track 收集器仍会写入第一方 Analytics，除非你明确配置其他收集路径。",
+    options: "外部选项",
+    monitorDescription:
+      "Neon 目前仍然适用。请留意事件量和查询延迟；压力增加时，这张卡片会建议外部后端。",
+    healthyDescription:
+      "Neon 目前很适合这些第一方数据。当数据量或查询延迟增加时，我们会建议 BigQuery 或 Amplitude。",
+    unavailableDescription:
+      "目前无法检查第一方 Analytics 压力。请重新加载后再决定是否更换后端。",
+  },
+  "ar-SA": {
+    recommendationTitle: "استخدم خلفية تحليلات خارجية للتاريخ الكبير",
+    recommendationDescription:
+      "يظل Neon الخيار الافتراضي للتحليلات التشغيلية الحديثة. وصّل BigQuery لبيانات المستودع والتحليل التاريخي، أو Amplitude لتحليلات المنتج والقمع والاحتفاظ. لا يؤدي الاتصال إلى نقل أحداث /track أو ملء بيانات Neon الحالية تلقائيًا.",
+    connectedTitle: "الخلفيات التحليلية الخارجية جاهزة",
+    connectedDescription:
+      "استخدم BigQuery لتحليل SQL التاريخي وبيانات المستودع، أو Amplitude لتحليلات المنتج والقمع والاحتفاظ. يواصل جامع /track المدمج الكتابة إلى Analytics التابعة لنا ما لم تضبط مسار جمع آخر صراحةً.",
+    options: "خيارات خارجية",
+    monitorDescription:
+      "لا يزال Neon مناسبًا. راقب حجم الأحداث وزمن الاستعلام؛ ستقترح هذه البطاقة خلفية خارجية عند زيادة الضغط.",
+    healthyDescription:
+      "Neon مناسب حاليًا لهذه البيانات التابعة لنا. سنقترح BigQuery أو Amplitude إذا زاد الحجم أو زمن الاستعلام.",
+    unavailableDescription:
+      "تعذر فحص ضغط Analytics التابعة لنا الآن. أعد التحميل قبل تغيير الخلفيات.",
+  },
+  "de-DE": {
+    recommendationTitle:
+      "Für umfangreiche historische Daten ein externes Analyse-Backend nutzen",
+    recommendationDescription:
+      "Neon bleibt die Standardeinstellung für aktuelle Betriebsanalysen. Verbinde BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Durch die Verbindung werden /track-Ereignisse nicht automatisch verschoben oder vorhandene Neon-Daten nachgeladen.",
+    connectedTitle: "Externe Analyse-Backends sind bereit",
+    connectedDescription:
+      "Nutze BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Der integrierte /track-Sammler schreibt weiterhin in First-Party-Analytics, sofern du keinen anderen Sammelpfad festlegst.",
+    options: "Externe Optionen",
+    monitorDescription:
+      "Neon passt weiterhin gut. Behalte Ereignismenge und Abfragezeit im Blick; diese Karte schlägt bei wachsender Belastung ein externes Backend vor.",
+    healthyDescription:
+      "Neon eignet sich derzeit gut für diese First-Party-Daten. Bei wachsender Menge oder Abfragezeit schlagen wir BigQuery oder Amplitude vor.",
+    unavailableDescription:
+      "Der Druck auf First-Party-Analytics konnte nicht geprüft werden. Lade neu, bevor du Backends änderst.",
+  },
+  "es-ES": {
+    recommendationTitle:
+      "Usa un backend de analítica externo para historiales grandes",
+    recommendationDescription:
+      "Neon sigue siendo la opción predeterminada para la analítica operativa reciente. Conecta BigQuery para SQL de almacén e históricos, o Amplitude para analítica de producto, embudos y retención. La conexión no mueve automáticamente los eventos de /track ni completa los datos existentes de Neon.",
+    connectedTitle: "Los backends de analítica externos están listos",
+    connectedDescription:
+      "Usa BigQuery para SQL de almacén e históricos, o Amplitude para analítica de producto, embudos y retención. El recolector /track integrado sigue escribiendo en Analytics de primera parte salvo que configures otra ruta de recopilación.",
+    options: "Opciones externas",
+    monitorDescription:
+      "Neon sigue siendo adecuado. Vigila el volumen de eventos y la latencia de las consultas; esta tarjeta sugerirá un backend externo si aumenta la presión.",
+    healthyDescription:
+      "Neon es adecuado para estos datos de primera parte. Sugeriremos BigQuery o Amplitude si crecen el volumen o la latencia.",
+    unavailableDescription:
+      "No se pudo comprobar la presión de Analytics de primera parte. Recarga antes de cambiar de backend.",
+  },
+  "fr-FR": {
+    recommendationTitle:
+      "Utiliser un backend analytique externe pour les historiques volumineux",
+    recommendationDescription:
+      "Neon reste la solution par défaut pour les analyses opérationnelles récentes. Connectez BigQuery pour le SQL d'entrepôt et l'historique, ou Amplitude pour les analyses produit, les tunnels et la rétention. La connexion ne déplace pas automatiquement les événements /track et ne complète pas les données Neon existantes.",
+    connectedTitle: "Les backends analytiques externes sont prêts",
+    connectedDescription:
+      "Utilisez BigQuery pour le SQL d'entrepôt et l'historique, ou Amplitude pour les analyses produit, les tunnels et la rétention. Le collecteur /track intégré continue d'écrire dans Analytics first-party, sauf si vous configurez explicitement un autre chemin de collecte.",
+    options: "Options externes",
+    monitorDescription:
+      "Neon reste adapté. Surveillez le volume d'événements et la latence des requêtes ; cette carte suggérera un backend externe si la pression augmente.",
+    healthyDescription:
+      "Neon convient actuellement à ces données first-party. Nous suggérerons BigQuery ou Amplitude si le volume ou la latence augmente.",
+    unavailableDescription:
+      "Impossible de vérifier la pression Analytics first-party. Rechargez avant de changer de backend.",
+  },
+  "hi-IN": {
+    recommendationTitle:
+      "भारी ऐतिहासिक डेटा के लिए बाहरी Analytics बैकएंड उपयोग करें",
+    recommendationDescription:
+      "हाल के ऑपरेशनल Analytics के लिए Neon अभी भी डिफ़ॉल्ट है। वेयरहाउस SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या प्रोडक्ट Analytics, फ़नल और रिटेंशन के लिए Amplitude कनेक्ट करें। कनेक्शन /track इवेंट को अपने-आप स्थानांतरित या मौजूदा Neon डेटा को बैकफ़िल नहीं करता।",
+    connectedTitle: "बाहरी Analytics बैकएंड तैयार हैं",
+    connectedDescription:
+      "वेयरहाउस SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या प्रोडक्ट Analytics, फ़नल और रिटेंशन के लिए Amplitude उपयोग करें। अंतर्निहित /track कलेक्टर First-Party Analytics में लिखता रहेगा, जब तक आप कोई दूसरा कलेक्शन पथ स्पष्ट रूप से कॉन्फ़िगर न करें।",
+    options: "बाहरी विकल्प",
+    monitorDescription:
+      "Neon अभी भी उपयुक्त है। इवेंट वॉल्यूम और क्वेरी लेटेंसी पर नज़र रखें; दबाव बढ़ने पर यह कार्ड बाहरी बैकएंड सुझाएगा।",
+    healthyDescription:
+      "Neon अभी इन First-Party डेटा के लिए अच्छा है। वॉल्यूम या क्वेरी लेटेंसी बढ़ने पर हम BigQuery या Amplitude सुझाएंगे।",
+    unavailableDescription:
+      "अभी First-Party Analytics दबाव की जाँच नहीं हो सकी। बैकएंड बदलने से पहले फिर लोड करें।",
+  },
+  "ja-JP": {
+    recommendationTitle: "大量の履歴データには外部分析バックエンドを使用",
+    recommendationDescription:
+      "Neon は最近の運用分析の既定値です。ウェアハウス SQL と履歴分析には BigQuery、プロダクト分析、ファネル、リテンションには Amplitude を接続してください。接続しても /track イベントが自動的に移行されたり、既存の Neon データがバックフィルされたりすることはありません。",
+    connectedTitle: "外部分析バックエンドを利用できます",
+    connectedDescription:
+      "ウェアハウス SQL と履歴分析には BigQuery、プロダクト分析、ファネル、リテンションには Amplitude を使用できます。別の収集経路を明示的に設定しない限り、組み込みの /track コレクターは First-Party Analytics への書き込みを続けます。",
+    options: "外部オプション",
+    monitorDescription:
+      "Neon は引き続き適しています。イベント量とクエリ遅延を確認してください。負荷が増えると、このカードが外部バックエンドを提案します。",
+    healthyDescription:
+      "Neon は現在この First-Party データに適しています。量やクエリ遅延が増えると BigQuery または Amplitude を提案します。",
+    unavailableDescription:
+      "現在 First-Party Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
+  },
+  "ko-KR": {
+    recommendationTitle: "대규모 기록 데이터에는 외부 분석 백엔드 사용",
+    recommendationDescription:
+      "Neon은 최근 운영 분석의 기본값입니다. 웨어하우스 SQL 및 기록 분석에는 BigQuery를, 제품 분석과 퍼널 및 리텐션에는 Amplitude를 연결하세요. 연결해도 /track 이벤트가 자동으로 이동하거나 기존 Neon 데이터가 백필되지는 않습니다.",
+    connectedTitle: "외부 분석 백엔드를 사용할 수 있습니다",
+    connectedDescription:
+      "웨어하우스 SQL 및 기록 분석에는 BigQuery를, 제품 분석과 퍼널 및 리텐션에는 Amplitude를 사용하세요. 다른 수집 경로를 명시적으로 설정하지 않는 한 기본 /track 수집기는 계속 First-Party Analytics에 기록합니다.",
+    options: "외부 옵션",
+    monitorDescription:
+      "Neon은 아직 적합합니다. 이벤트 규모와 쿼리 지연 시간을 확인하세요. 부하가 커지면 이 카드가 외부 백엔드를 제안합니다.",
+    healthyDescription:
+      "Neon은 현재 이 First-Party 데이터에 적합합니다. 규모나 쿼리 지연이 증가하면 BigQuery 또는 Amplitude를 제안합니다.",
+    unavailableDescription:
+      "지금은 First-Party Analytics 부하를 확인할 수 없습니다. 백엔드를 변경하기 전에 다시 로드하세요.",
+  },
+  "pt-BR": {
+    recommendationTitle:
+      "Use um backend de análise externo para históricos grandes",
+    recommendationDescription:
+      "Neon continua sendo o padrão para análises operacionais recentes. Conecte o BigQuery para SQL de warehouse e análises históricas, ou o Amplitude para análise de produto, funis e retenção. A conexão não move automaticamente eventos de /track nem preenche dados existentes do Neon.",
+    connectedTitle: "Os backends de análise externos estão prontos",
+    connectedDescription:
+      "Use o BigQuery para SQL de warehouse e análises históricas, ou o Amplitude para análise de produto, funis e retenção. O coletor /track integrado continua gravando no Analytics de primeira parte, a menos que você configure explicitamente outro caminho de coleta.",
+    options: "Opções externas",
+    monitorDescription:
+      "Neon continua adequado. Acompanhe o volume de eventos e a latência das consultas; este cartão sugerirá um backend externo se a pressão crescer.",
+    healthyDescription:
+      "Neon é adequado para estes dados de primeira parte agora. Sugeriremos BigQuery ou Amplitude se o volume ou a latência crescer.",
+    unavailableDescription:
+      "Não foi possível verificar a pressão do Analytics de primeira parte. Recarregue antes de trocar de backend.",
+  },
+};
+
+for (const [locale, section] of Object.entries(
+  analyticsBackendTranslations,
+) as Array<[LocaleCode, Partial<Messages["analyticsBackend"]>]>) {
+  const messages = messagesByLocale[locale];
+  if (messages) Object.assign(messages.analyticsBackend, section);
+}
 
 for (const [locale, overrides] of Object.entries(
   translatedAnalyticsDebtTranslations,

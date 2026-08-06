@@ -1292,6 +1292,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("missingKeySetupOpen");
     expect(source).toContain("requestMissingKeySetup");
     expect(source).toContain("modelCatalogConfirmsMissing");
+    expect(source).toContain('agentEngineConfigured.state === "missing" &&');
     expect(source).toContain("willQueue={engineSetupRequired || isRunning}");
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain("showInlineMissingKeySetup");

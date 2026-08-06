@@ -71,7 +71,7 @@ preserve public action, state, auth, and agent-chat runtime contracts.
 | Expose tools to external agents       | `content/external-agents.md`, `content/mcp-protocol.md`, `content/mcp-apps.md`, `content/mcp-clients.md` |
 | Add integrations, setup, or secrets   | `content/onboarding.md`, `content/workspace-connections.md`, `content/security.md`                       |
 | Build extensions or custom widgets    | `content/extensions.md`, `content/agent-web-surfaces.md`                                                 |
-| Deploy or configure hosting           | `content/deployment.md`, `content/server.md`                                                             |
+| Deploy or configure hosting           | `content/deployment.md`, `content/server-overview.md`                                                    |
 | Write agent instructions or skills    | `content/skills-guide.md`, `content/writing-agent-instructions.md`                                       |
 
 ## Rules

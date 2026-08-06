@@ -28,7 +28,7 @@ async function globalSetup(_config: FullConfig) {
   const page = await ctx.newPage();
   let result: Record<string, unknown> = {};
   try {
-    await page.goto(`${baseURL}/_agent-native/sign-in`, {
+    await page.goto(`${baseURL}/sign-in`, {
       waitUntil: "domcontentloaded",
     });
     result = await page.evaluate(

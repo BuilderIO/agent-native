@@ -140,10 +140,16 @@ describe("listDashboardSummaries", () => {
       },
     ];
 
-    const result = await listDashboardSummaries(ctx, { kind: "sql" });
+    const result = await listDashboardSummaries(ctx, {
+      kind: "sql",
+      includeCatalogMetadata: true,
+    });
 
     expect(state.projection).not.toHaveProperty("config");
     expect(state.projection?.name).toEqual({ name: "title" });
+    expect(state.projection).toHaveProperty("configName");
+    expect(state.projection).toHaveProperty("catalogTemplateId");
+    expect(state.projection).toHaveProperty("demoId");
     expect(state.projection?.parentId).toMatchObject({ kind: "sql" });
     expect(result[0]).toMatchObject({
       id: "child",
@@ -212,6 +218,27 @@ describe("listDashboardSummaries", () => {
       visibility: "org",
     });
     expect(state.insert).not.toHaveBeenCalled();
+  });
+
+  it("preserves catalog metadata on legacy summaries when requested", async () => {
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-legacy-catalog": {
+        name: "Legacy catalog dashboard",
+        catalog: { templateId: "node-exporter-full" },
+        demo: { id: "demo-node-exporter" },
+      },
+    };
+
+    const result = await listDashboardSummaries(ctx, {
+      kind: "sql",
+      includeCatalogMetadata: true,
+    });
+
+    expect(result[0]).toMatchObject({
+      configName: "Legacy catalog dashboard",
+      catalogTemplateId: "node-exporter-full",
+      demoId: "demo-node-exporter",
+    });
   });
 
   it("applies access, kind, active, and visible filters to the SQL query", async () => {

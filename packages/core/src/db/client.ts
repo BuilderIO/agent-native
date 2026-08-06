@@ -992,18 +992,18 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
  */
 export function neonPoolMax(): number {
   if (!isServerlessRuntime()) return 20;
-  // The durable background-function worker is a SINGLE process per run (unlike
-  // the many warm request-instances the foreground serverless has), so it can
-  // safely hold a larger pool without risking Neon's connection cap. The agent's
+  // Netlify can run several background workers concurrently; a background
+  // worker is not a global singleton and must not hold a larger pool than the
+  // foreground path. The agent's
   // pre-send setup fires ~6 concurrent DB reads in parallel; with only 2
   // connections that burst exhausts the pool and a single stalled connection
   // freezes the worker before it can claim — observed on analytics' heavier
   // action surface, where the worker froze right after `model_done` and never
-  // recorded `env_config`/`presend`, while the foreground (10-connection pool)
-  // ran the identical code in ~2s. Give the bg worker enough connections for the
-  // burst; keep the foreground serverless pool tiny to avoid "Max client
-  // connections reached" across many warm instances.
-  if (isBackgroundFunctionPoolContext()) return 8;
+  // recorded `env_config`/`presend`, while the foreground path ran the
+  // identical code in ~2s. Four connections preserve the concurrent
+  // read burst while keeping foreground and background caps aligned, avoiding
+  // "Max client connections reached" across many warm instances.
+  if (isBackgroundFunctionPoolContext()) return 4;
   return 4;
 }
 

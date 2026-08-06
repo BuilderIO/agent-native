@@ -550,6 +550,16 @@ describe("call-agent action", () => {
     expect(send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent_call", status: "done" }),
     );
+    // The reason has to ride on the event, not only on the telemetry call.
+    // This event is what lands in agent_run_events, and without a code the
+    // stored record says a cross-app call failed after N ms and never why.
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call",
+        status: "error",
+        terminalCode: "direct_action_failed",
+      }),
+    );
   });
 
   it("tracks a content-free sender outcome for failed delegated tasks", async () => {

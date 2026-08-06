@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { getAppSlug } from "../../server/app-name.js";
+import { getRequestOrgId } from "../../server/request-context.js";
+import { authorizeTransactionalEmailRead } from "../authorize.js";
 import { getEmailSendStats } from "../log.js";
 import { listTransactionalEmails } from "../registry.js";
 import { registerCoreSystemEmails } from "../system-emails.js";
@@ -21,10 +23,12 @@ export default defineAction({
       .describe("How many days of send history to summarize."),
   }),
   http: { method: "GET" },
+  authorize: () => authorizeTransactionalEmailRead([]),
   run: async ({ windowDays }) => {
     registerCoreSystemEmails();
     const since = Date.now() - windowDays * 24 * 60 * 60 * 1000;
     const app = getAppSlug() ?? "unknown";
+    const orgId = getRequestOrgId();
     const definitions = listTransactionalEmails();
 
     // A failed stats read must not masquerade as "no email ever sent" — the
@@ -36,7 +40,12 @@ export default defineAction({
     > | null = null;
     let statsError: string | null = null;
     try {
-      const stats = await getEmailSendStats(since, app);
+      if (!orgId) {
+        throw new Error(
+          "Organization context is required for transactional email stats.",
+        );
+      }
+      const stats = await getEmailSendStats(since, app, orgId);
       statsById = new Map(stats.map((row) => [row.templateId, row]));
     } catch (error) {
       statsError = error instanceof Error ? error.message : String(error);

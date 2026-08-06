@@ -1992,7 +1992,7 @@ describe("SSE event processor error classification", () => {
         type: "agent-chat:run-error",
         detail: {
           message:
-            "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+            "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
           details: "401 status code (no body)",
           tabId: "tab-provider-auth",
         },
@@ -2005,7 +2005,7 @@ describe("SSE event processor error classification", () => {
       content: [
         {
           type: "text",
-          text: "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+          text: "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
         },
       ],
       status: { type: "incomplete", reason: "error" },
@@ -2013,7 +2013,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           runError: {
             message:
-              "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
             details: "401 status code (no body)",
           },
         },

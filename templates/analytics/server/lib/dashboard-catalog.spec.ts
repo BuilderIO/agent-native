@@ -97,6 +97,18 @@ describe("dashboard catalog", () => {
     expect(getDashboardCatalogEntry("node-exporter-essentials")).toBeNull();
   });
 
+  it("uses metadata-only dashboard rows for installed catalog entries", () => {
+    const source = readFileSync(
+      new URL("./dashboard-catalog.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("listDashboardSummaries");
+    expect(source).not.toContain("listDashboards");
+    expect(source).toContain("includeCatalogMetadata: true");
+    expect(source).toContain("row.catalogTemplateId");
+    expect(source).toContain("row.demoId");
+  });
+
   it("ships parseable demo dashboard descriptors", () => {
     const demoEntry = getDashboardCatalogEntry("demo-node-exporter");
     const realEntry = getDashboardCatalogEntry("node-exporter-full");

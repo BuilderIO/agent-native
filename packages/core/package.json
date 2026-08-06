@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.140.0",
+  "version": "0.141.7",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -314,6 +314,7 @@
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",
     "./notifications": "./dist/notifications/index.js",
+    "./jobs": "./dist/jobs/index.js",
     "./client/notifications": "./dist/client/notifications/index.js",
     "./progress": "./dist/progress/index.js",
     "./client/progress": "./dist/client/progress/index.js",

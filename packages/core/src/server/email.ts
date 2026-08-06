@@ -11,10 +11,14 @@
  */
 
 import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
-import { recordEmailSend } from "../email-catalog/log.js";
+import {
+  getScopedEmailProviderCategory,
+  recordEmailSend,
+} from "../email-catalog/log.js";
 import { getAppSlug } from "./app-name.js";
 import { resolveSecret } from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
+import { getRequestOrgId } from "./request-context.js";
 
 export type EmailProvider = "resend" | "sendgrid" | "dev";
 
@@ -70,6 +74,8 @@ export interface SendEmailArgs {
   templateId?: string;
   /** App slug that owns the send. Defaults to the running app. */
   app?: string;
+  /** Organization that owns the send. Defaults to the current request org. */
+  orgId?: string;
 }
 
 let cachedAgentNativeLogo: Buffer | undefined;
@@ -332,9 +338,14 @@ async function deliverEmail(
     // Categories are how per-email delivery/open stats are attributed. Without
     // them every send lands in one undifferentiated account-wide bucket, which
     // is indistinguishable from an email that never sent.
-    const categories = [args.templateId, args.app ?? getAppSlug()].filter(
-      (value): value is string => Boolean(value),
-    );
+    const orgId = args.orgId ?? getRequestOrgId();
+    const categories = [
+      args.templateId,
+      args.app ?? getAppSlug(),
+      args.templateId && orgId
+        ? getScopedEmailProviderCategory(args.templateId, orgId)
+        : undefined,
+    ].filter((value): value is string => Boolean(value));
     if (categories.length) sgPayload.categories = categories;
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
@@ -401,6 +412,7 @@ async function sendEmailWithSignal(
     await recordEmailSend({
       templateId: args.templateId,
       app: args.app ?? getAppSlug() ?? "unknown",
+      orgId: args.orgId ?? getRequestOrgId(),
       recipient: args.to,
       sender: outcome?.from ?? args.from ?? "unknown",
       subject: args.subject,
@@ -413,6 +425,7 @@ async function sendEmailWithSignal(
   await recordEmailSend({
     templateId: args.templateId,
     app: args.app ?? getAppSlug() ?? "unknown",
+    orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
     sender: outcome.from,
     subject: args.subject,

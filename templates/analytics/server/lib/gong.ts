@@ -17,6 +17,8 @@ const DEFAULT_API_BASE = "https://api.gong.io/v2";
 const MAX_GONG_SEARCH_PAGES = 50;
 const MAX_GONG_CALL_LIST_PAGES = 50;
 const MAX_GONG_EXHAUSTIVE_RECORDS = 500;
+const GONG_API_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_GONG_EXHAUSTIVE_RUNTIME_MS = 60_000;
 
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -38,7 +40,29 @@ async function getApiBase(): Promise<string> {
   return (configured || DEFAULT_API_BASE).replace(/\/+$/, "");
 }
 
-async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
+export interface GongRequestOptions {
+  signal?: AbortSignal;
+  deadlineAt?: number;
+}
+
+function requestSignal(options?: GongRequestOptions): AbortSignal {
+  const remainingMs = options?.deadlineAt
+    ? Math.max(
+        1,
+        Math.min(GONG_API_REQUEST_TIMEOUT_MS, options.deadlineAt - Date.now()),
+      )
+    : GONG_API_REQUEST_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(remainingMs);
+  return options?.signal
+    ? AbortSignal.any([options.signal, timeoutSignal])
+    : timeoutSignal;
+}
+
+async function apiGet<T>(
+  path: string,
+  cacheKey?: string,
+  options?: GongRequestOptions,
+): Promise<T> {
   const key = scopedCredentialCacheKey(cacheKey ?? path, "GONG_ACCESS_KEY");
   const cached = cache.get(key);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -50,6 +74,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
       Authorization: await getAuthHeader(),
       "Content-Type": "application/json",
     },
+    signal: requestSignal(options),
   });
 
   if (!res.ok) {
@@ -72,6 +97,7 @@ async function apiPost<T>(
   path: string,
   body: unknown,
   cacheKey?: string,
+  options?: GongRequestOptions,
 ): Promise<T> {
   const key = scopedCredentialCacheKey(
     cacheKey ?? `POST:${path}:${JSON.stringify(body)}`,
@@ -89,6 +115,7 @@ async function apiPost<T>(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: requestSignal(options),
   });
 
   if (!res.ok) {
@@ -159,11 +186,18 @@ export interface EnrichedTranscript {
   externalMonologues: EnrichedMonologue[];
 }
 
-export async function getCalls(filters?: {
-  fromDateTime?: string;
-  toDateTime?: string;
+export async function getCalls(
+  filters?: {
+    fromDateTime?: string;
+    toDateTime?: string;
+    cursor?: string;
+  },
+  options?: GongRequestOptions,
+): Promise<{
+  calls: GongCall[];
   cursor?: string;
-}): Promise<{ calls: GongCall[]; cursor?: string; totalRecords?: number }> {
+  totalRecords?: number;
+}> {
   const params = new URLSearchParams();
   if (filters?.fromDateTime) params.set("fromDateTime", filters.fromDateTime);
   if (filters?.toDateTime) params.set("toDateTime", filters.toDateTime);
@@ -174,7 +208,7 @@ export async function getCalls(filters?: {
   const data = await apiGet<{
     calls?: GongCall[];
     records?: { cursor?: string; totalRecords?: number };
-  }>(path);
+  }>(path, undefined, options);
   return {
     calls: data.calls ?? [],
     cursor: data.records?.cursor,
@@ -184,41 +218,62 @@ export async function getCalls(filters?: {
   };
 }
 
-export async function getAllCalls(filters?: {
-  fromDateTime?: string;
-  toDateTime?: string;
-}): Promise<{
+export async function getAllCalls(
+  filters?: {
+    fromDateTime?: string;
+    toDateTime?: string;
+  },
+  options: GongRequestOptions = {},
+): Promise<{
   calls: GongCall[];
   cursor?: string;
   pages: number;
   totalRecords?: number;
 }> {
+  const deadlineAt =
+    options.deadlineAt ?? Date.now() + MAX_GONG_EXHAUSTIVE_RUNTIME_MS;
   const calls: GongCall[] = [];
   let cursor: string | undefined;
   let pages = 0;
   let totalRecords: number | undefined;
 
   do {
-    const page = await getCalls({
-      ...filters,
-      ...(cursor ? { cursor } : {}),
-    });
+    if (Date.now() >= deadlineAt) {
+      throw new Error(
+        "Gong exhaustive call listing exceeded its 60-second runtime budget. " +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program.",
+      );
+    }
+    const page = await getCalls(
+      {
+        ...filters,
+        ...(cursor ? { cursor } : {}),
+      },
+      { ...options, deadlineAt },
+    );
     pages += 1;
     if (typeof page.totalRecords === "number") {
       totalRecords = page.totalRecords;
     }
     if (
       typeof totalRecords === "number" &&
-      totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+      totalRecords >= MAX_GONG_EXHAUSTIVE_RECORDS
     ) {
       throw new Error(
-        `Gong exhaustive call listing found ${totalRecords.toLocaleString()} records in the requested window. ` +
+        `Gong exhaustive call listing found ${totalRecords.toLocaleString()} records in the requested window; ` +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program, instead of returning the full cohort through gong-calls.",
+      );
+    }
+    const nextCursor = page.cursor;
+    const nextCallCount = calls.length + page.calls.length;
+    if (nextCallCount >= MAX_GONG_EXHAUSTIVE_RECORDS) {
+      throw new Error(
+        `Gong exhaustive call listing reached ${MAX_GONG_EXHAUSTIVE_RECORDS.toLocaleString()} records before the cohort was safely returned. ` +
           "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program, instead of returning the full cohort through gong-calls.",
       );
     }
     calls.push(...page.calls);
 
-    const nextCursor = page.cursor;
     if (!nextCursor || nextCursor === cursor) {
       cursor = nextCursor;
       break;
@@ -229,18 +284,23 @@ export async function getAllCalls(filters?: {
   return { calls, cursor, pages, totalRecords };
 }
 
-export async function getCall(callId: string): Promise<GongCall | null> {
+export async function getCall(
+  callId: string,
+  options?: GongRequestOptions,
+): Promise<GongCall | null> {
   const body = { filter: { callIds: [callId] } };
   const data = await apiPost<{ calls?: GongCall[] }>(
     "/calls",
     body,
     `call:${callId}`,
+    options,
   );
   return data.calls?.[0] ?? null;
 }
 
 export async function getCallDetail(
   callId: string,
+  options?: GongRequestOptions,
 ): Promise<GongCallDetail | null> {
   const body = {
     filter: { callIds: [callId] },
@@ -255,6 +315,7 @@ export async function getCallDetail(
     "/calls/extensive",
     body,
     `detail:${callId}`,
+    options,
   );
   const call = data.calls?.[0];
   if (!call) return null;
@@ -279,7 +340,10 @@ export async function getCallDetail(
   };
 }
 
-export async function getCallTranscripts(callIds: string[]): Promise<unknown> {
+export async function getCallTranscripts(
+  callIds: string[],
+  options?: GongRequestOptions,
+): Promise<unknown> {
   const ids = Array.from(
     new Set(
       callIds
@@ -289,11 +353,19 @@ export async function getCallTranscripts(callIds: string[]): Promise<unknown> {
   );
   if (!ids.length) return { callTranscripts: [] };
   const body = { filter: { callIds: ids } };
-  return apiPost("/calls/transcript", body, `transcripts:${ids.join(",")}`);
+  return apiPost(
+    "/calls/transcript",
+    body,
+    `transcripts:${ids.join(",")}`,
+    options,
+  );
 }
 
-export async function getCallTranscript(callId: string): Promise<unknown> {
-  return getCallTranscripts([callId]);
+export async function getCallTranscript(
+  callId: string,
+  options?: GongRequestOptions,
+): Promise<unknown> {
+  return getCallTranscripts([callId], options);
 }
 
 export async function getEnrichedTranscript(
@@ -502,6 +574,8 @@ export interface GongCallSearchOptions {
   fromDateTime?: string;
   toDateTime?: string;
   exhaustive?: boolean;
+  signal?: AbortSignal;
+  deadlineAt?: number;
 }
 
 function normalizedSearchQueries(queries: string[]): string[] {
@@ -591,32 +665,57 @@ export async function searchCallsForQueries(
 
   const matches = new Map<string, GongCall & { matchedQueries?: string[] }>();
   let searchedCallCount = 0;
+  let scannedCallCount = 0;
   let cursor: string | undefined;
   let pages = 0;
+  const deadlineAt =
+    options.deadlineAt ?? Date.now() + MAX_GONG_EXHAUSTIVE_RUNTIME_MS;
   do {
+    if (Date.now() >= deadlineAt) {
+      throw new Error(
+        "Gong call search exceeded its 60-second runtime budget. " +
+          "Use provider-api-request with stageAs and pagination, followed by query-staged-dataset or a Data Program.",
+      );
+    }
     const data = await apiPost<{
       calls?: unknown[];
       records?: { cursor?: string; totalRecords?: number };
-    }>("/calls/extensive", {
-      filter: {
-        fromDateTime,
-        ...(options.toDateTime ? { toDateTime: options.toDateTime } : {}),
+    }>(
+      "/calls/extensive",
+      {
+        filter: {
+          fromDateTime,
+          ...(options.toDateTime ? { toDateTime: options.toDateTime } : {}),
+        },
+        contentSelector: { exposedFields: { parties: true } },
+        ...(cursor ? { cursor } : {}),
       },
-      contentSelector: { exposedFields: { parties: true } },
-      ...(cursor ? { cursor } : {}),
-    });
+      undefined,
+      {
+        signal: options.signal,
+        deadlineAt,
+      },
+    );
     pages += 1;
     if (
       options.exhaustive &&
       typeof data.records?.totalRecords === "number" &&
-      data.records.totalRecords > MAX_GONG_EXHAUSTIVE_RECORDS
+      data.records.totalRecords >= MAX_GONG_EXHAUSTIVE_RECORDS
     ) {
       throw new Error(
-        `Gong exhaustive search found ${data.records.totalRecords.toLocaleString()} records in the requested window. ` +
-          "Use provider-corpus-job with staged call IDs for searches larger than 500 records so progress is checkpointed between batches.",
+        `Gong exhaustive search found ${data.records.totalRecords.toLocaleString()} records in the requested window; ` +
+          "Use provider-corpus-job with staged call IDs for searches with 500 or more records so progress is checkpointed between batches.",
       );
     }
-    const calls = (data.calls ?? [])
+    const rawCalls = data.calls ?? [];
+    scannedCallCount += rawCalls.length;
+    if (options.exhaustive && scannedCallCount >= MAX_GONG_EXHAUSTIVE_RECORDS) {
+      throw new Error(
+        `Gong exhaustive search reached ${MAX_GONG_EXHAUSTIVE_RECORDS.toLocaleString()} records before the cohort was safely returned. ` +
+          "Use provider-corpus-job with staged call IDs for searches with 500 or more records so progress is checkpointed between batches.",
+      );
+    }
+    const calls = rawCalls
       .map(normalizeExtensiveCall)
       .filter((call): call is GongCall => Boolean(call))
       .filter(isExternalCall);

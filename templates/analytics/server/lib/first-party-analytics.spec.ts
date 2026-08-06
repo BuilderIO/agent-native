@@ -9,25 +9,37 @@ const healthMocks = vi.hoisted(() => ({
   outcome: vi.fn(() => "error"),
   record: vi.fn(),
 }));
+const backendMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  table: vi.fn(),
+  insert: vi.fn(),
+  query: vi.fn(),
+}));
+const exceptionMocks = vi.hoisted(() => ({
+  ingest: vi.fn(),
+}));
 const analyticsDbMocks = vi.hoisted(() => {
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
   const updateWhere = vi.fn();
+  const db: Record<string, any> = {};
+  db.transaction = vi.fn(async (callback: (transaction: unknown) => unknown) =>
+    callback(db),
+  );
+  db.select = vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({ limit: selectLimit })),
+    })),
+  }));
+  db.insert = vi.fn(() => ({ values: insertValues }));
+  db.update = vi.fn(() => ({
+    set: vi.fn(() => ({ where: updateWhere })),
+  }));
   return {
     selectLimit,
     insertValues,
     updateWhere,
-    db: {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({ limit: selectLimit })),
-        })),
-      })),
-      insert: vi.fn(() => ({ values: insertValues })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: updateWhere })),
-      })),
-    },
+    db,
   };
 });
 
@@ -42,10 +54,20 @@ vi.mock("../db/index.js", async (importOriginal) => ({
 vi.mock("./first-party-analytics-rollups.js", () => ({
   upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
 }));
+vi.mock("./error-capture.js", () => ({
+  EXCEPTION_EVENT_NAME: "$exception",
+  ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
+}));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
   queryOutcomeFromError: healthMocks.outcome,
   recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
+}));
+vi.mock("./first-party-analytics-backend.js", () => ({
+  getFirstPartyAnalyticsBackend: backendMocks.get,
+  getFirstPartyAnalyticsTable: backendMocks.table,
+  insertFirstPartyAnalyticsRows: backendMocks.insert,
+  queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
 import {
@@ -68,6 +90,7 @@ beforeEach(() => {
   ]);
   analyticsDbMocks.insertValues.mockResolvedValue(undefined);
   analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
+  rollupMocks.upsert.mockReset();
   rollupMocks.upsert.mockResolvedValue({
     eventCount: 1,
     dailyRollupCount: 1,
@@ -77,6 +100,29 @@ beforeEach(() => {
   healthMocks.outcome.mockClear();
   healthMocks.record.mockReset();
   healthMocks.record.mockResolvedValue(undefined);
+  backendMocks.get.mockReset();
+  backendMocks.table.mockReset();
+  backendMocks.insert.mockReset();
+  backendMocks.query.mockReset();
+  exceptionMocks.ingest.mockReset();
+  backendMocks.get.mockResolvedValue({
+    sink: "postgres",
+    table: null,
+    backfillCursor: null,
+    backfillCompleted: false,
+  });
+  backendMocks.table.mockResolvedValue({
+    projectId: "builder-3b0a2",
+    datasetId: "analytics",
+    tableId: "first_party_analytics_events_raw",
+    fullyQualified: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+  });
+  backendMocks.insert.mockResolvedValue(1);
+  backendMocks.query.mockResolvedValue({
+    rows: [{ events: 1 }],
+    schema: [{ name: "events", type: "number" }],
+  });
+  exceptionMocks.ingest.mockResolvedValue(undefined);
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
@@ -154,25 +200,34 @@ describe("recordAnalyticsEvents", () => {
       },
     ]);
 
-    expect(rollupMocks.upsert).toHaveBeenCalledWith([
-      expect.objectContaining({
-        eventName: "pageview",
-        ownerEmail: "owner@example.com",
-        orgId: null,
-        userKey: "user_1",
-      }),
-    ]);
+    expect(rollupMocks.upsert).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          eventName: "pageview",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          userKey: "user_1",
+        }),
+      ],
+      analyticsDbMocks.db,
+    );
     expect(
       analyticsDbMocks.insertValues.mock.invocationCallOrder[0],
     ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
   });
 
-  it("keeps raw ingestion successful when a rollup update fails", async () => {
+  it("does not acquire the retired historical-backfill lock during ingest", async () => {
+    await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects the ingest when a rollup update fails", async () => {
     rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
 
     await expect(
       recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
-    ).resolves.toMatchObject({ accepted: 1 });
+    ).rejects.toThrow("rollup unavailable");
     expect(analyticsDbMocks.insertValues).toHaveBeenCalled();
   });
 
@@ -213,6 +268,50 @@ describe("recordAnalyticsEvents", () => {
       }),
     ]);
   });
+
+  it("stops Postgres event and rollup writes after the org cuts over", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
+
+    expect(backendMocks.insert).toHaveBeenCalledWith(
+      [expect.objectContaining({ eventName: "pageview" })],
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+    expect(analyticsDbMocks.insertValues).not.toHaveBeenCalled();
+    expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps derived exception issues in SQL after the event cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "$exception",
+        properties: { error: "boom", app: "analytics" },
+      },
+    ]);
+
+    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(exceptionMocks.ingest).toHaveBeenCalledWith(
+      {
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        publicKeyId: "apk_123",
+      },
+      [expect.objectContaining({ derived: expect.any(Object) })],
+    );
+  });
 });
 
 describe("validateFirstPartyAnalyticsSql", () => {
@@ -251,6 +350,11 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "SELECT event_date, COUNT(*) AS active_users FROM analytics_user_days GROUP BY event_date",
       ),
     ).not.toThrow();
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT e.event_date FROM analytics_events e JOIN analytics_user_days u ON u.event_date = e.event_date",
+      ),
+    ).not.toThrow();
   });
 
   it("rejects direct replay chunk queries", () => {
@@ -267,6 +371,33 @@ describe("validateFirstPartyAnalyticsSql", () => {
         "WITH session_replay_chunks AS (SELECT id FROM analytics_events) SELECT COUNT(*) FROM session_replay_chunks",
       ),
     ).toThrow("session replay chunks");
+  });
+
+  it("rejects comma-separated sources instead of leaving the extra table unscoped", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT name FROM analytics_events, sqlite_master",
+      ),
+    ).toThrow("Comma-separated table sources");
+  });
+
+  it("rejects quoted table sources that the scoping rewriter cannot replace", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        'SELECT name FROM analytics_events, "sqlite_master"',
+      ),
+    ).toThrow("Comma-separated table sources");
+    expect(() =>
+      validateFirstPartyAnalyticsSql('SELECT name FROM "analytics_events"'),
+    ).toThrow("Quoted table identifiers");
+  });
+
+  it("rejects ONLY-qualified sources before they can bypass tenant scoping", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT COUNT(*) FROM ONLY analytics_events",
+      ),
+    ).toThrow("ONLY-qualified table sources");
   });
 });
 
@@ -363,6 +494,54 @@ describe("scopedAnalyticsSql", () => {
 });
 
 describe("queryFirstPartyAnalytics", () => {
+  it("routes event queries to BigQuery after the org cuts over", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).resolves.toEqual({
+      rows: [{ events: 1 }],
+      schema: [{ name: "events", type: "number" }],
+    });
+
+    expect(backendMocks.table).toHaveBeenCalledWith(
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+    expect(backendMocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM analytics_events"),
+      expect.any(Array),
+      expect.objectContaining({
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      }),
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects event and session replay joins after the cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).rejects.toThrow("Cross-backend joins are not supported");
+  });
+
   it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 

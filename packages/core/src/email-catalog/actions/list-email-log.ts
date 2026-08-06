@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { getAppSlug } from "../../server/app-name.js";
+import { getRequestOrgId } from "../../server/request-context.js";
 import { authorizeTransactionalEmailRead } from "../authorize.js";
 import { listEmailLog } from "../log.js";
 
@@ -17,6 +18,7 @@ export default defineAction({
     authorizeTransactionalEmailRead(templateId ? [templateId] : []),
   run: async ({ templateId, limit }) => ({
     entries: await listEmailLog({
+      orgId: getRequestOrgId() ?? "",
       app: getAppSlug() ?? "unknown",
       templateId,
       limit,

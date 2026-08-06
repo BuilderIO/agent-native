@@ -92,7 +92,7 @@ export function renderClipsInviteEmail({
         `Click the button below to accept the invite and start collaborating.`,
       ],
       cta: { label: "Accept invite", url: inviteUrl },
-      // guard:allow-raw-color — email HTML cannot reference CSS theme tokens; mail clients don't support custom properties.
+      // guard:allow-raw-color - email HTML cannot reference CSS theme tokens.
       brandColor: "#18181B",
     }),
   };

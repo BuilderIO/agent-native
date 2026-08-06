@@ -17,6 +17,8 @@ import { table, text, integer } from "../db/schema.js";
 
 export const emailLog = table("email_log", {
   id: text("id").primaryKey(),
+  /** Organization that owns the send. Legacy rows without this are unreadable. */
+  orgId: text("org_id"),
   /** Registered transactional email id, e.g. "calendar.booking-confirmed". */
   templateId: text("template_id"),
   /** App slug that sent it. */
@@ -37,6 +39,7 @@ export const emailLog = table("email_log", {
 
 export const EMAIL_LOG_CREATE_SQL = `CREATE TABLE IF NOT EXISTS email_log (
   id TEXT PRIMARY KEY,
+  org_id TEXT,
   template_id TEXT,
   app TEXT,
   recipient TEXT NOT NULL,
@@ -50,3 +53,6 @@ export const EMAIL_LOG_CREATE_SQL = `CREATE TABLE IF NOT EXISTS email_log (
 
 export const EMAIL_LOG_TEMPLATE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS email_log_template_created_idx
   ON email_log (template_id, created_at)`;
+
+export const EMAIL_LOG_ORG_APP_INDEX_SQL = `CREATE INDEX IF NOT EXISTS email_log_org_app_created_idx
+  ON email_log (org_id, app, created_at)`;

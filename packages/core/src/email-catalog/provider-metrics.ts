@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { resolveSecret } from "../server/credential-provider.js";
 import { getEmailProvider } from "../server/email.js";
+import { getScopedEmailProviderCategory } from "./log.js";
 
 const SENDGRID_API = "https://api.sendgrid.com/v3";
 const SENDGRID_PAGE_SIZE = 1000;
@@ -123,15 +124,28 @@ async function sendgridGet(
 export async function fetchEmailEngagement(
   templateIds: string[],
   windowDays: number,
+  orgId?: string,
 ): Promise<ProviderMetricsResult<EmailEngagement[]>> {
   if (!templateIds.length) return { available: true, data: [] };
+  if (!orgId) {
+    return {
+      available: false,
+      reason: "Organization context is required for provider email metrics.",
+    };
+  }
 
   const sendgrid = await activeSendGrid();
   if (!sendgrid.available) return sendgrid;
 
   const end = Date.now();
   const start = end - windowDays * 24 * 60 * 60 * 1000;
-  const requested = new Set(templateIds);
+  const categoryToTemplate = new Map(
+    templateIds.map((templateId) => [
+      getScopedEmailProviderCategory(templateId, orgId),
+      templateId,
+    ]),
+  );
+  const requested = new Set(categoryToTemplate.keys());
   const data: EmailEngagement[] = [];
 
   try {
@@ -151,7 +165,7 @@ export async function fetchEmailEngagement(
         const delivered = entry.metrics.delivered;
         const uniqueOpens = entry.metrics.unique_opens;
         data.push({
-          templateId: entry.name,
+          templateId: categoryToTemplate.get(entry.name)!,
           delivered,
           uniqueOpens,
           uniqueClicks: entry.metrics.unique_clicks,
@@ -186,13 +200,24 @@ export interface EmailActivityEntry {
 
 export async function fetchEmailActivity(options: {
   templateId: string;
+  orgId?: string;
   limit?: number;
 }): Promise<ProviderMetricsResult<EmailActivityEntry[]>> {
+  if (!options.orgId) {
+    return {
+      available: false,
+      reason: "Organization context is required for provider email activity.",
+    };
+  }
   const sendgrid = await activeSendGrid();
   if (!sendgrid.available) return sendgrid;
 
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 1000);
-  const safe = options.templateId.replace(/["\\]/g, "");
+  const category = getScopedEmailProviderCategory(
+    options.templateId,
+    options.orgId,
+  );
+  const safe = category.replace(/["\\]/g, "");
 
   try {
     const payload = activitySchema.parse(

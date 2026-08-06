@@ -61,9 +61,14 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useAssetsPrefs } from "@/hooks/use-assets-prefs";
+import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
+
+export function meta() {
+  return [{ title: messagesByLocale["en-US"].settings.title }];
+}
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;

@@ -27,8 +27,9 @@ or generated image/video assets that another app can reference by ID and URL.
   Pass `mediaType: "image"` by default, or `mediaType: "video"` for video
   libraries.
 - Use unattended actions when the agent already knows what to do:
-  `search-assets`, `list-assets`, `generate-image`, `generate-image-batch`,
-  `generate-video`, `refresh-generation-run`, and `export-asset`.
+  `search-assets`, `list-assets`, `import-style-from-url`, `generate-image`,
+  `generate-image-batch`, `generate-video`, `refresh-generation-run`, and
+  `export-asset`.
 - In chat, consume composer `@` references as structured generation inputs:
   `brand-kit` maps to `libraryId`, `preset` maps to `presetId`, and
   `media-type` chooses image generation versus video generation. If no mention
@@ -94,10 +95,11 @@ or generated image/video assets that another app can reference by ID and URL.
    when they want a chat preloaded with the session context.
 
 For short vague prompts, enhance conservatively with library style context while
-preserving the user's original prompt in run metadata. Use
-`analyze-collection-style` when a collection needs upgraded vision brand
-analysis before generation. Brand QA scoring and best-of-N selection are
-deferred.
+preserving the user's original prompt in run metadata. If a public website is
+the style source, call `import-style-from-url` first so the library keeps the
+hydrated browser-derived design brief. Use `analyze-collection-style` when a
+collection needs upgraded vision brand analysis from image references before
+generation. Brand QA scoring and best-of-N selection are deferred.
 
 ## Video Workflows
 

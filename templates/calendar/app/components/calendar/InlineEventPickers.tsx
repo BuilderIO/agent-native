@@ -36,7 +36,7 @@ function formatTimeValue(value: string) {
   const period = hourValue >= 12 ? "PM" : "AM";
   const hour = hourValue % 12 || 12;
   return minuteValue === 0
-    ? `${hour} ${period}`
+    ? `${hour}:00 ${period}`
     : `${hour}:${String(minuteValue).padStart(2, "0")} ${period}`;
 }
 
@@ -118,12 +118,17 @@ export function TimePickerPopover({
                 }}
               >
                 <span>{formatTimeValue(option)}</span>
-                {getOptionMeta?.(option) && (
-                  <span className="text-muted-foreground">
-                    {getOptionMeta(option)}
+                <span className="ml-3 flex min-w-0 items-center gap-2 text-muted-foreground">
+                  {getOptionMeta?.(option) && (
+                    <span className="truncate">{getOptionMeta(option)}</span>
+                  )}
+                  <span
+                    aria-hidden="true"
+                    className="flex size-3.5 shrink-0 items-center justify-center"
+                  >
+                    {selected && <IconCheck className="size-3.5" />}
                   </span>
-                )}
-                {selected && <IconCheck className="ml-2 size-3.5 shrink-0" />}
+                </span>
               </button>
             );
           })}
@@ -338,7 +343,12 @@ export function RepeatPicker({
               <span>{option.label}</span>
               <span className="ml-3 flex items-center gap-2 text-muted-foreground">
                 {option.meta}
-                {selected && <IconCheck className="size-3.5 shrink-0" />}
+                <span
+                  aria-hidden="true"
+                  className="flex size-3.5 shrink-0 items-center justify-center"
+                >
+                  {selected && <IconCheck className="size-3.5" />}
+                </span>
               </span>
             </button>
           );

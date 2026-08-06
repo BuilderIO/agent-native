@@ -109,7 +109,7 @@ export interface BrandKitData {
   logos: BrandKitLogo[];
   /**
    * The source system's full named vocabulary. Optional because kits predating
-   * it store only the role summary — absent means "never extracted", not "the
+   * it store only the role summary - absent means "never extracted", not "the
    * system has none".
    */
   tokens?: BrandKitToken[];

@@ -1,4 +1,3 @@
-import { collectAuthoredColorStyles } from "@shared/authored-color-styles";
 import { normalizePoisonedBoardNestedCoords } from "@shared/board-file";
 import type { CodeLayerNode } from "@shared/code-layer";
 
@@ -212,12 +211,8 @@ export function getBodyInlineStyles(content: string): Record<string, string> {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const body = doc.body;
     if (!body) return {};
-    // A generated screen sets its page background in a `body { … }` rule, and a
-    // `background:` shorthand holding var() leaves the longhand empty, so the
-    // inline style alone reports an unstyled page.
-    const authored = collectAuthoredColorStyles(body);
     return {
-      backgroundColor: body.style.backgroundColor || authored.backgroundColor,
+      backgroundColor: body.style.backgroundColor,
       backgroundImage: body.style.backgroundImage,
       backgroundPosition: body.style.backgroundPosition,
       backgroundRepeat: body.style.backgroundRepeat,

@@ -3,6 +3,7 @@ import {
   type AgentFailureRegime,
 } from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
+import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
@@ -496,7 +497,7 @@ function assertSourceAccess(
 ) {
   if (source.kind === "current") return;
   if (!access.canInspectAll) {
-    throw new Error(
+    throw new ForbiddenError(
       "Only Dispatch admins can inspect thread databases from other apps.",
     );
   }

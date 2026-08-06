@@ -151,7 +151,7 @@ export interface BrandKitTokenRejection {
 export interface NormalizedBrandKitTokens {
   tokens: BrandKitToken[];
   /**
-   * Entries that could not be stored. Callers must surface these — a kit that
+   * Entries that could not be stored. Callers must surface these - a kit that
    * silently kept 4 of 40 tokens reads downstream as a 4-token design system.
    */
   rejected: BrandKitTokenRejection[];

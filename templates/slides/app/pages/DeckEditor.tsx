@@ -34,7 +34,6 @@ import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
-import GeneratingOverlay from "@/components/editor/GeneratingOverlay";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageDropPromptPopover from "@/components/editor/ImageDropPromptPopover";
@@ -156,6 +155,7 @@ export default function DeckEditor() {
     getDeck,
     reloadDecks,
     reloadDecksWithStatus,
+    refreshOpenDeck,
     updateDeck,
     updateSlide,
     deleteSlide,
@@ -396,6 +396,22 @@ export default function DeckEditor() {
       setRetryingMissingDeck(false);
     }
   }, [refetchOrg, reloadDecks]);
+
+  // The final generation write can race the last sync event. Pull the
+  // authoritative open deck when the run settles so a stale canvas does not
+  // require a browser refresh to reveal completed slides.
+  useEffect(() => {
+    if (
+      !id ||
+      !shouldClearNewDeckGeneratingState({
+        generating,
+        generationStarted: newDeckGenerationStarted.current,
+      })
+    ) {
+      return;
+    }
+    void refreshOpenDeck(id);
+  }, [generating, id, refreshOpenDeck]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.
@@ -1157,18 +1173,19 @@ export default function DeckEditor() {
         )}
 
         {!generatingSlideSelected &&
-          showNewDeckGeneratingOverlay &&
+          generatingSlideVisible &&
           deck.slides.length === 0 &&
-          !showQuestionFlow && <GeneratingOverlay />}
-
-        {isNewDeckGenerating && deck.slides.length > 0 && !showQuestionFlow && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-lg border border-border bg-popover/95 px-3 py-2 text-sm text-popover-foreground shadow-lg backdrop-blur">
-            <span className="font-medium">{t("deckEditor.buildingDeck")}</span>
-            <span className="ml-2 text-muted-foreground">
-              {t("deckEditor.slidesAdded", { count: deck.slides.length })}
-            </span>
-          </div>
-        )}
+          !showQuestionFlow && (
+            <div className="flex min-h-0 flex-1 overflow-auto bg-background p-4 md:p-8">
+              <div className="m-auto w-full max-w-6xl">
+                <GeneratingSlidePreview
+                  content={streamedGeneratingSlideContent}
+                  aspectRatio={deck.aspectRatio}
+                  thumbnail={false}
+                />
+              </div>
+            </div>
+          )}
 
         {showCurrentSlideEditor && currentSlide && (
           <SlideEditor

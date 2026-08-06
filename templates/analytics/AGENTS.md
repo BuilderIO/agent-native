@@ -81,7 +81,7 @@ ladder.
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
-  selection. `navigate` moves the user, including `view="catalog"`,
+  selection. `navigate` moves the user between supported Analytics surfaces,
   `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
@@ -97,7 +97,7 @@ Read the relevant skill before deeper work:
 - `cross-source-analysis` for questions spanning sources (identity stitching,
   de-duplication).
 - `dashboard-management` for dashboard/panel storage, layout, extensions,
-  mutation, sharing, and the template catalog.
+  mutation and sharing.
 - `adhoc-analysis` and `analysis-workspace` for one-off answers and large
   multi-source work.
 - `provider-api` and `data-programs` for the escape hatch and durable,
