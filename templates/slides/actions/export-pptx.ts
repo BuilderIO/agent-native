@@ -378,8 +378,8 @@ function parseImportedSlideHtml(
   )?.[1];
   const bgColor = colorToHex(
     outerStyle
-      ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000")
-      : "#000000",
+      ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - PPTX background fallback
+      : "#000000", // guard:allow-raw-color - PPTX background fallback
   );
   const elementRegex =
     /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape)["'][^>]*)>([\s\S]*?)<\/div>/gi;
@@ -511,7 +511,7 @@ function importedRunOptions(style: string): TextRunElement["options"] {
     ...(fontSizePx != null ? { fontSize: pxToPt(fontSizePx) } : {}),
     ...(fontFamily ? { fontFace: fontFamily } : {}),
     ...(getStyle(style, "color")
-      ? { color: colorToHex(getStyle(style, "color") ?? "#FFFFFF") }
+      ? { color: colorToHex(getStyle(style, "color") ?? "#FFFFFF") } // guard:allow-raw-color - PPTX text fallback
       : {}),
     ...(fontWeight
       ? {

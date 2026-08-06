@@ -96,6 +96,7 @@ export async function readLocalImportedAsset(args: {
   try {
     descriptor = decodeLocalImportedAssetToken(decodeURIComponent(args.token));
   } catch {
+    // coercion-ok: malformed tokens represent an absent local asset, not a successful read.
     return null;
   }
   if (descriptor.ownerKey !== tenantFileKey(args.email)) return null;
@@ -118,6 +119,7 @@ export async function readLocalImportedAsset(args: {
       mimeType: descriptor.mimeType,
     };
   } catch {
+    // coercion-ok: a missing local asset is an absent export image and is skipped by the caller.
     return null;
   }
 }
