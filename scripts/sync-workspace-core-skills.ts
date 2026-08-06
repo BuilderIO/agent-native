@@ -98,6 +98,7 @@ const workspaceSkillIncludes = [
   "sharing",
   "storing-data",
   "tracking",
+  "turn-into-app",
   "upgrade-agent-native",
   "visual-answer",
   "voice-transcription",
@@ -133,6 +134,7 @@ const templateSharedSkillIncludes = [
   "secrets",
   "storing-data",
   "sharing",
+  "turn-into-app",
   "upgrade-agent-native",
 ];
 
@@ -148,6 +150,7 @@ const requiredAllTemplateSharedSkills = [
   "feature-flags",
   "sharing",
   "storing-data",
+  "turn-into-app",
   "upgrade-agent-native",
 ];
 
@@ -159,6 +162,7 @@ const requiredDefaultTemplateSharedSkills = [
   "internationalization",
   "onboarding",
   "secrets",
+  "turn-into-app",
   "upgrade-agent-native",
 ];
 
@@ -170,6 +174,7 @@ const requiredHeadlessTemplateSharedSkills = [
   "feature-flags",
   "integration-webhooks",
   "secrets",
+  "turn-into-app",
   "upgrade-agent-native",
 ];
 
@@ -245,9 +250,6 @@ const requiredRegistryConventionSkills = [
 // Repo-maintenance workflows are useful in this repository, but generated
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
-  // Workflow packaging and hosting guidance is for coding agents working in
-  // this repo or the public skills collection, not generated app runtimes.
-  "turn-into-app",
   "babysit-pr",
   "concurrent-agents",
   "delegating-work",

@@ -378,4 +378,16 @@ describe("readAgentsBundleFromFs", () => {
     );
     expect(promptBlock).toContain('docs-search --slug "skill-visual-edit"');
   });
+
+  it("exposes turn-into-app to the app runtime skill picker", () => {
+    const bundle = readAgentsBundleFromFs(repoPath("templates", "chat"));
+    const skill = getRuntimeSkills(bundle).find(
+      (candidate) => candidate.meta.name === "turn-into-app",
+    );
+
+    expect(skill).toBeDefined();
+    expect(skill!.meta.scope).toBe("both");
+    expect(skill!.meta.description).toContain("Use when");
+    expect(generateSkillsPromptBlock(bundle)).toContain("`turn-into-app`");
+  });
 });

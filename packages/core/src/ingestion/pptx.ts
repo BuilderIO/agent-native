@@ -214,6 +214,567 @@ export async function parsePptxPresentation(
   return { title, slides, theme };
 }
 
+interface ParsedShapeTransform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+}
+
+interface ShapeTransformContext {
+  originX: number;
+  originY: number;
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+}
+
+const SHAPE_ELEMENT_NAMES = new Set([
+  "sp",
+  "pic",
+  "grpSp",
+  "cxnSp",
+  "graphicFrame",
+]);
+
+async function parseSlideElements(args: {
+  xml: string;
+  parseXml: (xml: string) => unknown;
+  slide: unknown;
+  zip: ZipArchive;
+  slideRelationships: Map<string, { target: string; type: string }>;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  images: ParsedPptxImage[];
+}): Promise<ParsedPptxElement[]> {
+  const fragments = extractDirectShapeFragments(args.xml, "spTree");
+  const elements: ParsedPptxElement[] = [];
+  const context: ShapeTransformContext = {
+    originX: 0,
+    originY: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+  };
+
+  for (const fragment of fragments) {
+    const parsed = await parseShapeFragment(fragment, {
+      ...args,
+      context,
+    });
+    if (parsed.length > 0) elements.push(...parsed);
+  }
+
+  // Some authors use a picture fill on the slide background instead of a
+  // picture shape. Keep it in the same ordered scene graph at the back.
+  const backgroundEmbedId = extractBackgroundFillEmbedId(args.slide);
+  if (backgroundEmbedId) {
+    const backgroundRelationship = args.slideRelationships.get(backgroundEmbedId);
+    if (backgroundRelationship) {
+      const image = await loadPptxImage({
+        relationship: backgroundRelationship,
+        zip: args.zip,
+        slideWidthEmu: args.slideWidthEmu,
+        slideHeightEmu: args.slideHeightEmu,
+        x: 0,
+        y: 0,
+        width: args.slideWidthEmu ?? 0,
+        height: args.slideHeightEmu ?? 0,
+      });
+      if (image) {
+        args.images.unshift(image.image);
+        elements.unshift(image.element);
+      }
+    }
+  }
+
+  return elements;
+}
+
+async function parseShapeFragment(
+  fragment: string,
+  args: {
+    parseXml: (xml: string) => unknown;
+    zip: ZipArchive;
+    slideRelationships: Map<string, { target: string; type: string }>;
+    slideWidthEmu?: number;
+    slideHeightEmu?: number;
+    images: ParsedPptxImage[];
+    context: ShapeTransformContext;
+  },
+): Promise<ParsedPptxElement[]> {
+  const parsed = record(args.parseXml(fragment));
+  if (!parsed) return [];
+
+  const entry = [...SHAPE_ELEMENT_NAMES].find((name) => parsed[`p:${name}`] != null);
+  if (!entry) return [];
+  const node = record(parsed[`p:${entry}`]);
+  if (!node) return [];
+
+  if (entry === "grpSp") {
+    const groupTransform = readTransform(node, "p:grpSpPr");
+    const groupXfrm = record(record(node["p:grpSpPr"])?.["a:xfrm"]);
+    const childOffset = readPoint(groupXfrm?.["a:chOff"]);
+    const childExtent = readPoint(groupXfrm?.["a:chExt"]);
+    const groupScaleX =
+      childExtent.x > 0 ? groupTransform.width / childExtent.x : 1;
+    const groupScaleY =
+      childExtent.y > 0 ? groupTransform.height / childExtent.y : 1;
+    const nextContext: ShapeTransformContext = {
+      originX:
+        args.context.originX +
+        args.context.scaleX *
+          (groupTransform.x - childOffset.x * groupScaleX),
+      originY:
+        args.context.originY +
+        args.context.scaleY *
+          (groupTransform.y - childOffset.y * groupScaleY),
+      scaleX: args.context.scaleX * groupScaleX,
+      scaleY: args.context.scaleY * groupScaleY,
+      rotation: args.context.rotation + (groupTransform.rotation ?? 0),
+    };
+    const output: ParsedPptxElement[] = [];
+    for (const child of extractDirectShapeFragments(fragment, "grpSp")) {
+      output.push(
+        ...(await parseShapeFragment(child, {
+          ...args,
+          context: nextContext,
+        })),
+      );
+    }
+    return output;
+  }
+
+  const transform = applyTransform(
+    readTransform(node, "p:spPr"),
+    args.context,
+  );
+  const id = readShapeId(node);
+  const name = readShapeName(node);
+  const shapeProperties = record(node["p:spPr"]);
+  const text = parseTextBody(node);
+  const fill = parseShapeFill(shapeProperties);
+  const line = parseShapeLine(shapeProperties);
+  const shapeType = stringValue(
+    record(shapeProperties?.["a:prstGeom"])?.["@_prst"],
+  );
+
+  if (entry === "pic") {
+    const embedId = stringValue(
+      record(record(node["p:blipFill"])?.["a:blip"])?.["@_r:embed"],
+    );
+    if (!embedId) return [];
+    const relationship = args.slideRelationships.get(embedId);
+    if (!relationship) return [];
+    const image = await loadPptxImage({
+      relationship,
+      zip: args.zip,
+      slideWidthEmu: args.slideWidthEmu,
+      slideHeightEmu: args.slideHeightEmu,
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+      crop: parseImageCrop(node),
+    });
+    if (!image) return [];
+    args.images.push(image.image);
+    return [{
+      id,
+      name,
+      kind: "image",
+      ...transform,
+      image: image.image,
+    }];
+  }
+
+  if (text.length > 0) {
+    return [{
+      id,
+      name,
+      kind: "text",
+      ...transform,
+      shapeType,
+      ...(fill ? { fill } : {}),
+      ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+      ...parseTextBoxProperties(node),
+      paragraphs: text,
+    }];
+  }
+
+  if (fill || line) {
+    return [{
+      id,
+      name,
+      kind: "shape",
+      ...transform,
+      shapeType,
+      ...(fill ? { fill } : {}),
+      ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+    }];
+  }
+
+  return [];
+}
+
+function extractDirectShapeFragments(xml: string, container: string): string[] {
+  const containerMatch = new RegExp(`<p:${container}\\b[^>]*>`, "i").exec(xml);
+  if (!containerMatch) return [];
+  const containerEnd = findMatchingXmlTag(
+    xml,
+    containerMatch.index,
+    container,
+  );
+  if (containerEnd < 0) return [];
+  const start = containerMatch.index + containerMatch[0].length;
+  const end = containerEnd;
+  const tagPattern = /<\\/?(?:[A-Za-z_][\\w.-]*:)?([A-Za-z_][\\w.-]*)\\b[^>]*>/g;
+  tagPattern.lastIndex = start;
+  const stack: string[] = [];
+  const fragments: string[] = [];
+  let shapeStart = -1;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(xml)) && match.index < end) {
+    const token = match[0];
+    const localName = match[1];
+    const isClosing = token.startsWith("</");
+    const isSelfClosing = /\\/\\s*>$/.test(token);
+    if (isClosing) {
+      if (stack.length > 0) stack.pop();
+      if (stack.length === 0 && shapeStart >= 0) {
+        fragments.push(xml.slice(shapeStart, match.index + token.length));
+        shapeStart = -1;
+      }
+      continue;
+    }
+    if (stack.length === 0 && SHAPE_ELEMENT_NAMES.has(localName)) {
+      shapeStart = match.index;
+    }
+    if (!isSelfClosing) stack.push(localName);
+  }
+  return fragments;
+}
+
+function findMatchingXmlTag(xml: string, start: number, localName: string): number {
+  const tagPattern = /<\\/?(?:[A-Za-z_][\\w.-]*:)?([A-Za-z_][\\w.-]*)\\b[^>]*>/g;
+  tagPattern.lastIndex = start;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(xml))) {
+    const token = match[0];
+    if (match[1] !== localName || /\\/\\s*>$/.test(token)) continue;
+    if (token.startsWith("</")) {
+      depth -= 1;
+      if (depth === 0) return match.index;
+    } else {
+      depth += 1;
+    }
+  }
+  return -1;
+}
+
+function readShapeId(node: Record<string, unknown>): string {
+  const cNvPr = record(record(node["p:nvSpPr"])?.["p:cNvPr"]);
+  return stringValue(cNvPr?.["@_id"]) ?? `shape-${Math.random().toString(36).slice(2)}`;
+}
+
+function readShapeName(node: Record<string, unknown>): string | undefined {
+  return stringValue(
+    record(record(node["p:nvSpPr"])?.["p:cNvPr"])?.["@_name"],
+  );
+}
+
+function readPoint(value: unknown): { x: number; y: number } {
+  const point = record(value);
+  return {
+    x: Number(point?.["@_x"]) || 0,
+    y: Number(point?.["@_y"]) || 0,
+  };
+}
+
+function readExtent(value: unknown): { x: number; y: number } {
+  const extent = record(value);
+  return {
+    x: Number(extent?.["@_cx"]) || 0,
+    y: Number(extent?.["@_cy"]) || 0,
+  };
+}
+
+function readTransform(
+  node: Record<string, unknown>,
+  key: string,
+): ParsedShapeTransform {
+  const xfrm = record(record(node[key])?.["a:xfrm"]);
+  const off = readPoint(xfrm?.["a:off"]);
+  const ext = readExtent(xfrm?.["a:ext"]);
+  const rawRotation = Number(xfrm?.["@_rot"]);
+  return {
+    x: off.x,
+    y: off.y,
+    width: ext.x,
+    height: ext.y,
+    ...(Number.isFinite(rawRotation) && rawRotation !== 0
+      ? { rotation: rawRotation / 60000 }
+      : {}),
+  };
+}
+
+function applyTransform(
+  transform: ParsedShapeTransform,
+  context: ShapeTransformContext,
+): ParsedShapeTransform {
+  return {
+    x: context.originX + transform.x * context.scaleX,
+    y: context.originY + transform.y * context.scaleY,
+    width: transform.width * context.scaleX,
+    height: transform.height * context.scaleY,
+    ...(transform.rotation || context.rotation
+      ? { rotation: (transform.rotation ?? 0) + context.rotation }
+      : {}),
+  };
+}
+
+function parseTextBody(node: Record<string, unknown>): ParsedPptxParagraph[] {
+  const txBody = record(node["p:txBody"]);
+  if (!txBody) return [];
+  return asArray(txBody["a:p"]).map((rawParagraph) => {
+    const paragraph = record(rawParagraph);
+    const pPr = record(paragraph?.["a:pPr"]);
+    const runs: ParsedPptxTextRun[] = [];
+    for (const rawRun of asArray(paragraph?.["a:r"])) {
+      const run = record(rawRun);
+      const content = innerText(run?.["a:t"]);
+      if (content) {
+        runs.push({
+          content,
+          ...runProperties(record(run?.["a:rPr"]), {}),
+        });
+      }
+    }
+    for (const rawField of asArray(paragraph?.["a:fld"])) {
+      const field = record(rawField);
+      const content = innerText(field?.["a:t"]);
+      if (content) {
+        runs.push({
+          content,
+          ...runProperties(record(field?.["a:rPr"]), {}),
+        });
+      }
+    }
+    const bullet = record(pPr?.["a:buChar"]);
+    const bulletColor = parseColor(record(pPr?.["a:buClr"]));
+    const bulletFont = stringValue(
+      record(pPr?.["a:buFont"])?.["@_typeface"],
+    );
+    const bulletSize = Number(record(pPr?.["a:buSzPts"])?.["@_val"]);
+    const lineSpacing = parseParagraphSpacing(pPr?.["a:lnSpc"]);
+    const spaceBeforePt = parsePoints(pPr?.["a:spcBef"]);
+    const spaceAfterPt = parsePoints(pPr?.["a:spcAft"]);
+    const alignment = mapAlignment(stringValue(pPr?.["@_algn"]));
+    return {
+      runs,
+      ...(alignment ? { alignment } : {}),
+      ...(bullet?.["@_char"] && !pPr?.["a:buNone"]
+        ? { bulletChar: String(bullet["@_char"]) }
+        : {}),
+      ...(bulletColor ? { bulletColor } : {}),
+      ...(bulletFont ? { bulletFontFamily: bulletFont } : {}),
+      ...(Number.isFinite(bulletSize) && bulletSize > 0
+        ? { bulletSize: bulletSize / 100 }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_lvl"]))
+        ? { level: Number(pPr?.["@_lvl"]) }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_marL"]))
+        ? { marginLeftEmu: Number(pPr?.["@_marL"]) }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_indent"]))
+        ? { indentEmu: Number(pPr?.["@_indent"]) }
+        : {}),
+      ...(lineSpacing !== undefined ? { lineSpacing } : {}),
+      ...(spaceBeforePt !== undefined ? { spaceBeforePt } : {}),
+      ...(spaceAfterPt !== undefined ? { spaceAfterPt } : {}),
+    };
+  });
+}
+
+function parseTextBoxProperties(node: Record<string, unknown>): Pick<
+  ParsedPptxElement,
+  "padding" | "verticalAlign"
+> {
+  const bodyPr = record(record(node["p:txBody"])?.["a:bodyPr"]);
+  if (!bodyPr) return {};
+  const anchor = stringValue(bodyPr["@_anchor"]);
+  return {
+    padding: {
+      left: Number(bodyPr["@_lIns"]) || 0,
+      right: Number(bodyPr["@_rIns"]) || 0,
+      top: Number(bodyPr["@_tIns"]) || 0,
+      bottom: Number(bodyPr["@_bIns"]) || 0,
+    },
+    ...(anchor === "ctr"
+      ? { verticalAlign: "middle" as const }
+      : anchor === "b"
+        ? { verticalAlign: "bottom" as const }
+        : { verticalAlign: "top" as const }),
+  };
+}
+
+function parseShapeFill(
+  shapeProperties: Record<string, unknown> | null,
+): string | undefined {
+  if (!shapeProperties) return undefined;
+  if (shapeProperties["a:noFill"] !== undefined) return undefined;
+  return parseColor(record(shapeProperties["a:solidFill"]));
+}
+
+function parseShapeLine(
+  shapeProperties: Record<string, unknown> | null,
+): { color: string; width?: number } | undefined {
+  const line = record(shapeProperties?.["a:ln"]);
+  if (!line || line["a:noFill"] !== undefined) return undefined;
+  const color = parseColor(record(line["a:solidFill"]));
+  if (!color) return undefined;
+  const width = Number(line["@_w"]);
+  return {
+    color,
+    ...(Number.isFinite(width) && width > 0 ? { width } : {}),
+  };
+}
+
+function parseColor(value: Record<string, unknown> | null): string | undefined {
+  if (!value) return undefined;
+  const rgb = stringValue(record(value["a:srgbClr"])?.["@_val"]);
+  if (rgb) return `#${rgb}`;
+  const scheme = stringValue(record(value["a:schemeClr"])?.["@_val"]);
+  if (!scheme) return undefined;
+  const fallback: Record<string, string> = {
+    dk1: "#000000",
+    dk2: "#000000",
+    lt1: "#ffffff",
+    lt2: "#ffffff",
+  };
+  return fallback[scheme];
+}
+
+function parseParagraphSpacing(value: unknown): number | undefined {
+  const node = record(value);
+  const percent = Number(record(node?.["a:spcPct"])?.["@_val"]);
+  if (Number.isFinite(percent) && percent > 0) return percent / 100000;
+  return parsePoints(node?.["a:spcPts"]);
+}
+
+function parsePoints(value: unknown): number | undefined {
+  const node = record(value);
+  const points = Number(node?.["@_val"]);
+  return Number.isFinite(points) && points >= 0 ? points / 100 : undefined;
+}
+
+function mapAlignment(
+  value: string | undefined,
+): ParsedPptxParagraph["alignment"] {
+  if (value === "ctr") return "center";
+  if (value === "r") return "right";
+  if (value === "just") return "justify";
+  if (value === "l") return "left";
+  return undefined;
+}
+
+function parseImageCrop(
+  node: Record<string, unknown>,
+): ParsedPptxImage["crop"] {
+  const srcRect = record(record(node["p:blipFill"])?.["a:srcRect"]);
+  if (!srcRect) return undefined;
+  const left = Number(srcRect["@_l"]) || 0;
+  const top = Number(srcRect["@_t"]) || 0;
+  const right = Number(srcRect["@_r"]) || 0;
+  const bottom = Number(srcRect["@_b"]) || 0;
+  return left || top || right || bottom
+    ? { left: left / 100000, top: top / 100000, right: right / 100000, bottom: bottom / 100000 }
+    : undefined;
+}
+
+async function loadPptxImage(args: {
+  relationship: { target: string; type: string };
+  zip: ZipArchive;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  crop?: ParsedPptxImage["crop"];
+}): Promise<{ image: ParsedPptxImage; element: ParsedPptxElement } | null> {
+  if (
+    !args.relationship.type.includes("/image") &&
+    !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
+      args.relationship.target,
+    )
+  ) {
+    return null;
+  }
+  const imagePath = args.relationship.target.startsWith("/")
+    ? args.relationship.target.slice(1)
+    : args.relationship.target.startsWith("../")
+      ? `ppt/${args.relationship.target.replace(/^\.\.\//, "")}`
+      : `ppt/slides/${args.relationship.target}`;
+  const imageFile = args.zip.file(imagePath);
+  if (!imageFile) return null;
+  const name = imagePath.split("/").at(-1) ?? "image";
+  const image: ParsedPptxImage = {
+    data: new Uint8Array(await imageFile.async("nodebuffer")),
+    mimeType: imageMimeType(name),
+    name,
+    aspectRatio: args.width && args.height ? args.width / args.height : undefined,
+    fullBleed: Boolean(
+      args.width &&
+        args.height &&
+        args.slideWidthEmu &&
+        args.slideHeightEmu &&
+        args.width / args.slideWidthEmu >= 0.85 &&
+        args.height / args.slideHeightEmu >= 0.85,
+    ),
+    ...(args.crop ? { crop: args.crop } : {}),
+  };
+  return {
+    image,
+    element: {
+      id: `image-${name}-${args.x}-${args.y}`,
+      name,
+      kind: "image",
+      x: args.x,
+      y: args.y,
+      width: args.width,
+      height: args.height,
+      image,
+    },
+  };
+}
+
+function flattenElementText(elements: ParsedPptxElement[]): ParsedPptxTextRun[] {
+  const output: ParsedPptxTextRun[] = [];
+  const textElements = elements.filter(
+    (element) => element.kind === "text" && element.paragraphs,
+  );
+  for (const [elementIndex, element] of textElements.entries()) {
+    const paragraphs = element.paragraphs ?? [];
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+      output.push(...paragraph.runs);
+      if (paragraphIndex < paragraphs.length - 1) output.push({ content: "\n" });
+    }
+    if (elementIndex < textElements.length - 1) output.push({ content: "\n" });
+  }
+  return output;
+}
+
+function extractSlideBackgroundColor(value: unknown): string | undefined {
+  const root = record(value);
+  const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
+  const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
+  return parseColor(record(bgPr?.["a:solidFill"]));
+}
+
 export function parsePptxSlideMetadata(
   value: unknown,
 ): ParsedPptxSlideMetadata {
@@ -566,6 +1127,10 @@ function runProperties(
   const rgb = stringValue(
     record(record(value["a:solidFill"])?.["a:srgbClr"])?.["@_val"],
   );
+  const fontFamily =
+    stringValue(record(value["a:latin"])?.["@_typeface"]) ??
+    stringValue(record(value["a:ea"])?.["@_typeface"]) ??
+    stringValue(record(value["a:cs"])?.["@_typeface"]);
   return {
     ...inherited,
     ...(value["@_b"] === "1" || value["@_b"] === 1 || value["@_b"] === true
@@ -576,6 +1141,10 @@ function runProperties(
       : {}),
     ...(Number.isFinite(size) && size > 0 ? { fontSize: size / 100 } : {}),
     ...(rgb ? { color: `#${rgb}` } : {}),
+    ...(fontFamily ? { fontFamily } : {}),
+    ...(value["@_u"] && value["@_u"] !== "none"
+      ? { underline: true }
+      : {}),
   };
 }
 
