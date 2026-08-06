@@ -211,7 +211,7 @@ describe("delegated A2A final response guards", () => {
       "Reach for your own registered actions first",
     );
     expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
-      "never use a shell or code-execution tool to do what one of your actions already does",
+      "never use a shell, filesystem, or code-execution tool",
     );
   });
 

@@ -1425,8 +1425,8 @@ const runAnalyticsMigrations = runMigrations(
       version: 136,
       name: "analytics-events-backfill-cursor-indexes",
       sql: {
-        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id)`,
-        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id)`,
+        postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
       },
     },
   ],

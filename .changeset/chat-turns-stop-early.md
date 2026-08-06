@@ -13,3 +13,5 @@ Record why a cross-app (A2A) call ended on the `agent_call` event. The terminal 
 Attach the remote task id to every cross-app call, not only failed ones. A call that succeeded slowly carried no task id, so the question worth asking about a four-minute A2A call — what was the other app doing? — could not be traced into that app's own task record.
 
 Index the `resources` cleanup filter. `cleanupExpiredAgentScratchResources` filters on `(visibility, expires_at)` with no index, and its 60s throttle is a module-scope timestamp that starts at 0 in a fresh isolate — so the first resource read after every serverless cold start full-scanned a table shared by every template and read from agent discovery, docs, chat scratch and remote-agent manifests.
+
+Tell a delegated agent to reach for its own registered actions first. A cross-app callee was rediscovering its capabilities by exploring — and reaching for a shell to do what one of its own actions already did — which is why healthy Slides→Analytics calls took minutes. Added to the existing delegated-agent contract rather than a new prompt block.

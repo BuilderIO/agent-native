@@ -2568,6 +2568,7 @@ ${
   .local-note a { color: #888; text-decoration: none; }
   .local-note a:hover { color: #bbb; }
 ${marketingStyles}
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
   body.simplified-auth .local-note { display: none !important; }

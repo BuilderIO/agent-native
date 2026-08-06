@@ -1147,42 +1147,38 @@ function getRequestHost(event: H3Event): string | undefined {
   );
 }
 
-function hasInitialPromptQuery(rawUrl: string | undefined): boolean {
-  if (!rawUrl) return false;
+function parseRequestUrl(rawUrl: string | undefined): URL | null {
+  if (!rawUrl) return null;
   try {
-    const url = new URL(rawUrl, "http://an.invalid");
-    return !!url.searchParams.get("initialPrompt")?.trim();
+    return new URL(rawUrl, "http://an.invalid");
   } catch {
-    return false;
+    // coercion-ok: an invalid request URL has no query context to classify.
+    return null;
   }
+}
+
+function hasInitialPromptQuery(rawUrl: string | undefined): boolean {
+  return !!parseRequestUrl(rawUrl)?.searchParams.get("initialPrompt")?.trim();
 }
 
 function requestHasInitialPrompt(event: H3Event): boolean {
   const rawUrl = event.node?.req?.url ?? event.path ?? "/";
   if (hasInitialPromptQuery(rawUrl)) return true;
 
-  try {
-    const requestUrl = new URL(rawUrl, "http://an.invalid");
-    const continuation = requestUrl.searchParams.get(
-      SIGN_IN_CONTINUATION_PARAM,
-    );
-    if (
-      continuation &&
-      hasInitialPromptQuery(
-        decodeContinuation(continuation, getConfiguredAppBasePath()) ??
-          undefined,
-      )
-    ) {
-      return true;
-    }
-
-    const legacyReturn = requestUrl.searchParams.get(
-      SIGN_IN_LEGACY_RETURN_PARAM,
-    );
-    return legacyReturn ? hasInitialPromptQuery(legacyReturn) : false;
-  } catch {
-    return false;
+  const requestUrl = parseRequestUrl(rawUrl);
+  if (!requestUrl) return false;
+  const continuation = requestUrl.searchParams.get(SIGN_IN_CONTINUATION_PARAM);
+  if (
+    continuation &&
+    hasInitialPromptQuery(
+      decodeContinuation(continuation, getConfiguredAppBasePath()) ?? undefined,
+    )
+  ) {
+    return true;
   }
+
+  const legacyReturn = requestUrl.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM);
+  return legacyReturn ? hasInitialPromptQuery(legacyReturn) : false;
 }
 
 function getOnboardingHtmlOptions(
