@@ -255,6 +255,11 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     [viewportWidth, zoom],
   );
 
+  const clampedScrollLeft = Math.min(
+    scrollLeft,
+    Math.max(0, totalWidth - viewportWidth),
+  );
+
   const calculateAnchoredScrollLeft = useCallback(
     (
       nextZoom: number,
@@ -815,7 +820,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 splitPoints={splitPoints}
                 activityRanges={transcriptSegments}
                 onSeek={seek}
-                scrollLeft={scrollLeft}
+                scrollLeft={clampedScrollLeft}
                 onScroll={(s) => setScrollLeft(s)}
               />
               <div
@@ -826,7 +831,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   className="relative h-full"
                   style={{
                     width: totalWidth,
-                    transform: `translateX(${-scrollLeft}px)`,
+                    transform: `translateX(${-clampedScrollLeft}px)`,
                   }}
                 >
                   {durationMs > 0 && (
@@ -849,7 +854,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             >
               <div
                 style={{
-                  transform: `translateX(${-scrollLeft}px)`,
+                  transform: `translateX(${-clampedScrollLeft}px)`,
                   width: totalWidth,
                 }}
               >

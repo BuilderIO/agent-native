@@ -129,6 +129,21 @@ export interface MCPConfig {
    */
   builtinCrossAppTools?: boolean;
   /**
+   * `"app"` serves exactly the app's own tool registry, flat: every action the
+   * in-app agent holds, and nothing the in-app agent does not — no cross-app
+   * builtins, no `ask-agent`, no `tool-search`, and no compact/connector
+   * trimming. `connectorCatalog`, the compact default, and the
+   * `--full-catalog` / `AGENT_NATIVE_MCP_FULL_CATALOG` opt-ins are all inert
+   * on this mode; `externalAgents.denyActions` and the OAuth scope filter
+   * still apply, because both are explicit removals rather than tiering.
+   *
+   * The dev-open surface split is deliberately NOT bypassed: an
+   * unauthenticated loopback probe still gets `actions`, not
+   * `productionActions`. Parity is with the app's agent for a real
+   * authenticated caller, not an escalation for anonymous ones.
+   */
+  catalogMode?: "app";
+  /**
    * Curated allow-list of action names served to **external connector** clients
    * on a hosted multi-tenant deployment.
    *
@@ -369,6 +384,48 @@ function isActionVisibleForOAuthScope(
   return hasMcpOAuthScope(scopes, required);
 }
 
+/** Mirrors `TOOL_SEARCH_ACTION_NAME`; not imported, because `agent/tool-search.ts`
+ *  reaches Node-only request context and this module must stay bundleable. */
+const TOOL_SEARCH_TOOL_NAME = "tool-search";
+
+function withoutToolSearch(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  if (!(TOOL_SEARCH_TOOL_NAME in actions)) return actions;
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name]) => name !== TOOL_SEARCH_TOOL_NAME),
+  );
+}
+
+/**
+ * Re-point `tool-search` at the surface this caller can actually reach.
+ *
+ * The registry's own entry closes over the app's *whole* action registry, but
+ * `tools/call` accepts only the advertised set — so unscoped it answers with
+ * names that come straight back as "Unknown tool", and its `callable` field
+ * reports plan-mode availability, not that gate. Every template that noticed
+ * worked around it by hand-rolling a narrowed copy; scoping it here is what
+ * makes the trimmed catalog honest without one.
+ */
+function scopeToolSearchToAdvertised(
+  advertised: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const entry = advertised[TOOL_SEARCH_TOOL_NAME];
+  if (!entry) return advertised;
+  return {
+    ...advertised,
+    [TOOL_SEARCH_TOOL_NAME]: {
+      ...entry,
+      // Imported lazily: `agent/tool-search.ts` pulls Node-only request
+      // context, and this module has to stay bundleable for serverless.
+      run: async (args: Record<string, unknown>) => {
+        const { searchToolRegistry } = await import("../agent/tool-search.js");
+        return searchToolRegistry(advertised, args ?? {});
+      },
+    },
+  };
+}
+
 const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "list_apps",
   "open_app",
@@ -376,9 +433,10 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "ask_app_status",
   "create_embed_session",
   // `tool-search` MUST stay in every compact/connector surface: it is how a
-  // compacted client discovers and loads any action on demand, which is what
-  // makes "small catalog by default" safe instead of limiting.
-  "tool-search",
+  // compacted client discovers any action on demand, which is what makes
+  // "small catalog by default" non-opaque. Discovery is not permission — a
+  // searched name still has to be in the advertised set to be callable.
+  TOOL_SEARCH_TOOL_NAME,
 ]);
 
 function isActionAdvertisedInCompactMcpAppCatalog(
@@ -1571,20 +1629,41 @@ export async function createMCPServerForRequest(
     useFullSurface && config.productionActions
       ? config.productionActions
       : config.actions;
-  const actions = mergeBuiltinTools(config, baseActions, requestMeta);
+  const appCatalog = config.catalogMode === "app";
+  // The app catalog IS a full flat catalog, so the `--full-catalog` opt-ins
+  // have nothing left to escalate — collapsing them here keeps every tier gate
+  // below reading one flag instead of testing `appCatalog` a fifth time.
+  const fullCatalogRequested =
+    !appCatalog && explicitlyRequestsFullMcpCatalog(requestMeta);
+  // `tool-search` earns its place only on a *trimmed* catalog, where it is how
+  // a client reaches an action that was not listed. On a flat catalog — app
+  // mode or the `--full-catalog` opt-in — every tool is already in `tools/list`
+  // beside it, so it can only ever describe its own neighbours while spending
+  // a tool slot and a round trip to do it.
+  const flatCatalog = appCatalog || fullCatalogRequested;
+  // `catalogMode: "app"` asks for parity with the in-app agent, so the cross-app
+  // builtins the MCP layer adds on its own come back off too.
+  const mergedActions = appCatalog
+    ? baseActions
+    : mergeBuiltinTools(config, baseActions, requestMeta);
+  // Strip from `actions`, not just the advertised set: on the full-catalog tier
+  // `actions` IS the callable surface, so filtering only the listing would
+  // leave `tool-search` callable but invisible.
+  const actions = flatCatalog
+    ? withoutToolSearch(mergedActions)
+    : mergedActions;
   const visibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const fullCatalogRequested = explicitlyRequestsFullMcpCatalog(requestMeta);
   // Compact/connector is the DEFAULT for every caller — hosted connectors,
   // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
   // full ~105-tool catalog is served only on the explicit opt-in above, so a
   // host can never dump every action schema into one giant tool card. The
   // `mcp:apps` scope still lands on this compact MCP-Apps surface; with no
   // opt-in, everyone else does too.
-  const compactMcpAppCatalog = !fullCatalogRequested;
+  const compactMcpAppCatalog = !appCatalog && !fullCatalogRequested;
   const advertisedActionsBeforeConnector = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -1606,6 +1685,7 @@ export async function createMCPServerForRequest(
   // This stays compact by default and keeps db-exec / seed-* / extension /
   // browser-session footguns off the external surface.
   const connectorCatalogActive =
+    !appCatalog &&
     (connectorNames.size > 0 || automaticConnectorPolicyActive) &&
     !fullCatalogRequested;
   // When the connector catalog is active, filter directly from visibleActions
@@ -1613,22 +1693,29 @@ export async function createMCPServerForRequest(
   // tier is an independent, template-declared surface that doesn't accidentally
   // narrow to just the compact-catalog builtins when shouldUseCompactMcpCatalogByDefault
   // would have activated the compact catalog for the same caller.
-  const advertisedActions = connectorCatalogActive
+  const advertisedActionsBeforeToolSearchScope = appCatalog
     ? Object.fromEntries(
-        Object.entries(visibleActions).filter(([name, entry]) => {
-          if (denyNames.has(name)) return false;
-          if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-          if (!connectorNames.has(name)) return false;
-          if (
-            externalAgentWritesAreAskAppOnly(config) &&
-            entry.readOnly !== true
-          ) {
-            return false;
-          }
-          return true;
-        }),
+        Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
       )
-    : advertisedActionsBeforeConnector;
+    : connectorCatalogActive
+      ? Object.fromEntries(
+          Object.entries(visibleActions).filter(([name, entry]) => {
+            if (denyNames.has(name)) return false;
+            if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+            if (!connectorNames.has(name)) return false;
+            if (
+              externalAgentWritesAreAskAppOnly(config) &&
+              entry.readOnly !== true
+            ) {
+              return false;
+            }
+            return true;
+          }),
+        )
+      : advertisedActionsBeforeConnector;
+  const advertisedActions = scopeToolSearchToAdvertised(
+    advertisedActionsBeforeToolSearchScope,
+  );
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
   }
@@ -1903,9 +1990,11 @@ export async function createMCPServerForRequest(
           }),
       );
 
+      // `ask-agent` is the legacy full-catalog meta-tool; `ask_app` is the
+      // builtin every other tier carries. Gate on the one flag that means
+      // "this caller opted all the way in".
       if (
-        !compactMcpAppCatalog &&
-        !connectorCatalogActive &&
+        fullCatalogRequested &&
         config.askAgent &&
         hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
       ) {
@@ -1960,7 +2049,7 @@ export async function createMCPServerForRequest(
         const { name, arguments: args } = request.params;
 
         if (name === "ask-agent" && config.askAgent) {
-          if (compactMcpAppCatalog || connectorCatalogActive) {
+          if (!fullCatalogRequested) {
             return {
               content: [{ type: "text", text: `Unknown tool: ${name}` }],
               isError: true,
@@ -2010,13 +2099,14 @@ export async function createMCPServerForRequest(
           }
         }
 
-        // Connector-catalog tier: when active, callableActions === advertisedActions
-        // (the filtered set). Non-listed tools are not callable — mirroring how
-        // compactMcpAppCatalog gates calls on advertisedActions.
-        const callableActions =
-          compactMcpAppCatalog || connectorCatalogActive
-            ? advertisedActions
-            : actions;
+        // Every tier except the explicit full-catalog opt-in treats the
+        // advertised set as the authoritative callable surface: a name that
+        // was not listed is rejected, not merely hidden. Deriving this from
+        // the one opt-in flag rather than re-testing each tier is what keeps a
+        // newly added tier from silently defaulting to "everything callable".
+        const callableActions = fullCatalogRequested
+          ? actions
+          : advertisedActions;
         const entry = callableActions[name];
         if (!entry) {
           return {

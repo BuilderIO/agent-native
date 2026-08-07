@@ -907,14 +907,16 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   runNoProgressTimeoutMs: ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
-  connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
-  externalAgents: {
-    // Keep the direct MCP surface deliberately curated. External agents
-    // should use ask_app by default; cataloged actions are optional stable
-    // semantic reads for callers with an exact, fully known contract. They are
-    // never a fallback for slow or failed delegation.
-    authenticatedReads: "off",
-    writes: "ask_app_only",
+  mcp: {
+    connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
+    externalAgents: {
+      // Keep the direct MCP surface deliberately curated. External agents
+      // should use ask_app by default; cataloged actions are optional stable
+      // semantic reads for callers with an exact, fully known contract. They
+      // are never a fallback for slow or failed delegation.
+      authenticatedReads: "off",
+      writes: "ask_app_only",
+    },
   },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);

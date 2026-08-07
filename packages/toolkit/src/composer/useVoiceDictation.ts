@@ -348,7 +348,18 @@ export function voiceDictationStartErrorMessage(error: unknown): string {
   return message || "Could not start recording";
 }
 
-function voiceDictationSpeechErrorMessage(error: string | undefined): string {
+/** Retrying these through another provider re-prompts and fails the same way. */
+function isMicPermissionError(error: string | undefined): boolean {
+  return (
+    error === "not-allowed" ||
+    error === "service-not-allowed" ||
+    error === "audio-capture"
+  );
+}
+
+export function voiceDictationSpeechErrorMessage(
+  error: string | undefined,
+): string {
   if (error === "not-allowed" || error === "service-not-allowed") {
     return voiceDictationStartErrorMessage({
       name: "NotAllowedError",
@@ -358,7 +369,13 @@ function voiceDictationSpeechErrorMessage(error: string | undefined): string {
   if (error === "audio-capture") {
     return "No microphone was found. Plug one in or choose a different input, then try again.";
   }
-  return `Speech recognition error: ${error ?? "unknown"}`;
+  if (error === "network") {
+    return "Speech recognition couldn't reach its service. Check your connection, or pick a different source in Settings → Voice Transcription.";
+  }
+  if (error === "aborted" || error === undefined) {
+    return "Dictation stopped before it captured any audio. Another app or tab may be holding the microphone — close it, or pick a different source in Settings → Voice Transcription.";
+  }
+  return `Speech recognition error: ${error}`;
 }
 
 export function useVoiceDictation(
@@ -688,28 +705,20 @@ export function useVoiceDictation(
   );
 
   const startBrowser = useCallback(
-    async (prefs: VoicePrefs) => {
+    async (
+      prefs: VoicePrefs,
+      /** Return true to take over when the recognizer never opened the mic.
+       * Brave ships `webkitSpeechRecognition` with no speech backend, so
+       * feature detection alone cannot tell dictation will work. */
+      onUnavailable?: (error: string | undefined) => boolean,
+    ) => {
       const Ctor = getSpeechRecognitionCtor();
       if (!Ctor) {
         throw new Error(
           "Your browser doesn't support speech recognition. Add an OpenAI API key in settings for Whisper transcription.",
         );
       }
-      // Still request mic to drive the amplitude meter, so the UI doesn't look
-      // dead while the user talks. SpeechRecognition manages its own capture
-      // under the hood in most browsers.
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaStreamRef.current = stream;
-        startMeter(stream);
-      } catch {
-        /* non-fatal — recognition can still work without our analyser */
-      }
-
       if (cancelledRef.current) {
-        if (stream) for (const track of stream.getTracks()) track.stop();
-        mediaStreamRef.current = null;
         cancelledRef.current = false;
         setState("idle");
         return;
@@ -723,7 +732,34 @@ export function useVoiceDictation(
       speechRef.current = recognition;
       speechTranscriptRef.current = "";
 
+      let capturing = false;
+      let fatal = false;
+      let lastError: string | undefined;
+
+      // Opening our own capture before the speech service has claimed the
+      // device makes Chrome abort the session outright. Attach the meter only
+      // once recognition is actually listening.
+      recognition.onaudiostart = () => {
+        capturing = true;
+        if (cancelledRef.current) return;
+        void Promise.resolve()
+          .then(() => navigator.mediaDevices?.getUserMedia({ audio: true }))
+          .then((stream) => {
+            if (!stream) return;
+            if (cancelledRef.current || speechRef.current !== recognition) {
+              for (const track of stream.getTracks()) track.stop();
+              return;
+            }
+            mediaStreamRef.current = stream;
+            startMeter(stream);
+          })
+          .catch(() => {
+            /* the meter is decoration; recognition owns the real capture */
+          });
+      };
+
       recognition.onresult = (event: any) => {
+        capturing = true;
         let interim = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const result = event.results[i];
@@ -736,16 +772,30 @@ export function useVoiceDictation(
         }
         onLiveUpdateRef.current?.(speechTranscriptRef.current, interim);
       };
+      // `end` always follows `error`, so every outcome is decided there. Acting
+      // here too would either pre-empt the fallback or be overwritten by it.
       recognition.onerror = (event: any) => {
+        lastError = event?.error;
         if (event?.error === "no-speech" || event?.error === "aborted") return;
-        failWith(voiceDictationSpeechErrorMessage(event?.error));
+        fatal = true;
       };
       recognition.onend = () => {
         const text = speechTranscriptRef.current.trim();
         const wasCancelled = cancelledRef.current;
         cancelledRef.current = false;
         teardown();
-        if (wasCancelled || !text) {
+        if (wasCancelled) {
+          setState("idle");
+          return;
+        }
+        if (!text) {
+          // A recognizer that failed, or that ended before the mic ever opened,
+          // produced nothing usable — that is not the same as hearing silence.
+          if (fatal || !capturing) {
+            if (onUnavailable?.(lastError)) return;
+            failWith(voiceDictationSpeechErrorMessage(lastError));
+            return;
+          }
           setState("idle");
           return;
         }
@@ -1082,7 +1132,22 @@ export function useVoiceDictation(
         }
         await startGoogleRealtime(prefs);
       } else {
-        await startBrowser(prefs);
+        // Only "auto" promised a working recognizer of any kind; an explicit
+        // browser preference must surface its own failure instead.
+        await startBrowser(
+          prefs,
+          pref === "auto" && mediaRecorderSupported
+            ? (error) => {
+                if (isMicPermissionError(error)) return false;
+                activeProviderRef.current = "openai";
+                setState("starting");
+                void startOpenAi("auto", prefs.instructions).catch((err) =>
+                  failWith(voiceDictationStartErrorMessage(err)),
+                );
+                return true;
+              }
+            : undefined,
+        );
       }
     } catch (err) {
       if (cancelledRef.current) {

@@ -90,7 +90,7 @@ export default createAgentChatPlugin({
   // background worker, as content, slides and analytics already do.
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
+  mcp: { connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG] },
   // Enable sandboxed JavaScript execution so Calendar agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Calendar / CRM endpoint.

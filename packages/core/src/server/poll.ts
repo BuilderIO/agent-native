@@ -250,10 +250,6 @@ function accessResourceKey(resourceType: string, resourceId: string): string {
   return `${resourceType}|${resourceId}`;
 }
 
-function accessCacheTtl(allowed: boolean): number {
-  return allowed ? ACCESS_CACHE_TTL_MS : ACCESS_CACHE_DENY_TTL_MS;
-}
-
 function extensionTargetKey(target: ExtensionChangeTarget): string | null {
   if (target.owner) return `owner:${target.owner}`;
   if (target.orgId) return `org:${target.orgId}`;
@@ -412,6 +408,15 @@ export interface AppSyncStateOptions {
    * Postgres only; ignored on SQLite.
    */
   dbAssignedVersions?: boolean;
+  /**
+   * TTL for a cached ALLOW decision. Defaults to 30s.
+   *
+   * `invalidateCollabAccessCache` only reaches the in-process default instance,
+   * so a gateway holding per-app instances cannot be told a share was revoked
+   * and serves its cached ALLOW until this lapses. Shorten it to bound that
+   * window, at the cost of more `can-see` round-trips per shared resource.
+   */
+  accessAllowTtlMs?: number;
 }
 
 /**
@@ -494,6 +499,7 @@ export class AppSyncState {
   private readonly accessInFlight = new Set<string>();
   /** Per-resource generation bumped when shares/visibility change. */
   private readonly accessInvalidationEpoch = new Map<string, number>();
+  private readonly accessAllowTtlMs: number;
 
   constructor(options: AppSyncStateOptions = {}) {
     this.getDb = options.getDb ?? getDbExec;
@@ -501,7 +507,12 @@ export class AppSyncState {
     this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
     this.deterministicEventIds = options.deterministicEventIds ?? false;
     this.dbAssignedVersions = options.dbAssignedVersions ?? false;
+    this.accessAllowTtlMs = options.accessAllowTtlMs ?? ACCESS_CACHE_TTL_MS;
     this.pollEmitter.setMaxListeners(0);
+  }
+
+  private accessCacheTtl(allowed: boolean): number {
+    return allowed ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
   }
 
   /**
@@ -986,7 +997,10 @@ export class AppSyncState {
       );
       const cached = this.accessCache.get(key);
       const now = Date.now();
-      if (cached && now - cached.checkedAt < accessCacheTtl(cached.allowed)) {
+      if (
+        cached &&
+        now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
+      ) {
         // Fresh, non-expired cache hit → trust the cached decision.
         return cached.allowed ? "visible" : "hidden";
       }
