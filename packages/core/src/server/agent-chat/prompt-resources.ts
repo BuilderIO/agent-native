@@ -1,4 +1,8 @@
 import {
+  frameworkGroupEnabled,
+  type FrameworkToolGroup,
+} from "../../framework-tools.js";
+import {
   getFrontmatterValue,
   getSkillNameFromPath,
   parseFrontmatter,
@@ -827,6 +831,7 @@ export async function loadResourcesForPrompt(
   compact = false,
   selfAppId?: string,
   orgId: string | null = getRequestOrgId() ?? null,
+  opts?: { disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup> },
 ): Promise<string> {
   await ensurePersonalDefaults(owner);
 
@@ -1084,7 +1089,15 @@ export async function loadResourcesForPrompt(
   );
 
   try {
-    const agents = (await discoverAgents(selfAppId)).slice(0, 30);
+    // Both tools this block names by name come from the `workspaceApps` group.
+    // With that group off there is no `call-agent` to delegate through, so the
+    // block would only teach a capability the request cannot carry.
+    const agents = frameworkGroupEnabled(
+      opts?.disabledFrameworkGroups,
+      "workspaceApps",
+    )
+      ? (await discoverAgents(selfAppId)).slice(0, 30)
+      : [];
     if (agents.length > 0) {
       const lines = agents.map(
         (agent) =>

@@ -442,9 +442,10 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,15 +456,36 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — 默认。仅注册 `db-schema` 和 `db-query`；
+- `database: "read"` — 默认。仅注册 `db-schema` 和 `db-query`；
   代理使用 SQL 检查数据，但必须使用类型化应用程序 actions 进行写入。
-- `databaseTools: "write"` 或 `true` — 还会注册 `db-exec` 和 `db-patch`
+- `database: "write"` 或 `true` — 还会注册 `db-exec` 和 `db-patch`
   用于有意的原始 SQL 维护。写入范围限定为当前用户/组织，并阻止架构更改。
-- `databaseTools: "off"` 或 `false` — 从
+- `database: "off"` 或 `false` — 从
   代理表面，因此应用程序的 actions 是唯一的数据访问路径。
-- `extensionTools: true` — 为应用启用框架扩展管理 actions 和提示指导
+- `extensions: true` — 为应用启用框架扩展管理 actions 和提示指导
   （`create-extension`、`update-extension` 等）。在两个 plugins 上都设置
   此选项，也可允许经过身份验证的 REST 创建。扩展默认关闭。
+
+其余分组都是布尔值，默认全部开启：`sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`。
+在语音优先或单一用途的应用中，可用 `frameworkTools: "minimal"` 一次关闭全部；
+若只想保留一个，可写成 `frameworkTools: { preset: "minimal", resources: true }`——
+显式的分组键始终优先于预设。
+
+关闭某个分组只会将它从**智能体**侧的表面移除：交互式聊天、MCP、A2A 和后台运行。
+对应的 HTTP action 路由仍然挂载，因为 UI 是通过客户端 hooks 调用它们的——关闭
+`sharing` 不应让仍显示在界面上的分享对话框返回 404。请先权衡这项对等性代价：
+框架的约定是 UI 能做的事智能体也能做，所以在分享按钮可见的情况下设置
+`sharing: false` 是一次有意的破坏，只有当应用根本没有该表面时才合理。
+
+与该选项无关，框架工具默认不再加载进第一次模型请求。它们仍留在可搜索的注册表中，
+通过 `tool-search` 加载；若应用在 `initialToolNames` 中指定，则会立即加载。
+
+<Callout tone="warning">
+  顶层的 `databaseTools` 与 `extensionTools` 选项已废弃，请改用
+  `frameworkTools.database` 和 `frameworkTools.extensions`。它们仍会被识别，但当
+  顶层标志与 `frameworkTools` 中的对应值冲突时，plugin
+  会在启动时抛出错误，而不是 以无人选择的工具表面启动。
+</Callout>
 
 ## 生产代码执行 {#production-code-execution}
 

@@ -443,9 +443,10 @@ laufen über typisierte App-Actions, sofern die App nicht ausdrücklich rohe Sch
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -456,18 +457,47 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` – Standard. Registriert nur `db-schema` und `db-query`;
+- `database: "read"` – Standard. Registriert nur `db-schema` und `db-query`;
   Agenten prüfen Daten mit SQL, müssen für Schreibvorgänge aber typisierte App-Actions verwenden.
-- `databaseTools: "write"` oder `true` – registriert zusätzlich `db-exec` und
+- `database: "write"` oder `true` – registriert zusätzlich `db-exec` und
   `db-patch` für bewusste rohe SQL-Wartung. Schreibvorgänge sind auf den
   aktuellen Benutzer/die aktuelle Organisation beschränkt; Schemaänderungen werden blockiert.
-- `databaseTools: "off"` oder `false` – entfernt Rohdatenbank-Tools aus
+- `database: "off"` oder `false` – entfernt Rohdatenbank-Tools aus
   Agentenoberfläche, sodass die actions der App der einzige Datenzugriffspfad sind.
-- `extensionTools: true` – aktiviert für die App die actions und Anweisungen
+- `extensions: true` – aktiviert für die App die actions und Anweisungen
   zur Framework-Erweiterungsverwaltung (`create-extension`,
   `update-extension` usw.). Setzen Sie die Option in beiden Plugins, um auch
   authentifizierte REST-Erstellung zu erlauben. Erweiterungen sind
   standardmäßig deaktiviert.
+
+Die übrigen Gruppen sind Booleans und standardmäßig aktiviert: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`.
+Mit `frameworkTools: "minimal"` schalten Sie alle auf einmal ab — sinnvoll für
+Voice-First- oder Einzweck-Apps — oder mit
+`frameworkTools: { preset: "minimal", resources: true }` behalten Sie genau
+eine: Ein explizit gesetzter Gruppenschlüssel gewinnt immer gegen das Preset.
+
+Eine abgeschaltete Gruppe verschwindet nur aus den **Agent**-Oberflächen:
+interaktiver Chat, MCP, A2A und Hintergrundläufe. Die zugehörigen HTTP-Routen
+bleiben eingebunden, weil die UI sie über Client-Hooks aufruft — `sharing`
+abzuschalten darf keinen 404 in einem noch sichtbaren Share-Dialog auslösen.
+Wägen Sie diesen Paritätsverlust ab: Der Vertrag des Frameworks lautet, dass
+alles, was die UI kann, auch der Agent kann. `sharing: false` neben einem
+sichtbaren Share-Button ist also ein bewusster Bruch und nur sinnvoll, wenn die
+App diese Oberfläche gar nicht hat.
+
+Unabhängig von dieser Option werden Framework-Tools nicht mehr standardmäßig in
+die erste Modellanfrage geladen. Sie bleiben im durchsuchbaren Registry und
+werden über `tool-search` geladen — oder sofort, wenn die App sie in
+`initialToolNames` nennt.
+
+<Callout tone="warning">
+  Die Top-Level-Optionen `databaseTools` und `extensionTools` sind zugunsten von
+  `frameworkTools.database` und `frameworkTools.extensions` veraltet. Sie werden
+  weiterhin berücksichtigt, aber eine Top-Level-Option und ihr
+  `frameworkTools`-Gegenstück mit widersprüchlichen Werten führt beim
+  Plugin-Start zu einem Fehler, anstatt mit einer Tool-Oberfläche zu starten,
+  die niemand gewählt hat.
+</Callout>
 
 ## Produktionscode-Ausführung {#production-code-execution}
 

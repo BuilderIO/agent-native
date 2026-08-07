@@ -17,6 +17,7 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
   isAuthenticatedReadAction,
   isAutoReadExcludedActionName,
@@ -570,9 +571,23 @@ export function createA2AEngineToolSurface(
   };
 }
 
+/**
+ * The first-request tool catalog: an explicit `initialToolNames` verbatim, or
+ * the app's OWN actions by default.
+ *
+ * "Its own actions" excludes the framework kits. They arrive in this same
+ * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
+ * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
+ * into every app's first request whether or not the app had those surfaces. They
+ * remain in `availableTools` and are still found by `tool-search`; an app that
+ * wants one on turn one names it in `initialToolNames`.
+ */
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
   configured?: string[],
 ): string[] {
-  return configured ?? Object.keys(templateActions);
+  if (configured) return configured;
+  return Object.entries(templateActions)
+    .filter(([, entry]) => !isFrameworkGroupedAction(entry))
+    .map(([name]) => name);
 }

@@ -43,7 +43,7 @@ export default createAgentChatPlugin({
   // Customer and product activity data belongs to Analytics. Keep raw DB
   // tools out of both the interactive and A2A Slides agent surfaces so the
   // agent cannot bypass the Analytics data dictionary with local SQL.
-  databaseTools: "off",
+  frameworkTools: { database: "off" },
   // Enable sandboxed JavaScript execution so Slides agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Drive endpoint.
