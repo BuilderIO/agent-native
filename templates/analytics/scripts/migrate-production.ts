@@ -11,7 +11,6 @@ import { runAnalyticsMigrations } from "../server/plugins/db.js";
  * all migration and ensure-table work automatically.
  */
 async function main(): Promise<void> {
-  process.env.APP_NAME ??= "analytics";
   await withMigrationRuntime(async () => {
     await runFrameworkReleaseMigrations(null);
     await runAnalyticsMigrations(null);
