@@ -1,10 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
-import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
@@ -13,6 +8,7 @@ import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { dryRunQuery } from "../server/lib/bigquery";
+import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   upsertDashboard,
@@ -536,30 +532,6 @@ function opCanChangePanelSql(op: JsonOp): boolean {
   );
 }
 
-/**
- * Push a config update through the collab layer so open dashboard editors
- * receive the change in real time. Seeds the collab state if it doesn't
- * exist yet (e.g. dashboard was created before the collab plugin was added).
- */
-async function syncToCollab(
-  dashboardId: string,
-  config: Record<string, unknown>,
-  requestSource?: string,
-): Promise<void> {
-  const docId = `dash-${dashboardId}`;
-  const configStr = JSON.stringify(config);
-  try {
-    const exists = await hasCollabState(docId);
-    if (exists) {
-      await applyText(docId, configStr, "content", requestSource);
-    } else {
-      await seedFromText(docId, configStr);
-    }
-  } catch {
-    // Collab sync is best-effort — the SQL write is the source of truth
-  }
-}
-
 function isAgentCaller(caller: string | undefined): boolean {
   return caller === "tool" || caller === "mcp" || caller === "a2a";
 }
@@ -642,7 +614,7 @@ export default defineAction({
       const sqlError = await validatePanelSql(args.config);
       if (sqlError) throw new Error(sqlError);
       await upsertDashboard(dashboardId, "sql", args.config, ctx);
-      await syncToCollab(
+      queueDashboardCollabSync(
         dashboardId,
         args.config,
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
@@ -675,7 +647,7 @@ export default defineAction({
         },
       );
       const root = saved.config as Record<string, unknown>;
-      await syncToCollab(
+      queueDashboardCollabSync(
         dashboardId,
         root,
         isAgentCaller(actionContext?.caller) ? "agent" : undefined,
@@ -721,7 +693,7 @@ export default defineAction({
       },
     );
     const root = saved.config as Record<string, unknown>;
-    await syncToCollab(
+    queueDashboardCollabSync(
       dashboardId,
       root,
       isAgentCaller(actionContext?.caller) ? "agent" : undefined,
