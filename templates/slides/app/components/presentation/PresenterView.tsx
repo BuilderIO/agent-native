@@ -6,6 +6,7 @@ import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
+import type { DesignSystemData } from "../../../shared/api";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
 
 interface PresenterViewProps {
@@ -13,6 +14,7 @@ interface PresenterViewProps {
   deckId: string;
   startIndex?: number;
   aspectRatio?: AspectRatio;
+  designSystem?: DesignSystemData;
 }
 
 function formatElapsed(seconds: number) {
@@ -26,6 +28,7 @@ export default function PresenterView({
   deckId,
   startIndex = 0,
   aspectRatio,
+  designSystem,
 }: PresenterViewProps) {
   const t = useT();
   const [index, setIndex] = useState(startIndex);
@@ -136,6 +139,7 @@ export default function PresenterView({
                 slide={current}
                 thumbnail
                 aspectRatio={aspectRatio}
+                designSystem={designSystem}
               />
             )}
           </div>
@@ -149,6 +153,7 @@ export default function PresenterView({
                   slide={next}
                   thumbnail
                   aspectRatio={aspectRatio}
+                  designSystem={designSystem}
                 />
               </div>
             ) : (

@@ -84,16 +84,48 @@ describe("org handlers", () => {
   });
 
   it("uses a non-backslash LIKE escape for paginated member search", async () => {
+    mockExecute.mockResolvedValueOnce({ rows: [{ totalCount: 0 }] });
     await listMembersHandler(
       makeEvent("/_agent-native/org/members?q=Alice%25_Bob!&limit=8&offset=16"),
     );
 
-    expect(mockExecute).toHaveBeenCalledTimes(1);
-    const call = mockExecute.mock.calls[0][0];
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    const countCall = mockExecute.mock.calls[0][0];
+    expect(countCall.sql).toContain(
+      `SELECT COUNT(*) AS "totalCount" FROM org_members WHERE org_id = ?`,
+    );
+    expect(countCall.args).toEqual(["org-1", "%alice!%!_bob!!%"]);
+    const call = mockExecute.mock.calls[1][0];
     expect(call.sql).toContain("LOWER(email) LIKE ? ESCAPE '!'");
     expect(call.sql).toContain("LIMIT ? OFFSET ?");
     expect(call.sql).not.toContain("ESCAPE '\\'");
     expect(call.args).toEqual(["org-1", "%alice!%!_bob!!%", 9, 16]);
+  });
+
+  it("returns a total count with a paginated member page", async () => {
+    mockExecute
+      .mockResolvedValueOnce({ rows: [{ totalCount: 31 }] })
+      .mockResolvedValueOnce({
+        rows: [
+          { email: "alice@example.test", role: "owner", joinedAt: 1 },
+          { email: "bob@example.test", role: "member", joinedAt: 2 },
+          { email: "carol@example.test", role: "member", joinedAt: 3 },
+        ],
+      });
+
+    await expect(
+      listMembersHandler(
+        makeEvent("/_agent-native/org/members?limit=2&offset=0"),
+      ),
+    ).resolves.toMatchObject({
+      totalCount: 31,
+      hasMore: true,
+      nextOffset: 2,
+      members: [
+        { email: "alice@example.test", role: "owner", joinedAt: 1 },
+        { email: "bob@example.test", role: "member", joinedAt: 2 },
+      ],
+    });
   });
 
   describe("deleteOrgHandler", () => {

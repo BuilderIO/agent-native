@@ -215,6 +215,23 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
+    it("skips schema probes automatically in a production function", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const { client, calls } = introspectingClient({});
+
+      await expect(
+        ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
+          injectedClient: client,
+          dialectIsPostgres: true,
+        }),
+      ).resolves.toBe(false);
+      expect(calls).toEqual([]);
+    });
+
     it("is OFF unless explicitly enabled", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       for (const value of ["", "0", "false", "off"]) {
@@ -240,7 +257,7 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    it("report existence on Postgres from information_schema / pg_indexes", async () => {
+    it("report valid and ready index existence on Postgres", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists, pgColumnExists, pgIndexExists } =
         await import("./ddl-guard.js");
@@ -252,6 +269,8 @@ describe("ddl-guard", () => {
       expect(
         await pgIndexExists("settings_updated_at_idx", present.client),
       ).toBe(true);
+      expect(present.calls.some((sql) => /indisvalid/.test(sql))).toBe(true);
+      expect(present.calls.some((sql) => /indisready/.test(sql))).toBe(true);
 
       const absent = recordingClient(() => ({ rows: [] }));
       expect(await pgTableExists("app_secrets", absent.client)).toBe(false);
@@ -585,5 +604,49 @@ describe("ddl-guard", () => {
       expect(isLockTimeoutError(new Error("syntax error"))).toBe(false);
       expect(isLockTimeoutError(null)).toBe(false);
     });
+  });
+
+  it("creates concurrent indexes without opening a transaction", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    const { ensureIndexExistsConcurrently } = await import("./ddl-guard.js");
+    let created = false;
+    const calls: string[] = [];
+    const client = {
+      execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+        const text = typeof sql === "string" ? sql : sql.sql;
+        calls.push(text);
+        if (/FROM information_schema\.columns/.test(text)) {
+          return {
+            rows: [{ table_name: "sync_events", column_name: "id" }],
+            rowsAffected: 0,
+          };
+        }
+        if (/FROM pg_indexes/.test(text)) {
+          return {
+            rows: created
+              ? [{ indexname: "sync_events_created_at_id_idx" }]
+              : [],
+            rowsAffected: 0,
+          };
+        }
+        if (/CREATE INDEX CONCURRENTLY/.test(text)) created = true;
+        return { rows: [], rowsAffected: 0 };
+      },
+      transaction: async () => {
+        throw new Error("concurrent index creation must not use a transaction");
+      },
+    } as any;
+
+    await expect(
+      ensureIndexExistsConcurrently(
+        "sync_events_created_at_id_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+        { injectedClient: client, dialectIsPostgres: true },
+      ),
+    ).resolves.toBe(true);
+    expect(calls.some((sql) => /CREATE INDEX CONCURRENTLY/.test(sql))).toBe(
+      true,
+    );
+    expect(calls).not.toContain("BEGIN");
   });
 });

@@ -136,11 +136,11 @@ description: "<AgentPanel>、<AgentSidebar>、sendToAgentChat() を使用して�
   ]}
 />
 
-それだけです。ユーザーは、チャット履歴、エージェント リソース タブ、CLI ターミナル、音声入力、全画面モードを備えた、すべてのページに切り替え可能なエージェントを表示できるようになりました。状態は `localStorage` 経由でリロードしても維持されます。
+それだけです。ユーザーは、チャット履歴、エージェント リソース タブ、CLI ターミナル、音声入力、より広いドロワーを備えた、すべてのページに切り替え可能なエージェントを表示できるようになりました。状態は `localStorage` 経由でリロードしても維持されます。
 
 ### 小道具
 
-- **`children`** — アプリの通常のレイアウトとルート。メインエリアにレンダリングされます。エージェント パネルは、デスクトップでは横に、モバイル/フルスクリーンではその上にマウントされます。
+- **`children`** — アプリの通常のレイアウトとルート。メインエリアにレンダリングされます。エージェント パネルは、デスクトップでは横に、モバイルではその上にマウントされます。
 - **`emptyStateText`** — チャットにメッセージがない場合に表示される挨拶。デフォルト: `"How can I help you?"`。
 - **`suggestions`** — スターター プロンプトが空の場合、クリック可能なチップとしてレンダリングされます。
 - **`dynamicSuggestions`** — `suggestions` と統合されたコンテキスト認識プロンプト チップ。デフォルトで有効になっています。静的な提案のみを表示するには `false` を渡し、カスタマイズするには `{ max, includeStatic, getSuggestions }` を渡します。
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` または `"cli"`。デフォルト: `"chat"`。
 - **`className`** — 外側コンテナの CSS クラス。
 - **`onCollapse`** — 指定すると、ヘッダーに折りたたみボタンが表示されます。
-- **`isFullscreen`** / **`onToggleFullscreen`** — Claude スタイルの中央揃えの列が必要な場合は、外部の全画面状態を接続します。
+- **`isFullscreen`** — ページまたはカスタムパネルで Claude スタイルの中央揃えの列を使用する場合に設定します。サイドバーではより広いドロワーを使用します。
 - **`storageKey`** — `localStorage` キーの名前空間。同じページ内で複数のパネル (異なるアプリ インスタンスまたはワークスペース) をレンダリングする場合に便利です。
 
 完全なプロパティ: `AgentPanelProps` の `@agent-native/core/client`。
@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,6 +204,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — このプロンプトに対して別のチャット スレッドを作成します。
 - **`background`** — `newTab` では、新しいスレッドをフォーカスせずに実行します。非表示の実行は `RunsTray` で追跡されます。
 - **`openSidebar`** — バックグラウンド/サイレント送信の場合は `false` に設定します。デフォルトではサイドバーが開き、ユーザーに応答が表示されます。
+- **ユーザーが開始する表示可能な AI 作業**には `openSidebar: true` を使用します。`false` は明示的にサイレントなバックグラウンドまたはシステム起動の作業にだけ使用し、フォローアップは同じ AgentSidebar スレッドに残します。
 - **`type`** — `"content"` (デフォルト) は、アプリツールを使う埋め込みエージェントで作業を保持します。`"code"` はリポジトリのソース変更用の別のコード対応フレームにルーティングします。書き込みは、ホストが repository/workspace ツールを意図的に付与した場合に限り利用できます。[Frames](/docs/frames) を参照してください。
 
 `sendToAgentChat` は、チャットの実行を追跡するために使用できる安定した `tabId` を返します。
@@ -222,6 +224,7 @@ sendToAgentChat({
 
 これは、ツール、actions、スレッド状態、および実行を使用して実行される完全なエージェントです
 追跡。ユーザーの現在のサイドバー状態からフォーカスを盗むわけではありません。
+フォローアップや修正のプロンプトは既存のサイドバー スレッドに残します。結果の横に 2 つ目の自由入力欄を追加しないでください。ローカルフォームは UI で検証する構造化された値にだけ使用します。
 
 同じルートが MCP アプリとして埋め込まれている場合、送信されます
 `sendToAgentChat()` 通話は、サポートされている場合はホスト チャットに転送されます。
@@ -258,6 +261,10 @@ const { send, isGenerating } = useSendToAgentChat();
 製品 UI から `/_agent-native/agent-chat` に直接投稿することは避けてください。もし
 実際のカスタム サーフェスに名前付きヘルパーがありません。最初にそのヘルパーを追加してください。
 クライアント コードは 2 番目のアドホック トランスポートを学習しません。
+
+## エージェント チャットとアクションの選択 {#agent-or-action}
+
+CRUD、検証、プロバイダーの読み取り、永続化などの決定的なローカル操作には、`useActionQuery` または `useActionMutation` を直接使用します。ユーザーがそのワークフローを調査、分析、生成、推奨、合成、または複数ステップの推論として体験する場合は、`sendToAgentChat({ openSidebar: true })` で開始し、エージェントに焦点を絞ったアクションを調整させます。実装が決定的であることだけを理由に、AI に見えるワークフローを 1 つの不透明なアクションに隠さないでください。
 
 ## UI からのタイプセーフ actions: `useActionMutation()` {#use-action-mutation}
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

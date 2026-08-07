@@ -25,6 +25,7 @@ import {
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
   useCreateMcpServer,
   useMcpServers,
@@ -116,7 +117,6 @@ export function McpConnectionSuggestion({
   const [dismissedId, setDismissedId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const integrations = useMemo(
     () => integrationOptions ?? getDefaultMcpIntegrations(),
     [integrationOptions],
@@ -166,7 +166,6 @@ export function McpConnectionSuggestion({
   useEffect(() => {
     setError(null);
     setConnecting(false);
-    setLogoLoadFailed(false);
   }, [integration?.id, integration?.logoUrl, variant]);
 
   if (!shouldSuggest) return null;
@@ -253,22 +252,13 @@ export function McpConnectionSuggestion({
         data-mcp-connection-suggestion={integration.id}
         data-mcp-connection-suggestion-variant={variant}
       >
-        <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[10px] font-semibold text-muted-foreground">
-          {shouldRenderMcpIntegrationFallback(
-            integration.logoUrl,
-            logoLoadFailed,
-          ) ? (
-            <span aria-hidden="true">{integration.name.slice(0, 1)}</span>
-          ) : null}
-          {integration.logoUrl && (
-            <img
-              src={integration.logoUrl}
-              alt=""
-              className={`absolute h-5 w-5 object-contain${logoLoadFailed ? " hidden" : ""}`}
-              onError={() => setLogoLoadFailed(true)}
-            />
-          )}
-        </div>
+        <McpIntegrationLogo
+          name={integration.name}
+          logoUrl={integration.logoUrl}
+          integrationId={integration.id}
+          className="size-6 rounded-md text-[10px]"
+          imageClassName="size-5"
+        />
         <span className="min-w-0 flex-1 leading-snug text-foreground">
           {t(
             hasApiFallback(apiFallback)

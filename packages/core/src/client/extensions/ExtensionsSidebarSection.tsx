@@ -980,7 +980,7 @@ export function ExtensionsSidebarSection() {
                         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         aria-label={copy.learnMore}
                       >
-                        <IconHelpCircle className="size-4" />
+                        <IconHelpCircle className="size-3" />
                       </a>
                     </TooltipTrigger>
                     <TooltipContent>{copy.learnMore}</TooltipContent>

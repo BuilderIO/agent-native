@@ -234,13 +234,17 @@ function validateClientMetadataDocument(
   // support). The token endpoint independently honors only
   // "authorization_code"/"refresh_token" no matter what this list says.
   const grantTypes = parseStringArray(document.grant_types);
+  // Metadata documents may advertise extension grants that this server does
+  // not implement. The authorization request still selects the supported
+  // authorization-code flow, so rejecting an extra grant here only prevents
+  // otherwise compatible clients such as Claude from connecting.
   if (
     (document.grant_types !== undefined &&
       (!Array.isArray(document.grant_types) ||
         grantTypes.length !== document.grant_types.length)) ||
     grantTypes.length > 10
   ) {
-    throw new Error("Client metadata document grant_types are unsupported");
+    throw new Error("Client metadata document grant_types are invalid");
   }
 
   const responseTypes = parseStringArray(document.response_types);

@@ -1,6 +1,6 @@
 import { getDbExec, getDialect, isPostgres } from "@agent-native/core/db";
 
-import { FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY } from "../lib/analytics-rollup-lock";
+import { FIRST_PARTY_ANALYTICS_ROLLUP_BACKFILL_LOCK_KEY } from "../lib/analytics-rollup-lock";
 
 const BACKFILL_STATE_ID = "historical-v1";
 const BACKFILL_LEASE_MINUTES = 15;
@@ -137,6 +137,7 @@ const SQLITE_BACKFILL_STATEMENTS = [
 type BackfillStatus =
   | "completed"
   | "already-complete"
+  | "disabled"
   | "skipped-lock"
   | "already-running";
 
@@ -242,9 +243,18 @@ async function runTransactionalBackfill(
 
   return db.transaction(async (tx) => {
     if (isPostgres()) {
+      // This scans all of analytics_events (41 GB in production) in one
+      // GROUP BY, and the lease budgets 15 minutes for it. A role-level
+      // statement_timeout — the thing that stops a runaway dashboard query
+      // from holding every pooler connection — would otherwise kill this
+      // legitimate job partway through. SET LOCAL is scoped to this
+      // transaction and reverts on commit or rollback.
+      await tx.execute(
+        `SET LOCAL statement_timeout = '${BACKFILL_LEASE_MINUTES}min'`,
+      );
       const lockResult = await tx.execute({
         sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
-        args: [FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY],
+        args: [FIRST_PARTY_ANALYTICS_ROLLUP_BACKFILL_LOCK_KEY],
       });
       const acquired = lockResult.rows[0]?.acquired;
       if (acquired !== true && acquired !== "t") return "skipped-lock";
@@ -320,6 +330,9 @@ async function runD1Backfill(
  * each scan the full event history.
  */
 export async function runAnalyticsRollupBackfillOnce(): Promise<AnalyticsRollupBackfillResult> {
+  if (process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS?.trim() === "0") {
+    return { status: "disabled", remaining: 1 };
+  }
   if (running) {
     return { status: "already-running", remaining: 1 };
   }

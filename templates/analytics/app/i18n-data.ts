@@ -59,6 +59,27 @@ const enUS = {
     recentSales: "Recent Sales",
     recentSalesDescription: "You made 265 sales this month.",
   },
+  dashboardOverview: {
+    title: "Dashboards",
+    description: "All dashboards you can access, organized your way.",
+    searchPlaceholder: "Search dashboards...",
+    newFolder: "New folder",
+    folderName: "Folder name",
+    folderScope: "Folder type",
+    personal: "Personal",
+    shared: "Shared",
+    createFolder: "Create folder",
+    loading: "Loading dashboards...",
+    loadFailed: "Couldn't load dashboards",
+    loadFailedDescription: "Try again to refresh your dashboard overview.",
+    empty: "No dashboards yet",
+    emptyDescription: "Dashboards you create or can access will appear here.",
+    noDashboards: "No dashboards in this folder.",
+    unfiled: "Unfiled",
+    moveDashboard: "Move dashboard",
+    folderCreateFailed: "Couldn't create folder",
+    moveFailed: "Couldn't move dashboard",
+  },
   sidebar: {
     collapseSidebar: "Collapse sidebar",
     expandSidebar: "Expand sidebar",
@@ -499,6 +520,7 @@ const enUS = {
   },
   providerCorpusNotifier: {
     completed: "Provider corpus job completed",
+    incomplete: "Provider corpus job incomplete",
     quotaWait: "Provider corpus job waiting for quota",
     failed: "Provider corpus job failed",
     resumeAfter: "Resume after {{date}}",
@@ -4914,6 +4936,10 @@ function mergeMessages(overrides: {
     root: { ...enUS.root, ...overrides.root },
     navigation: { ...enUS.navigation, ...overrides.navigation },
     dashboardHeader: { ...enUS.dashboardHeader, ...overrides.dashboardHeader },
+    dashboardOverview: {
+      ...enUS.dashboardOverview,
+      ...overrides.dashboardOverview,
+    },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     settings: { ...enUS.settings, ...overrides.settings },
     chat: { ...enUS.chat, ...overrides.chat },
@@ -7052,6 +7078,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "提供者语料库作业已完成",
+      incomplete: "提供者语料库作业未完成",
       failed: "提供者语料库作业失败",
       openAsk: "打开Ask",
       quotaWait: "等待配额的提供者语料库作业",
@@ -7291,6 +7318,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "Trabajo de corpus del proveedor completado",
+      incomplete: "Trabajo de corpus del proveedor incompleto",
       failed: "Error en el trabajo del corpus del proveedor",
       openAsk: "Abrir Ask",
       quotaWait: "Trabajo de corpus de proveedor en espera de cuota",
@@ -7536,6 +7564,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "Travail du corpus de fournisseurs terminé",
+      incomplete: "Travail du corpus de fournisseurs incomplet",
       failed: "Échec de la tâche du corpus du fournisseur",
       openAsk: "Ouvrir Ask",
       quotaWait: "Travail de corpus de fournisseur en attente de quota",
@@ -7783,6 +7812,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "Der Provider-Korpus-Job wurde abgeschlossen",
+      incomplete: "Der Provider-Korpus-Job ist unvollständig",
       failed: "Der Provider-Korpus-Job ist fehlgeschlagen",
       openAsk: "Öffnen Sie Ask",
       quotaWait: "Anbieter-Korpus-Job wartet auf Kontingent",
@@ -8023,6 +8053,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "プロバイダー コーパス ジョブが完了しました",
+      incomplete: "プロバイダー コーパス ジョブが未完了です",
       failed: "プロバイダー コーパス ジョブが失敗しました",
       openAsk: "Askを開く",
       quotaWait: "クォータを待機しているプロバイダー コーパス ジョブ",
@@ -8262,6 +8293,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "제공자 코퍼스 작업이 완료되었습니다.",
+      incomplete: "제공자 코퍼스 작업이 완료되지 않았습니다.",
       failed: "공급자 코퍼스 작업이 실패했습니다.",
       openAsk: "Ask 열기",
       quotaWait: "할당량을 기다리는 공급자 코퍼스 작업",
@@ -8505,6 +8537,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "Tarefa de corpus do provedor concluída",
+      incomplete: "O trabalho de corpus do provedor está incompleto",
       failed: "Falha no job do corpus do provedor",
       openAsk: "Abra Ask",
       quotaWait: "Job do corpus do provedor aguardando cota",
@@ -8745,6 +8778,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "प्रदाता कॉर्पस कार्य पूरा हो गया",
+      incomplete: "प्रदाता कॉर्पस कार्य अधूरा है",
       failed: "प्रदाता कॉर्पस कार्य विफल रहा",
       openAsk: "Ask खोलें",
       quotaWait: "प्रदाता कॉर्पस जॉब कोटा की प्रतीक्षा कर रहा है",
@@ -8983,6 +9017,7 @@ const translatedAnalyticsDebtTranslations = {
     },
     providerCorpusNotifier: {
       completed: "اكتملت مهمة مجموعة الموفر",
+      incomplete: "مهمة مجموعة الموفر غير مكتملة",
       failed: "فشلت مهمة مجموعة الموفر",
       openAsk: "Open Ask",
       quotaWait: "وظيفة مجموعة الموفر في انتظار الحصة النسبية",
@@ -9563,6 +9598,267 @@ for (const [locale, overrides] of Object.entries(
   const messages = messagesByLocale[locale];
   if (!messages) continue;
 
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
+
+const translatedDashboardOverviewTranslations = {
+  "ar-SA": {
+    dashboardOverview: {
+      title: "لوحات المعلومات",
+      description:
+        "كل لوحات المعلومات التي يمكنك الوصول إليها، منظمة بالطريقة التي تناسبك.",
+      searchPlaceholder: "ابحث عن لوحات المعلومات...",
+      newFolder: "مجلد جديد",
+      folderName: "اسم المجلد",
+      folderScope: "نوع المجلد",
+      personal: "شخصي",
+      shared: "مشترك",
+      createFolder: "إنشاء مجلد",
+      loading: "جارٍ تحميل لوحات المعلومات...",
+      loadFailed: "تعذر تحميل لوحات المعلومات",
+      loadFailedDescription:
+        "حاول مرة أخرى لتحديث نظرة عامة على لوحات المعلومات.",
+      empty: "لا توجد لوحات معلومات بعد",
+      emptyDescription:
+        "ستظهر هنا لوحات المعلومات التي تنشئها أو يمكنك الوصول إليها.",
+      noDashboards: "لا توجد لوحات معلومات في هذا المجلد.",
+      unfiled: "غير مصنف",
+      moveDashboard: "نقل لوحة المعلومات",
+      folderCreateFailed: "تعذر إنشاء المجلد",
+      moveFailed: "تعذر نقل لوحة المعلومات",
+    },
+  },
+  "de-DE": {
+    dashboardOverview: {
+      title: "Dashboards",
+      description: "Alle Dashboards, auf die du zugreifen kannst, organisiert.",
+      searchPlaceholder: "Dashboards durchsuchen...",
+      newFolder: "Neuer Ordner",
+      folderName: "Ordnername",
+      folderScope: "Ordnertyp",
+      personal: "Persönlich",
+      shared: "Geteilt",
+      createFolder: "Ordner erstellen",
+      loading: "Dashboards werden geladen...",
+      loadFailed: "Dashboards konnten nicht geladen werden",
+      loadFailedDescription:
+        "Versuche es erneut, um die Dashboard-Übersicht zu aktualisieren.",
+      empty: "Noch keine Dashboards",
+      emptyDescription:
+        "Dashboards, die du erstellst oder auf die du zugreifen kannst, erscheinen hier.",
+      noDashboards: "Keine Dashboards in diesem Ordner.",
+      unfiled: "Nicht abgelegt",
+      moveDashboard: "Dashboard verschieben",
+      folderCreateFailed: "Ordner konnte nicht erstellt werden",
+      moveFailed: "Dashboard konnte nicht verschoben werden",
+    },
+  },
+  "es-ES": {
+    dashboardOverview: {
+      title: "Paneles",
+      description: "Todos los paneles a los que puedes acceder, organizados.",
+      searchPlaceholder: "Buscar paneles...",
+      newFolder: "Nueva carpeta",
+      folderName: "Nombre de la carpeta",
+      folderScope: "Tipo de carpeta",
+      personal: "Personal",
+      shared: "Compartido",
+      createFolder: "Crear carpeta",
+      loading: "Cargando paneles...",
+      loadFailed: "No se han podido cargar los paneles",
+      loadFailedDescription:
+        "Vuelve a intentarlo para actualizar la vista general de paneles.",
+      empty: "Aún no hay paneles",
+      emptyDescription:
+        "Aquí aparecerán los paneles que crees o a los que tengas acceso.",
+      noDashboards: "No hay paneles en esta carpeta.",
+      unfiled: "Sin clasificar",
+      moveDashboard: "Mover panel",
+      folderCreateFailed: "No se ha podido crear la carpeta",
+      moveFailed: "No se ha podido mover el panel",
+    },
+  },
+  "fr-FR": {
+    dashboardOverview: {
+      title: "Tableaux de bord",
+      description:
+        "Tous les tableaux de bord auxquels vous pouvez accéder, organisés.",
+      searchPlaceholder: "Rechercher des tableaux de bord...",
+      newFolder: "Nouveau dossier",
+      folderName: "Nom du dossier",
+      folderScope: "Type de dossier",
+      personal: "Personnel",
+      shared: "Partagé",
+      createFolder: "Créer un dossier",
+      loading: "Chargement des tableaux de bord...",
+      loadFailed: "Impossible de charger les tableaux de bord",
+      loadFailedDescription:
+        "Réessayez pour actualiser la vue d’ensemble des tableaux de bord.",
+      empty: "Aucun tableau de bord pour le moment",
+      emptyDescription:
+        "Les tableaux de bord que vous créez ou auxquels vous pouvez accéder apparaîtront ici.",
+      noDashboards: "Aucun tableau de bord dans ce dossier.",
+      unfiled: "Non classé",
+      moveDashboard: "Déplacer le tableau de bord",
+      folderCreateFailed: "Impossible de créer le dossier",
+      moveFailed: "Impossible de déplacer le tableau de bord",
+    },
+  },
+  "hi-IN": {
+    dashboardOverview: {
+      title: "डैशबोर्ड",
+      description: "सभी डैशबोर्ड जिनका आप उपयोग कर सकते हैं, व्यवस्थित रूप में।",
+      searchPlaceholder: "डैशबोर्ड खोजें...",
+      newFolder: "नया फ़ोल्डर",
+      folderName: "फ़ोल्डर का नाम",
+      folderScope: "फ़ोल्डर का प्रकार",
+      personal: "व्यक्तिगत",
+      shared: "साझा किया गया",
+      createFolder: "फ़ोल्डर बनाएँ",
+      loading: "डैशबोर्ड लोड हो रहे हैं...",
+      loadFailed: "डैशबोर्ड लोड नहीं हो सके",
+      loadFailedDescription: "डैशबोर्ड अवलोकन को रीफ़्रेश करने के लिए फिर कोशिश करें।",
+      empty: "अभी कोई डैशबोर्ड नहीं",
+      emptyDescription: "आपके बनाए या जिन तक आपकी पहुँच है, वे डैशबोर्ड यहाँ दिखेंगे।",
+      noDashboards: "इस फ़ोल्डर में कोई डैशबोर्ड नहीं है।",
+      unfiled: "वर्गीकृत नहीं",
+      moveDashboard: "डैशबोर्ड को स्थानांतरित करें",
+      folderCreateFailed: "फ़ोल्डर नहीं बनाया जा सका",
+      moveFailed: "डैशबोर्ड स्थानांतरित नहीं किया जा सका",
+    },
+  },
+  "ja-JP": {
+    dashboardOverview: {
+      title: "ダッシュボード",
+      description: "アクセスできるすべてのダッシュボードを整理できます。",
+      searchPlaceholder: "ダッシュボードを検索...",
+      newFolder: "新しいフォルダー",
+      folderName: "フォルダー名",
+      folderScope: "フォルダーの種類",
+      personal: "個人",
+      shared: "共有",
+      createFolder: "フォルダーを作成",
+      loading: "ダッシュボードを読み込んでいます...",
+      loadFailed: "ダッシュボードを読み込めませんでした",
+      loadFailedDescription:
+        "もう一度試してダッシュボードの概要を更新してください。",
+      empty: "ダッシュボードはまだありません",
+      emptyDescription:
+        "作成したダッシュボードやアクセスできるダッシュボードがここに表示されます。",
+      noDashboards: "このフォルダーにダッシュボードはありません。",
+      unfiled: "未分類",
+      moveDashboard: "ダッシュボードを移動",
+      folderCreateFailed: "フォルダーを作成できませんでした",
+      moveFailed: "ダッシュボードを移動できませんでした",
+    },
+  },
+  "ko-KR": {
+    dashboardOverview: {
+      title: "대시보드",
+      description:
+        "액세스할 수 있는 모든 대시보드를 원하는 방식으로 정리합니다.",
+      searchPlaceholder: "대시보드 검색...",
+      newFolder: "새 폴더",
+      folderName: "폴더 이름",
+      folderScope: "폴더 유형",
+      personal: "개인",
+      shared: "공유됨",
+      createFolder: "폴더 만들기",
+      loading: "대시보드를 불러오는 중...",
+      loadFailed: "대시보드를 불러오지 못했습니다",
+      loadFailedDescription: "다시 시도하여 대시보드 개요를 새로 고치세요.",
+      empty: "아직 대시보드가 없습니다",
+      emptyDescription:
+        "만들었거나 액세스할 수 있는 대시보드가 여기에 표시됩니다.",
+      noDashboards: "이 폴더에 대시보드가 없습니다.",
+      unfiled: "분류되지 않음",
+      moveDashboard: "대시보드 이동",
+      folderCreateFailed: "폴더를 만들지 못했습니다",
+      moveFailed: "대시보드를 이동하지 못했습니다",
+    },
+  },
+  "pt-BR": {
+    dashboardOverview: {
+      title: "Painéis",
+      description: "Todos os painéis que você pode acessar, organizados.",
+      searchPlaceholder: "Pesquisar painéis...",
+      newFolder: "Nova pasta",
+      folderName: "Nome da pasta",
+      folderScope: "Tipo de pasta",
+      personal: "Pessoal",
+      shared: "Compartilhado",
+      createFolder: "Criar pasta",
+      loading: "Carregando painéis...",
+      loadFailed: "Não foi possível carregar os painéis",
+      loadFailedDescription:
+        "Tente novamente para atualizar a visão geral dos painéis.",
+      empty: "Ainda não há painéis",
+      emptyDescription:
+        "Os painéis que você criar ou puder acessar aparecerão aqui.",
+      noDashboards: "Não há painéis nesta pasta.",
+      unfiled: "Sem classificação",
+      moveDashboard: "Mover painel",
+      folderCreateFailed: "Não foi possível criar a pasta",
+      moveFailed: "Não foi possível mover o painel",
+    },
+  },
+  "zh-CN": {
+    dashboardOverview: {
+      title: "仪表板",
+      description: "整理所有你可以访问的仪表板。",
+      searchPlaceholder: "搜索仪表板...",
+      newFolder: "新建文件夹",
+      folderName: "文件夹名称",
+      folderScope: "文件夹类型",
+      personal: "个人",
+      shared: "共享",
+      createFolder: "创建文件夹",
+      loading: "正在加载仪表板...",
+      loadFailed: "无法加载仪表板",
+      loadFailedDescription: "请重试以刷新仪表板概览。",
+      empty: "还没有仪表板",
+      emptyDescription: "你创建或可以访问的仪表板会显示在这里。",
+      noDashboards: "此文件夹中没有仪表板。",
+      unfiled: "未分类",
+      moveDashboard: "移动仪表板",
+      folderCreateFailed: "无法创建文件夹",
+      moveFailed: "无法移动仪表板",
+    },
+  },
+  "zh-TW": {
+    dashboardOverview: {
+      title: "儀表板",
+      description: "整理所有你可以存取的儀表板。",
+      searchPlaceholder: "搜尋儀表板...",
+      newFolder: "新增資料夾",
+      folderName: "資料夾名稱",
+      folderScope: "資料夾類型",
+      personal: "個人",
+      shared: "共用",
+      createFolder: "建立資料夾",
+      loading: "正在載入儀表板...",
+      loadFailed: "無法載入儀表板",
+      loadFailedDescription: "請重試以重新整理儀表板概覽。",
+      empty: "尚無儀表板",
+      emptyDescription: "你建立或可以存取的儀表板會顯示在這裡。",
+      noDashboards: "此資料夾中沒有儀表板。",
+      unfiled: "未分類",
+      moveDashboard: "移動儀表板",
+      folderCreateFailed: "無法建立資料夾",
+      moveFailed: "無法移動儀表板",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedDashboardOverviewTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
   for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
     [Section, Partial<Messages[Section]>]
   >) {
