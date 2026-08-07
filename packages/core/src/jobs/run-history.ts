@@ -1,11 +1,31 @@
 import { randomUUID } from "node:crypto";
 
+import { z } from "zod";
+
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
+
+registerEvent({
+  name: "automation.run.finished",
+  description:
+    "Fires after a scheduled or manual automation run records a terminal status.",
+  payloadSchema: z.object({
+    automationRunId: z.string(),
+    owner: z.string(),
+    automation: z.string(),
+    path: z.string(),
+    orgId: z.string().nullable(),
+    runId: z.string().nullable(),
+    threadId: z.string().nullable(),
+    status: z.enum(["success", "error", "interrupted"]),
+    error: z.string().nullable(),
+  }),
+});
 
 /**
  * "interrupted" is derived at read time, never stored: a process killed
@@ -54,6 +74,8 @@ const MAX_ERROR_LENGTH = 500;
  * (BACKGROUND_RUN_HARD_TIMEOUT_MS). Past this, no run is still alive.
  */
 const RUN_LIVENESS_CEILING_MS = 15 * 60_000;
+const INTERRUPTED_RUN_MESSAGE =
+  "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
 
 // The background worker has a shorter hard timeout than this lease. A worker
 // that dies after claiming can therefore be redelivered without overlapping a
@@ -159,7 +181,12 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
     status,
     startedAt,
     finishedAt: row.finished_at == null ? null : Number(row.finished_at),
-    error: row.error == null ? null : String(row.error),
+    error:
+      row.error == null && status === "interrupted"
+        ? INTERRUPTED_RUN_MESSAGE
+        : row.error == null
+          ? null
+          : String(row.error),
   };
 }
 
@@ -272,10 +299,40 @@ export async function finishAutomationRun(
   error?: string,
 ): Promise<void> {
   await ensureTable();
+  const existing = await getDbExec().execute({
+    sql: `SELECT owner, automation, path, org_id, run_id, thread_id FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    args: [id],
+  });
+  const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   await getDbExec().execute({
     sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ? WHERE id = ?`,
     args: [status, Date.now(), error?.slice(0, MAX_ERROR_LENGTH) ?? null, id],
   });
+  if (!row) return;
+  try {
+    emitBusEvent(
+      "automation.run.finished",
+      {
+        automationRunId: id,
+        owner: String(row.owner),
+        automation: String(row.automation),
+        path: String(row.path),
+        orgId: row.org_id == null ? null : String(row.org_id),
+        runId: row.run_id == null ? null : String(row.run_id),
+        threadId: row.thread_id == null ? null : String(row.thread_id),
+        status,
+        error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
+      },
+      { owner: String(row.owner) },
+    );
+  } catch (eventError) {
+    // History is the source of truth. A subscriber must never turn a recorded
+    // terminal result back into a failed automation run.
+    console.warn(
+      "[automations] terminal-run event delivery failed:",
+      eventError,
+    );
+  }
 }
 
 /**

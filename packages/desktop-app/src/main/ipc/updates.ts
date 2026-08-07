@@ -18,6 +18,10 @@ const IS_DEV = !app.isPackaged;
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
+// electron-updater's feed request has no built-in timeout; without this, a
+// hung request would pin `updateCheckInFlight` forever and the periodic
+// check's `checkRunning` guard would never release.
+const UPDATE_CHECK_TIMEOUT_MS = 60_000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
   "https://agent-native.com/api/desktop-updates";
 const DESKTOP_UPDATE_FEED_URL = (
@@ -94,6 +98,22 @@ async function waitForDownloadedUpdate(
   publishDownloadedUpdate();
 }
 
+function withUpdateCheckTimeout<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `Update check timed out after ${UPDATE_CHECK_TIMEOUT_MS}ms`,
+          ),
+        ),
+      UPDATE_CHECK_TIMEOUT_MS,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Triggers (or awaits an in-flight) update check. */
 export async function checkForAppUpdates(
   options: UpdateCheckOptions = {},
@@ -103,10 +123,12 @@ export async function checkForAppUpdates(
 
   if (!updateCheckInFlight) {
     lastUpdateCheckStartedAt = Date.now();
-    updateCheckInFlight = (async () => {
-      const result = await autoUpdater.checkForUpdates();
-      await waitForDownloadedUpdate(result?.downloadPromise);
-    })()
+    updateCheckInFlight = withUpdateCheckTimeout(
+      (async () => {
+        const result = await autoUpdater.checkForUpdates();
+        await waitForDownloadedUpdate(result?.downloadPromise);
+      })(),
+    )
       .catch((err) => {
         pendingDownloadedUpdate = null;
         broadcastUpdateStatus({
@@ -244,7 +266,14 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
 
     app.whenReady().then(() => {
       void checkForAppUpdates();
-      setInterval(() => void checkForAppUpdates(), UPDATE_CHECK_INTERVAL_MS);
+      let checkRunning = false;
+      setInterval(() => {
+        if (checkRunning) return;
+        checkRunning = true;
+        void checkForAppUpdates().finally(() => {
+          checkRunning = false;
+        });
+      }, UPDATE_CHECK_INTERVAL_MS);
     });
 
     app.on("browser-window-focus", maybeCheckForAppUpdates);

@@ -13,6 +13,7 @@ import path from "node:path";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { bearer } from "better-auth/plugins/bearer";
 import { jwt } from "better-auth/plugins/jwt";
+import { magicLink } from "better-auth/plugins/magic-link";
 import {
   pgTable,
   text as pgText,
@@ -36,13 +37,17 @@ import {
   isPgliteUrl,
   loadPgliteDrizzle,
   pgPoolOptions,
-  neonPoolMax,
+  neonPoolOptions,
   attachNeonPoolErrorLogger,
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import {
+  CORE_RESET_PASSWORD_EMAIL_ID,
+  CORE_VERIFY_SIGNUP_EMAIL_ID,
+} from "../email-catalog/system-emails.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
@@ -50,6 +55,10 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -59,11 +68,19 @@ import {
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import {
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "./email-templates.js";
-import { sendEmail, isEmailConfigured } from "./email.js";
+import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+
+export {
+  getAuthLoginMode,
+  resolveAuthLoginMode,
+  resolveAuthLoginModeFromReadiness,
+  type AuthLoginMode,
+} from "./auth-login-mode.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -386,6 +403,28 @@ export interface BetterAuthInstance {
     signInEmail: (opts: {
       body: { email: string; password: string };
     }) => Promise<{ token?: string; user?: any } | null>;
+    signInMagicLink: (opts: {
+      body: {
+        email: string;
+        name?: string;
+        callbackURL?: string;
+        newUserCallbackURL?: string;
+        errorCallbackURL?: string;
+        metadata?: Record<string, unknown>;
+      };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    listUserAccounts: (opts: {
+      headers: Headers;
+    }) => Promise<Array<{ providerId: string }>>;
+    setPassword: (opts: {
+      body: { newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
+    changePassword: (opts: {
+      body: { currentPassword: string; newPassword: string };
+      headers: Headers;
+    }) => Promise<{ status: boolean }>;
     signUpEmail: (opts: {
       body: {
         email: string;
@@ -395,7 +434,10 @@ export interface BetterAuthInstance {
       };
       headers?: Headers;
     }) => Promise<any>;
-    signOut: (opts: { headers: Headers }) => Promise<any>;
+    signOut: (opts: {
+      headers: Headers;
+      returnHeaders?: boolean;
+    }) => Promise<any>;
   };
 }
 
@@ -1196,8 +1238,9 @@ async function createBetterAuthInstance(
 
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
+  const emailReadiness = await getEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
-    resolveEmailPasswordAuthPolicy(await isEmailConfigured());
+    resolveEmailPasswordAuthPolicy(emailReadiness.status === "ready");
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;
@@ -1210,7 +1253,8 @@ async function createBetterAuthInstance(
     emailAndPassword: {
       enabled: true,
       disableSignUp,
-      minPasswordLength: 8,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+      maxPasswordLength: PASSWORD_MAX_LENGTH,
       // Hosted deployments always require a working email provider before
       // password signup can create a session. Local dev/test retain the fast
       // path; hosted deployments without a provider disable password signup.
@@ -1228,7 +1272,14 @@ async function createBetterAuthInstance(
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+        });
       },
     },
     emailVerification: {
@@ -1254,7 +1305,14 @@ async function createBetterAuthInstance(
           email: user.email,
           verifyUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text, appSender });
+        await sendEmail({
+          to: user.email,
+          subject,
+          html,
+          text,
+          appSender,
+          templateId: CORE_VERIFY_SIGNUP_EMAIL_ID,
+        });
       },
     },
     socialProviders,
@@ -1453,6 +1511,27 @@ async function createBetterAuthInstance(
         : {}),
     },
     plugins: [
+      magicLink({
+        expiresIn: 60 * 5,
+        storeToken: "hashed",
+        rateLimit: { window: 60, max: 5 },
+        disableSignUp,
+        sendMagicLink: async ({ email, url }) => {
+          const appBasePath = (
+            process.env.VITE_APP_BASE_PATH ||
+            process.env.APP_BASE_PATH ||
+            ""
+          ).replace(/\/$/, "");
+          const magicLinkUrl = appBasePath
+            ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
+            : url;
+          const { subject, html, text, appSender } = renderMagicLinkEmail({
+            email,
+            magicLinkUrl,
+          });
+          await sendEmail({ to: email, subject, html, text, appSender });
+        },
+      }),
       // JWT: issue tokens for A2A calls, JWKS endpoint for verification
       jwt({
         jwt: {
@@ -1516,7 +1595,7 @@ async function buildDatabaseConfig(
       _neonAuthPool = sharedDbPool(
         "neon",
         url,
-        () => new Pool({ connectionString: url, max: neonPoolMax() }),
+        () => new Pool({ connectionString: url, ...neonPoolOptions() }),
       );
       attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");

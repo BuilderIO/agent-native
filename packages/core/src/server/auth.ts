@@ -93,8 +93,15 @@ import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MIN_LENGTH_MESSAGE,
+} from "../shared/password-policy.js";
+import {
   SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
+  decodeContinuation,
   normalizeAppPath,
   signInJourney,
 } from "../shared/sign-in-journey.js";
@@ -114,10 +121,12 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
+import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
   ensureGoogleAuthIdentity,
   getBetterAuth,
@@ -170,6 +179,12 @@ import {
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
 import { captureAuthError } from "./sentry.js";
+import {
+  forgetCachedSessionEmail,
+  getCachedSessionEmail,
+  invalidateSessionEmailCache,
+  setCachedSessionEmail,
+} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
@@ -665,23 +680,23 @@ async function readDesktopSsoSafely(
  * user. Returns undefined if no session cookie was minted (the common
  * case — Better Auth's reset doesn't auto-sign-in by default).
  */
+function getSetCookieHeaders(headers: Headers): string[] {
+  const responseHeaders = headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  return typeof responseHeaders.getSetCookie === "function"
+    ? responseHeaders.getSetCookie()
+    : (responseHeaders.get("set-cookie") ?? "")
+        .split(/,(?=[^;]+=)/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+}
+
 function extractSessionTokenFromSetCookies(
   response: Response,
 ): string | undefined {
   try {
-    // Headers may have multiple Set-Cookie entries; iterate via getSetCookie
-    // when available (Node 20+ / undici), else fall back to comma split.
-    const headers = response.headers as Headers & {
-      getSetCookie?: () => string[];
-    };
-    const setCookies =
-      typeof headers.getSetCookie === "function"
-        ? headers.getSetCookie()
-        : (headers.get("set-cookie") ?? "")
-            .split(/,(?=[^;]+=)/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-    for (const sc of setCookies) {
+    for (const sc of getSetCookieHeaders(response.headers)) {
       // Better Auth's session cookie name is configurable but defaults to
       // `<prefix>.session_token`. Match either the Better Auth default or
       // our COOKIE_NAME (`an_session`) on the same line.
@@ -694,6 +709,15 @@ function extractSessionTokenFromSetCookies(
     // Best-effort; treat as no token.
   }
   return undefined;
+}
+
+function forwardBetterAuthSetCookies(event: H3Event, result: unknown): void {
+  if (!result || typeof result !== "object") return;
+  const headers = (result as { headers?: Headers }).headers;
+  if (!headers || typeof headers.get !== "function") return;
+  for (const cookie of getSetCookieHeaders(headers)) {
+    event.res?.headers?.append("set-cookie", cookie);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1046,6 +1070,9 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
+  // The upsert can REBIND an existing token to a different email, so a cached
+  // resolution for it is now wrong.
+  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1072,13 +1099,20 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
+  // Sign-out must take effect immediately, not after the cache TTL.
+  invalidateSessionEmailCache();
 }
 
 /**
  * Look up the email associated with a legacy session token.
  * Returns null if the session doesn't exist, is expired, or has no email.
+ *
+ * Resolutions are cached across requests — see `session-email-cache.ts` for the
+ * TTL and the only-cache-successes rule.
  */
 export async function getSessionEmail(token: string): Promise<string | null> {
+  const cached = getCachedSessionEmail(token);
+  if (cached !== undefined) return cached;
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1094,9 +1128,12 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
+    forgetCachedSessionEmail(token);
     return null;
   }
-  return (rows[0].email as string) ?? null;
+  const email = (rows[0].email as string) ?? null;
+  if (email) setCachedSessionEmail(token, email);
+  return email;
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,6 +1153,7 @@ let customGetSession: ((event: H3Event) => Promise<AuthSession | null>) | null =
 interface AuthGuardConfig {
   loginHtml: string;
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
+  authMode?: OnboardingHtmlOptions["authMode"];
   publicPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
   workspaceAppPublicPaths: string[];
@@ -1132,12 +1170,48 @@ function getRequestHost(event: H3Event): string | undefined {
   );
 }
 
+function parseRequestUrl(rawUrl: string | undefined): URL | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl, "http://an.invalid");
+  } catch {
+    // coercion-ok: an invalid request URL has no query context to classify.
+    return null;
+  }
+}
+
+function hasInitialPromptQuery(rawUrl: string | undefined): boolean {
+  return !!parseRequestUrl(rawUrl)?.searchParams.get("initialPrompt")?.trim();
+}
+
+function requestHasInitialPrompt(event: H3Event): boolean {
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  if (hasInitialPromptQuery(rawUrl)) return true;
+
+  const requestUrl = parseRequestUrl(rawUrl);
+  if (!requestUrl) return false;
+  const continuation = requestUrl.searchParams.get(SIGN_IN_CONTINUATION_PARAM);
+  if (
+    continuation &&
+    hasInitialPromptQuery(
+      decodeContinuation(continuation, getConfiguredAppBasePath()) ?? undefined,
+    )
+  ) {
+    return true;
+  }
+
+  const legacyReturn = requestUrl.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM);
+  return legacyReturn ? hasInitialPromptQuery(legacyReturn) : false;
+}
+
 function getOnboardingHtmlOptions(
   options: AuthOptions,
   event?: H3Event,
   rawPath?: string,
+  authMode?: OnboardingHtmlOptions["authMode"],
 ): OnboardingHtmlOptions {
   return {
+    authMode,
     googleOnly: options.googleOnly,
     marketing: options.marketing,
     googleSignInNotice: options.googleSignInNotice,
@@ -1146,6 +1220,7 @@ function getOnboardingHtmlOptions(
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
+    initialPrompt: event ? requestHasInitialPrompt(event) : false,
   };
 }
 
@@ -1153,18 +1228,23 @@ function getAuthOnboardingHtml(
   options: AuthOptions,
   event?: H3Event,
   rawPath?: string,
+  authMode?: OnboardingHtmlOptions["authMode"],
 ): string {
-  return getOnboardingHtml(getOnboardingHtmlOptions(options, event, rawPath));
+  return getOnboardingHtml(
+    getOnboardingHtmlOptions(options, event, rawPath, authMode),
+  );
 }
 
 function getOnboardingLoginHtmlConfig(
   options: AuthOptions,
-): Pick<AuthGuardConfig, "loginHtml" | "getLoginHtml"> {
-  if (options.loginHtml) return { loginHtml: options.loginHtml };
+  authMode?: OnboardingHtmlOptions["authMode"],
+): Pick<AuthGuardConfig, "loginHtml" | "getLoginHtml" | "authMode"> {
+  if (options.loginHtml) return { loginHtml: options.loginHtml, authMode };
   return {
-    loginHtml: getAuthOnboardingHtml(options),
+    authMode,
+    loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
-      getAuthOnboardingHtml(options, event, rawPath),
+      getAuthOnboardingHtml(options, event, rawPath, authMode),
   };
 }
 
@@ -1319,6 +1399,7 @@ async function consumeDesktopExchangeFromDB(
       sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
+    forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
@@ -1914,11 +1995,12 @@ function createAuthGuardFn(): (
     }
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
-    // (share links, embeds) here with a `?return=<path>` query. The cached
-    // login document validates that return path in the browser and redirects
-    // there after sign-in or when its client-side session check finds an
-    // existing session.
-    if (p === "/_agent-native/sign-in") {
+    // (share links, embeds) here with a `?return=<path>` query. The clean
+    // `/sign-in` path is canonical; keep the old framework path as a
+    // compatibility alias. The cached login document validates that return
+    // path in the browser and redirects there after sign-in or when its
+    // client-side session check finds an existing session.
+    if (p === SIGN_IN_ENTRY_PATH || p === SIGN_IN_LEGACY_ENTRY_PATH) {
       // Preserve the zero-setup localhost experience without putting a
       // session lookup back on the cacheable app-shell URL. The client gate
       // reaches this explicit entrypoint after discovering there is no
@@ -1928,7 +2010,8 @@ function createAuthGuardFn(): (
           queryStart >= 0 ? url.slice(queryStart + 1) : "",
         );
         // `?return=` is read as a fallback FOREVER. Generated apps in the wild
-        // hand-write `/_agent-native/sign-in?return=…` and cannot be upgraded;
+        // hand-write the legacy `/_agent-native/sign-in?return=…` path and
+        // cannot be upgraded;
         // dropping the fallback would send them all to "/" — a UX quirk no
         // test would catch. New producers emit `c`; only NEW `?return=`
         // producers are forbidden, never this consumer.
@@ -1978,12 +2061,12 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
-    // Liveness probe: always public so uptime monitors and the keep-warm cron
-    // can reach the DB-warmup route without a session. It exposes no per-user
-    // data (just ok/db/ms) and runs a trivial `SELECT 1`. Without this bypass
-    // the gate below 401s anonymous /_agent-native/* requests before any DB
-    // query, so the database would never get warmed.
-    if (p === "/_agent-native/health") return;
+    // Liveness probes: always public so uptime monitors and the keep-warm cron
+    // can reach them without a session. Ping exposes only a static message;
+    // health exposes only aggregate readiness and a trivial `SELECT 1`.
+    // Without this bypass the gate below 401s anonymous /_agent-native/*
+    // requests before either probe can run.
+    if (p === "/_agent-native/ping" || p === "/_agent-native/health") return;
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
@@ -2477,6 +2560,13 @@ function setFirstRunOnboardingCookie(event: H3Event): void {
     httpOnly: false,
     path: "/",
     maxAge: FIRST_RUN_ONBOARDING_MAX_AGE,
+  });
+}
+
+function clearFirstRunOnboardingCookie(event: H3Event): void {
+  deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, {
+    ...crossSiteCookieAttrs(event),
+    path: "/",
   });
 }
 
@@ -3101,6 +3191,10 @@ async function mountBetterAuthRoutes(
     ...(options.googleScopes ? { googleScopes: options.googleScopes } : {}),
   };
   const auth = await getBetterAuth(betterAuthConfig);
+  const authLoginMode =
+    typeof getAuthLoginMode === "function"
+      ? await getAuthLoginMode()
+      : ("password" as const);
 
   // Mount Better Auth catch-all handler at /_agent-native/auth/ba/*
   app.use(
@@ -3112,6 +3206,8 @@ async function mountBetterAuthRoutes(
       const isSendVerificationEmail =
         reqPath.includes("send-verification-email") &&
         getMethod(event) === "POST";
+      const isMagicLinkRequest =
+        reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
       const isSignOut =
         reqPath.includes("sign-out") && getMethod(event) === "POST";
       if (isSignOut) optOutOfAuthDisabledSession(event);
@@ -3123,7 +3219,8 @@ async function mountBetterAuthRoutes(
       // Better Auth so an org policy cannot be bypassed through the raw API.
       if (
         reqPath.includes("/sign-in/email") ||
-        reqPath.includes("/sign-up/email")
+        reqPath.includes("/sign-up/email") ||
+        isMagicLinkRequest
       ) {
         const body = (await authRequest
           .clone()
@@ -3183,22 +3280,34 @@ async function mountBetterAuthRoutes(
       // but the resend endpoint is exposed directly so users can request a
       // fresh link while unauthenticated. Keep that path equally strict:
       // only same-origin relative return paths survive into the email.
-      if (isSendVerificationEmail) {
+      if (isSendVerificationEmail || isMagicLinkRequest) {
         try {
           const body = (await authRequest
             .clone()
             .json()
             .catch(() => undefined)) as Record<string, unknown> | undefined;
-          if (body && typeof body.callbackURL === "string") {
-            const callbackURL = safeReturnPath(body.callbackURL);
-            if (callbackURL !== body.callbackURL) {
+          if (body) {
+            const callbackKeys = isMagicLinkRequest
+              ? ["callbackURL", "newUserCallbackURL", "errorCallbackURL"]
+              : ["callbackURL"];
+            const sanitizedBody = { ...body };
+            let changed = false;
+            for (const key of callbackKeys) {
+              if (typeof body[key] !== "string") continue;
+              const callbackURL = safeReturnPath(body[key]);
+              if (callbackURL !== body[key]) {
+                sanitizedBody[key] = callbackURL;
+                changed = true;
+              }
+            }
+            if (changed) {
               const headers = new Headers(authRequest.headers);
               headers.delete("content-length");
               headers.set("content-type", "application/json");
               requestForAuth = new Request(authRequest.url, {
                 method: authRequest.method,
                 headers,
-                body: JSON.stringify({ ...body, callbackURL }),
+                body: JSON.stringify(sanitizedBody),
                 duplex: "half",
               } as RequestInit & { duplex: "half" });
             }
@@ -3320,6 +3429,9 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
+              // Deleted by email, so the removed tokens are unknown here — the
+              // whole cache goes.
+              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -3407,6 +3519,54 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // Passwordless login via Better Auth's rate-limited magic-link plugin.
+  app.use(
+    "/_agent-native/auth/magic-link",
+    defineEventHandler(async (event) => {
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const body = await readBody(event);
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
+      const callbackURL =
+        typeof body?.callbackURL === "string"
+          ? safeReturnPath(body.callbackURL)
+          : "/";
+
+      if (!email) {
+        setResponseStatus(event, 400);
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
+      }
+
+      if (await isGoogleSignInRequiredForEmail(email)) {
+        setResponseStatus(event, 403);
+        return { error: GOOGLE_AUTH_REQUIRED_MESSAGE };
+      }
+
+      try {
+        await auth.api.signInMagicLink({
+          body: {
+            email,
+            callbackURL,
+            newUserCallbackURL: `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackURL)}`,
+          },
+          headers: event.headers,
+        });
+        return { ok: true };
+      } catch (e: any) {
+        if (!isExpectedAuthFailure(e)) {
+          captureAuthError(e, { route: "magic-link", email });
+        }
+        const authError = publicAuthError(e, "Unable to send sign-in link");
+        setResponseStatus(event, authError.statusCode ?? 400);
+        return { error: authError.message };
+      }
+    }),
+  );
+
   // Backward-compat: POST /_agent-native/auth/register
   app.use(
     "/_agent-native/auth/register",
@@ -3429,9 +3589,13 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3467,10 +3631,15 @@ async function mountBetterAuthRoutes(
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      clearFirstRunOnboardingCookie(event);
       optOutOfAuthDisabledSession(event);
 
       try {
-        await auth.api.signOut({ headers: event.headers });
+        const result = await auth.api.signOut({
+          headers: event.headers,
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result);
       } catch {
         // Ignore if no Better Auth session
       }
@@ -3531,13 +3700,19 @@ async function mountBetterAuthRoutes(
         } catch {
           // Best-effort.
         }
+        invalidateSessionEmailCache();
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).
         clearFrameworkSessionCookies(event);
+        clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
         try {
-          await auth.api.signOut({ headers: event.headers });
+          const result = await auth.api.signOut({
+            headers: event.headers,
+            returnHeaders: true,
+          });
+          forwardBetterAuthSetCookies(event, result);
         } catch {
           // Ignore — sessions are already gone in DB.
         }
@@ -3580,9 +3755,29 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // Better Auth redirects new magic-link users through this small public
+  // callback so first-run onboarding is marked only for newly created users.
+  app.use(
+    "/_agent-native/auth/magic-link/new-user",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const query = getQuery(event);
+      const rawReturn = Array.isArray(query.return)
+        ? query.return[0]
+        : query.return;
+      if (await getSession(event)) {
+        setFirstRunOnboardingCookie(event);
+      }
+      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+    }),
+  );
+
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
-  const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
+  const loginHtmlConfig = getOnboardingLoginHtmlConfig(options, authLoginMode);
   _authGuardConfig = {
     ...loginHtmlConfig,
     publicPaths,
@@ -3677,9 +3872,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3715,11 +3914,16 @@ function mountAuthFallbackRoutes(app: H3App): void {
       const bearerToken = getBearerSessionToken(event);
       if (bearerToken) await removeSession(bearerToken);
       clearFrameworkSessionCookies(event);
+      clearFirstRunOnboardingCookie(event);
       optOutOfAuthDisabledSession(event);
 
       try {
         const auth = await getBetterAuth();
-        await auth.api.signOut({ headers: event.headers });
+        const result = await auth.api.signOut({
+          headers: event.headers,
+          returnHeaders: true,
+        });
+        forwardBetterAuthSetCookies(event, result);
       } catch {
         // Ignore if Better Auth is still unavailable
       }
@@ -3792,7 +3996,10 @@ export async function autoMountAuth(
         options.marketing ||
         options.googleSignInNotice
       ) {
-        const loginHtmlConfig = getOnboardingLoginHtmlConfig(options);
+        const loginHtmlConfig = getOnboardingLoginHtmlConfig(
+          options,
+          _authGuardConfig.authMode,
+        );
         _authGuardConfig.loginHtml = loginHtmlConfig.loginHtml;
         _authGuardConfig.getLoginHtml = loginHtmlConfig.getLoginHtml;
       }
@@ -3873,6 +4080,7 @@ export async function autoMountAuth(
         const bearerToken = getBearerSessionToken(event);
         if (bearerToken) await removeSession(bearerToken);
         clearFrameworkSessionCookies(event);
+        clearFirstRunOnboardingCookie(event);
         optOutOfAuthDisabledSession(event);
         if (isElectronRequest(event)) await clearDesktopSso();
         return { ok: true };

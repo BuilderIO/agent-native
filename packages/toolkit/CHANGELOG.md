@@ -1,5 +1,18 @@
 # @agent-native/toolkit
 
+## 0.13.3
+
+### Patch Changes
+
+- d3f8794: Allow hosts to configure the shared composer document attachment limit and label.
+
+## 0.13.2
+
+### Patch Changes
+
+- 277be3f: Show "Queue message" in the chat composer tooltip when a submission will wait behind existing work.
+- 277be3f: Keep the public app-config export available to browser-safe toolkit consumers.
+
 ## 0.13.1
 
 ### Patch Changes

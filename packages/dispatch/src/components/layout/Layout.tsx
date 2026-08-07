@@ -18,37 +18,26 @@ import {
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconActivity,
-  IconArrowUpRight,
   IconApps,
-  IconBrain,
   IconBrandSlack,
-  IconChartBar,
   IconBrandTelegram,
-  IconKey,
-  IconChevronDown,
-  IconLayersSubtract,
   IconMessageQuestion,
-  IconMessages,
-  IconPlugConnected,
   IconBroadcast,
-  IconFingerprint,
-  IconHistory,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconPuzzle,
   IconSettings,
-  IconSettingsAutomation,
-  IconShieldCheck,
+  IconShield,
   IconSearch,
   IconWorld,
   IconDeviceDesktop,
 } from "@tabler/icons-react";
 import {
+  createContext,
   useEffect,
   useMemo,
   useRef,
   useState,
+  useContext,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -66,6 +55,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+import { WorkspaceAppsRail } from "./workspace-apps-rail";
 
 export type DispatchNavSection = "primary" | "operations";
 
@@ -81,10 +71,12 @@ export interface DispatchNavItem {
   to: string;
   label: string;
   icon?: DispatchNavIcon;
-  /** Defaults to "operations", which is where local management tools usually fit. */
+  /** Defaults to "operations", which renders under the Admin control plane. */
   section?: DispatchNavSection;
   /** Override active matching for nested or multi-route tools. */
   match?: (pathname: string) => boolean;
+  /** Canonical path inside the Admin shell for management tabs. */
+  adminTo?: string;
 }
 
 export interface DispatchExtensionConfig {
@@ -118,116 +110,18 @@ const PRIMARY_NAV_ITEMS = [
   },
 ] as const satisfies readonly DispatchNavItem[];
 
-const OPERATIONS_NAV_ITEMS = [
-  {
-    id: "operations",
-    to: "/operations",
-    label: "Operations",
-    icon: IconActivity,
-    section: "operations",
-  },
-  {
-    id: "metrics",
-    to: "/metrics",
-    label: "Metrics",
-    icon: IconChartBar,
-    section: "operations",
-  },
-  {
-    id: "automations",
-    to: "/automations",
-    label: "Automations",
-    icon: IconSettingsAutomation,
-    section: "operations",
-  },
-  {
-    id: "approvals",
-    to: "/approvals",
-    label: "Approvals",
-    icon: IconShieldCheck,
-    section: "operations",
-  },
-  {
-    id: "destinations",
-    to: "/destinations",
-    label: "Destinations",
-    icon: IconArrowUpRight,
-    section: "operations",
-  },
-  {
-    id: "integrations",
-    to: "/integrations",
-    label: "Integrations",
-    icon: IconPuzzle,
-    section: "operations",
-  },
-  {
-    id: "vault",
-    to: "/vault",
-    label: "Vault",
-    icon: IconKey,
-    section: "operations",
-  },
-  {
-    id: "agents",
-    to: "/agents",
-    label: "Agents",
-    icon: IconPlugConnected,
-    section: "operations",
-  },
-  {
-    id: "workspace",
-    to: "/workspace",
-    label: "Resources",
-    icon: IconLayersSubtract,
-    section: "operations",
-  },
-] as const satisfies readonly DispatchNavItem[];
-
 const BOTTOM_NAV_ITEMS = [
+  {
+    id: "admin",
+    to: "/admin",
+    label: "Admin",
+    icon: IconShield,
+  },
   {
     id: "settings",
     to: "/settings",
     label: "Settings",
     icon: IconSettings,
-  },
-] as const satisfies readonly DispatchNavItem[];
-
-const ADVANCED_NAV_ITEMS = [
-  {
-    id: "messaging",
-    to: "/messaging",
-    label: "Messaging",
-    icon: IconBrandTelegram,
-    section: "operations",
-  },
-  {
-    id: "identities",
-    to: "/identities",
-    label: "Identities",
-    icon: IconFingerprint,
-    section: "operations",
-  },
-  {
-    id: "audit",
-    to: "/audit",
-    label: "Audit",
-    icon: IconHistory,
-    section: "operations",
-  },
-  {
-    id: "dreams",
-    to: "/dreams",
-    label: "Dreams",
-    icon: IconBrain,
-    section: "operations",
-  },
-  {
-    id: "thread-debug",
-    to: "/thread-debug",
-    label: "Thread Debug",
-    icon: IconMessages,
-    section: "operations",
   },
 ] as const satisfies readonly DispatchNavItem[];
 
@@ -237,6 +131,14 @@ const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
+
+const DispatchExtensionsContext = createContext<
+  DispatchExtensionConfig | undefined
+>(undefined);
+
+export function useDispatchExtensions(): DispatchExtensionConfig | undefined {
+  return useContext(DispatchExtensionsContext);
+}
 
 // Routes whose page renders its own toolbar.
 // Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
@@ -586,14 +488,7 @@ export function NavContent({
     ...PRIMARY_NAV_ITEMS,
     ...navItemsForSection(extensionNavItems, "primary"),
   ];
-  const operationsNavItems = [
-    ...OPERATIONS_NAV_ITEMS,
-    ...navItemsForSection(extensionNavItems, "operations"),
-  ];
   const localPathname = localDispatchPath(location.pathname);
-  const advancedOpen = ADVANCED_NAV_ITEMS.some((item) =>
-    navItemMatchesPath(item, localPathname),
-  );
   const navLabel = (item: DispatchNavItem) => {
     const key =
       item.id === "thread-debug"
@@ -799,40 +694,7 @@ export function NavContent({
             {primaryNavItems.map(renderNavItem)}
           </ul>
 
-          {collapsed ? (
-            <>
-              <ul className="mt-5 flex flex-col items-center gap-1">
-                {operationsNavItems.map(renderNavItem)}
-              </ul>
-              <ul className="mt-3 flex flex-col items-center gap-1">
-                {ADVANCED_NAV_ITEMS.map(renderNavItem)}
-              </ul>
-            </>
-          ) : (
-            <div className="mt-5">
-              <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/45">
-                {t("dispatch.nav.operate", { defaultValue: "Operate" })}
-              </p>
-              <ul className="space-y-0.5">
-                {operationsNavItems.map(renderNavItem)}
-              </ul>
-
-              <details className="group mt-3" open={advancedOpen}>
-                <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
-                  <span>
-                    {t("dispatch.nav.advanced", { defaultValue: "Advanced" })}
-                  </span>
-                  <IconChevronDown
-                    size={14}
-                    className="transition-transform group-open:rotate-180"
-                  />
-                </summary>
-                <ul className="mt-1 space-y-0.5">
-                  {ADVANCED_NAV_ITEMS.map(renderNavItem)}
-                </ul>
-              </details>
-            </div>
-          )}
+          <WorkspaceAppsRail collapsed={collapsed} onNavigate={onNavigate} />
         </nav>
 
         <div className="mt-auto shrink-0">
@@ -972,46 +834,48 @@ export function Layout({
   );
 
   return (
-    <HeaderActionsProvider>
-      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-        <aside
-          data-collapsed={sidebarCollapsed ? "true" : "false"}
-          className={cn(
-            "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-            sidebarCollapsed ? "w-14" : "w-56",
-          )}
-        >
-          <NavContent
-            extensions={extensions}
-            collapsed={sidebarCollapsed}
-            collapsible
-            onCollapsedChange={setSidebarCollapsed}
-          />
-        </aside>
-
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent
-            side="left"
-            className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
+    <DispatchExtensionsContext.Provider value={extensions}>
+      <HeaderActionsProvider>
+        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
+          <aside
+            data-collapsed={sidebarCollapsed ? "true" : "false"}
+            className={cn(
+              "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+              sidebarCollapsed ? "w-14" : "w-56",
+            )}
           >
-            <SheetTitle className="sr-only">
-              {t("dispatch.nav.navigation")}
-            </SheetTitle>
-            <SheetDescription className="sr-only">
-              {t("dispatch.nav.navigationDescription")}
-            </SheetDescription>
-            <div className="flex h-full w-full flex-col">
-              <NavContent
-                extensions={extensions}
-                collapsed={false}
-                onNavigate={() => setMobileOpen(false)}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
+            <NavContent
+              extensions={extensions}
+              collapsed={sidebarCollapsed}
+              collapsible
+              onCollapsedChange={setSidebarCollapsed}
+            />
+          </aside>
 
-        {content}
-      </div>
-    </HeaderActionsProvider>
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+            <SheetContent
+              side="left"
+              className="w-72 p-0 bg-sidebar text-sidebar-foreground [&>button]:hidden"
+            >
+              <SheetTitle className="sr-only">
+                {t("dispatch.nav.navigation")}
+              </SheetTitle>
+              <SheetDescription className="sr-only">
+                {t("dispatch.nav.navigationDescription")}
+              </SheetDescription>
+              <div className="flex h-full w-full flex-col">
+                <NavContent
+                  extensions={extensions}
+                  collapsed={false}
+                  onNavigate={() => setMobileOpen(false)}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {content}
+        </div>
+      </HeaderActionsProvider>
+    </DispatchExtensionsContext.Provider>
   );
 }

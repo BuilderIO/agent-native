@@ -51,6 +51,7 @@ import {
   runAgentLoopWithMainChatInternalContinuations,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
+  MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
   structuredHistoryToEngineMessages,
   trimOldToolResults,
@@ -1038,6 +1039,7 @@ describe("buildUserContentWithAttachments", () => {
     const tools = actionsToEngineTools(
       attachToolSearch({
         resources: actionEntry({ readOnly: true }),
+        "framework-search": actionEntry({ readOnly: true }),
         "docs-search": actionEntry({ readOnly: true }),
         "get-framework-context": actionEntry({ readOnly: true }),
         "read-attachment": actionEntry({ readOnly: true }),
@@ -1052,6 +1054,7 @@ describe("buildUserContentWithAttachments", () => {
       ),
     ).toEqual([
       "resources",
+      "framework-search",
       "docs-search",
       "get-framework-context",
       "read-attachment",
@@ -5727,6 +5730,76 @@ describe("runAgentLoop", () => {
     expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(events).toContainEqual(expect.objectContaining({ type: "text" }));
+  });
+
+  it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
+    let streamCalls = 0;
+    // The shape a lost model actually makes: it never repeats itself, it keeps
+    // guessing. Every call carries new arguments, so the identical-arguments
+    // breaker never counts past one and cannot stop this on its own.
+    // NOT a thrown constant: the real shape is SCHEMA REJECTION, whose message
+    // embeds `Received: {…the arguments…}`. That echo is what made the error
+    // text differ on every attempt and defeated the breaker's key. A test that
+    // throws a fixed string never exercises this and passes either way — the
+    // first version of this test did exactly that.
+    const run = vi.fn(async () => "should never execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `guess-${streamCalls}`,
+              name: "query-analytics",
+              // Different every attempt — that is the whole point.
+              input: { attempt: streamCalls, guess: `variant-${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      // Required `action` property the model never supplies, so every call is
+      // rejected by the schema before `run` is reached.
+      actions: {
+        "query-analytics": {
+          ...actionEntry({ actions: ["only-valid-choice"] }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // Must stop on the same-error floor, nowhere near the iteration ceiling.
+    // Without it this turn runs until it exhausts a budget — which is how a
+    // delegated call spent five minutes on a question the same app answers
+    // directly in twenty-seven seconds.
+    // The schema rejects before `run`, so the model turns are the count that
+    // matters. Without an argument-independent breaker this ran 61 turns.
+    expect(run).not.toHaveBeenCalled();
+    expect(streamCalls).toBeLessThanOrEqual(MAX_SAME_ERROR_ACROSS_ARGUMENTS);
   });
 
   it("lets a long turn keep going while each tool call is genuinely different", async () => {

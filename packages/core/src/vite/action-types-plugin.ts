@@ -17,7 +17,15 @@ import fs from "fs";
  */
 import path from "path";
 
-import type { Plugin } from "vite";
+import type { Plugin, ViteDevServer } from "vite";
+
+/**
+ * Action-file creation/removal changes the generated registry module itself.
+ * Coalesce editor unlink+add pairs into one registry refresh so the Nitro
+ * plugin re-imports the registry and the chat tool set sees the same actions
+ * as the HTTP/frontend surfaces.
+ */
+const ACTION_REGISTRY_REFRESH_DELAY_MS = 300;
 
 /** Files to skip during discovery (matches action-discovery.ts). */
 const SKIP_FILES = new Set([
@@ -217,6 +225,36 @@ function writeIfChanged(outFile: string, content: string): void {
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, content);
   }
+}
+
+/**
+ * Refresh the server environment that owns the generated registry without
+ * reloading the browser. Nitro keeps a separate module runner from Vite's
+ * client graph, so invalidating only the legacy graph leaves the chat plugin
+ * holding the previous action snapshot.
+ */
+function refreshActionRegistryInDevServer(
+  server: ViteDevServer,
+  projectRoot: string,
+): boolean {
+  const registryPath = path.resolve(
+    projectRoot,
+    ".generated",
+    "actions-registry.ts",
+  );
+
+  for (const environment of Object.values(server.environments)) {
+    const module = environment.moduleGraph.getModuleById(registryPath);
+    if (!module) continue;
+
+    environment.moduleGraph.invalidateModule(module);
+    if (environment.config.consumer !== "client") {
+      environment.hot.send({ type: "full-reload" });
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function findWorkspaceCoreActionsDir(projectRoot: string): string | null {
@@ -459,6 +497,47 @@ export function actionTypesPlugin(): Plugin {
 
       // Watch for changes in actions/
       const watcher = server.watcher;
+      let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+      let closed = false;
+      const scheduleActionRegistryRefresh = () => {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          if (closed) return;
+
+          server.config.logger.info(
+            "[agent-native] Action files changed; refreshing the server action registry so chat and action routes use the updated registry.",
+            { timestamp: true },
+          );
+          try {
+            if (refreshActionRegistryInDevServer(server, projectRoot)) return;
+          } catch (error: unknown) {
+            server.config.logger.warn(
+              `[agent-native] Targeted action registry refresh failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              { timestamp: true },
+            );
+          }
+
+          // Vite 7+ exposes separate server environments. Older compatible
+          // hosts may not expose the Nitro graph, so retain a safe fallback.
+          void server.restart().catch((error: unknown) => {
+            server.config.logger.error(
+              `[agent-native] Failed to restart after an action registry change: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              { timestamp: true },
+            );
+          });
+        }, ACTION_REGISTRY_REFRESH_DELAY_MS);
+        refreshTimer.unref?.();
+      };
+      server.httpServer?.once("close", () => {
+        closed = true;
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = null;
+      });
       const handleChange = (file: string) => {
         const inAppActions = file.startsWith(actionsDir);
         const inWorkspaceActions = workspaceActionsDir
@@ -466,6 +545,7 @@ export function actionTypesPlugin(): Plugin {
           : false;
         if ((inAppActions || inWorkspaceActions) && /\.(ts|js)$/.test(file)) {
           generateActionArtifacts(actionsDir, projectRoot);
+          scheduleActionRegistryRefresh();
         }
       };
       watcher.add(actionsDir);

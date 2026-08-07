@@ -476,6 +476,7 @@ import {
   type LiveFigmaSvgSnapshot,
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
+import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -12615,20 +12616,45 @@ function DesignEditor() {
       selectedElement.tagName.toLowerCase();
     const shortLabel =
       labelSource.length > 28 ? `${labelSource.slice(0, 25)}...` : labelSource;
+    const targetNodeId =
+      selectedCodeLayerNode?.dataAttributes[
+        "data-agent-native-node-id"
+      ]?.trim() ??
+      selectedElement.sourceId ??
+      null;
+    const targetSelector =
+      selectedCodeLayerNode?.selector ?? selectedElement.selector ?? null;
+    // Excerpt the outerHTML out of the SOURCE projection rather than the
+    // rendered DOM: this is the exact text edit-design's search/replace has
+    // to match, so an edit anchored to it cannot drift onto a child or
+    // sibling that merely measures the same on canvas.
+    const selectedNodeSpan = selectedCodeLayerNode?.source;
+    const outerHtmlExcerpt = selectedNodeSpan
+      ? nodeRepromptSubtreeExcerpt(
+          activeProjectionContent.slice(
+            selectedNodeSpan.start,
+            selectedNodeSpan.end,
+          ),
+        )
+      : "";
     const contextLines = [
       `Selected design element in design "${design?.title ?? id}".`,
-      activeFile
-        ? `Active screen: ${activeFile.filename} (${activeFile.id}).`
-        : "",
+      `designId: ${id}`,
+      activeFile ? `fileId: ${activeFile.id}` : "",
+      activeFile ? `Active screen: ${activeFile.filename}` : "",
+      `target: ${targetNodeId ?? targetSelector ?? "unknown"}`,
+      targetNodeId ? `targetNodeId: ${targetNodeId}` : "",
+      targetSelector ? `targetSelector: ${targetSelector}` : "",
       `Element: <${selectedElement.tagName.toLowerCase()}> ${shortLabel}`,
-      `Selector: ${selectedElement.selector}`,
-      selectedElement.sourceId ? `Source id: ${selectedElement.sourceId}` : "",
       selectedCodeLayerNode ? `Code layer id: ${selectedCodeLayerNode.id}` : "",
       selectedElement.classes.length
         ? `Classes: ${selectedElement.classes.join(" ")}`
         : "",
       selectedElement.textContent?.trim()
         ? `Text: ${selectedElement.textContent.trim()}`
+        : "",
+      outerHtmlExcerpt
+        ? `--- selected element (outerHTML excerpt, truncated) ---\n${outerHtmlExcerpt}`
         : "",
     ].filter(Boolean);
 
@@ -12646,6 +12672,7 @@ function DesignEditor() {
     composerContextHasOurKeyRef.current = true;
   }, [
     activeFile,
+    activeProjectionContent,
     design?.title,
     id,
     isSignedIn,
@@ -32795,7 +32822,7 @@ function DesignEditor() {
                 </DialogTitle>
                 <DialogDescription>
                   {
-                    "Connect Builder.io to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
+                    "Connect Builder.io (free tier available) to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
                   }
                 </DialogDescription>
               </DialogHeader>
@@ -32825,7 +32852,7 @@ function DesignEditor() {
                 </ul>
                 <p className="pt-1 text-xs">
                   {
-                    "Requires Builder.io to be connected with a branch project configured." /* i18n-ignore */
+                    "Requires Builder.io to be connected (free tier available) with a branch project configured." /* i18n-ignore */
                   }
                 </p>
               </div>

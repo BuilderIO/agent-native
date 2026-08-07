@@ -2,11 +2,15 @@ import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
-import { deleteDocumentRecursive } from "./delete-document.js";
+import {
+  deleteDocumentRootsRecursive,
+  PermanentDeleteScopeChangedError,
+} from "./delete-document.js";
 
 type Db = ReturnType<typeof getDb>;
+const MAX_DELETE_SCOPE_ATTEMPTS = 3;
 
-export async function deleteUserContentSpace(db: Db, spaceId: string) {
+async function deleteUserContentSpaceOnce(db: Db, spaceId: string) {
   return db.transaction(async (tx) => {
     const scopedDb = tx as unknown as Db;
     const access = await resolveContentSpaceAccess(spaceId, "editor", {
@@ -45,14 +49,9 @@ export async function deleteUserContentSpace(db: Db, spaceId: string) {
     await scopedDb
       .delete(schema.contentSpaceCatalogItems)
       .where(eq(schema.contentSpaceCatalogItems.id, mapping.id));
-    const deletedCatalogDocuments = await deleteDocumentRecursive(
+    const deletedDocuments = await deleteDocumentRootsRecursive(
       scopedDb,
-      mapping.documentId,
-      access.space.ownerEmail,
-    );
-    const deletedWorkspaceDocuments = await deleteDocumentRecursive(
-      scopedDb,
-      filesDatabase.documentId,
+      [mapping.documentId, filesDatabase.documentId],
       access.space.ownerEmail,
     );
 
@@ -77,8 +76,23 @@ export async function deleteUserContentSpace(db: Db, spaceId: string) {
 
     return {
       spaceId,
-      deletedDocuments:
-        deletedCatalogDocuments.length + deletedWorkspaceDocuments.length,
+      deletedDocuments: deletedDocuments.length,
     };
   });
+}
+
+export async function deleteUserContentSpace(db: Db, spaceId: string) {
+  for (let attempt = 1; attempt <= MAX_DELETE_SCOPE_ATTEMPTS; attempt += 1) {
+    try {
+      return await deleteUserContentSpaceOnce(db, spaceId);
+    } catch (error) {
+      if (
+        !(error instanceof PermanentDeleteScopeChangedError) ||
+        attempt === MAX_DELETE_SCOPE_ATTEMPTS
+      ) {
+        throw error;
+      }
+    }
+  }
+  throw new Error("Workspace deletion did not complete.");
 }

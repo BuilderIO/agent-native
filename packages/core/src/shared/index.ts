@@ -10,6 +10,7 @@ export {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,
   SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
   decodeContinuation,
   encodeContinuation,
@@ -54,6 +55,11 @@ export {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
+export {
+  createPollEngine,
+  type PollEngineOptions,
+  type PollEngineHandle,
+} from "./poll-engine.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,

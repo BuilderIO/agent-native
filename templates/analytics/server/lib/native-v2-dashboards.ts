@@ -10,6 +10,7 @@ export const NATIVE_V2_DASHBOARD_IDS = [
   "account-engagement-v2",
   "cross-sell-v2",
   "win-loss-v2",
+  "on-demand-billing-v2",
 ] as const;
 
 export type NativeV2DashboardId = (typeof NATIVE_V2_DASHBOARD_IDS)[number];
@@ -29,7 +30,16 @@ export type NativeV2BindingKey =
   | "win_loss.summary"
   | "win_loss.reasons"
   | "win_loss.evidence"
-  | "win_loss.alerts";
+  | "win_loss.alerts"
+  | "billing.visual_views.summary"
+  | "billing.visual_views.trend"
+  | "billing.visual_views.overage"
+  | "billing.visual_views.growth"
+  | "billing.visual_views.insights"
+  | "billing.agent_credits.summary"
+  | "billing.agent_credits.trend"
+  | "billing.agent_credits.overage"
+  | "billing.agent_credits.insights";
 
 export interface NativeV2Binding {
   programId: string;
@@ -384,6 +394,222 @@ export const nativeV2DashboardManifests: readonly NativeV2DashboardManifest[] =
           width: 3,
           tab: "Alerts",
           requiredColumns: ["severity", "message"],
+        }),
+      ],
+    },
+    {
+      id: "on-demand-billing-v2",
+      name: "On Demand Billing v2",
+      description:
+        "Native on-demand billing dashboard for Visual Views and Agent Credits: usage, rollover, overage, growth signals, and billing insights.",
+      category: "Operations",
+      tags: [
+        "native",
+        "v2",
+        "billing",
+        "on-demand",
+        "visual-views",
+        "agent-credits",
+      ],
+      requiredBindings: [
+        "billing.visual_views.summary",
+        "billing.visual_views.trend",
+        "billing.visual_views.overage",
+        "billing.visual_views.growth",
+        "billing.visual_views.insights",
+        "billing.agent_credits.summary",
+        "billing.agent_credits.trend",
+        "billing.agent_credits.overage",
+        "billing.agent_credits.insights",
+      ],
+      panels: [
+        section(
+          "billing-visual-views-overview",
+          "Visual Views",
+          "Visual Views / Overview",
+        ),
+        boundPanel({
+          id: "billing-visual-views-summary",
+          title: "Visual Views summary",
+          bindingKey: "billing.visual_views.summary",
+          chartType: "metric",
+          width: 1,
+          tab: "Visual Views / Overview",
+          config: {
+            yKey: "value",
+            yFormatter: "number",
+            description:
+              "Current Visual Views usage or contracted allowance, as emitted by the bound program.",
+          },
+          requiredColumns: ["value"],
+        }),
+        boundPanel({
+          id: "billing-visual-views-trend",
+          title: "Usage over time",
+          bindingKey: "billing.visual_views.trend",
+          chartType: "area",
+          width: 3,
+          tab: "Visual Views / Overview",
+          config: {
+            xKey: "month",
+            yKeys: ["actual", "contracted", "rollover"],
+            yFormatter: "number",
+            legend: true,
+          },
+          requiredColumns: ["month", "actual", "contracted", "rollover"],
+        }),
+        boundPanel({
+          id: "billing-visual-views-insights",
+          title: "Billing insights",
+          bindingKey: "billing.visual_views.insights",
+          chartType: "callout",
+          width: 3,
+          tab: "Visual Views / Overview",
+          requiredColumns: ["severity", "message"],
+        }),
+        boundPanel({
+          id: "billing-visual-views-overage",
+          title: "Overage and rollover",
+          bindingKey: "billing.visual_views.overage",
+          chartType: "table",
+          width: 3,
+          tab: "Visual Views / Overage",
+          config: {
+            columns: [
+              { key: "company_name", label: "Company" },
+              { key: "month", label: "Month", format: "date" },
+              { key: "actual", label: "Actual", format: "number" },
+              { key: "contracted", label: "Contracted", format: "number" },
+              { key: "rollover", label: "Rollover", format: "number" },
+              {
+                key: "newAllowance",
+                label: "New allowance",
+                format: "number",
+              },
+              { key: "overage", label: "Overage", format: "number" },
+              {
+                key: "overageRate",
+                label: "Overage rate",
+                format: "currency",
+              },
+              {
+                key: "overageBilled",
+                label: "Overage billed",
+                format: "currency",
+              },
+            ],
+            limit: 100,
+          },
+          requiredColumns: [
+            "company_name",
+            "month",
+            "actual",
+            "contracted",
+            "rollover",
+            "newAllowance",
+            "overage",
+            "overageRate",
+            "overageBilled",
+          ],
+        }),
+        boundPanel({
+          id: "billing-visual-views-growth",
+          title: "High growth companies",
+          bindingKey: "billing.visual_views.growth",
+          chartType: "table",
+          width: 3,
+          tab: "Visual Views / Growth",
+          config: { limit: 100 },
+          requiredColumns: [],
+        }),
+        section(
+          "billing-agent-credits-overview",
+          "Agent Credits",
+          "Agent Credits / Overview",
+        ),
+        boundPanel({
+          id: "billing-agent-credits-summary",
+          title: "Agent Credits summary",
+          bindingKey: "billing.agent_credits.summary",
+          chartType: "metric",
+          width: 1,
+          tab: "Agent Credits / Overview",
+          config: {
+            yKey: "value",
+            yFormatter: "number",
+            description:
+              "Current Agent Credits usage or contracted allowance, as emitted by the bound program.",
+          },
+          requiredColumns: ["value"],
+        }),
+        boundPanel({
+          id: "billing-agent-credits-trend",
+          title: "Credits over time",
+          bindingKey: "billing.agent_credits.trend",
+          chartType: "area",
+          width: 3,
+          tab: "Agent Credits / Overview",
+          config: {
+            xKey: "month",
+            yKeys: ["actual", "contracted", "rollover"],
+            yFormatter: "number",
+            legend: true,
+          },
+          requiredColumns: ["month", "actual", "contracted", "rollover"],
+        }),
+        boundPanel({
+          id: "billing-agent-credits-insights",
+          title: "Billing insights",
+          bindingKey: "billing.agent_credits.insights",
+          chartType: "callout",
+          width: 3,
+          tab: "Agent Credits / Overview",
+          requiredColumns: ["severity", "message"],
+        }),
+        boundPanel({
+          id: "billing-agent-credits-overage",
+          title: "Overage and rollover",
+          bindingKey: "billing.agent_credits.overage",
+          chartType: "table",
+          width: 3,
+          tab: "Agent Credits / Overage",
+          config: {
+            columns: [
+              { key: "company_name", label: "Company" },
+              { key: "month", label: "Month", format: "date" },
+              { key: "actual", label: "Actual", format: "number" },
+              { key: "contracted", label: "Contracted", format: "number" },
+              { key: "rollover", label: "Rollover", format: "number" },
+              {
+                key: "newAllowance",
+                label: "New allowance",
+                format: "number",
+              },
+              { key: "overage", label: "Overage", format: "number" },
+              {
+                key: "overageRate",
+                label: "Overage rate",
+                format: "currency",
+              },
+              {
+                key: "overageBilled",
+                label: "Overage billed",
+                format: "currency",
+              },
+            ],
+            limit: 100,
+          },
+          requiredColumns: [
+            "company_name",
+            "month",
+            "actual",
+            "contracted",
+            "rollover",
+            "newAllowance",
+            "overage",
+            "overageRate",
+            "overageBilled",
+          ],
         }),
       ],
     },

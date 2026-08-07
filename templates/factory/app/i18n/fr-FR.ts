@@ -188,6 +188,35 @@ const messages = {
     pastRunsEmpty: "Aucune exécution enregistrée.",
     saveAutomation: "Enregistrer",
     runNow: "Exécuter maintenant",
+    automationHealthTitle: "État du planificateur",
+    automationHealthDescription:
+      "Le signal indique si le worker de tâches récurrentes déployé vérifie toujours les plannings.",
+    automationHealthHealthy: "Opérationnel",
+    automationHealthStale: "Obsolète",
+    automationHealthError: "Erreur",
+    automationHealthNoData: "Aucun signal",
+    automationLastCheck: "Dernière vérification",
+    automationLastDispatch: "Dernier envoi",
+    automationRuntime: "Environnement d’exécution",
+    automationHealthNoDataHint:
+      "Aucun signal du planificateur n’a encore été enregistré. Déployez la dernière build de Factory, puis vérifiez à nouveau.",
+    automationHealthStaleHint:
+      "Le planificateur n’a pas vérifié récemment. Cela signifie généralement que la fonction planifiée ou le worker d’arrière-plan déployé ne fonctionne pas.",
+    automationHealthErrorDetail: "Dernière erreur du planificateur",
+    automationOpenThread: "Ouvrir le fil",
+    automationFailureAlertsTitle: "Alertes d’échec des automatisations",
+    automationFailureAlertsDescription:
+      "Envoyez une alerte dans l’application et un e-mail lorsqu’une automatisation Factory échoue. Les échecs identiques sont regroupés pendant 15 minutes.",
+    automationFailureAlertsEnabled:
+      "M’envoyer un e-mail en cas d’échec d’automatisation",
+    automationFailureAlertEmail: "E-mail d’alerte",
+    automationFailureAlertEmailPlaceholder:
+      "Par défaut, le propriétaire de l’espace de travail",
+    automationFailureEmailReadiness: "Fournisseur d’e-mail",
+    automationDiagnosticsLoadError:
+      "Impossible de charger les diagnostics Factory. Vérifiez l’accès, le déploiement et les migrations de la base de données, puis réessayez.",
+    automationEmailReadinessHint:
+      "L’e-mail utilise le coffre Dispatch de l’organisation. Configurez-y un fournisseur si l’état n’est pas prêt.",
   },
   factoryCanvas: {
     dragHint: "Faites glisser les nœuds pour remodeler la factory",

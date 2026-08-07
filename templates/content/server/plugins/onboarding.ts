@@ -24,14 +24,14 @@ export default async (nitroApp: any): Promise<void> => {
     required: false,
     title: "Media uploads",
     description:
-      "Connect Builder.io to upload and embed images, videos, and audio files in Content documents.",
+      "Connect Builder.io (free tier available) to upload and embed images, videos, and audio files in Content documents.",
     methods: [
       {
         id: "builder",
         kind: "builder-cli-auth",
         label: "Connect Builder.io",
         description:
-          "One-click file storage for media blocks. Free during beta.",
+          "One-click file storage for media blocks. Builder.io's free tier includes file storage.",
         primary: true,
         badge: "free",
         payload: { scope: "browser" },

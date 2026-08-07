@@ -1027,6 +1027,35 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
   });
 
+  it("installs the portable guard contract at the workspace and app roots", async () => {
+    await createApp("guarded-ws", { template: "chat,dispatch" });
+    const wsDir = path.join(tmpDir, "guarded-ws");
+    const rootPkg = readPkg(wsDir);
+    const appDir = path.join(wsDir, "apps", "chat");
+    const appPkg = readPkg(appDir);
+
+    expect(rootPkg.scripts.doctor).toBe("agent-native doctor");
+    expect(rootPkg.scripts.prebuild).toBe("agent-native doctor --strict");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(wsDir, "agent-native.json"), "utf-8"),
+      ),
+    ).toMatchObject({ doctor: { failOnBuild: true } });
+    expect(fs.readFileSync(path.join(wsDir, "AGENTS.md"), "utf-8")).toContain(
+      "Guarded verification",
+    );
+    expect(appPkg.scripts.doctor).toBe("agent-native doctor");
+    expect(appPkg.scripts["agent-native:doctor"]).toBe("agent-native doctor");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(appDir, "agent-native.json"), "utf-8"),
+      ),
+    ).toMatchObject({ doctor: { failOnBuild: false } });
+    expect(fs.readFileSync(path.join(appDir, "AGENTS.md"), "utf-8")).toContain(
+      "Guarded verification",
+    );
+  });
+
   it("resolves @agent-native/core in workspacified apps", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
     const appPkg = readPkg(path.join(wsDir, "apps", "chat"));

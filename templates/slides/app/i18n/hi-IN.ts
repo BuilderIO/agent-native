@@ -646,16 +646,21 @@ const messages = {
     mine: "मेरे",
     deckCount_one: "डेक",
     deckCount_other: "डेक",
-    createDeckOrVisual: "डेक या विज़ुअल बनाएं",
+    createDeckOrVisual: "प्रेज़ेंटेशन बनाएं",
     noMineDecks: "आपने अभी तक कोई डेक नहीं बनाया है।",
     deleteDeckTitle: "डेक हटाएं?",
     deleteDeckDescription:
       "यह इस डेक और इसकी सभी स्लाइड्स को स्थायी रूप से हटा देगा। यह कार्रवाई वापस नहीं की जा सकती।",
     cancel: "रद्द करें",
     delete: "हटाएं",
-    newDeckPromptTitle: "नया डेक",
-    newDeckPlaceholder: "अपने डेक, विज़ुअल या डायग्राम का वर्णन करें...",
+    newDeckPromptTitle: "नया प्रेज़ेंटेशन",
+    newDeckPlaceholder: "जिस प्रेज़ेंटेशन को आप बनाना चाहते हैं उसका वर्णन करें...",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
+    firstDeckPromptTitle: "हम किस तरह का प्रेज़ेंटेशन बनाएं?",
+    firstDeckSkip: "छोड़ें",
+    chooseReferences: "संदर्भ चुनें",
+    addDesignSystem: "+ डिज़ाइन सिस्टम",
+    importFrom: "इससे आयात करें",
     designSystem: "डिज़ाइन सिस्टम",
     referenceDeck: "संदर्भ डेक",
     referenceDeckPlaceholder: "किसी मौजूदा डेक की शैली अपनाएँ",
@@ -671,6 +676,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides डेक इंपोर्ट करने के लिए Google Drive कनेक्ट करें।",
     googleSlidesReferenceChoose: "Google Slides डेक चुनें",
+    googleSlidesReferenceUrl: "Google Slides लिंक पेस्ट करें",
     googleSlidesReferencePicking: "काम हो रहा है...",
     googleSlidesReferenceConnected:
       "कनेक्ट हो गया। दोबारा उपयोग योग्य रेफरेंस के रूप में इंपोर्ट करने के लिए Google Slides डेक चुनें।",
@@ -700,9 +706,9 @@ const messages = {
     signInDescriptionWithFiles:
       "डेक जनरेट करने से पहले साइन इन करना होगा। हमने आपका प्रॉम्प्ट सहेज लिया है; वापस आने पर फ़ाइलें फिर जोड़ें।",
     signIn: "साइन इन",
-    emptyTitle: "अपना पहला डेक या विज़ुअल बनाएं",
-    emptyDescription:
-      "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन, स्वतंत्र विज़ुअल, डायग्राम और इमेज-समृद्ध कहानियां बनाएं।",
+    emptyTitle: "अभी कोई डेक नहीं",
+    createFirstDeck: "अपना पहला डेक बनाएं",
+    emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
   },
 };
 

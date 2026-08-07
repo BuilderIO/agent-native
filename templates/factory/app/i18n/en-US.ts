@@ -178,6 +178,33 @@ const messages = {
     pastRunsEmpty: "No runs recorded yet.",
     saveAutomation: "Save",
     runNow: "Run now",
+    automationHealthTitle: "Scheduler health",
+    automationHealthDescription:
+      "The heartbeat shows whether the deployed recurring-job worker is still checking schedules.",
+    automationHealthHealthy: "Healthy",
+    automationHealthStale: "Stale",
+    automationHealthError: "Error",
+    automationHealthNoData: "No heartbeat",
+    automationLastCheck: "Last check",
+    automationLastDispatch: "Last dispatch",
+    automationRuntime: "Runtime",
+    automationHealthNoDataHint:
+      "No scheduler heartbeat has been recorded yet. Deploy the latest Factory build, then check again.",
+    automationHealthStaleHint:
+      "The scheduler has not checked recently. This usually means the deployed scheduled function or background worker is not running.",
+    automationHealthErrorDetail: "Last scheduler error",
+    automationOpenThread: "Open thread",
+    automationFailureAlertsTitle: "Automation failure alerts",
+    automationFailureAlertsDescription:
+      "Send an in-app alert and email when a Factory automation fails. Repeated identical failures are grouped for 15 minutes.",
+    automationFailureAlertsEnabled: "Email me when automations fail",
+    automationFailureAlertEmail: "Alert email",
+    automationFailureAlertEmailPlaceholder: "Defaults to the workspace owner",
+    automationFailureEmailReadiness: "Email provider",
+    automationDiagnosticsLoadError:
+      "Could not load Factory diagnostics. Check access, deployment, and database migrations, then try again.",
+    automationEmailReadinessHint:
+      "Email uses the organization Dispatch vault. Configure a provider there if this is not ready.",
   },
   factoryCanvas: {
     dragHint: "Drag to arrange",

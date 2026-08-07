@@ -449,6 +449,9 @@ const messages = {
     agentLinkUnavailable: "एजेंट लिंक नहीं बन सका।",
     retryAgentLink: "फिर से प्रयास करें",
     gifPreview: "GIF पूर्वावलोकन",
+    copyEmailPreview: "ईमेल पूर्वावलोकन कॉपी करें",
+    emailPreviewCopied: "ईमेल पूर्वावलोकन कॉपी किया गया",
+    emailPreviewCopyFailed: "ईमेल पूर्वावलोकन कॉपी नहीं किया जा सका",
     openPlayer: "खुला खिलाड़ी",
     chooseFile: "फ़ाइल चुनें",
     remove: "हटाएं",
@@ -1091,6 +1094,19 @@ Clips में उपयोगकर्ताओं को दिखने व�
     spaceCreated: "स्पेस बनाई गई",
     createFailed: "स्पेस नहीं बनाई जा सकी",
   },
+  spaceDialog: {
+    deleteSpace: "स्पेस हटाएं",
+    renameSpace: "स्पेस का नाम बदलें",
+    deleteTitle: '"{{name}}" हटाएं?',
+    deleteDescription:
+      "यह स्पेस को हटा देगा और सभी रिकॉर्डिंग से निकाल देगा। इस कार्रवाई को पूर्ववत नहीं किया जा सकता।",
+    renamed: "स्पेस का नाम बदल दिया गया",
+    deleted: '"{{name}}" हटा दिया गया',
+    renameFailed: "स्पेस का नाम बदलना विफल",
+    deleteFailed: "स्पेस हटाना विफल",
+    renaming: "नाम बदला जा रहा है...",
+    deleting: "हटाया जा रहा है...",
+  },
   signInPrompt: {
     title: "{{intent}} के लिए साइन इन करें",
     description:
@@ -1253,6 +1269,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     cameraOff: "Camera off (स्थानीयकृत)",
     includeCameraAria: "Include camera in this recording (स्थानीयकृत)",
     startRecording: "Start recording (स्थानीयकृत)",
+    micOffConfirmTitle: "Record without a microphone? (स्थानीयकृत)",
+    micOffConfirmDescription:
+      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (स्थानीयकृत)",
+    startWithoutMic: "Start anyway (स्थानीयकृत)",
     uploadVideo: "Upload video (स्थानीयकृत)",
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",

@@ -7,7 +7,11 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "../db/client.js";
-import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   canUseLocalWorkspaceResourcePath,
@@ -25,7 +29,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import type { StoreWriteOptions } from "../settings/store.js";
+import {
+  getSetting,
+  putSetting,
+  type StoreWriteOptions,
+} from "../settings/store.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
@@ -795,16 +803,37 @@ async function grantedWorkspaceResourceByPath(
   }
 }
 
-async function cleanupExpiredAgentScratchResources(
-  client: DbExec,
-): Promise<void> {
+/**
+ * Expire agent scratch resources, WITHOUT blocking the read that triggered it.
+ *
+ * This is garbage collection, not part of any read's answer: a caller asking for
+ * one resource does not need yesterday's expired scratch rows gone first. Awaiting
+ * it made every read path issue a `DELETE` before its own `SELECT` — double the
+ * round trips, unservable by a replica, taking row locks inside a request a user
+ * is waiting on, and (since nothing caught it) able to fail the read outright.
+ *
+ * The throttle is a module-scope timestamp, so it starts at 0 in a fresh isolate
+ * and the first resource read after every cold start still triggers one sweep.
+ * That is why the index below exists, and why this must not be awaited.
+ */
+function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
   const now = Date.now();
   if (now - _lastScratchCleanupAt < SCRATCH_CLEANUP_INTERVAL_MS) return;
   _lastScratchCleanupAt = now;
-  await client.execute({
-    sql: `DELETE FROM resources WHERE visibility = ? AND expires_at IS NOT NULL AND expires_at <= ?`,
-    args: ["agent_scratch", now],
-  });
+  void client
+    .execute({
+      sql: `DELETE FROM resources WHERE visibility = ? AND expires_at IS NOT NULL AND expires_at <= ?`,
+      args: ["agent_scratch", now],
+    })
+    .catch((err) => {
+      // Say so rather than swallowing: scratch rows accumulating forever is a
+      // slow leak nobody would otherwise notice.
+      // coercion-ok: failed GC degrades storage over time, never read correctness
+      console.warn(
+        "[resources] expired agent-scratch cleanup failed; will retry on a later read:",
+        (err as Error)?.message ?? err,
+      );
+    });
 }
 
 async function ensureTable(): Promise<void> {
@@ -895,7 +924,41 @@ async function _doEnsureTable(): Promise<void> {
     "expires_at",
   ]);
 
-  // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
+  // `scheduleExpiredAgentScratchCleanup` filters on exactly these two columns
+  // and, without this, full-scans `resources` — a table shared by every
+  // template and read from agent discovery, docs, chat scratch and remote-agent
+  // manifests. Its 60s throttle is a module-scope timestamp that starts at 0 in
+  // a fresh isolate, so the first resource read after EVERY cold start pays
+  // that scan. Idempotent and dialect-agnostic, per the `performance` skill.
+  await ensureIndexExists(
+    "resources_visibility_expires_idx",
+    `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+  ).catch((err) => {
+    // An index is an optimization, not a correctness requirement: a
+    // concurrent creator or a permissions edge must not fail table init and
+    // take the app down with it. The scan it avoids is slow, not wrong — but
+    // say so, because "silently slow forever" is the outcome nobody notices.
+    // coercion-ok: absence of an index degrades latency, never correctness
+    console.warn(
+      "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
+      (err as Error)?.message ?? err,
+    );
+  });
+
+  // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid
+  // race conditions).
+  //
+  // Guarded by a durable marker: `_doEnsureTable` runs once per PROCESS, which on
+  // serverless is once per cold start, so this block was issuing ~10 writes and
+  // 2 migration scans per container to insert rows that had existed since day
+  // one (53,785 of them in one production sample). The marker makes it once per
+  // database, matching what the comments here already assumed.
+  //
+  // Consequence worth knowing: a default resource the user DELETES is no longer
+  // recreated on the next cold start. That silent resurrection was never
+  // intended — see `RESOURCE_SEED_VERSION` to force a re-seed.
+  if (await alreadySeeded(SHARED_SEED_KEY)) return;
+
   const now = Date.now();
   const seedSql = isPostgres()
     ? `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING`
@@ -1035,9 +1098,59 @@ async function _doEnsureTable(): Promise<void> {
   } catch {
     // Migration best-effort
   }
+
+  await markSeeded(SHARED_SEED_KEY);
 }
 
+/**
+ * Bump when a default resource is ADDED, or when existing seed content must
+ * reach databases that already ran an earlier seed.
+ *
+ * The marker below records which version a database has been seeded at, so the
+ * seed runs once per database instead of once per process. Without a version, a
+ * newly added default would never reach an already-seeded deployment.
+ */
+const RESOURCE_SEED_VERSION = 1;
+
+/**
+ * Per-process memo ON TOP of the durable marker, so a warm process doesn't even
+ * pay the marker read. The durable marker is what makes this correct across cold
+ * starts; this only avoids a repeat lookup within one process.
+ */
 const _personalSeeded = new Set<string>();
+
+function personalSeedKey(owner: string): string {
+  return `resources-seeded:personal:v${RESOURCE_SEED_VERSION}:${owner.toLowerCase()}`;
+}
+
+const SHARED_SEED_KEY = `resources-seeded:shared:v${RESOURCE_SEED_VERSION}`;
+
+/**
+ * Has this database already been seeded at the current version?
+ *
+ * A failed marker read returns `false` — "seed again" — because the seeds are
+ * `ON CONFLICT DO NOTHING` and therefore idempotent. Guessing "already seeded"
+ * on an unreadable marker would skip seeding a fresh database and leave it
+ * without its default AGENTS.md / LEARNINGS.md, which is not recoverable by
+ * retrying a read.
+ */
+async function alreadySeeded(key: string): Promise<boolean> {
+  try {
+    const row = await getSetting(key);
+    return row?.at !== undefined;
+  } catch {
+    // coercion-ok: "not seeded" is the SAFE answer, and it is not indistinguishable from success — it re-runs an idempotent ON CONFLICT DO NOTHING seed, exactly the pre-marker behaviour. Guessing "already seeded" would leave a fresh database permanently without its default AGENTS.md / LEARNINGS.md, which no retry recovers.
+    return false;
+  }
+}
+
+async function markSeeded(key: string): Promise<void> {
+  try {
+    await putSetting(key, { at: Date.now() });
+  } catch {
+    // coercion-ok: the marker is an optimization, not state anything reads for correctness. Failing to write it costs one repeat idempotent seed on the next cold start — the pre-marker behaviour — and the seed itself already succeeded, so there is no failure to report to the caller.
+  }
+}
 
 /**
  * Seed personal AGENTS.md and LEARNINGS.md for a user if they don't exist.
@@ -1052,6 +1165,15 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
     return;
   }
   await ensureTable();
+
+  // The in-memory Set resets on every cold start, so on serverless this seed ran
+  // its 5 writes per container per owner, forever. The durable marker is what
+  // actually makes it once-per-owner.
+  const seedKey = personalSeedKey(owner);
+  if (await alreadySeeded(seedKey)) {
+    _personalSeeded.add(owner);
+    return;
+  }
 
   const client = getDbExec();
   const now = Date.now();
@@ -1138,6 +1260,7 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
   // retries instead of permanently skipping seeding. Seeds use INSERT OR IGNORE
   // / ON CONFLICT DO NOTHING, so a concurrent re-run is harmless.
   _personalSeeded.add(owner);
+  await markSeeded(seedKey);
 }
 
 function rowToResource(row: any): Resource {
@@ -1191,7 +1314,7 @@ export async function resourceGet(
     return localWorkspaceResourceById(id);
   }
   const client = getDbExec();
-  await cleanupExpiredAgentScratchResources(client);
+  scheduleExpiredAgentScratchCleanup(client);
   const { rows } = await client.execute({
     sql: `SELECT * FROM resources WHERE id = ?`,
     args: [id],
@@ -1211,7 +1334,7 @@ export async function resourceGetByPath(
     if (local) return local;
   }
   const client = getDbExec();
-  await cleanupExpiredAgentScratchResources(client);
+  scheduleExpiredAgentScratchCleanup(client);
   const { rows } = await client.execute({
     sql: `SELECT * FROM resources WHERE owner = ? AND path = ?`,
     args: [owner, path],
@@ -1480,7 +1603,7 @@ export async function resourceList(
 ): Promise<ResourceMeta[]> {
   await ensureTable();
   const client = getDbExec();
-  await cleanupExpiredAgentScratchResources(client);
+  scheduleExpiredAgentScratchCleanup(client);
   const visibilitySql = scratchFilterSql(options);
 
   if (pathPrefix) {

@@ -176,6 +176,33 @@ const messages = {
     pastRunsEmpty: "기록된 실행이 아직 없습니다.",
     saveAutomation: "저장",
     runNow: "지금 실행",
+    automationHealthTitle: "스케줄러 상태",
+    automationHealthDescription:
+      "하트비트는 배포된 반복 작업 워커가 계속 일정을 확인하고 있는지 보여 줍니다.",
+    automationHealthHealthy: "정상",
+    automationHealthStale: "오래됨",
+    automationHealthError: "오류",
+    automationHealthNoData: "하트비트 없음",
+    automationLastCheck: "마지막 확인",
+    automationLastDispatch: "마지막 디스패치",
+    automationRuntime: "런타임",
+    automationHealthNoDataHint:
+      "아직 스케줄러 하트비트가 기록되지 않았습니다. 최신 Factory 빌드를 배포한 후 다시 확인하세요.",
+    automationHealthStaleHint:
+      "스케줄러가 최근에 확인하지 않았습니다. 일반적으로 배포된 예약 함수나 백그라운드 워커가 실행되지 않는다는 뜻입니다.",
+    automationHealthErrorDetail: "스케줄러 마지막 오류",
+    automationOpenThread: "스레드 열기",
+    automationFailureAlertsTitle: "자동화 실패 알림",
+    automationFailureAlertsDescription:
+      "Factory 자동화가 실패하면 앱 내 알림과 이메일을 보냅니다. 동일한 실패는 15분 동안 그룹화됩니다.",
+    automationFailureAlertsEnabled: "자동화가 실패하면 이메일 받기",
+    automationFailureAlertEmail: "알림 이메일",
+    automationFailureAlertEmailPlaceholder: "기본값은 워크스페이스 소유자",
+    automationFailureEmailReadiness: "이메일 제공업체",
+    automationDiagnosticsLoadError:
+      "Factory 진단을 불러올 수 없습니다. 액세스, 배포, 데이터베이스 마이그레이션을 확인한 후 다시 시도하세요.",
+    automationEmailReadinessHint:
+      "이메일은 조직의 Dispatch 볼트를 사용합니다. 준비되지 않았다면 그곳에서 제공업체를 구성하세요.",
   },
   factoryCanvas: {
     dragHint: "노드를 끌어 팩토리 모양을 조정하세요",

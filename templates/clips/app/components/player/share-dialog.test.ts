@@ -46,4 +46,13 @@ describe("recording share popover", () => {
     );
     expect(shareDialogSource).not.toContain("(!isPublic && canManage)");
   });
+
+  it("offers a rich email preview only for public, unprotected clips", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain("hasPassword !== false");
+    expect(shareDialogSource).toContain("buildEmailPreviewMarkup");
+    expect(shareDialogSource).toContain("html: markup.html");
+    expect(shareDialogSource).toContain('t("shareDialog.copyEmailPreview")');
+  });
 });

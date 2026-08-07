@@ -1449,6 +1449,11 @@ export async function deleteDatabaseDataForDocument(
       .delete(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id));
     await db
+      .delete(schema.contentDatabaseMigrationReceipts)
+      .where(
+        eq(schema.contentDatabaseMigrationReceipts.databaseId, database.id),
+      );
+    await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
     await db

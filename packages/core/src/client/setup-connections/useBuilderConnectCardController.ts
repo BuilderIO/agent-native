@@ -4,7 +4,7 @@ import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 const DEFAULT_TITLE = "Builder connect";
 const DEFAULT_DESCRIPTION =
-  "Connect Builder for managed model access, browser automation, and workspace identity.";
+  "Connect Builder for managed model access, browser automation, and workspace identity. Free tier available.";
 const DEFAULT_TRACKING_SOURCE = "setup_connections_page";
 
 export interface BuilderConnectCardControllerOptions {

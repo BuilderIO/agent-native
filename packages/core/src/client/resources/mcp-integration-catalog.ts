@@ -41,6 +41,17 @@ export interface DefaultMcpIntegration {
   availability: McpIntegrationAvailability;
   verification: McpIntegrationVerification;
   logoUrl: string;
+  /**
+   * The server has a first-party OAuth client configured for this provider.
+   * Keep the connection user-scoped even when the client itself is shared.
+   */
+  managedOAuth?: boolean;
+  /**
+   * The provider supports a workspace connection whose access can be shared
+   * with permitted workspace members. Keep this opt-in until provider scope
+   * semantics are verified.
+   */
+  supportsOrganizationScope?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -84,6 +95,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "verified",
     logoUrl: mcpIntegrationLogo("context7"),
+    supportsOrganizationScope: true,
     docsUrl: "https://context7.com/",
     keywords: ["docs", "documentation", "libraries", "frameworks"],
   },
@@ -104,6 +116,59 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl: "https://docs.sentry.io/product/sentry-mcp/",
     headerPlaceholder: "Authorization: Bearer <sentry-token>",
     keywords: ["errors", "monitoring", "debugging", "issues"],
+  },
+  {
+    id: "fullstory",
+    name: "FullStory",
+    provider: "fullstory",
+    description: "Read behavioral analytics and inspect session replays.",
+    descriptionKey: "mcpIntegrations.catalog.fullstory.description",
+    useCase:
+      "product analytics, session replay, qualitative behavior, user research",
+    useCaseKey: "mcpIntegrations.catalog.fullstory.useCase",
+    url: "https://api.fullstory.com/mcp/fullstory",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("fullstory"),
+    docsUrl: "https://developer.fullstory.com/mcp/introduction/",
+    setupNoteKey: "mcpIntegrations.catalog.fullstory.setupNote",
+    keywords: [
+      "product analytics",
+      "session replay",
+      "behavior",
+      "user research",
+      "sessions",
+      "prompts",
+      "screenshots",
+    ],
+  },
+  {
+    id: "amplitude",
+    name: "Amplitude",
+    provider: "amplitude",
+    description: "Read and work with Amplitude product analytics.",
+    descriptionKey: "mcpIntegrations.catalog.amplitude.description",
+    useCase: "product analytics, charts, dashboards, cohorts, experiments",
+    useCaseKey: "mcpIntegrations.catalog.amplitude.useCase",
+    url: "https://mcp.amplitude.com/mcp",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("amplitude"),
+    docsUrl:
+      "https://amplitude.com/docs/amplitude-ai/amplitude-mcp/other-clients",
+    setupNoteKey: "mcpIntegrations.catalog.amplitude.setupNote",
+    keywords: [
+      "analytics",
+      "product analytics",
+      "charts",
+      "dashboards",
+      "cohorts",
+      "experiments",
+    ],
   },
   {
     id: "notion",
@@ -150,6 +215,33 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     ],
   },
   {
+    id: "gong",
+    name: "Gong",
+    provider: "gong",
+    description: "Search Gong calls and generate account and deal insights.",
+    descriptionKey: "mcpIntegrations.catalog.gong.description",
+    useCase: "sales calls, transcripts, deal insights, account summaries",
+    useCaseKey: "mcpIntegrations.catalog.gong.useCase",
+    url: "https://mcp.gong.io/mcp",
+    authMode: "oauth",
+    connectionMode: "manual",
+    availability: "provider-setup",
+    verification: "restricted",
+    logoUrl: mcpIntegrationLogo("gong"),
+    supportsOrganizationScope: true,
+    docsUrl:
+      "https://help.gong.io/docs/create-an-integration-to-connect-to-the-mcp-server",
+    setupNoteKey: "mcpIntegrations.catalog.gong.setupNote",
+    keywords: [
+      "sales calls",
+      "calls",
+      "transcripts",
+      "deals",
+      "accounts",
+      "revenue intelligence",
+    ],
+  },
+  {
     id: "semgrep",
     name: "Semgrep",
     provider: "semgrep",
@@ -163,6 +255,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("semgrep"),
+    supportsOrganizationScope: true,
     docsUrl: "https://github.com/semgrep/mcp#readme",
     keywords: ["security", "sast", "code scanning", "vulnerabilities"],
   },
@@ -182,6 +275,82 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("linear"),
     docsUrl: "https://linear.app/docs/mcp",
     keywords: ["issues", "tickets", "planning", "project management"],
+  },
+  {
+    id: "apollo",
+    name: "Apollo",
+    provider: "apollo",
+    description: "Search, enrich, and manage Apollo GTM data.",
+    descriptionKey: "mcpIntegrations.catalog.apollo.description",
+    useCase: "prospecting, enrichment, contacts, sequences, account research",
+    useCaseKey: "mcpIntegrations.catalog.apollo.useCase",
+    url: "https://mcp.apollo.io/mcp",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("apollo"),
+    docsUrl: "https://docs.apollo.io/docs/apollo-mcp",
+    setupNoteKey: "mcpIntegrations.catalog.apollo.setupNote",
+    keywords: [
+      "prospecting",
+      "enrichment",
+      "contacts",
+      "sequences",
+      "accounts",
+      "GTM",
+    ],
+  },
+  {
+    id: "common-room",
+    name: "Common Room",
+    provider: "common-room",
+    description: "Research buyer signals, contacts, and organizations.",
+    descriptionKey: "mcpIntegrations.catalog.commonRoom.description",
+    useCase: "buyer intelligence, product signals, intent, contact enrichment",
+    useCaseKey: "mcpIntegrations.catalog.commonRoom.useCase",
+    url: "https://mcp.commonroom.io/mcp",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("common-room"),
+    docsUrl: "https://www.commonroom.io/docs/using-common-room/mcp-server/",
+    setupNoteKey: "mcpIntegrations.catalog.commonRoom.setupNote",
+    keywords: [
+      "buyer intelligence",
+      "intent",
+      "signals",
+      "contacts",
+      "organizations",
+      "GTM",
+    ],
+  },
+  {
+    id: "exa",
+    name: "Exa",
+    provider: "exa",
+    description: "Search the web and fetch pages with Exa.",
+    descriptionKey: "mcpIntegrations.catalog.exa.description",
+    useCase: "web search, research, code search, page fetching",
+    useCaseKey: "mcpIntegrations.catalog.exa.useCase",
+    url: "https://mcp.exa.ai/mcp",
+    authMode: "none",
+    connectionMode: "direct",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("exa"),
+    supportsOrganizationScope: true,
+    docsUrl: "https://exa.ai/docs/reference/exa-mcp",
+    setupNoteKey: "mcpIntegrations.catalog.exa.setupNote",
+    keywords: [
+      "web search",
+      "research",
+      "code search",
+      "crawl",
+      "fetch",
+      "web",
+    ],
   },
   {
     id: "atlassian",
@@ -275,6 +444,62 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
       "https://developers.cloudflare.com/agents/model-context-protocol/cloudflare/servers-for-cloudflare/",
     setupNoteKey: "mcpIntegrations.catalog.cloudflare.setupNote",
     keywords: ["cloud", "workers", "dns", "security", "observability"],
+  },
+  {
+    id: "grafana",
+    name: "Grafana",
+    provider: "grafana",
+    description: "Query Grafana Cloud metrics, logs, and observability data.",
+    descriptionKey: "mcpIntegrations.catalog.grafana.description",
+    useCase: "observability, metrics, logs, traces, dashboards",
+    useCaseKey: "mcpIntegrations.catalog.grafana.useCase",
+    url: "https://mcp.grafana.com/mcp",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "beta",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("grafana"),
+    docsUrl:
+      "https://grafana.com/docs/grafana-cloud/ai-tools/mcp-servers/cloud-mcp/",
+    setupNoteKey: "mcpIntegrations.catalog.grafana.setupNote",
+    keywords: [
+      "observability",
+      "metrics",
+      "logs",
+      "traces",
+      "dashboards",
+      "Grafana Cloud",
+    ],
+  },
+  {
+    id: "google-workspace",
+    name: "Google Workspace",
+    provider: "google-workspace",
+    description: "Search Google Workspace data through its remote MCP server.",
+    descriptionKey: "mcpIntegrations.catalog.googleWorkspace.description",
+    useCase:
+      "Workspace search across Gmail, Drive, Calendar, Chat, Docs, Sheets, Slides",
+    useCaseKey: "mcpIntegrations.catalog.googleWorkspace.useCase",
+    url: "https://workspacemcp.googleapis.com/mcp/v1",
+    authMode: "oauth",
+    connectionMode: "manual",
+    availability: "beta",
+    verification: "restricted",
+    logoUrl: mcpIntegrationLogo("google-workspace"),
+    docsUrl:
+      "https://developers.google.com/workspace/guides/configure-mcp-servers",
+    setupNoteKey: "mcpIntegrations.catalog.googleWorkspace.setupNote",
+    brandAliases: ["Google", "Gmail", "Google Drive", "Google Calendar"],
+    keywords: [
+      "email",
+      "gmail",
+      "drive",
+      "calendar",
+      "chat",
+      "docs",
+      "sheets",
+      "slides",
+    ],
   },
   {
     id: "gitlab",
@@ -425,10 +650,36 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "provider-setup",
     verification: "restricted",
     logoUrl: mcpIntegrationLogo("hubspot"),
+    managedOAuth: true,
     docsUrl:
       "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server",
     setupNoteKey: "mcpIntegrations.catalog.hubspot.setupNote",
     keywords: ["crm", "contacts", "companies", "deals", "tickets"],
+  },
+  {
+    id: "pylon",
+    name: "Pylon",
+    provider: "pylon",
+    description: "Search and update Pylon support data.",
+    descriptionKey: "mcpIntegrations.catalog.pylon.description",
+    useCase: "customer support, issues, accounts, contacts, conversations",
+    useCaseKey: "mcpIntegrations.catalog.pylon.useCase",
+    url: "https://mcp.usepylon.com/",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "provider-setup",
+    verification: "restricted",
+    logoUrl: mcpIntegrationLogo("pylon"),
+    docsUrl: "https://www.usepylon.com/integrations/mcp",
+    setupNoteKey: "mcpIntegrations.catalog.pylon.setupNote",
+    keywords: [
+      "support",
+      "issues",
+      "accounts",
+      "contacts",
+      "conversations",
+      "customer support",
+    ],
   },
   {
     id: "intercom",
@@ -520,6 +771,32 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl: "https://developer.box.com/guides/box-mcp",
     setupNoteKey: "mcpIntegrations.catalog.box.setupNote",
     keywords: ["files", "folders", "documents", "enterprise content"],
+  },
+  {
+    id: "builder-cms",
+    name: "Builder.io",
+    provider: "builder",
+    description: "Search Builder Publish and Hybrid Space content.",
+    descriptionKey: "mcpIntegrations.catalog.builder.description",
+    useCase: "content models, pages, entries, Publish and Hybrid Spaces",
+    useCaseKey: "mcpIntegrations.catalog.builder.useCase",
+    url: "https://mcp.builder.io/mcp/publish",
+    authMode: "oauth",
+    connectionMode: "oauth",
+    availability: "ready",
+    verification: "preflight-only",
+    logoUrl: mcpIntegrationLogo("builder-cms"),
+    docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
+    setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",
+    keywords: [
+      "Builder",
+      "content",
+      "CMS",
+      "pages",
+      "models",
+      "Publish",
+      "Hybrid",
+    ],
   },
   {
     id: "netlify",
@@ -694,8 +971,14 @@ export function resolveMcpIntegrationScope(
   defaultScope: "user" | "org",
   hasOrg: boolean,
   canCreateOrgMcp: boolean,
+  supportsOrganizationScope = true,
 ): "user" | "org" {
-  return defaultScope === "org" && hasOrg && canCreateOrgMcp ? "org" : "user";
+  return defaultScope === "org" &&
+    hasOrg &&
+    canCreateOrgMcp &&
+    supportsOrganizationScope
+    ? "org"
+    : "user";
 }
 
 export function shouldOfferMcpOrganizationScope(
@@ -703,6 +986,18 @@ export function shouldOfferMcpOrganizationScope(
   canCreateOrgMcp: boolean,
 ): boolean {
   return hasOrg && canCreateOrgMcp;
+}
+
+export function shouldOfferMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+  hasOrg: boolean,
+  canCreateOrgMcp: boolean,
+): boolean {
+  return (
+    shouldOfferMcpOrganizationScope(hasOrg, canCreateOrgMcp) &&
+    integration.supportsOrganizationScope === true &&
+    integration.managedOAuth !== true
+  );
 }
 
 export function filterMcpIntegrations(
@@ -729,8 +1024,16 @@ export function filterMcpIntegrations(
 }
 
 const MCP_LINK_HOSTS: Record<string, string[]> = {
+  amplitude: ["amplitude.com"],
+  apollo: ["apollo.io"],
+  "common-room": ["commonroom.io"],
   context7: ["context7.com"],
+  exa: ["exa.ai"],
   sentry: ["sentry.io", "sentry.dev"],
+  gong: ["gong.io"],
+  grafana: ["grafana.com", "grafana.net"],
+  "google-workspace": ["google.com", "googleapis.com"],
+  "builder-cms": ["builder.io"],
   notion: ["notion.so", "notion.site"],
   granola: ["granola.ai"],
   semgrep: ["semgrep.dev", "semgrep.com"],
@@ -748,6 +1051,7 @@ const MCP_LINK_HOSTS: Record<string, string[]> = {
   asana: ["asana.com"],
   hubspot: ["hubspot.com"],
   intercom: ["intercom.com"],
+  pylon: ["usepylon.com", "pylon.com"],
   monday: ["monday.com"],
   webflow: ["webflow.com"],
   paypal: ["paypal.com"],

@@ -21,7 +21,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -469,6 +469,9 @@ export function FormsListPage() {
         <div className="forms-list-shell overflow-hidden bg-card">
           {forms.map((form: any) => {
             const selected = selectedIds.has(form.id);
+            const formHref = isArchive
+              ? `/forms/${form.id}/responses`
+              : `/forms/${form.id}`;
             const dateLabel =
               isArchive && (form as any).deletedAt
                 ? t("forms.deletedDate", {
@@ -481,6 +484,20 @@ export function FormsListPage() {
                     month: "short",
                     day: "numeric",
                   });
+            const formDetails = (
+              <>
+                <div className="flex min-w-0 items-center gap-2">
+                  <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {form.title}
+                  </h3>
+                </div>
+                {form.description && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {form.description}
+                  </p>
+                )}
+              </>
+            );
 
             return (
               <div
@@ -496,16 +513,22 @@ export function FormsListPage() {
                 role="button"
                 tabIndex={0}
                 aria-pressed={selectionMode ? selected : undefined}
-                onClick={() => {
+                onClick={(event) => {
+                  if (
+                    event.defaultPrevented ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey ||
+                    event.button !== 0
+                  ) {
+                    return;
+                  }
                   if (selectionMode) {
                     toggleSelection(form.id);
                     return;
                   }
-                  navigate(
-                    isArchive
-                      ? `/forms/${form.id}/responses`
-                      : `/forms/${form.id}`,
-                  );
+                  navigate(formHref);
                 }}
                 onKeyDown={(e) => {
                   if (
@@ -517,11 +540,7 @@ export function FormsListPage() {
                       toggleSelection(form.id);
                       return;
                     }
-                    navigate(
-                      isArchive
-                        ? `/forms/${form.id}/responses`
-                        : `/forms/${form.id}`,
-                    );
+                    navigate(formHref);
                   }
                 }}
               >
@@ -538,15 +557,16 @@ export function FormsListPage() {
                     />
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {form.title}
-                      </h3>
-                    </div>
-                    {form.description && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {form.description}
-                      </p>
+                    {selectionMode ? (
+                      formDetails
+                    ) : (
+                      <Link
+                        to={formHref}
+                        className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {formDetails}
+                      </Link>
                     )}
                   </div>
                 </div>

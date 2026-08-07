@@ -10,6 +10,15 @@ const LLM_CAPABILITY: OnboardingCapability = {
   why: "The agent uses a language model to understand requests and produce answers.",
 };
 
+const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
+  id: "design-system-intelligence",
+  label: "Design system intelligence",
+  required: false,
+  builderIncluded: true,
+  keySummary: "Builder Design System Intelligence",
+  why: "Uses your brand and design-system guidance to keep generated work on brand.",
+};
+
 const PROFILES: Record<string, OnboardingAppProfile> = {
   analytics: {
     appId: "analytics",
@@ -46,6 +55,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         keySummary: "Gemini for video, or OpenAI / Gemini for images",
         why: "These providers create the images and videos requested in the app.",
       },
+      DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
         id: "file-storage",
         label: "Media storage",
@@ -173,6 +183,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appName: "Design",
     capabilities: [
       LLM_CAPABILITY,
+      DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
         id: "assets-library",
         label: "Assets library",
@@ -223,7 +234,8 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
         label: "Builder executor",
         required: true,
         builderIncluded: true,
-        keySummary: "Connect Builder for managed agent runs",
+        keySummary:
+          "Connect Builder for managed agent runs (free tier available)",
         why: "The executor runs approved code and review workflows for Factory items.",
       },
       {
@@ -317,6 +329,7 @@ const PROFILES: Record<string, OnboardingAppProfile> = {
     appName: "Slides",
     capabilities: [
       LLM_CAPABILITY,
+      DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY,
       {
         id: "image-generation",
         label: "Image generation",

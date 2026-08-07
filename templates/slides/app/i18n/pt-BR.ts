@@ -668,16 +668,21 @@ const messages = {
     deckCount_one: "deck",
     deckCount_many: "decks",
     deckCount_other: "decks",
-    createDeckOrVisual: "Criar um deck ou visual",
+    createDeckOrVisual: "Criar uma apresentação",
     noMineDecks: "Nenhum deck criado por você ainda.",
     deleteDeckTitle: "Excluir deck?",
     deleteDeckDescription:
       "Isso excluirá permanentemente este deck e todos os seus slides. Esta ação não pode ser desfeita.",
     cancel: "Cancelar",
     delete: "Excluir",
-    newDeckPromptTitle: "Novo deck",
-    newDeckPlaceholder: "Descreva seu deck, visual ou diagrama...",
+    newDeckPromptTitle: "Nova apresentação",
+    newDeckPlaceholder: "Descreva a apresentação que você quer gerar...",
     skipPrompt: "Pular prompt",
+    firstDeckPromptTitle: "Que tipo de apresentação devemos gerar?",
+    firstDeckSkip: "Pular",
+    chooseReferences: "Escolher referências",
+    addDesignSystem: "+ Sistema de design",
+    importFrom: "Importar de",
     designSystem: "Sistema de design",
     referenceDeck: "Deck de referência",
     referenceDeckPlaceholder: "Seguir o estilo de um deck existente",
@@ -693,6 +698,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Conecte o Google Drive para importar um deck do Slides.",
     googleSlidesReferenceChoose: "Escolher deck do Google Slides",
+    googleSlidesReferenceUrl: "Cole um link do Google Slides",
     googleSlidesReferencePicking: "Processando...",
     googleSlidesReferenceConnected:
       "Conectado. Escolha um deck do Google Slides para importar como referência reutilizável.",
@@ -723,9 +729,9 @@ const messages = {
     signInDescriptionWithFiles:
       "Você precisa entrar antes de gerar um deck. Salvamos seu prompt; anexe novamente os arquivos quando voltar.",
     signIn: "Entrar",
-    emptyTitle: "Crie seu primeiro deck ou visual",
-    emptyDescription:
-      "Crie belas apresentações, visuais independentes, diagramas e histórias ricas em imagens com geração por IA.",
+    emptyTitle: "Ainda não há decks",
+    createFirstDeck: "Crie seu primeiro deck",
+    emptyDescription: "Crie belas apresentações com geração por IA.",
   },
 };
 

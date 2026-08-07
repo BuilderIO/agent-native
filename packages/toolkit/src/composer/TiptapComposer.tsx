@@ -123,6 +123,12 @@ export function resolveComposerPrimaryAction(options: {
   return !options.canSubmit && options.hasStopButton ? "stop" : "send";
 }
 
+export function getComposerSendTooltipKey(
+  willQueue: boolean,
+): "composer.queueMessage" | "composer.sendMessage" {
+  return willQueue ? "composer.queueMessage" : "composer.sendMessage";
+}
+
 export type ContextChipBackspaceAction =
   | { type: "select"; key: string }
   | { type: "remove"; key: string }
@@ -280,21 +286,27 @@ function isDocumentAttachment(value: Record<string, unknown>): boolean {
 
 export function getOversizedDocumentAttachmentError(
   attachments: ReadonlyArray<unknown>,
+  options: {
+    maxBytes?: number;
+    label?: string;
+  } = {},
 ): string | null {
+  const maxBytes = options.maxBytes ?? MAX_DOCUMENT_ATTACHMENT_BYTES;
+  const label = options.label ?? "PDFs";
   for (const attachment of attachments) {
     if (!attachment || typeof attachment !== "object") continue;
     const candidate = attachment as Record<string, unknown>;
     if (!isDocumentAttachment(candidate)) continue;
     const file = candidate.file;
     if (!(file instanceof File)) continue;
-    if (file.size <= MAX_DOCUMENT_ATTACHMENT_BYTES) continue;
+    if (file.size <= maxBytes) continue;
     const name =
       typeof candidate.name === "string" && candidate.name.trim()
         ? candidate.name
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    const maxMb = (MAX_DOCUMENT_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
-    return `"${name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+    const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
+    return `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
   }
   return null;
 }
@@ -549,6 +561,10 @@ type ExecMode = "build" | "plan";
 export interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
+  /** Override the generic document attachment cap for a multipart host. */
+  maxDocumentAttachmentBytes?: number;
+  /** Label used in the visible document attachment limit error. */
+  documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
   /** Programmatically seed the editor with plain text. */
   initialText?: string;
@@ -576,6 +592,8 @@ export interface TiptapComposerProps {
   onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
+  /** Whether the default send action will wait behind existing work. */
+  willQueue?: boolean;
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
@@ -1494,6 +1512,8 @@ type PopoverState = {
 export function TiptapComposer({
   placeholder = "Message agent...",
   disabled = false,
+  maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
+  documentAttachmentLimitLabel = "PDFs",
   focusRef,
   initialText,
   initialTextKey,
@@ -1502,6 +1522,7 @@ export function TiptapComposer({
   clearOnSubmit = true,
   onTextChange,
   actionButton,
+  willQueue = false,
   extraActionButton,
   stopButton,
   attachButton,
@@ -1538,6 +1559,9 @@ export function TiptapComposer({
 }: TiptapComposerProps) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
+  const sendButtonTooltip = t(getComposerSendTooltipKey(willQueue), {
+    defaultValue: willQueue ? "Queue message" : "Send message",
+  });
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
@@ -2498,8 +2522,13 @@ export function TiptapComposer({
       const attachments = composerRuntime.getState().attachments;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
         return;
-      const oversizedDocumentError =
-        getOversizedDocumentAttachmentError(attachments);
+      const oversizedDocumentError = getOversizedDocumentAttachmentError(
+        attachments,
+        {
+          maxBytes: maxDocumentAttachmentBytes,
+          label: documentAttachmentLimitLabel,
+        },
+      );
       if (oversizedDocumentError) {
         onAttachmentErrorRef.current?.(oversizedDocumentError);
         return;
@@ -2995,7 +3024,7 @@ export function TiptapComposer({
                     <IconArrowUp className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Send message</TooltipContent>
+                <TooltipContent>{sendButtonTooltip}</TooltipContent>
               </Tooltip>
             )}
           </>

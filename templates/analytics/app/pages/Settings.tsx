@@ -41,7 +41,6 @@ import { buildAnalyticsGeneralSettingsSearchEntries } from "./settings/settings-
 
 export default function Settings() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
   const replayStorageStatus = useReplayStorageStatus();
   const { data: analyticsPrefs, isLoading: analyticsPrefsLoading } =
     useActionQuery<AnalyticsUserPrefs>("get-user-pref", {
@@ -122,6 +121,23 @@ export default function Settings() {
       });
   };
 
+  const agentAdditionalContent = (
+    <SettingsRow
+      id="bell-sound"
+      label={t("settings.bellSound")}
+      description={t("settings.bellSoundDescription")}
+      control={
+        <Switch
+          aria-label={t("settings.bellSound")}
+          checked={bellSoundEnabled}
+          disabled={analyticsPrefsLoading || saveAnalyticsPrefs.isPending}
+          onCheckedChange={saveBellSoundPreference}
+        />
+      }
+    />
+  );
+  const agentSettingsTabs = useAgentSettingsTabs({ agentAdditionalContent });
+
   const extraTabs = useMemo<SettingsTabItem[]>(
     () => [
       {
@@ -130,7 +146,7 @@ export default function Settings() {
         icon: IconBell,
         keywords: "alerts rules notifications thresholds triggers monitoring",
         content: (
-          <div className="mx-auto w-full max-w-5xl">
+          <div className="w-full">
             <AlertRulesSettingsCard />
           </div>
         ),
@@ -157,7 +173,7 @@ export default function Settings() {
       extraTabs={extraTabs}
       generalSearchEntries={generalSearchEntries}
       general={
-        <div className="mx-auto w-full max-w-2xl space-y-6">
+        <div className="w-full space-y-6">
           <SettingsGroup className="bg-card border-border/50">
             <SettingsRow
               id="credentials"
@@ -167,18 +183,6 @@ export default function Settings() {
                 <Button variant="outline" size="sm" asChild>
                   <Link to="/data-sources">
                     {t("settings.manageDataSources")}
-                  </Link>
-                </Button>
-              }
-            />
-            <SettingsRow
-              id="dashboard-templates"
-              label={t("settings.dashboardTemplates")}
-              description={t("settings.dashboardTemplatesDescription")}
-              control={
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/catalog">
-                    {t("settings.openDashboardTemplates")}
                   </Link>
                 </Button>
               }
@@ -207,21 +211,6 @@ export default function Settings() {
                 />
               }
             />
-            <SettingsRow
-              id="bell-sound"
-              label={t("settings.bellSound")}
-              description={t("settings.bellSoundDescription")}
-              control={
-                <Switch
-                  aria-label={t("settings.bellSound")}
-                  checked={bellSoundEnabled}
-                  disabled={
-                    analyticsPrefsLoading || saveAnalyticsPrefs.isPending
-                  }
-                  onCheckedChange={saveBellSoundPreference}
-                />
-              }
-            />
           </SettingsGroup>
 
           {replayStorageStatus.data?.configured ? (
@@ -242,29 +231,19 @@ export default function Settings() {
               </CardContent>
             </Card>
           ) : null}
-
-          <Card id="about" className="bg-card border-border/50 scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">{t("settings.about")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>{t("settings.aboutDescription")}</p>
-              <p>{t("settings.aboutUsage")}</p>
-            </CardContent>
-          </Card>
         </div>
       }
       team={
-        <div className="mx-auto w-full max-w-5xl">
+        <div className="w-full">
           <TeamPage
             showTitle={false}
             createOrgDescription="Set up a team to share dashboards and data sources with your colleagues."
-            className="max-w-5xl"
+            className="w-full"
           />
         </div>
       }
       whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
+        <div className="w-full">
           <ChangelogSettingsCard markdown={changelog} />
         </div>
       }

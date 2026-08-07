@@ -479,13 +479,13 @@ export function DesignSystemSetup({
 
     if (websiteUrls.length > 0) {
       parts.push(
-        `\n## Website URLs\nAnalyze these websites for design tokens. Call \`import-from-url\` for each:\n${websiteUrls.map((u) => `- ${u}`).join("\n")}`,
+        `\n## Website URLs\nAnalyze these websites for design tokens. Call \`import-from-url\` for each:\n${websiteUrls.map((u) => `- ${u}`).join("\n")}\n\nThe shared action uses the layered real-browser renderer so hydrated React, CSS-in-JS, Tailwind, SPA content, loaded fonts, computed colors, component styles, CSS variables, and desktop/mobile screenshot evidence are captured consistently. It falls back explicitly to SSRF-safe static extraction only when a browser is unavailable. Use its design.md-style result as the source of truth for the deck style.`,
       );
     }
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings.`,
       );
     }
 

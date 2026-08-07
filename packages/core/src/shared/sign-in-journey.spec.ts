@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   SIGN_IN_CONTINUATION_MAX_LENGTH,
   SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   decodeContinuation,
   encodeContinuation,
   normalizeAppPath,
@@ -63,8 +65,9 @@ describe("normalizeAppPath", () => {
   });
 
   it("rejects every auth entry path, at any base path", () => {
-    expect(normalizeAppPath("/_agent-native/sign-in")).toBeNull();
-    expect(normalizeAppPath("/_agent-native/sign-in?c=abc")).toBeNull();
+    expect(normalizeAppPath(SIGN_IN_ENTRY_PATH)).toBeNull();
+    expect(normalizeAppPath(`${SIGN_IN_ENTRY_PATH}?c=abc`)).toBeNull();
+    expect(normalizeAppPath(SIGN_IN_LEGACY_ENTRY_PATH)).toBeNull();
     expect(normalizeAppPath("/login")).toBeNull();
     expect(normalizeAppPath("/signup")).toBeNull();
     // The live base-path loop: `/myapp/login` has no `/_agent-native` marker,
@@ -73,7 +76,10 @@ describe("normalizeAppPath", () => {
     expect(normalizeAppPath("/myapp/login", "/myapp")).toBeNull();
     expect(normalizeAppPath("/myapp/signup", "/myapp")).toBeNull();
     expect(
-      normalizeAppPath("/myapp/_agent-native/sign-in", "/myapp"),
+      normalizeAppPath(`/myapp${SIGN_IN_ENTRY_PATH}`, "/myapp"),
+    ).toBeNull();
+    expect(
+      normalizeAppPath(`/myapp${SIGN_IN_LEGACY_ENTRY_PATH}`, "/myapp"),
     ).toBeNull();
   });
 });
@@ -109,7 +115,8 @@ describe("continuation tokens", () => {
   });
 
   it("refuses to mint a token for anything not returnable", () => {
-    expect(encodeContinuation("/_agent-native/sign-in")).toBe("");
+    expect(encodeContinuation(SIGN_IN_ENTRY_PATH)).toBe("");
+    expect(encodeContinuation(SIGN_IN_LEGACY_ENTRY_PATH)).toBe("");
     expect(encodeContinuation("https://evil.com")).toBe("");
     expect(encodeContinuation("//evil.com")).toBe("");
     expect(encodeContinuation(null)).toBe("");
@@ -124,7 +131,8 @@ describe("continuation tokens", () => {
         .replace(/=+$/, "");
     expect(decodeContinuation(forge("https://evil.com"))).toBeNull();
     expect(decodeContinuation(forge("//evil.com"))).toBeNull();
-    expect(decodeContinuation(forge("/_agent-native/sign-in"))).toBeNull();
+    expect(decodeContinuation(forge(SIGN_IN_ENTRY_PATH))).toBeNull();
+    expect(decodeContinuation(forge(SIGN_IN_LEGACY_ENTRY_PATH))).toBeNull();
     expect(decodeContinuation(forge("/otherapp/admin"), "/mail")).toBeNull();
     expect(decodeContinuation(forge("/foo\r\nx"))).toBeNull();
   });
@@ -143,7 +151,7 @@ describe("continuation tokens", () => {
 describe("nesting is structurally impossible", () => {
   it("decoding a continuation yields a path, never another continuation", () => {
     const inner = encodeContinuation("/inbox");
-    const outer = encodeContinuation(`/_agent-native/sign-in?c=${inner}`);
+    const outer = encodeContinuation(`${SIGN_IN_ENTRY_PATH}?c=${inner}`);
     // The only producer refuses: an auth entry path is not returnable.
     expect(outer).toBe("");
   });
@@ -151,7 +159,7 @@ describe("nesting is structurally impossible", () => {
   it("the sign-in URL captured as the current location produces no token", () => {
     const first = signInJourney({ at: "/inbox" });
     expect(first.signInHref).toBe(
-      `/_agent-native/sign-in?${SIGN_IN_CONTINUATION_PARAM}=${encodeContinuation("/inbox")}`,
+      `${SIGN_IN_ENTRY_PATH}?${SIGN_IN_CONTINUATION_PARAM}=${encodeContinuation("/inbox")}`,
     );
     // Now the browser is on that URL and something asks for a journey again.
     // Old behaviour re-encoded the sign-in URL as a fresh `?return=`; here the
@@ -165,7 +173,7 @@ describe("nesting is structurally impossible", () => {
 
     // And again, to prove it cannot grow.
     const third = signInJourney({
-      at: `/_agent-native/sign-in?c=${encodeContinuation("/inbox")}`,
+      at: `${SIGN_IN_ENTRY_PATH}?c=${encodeContinuation("/inbox")}`,
       continuation: encodeContinuation("/inbox"),
     });
     expect(third).toEqual(second);
@@ -175,7 +183,7 @@ describe("nesting is structurally impossible", () => {
 describe("signInJourney", () => {
   it("sends an unauthenticated visitor to sign-in and back where they started", () => {
     const journey = signInJourney({ at: "/share/abc?v=1#t=30" });
-    expect(journey.signInHref).toContain("/_agent-native/sign-in?c=");
+    expect(journey.signInHref).toContain(`${SIGN_IN_ENTRY_PATH}?c=`);
     const token = new URL(
       journey.signInHref!,
       "http://x.invalid",
@@ -185,7 +193,7 @@ describe("signInJourney", () => {
 
   it("resumes to the continuation once a session exists", () => {
     const journey = signInJourney({
-      at: "/_agent-native/sign-in",
+      at: SIGN_IN_ENTRY_PATH,
       continuation: encodeContinuation("/inbox?label=a"),
     });
     expect(journey.resumeHref).toBe("/inbox?label=a");
@@ -209,7 +217,7 @@ describe("signInJourney", () => {
     "rejects normalized protocol-relative legacy returns: %s",
     (legacyReturn) => {
       const journey = signInJourney({
-        at: `/_agent-native/sign-in?return=${encodeURIComponent(legacyReturn)}`,
+        at: `${SIGN_IN_ENTRY_PATH}?return=${encodeURIComponent(legacyReturn)}`,
         legacyReturn,
       });
       expect(journey.resumeHref.startsWith("//")).toBe(false);
@@ -219,7 +227,7 @@ describe("signInJourney", () => {
 
   it("prefers the continuation over a legacy return", () => {
     const journey = signInJourney({
-      at: "/_agent-native/sign-in",
+      at: SIGN_IN_ENTRY_PATH,
       continuation: encodeContinuation("/new"),
       legacyReturn: "/old",
     });
@@ -227,7 +235,12 @@ describe("signInJourney", () => {
   });
 
   it("a signed-in user on an auth entry path resumes home instead of looping", () => {
-    for (const at of ["/login", "/signup", "/_agent-native/sign-in"]) {
+    for (const at of [
+      "/login",
+      "/signup",
+      SIGN_IN_ENTRY_PATH,
+      SIGN_IN_LEGACY_ENTRY_PATH,
+    ]) {
       const journey = signInJourney({ at });
       expect(journey.signInHref).toBeNull();
       expect(journey.resumeHref).toBe("/");
@@ -245,18 +258,25 @@ describe("signInJourney", () => {
   it("signInHref is null — not a fallback — when already at sign-in", () => {
     // Load-bearing: RequireSession has no self-redirect guard left, so a
     // non-null fallback here would `location.replace` the same URL forever.
+    expect(signInJourney({ at: SIGN_IN_ENTRY_PATH }).signInHref).toBeNull();
+    expect(signInJourney({ at: SIGN_IN_LEGACY_ENTRY_PATH }).signInHref).toBe(
+      null,
+    );
     expect(
-      signInJourney({ at: "/_agent-native/sign-in" }).signInHref,
+      signInJourney({ at: `/myapp${SIGN_IN_ENTRY_PATH}`, basePath: "/myapp" })
+        .signInHref,
     ).toBeNull();
     expect(
-      signInJourney({ at: "/myapp/_agent-native/sign-in", basePath: "/myapp" })
-        .signInHref,
+      signInJourney({
+        at: `/myapp${SIGN_IN_LEGACY_ENTRY_PATH}`,
+        basePath: "/myapp",
+      }).signInHref,
     ).toBeNull();
   });
 
   it("falls back to home rather than an invalid continuation", () => {
     const journey = signInJourney({
-      at: "/_agent-native/sign-in",
+      at: SIGN_IN_ENTRY_PATH,
       continuation: "not-a-real-token-%%%",
     });
     expect(journey.resumeHref).toBe("/");
@@ -278,7 +298,7 @@ describe("signInJourney", () => {
 
   it("carries the base path on both hrefs", () => {
     const journey = signInJourney({ at: "/mail/inbox", basePath: "/mail" });
-    expect(journey.signInHref).toContain("/mail/_agent-native/sign-in?c=");
+    expect(journey.signInHref).toContain(`/mail${SIGN_IN_ENTRY_PATH}?c=`);
     expect(journey.resumeHref).toBe("/mail/inbox");
   });
 });

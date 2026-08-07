@@ -27,6 +27,7 @@ import {
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
+  shouldOfferMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
@@ -37,6 +38,8 @@ import {
 } from "../resources/use-mcp-servers.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
+import { shouldSkipFirstRunIntegrations } from "./first-run-enabled.js";
+import { listFirstRunOnboardingExtensions } from "./first-run-registry.js";
 import { useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 
@@ -46,7 +49,8 @@ type FirstRunScreen =
   | "manual"
   | "tools"
   | "connecting"
-  | "ready";
+  | "ready"
+  | "extension";
 
 const BUILDER_MORE_SERVICES = [
   "Voice input",
@@ -59,12 +63,20 @@ const BUILDER_MORE_SERVICES = [
   "Embeddings",
 ] as const;
 
-export function FirstRunOnboarding() {
+export interface FirstRunOnboardingProps {
+  /** Test hook; generated apps use the public Vite flag instead. */
+  skipIntegrations?: boolean;
+}
+
+export function FirstRunOnboarding({
+  skipIntegrations = shouldSkipFirstRunIntegrations(),
+}: FirstRunOnboardingProps = {}) {
   const previewMode = useOnboardingPreviewMode();
   const { firstRun, loading, error, profile, completeFirstRun } = useOnboarding(
     { preview: previewMode },
   );
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
+  const [extensionIndex, setExtensionIndex] = useState(0);
   const [integrationQuery, setIntegrationQuery] = useState("");
   const [integrationDialogId, setIntegrationDialogId] = useState<string | null>(
     null,
@@ -73,6 +85,7 @@ export function FirstRunOnboarding() {
     string | null
   >(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
   const mcpCatalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const mcpServersQuery = useMcpServers();
   const createMcpServer = useCreateMcpServer();
@@ -99,7 +112,7 @@ export function FirstRunOnboarding() {
       mcpServersQuery.data?.role === "admin"),
   );
 
-  const showTools = () => setScreen("tools");
+  const showTools = () => setScreen(skipIntegrations ? "ready" : "tools");
   const connectFlow = useBuilderConnectFlow({
     enabled: firstRun && !previewMode,
     trackingSource: "first_run_onboarding",
@@ -141,7 +154,7 @@ export function FirstRunOnboarding() {
 
   const handleBuilder = () => {
     if (previewMode) {
-      setScreen("tools");
+      showTools();
       return;
     }
     if (connectFlow.hasFetchedStatus && connectFlow.configured) {
@@ -164,8 +177,13 @@ export function FirstRunOnboarding() {
     await completeFirstRun();
   };
 
-  const handleFinish = async () => {
-    await completeFirstRun();
+  const handleFinish = () => {
+    if (extensions.length === 0) {
+      void completeFirstRun();
+      return;
+    }
+    setExtensionIndex(0);
+    setScreen("extension");
   };
 
   const returnUrl =
@@ -186,6 +204,17 @@ export function FirstRunOnboarding() {
       connectedUrls.has(compareUrl(integration.url)) ||
       connectingIntegrationId === integration.id
     ) {
+      return;
+    }
+
+    if (
+      shouldOfferMcpIntegrationOrganizationScope(
+        integration,
+        hasOrg,
+        canCreateOrgMcp,
+      )
+    ) {
+      setIntegrationDialogId(integration.id);
       return;
     }
 
@@ -234,6 +263,28 @@ export function FirstRunOnboarding() {
 
     setIntegrationDialogId(integration.id);
   };
+
+  if (screen === "extension") {
+    const extension = extensions[extensionIndex];
+    if (!extension) {
+      void completeFirstRun();
+      return null;
+    }
+    const Extension = extension.component;
+    const advanceExtension = () => {
+      if (extensionIndex < extensions.length - 1) {
+        setExtensionIndex((current) => current + 1);
+        return;
+      }
+      void completeFirstRun();
+    };
+    return (
+      <Extension
+        onComplete={advanceExtension}
+        onSkip={() => void completeFirstRun()}
+      />
+    );
+  }
 
   if (screen === "intro") {
     return (
@@ -331,7 +382,15 @@ export function FirstRunOnboarding() {
                           ·
                         </span>
                       )}
-                      <span>{capability.label}</span>
+                      <span className="inline-flex items-center gap-0.5">
+                        <span>{capability.label}</span>
+                        {capability.id === "design-system-intelligence" && (
+                          <CapabilityInfoButton
+                            capability={capability}
+                            ariaLabel={`About ${capability.label}`}
+                          />
+                        )}
+                      </span>
                     </React.Fragment>
                   ))}
                   <span aria-hidden="true" className="text-muted-foreground">
@@ -398,6 +457,27 @@ export function FirstRunOnboarding() {
               />
             </div>
           </div>
+          {import.meta.env.DEV ? (
+            <p
+              data-testid="first-run-local-provider-note"
+              className="mx-auto max-w-2xl text-center text-[11px] leading-5 text-muted-foreground"
+            >
+              Or set{" "}
+              <code className="rounded bg-muted px-1">ANTHROPIC_API_KEY</code>{" "}
+              or <code className="rounded bg-muted px-1">OPENAI_API_KEY</code>{" "}
+              in <code className="rounded bg-muted px-1">.env</code> to make
+              that provider available to everyone using this app.{" "}
+              <a
+                href="https://agent-native.com/docs/environment-variables"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Read the setup guide
+                <IconExternalLink size={12} />
+              </a>
+            </p>
+          ) : null}
         </div>
       </OnboardingShell>
     );
@@ -440,9 +520,9 @@ export function FirstRunOnboarding() {
               <button
                 type="button"
                 className={secondaryButtonClass}
-                onClick={() => setScreen("tools")}
+                onClick={() => setScreen(skipIntegrations ? "ready" : "tools")}
               >
-                Continue to tools
+                {skipIntegrations ? "Continue" : "Continue to tools"}
               </button>
             </div>
           </div>
@@ -548,7 +628,7 @@ export function FirstRunOnboarding() {
               if (!open) setIntegrationDialogId(null);
             }}
             initialIntegrationId={integrationDialogId}
-            defaultScope={canCreateOrgMcp ? "org" : "user"}
+            defaultScope="user"
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={hasOrg}
             onCreateMcpServer={createMcpServer.mutateAsync}
@@ -613,14 +693,30 @@ export function FirstRunOnboarding() {
           Start with a chat, then connect more tools whenever you need them.
         </p>
         <div className="mt-7 grid w-full gap-2 text-left sm:grid-cols-3">
-          {[
-            ["Chat + actions", "Ask your agent to work across the app."],
-            ["Agent integrations", "Connect tools from Settings anytime."],
-            [
-              "Flexible providers",
-              "Use Builder.io free credits or your own keys.",
-            ],
-          ].map(([title, description]) => (
+          {(skipIntegrations
+            ? [
+                [
+                  "Workflow actions",
+                  "Use the app's buttons and sidebar to run the workflow.",
+                ],
+                [
+                  "AI sidebar",
+                  "Ask the agent to review or refine a step in context.",
+                ],
+                [
+                  "Flexible providers",
+                  "Use Builder.io free credits or your own keys.",
+                ],
+              ]
+            : [
+                ["Chat + actions", "Ask your agent to work across the app."],
+                ["Agent integrations", "Connect tools from Settings anytime."],
+                [
+                  "Flexible providers",
+                  "Use Builder.io free credits or your own keys.",
+                ],
+              ]
+          ).map(([title, description]) => (
             <div
               key={title}
               className="rounded-xl bg-card px-4 py-4 ring-1 ring-border/70"
@@ -831,22 +927,10 @@ function CapabilityRow({
           >
             {capability.label}
           </span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={`Why ${capability.label} is needed`}
-                className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <IconInfoCircle size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs text-xs">
-              {capability.why}
-            </TooltipContent>
-          </Tooltip>
+          <CapabilityInfoButton
+            capability={capability}
+            ariaLabel={`Why ${capability.label} is needed`}
+          />
         </div>
         <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
           {capability.keySummary}
@@ -861,6 +945,33 @@ function CapabilityRow({
         {capability.required ? "Required" : "Optional"}
       </span>
     </div>
+  );
+}
+
+function CapabilityInfoButton({
+  capability,
+  ariaLabel,
+}: {
+  capability: OnboardingCapability;
+  ariaLabel: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <IconInfoCircle size={13} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs">
+        {capability.why}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

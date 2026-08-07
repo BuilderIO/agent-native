@@ -1,3 +1,5 @@
+import { subscribe } from "@agent-native/core/event-bus";
+import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   organizationResourceOwner,
@@ -5,8 +7,11 @@ import {
   resourcePut,
   WORKSPACE_OWNER,
 } from "@agent-native/core/resources";
-import { defineNitroPlugin } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import {
+  defineNitroPlugin,
+  runWithRequestContext,
+} from "@agent-native/core/server";
+import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
@@ -14,6 +19,139 @@ import { triageConfig } from "../db/schema.js";
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
 const DEFAULT_SLACK_CHANNEL_ID = "C0ATH3CCZT4";
 const DEFAULT_SLACK_CHANNEL_NAME = "product-agent-native-feedback";
+const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
+
+type AutomationRunFinishedEvent = {
+  automationRunId: string;
+  owner: string;
+  automation: string;
+  path: string;
+  orgId: string | null;
+  runId: string | null;
+  threadId: string | null;
+  status: "success" | "error" | "interrupted";
+  error: string | null;
+};
+
+let failureAlertSubscription: string | null = null;
+
+function factoryPublicUrl(): string | undefined {
+  const value = process.env.FACTORY_PUBLIC_URL?.trim(); // guard:allow-env-credential - public callback origin, not a credential
+  if (!value || /[\r\n]/.test(value)) return undefined;
+  return value.replace(/\/+$/, "");
+}
+
+async function notifyFactoryAutomationFailure(
+  event: AutomationRunFinishedEvent,
+): Promise<void> {
+  if (
+    (event.status !== "error" && event.status !== "interrupted") ||
+    !event.orgId ||
+    !event.path.startsWith("jobs/factory-")
+  ) {
+    return;
+  }
+
+  const db = getDb();
+  const config = (
+    await db
+      .select({
+        ownerEmail: triageConfig.ownerEmail,
+        alertsEnabled: triageConfig.automationFailureAlertsEnabled,
+        alertEmail: triageConfig.automationFailureAlertEmail,
+      })
+      .from(triageConfig)
+      .where(
+        and(
+          eq(triageConfig.id, event.orgId),
+          eq(triageConfig.orgId, event.orgId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!config || config.alertsEnabled !== 1) return;
+
+  const recipient = (config.alertEmail || config.ownerEmail || "")
+    .trim()
+    .toLowerCase();
+  if (!recipient) return;
+
+  const error =
+    event.error ||
+    "The automation ended without recording a terminal result. No delivery was confirmed.";
+  const alertKey = `${event.automation}\n${error}`.slice(0, 700);
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - FAILURE_ALERT_COOLDOWN_MS);
+  const claimed = await db
+    .update(triageConfig)
+    .set({
+      lastAutomationFailureAlertKey: alertKey,
+      lastAutomationFailureAlertAt: now.toISOString(),
+    })
+    .where(
+      and(
+        eq(triageConfig.id, event.orgId),
+        eq(triageConfig.orgId, event.orgId),
+        eq(triageConfig.automationFailureAlertsEnabled, 1),
+        or(
+          isNull(triageConfig.lastAutomationFailureAlertKey),
+          ne(triageConfig.lastAutomationFailureAlertKey, alertKey),
+          isNull(triageConfig.lastAutomationFailureAlertAt),
+          lt(triageConfig.lastAutomationFailureAlertAt, cutoff.toISOString()),
+        ),
+      ),
+    )
+    .returning({ id: triageConfig.id });
+  if (claimed.length === 0) return;
+
+  const url = factoryPublicUrl();
+  const debugTarget = url
+    ? `${url}/factory?tab=automations`
+    : "Factory > Automations";
+  const details = [
+    `Automation: ${event.automation}`,
+    `Run: ${event.automationRunId}`,
+    `Error: ${error}`,
+    `Debug: ${debugTarget}`,
+    "Next steps: open Scheduler health, then open this run's thread and inspect the last error. If health is stale, inspect the deployed scheduled function and background worker.",
+    event.threadId ? `Agent thread: ${event.threadId}` : "",
+    event.runId ? `Agent run: ${event.runId}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await runWithRequestContext(
+    { userEmail: config.ownerEmail, orgId: event.orgId },
+    () =>
+      notify(
+        {
+          severity: "critical",
+          title: `Factory automation failed: ${event.automation}`,
+          body: details,
+          metadata: {
+            emailRecipients: [recipient],
+            emailSubject: `Factory automation failed: ${event.automation}`,
+            automationRunId: event.automationRunId,
+          },
+          channels: ["inbox", "email"],
+        },
+        { owner: config.ownerEmail },
+      ),
+  );
+}
+
+function subscribeToAutomationFailures(): void {
+  if (failureAlertSubscription) return;
+  failureAlertSubscription = subscribe("automation.run.finished", (payload) =>
+    notifyFactoryAutomationFailure(payload as AutomationRunFinishedEvent).catch(
+      (error) => {
+        console.error(
+          "[factory-scheduler-job] automation failure alert failed:",
+          error,
+        );
+      },
+    ),
+  );
+}
 
 type AutomationSeed = {
   name: string;
@@ -256,6 +394,7 @@ async function ensureSchedulerJobs(): Promise<void> {
 }
 
 export default defineNitroPlugin(async () => {
+  subscribeToAutomationFailures();
   try {
     await ensureSchedulerJobs();
   } catch (error) {

@@ -89,6 +89,14 @@ describe("FirstRunOnboarding", () => {
             keySummary: "Image provider key",
             why: "Needed for image generation",
           },
+          {
+            id: "design-system-intelligence",
+            label: "Design system intelligence",
+            required: false,
+            builderIncluded: true,
+            keySummary: "Builder Design System Intelligence",
+            why: "Uses your brand and design-system guidance to keep generated work on brand.",
+          },
         ],
       },
       completeFirstRun: mocks.completeFirstRun,
@@ -134,6 +142,25 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(document.body.textContent).toContain("Builder.io free credits");
+    expect(document.body.textContent).toContain("Design system intelligence");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="About Design system intelligence"]',
+      ),
+    ).toBeTruthy();
+    const localProviderNote = document.body.querySelector(
+      '[data-testid="first-run-local-provider-note"]',
+    );
+    expect(localProviderNote).toBeTruthy();
+    expect(localProviderNote?.className).toContain("text-center");
+    expect(localProviderNote?.textContent).toContain(
+      "make that provider available to everyone using this app",
+    );
+    expect(
+      document.body.querySelector(
+        'a[href="https://agent-native.com/docs/environment-variables"]',
+      ),
+    ).toBeTruthy();
 
     act(() => {
       [...document.body.querySelectorAll("[role='button']")]
@@ -194,5 +221,95 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector("[data-onboarding-screen='tools']"),
     ).toBeTruthy();
+  });
+
+  it("skips the generic integrations catalog when configured for a workflow app", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding skipIntegrations />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector("[data-onboarding-screen='ready']"),
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain("This app is an agent.");
+    expect(document.body.textContent).not.toContain("Agent integrations");
+  });
+
+  it("asks a workspace admin for scope before connecting a shared-capable integration", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: "org-builder", role: "owner" },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Context7");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Context7"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "Who should be able to use this connection?",
+    );
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
   });
 });

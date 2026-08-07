@@ -1313,6 +1313,33 @@ export async function reconcileTerminalRunFromEvents(
   const client = getDbExec();
   const errorCode = errorCodeForTerminalEvent(latest.event);
   const errorDetail = errorDetailForTerminalEvent(latest.event);
+  // A row already holding the reconciled values is converged, and saying
+  // otherwise is not cosmetic: the UPDATE below still matches such a row and
+  // SQL counts an unchanged rewrite as affected, so `rowsAffected` reports
+  // "repaired" on every call. `getRunByThread` re-reads and re-reconciles on
+  // that answer, so a settled errored/stale_run row recurses forever and pins
+  // the event loop instead of returning. Converged must read as no work done.
+  const { rows: currentRows } = await client.execute({
+    sql: `SELECT status, error_code, terminal_reason, completed_at FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const current = currentRows[0] as
+    | {
+        status?: string | null;
+        error_code?: string | null;
+        terminal_reason?: string | null;
+        completed_at?: number | string | null;
+      }
+    | undefined;
+  if (
+    current &&
+    current.status === status &&
+    (current.error_code ?? null) === (errorCode ?? null) &&
+    (current.terminal_reason ?? null) === terminalReason &&
+    current.completed_at != null
+  ) {
+    return false;
+  }
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = ?,

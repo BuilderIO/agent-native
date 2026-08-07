@@ -326,6 +326,7 @@ export default defineAction({
         editsJson: rec.editsJson,
         videoUrl: resolvedVideoUrl,
         videoFormat: rec.videoFormat,
+        videoSizeBytes: rec.videoSizeBytes ?? null,
         width: rec.width,
         height: rec.height,
         hasAudio: Boolean(rec.hasAudio),

@@ -33,7 +33,7 @@ export function TemplateDocsLink({
 
   return (
     <Link
-      data-an-prefetch="render"
+      data-an-prefetch="viewport"
       to={sitePathForLocale(getTemplateDocsPath(template), locale)}
       onClick={() =>
         trackEvent("click view docs", {

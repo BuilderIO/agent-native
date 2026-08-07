@@ -120,6 +120,12 @@ export const triageConfig = table("factory_config", {
   sentryProjectSlug: text("sentry_project_slug"),
   sentryEnvironment: text("sentry_environment"),
   lastSentrySeenAt: text("last_sentry_seen_at"),
+  automationFailureAlertsEnabled: integer("automation_failure_alerts_enabled")
+    .notNull()
+    .default(1),
+  automationFailureAlertEmail: text("automation_failure_alert_email"),
+  lastAutomationFailureAlertKey: text("last_automation_failure_alert_key"),
+  lastAutomationFailureAlertAt: text("last_automation_failure_alert_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),

@@ -20,6 +20,33 @@ The analytics app connects to multiple data sources. This skill covers general p
 
 For events recorded by the analytics template itself via its `/track` endpoint, use `pnpm action query-agent-native-analytics --sql "SELECT ... FROM analytics_events ..."`. This includes pageviews, site/app traffic, template usage, app usage, and event counts collected by this analytics app. Pageviews and traffic can also live in GA4, BigQuery/warehouse tables, Mixpanel, PostHog, Amplitude, or another configured provider, so choose the source from the user's wording, connected-source status, existing dashboards, data dictionary, and user/org resources. Ask one concise clarification if multiple configured sources are plausible. Do not use `db-query` for data-source analysis; `db-query` is only for internal app tables and will confuse analytics questions. The shipped `agent-native-templates-first-party` SQL dashboard is the template engagement dashboard for the first-party collector source.
 
+For first-party counts, active-user, and retention questions, prefer the compact
+tenant-scoped daily event and user-day rollups. Use `analytics_events` only for a
+bounded recent drill-down with an explicit date/time range. For the Builder.io
+production organization after the BigQuery cutover, these logical tables are
+served by partitioned BigQuery data and views; the source still does not require
+an end user's separate warehouse connection.
+
+Before a large or historical first-party query, call
+`get-first-party-analytics-health`. Keep Neon as the default while its status is
+`healthy` or `monitor`; a `recommend_bigquery` result means the app has observed
+1M+ events, repeated slow queries, or a timeout/30-second query. Treat that
+status as a compatibility name for an external-backend recommendation, not as
+a requirement to use BigQuery. The health result lists the supported options:
+
+- BigQuery for warehouse SQL and complete historical analysis.
+- Amplitude for product analytics, funnels, and retention.
+
+If a suitable backend is not configured, use its returned setup link or
+`data-source-status --key <provider>` to guide the user through the existing
+Data Sources walkthrough. Connecting a query backend alone does not move the
+collector or copy existing Neon events. For the Builder.io production
+organization, the hidden `migrate-first-party-analytics-to-bigquery` action is
+the explicit state machine: prepare dual-write, backfill with its cursor, then
+cut over with confirmation. After cutover, `/track` writes and event queries
+use BigQuery; public-key metadata, derived exception issues, and session-replay
+data remain in SQL.
+
 Example pageviews query for a local calendar day:
 
 ```sql

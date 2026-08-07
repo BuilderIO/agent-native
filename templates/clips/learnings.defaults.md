@@ -24,7 +24,7 @@
 ## Meetings & Dictate
 
 - When a user says **"meeting"** they mean a Meetings tab entry, not a Clips recording — _unless_ the recording is linked to a meeting (i.e. `recordings.meeting_id` is non-null), in which case both interpretations are valid and worth mentioning.
-- When suggesting how to enable transcript improvements (cleanup, summary, action items), **lead with Builder.io Connect** — it's the easiest path and requires no key. Mention a BYOK `GEMINI_API_KEY` only as a secondary fallback. The cleanup pipeline does not use direct Groq or OpenAI keys by default; it prefers Luna through Builder or OpenAI, with Gemini as the fallback.
+- When suggesting how to enable transcript improvements (cleanup, summary, action items), **lead with Builder.io Connect** — its free tier is available, it's the easiest path, and it requires no key. Mention a BYOK `GEMINI_API_KEY` only as a secondary fallback. The cleanup pipeline does not use direct Groq or OpenAI keys by default; it prefers Luna through Builder or OpenAI, with Gemini as the fallback.
 - **Per-attendee action items require attendees to actually speak in the recorded audio.** With mic + system audio capture (Meetings default) both sides are heard and tagged by source. With mic-only capture (and all Dictate dictations), remote attendees may be silent in the transcript — call this out before promising attendee-level coverage.
 
 ## Platform requirements

@@ -187,6 +187,35 @@ const messages = {
     pastRunsEmpty: "Aún no hay ejecuciones registradas.",
     saveAutomation: "Guardar",
     runNow: "Ejecutar ahora",
+    automationHealthTitle: "Estado del programador",
+    automationHealthDescription:
+      "El latido muestra si el trabajador de tareas recurrentes desplegado sigue comprobando los horarios.",
+    automationHealthHealthy: "Saludable",
+    automationHealthStale: "Desactualizado",
+    automationHealthError: "Error",
+    automationHealthNoData: "Sin latido",
+    automationLastCheck: "Última comprobación",
+    automationLastDispatch: "Último envío",
+    automationRuntime: "Entorno de ejecución",
+    automationHealthNoDataHint:
+      "Aún no se ha registrado ningún latido del programador. Despliega la compilación más reciente de Factory y vuelve a comprobarlo.",
+    automationHealthStaleHint:
+      "El programador no ha comprobado recientemente. Normalmente significa que la función programada o el trabajador en segundo plano desplegado no está ejecutándose.",
+    automationHealthErrorDetail: "Último error del programador",
+    automationOpenThread: "Abrir hilo",
+    automationFailureAlertsTitle: "Alertas de fallos de automatización",
+    automationFailureAlertsDescription:
+      "Envía una alerta dentro de la aplicación y un correo cuando falle una automatización de Factory. Los fallos idénticos se agrupan durante 15 minutos.",
+    automationFailureAlertsEnabled:
+      "Envíame un correo cuando fallen las automatizaciones",
+    automationFailureAlertEmail: "Correo de alertas",
+    automationFailureAlertEmailPlaceholder:
+      "De forma predeterminada, el propietario del espacio de trabajo",
+    automationFailureEmailReadiness: "Proveedor de correo",
+    automationDiagnosticsLoadError:
+      "No se pudieron cargar los diagnósticos de Factory. Comprueba el acceso, el despliegue y las migraciones de la base de datos, y vuelve a intentarlo.",
+    automationEmailReadinessHint:
+      "El correo usa el almacén de Dispatch de la organización. Configura allí un proveedor si no está listo.",
   },
   factoryCanvas: {
     dragHint: "Arrastra los nodos para cambiar la forma de la fábrica",

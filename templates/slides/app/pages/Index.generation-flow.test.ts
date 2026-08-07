@@ -56,11 +56,22 @@ describe("new deck generation flow", () => {
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
   });
 
+  it("keeps presentation generation multi-slide and persisted", () => {
+    expect(flow).toContain(
+      "infer a coherent multi-slide outline from the scope",
+    );
+    expect(flow).toContain("Do not call the legacy generate-slides-ai action");
+    expect(flow).toContain(
+      "Treat each successful add-slide result as confirmation",
+    );
+  });
+
   it("turns an imported PPTX into a reusable reference deck", () => {
     expect(flow).toContain('callAction("import-pptx"');
     expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
     expect(flow).toContain("const generationFiles = uploaded.filter");
-    expect(flow).toContain("setPendingDeck((current) =>");
+    expect(flow).toContain("referenceSelection = {");
+    expect(flow).toContain("referenceDeckId: imported.id");
   });
 
   it("imports an uploaded PDF into a reusable reference deck", () => {
@@ -68,5 +79,13 @@ describe("new deck generation flow", () => {
     expect(flow).toContain('format: "pdf"');
     expect(flow).toContain("importIntoDeck: true");
     expect(flow).toContain("The PDF reference deck could not be imported.");
+  });
+
+  it("supports direct imports from the new-deck prompt", () => {
+    expect(flow).toContain("const handleDirectImport");
+    expect(flow).toContain("presentationUrl: selection.url");
+    expect(flow).toContain('callAction("import-pptx"');
+    expect(flow).toContain('callAction("import-file"');
+    expect(source).toContain('importFromLabel={t("home.importFrom")}');
   });
 });

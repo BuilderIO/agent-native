@@ -20,9 +20,10 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | Mode                      | Behavior                                                                                                                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in without printing its credentials (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
-| **Production (default)**  | Better Auth with email/password + social providers (Google, GitHub). Organizations built in.                                             |
+| **Production (default)**  | Magic-link-first Better Auth when outbound email is ready, with email/password fallback and social providers (Google, GitHub). Organizations built in. |
 | **`AUTH_MODE=local`**     | **Not** a browser auth bypass, and never returns `local@localhost`. It only affects CLI/agent identity: it lets `pnpm action` / the local agent loop auto-bind to the single real signed-in dev user from the `sessions` table (see `scripts/dev-session.ts`). Browser login is unchanged. |
-| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. Use `+qa` emails for test accounts. |
+| **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for password-fallback accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. It does not change magic-link delivery. Use `+qa` emails for test accounts. |
+| **`AUTH_MAGIC_LINK=0`** | Force the email/password fallback even when outbound email is ready. |
 | **`AUTH_DISABLED=true`** | Skip login/signup entirely — every request runs as `dev@local.test`. For local dev, cloud previews, and internal demos only; not for production with real users. |
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
@@ -203,7 +204,7 @@ For public pages (share links, embeds, marketing pages) that need anonymous view
 ```ts
 const ret = window.location.pathname + window.location.search;
 window.location.href =
-  "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+  "/sign-in?return=" + encodeURIComponent(ret);
 ```
 
 After successful sign-in (token / email-password / Google OAuth), the framework redirects to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
@@ -229,7 +230,9 @@ will be rejected.
 
 `AppProviders` applies `RequireSession` automatically on its private branch. It
 resolves the session on the client and redirects signed-out visitors to
-`/_agent-native/sign-in?return=…` before mounting the routed shell:
+`/sign-in?return=…` before mounting the routed shell. The legacy
+`/_agent-native/sign-in` path remains supported for older generated apps and
+bookmarks:
 
 ```tsx
 import { AppProviders } from "@agent-native/core/client/hooks";
