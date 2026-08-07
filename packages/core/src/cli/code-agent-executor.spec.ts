@@ -1180,6 +1180,34 @@ describe("buildCodeAgentSystemPrompt", () => {
     expect(prompt).toContain("Always run pnpm typecheck before committing.");
   });
 
+  it("uses the configured development instruction file without leaking runtime instructions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-audiences-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    );
+    fs.mkdirSync(path.join(root, "app-agent"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app-agent", "AGENTS.md"),
+      "Runtime-only instructions.",
+    );
+    fs.writeFileSync(
+      path.join(root, "DEVELOPING.md"),
+      "Development-only instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("Development-only instructions.");
+    expect(prompt).not.toContain("Runtime-only instructions.");
+  });
+
   it("falls back to CLAUDE.md when AGENTS.md is absent", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-claude-"));
     tmpRoots.push(root);

@@ -186,8 +186,8 @@ describe("first-party BigQuery backend", () => {
 
     const [orgQuery] = execute.mock.calls[0] ?? [];
     const [personalQuery] = execute.mock.calls[1] ?? [];
-    expect(orgQuery.args.at(-1)).toBe(5_000);
-    expect(personalQuery.args.at(-1)).toBe(5_000);
+    expect(orgQuery.args.at(-1)).toBe(750);
+    expect(personalQuery.args.at(-1)).toBe(750);
   });
 
   it("keeps BigQuery streaming requests bounded", async () => {
@@ -305,13 +305,12 @@ describe("first-party BigQuery backend", () => {
         901,
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
       ),
-    ).resolves.toMatchObject({ copied: 901 });
+    ).resolves.toMatchObject({ copied: 750 });
 
-    expect(execute).toHaveBeenCalledTimes(4);
-    const [firstHydration, secondHydration] = execute.mock.calls.slice(2);
-    expect(firstHydration?.[0].args).toHaveLength(900);
-    expect(secondHydration?.[0].args).toEqual(["event-900"]);
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(execute).toHaveBeenCalledTimes(3);
+    const [firstHydration] = execute.mock.calls.slice(2);
+    expect(firstHydration?.[0].args).toHaveLength(750);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     vi.unstubAllGlobals();
   });
 

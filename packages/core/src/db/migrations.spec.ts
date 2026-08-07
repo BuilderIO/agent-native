@@ -167,16 +167,22 @@ describe("runMigrations – serverless request runtime", () => {
     });
   }
 
-  it("still migrates in a runtime that claims migration duty", async () => {
+  it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
+    // The Netlify BUILD environment sets NETLIFY=true, so the release
+    // migration step looks exactly like a serverless request to the guard
+    // above — it succeeds only because the entrypoint claims migration duty.
+    // Exercise the real API, not the global: an entrypoint that forgets the
+    // wrapper silently no-ops at build time and the tables never appear, which
+    // is invisible until the first read fails in production.
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");
-    (globalThis as Record<string, unknown>).__AGENT_NATIVE_MIGRATION_RUNTIME__ =
-      true;
     const exec = makeExec([{ v: 5 }]);
     vi.mocked(getDbExec).mockReturnValue(exec);
 
     const plugin = runMigrations(migrations, { table: "guard_migrations" });
-    await plugin(null);
+    await withMigrationRuntime(async () => {
+      await plugin(null);
+    });
 
     expect(getDbExec).toHaveBeenCalled();
   });

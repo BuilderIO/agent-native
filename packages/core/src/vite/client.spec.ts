@@ -876,7 +876,7 @@ describe("agent-native app config", () => {
     }
   });
 
-  it("prefers agent-native.ts when both typed filename aliases exist", async () => {
+  it("prefers agent-native.config.ts when both typed filename aliases exist", async () => {
     const previousCwd = process.cwd();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-primary-config-"));
     fs.writeFileSync(
@@ -905,7 +905,7 @@ describe("agent-native app config", () => {
       expect(
         JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
       ).toMatchObject({
-        onboarding: { firstRun: "connect" },
+        onboarding: { firstRun: "off" },
       });
     } finally {
       process.chdir(previousCwd);

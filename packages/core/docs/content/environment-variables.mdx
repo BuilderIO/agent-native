@@ -90,7 +90,7 @@ values.
 Every framework app exposes the redacted report at
 `/_agent-native/ping?configuration=1`. The shared provider shell turns a
 non-healthy production report into a warning or error chip with a **Copy
-prompt for AI** button. `agent-native.ts` or its compatibility aliases can add
+prompt for AI** button. `agent-native.config.ts` or its compatibility aliases can add
 non-secret requirements under `runtime.environment.required`; set the actual
 values in Netlify, Vercel, or the deployment's secret store.
 

@@ -1,7 +1,17 @@
 import {
+  CLI_COPIES_OVER_TIME_SQL,
+  DEMO_CLICKS_OVER_TIME_SQL,
+  LEGACY_CLI_COPIES_OVER_TIME_SQL,
+  LEGACY_DEMO_CLICKS_OVER_TIME_SQL,
+  LEGACY_PAGEVIEWS_OVER_TIME_SQL,
+  LEGACY_SIGNUPS_BY_TEMPLATE_SQL,
+  LEGACY_TEMPLATE_INTEREST_OVER_TIME_SQL,
+  PAGEVIEWS_OVER_TIME_SQL,
+  SIGNUPS_BY_TEMPLATE_SQL,
   LEGACY_SIGNUPS_OVER_TIME_SQL,
   LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
   SIGNUPS_OVER_TIME_SQL,
+  TEMPLATE_INTEREST_OVER_TIME_SQL,
   type ExactFirstPartyPanelReplacement,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
@@ -32,6 +42,31 @@ const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacem
         LEGACY_SIGNUPS_OVER_TIME_SQL,
       ],
       sql: SIGNUPS_OVER_TIME_SQL,
+    },
+    {
+      id: "signups-by-template",
+      legacySql: [LEGACY_SIGNUPS_BY_TEMPLATE_SQL],
+      sql: SIGNUPS_BY_TEMPLATE_SQL,
+    },
+    {
+      id: "template-interest-over-time",
+      legacySql: [LEGACY_TEMPLATE_INTEREST_OVER_TIME_SQL],
+      sql: TEMPLATE_INTEREST_OVER_TIME_SQL,
+    },
+    {
+      id: "demo-clicks-over-time",
+      legacySql: [LEGACY_DEMO_CLICKS_OVER_TIME_SQL],
+      sql: DEMO_CLICKS_OVER_TIME_SQL,
+    },
+    {
+      id: "cli-copies-over-time",
+      legacySql: [LEGACY_CLI_COPIES_OVER_TIME_SQL],
+      sql: CLI_COPIES_OVER_TIME_SQL,
+    },
+    {
+      id: "pageviews-over-time",
+      legacySql: [LEGACY_PAGEVIEWS_OVER_TIME_SQL],
+      sql: PAGEVIEWS_OVER_TIME_SQL,
     },
     {
       id: "new-vs-recurring-users",

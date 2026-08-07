@@ -2,7 +2,7 @@
  * Public, non-secret configuration for an Agent-Native app.
  *
  * This module is intentionally free of Node and framework imports so it can be
- * used from a typed `agent-native.ts` file and from browser code after Vite
+ * used from a typed `agent-native.config.ts` file and from browser code after Vite
  * serializes the resolved config into the client bundle.
  */
 
@@ -57,11 +57,19 @@ export interface AgentNativeDiagnosticsConfig {
   failOnBuild?: boolean;
 }
 
+export interface AgentNativeInstructionsConfig {
+  /** Relative Markdown file loaded by the in-app runtime agent. */
+  runtime?: string;
+  /** Relative Markdown file loaded by development/coding agents. */
+  development?: string;
+}
+
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
   diagnostics?: AgentNativeDiagnosticsConfig;
+  instructions?: AgentNativeInstructionsConfig;
 }
 
 export interface AgentNativeConfigContext {
@@ -80,7 +88,7 @@ export type AgentNativeConfigInput =
   | AgentNativeConfigFactory;
 
 /**
- * Type-safe authoring helper for `agent-native.ts`.
+ * Type-safe authoring helper for `agent-native.config.ts`.
  *
  * Like Next's typed config file, this is deliberately identity-like: the
  * framework evaluates the exported object or factory in the Vite config
@@ -112,6 +120,7 @@ export function normalizeAgentNativeConfig(
   const onboardingValue = input.onboarding;
   const runtimeValue = input.runtime;
   const diagnosticsValue = input.diagnostics;
+  const instructionsValue = input.instructions;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -141,6 +150,13 @@ export function normalizeAgentNativeConfig(
     normalized.diagnostics = normalizeDiagnosticsConfig(
       diagnosticsValue,
       `${source}.diagnostics`,
+    );
+  }
+
+  if (instructionsValue !== undefined) {
+    normalized.instructions = normalizeInstructionsConfig(
+      instructionsValue,
+      `${source}.instructions`,
     );
   }
 
@@ -202,6 +218,13 @@ export function mergeAgentNativeConfigs(
         ? {
             ...base.diagnostics,
             ...override.diagnostics,
+          }
+        : undefined,
+    instructions:
+      base.instructions || override.instructions
+        ? {
+            ...base.instructions,
+            ...override.instructions,
           }
         : undefined,
   };
@@ -320,6 +343,44 @@ function normalizeDiagnosticsConfig(
   return value.failOnBuild === undefined
     ? {}
     : { failOnBuild: value.failOnBuild };
+}
+
+function normalizeInstructionsConfig(
+  value: unknown,
+  source: string,
+): AgentNativeInstructionsConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+
+  const result: AgentNativeInstructionsConfig = {};
+  for (const audience of ["runtime", "development"] as const) {
+    const pathValue = value[audience];
+    if (pathValue === undefined) continue;
+    if (typeof pathValue !== "string") {
+      throw new Error(`${source}.${audience} must be a relative file path`);
+    }
+    result[audience] = normalizeRelativeFilePath(
+      pathValue,
+      `${source}.${audience}`,
+    );
+  }
+  return result;
+}
+
+function normalizeRelativeFilePath(value: string, source: string): string {
+  const normalized = value.trim().replaceAll("\\", "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.split("/").some((segment) => segment === "..")
+  ) {
+    throw new Error(
+      `${source} must be a non-empty relative file path inside the app root`,
+    );
+  }
+  return normalized;
 }
 
 function normalizeRequiredEnvKeys(

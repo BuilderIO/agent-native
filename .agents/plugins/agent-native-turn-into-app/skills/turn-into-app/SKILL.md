@@ -4,7 +4,7 @@ description: >-
   Turn visible project context, a proven thread, skill, or workflow into a
   runnable Agent-Native app with simple buttons, visible agent steps, preview,
   and deployment handoff. Use when a user invokes `/turn-into-app` or asks to
-  make a workflow into an app.
+  make a workflow into an app, including from Claude or ChatGPT on the web.
 user-invocable: true
 scope: both
 metadata:
@@ -13,9 +13,32 @@ metadata:
 
 # Turn Into App
 
+## Host execution boundary
+
+The build location depends on the host. Treat this as a hard routing rule:
+
+- In Claude Web, ChatGPT Web, or a Claude/ChatGPT Project on the web, you are
+  the source analyst and handoff orchestrator. You must not build the app in
+  the host sandbox. Do not run `npm`, `pnpm`, `npx`, `agent-native create`, or
+  `add-app`; do not edit files, create artifacts, or start a local dev server.
+  After writing the bounded source brief, call the connected Dispatch action
+  `start-workspace-app-creation`. Pass the brief and repeatable workflow in
+  `prompt`, plus the inferred `appId`, `description`, `template`, and selected
+  `resourceIds` when available. This is the Builder handoff.
+- Do not substitute the generic `create_workspace_app` MCP tool in an online
+  host. That tool is a local workspace scaffolder, not the Builder handoff.
+- If `start-workspace-app-creation` is not available or Dispatch is not
+  authenticated, stop with the connector setup needed. Do not fall back to a
+  local build or claim that the app exists.
+- In Claude Code, Codex Code, or another local code-agent runtime with a target
+  workspace, follow the local implementation steps below. The local agent may
+  scaffold, edit, run, and verify the app there.
+
 ## Default behavior
 
-This is an end-to-end build skill, not a request for an app proposal.
+For a local code-agent runtime this is an end-to-end build skill, not a request
+for an app proposal. For an online host, the end-to-end result is a verified
+Builder handoff and the resulting workspace app, not code written in the host.
 
 - With no argument, choose the source in this order: visible project context,
   then the current thread. A fresh Claude or ChatGPT Project is a valid source
@@ -47,9 +70,12 @@ private web access, invent an importer, add fake OAuth, or scrape a logged-in
 page. If the needed context is not visible, ask for an export, transcript, or
 attachment and treat that artifact as imported source material.
 
-Deliver a fresh app in a new directory, implement the repeatable workflow with
-buttons and agent handoffs, start its dev server, verify the main path, and
-continue through build/deployment handoff. Do not stop at a plan.
+For local code-agent runtimes, deliver a fresh app in a new directory,
+implement the repeatable workflow with buttons and agent handoffs, start its dev
+server, verify the main path, and continue through build/deployment handoff. Do
+not stop at a plan. For online hosts, call Dispatch first after the source brief,
+then report the returned Builder branch/path and verify the workspace app through
+Dispatch when it becomes available.
 
 ## Fresh project context mode
 
@@ -190,12 +216,12 @@ Do not use `create` for an existing workspace; it scaffolds a new standalone
 workspace rather than adding an app to the current one.
 
 When the source came from a fresh external Project and the target is a Builder
-workspace, prefer the available Dispatch MCP workspace handoff after writing
-the source brief. Call `start-workspace-app-creation` with a concise prompt,
-the inferred app id, and the brief's repeatable workflow. Pass selected
-workspace resource IDs when they are available, rather than pasting entire
-knowledge files. Continue from the returned workspace path or Builder handoff
-and report the actual verification result.
+workspace, the online host path is mandatory: after writing the source brief,
+call `start-workspace-app-creation` with a concise prompt, the inferred app id,
+and the brief's repeatable workflow. Pass selected workspace resource IDs when
+they are available, rather than pasting entire knowledge files. Continue from
+the returned workspace path or Builder branch handoff and report the actual
+verification result. Do not run the local scaffold commands in this host mode.
 
 Use a first-party template only when it materially fits the workflow. Keep the
 new app independent from the source thread's working tree unless the user

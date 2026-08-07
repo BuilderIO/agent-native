@@ -1,14 +1,14 @@
 ---
 title: "Agent-Native app configuration"
-description: "Configure public Agent-Native app defaults with agent-native.ts, its typed aliases, or agent-native.json compatibility."
-search: "agent-native.ts agent-native.config.ts agent-native.config.mts agent-native.json onboarding runtime readiness configuration"
+description: "Configure public Agent-Native app defaults with agent-native.config.ts, its typed aliases, or agent-native.json compatibility."
+search: "agent-native.config.ts agent-native.ts agent-native.mts agent-native.config.mts agent-native.json onboarding runtime readiness configuration instructions"
 ---
 
 # Agent-Native app configuration
 
-Use `agent-native.ts` for new shared Agent-Native configuration. It is a typed,
-mode-aware source for committed, non-secret app defaults. The framework also
-accepts `agent-native.mts`, `agent-native.config.ts`, and
+Use `agent-native.config.ts` for new shared Agent-Native configuration. It is a
+typed, mode-aware source for committed, non-secret app defaults. The framework
+also accepts `agent-native.ts`, `agent-native.mts`, and
 `agent-native.config.mts` as filename aliases, and continues to read
 `agent-native.json` for compatibility.
 
@@ -23,9 +23,9 @@ app's Vite configuration. In a workspace, each app has its own root and its own
 configuration file. The Vite preset reads from the current app root, not from
 `server/plugins/` or a workspace-wide directory.
 
-For new apps, create `agent-native.ts`:
+For new apps, create `agent-native.config.ts`:
 
-```ts filename="agent-native.ts"
+```ts filename="agent-native.config.ts"
 import { defineAgentNativeConfig } from "@agent-native/core/config";
 
 export default defineAgentNativeConfig(({ command, mode, isBuild }) => {
@@ -88,6 +88,32 @@ configuration portion of `agent-native.json`:
 | `runtime.database.required`    | `boolean`                                                         | Declares whether production needs a persistent remote SQL database.                                                                                                                       |
 | `runtime.environment.required` | `string[]`                                                        | Declares additional required environment variable names. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values do not belong in the config.                                                   |
 | `diagnostics.failOnBuild`      | `boolean`                                                         | When `true`, a production Vite build throws on runtime configuration issues. When absent or `false`, it reports them without failing the build.                                           |
+| `instructions.runtime`         | `string`                                                          | Optional relative Markdown path for the in-app runtime agent. Defaults to `AGENTS.md`.                                                                                                    |
+| `instructions.development`     | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                   |
+
+### Separate runtime and development instructions
+
+The default is intentionally flat: both audiences read `AGENTS.md`, and
+existing apps do not need to change. To keep development guidance out of the
+deployed app agent, opt in with audience-specific paths:
+
+```ts filename="agent-native.config.ts"
+import { defineAgentNativeConfig } from "@agent-native/core/config";
+
+export default defineAgentNativeConfig({
+  instructions: {
+    runtime: "app-agent/AGENTS.md",
+    development: "DEVELOPING.md",
+  },
+});
+```
+
+Paths are relative to the app root and cannot escape it. If an explicitly
+selected file is missing, that audience receives no file; the framework does
+not fall back to `AGENTS.md`, because that could reintroduce development-only
+guidance into runtime. Skills keep their existing frontmatter audience scope:
+use `scope: runtime`, `scope: dev`, or `scope: both` when a skill needs a
+different boundary.
 
 ### Mode maps for onboarding
 
@@ -98,7 +124,7 @@ exact Vite modes. The resolver checks the exact `mode` first. If there is no
 exact match, it checks `development` for `serve` or `production` for `build`,
 then `default`, and finally falls back to `off`:
 
-```ts filename="agent-native.ts"
+```ts filename="agent-native.config.ts"
 import { defineAgentNativeConfig } from "@agent-native/core/config";
 
 export default defineAgentNativeConfig({
@@ -143,7 +169,7 @@ guidance, never secret values.
 For example, this is a useful readiness declaration when an app uses the
 framework's normal auth and database contracts:
 
-```ts filename="agent-native.ts"
+```ts filename="agent-native.config.ts"
 import { defineAgentNativeConfig } from "@agent-native/core/config";
 
 export default defineAgentNativeConfig({
@@ -160,7 +186,7 @@ Set the actual deployment values outside the repository. For example, provide
 `BETTER_AUTH_SECRET`, `DATABASE_URL`, and `PUBLIC_API_ORIGIN` in Netlify,
 Vercel, another deployment environment, or the appropriate scoped secret
 store. Do not replace those placeholders with literal values in
-`agent-native.ts`.
+`agent-native.config.ts`.
 
 `diagnostics.failOnBuild` is for runtime configuration diagnostics. It is not
 the same setting as the separate `doctor.failOnBuild` option documented in the
@@ -174,8 +200,8 @@ For a Vite app, the effective shared configuration follows this order:
    persistent database default to required in production diagnostics.
 2. `agent-native.json` at the app root.
 3. The automatically loaded typed file, if present. The loader checks these
-   candidates in order: `agent-native.ts`, `agent-native.mts`,
-   `agent-native.config.ts`, `agent-native.config.mts`.
+   candidates in order: `agent-native.config.ts`, `agent-native.ts`,
+   `agent-native.mts`, `agent-native.config.mts`.
 4. An explicit `agentNativeConfig` passed to `agentNative()` or the legacy
    `defineConfig()` wrapper. Supplying this option skips automatic typed-file
    loading, while the explicit value still overlays `agent-native.json`.
@@ -185,8 +211,8 @@ For a Vite app, the effective shared configuration follows this order:
    resolved onboarding mode. Use the config file for new work.
 
 Use only one of the four typed filenames. If more than one exists, the first
-candidate in the loader's order wins, with `agent-native.ts` preferred for new
-apps. The names are aliases, not four layers that are merged together.
+candidate in the loader's order wins, with `agent-native.config.ts` preferred
+for new apps. The names are aliases, not four layers that are merged together.
 
 The JSON and typed sources are merged by supported nested section:
 
@@ -200,7 +226,7 @@ The JSON and typed sources are merged by supported nested section:
   supplies it, it replaces the lower-precedence string or mode map as a whole.
 
 For example, JSON can provide `runtime.auth.enabled` and
-`NOTION_API_KEY`, while `agent-native.ts` adds `runtime.database.required` and
+`NOTION_API_KEY`, while `agent-native.config.ts` adds `runtime.database.required` and
 `GOOGLE_CLIENT_ID`. The result keeps the auth setting, adds the database
 setting, and checks both environment names.
 
@@ -223,7 +249,7 @@ Do not commit these values to either config format:
   vary by environment.
 
 Even a value that is not a secret should stay in deployment configuration when
-it changes between targets. `agent-native.ts` should describe the app's
+it changes between targets. `agent-native.config.ts` should describe the app's
 public shape, not become a second environment-variable file.
 
 ## `agent-native.json` compatibility
@@ -254,7 +280,7 @@ default that never depends on the Vite command or mode:
 }
 ```
 
-For new app-owned configuration, prefer `agent-native.ts` when the app needs
+For new app-owned configuration, prefer `agent-native.config.ts` when the app needs
 types, a mode-aware factory, or a clear place to evolve public defaults. Keep
 `agent-native.json` when portability or existing manifest sections are the
 reason to use it. Both formats accept the same shared options shown above.
