@@ -68,6 +68,92 @@ describe("docsBodyToMarkdownMirror", () => {
     expect(docsBodyToMarkdownMirror(markdown)).toBe(`${markdown}\n`);
   });
 
+  it("lowers Notice/Banner/Badge/Accordion MDX to readable markdown instead of a JSON fence", () => {
+    const markdown = [
+      '<Notice id="n1" tone="risk" title="Heads up">',
+      "",
+      "Read this.",
+      "",
+      "</Notice>",
+      "",
+      '<Banner id="b1" tone="warning" body="This page covers v9." />',
+      "",
+      '<Badge id="bd1" label="Beta" color="orange" />',
+      "",
+      "<Accordion>",
+      "",
+      "### Question one",
+      "",
+      "Answer one.",
+      "",
+      "</Accordion>",
+    ].join("\n");
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    expect(mirror).toContain("Heads up");
+    expect(mirror).toContain("Read this.");
+    expect(mirror).toContain("This page covers v9.");
+    expect(mirror).toContain("Beta");
+    expect(mirror).toContain("Question one");
+    expect(mirror).toContain("Answer one.");
+    expect(mirror).not.toContain('"tone"');
+    expect(mirror).not.toContain('"items"');
+    expect(mirror).not.toContain("<Notice");
+    expect(mirror).not.toContain("<Banner");
+    expect(mirror).not.toContain("<Badge");
+    expect(mirror).not.toContain("<Accordion");
+  });
+
+  it("lowers Cards/Steps/Comparison MDX to readable markdown instead of a JSON fence", () => {
+    const markdown = [
+      "<Cards>",
+      "",
+      "### [Actions](/docs/actions)",
+      "",
+      "Typed operations.",
+      "",
+      "</Cards>",
+      "",
+      "<Steps>",
+      "",
+      "### Install",
+      "",
+      "Run `pnpm install`.",
+      "",
+      "</Steps>",
+      "",
+      "<Comparison>",
+      "",
+      "### Before",
+      "",
+      "Old way.",
+      "",
+      "### After",
+      "",
+      "New way.",
+      "",
+      "</Comparison>",
+    ].join("\n");
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    expect(mirror).toContain("[Actions](/docs/actions)");
+    expect(mirror).toContain("Typed operations.");
+    expect(mirror).toContain("Install");
+    expect(mirror).toContain("Run `pnpm install`.");
+    expect(mirror).toContain("Before");
+    expect(mirror).toContain("Old way.");
+    expect(mirror).toContain("After");
+    expect(mirror).toContain("New way.");
+    expect(mirror).not.toContain('"cards"');
+    expect(mirror).not.toContain('"steps"');
+    expect(mirror).not.toContain('"sides"');
+    expect(mirror).not.toContain("<Cards");
+    expect(mirror).not.toContain("<Steps");
+    expect(mirror).not.toContain("<Comparison");
+  });
+
   it("lowers Diagram MDX child fences to crawlable markdown", () => {
     const markdown = [
       '<Diagram title="Lifecycle" caption="Runtime lifecycle">',

@@ -62,6 +62,64 @@ function formatCallout(data: Record<string, unknown>): string {
   return asString(data.body) ?? "";
 }
 
+function formatNotice(data: Record<string, unknown>): string {
+  return asString(data.body) ?? "";
+}
+
+function formatBanner(data: Record<string, unknown>): string {
+  return asString(data.body) ?? "";
+}
+
+function formatBadge(data: Record<string, unknown>): string {
+  return asString(data.label) ?? "";
+}
+
+function formatCards(data: Record<string, unknown>): string {
+  return asArray(data.cards)
+    .map((card) => {
+      const row = asRecord(card);
+      const title = asString(row.title) ?? "Untitled";
+      const href = asString(row.href);
+      const heading = href ? `#### [${title}](${href})` : `#### ${title}`;
+      return [heading, asString(row.body)].filter(Boolean).join("\n\n");
+    })
+    .join("\n\n");
+}
+
+function formatSteps(data: Record<string, unknown>): string {
+  return asArray(data.steps)
+    .map((step, index) => {
+      const row = asRecord(step);
+      const title = asString(row.title) ?? `Step ${index + 1}`;
+      return [`#### ${index + 1}. ${title}`, asString(row.body)]
+        .filter(Boolean)
+        .join("\n\n");
+    })
+    .join("\n\n");
+}
+
+function formatComparison(data: Record<string, unknown>): string {
+  return asArray(data.sides)
+    .map((side) => {
+      const row = asRecord(side);
+      const label = asString(row.label) ?? "Option";
+      return [`#### ${label}`, asString(row.body)]
+        .filter(Boolean)
+        .join("\n\n");
+    })
+    .join("\n\n");
+}
+
+function formatAccordion(data: Record<string, unknown>): string {
+  return asArray(data.items)
+    .map((item) => {
+      const row = asRecord(item);
+      const title = asString(row.title) ?? "Untitled";
+      return [`#### ${title}`, asString(row.body)].filter(Boolean).join("\n\n");
+    })
+    .join("\n\n");
+}
+
 function formatChecklist(data: Record<string, unknown>): string {
   return asArray(data.items)
     .map((item) => {
@@ -340,6 +398,39 @@ function formatDiagram(data: Record<string, unknown>): string {
   return fenced("json", JSON.stringify(data, null, 2));
 }
 
+/**
+ * One formatter per block `type`. Keyed lookup instead of a type===chain so
+ * adding a block type is one line here, not a deeper ternary nest — the
+ * chain this replaced had grown to 21 levels before Notice/Banner/Badge/
+ * Cards/Steps/Comparison/Accordion were added.
+ */
+const blockFormatters: Record<
+  string,
+  (data: Record<string, unknown>, segment: BlockSegment | undefined) => string
+> = {
+  callout: formatCallout,
+  notice: formatNotice,
+  banner: formatBanner,
+  badge: formatBadge,
+  cards: formatCards,
+  steps: formatSteps,
+  comparison: formatComparison,
+  accordion: formatAccordion,
+  checklist: formatChecklist,
+  "file-tree": (data, segment) => formatFileTree(data, !segment),
+  table: formatTable,
+  "api-endpoint": formatApiEndpoint,
+  "data-model": formatDataModel,
+  "annotated-code": formatAnnotatedCode,
+  diff: formatDiff,
+  "json-explorer": formatJson,
+  "openapi-spec": formatOpenApi,
+  tabs: formatTabs,
+  columns: formatColumns,
+  wireframe: formatWireframe,
+  diagram: formatDiagram,
+};
+
 function formatBlockData(
   type: string,
   data: Record<string, unknown>,
@@ -350,36 +441,10 @@ function formatBlockData(
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
   const prefix = segment ? headingForBlock(segment, fallback) : [];
-  const body =
-    type === "callout"
-      ? formatCallout(data)
-      : type === "checklist"
-        ? formatChecklist(data)
-        : type === "file-tree"
-          ? formatFileTree(data, !segment)
-          : type === "table"
-            ? formatTable(data)
-            : type === "api-endpoint"
-              ? formatApiEndpoint(data)
-              : type === "data-model"
-                ? formatDataModel(data)
-                : type === "annotated-code"
-                  ? formatAnnotatedCode(data)
-                  : type === "diff"
-                    ? formatDiff(data)
-                    : type === "json-explorer"
-                      ? formatJson(data)
-                      : type === "openapi-spec"
-                        ? formatOpenApi(data)
-                        : type === "tabs"
-                          ? formatTabs(data)
-                          : type === "columns"
-                            ? formatColumns(data)
-                            : type === "wireframe"
-                              ? formatWireframe(data)
-                              : type === "diagram"
-                                ? formatDiagram(data)
-                                : fenced("json", JSON.stringify(data, null, 2));
+  const formatter = blockFormatters[type];
+  const body = formatter
+    ? formatter(data, segment)
+    : fenced("json", JSON.stringify(data, null, 2));
 
   return [...prefix, body].filter(Boolean).join("\n\n");
 }

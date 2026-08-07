@@ -1,6 +1,8 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
+import { splitMarkdownHeadingSections } from "./markdown-heading-sections";
+
 export interface AccordionItem {
   title: string;
   body: string;
@@ -18,16 +20,7 @@ export const accordionSchema = z.object({
 }) as unknown as z.ZodType<AccordionData>;
 
 export function parseAccordionFromMarkdown(children: string): AccordionItem[] {
-  const parts = children.split(/\n(?=###\s)/);
-  const items: AccordionItem[] = [];
-  for (const part of parts) {
-    const match = part.match(/^###\s+(.+?)\n([\s\S]*)$/);
-    if (!match) continue;
-    const title = match[1].trim();
-    const body = match[2].trim();
-    if (title) items.push({ title, body });
-  }
-  return items;
+  return splitMarkdownHeadingSections(children);
 }
 
 export function serializeAccordionToMarkdown(items: AccordionItem[]): string {
