@@ -15,7 +15,10 @@ import {
   uploadPromptFiles,
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
-import { useDecks } from "@/context/DeckContext";
+import {
+  describeDeckPersistenceFailure,
+  useDecks,
+} from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
@@ -141,12 +144,15 @@ export function FirstDeckOnboardingFlow({
         onUnauthenticated: () => {
           toast.error(t("home.signInTitle"));
         },
-        onPersistenceFailure: (failedPrompt) => {
+        onPersistenceFailure: (failedPrompt, _failedFiles, failure) => {
           setPromptInitialText(failedPrompt);
           setPromptInitialTextKey(Date.now());
           setStep("prompt");
           toast.error(t("home.generationStartFailed"), {
-            description: t("home.generationStartFailedDescription"),
+            description: describeDeckPersistenceFailure(
+              failure,
+              t("home.generationStartFailedDescription"),
+            ),
           });
         },
       });

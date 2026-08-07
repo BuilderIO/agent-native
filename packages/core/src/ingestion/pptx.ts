@@ -4,7 +4,56 @@ export interface ParsedPptxTextRun {
   italic?: boolean;
   fontSize?: number;
   color?: string;
+  fontFamily?: string;
+  underline?: boolean;
 }
+
+export interface ParsedPptxParagraph {
+  runs: ParsedPptxTextRun[];
+  alignment?: "left" | "center" | "right" | "justify";
+  bulletChar?: string;
+  bulletColor?: string;
+  bulletFontFamily?: string;
+  bulletSize?: number;
+  level?: number;
+  marginLeftEmu?: number;
+  indentEmu?: number;
+  lineSpacing?: number;
+  spaceBeforePt?: number;
+  spaceAfterPt?: number;
+}
+
+export interface ParsedPptxElement {
+  id: string;
+  name?: string;
+  placeholderType?: string;
+  kind: "text" | "image" | "shape";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  shapeType?: string;
+  fill?: string;
+  lineColor?: string;
+  lineWidth?: number;
+  padding?: {
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  };
+  verticalAlign?: "top" | "middle" | "bottom";
+  paragraphs?: ParsedPptxParagraph[];
+  image?: ParsedPptxImage;
+}
+
+export type ParsedPptxTransition =
+  | "instant"
+  | "none"
+  | "fade"
+  | "slide"
+  | "zoom";
 
 export interface ParsedPptxImage {
   data: Uint8Array;
@@ -14,13 +63,41 @@ export interface ParsedPptxImage {
   aspectRatio?: number;
   /** True when the picture shape covers at least ~85% of the slide's width and height — a full-bleed background photo rather than an inset card image. */
   fullBleed?: boolean;
+  crop?: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  };
 }
 
 export interface ParsedPptxSlide {
   texts: ParsedPptxTextRun[];
   images: ParsedPptxImage[];
+  elements: ParsedPptxElement[];
+  widthEmu?: number;
+  heightEmu?: number;
+  backgroundColor?: string;
+  /** A decorative grid inherited from the slide master, when one is present. */
+  backgroundGrid?: ParsedPptxGrid;
   notes?: string;
   layoutHint?: string;
+  transition?: ParsedPptxTransition;
+  splitByParagraph?: boolean;
+}
+
+export interface ParsedPptxGrid {
+  color: string;
+  stepXEmu: number;
+  stepYEmu: number;
+  offsetXEmu: number;
+  offsetYEmu: number;
+  lineWidthEmu: number;
+}
+
+export interface ParsedPptxSlideMetadata {
+  transition?: ParsedPptxTransition;
+  splitByParagraph?: boolean;
 }
 
 export interface ParsedPptxPresentation {
@@ -63,6 +140,15 @@ export async function parsePptxPresentation(
   const relationships = relationshipsXml
     ? parseRelationships(parseXml(relationshipsXml))
     : new Map<string, { target: string; type: string }>();
+  const slideMasterRelationship = [...relationships.values()].find((value) =>
+    value.type.endsWith("/slideMaster"),
+  );
+  const backgroundGrid = slideMasterRelationship
+    ? await parseMasterGrid({
+        zip,
+        target: slideMasterRelationship.target,
+      })
+    : undefined;
   const slidePaths = slideIds.flatMap((id) => {
     const relationship = relationships.get(id);
     if (!relationship) return [];
@@ -90,8 +176,8 @@ export async function parsePptxPresentation(
     } catch {
       continue;
     }
-    const texts: ParsedPptxTextRun[] = [];
-    collectTextRuns(slide, texts);
+    const metadata = parsePptxSlideMetadata(slide);
+    let elements: ParsedPptxElement[] = [];
     const images: ParsedPptxImage[] = [];
     const relationshipPath = slidePath.replace(
       /slides\/(slide\d+\.xml)/,
@@ -100,65 +186,20 @@ export async function parsePptxPresentation(
     const slideRelationshipsXml = await zip
       .file(relationshipPath)
       ?.async("string");
-    if (slideRelationshipsXml) {
-      const slideRelationships = parseRelationships(
-        parseXml(slideRelationshipsXml),
-      );
-      // Walk the slide's own picture shapes (in document order) rather than
-      // every image relationship, so each image carries the placed size the
-      // author gave it on the slide — that size is what tells a full-bleed
-      // cover photo apart from a small inset card photo, which a flat
-      // relationship scan has no way to know.
-      const pictureShapes: PictureShape[] = [];
-      collectPictureShapes(slide, pictureShapes);
-      reorderByDocumentPosition(pictureShapes, xml);
-      addBackgroundFillShape(
-        slide,
-        pictureShapes,
-        slideWidthEmu,
-        slideHeightEmu,
-      );
-      for (const shape of pictureShapes) {
-        if (!shape.embedId) continue;
-        const relationship = slideRelationships.get(shape.embedId);
-        if (!relationship) continue;
-        if (
-          !relationship.type.includes("/image") &&
-          !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
-            relationship.target,
-          )
-        ) {
-          continue;
-        }
-        const imagePath = relationship.target.startsWith("/")
-          ? relationship.target.slice(1)
-          : relationship.target.startsWith("../")
-            ? `ppt/${relationship.target.replace(/^\.\.\//, "")}`
-            : `ppt/slides/${relationship.target}`;
-        const image = zip.file(imagePath);
-        if (!image) continue;
-        const name = imagePath.split("/").at(-1) ?? "image";
-        const aspectRatio =
-          shape.widthEmu && shape.heightEmu
-            ? shape.widthEmu / shape.heightEmu
-            : undefined;
-        const fullBleed = Boolean(
-          shape.widthEmu &&
-          shape.heightEmu &&
-          slideWidthEmu &&
-          slideHeightEmu &&
-          shape.widthEmu / slideWidthEmu >= 0.85 &&
-          shape.heightEmu / slideHeightEmu >= 0.85,
-        );
-        images.push({
-          data: new Uint8Array(await image.async("nodebuffer")),
-          mimeType: imageMimeType(name),
-          name,
-          aspectRatio,
-          fullBleed,
-        });
-      }
-    }
+    const slideRelationships = slideRelationshipsXml
+      ? parseRelationships(parseXml(slideRelationshipsXml))
+      : new Map<string, { target: string; type: string }>();
+    elements = await parseSlideElements({
+      xml,
+      parseXml,
+      slide,
+      zip,
+      slideRelationships,
+      slideWidthEmu,
+      slideHeightEmu,
+      images,
+    });
+    const texts = flattenElementText(elements);
     const number = slideNumber(slidePath);
     const notesXml = await zip
       .file(`ppt/notesSlides/notesSlide${number}.xml`)
@@ -176,8 +217,14 @@ export async function parsePptxPresentation(
     slides.push({
       texts,
       images,
+      elements,
+      widthEmu: slideWidthEmu,
+      heightEmu: slideHeightEmu,
+      backgroundColor: extractSlideBackgroundColor(slide),
+      ...(backgroundGrid ? { backgroundGrid } : {}),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
+      ...metadata,
     });
   }
   const firstSlide = slides[0]?.texts ?? [];
@@ -187,6 +234,692 @@ export async function parsePptxPresentation(
       ?.content.trim()
       .slice(0, 200) || "Imported Presentation";
   return { title, slides, theme };
+}
+
+/**
+ * Google Slides exports decorative grids as connector shapes on the slide
+ * master instead of as a slide background. Preserve the repeated geometry as
+ * metadata so the HTML renderer can reproduce it without making the lines
+ * editable slide objects.
+ */
+async function parseMasterGrid(args: {
+  zip: ZipArchive;
+  target: string;
+}): Promise<ParsedPptxGrid | undefined> {
+  const path = args.target.startsWith("/")
+    ? args.target.slice(1)
+    : `ppt/${args.target.replace(/^\.\.\//, "")}`;
+  const xml = await args.zip.file(path)?.async("string");
+  if (!xml) return undefined;
+
+  const connectors = xml.match(/<p:cxnSp\b[\s\S]*?<\/p:cxnSp>/gi) ?? [];
+  const candidates = connectors.flatMap((fragment) => {
+    const color = fragment.match(
+      /<a:solidFill>\s*<a:srgbClr\s+val="([0-9a-f]{6})"/i,
+    )?.[1];
+    const transform = fragment.match(
+      /<a:xfrm[^>]*>\s*<a:off\s+x="(-?\d+)"\s+y="(-?\d+)"\s*\/>\s*<a:ext\s+cx="(-?\d+)"\s+cy="(-?\d+)"/i,
+    );
+    const lineWidth = fragment.match(/<a:ln[^>]*\bw="(\d+)"/i)?.[1];
+    if (!color || !transform || !lineWidth) return [];
+    return [
+      {
+        color: color.toLowerCase(),
+        x: Number(transform[1]),
+        y: Number(transform[2]),
+        width: Number(transform[3]),
+        height: Number(transform[4]),
+        lineWidth: Number(lineWidth),
+      },
+    ];
+  });
+  if (candidates.length < 20) return undefined;
+
+  const colorCounts = new Map<string, number>();
+  for (const candidate of candidates) {
+    colorCounts.set(
+      candidate.color,
+      (colorCounts.get(candidate.color) ?? 0) + 1,
+    );
+  }
+  const [color] =
+    [...colorCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!color) return undefined;
+
+  const xPositions = [
+    ...new Set(
+      candidates
+        .filter((candidate) => candidate.color === color)
+        .map((candidate) => candidate.x),
+    ),
+  ].sort((a, b) => a - b);
+  const gaps = xPositions
+    .slice(1)
+    .map((value, index) => value - xPositions[index])
+    .filter((value) => value > 100_000);
+  if (gaps.length < 3) return undefined;
+  gaps.sort((a, b) => a - b);
+  const stepXEmu = gaps[Math.floor(gaps.length / 2)];
+  if (!stepXEmu) return undefined;
+
+  const offsetXEmu = xPositions.find((value) => value >= 0) ?? xPositions[0];
+  const lineWidthEmu = Math.max(
+    1,
+    Math.round(
+      candidates
+        .filter((candidate) => candidate.color === color)
+        .reduce((sum, candidate) => sum + candidate.lineWidth, 0) /
+        candidates.filter((candidate) => candidate.color === color).length,
+    ),
+  );
+
+  // The same repeated connector lattice is used for both axes in the Google
+  // export. Its horizontal phase is the master group's first repeated offset.
+  // Keeping the phase relative to the detected step also works for custom
+  // slide sizes that preserve the source grid's square-cell geometry.
+  const stepYEmu = stepXEmu;
+  const offsetYEmu = Math.round(stepYEmu * 0.9);
+
+  return {
+    color: `#${color}`,
+    stepXEmu,
+    stepYEmu,
+    offsetXEmu,
+    offsetYEmu,
+    lineWidthEmu,
+  };
+}
+
+interface ParsedShapeTransform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;
+}
+
+interface ShapeTransformContext {
+  originX: number;
+  originY: number;
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+}
+
+const SHAPE_ELEMENT_NAMES = new Set([
+  "sp",
+  "pic",
+  "grpSp",
+  "cxnSp",
+  "graphicFrame",
+]);
+
+async function parseSlideElements(args: {
+  xml: string;
+  parseXml: (xml: string) => unknown;
+  slide: unknown;
+  zip: ZipArchive;
+  slideRelationships: Map<string, { target: string; type: string }>;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  images: ParsedPptxImage[];
+}): Promise<ParsedPptxElement[]> {
+  const fragments = extractDirectShapeFragments(args.xml, "spTree");
+  const elements: ParsedPptxElement[] = [];
+  const context: ShapeTransformContext = {
+    originX: 0,
+    originY: 0,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+  };
+
+  for (const fragment of fragments) {
+    const parsed = await parseShapeFragment(fragment, {
+      ...args,
+      context,
+    });
+    if (parsed.length > 0) elements.push(...parsed);
+  }
+
+  // Some authors use a picture fill on the slide background instead of a
+  // picture shape. Keep it in the same ordered scene graph at the back.
+  const backgroundEmbedId = extractBackgroundFillEmbedId(args.slide);
+  if (backgroundEmbedId) {
+    const backgroundRelationship =
+      args.slideRelationships.get(backgroundEmbedId);
+    if (backgroundRelationship) {
+      const image = await loadPptxImage({
+        relationship: backgroundRelationship,
+        zip: args.zip,
+        slideWidthEmu: args.slideWidthEmu,
+        slideHeightEmu: args.slideHeightEmu,
+        x: 0,
+        y: 0,
+        width: args.slideWidthEmu ?? 0,
+        height: args.slideHeightEmu ?? 0,
+      });
+      if (image) {
+        args.images.unshift(image.image);
+        elements.unshift(image.element);
+      }
+    }
+  }
+
+  return elements;
+}
+
+async function parseShapeFragment(
+  fragment: string,
+  args: {
+    parseXml: (xml: string) => unknown;
+    zip: ZipArchive;
+    slideRelationships: Map<string, { target: string; type: string }>;
+    slideWidthEmu?: number;
+    slideHeightEmu?: number;
+    images: ParsedPptxImage[];
+    context: ShapeTransformContext;
+  },
+): Promise<ParsedPptxElement[]> {
+  const parsed = record(args.parseXml(fragment));
+  if (!parsed) return [];
+
+  const entry = [...SHAPE_ELEMENT_NAMES].find(
+    (name) => parsed[`p:${name}`] != null,
+  );
+  if (!entry) return [];
+  const node = record(parsed[`p:${entry}`]);
+  if (!node) return [];
+
+  if (entry === "grpSp") {
+    const groupTransform = readTransform(node, "p:grpSpPr");
+    const groupXfrm = record(record(node["p:grpSpPr"])?.["a:xfrm"]);
+    const childOffset = readPoint(groupXfrm?.["a:chOff"]);
+    const childExtent = readPoint(groupXfrm?.["a:chExt"]);
+    const groupScaleX =
+      childExtent.x > 0 ? groupTransform.width / childExtent.x : 1;
+    const groupScaleY =
+      childExtent.y > 0 ? groupTransform.height / childExtent.y : 1;
+    const nextContext: ShapeTransformContext = {
+      originX:
+        args.context.originX +
+        args.context.scaleX * (groupTransform.x - childOffset.x * groupScaleX),
+      originY:
+        args.context.originY +
+        args.context.scaleY * (groupTransform.y - childOffset.y * groupScaleY),
+      scaleX: args.context.scaleX * groupScaleX,
+      scaleY: args.context.scaleY * groupScaleY,
+      rotation: args.context.rotation + (groupTransform.rotation ?? 0),
+    };
+    const output: ParsedPptxElement[] = [];
+    for (const child of extractDirectShapeFragments(fragment, "grpSp")) {
+      output.push(
+        ...(await parseShapeFragment(child, {
+          ...args,
+          context: nextContext,
+        })),
+      );
+    }
+    return output;
+  }
+
+  const transform = applyTransform(readTransform(node, "p:spPr"), args.context);
+  const id = readShapeId(node);
+  const name = readShapeName(node);
+  const placeholderType = stringValue(
+    record(record(record(node["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"])?.["@_type"],
+  );
+  const shapeProperties = record(node["p:spPr"]);
+  const text = parseTextBody(node);
+  const fill = parseShapeFill(shapeProperties);
+  const line = parseShapeLine(shapeProperties);
+  const shapeType = stringValue(
+    record(shapeProperties?.["a:prstGeom"])?.["@_prst"],
+  );
+
+  if (entry === "pic") {
+    const embedId = stringValue(
+      record(record(node["p:blipFill"])?.["a:blip"])?.["@_r:embed"],
+    );
+    if (!embedId) return [];
+    const relationship = args.slideRelationships.get(embedId);
+    if (!relationship) return [];
+    const image = await loadPptxImage({
+      relationship,
+      zip: args.zip,
+      slideWidthEmu: args.slideWidthEmu,
+      slideHeightEmu: args.slideHeightEmu,
+      x: transform.x,
+      y: transform.y,
+      width: transform.width,
+      height: transform.height,
+      crop: parseImageCrop(node),
+    });
+    if (!image) return [];
+    args.images.push(image.image);
+    return [
+      {
+        id,
+        name,
+        kind: "image",
+        ...transform,
+        image: image.image,
+      },
+    ];
+  }
+
+  const hasText = text.some((paragraph) => paragraph.runs.length > 0);
+  if (hasText) {
+    return [
+      {
+        id,
+        name,
+        ...(placeholderType ? { placeholderType } : {}),
+        kind: "text",
+        ...transform,
+        shapeType,
+        ...(fill ? { fill } : {}),
+        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+        ...parseTextBoxProperties(node),
+        paragraphs: text,
+      },
+    ];
+  }
+
+  if (fill || line) {
+    return [
+      {
+        id,
+        name,
+        kind: "shape",
+        ...transform,
+        shapeType,
+        ...(fill ? { fill } : {}),
+        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+      },
+    ];
+  }
+
+  return [];
+}
+
+function extractDirectShapeFragments(xml: string, container: string): string[] {
+  const containerMatch = new RegExp(`<p:${container}\\b[^>]*>`, "i").exec(xml);
+  if (!containerMatch) return [];
+  const containerEnd = findMatchingXmlTag(xml, containerMatch.index, container);
+  if (containerEnd < 0) return [];
+  const start = containerMatch.index + containerMatch[0].length;
+  const end = containerEnd;
+  const tagPattern = /<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b[^>]*>/g;
+  tagPattern.lastIndex = start;
+  const stack: string[] = [];
+  const fragments: string[] = [];
+  let shapeStart = -1;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(xml)) && match.index < end) {
+    const token = match[0];
+    const localName = match[1];
+    const isClosing = token.startsWith("</");
+    const isSelfClosing = /\/\s*>$/.test(token);
+    if (isClosing) {
+      if (stack.length > 0) stack.pop();
+      if (stack.length === 0 && shapeStart >= 0) {
+        fragments.push(xml.slice(shapeStart, match.index + token.length));
+        shapeStart = -1;
+      }
+      continue;
+    }
+    if (stack.length === 0 && SHAPE_ELEMENT_NAMES.has(localName)) {
+      shapeStart = match.index;
+    }
+    if (!isSelfClosing) stack.push(localName);
+  }
+  return fragments;
+}
+
+function findMatchingXmlTag(
+  xml: string,
+  start: number,
+  localName: string,
+): number {
+  const tagPattern = /<\/?(?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*)\b[^>]*>/g;
+  tagPattern.lastIndex = start;
+  let depth = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tagPattern.exec(xml))) {
+    const token = match[0];
+    if (match[1] !== localName || /\/\s*>$/.test(token)) continue;
+    if (token.startsWith("</")) {
+      depth -= 1;
+      if (depth === 0) return match.index;
+    } else {
+      depth += 1;
+    }
+  }
+  return -1;
+}
+
+function readShapeId(node: Record<string, unknown>): string {
+  const cNvPr =
+    record(record(node["p:nvSpPr"])?.["p:cNvPr"]) ??
+    record(record(node["p:nvPicPr"])?.["p:cNvPr"]);
+  return (
+    stringValue(cNvPr?.["@_id"]) ??
+    `shape-${Math.random().toString(36).slice(2)}`
+  );
+}
+
+function readShapeName(node: Record<string, unknown>): string | undefined {
+  return stringValue(record(record(node["p:nvSpPr"])?.["p:cNvPr"])?.["@_name"]);
+}
+
+function readPoint(value: unknown): { x: number; y: number } {
+  const point = record(value);
+  return {
+    x: Number(point?.["@_x"]) || 0,
+    y: Number(point?.["@_y"]) || 0,
+  };
+}
+
+function readExtent(value: unknown): { x: number; y: number } {
+  const extent = record(value);
+  return {
+    x: Number(extent?.["@_cx"]) || 0,
+    y: Number(extent?.["@_cy"]) || 0,
+  };
+}
+
+function readTransform(
+  node: Record<string, unknown>,
+  key: string,
+): ParsedShapeTransform {
+  const xfrm = record(record(node[key])?.["a:xfrm"]);
+  const off = readPoint(xfrm?.["a:off"]);
+  const ext = readExtent(xfrm?.["a:ext"]);
+  const rawRotation = Number(xfrm?.["@_rot"]);
+  return {
+    x: off.x,
+    y: off.y,
+    width: ext.x,
+    height: ext.y,
+    ...(Number.isFinite(rawRotation) && rawRotation !== 0
+      ? { rotation: rawRotation / 60000 }
+      : {}),
+  };
+}
+
+function applyTransform(
+  transform: ParsedShapeTransform,
+  context: ShapeTransformContext,
+): ParsedShapeTransform {
+  return {
+    x: context.originX + transform.x * context.scaleX,
+    y: context.originY + transform.y * context.scaleY,
+    width: transform.width * context.scaleX,
+    height: transform.height * context.scaleY,
+    ...(transform.rotation || context.rotation
+      ? { rotation: (transform.rotation ?? 0) + context.rotation }
+      : {}),
+  };
+}
+
+function parseTextBody(node: Record<string, unknown>): ParsedPptxParagraph[] {
+  const txBody = record(node["p:txBody"]);
+  if (!txBody) return [];
+  return asArray(txBody["a:p"]).map((rawParagraph) => {
+    const paragraph = record(rawParagraph);
+    const pPr = record(paragraph?.["a:pPr"]);
+    const runs: ParsedPptxTextRun[] = [];
+    for (const rawRun of asArray(paragraph?.["a:r"])) {
+      const run = record(rawRun);
+      const content = innerText(run?.["a:t"]);
+      if (content) {
+        runs.push({
+          content,
+          ...runProperties(record(run?.["a:rPr"]), {}),
+        });
+      }
+    }
+    for (const rawField of asArray(paragraph?.["a:fld"])) {
+      const field = record(rawField);
+      const content = innerText(field?.["a:t"]);
+      if (content) {
+        runs.push({
+          content,
+          ...runProperties(record(field?.["a:rPr"]), {}),
+        });
+      }
+    }
+    const bullet = record(pPr?.["a:buChar"]);
+    const bulletColor = parseColor(record(pPr?.["a:buClr"]));
+    const bulletFont = stringValue(record(pPr?.["a:buFont"])?.["@_typeface"]);
+    const bulletSize = Number(record(pPr?.["a:buSzPts"])?.["@_val"]);
+    const lineSpacing = parseParagraphSpacing(pPr?.["a:lnSpc"]);
+    const spaceBeforePt = parsePoints(pPr?.["a:spcBef"]);
+    const spaceAfterPt = parsePoints(pPr?.["a:spcAft"]);
+    const alignment = mapAlignment(stringValue(pPr?.["@_algn"]));
+    return {
+      runs,
+      ...(alignment ? { alignment } : {}),
+      ...(bullet?.["@_char"] && !pPr?.["a:buNone"]
+        ? { bulletChar: String(bullet["@_char"]) }
+        : {}),
+      ...(bulletColor ? { bulletColor } : {}),
+      ...(bulletFont ? { bulletFontFamily: bulletFont } : {}),
+      ...(Number.isFinite(bulletSize) && bulletSize > 0
+        ? { bulletSize: bulletSize / 100 }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_lvl"]))
+        ? { level: Number(pPr?.["@_lvl"]) }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_marL"]))
+        ? { marginLeftEmu: Number(pPr?.["@_marL"]) }
+        : {}),
+      ...(Number.isFinite(Number(pPr?.["@_indent"]))
+        ? { indentEmu: Number(pPr?.["@_indent"]) }
+        : {}),
+      ...(lineSpacing !== undefined ? { lineSpacing } : {}),
+      ...(spaceBeforePt !== undefined ? { spaceBeforePt } : {}),
+      ...(spaceAfterPt !== undefined ? { spaceAfterPt } : {}),
+    };
+  });
+}
+
+function parseTextBoxProperties(
+  node: Record<string, unknown>,
+): Pick<ParsedPptxElement, "padding" | "verticalAlign"> {
+  const bodyPr = record(record(node["p:txBody"])?.["a:bodyPr"]);
+  if (!bodyPr) return {};
+  const anchor = stringValue(bodyPr["@_anchor"]);
+  return {
+    padding: {
+      left: Number(bodyPr["@_lIns"]) || 0,
+      right: Number(bodyPr["@_rIns"]) || 0,
+      top: Number(bodyPr["@_tIns"]) || 0,
+      bottom: Number(bodyPr["@_bIns"]) || 0,
+    },
+    ...(anchor === "ctr"
+      ? { verticalAlign: "middle" as const }
+      : anchor === "b"
+        ? { verticalAlign: "bottom" as const }
+        : { verticalAlign: "top" as const }),
+  };
+}
+
+function parseShapeFill(
+  shapeProperties: Record<string, unknown> | null,
+): string | undefined {
+  if (!shapeProperties) return undefined;
+  if (shapeProperties["a:noFill"] !== undefined) return undefined;
+  return parseColor(record(shapeProperties["a:solidFill"]));
+}
+
+function parseShapeLine(
+  shapeProperties: Record<string, unknown> | null,
+): { color: string; width?: number } | undefined {
+  const line = record(shapeProperties?.["a:ln"]);
+  if (!line || line["a:noFill"] !== undefined) return undefined;
+  const color = parseColor(record(line["a:solidFill"]));
+  if (!color) return undefined;
+  const width = Number(line["@_w"]);
+  return {
+    color,
+    ...(Number.isFinite(width) && width > 0 ? { width } : {}),
+  };
+}
+
+function parseColor(value: Record<string, unknown> | null): string | undefined {
+  if (!value) return undefined;
+  const rgb = stringValue(record(value["a:srgbClr"])?.["@_val"]);
+  if (rgb) return `#${rgb}`;
+  const scheme = stringValue(record(value["a:schemeClr"])?.["@_val"]);
+  if (!scheme) return undefined;
+  const pptxDarkColor = "#000000"; // guard:allow-raw-color - PPTX dark scheme fallback
+  const pptxLightColor = "#ffffff"; // guard:allow-raw-color - PPTX light scheme fallback
+  const fallback: Record<string, string> = {
+    dk1: pptxDarkColor,
+    dk2: pptxDarkColor,
+    lt1: pptxLightColor,
+    lt2: pptxLightColor,
+  };
+  return fallback[scheme];
+}
+
+function parseParagraphSpacing(value: unknown): number | undefined {
+  const node = record(value);
+  const percent = Number(record(node?.["a:spcPct"])?.["@_val"]);
+  if (Number.isFinite(percent) && percent > 0) return percent / 100000;
+  return parsePoints(node?.["a:spcPts"]);
+}
+
+function parsePoints(value: unknown): number | undefined {
+  const node = record(value);
+  const points = Number(node?.["@_val"]);
+  return Number.isFinite(points) && points >= 0 ? points / 100 : undefined;
+}
+
+function mapAlignment(
+  value: string | undefined,
+): ParsedPptxParagraph["alignment"] {
+  if (value === "ctr") return "center";
+  if (value === "r") return "right";
+  if (value === "just") return "justify";
+  if (value === "l") return "left";
+  return undefined;
+}
+
+function parseImageCrop(
+  node: Record<string, unknown>,
+): ParsedPptxImage["crop"] {
+  const srcRect = record(record(node["p:blipFill"])?.["a:srcRect"]);
+  if (!srcRect) return undefined;
+  const left = Number(srcRect["@_l"]) || 0;
+  const top = Number(srcRect["@_t"]) || 0;
+  const right = Number(srcRect["@_r"]) || 0;
+  const bottom = Number(srcRect["@_b"]) || 0;
+  return left || top || right || bottom
+    ? {
+        left: left / 100000,
+        top: top / 100000,
+        right: right / 100000,
+        bottom: bottom / 100000,
+      }
+    : undefined;
+}
+
+async function loadPptxImage(args: {
+  relationship: { target: string; type: string };
+  zip: ZipArchive;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  crop?: ParsedPptxImage["crop"];
+}): Promise<{ image: ParsedPptxImage; element: ParsedPptxElement } | null> {
+  if (
+    !args.relationship.type.includes("/image") &&
+    !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
+      args.relationship.target,
+    )
+  ) {
+    return null;
+  }
+  const imagePath = args.relationship.target.startsWith("/")
+    ? args.relationship.target.slice(1)
+    : args.relationship.target.startsWith("../")
+      ? `ppt/${args.relationship.target.replace(/^\.\.\//, "")}`
+      : `ppt/slides/${args.relationship.target}`;
+  const imageFile = args.zip.file(imagePath);
+  if (!imageFile) return null;
+  const name = imagePath.split("/").at(-1) ?? "image";
+  const image: ParsedPptxImage = {
+    data: new Uint8Array(await imageFile.async("nodebuffer")),
+    mimeType: imageMimeType(name),
+    name,
+    aspectRatio:
+      args.width && args.height ? args.width / args.height : undefined,
+    fullBleed: Boolean(
+      args.width &&
+      args.height &&
+      args.slideWidthEmu &&
+      args.slideHeightEmu &&
+      args.width / args.slideWidthEmu >= 0.85 &&
+      args.height / args.slideHeightEmu >= 0.85,
+    ),
+    ...(args.crop ? { crop: args.crop } : {}),
+  };
+  return {
+    image,
+    element: {
+      id: `image-${name}-${args.x}-${args.y}`,
+      name,
+      kind: "image",
+      x: args.x,
+      y: args.y,
+      width: args.width,
+      height: args.height,
+      image,
+    },
+  };
+}
+
+function flattenElementText(
+  elements: ParsedPptxElement[],
+): ParsedPptxTextRun[] {
+  const output: ParsedPptxTextRun[] = [];
+  const textElements = elements.filter(
+    (element) => element.kind === "text" && element.paragraphs,
+  );
+  for (const [elementIndex, element] of textElements.entries()) {
+    const paragraphs = element.paragraphs ?? [];
+    for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+      output.push(...paragraph.runs);
+      if (paragraphIndex < paragraphs.length - 1)
+        output.push({ content: "\n" });
+    }
+    if (elementIndex < textElements.length - 1) output.push({ content: "\n" });
+  }
+  return output;
+}
+
+function extractSlideBackgroundColor(value: unknown): string | undefined {
+  const root = record(value);
+  const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
+  const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
+  return parseColor(record(bgPr?.["a:solidFill"]));
+}
+
+export function parsePptxSlideMetadata(
+  value: unknown,
+): ParsedPptxSlideMetadata {
+  const slide = record(value)?.["p:sld"] ?? value;
+  const transition = parsePptxTransition(slide);
+  return {
+    ...(transition ? { transition } : {}),
+    ...(detectSplitByParagraph(slide) ? { splitByParagraph: true } : {}),
+  };
 }
 
 async function parseTheme(
@@ -223,6 +956,17 @@ function collectTextRuns(
 ): void {
   const node = record(value);
   if (!node) return;
+  const paragraphs = asArray(node["a:p"]);
+  if (paragraphs.length > 0) {
+    paragraphs.forEach((paragraph, index) => {
+      const before = runs.length;
+      collectTextRuns(paragraph, runs, inherited);
+      if (runs.length > before && index < paragraphs.length - 1) {
+        runs.push({ content: "\n" });
+      }
+    });
+    return;
+  }
   for (const raw of asArray(node["a:r"])) {
     const run = record(raw);
     const content = innerText(run?.["a:t"]);
@@ -238,192 +982,60 @@ function collectTextRuns(
   }
   for (const [key, child] of Object.entries(node)) {
     if (key.startsWith("@_") || key === "a:r" || key === "a:t") continue;
-    for (const item of asArray(child)) collectTextRuns(item, runs, inherited);
+    const items = asArray(child);
+    items.forEach((item, index) => {
+      const before = runs.length;
+      collectTextRuns(item, runs, inherited);
+      if (key === "p:sp" && index < items.length - 1 && runs.length > before) {
+        runs.push({ content: "\n" });
+      }
+    });
   }
 }
 
-interface PictureShape {
-  embedId?: string;
-  widthEmu?: number;
-  heightEmu?: number;
-}
+const PPTX_TRANSITION_MAP: Record<string, ParsedPptxTransition> = {
+  "p:fade": "fade",
+  "p:zoom": "zoom",
+  "p:push": "slide",
+  "p:wipe": "slide",
+  "p:split": "slide",
+  "p:cut": "instant",
+};
 
-/**
- * Recursively find every embedded picture in a slide, in document order:
- * plain `p:pic` shapes, and `p:sp` autoshapes whose fill is a picture
- * (common for "photo cutout" shapes and full-bleed decorative rectangles).
- * A group shape (`p:grpSp`) defines its own local coordinate space for its
- * children (`chOff`/`chExt`) that can be scaled arbitrarily relative to the
- * group's own placed size on the slide, so each level of nesting multiplies
- * a running scale factor into the child sizes below it — without that, a
- * picture inside a resized group would report its unscaled design-time
- * size instead of how large it actually appears on the slide.
- */
-function collectPictureShapes(
-  value: unknown,
-  out: PictureShape[],
-  scaleX = 1,
-  scaleY = 1,
-): void {
+function parsePptxTransition(value: unknown): ParsedPptxTransition | undefined {
   const node = record(value);
-  if (!node) return;
-  for (const [key, child] of Object.entries(node)) {
-    if (key.startsWith("@_")) continue;
-    if (key === "p:pic") {
-      for (const picNode of asArray(child)) {
-        const pic = record(picNode);
-        const blip = record(record(pic?.["p:blipFill"])?.["a:blip"]);
-        out.push(
-          scaledShape(
-            stringValue(blip?.["@_r:embed"]),
-            extFromSpPr(pic),
-            scaleX,
-            scaleY,
-          ),
-        );
-      }
-      continue;
+  const transition = record(node?.["p:transition"]);
+  if (!transition) return undefined;
+  for (const key of Object.keys(transition)) {
+    const mapped = PPTX_TRANSITION_MAP[key];
+    if (mapped) return mapped;
+  }
+  return undefined;
+}
+
+function detectSplitByParagraph(value: unknown): boolean {
+  let clickParagraphRanges = 0;
+  walk(value, false);
+  return clickParagraphRanges > 1;
+
+  function walk(nodeValue: unknown, clickContext: boolean): void {
+    const node = record(nodeValue);
+    if (!node) return;
+    const nodeType = stringValue(node["@_nodeType"]);
+    const event = stringValue(node["@_evt"]);
+    const nextClickContext =
+      clickContext ||
+      nodeType === "clickEffect" ||
+      nodeType === "clickPar" ||
+      event === "onClick";
+    if (nextClickContext) {
+      clickParagraphRanges += asArray(node["p:pRg"]).length;
     }
-    if (key === "p:sp") {
-      for (const spNode of asArray(child)) {
-        const sp = record(spNode);
-        const blip = record(
-          record(record(sp?.["p:spPr"])?.["a:blipFill"])?.["a:blip"],
-        );
-        const embedId = stringValue(blip?.["@_r:embed"]);
-        if (embedId) {
-          out.push(scaledShape(embedId, extFromSpPr(sp), scaleX, scaleY));
-        }
-      }
-      continue;
-    }
-    if (key === "p:grpSp") {
-      for (const groupNode of asArray(child)) {
-        const scale = groupChildScale(record(groupNode), scaleX, scaleY);
-        collectPictureShapes(groupNode, out, scale.x, scale.y);
-      }
-      continue;
-    }
-    for (const item of asArray(child)) {
-      collectPictureShapes(item, out, scaleX, scaleY);
+    for (const [key, child] of Object.entries(node)) {
+      if (key.startsWith("@_") || key === "p:pRg") continue;
+      for (const item of asArray(child)) walk(item, nextClickContext);
     }
   }
-}
-
-/** Whether an `a:xfrm` `rot` value (60,000ths of a degree) is an odd multiple of 90° — a 90/270 turn that swaps effective width and height. */
-function isOddQuarterTurn(rot: number): boolean {
-  if (!Number.isFinite(rot)) return false;
-  const quarterTurns = Math.round(rot / 60000 / 90);
-  return ((quarterTurns % 2) + 2) % 2 === 1;
-}
-
-/**
- * A group's `chExt` is the coordinate space its children are authored in;
- * `ext` is how large the group actually renders — the ratio between them is
- * the extra scale nested children need on top of their own declared size.
- * When the group itself is rotated a 90/270-degree turn, that ratio applies
- * to the perpendicular axis on the slide, so the X/Y scale factors need
- * swapping the same way a rotated picture's own width/height do.
- */
-function groupChildScale(
-  groupNode: Record<string, unknown> | null,
-  parentScaleX: number,
-  parentScaleY: number,
-): { x: number; y: number } {
-  const xfrm = record(record(groupNode?.["p:grpSpPr"])?.["a:xfrm"]);
-  const ext = record(xfrm?.["a:ext"]);
-  const chExt = record(xfrm?.["a:chExt"]);
-  const extCx = Number(ext?.["@_cx"]);
-  const extCy = Number(ext?.["@_cy"]);
-  const chExtCx = Number(chExt?.["@_cx"]);
-  const chExtCy = Number(chExt?.["@_cy"]);
-  let groupScaleX =
-    Number.isFinite(extCx) && Number.isFinite(chExtCx) && chExtCx > 0
-      ? extCx / chExtCx
-      : 1;
-  let groupScaleY =
-    Number.isFinite(extCy) && Number.isFinite(chExtCy) && chExtCy > 0
-      ? extCy / chExtCy
-      : 1;
-  if (isOddQuarterTurn(Number(xfrm?.["@_rot"]))) {
-    [groupScaleX, groupScaleY] = [groupScaleY, groupScaleX];
-  }
-  return { x: parentScaleX * groupScaleX, y: parentScaleY * groupScaleY };
-}
-
-/**
- * `a:xfrm/a:ext` always stores the shape's *unrotated* design-time width and
- * height — `a:xfrm/@rot` (in 60,000ths of a degree) rotates it around its
- * own center afterward. For a 90/270-degree turn, the shape's effective
- * on-slide footprint has its width and height swapped relative to that
- * declared size, so a rotated full-bleed photo can otherwise get treated as
- * a small inset, or a portrait image get an inverted aspect ratio.
- */
-function extFromSpPr(shapeNode: Record<string, unknown> | null): {
-  cx?: number;
-  cy?: number;
-} {
-  const xfrm = record(record(shapeNode?.["p:spPr"])?.["a:xfrm"]);
-  const ext = record(xfrm?.["a:ext"]);
-  const cx = Number(ext?.["@_cx"]);
-  const cy = Number(ext?.["@_cy"]);
-  if (!Number.isFinite(cx) || cx <= 0 || !Number.isFinite(cy) || cy <= 0) {
-    return { cx: undefined, cy: undefined };
-  }
-  return isOddQuarterTurn(Number(xfrm?.["@_rot"]))
-    ? { cx: cy, cy: cx }
-    : { cx, cy };
-}
-
-function scaledShape(
-  embedId: string | undefined,
-  size: { cx?: number; cy?: number },
-  scaleX: number,
-  scaleY: number,
-): PictureShape {
-  return {
-    embedId,
-    widthEmu: size.cx !== undefined ? size.cx * scaleX : undefined,
-    heightEmu: size.cy !== undefined ? size.cy * scaleY : undefined,
-  };
-}
-
-/**
- * fast-xml-parser groups sibling elements by tag name, so a slide whose
- * picture-bearing shapes alternate types on the page (e.g. `p:sp`, `p:pic`,
- * `p:sp`) comes out of `collectPictureShapes` re-sorted by tag rather than
- * by the order they actually appear — every `p:sp` gets visited before any
- * `p:pic`, even if a `p:pic` came first in the file. Re-derive the true
- * order from the raw XML text instead: `<a:blip r:embed="...">` occurrences
- * appear in exactly document order regardless of nesting, so they can be
- * used to restore the author's original front-to-back ordering (which
- * matters because downstream rendering treats the first image as primary).
- */
-function reorderByDocumentPosition(shapes: PictureShape[], xml: string): void {
-  const order: string[] = [];
-  const blipPattern = /<a:blip\b[^>]*\br:embed=(?:"([^"]+)"|'([^']+)')/g;
-  let match: RegExpExecArray | null;
-  while ((match = blipPattern.exec(xml))) order.push(match[1] ?? match[2]);
-
-  // The same relationship id can legitimately be reused across multiple
-  // placements (e.g. a repeated icon), so looking up a single fixed index
-  // per id would assign every reused shape the position of its first XML
-  // occurrence. Instead give each id a queue of its occurrence positions
-  // and consume one per shape, in the order shapes were collected.
-  const occurrences = new Map<string, number[]>();
-  order.forEach((embedId, index) => {
-    const queue = occurrences.get(embedId);
-    if (queue) queue.push(index);
-    else occurrences.set(embedId, [index]);
-  });
-  const positions = shapes.map((shape) => {
-    const queue = shape.embedId ? occurrences.get(shape.embedId) : undefined;
-    return queue && queue.length > 0 ? queue.shift()! : -1;
-  });
-  const sortedIndices = shapes.map((_, i) => i);
-  sortedIndices.sort((a, b) => positions[a] - positions[b]);
-  const sorted = sortedIndices.map((i) => shapes[i]);
-  shapes.splice(0, shapes.length, ...sorted);
 }
 
 /** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
@@ -435,29 +1047,6 @@ function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
   return stringValue(blip?.["@_r:embed"]);
 }
 
-/**
- * Add the slide's background picture fill, if any, as a synthetic
- * full-slide-sized shape. It's unshifted to the front rather than appended:
- * downstream rendering only ever uses the first image in the list, and a
- * background fill is the slide's base layer — the primary visual — so a
- * smaller foreground picture (a logo, an icon) must not bump it out of that
- * slot.
- */
-function addBackgroundFillShape(
-  slide: unknown,
-  pictureShapes: PictureShape[],
-  slideWidthEmu: number | undefined,
-  slideHeightEmu: number | undefined,
-): void {
-  const embedId = extractBackgroundFillEmbedId(slide);
-  if (!embedId) return;
-  pictureShapes.unshift({
-    embedId,
-    widthEmu: slideWidthEmu,
-    heightEmu: slideHeightEmu,
-  });
-}
-
 function runProperties(
   value: Record<string, unknown> | null,
   inherited: Omit<ParsedPptxTextRun, "content">,
@@ -467,6 +1056,10 @@ function runProperties(
   const rgb = stringValue(
     record(record(value["a:solidFill"])?.["a:srgbClr"])?.["@_val"],
   );
+  const fontFamily =
+    stringValue(record(value["a:latin"])?.["@_typeface"]) ??
+    stringValue(record(value["a:ea"])?.["@_typeface"]) ??
+    stringValue(record(value["a:cs"])?.["@_typeface"]);
   return {
     ...inherited,
     ...(value["@_b"] === "1" || value["@_b"] === 1 || value["@_b"] === true
@@ -477,6 +1070,8 @@ function runProperties(
       : {}),
     ...(Number.isFinite(size) && size > 0 ? { fontSize: size / 100 } : {}),
     ...(rgb ? { color: `#${rgb}` } : {}),
+    ...(fontFamily ? { fontFamily } : {}),
+    ...(value["@_u"] && value["@_u"] !== "none" ? { underline: true } : {}),
   };
 }
 
@@ -544,6 +1139,7 @@ async function loadPptxDependencies(): Promise<{
     const parser = new xmlModule.XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
+      trimValues: false,
     });
     return {
       loadZip: (data) => zipModule.default.loadAsync(data),

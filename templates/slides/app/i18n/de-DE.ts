@@ -666,18 +666,18 @@ const messages = {
     mine: "Meine",
     deckCount_one: "Deck",
     deckCount_other: "Decks",
-    createDeckOrVisual: "Deck oder Visualisierung erstellen",
+    createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
     cancel: "Abbrechen",
     delete: "Löschen",
-    newDeckPromptTitle: "Neues Deck",
+    newDeckPromptTitle: "Neue Präsentation",
     newDeckPlaceholder:
-      "Beschreibe dein Deck, deine Visualisierung oder dein Diagramm...",
+      "Beschreibe die Präsentation, die du erstellen möchtest...",
     skipPrompt: "Prompt überspringen",
-    firstDeckPromptTitle: "Was möchtest du erstellen?",
+    firstDeckPromptTitle: "Welche Art von Präsentation sollen wir erstellen?",
     firstDeckSkip: "Überspringen",
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
@@ -697,6 +697,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Verbinde Google Drive, um ein Slides-Deck zu importieren.",
     googleSlidesReferenceChoose: "Google-Slides-Deck auswählen",
+    googleSlidesReferenceUrl: "Google-Slides-Link einfügen",
     googleSlidesReferencePicking: "Wird bearbeitet...",
     googleSlidesReferenceConnected:
       "Verbunden. Wähle ein Google-Slides-Deck als wiederverwendbare Referenz.",
@@ -730,7 +731,7 @@ const messages = {
     emptyTitle: "Noch keine Decks",
     createFirstDeck: "Erstelle dein erstes Deck",
     emptyDescription:
-      "Erstelle schöne Präsentationen, eigenständige Visuals, Diagramme und bildreiche Geschichten mit KI-gestützter Generierung.",
+      "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
   },
 };
 

@@ -143,6 +143,28 @@ function terminalTaskError(value: unknown): {
   };
 }
 
+/**
+ * A delegated failure must be an error at the caller's tool boundary. Returning
+ * an `Error: ...` string makes the production agent treat the failed call as a
+ * successful tool result, so it can spend the rest of its turn retrying or
+ * changing arguments while the real failure remains invisible to the loop
+ * breaker.
+ */
+class A2AInvocationError extends Error {
+  readonly taskId?: string;
+  readonly errorCode?: string;
+
+  constructor(
+    message: string,
+    options: { taskId?: string; errorCode?: string } = {},
+  ) {
+    super(message);
+    this.name = "A2AInvocationError";
+    this.taskId = options.taskId;
+    this.errorCode = options.errorCode;
+  }
+}
+
 function buildMessageIdempotencyKey(
   originatingTurnId: string | undefined,
   target: string,
@@ -478,6 +500,7 @@ export async function run(
           status: terminalStatus,
           agentCallId,
           durationMs: Date.now() - startedAt,
+          ...(terminalCode ? { terminalCode } : {}),
         });
       }
     }
@@ -663,6 +686,12 @@ export async function run(
       let lastProgressEmitAt = callStartedAt;
       let lastActivitySequence = -1;
       const onRemotePollUpdate = (task: Task) => {
+        // Capture the remote task id on every poll, not only on the timeout and
+        // error branches that used to set it. Without this a call that SUCCEEDS
+        // slowly carries no task id, so "why did this one take four minutes?"
+        // cannot be traced into the receiving app's own task record — which is
+        // the question worth asking about a slow cross-app call.
+        if (task?.id) invocationTaskId = task.id;
         const state = task?.status?.state;
         const parts = task.status?.message?.parts;
         const snapshot = Array.isArray(parts)
@@ -830,7 +859,20 @@ export async function run(
         agentCallId,
         ...(invocationTaskId ? { taskId: invocationTaskId } : {}),
         durationMs: Date.now() - callStartedAt,
+        ...(invocationTerminalCode
+          ? { terminalCode: invocationTerminalCode }
+          : {}),
       });
+
+      if (terminalStatus === "error") {
+        throw new A2AInvocationError(
+          responseText || `Error: The ${agent.name} agent returned no result.`,
+          {
+            taskId: invocationTaskId,
+            errorCode: invocationTerminalCode,
+          },
+        );
+      }
 
       return (
         responseText || `Error: The ${agent.name} agent returned no result.`
@@ -882,6 +924,7 @@ export async function run(
     invocationStatus = "success";
     return expanded;
   } catch (err: any) {
+    if (err instanceof A2AInvocationError) throw err;
     const msg = err?.message ?? String(err);
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
@@ -903,11 +946,15 @@ export async function run(
       invocationStatus = "error";
       invocationTaskId = terminal.taskId;
       invocationTerminalCode = terminal.errorCode ?? terminal.state;
-      return (
+      throw new A2AInvocationError(
         `Error calling ${agent.name}: remote task ${terminal.state}` +
-        (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
-        (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
-        (terminal.responseText ? `: ${terminal.responseText}` : "")
+          (terminal.errorCode ? ` (${terminal.errorCode})` : "") +
+          (terminal.taskId ? ` [taskId: ${terminal.taskId}]` : "") +
+          (terminal.responseText ? `: ${terminal.responseText}` : ""),
+        {
+          taskId: terminal.taskId,
+          errorCode: terminal.errorCode ?? terminal.state,
+        },
       );
     }
     const timeoutTaskId = getA2ATaskTimeoutTaskId(err);
@@ -926,11 +973,16 @@ export async function run(
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
       invocationStatus = "error";
       invocationTerminalCode = "timeout_without_task";
-      return `Error calling ${agent.name}: the remote request timed out before a task id could be recovered.`;
+      throw new A2AInvocationError(
+        `Error calling ${agent.name}: the remote request timed out before a task id could be recovered.`,
+        { errorCode: "timeout_without_task" },
+      );
     }
     invocationStatus = "error";
     invocationTerminalCode = "call_failed";
-    return `Error calling ${agent.name}: ${msg}`;
+    throw new A2AInvocationError(`Error calling ${agent.name}: ${msg}`, {
+      errorCode: "call_failed",
+    });
   } finally {
     trackA2AInvocation({
       invocationId,

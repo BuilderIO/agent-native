@@ -7,5 +7,5 @@ export function meta() {
 }
 
 export default function ExtensionsRoute() {
-  return <Navigate to="/settings#extensions" replace />;
+  return <Navigate to="/settings/extensions" replace />;
 }

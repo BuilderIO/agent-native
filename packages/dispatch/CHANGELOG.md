@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.17.6
+
+### Patch Changes
+
+- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
+
+## 0.17.5
+
+### Patch Changes
+
+- 158965b: Report unauthorized thread-debug source access as a client-safe 403 instead of a server error.
+
 ## 0.17.4
 
 ### Patch Changes

@@ -9,6 +9,15 @@ const healthMocks = vi.hoisted(() => ({
   outcome: vi.fn(() => "error"),
   record: vi.fn(),
 }));
+const backendMocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  table: vi.fn(),
+  insert: vi.fn(),
+  query: vi.fn(),
+}));
+const exceptionMocks = vi.hoisted(() => ({
+  ingest: vi.fn(),
+}));
 const analyticsDbMocks = vi.hoisted(() => {
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
@@ -45,10 +54,20 @@ vi.mock("../db/index.js", async (importOriginal) => ({
 vi.mock("./first-party-analytics-rollups.js", () => ({
   upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
 }));
+vi.mock("./error-capture.js", () => ({
+  EXCEPTION_EVENT_NAME: "$exception",
+  ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
+}));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
   queryOutcomeFromError: healthMocks.outcome,
   recordFirstPartyAnalyticsQueryPressure: healthMocks.record,
+}));
+vi.mock("./first-party-analytics-backend.js", () => ({
+  getFirstPartyAnalyticsBackend: backendMocks.get,
+  getFirstPartyAnalyticsTable: backendMocks.table,
+  insertFirstPartyAnalyticsRows: backendMocks.insert,
+  queryFirstPartyAnalyticsInBigQuery: backendMocks.query,
 }));
 
 import {
@@ -71,6 +90,7 @@ beforeEach(() => {
   ]);
   analyticsDbMocks.insertValues.mockResolvedValue(undefined);
   analyticsDbMocks.updateWhere.mockResolvedValue(undefined);
+  rollupMocks.upsert.mockReset();
   rollupMocks.upsert.mockResolvedValue({
     eventCount: 1,
     dailyRollupCount: 1,
@@ -80,6 +100,29 @@ beforeEach(() => {
   healthMocks.outcome.mockClear();
   healthMocks.record.mockReset();
   healthMocks.record.mockResolvedValue(undefined);
+  backendMocks.get.mockReset();
+  backendMocks.table.mockReset();
+  backendMocks.insert.mockReset();
+  backendMocks.query.mockReset();
+  exceptionMocks.ingest.mockReset();
+  backendMocks.get.mockResolvedValue({
+    sink: "postgres",
+    table: null,
+    backfillCursor: null,
+    backfillCompleted: false,
+  });
+  backendMocks.table.mockResolvedValue({
+    projectId: "builder-3b0a2",
+    datasetId: "analytics",
+    tableId: "first_party_analytics_events_raw",
+    fullyQualified: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+  });
+  backendMocks.insert.mockResolvedValue(1);
+  backendMocks.query.mockResolvedValue({
+    rows: [{ events: 1 }],
+    schema: [{ name: "events", type: "number" }],
+  });
+  exceptionMocks.ingest.mockResolvedValue(undefined);
 });
 
 describe("resolveAnalyticsEventDimensions", () => {
@@ -173,6 +216,12 @@ describe("recordAnalyticsEvents", () => {
     ).toBeLessThan(rollupMocks.upsert.mock.invocationCallOrder[0]);
   });
 
+  it("does not acquire the retired historical-backfill lock during ingest", async () => {
+    await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
+
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("rejects the ingest when a rollup update fails", async () => {
     rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
 
@@ -218,6 +267,50 @@ describe("recordAnalyticsEvents", () => {
         signedIn: "false",
       }),
     ]);
+  });
+
+  it("stops Postgres event and rollup writes after the org cuts over", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]);
+
+    expect(backendMocks.insert).toHaveBeenCalledWith(
+      [expect.objectContaining({ eventName: "pageview" })],
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+    expect(analyticsDbMocks.insertValues).not.toHaveBeenCalled();
+    expect(rollupMocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps derived exception issues in SQL after the event cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "$exception",
+        properties: { error: "boom", app: "analytics" },
+      },
+    ]);
+
+    expect(backendMocks.insert).toHaveBeenCalled();
+    expect(exceptionMocks.ingest).toHaveBeenCalledWith(
+      {
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        publicKeyId: "apk_123",
+      },
+      [expect.objectContaining({ derived: expect.any(Object) })],
+    );
   });
 });
 
@@ -401,6 +494,54 @@ describe("scopedAnalyticsSql", () => {
 });
 
 describe("queryFirstPartyAnalytics", () => {
+  it("routes event queries to BigQuery after the org cuts over", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).resolves.toEqual({
+      rows: [{ events: 1 }],
+      schema: [{ name: "events", type: "number" }],
+    });
+
+    expect(backendMocks.table).toHaveBeenCalledWith(
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+    expect(backendMocks.query).toHaveBeenCalledWith(
+      expect.stringContaining("FROM analytics_events"),
+      expect.any(Array),
+      expect.objectContaining({
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      }),
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects event and session replay joins after the cutover", async () => {
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      backfillCursor: "evt_last",
+      backfillCompleted: true,
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events JOIN session_recordings ON true",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+      ),
+    ).rejects.toThrow("Cross-backend joins are not supported");
+  });
+
   it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 

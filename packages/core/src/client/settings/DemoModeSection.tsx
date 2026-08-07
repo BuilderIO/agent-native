@@ -5,8 +5,19 @@ import { Switch } from "@agent-native/toolkit/design-system";
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
 
-export function DemoModeSection() {
+export function DemoModeSection({ compact = false }: { compact?: boolean }) {
   const { enabled } = useDemoModeStatus();
+
+  if (compact) {
+    return (
+      <Switch
+        checked={enabled}
+        onChange={(checked) => setBrowserDemoModeEnabled(checked)}
+        aria-label="Enable demo mode"
+        className="shrink-0"
+      />
+    );
+  }
 
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-accent/30 px-2.5 py-2">

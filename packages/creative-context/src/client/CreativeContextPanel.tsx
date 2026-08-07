@@ -1197,7 +1197,7 @@ export function CreativeContextPanel({
   scope = "user",
   canManageOrg = false,
   scopeControl,
-  connectionsHref = "/settings#integrations",
+  connectionsHref = "/settings/integrations",
 }: CreativeContextPanelProps) {
   const t = useT();
   const { formatNumber } = useFormatters();

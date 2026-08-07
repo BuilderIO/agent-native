@@ -1657,17 +1657,44 @@ export function createAgentChatPlugin(
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
 
+          const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
+            appId: options?.appId,
+          });
+          // Preference only, and last before the default: an app that pinned
+          // a model keeps it. Read separately from the correlation sanitizer
+          // below so it stays out of every identity/access path.
+          const a2aCallerModelHint = sanitizeA2ACorrelationMetadata(
+            context.metadata,
+          ).callerModel;
           const model = resolveDelegatedRunModel(a2aEngine, {
             explicitModel: options?.model,
-            storedModel: await getStoredModelForEngine(a2aEngine, {
-              appId: options?.appId,
-            }),
-            // Preference only, and last before the default: an app that pinned
-            // a model keeps it. Read separately from the correlation sanitizer
-            // below so it stays out of every identity/access path.
-            callerModelHint: sanitizeA2ACorrelationMetadata(context.metadata)
-              .callerModel,
+            storedModel: a2aStoredModel,
+            callerModelHint: a2aCallerModelHint,
           });
+          // The interactive path logs its model AND where the model came from;
+          // this path logged neither, so "the same app answers me in 27s but
+          // takes 5 minutes when another app asks" had no way to be checked.
+          // The usual answer is right here: the chat model picker is a
+          // browser-local preference, so it reaches an interactive turn as the
+          // highest-precedence request model and never reaches this path at
+          // all — a delegated turn falls through to the app's stored model or
+          // the engine default, which can be a different, weaker model.
+          console.log(
+            `[a2a] resolved engine=${a2aEngine.name} model=${model} ` +
+              // A hint the callee's engine does not offer is dropped, so the
+              // label is derived from what actually won — reporting
+              // "caller-hint" for a rejected hint would send the next person
+              // debugging this in exactly the wrong direction.
+              `modelSource=${
+                options?.model
+                  ? "configured"
+                  : a2aStoredModel
+                    ? "stored"
+                    : a2aCallerModelHint && model === a2aCallerModelHint
+                      ? "caller-hint"
+                      : "default"
+              } callerHint=${a2aCallerModelHint ?? "(none)"} appId=${options?.appId ?? "(none)"}`,
+          );
           if (a2aRunContext) {
             a2aRunContext.engine = a2aEngine;
             a2aRunContext.model = model;
