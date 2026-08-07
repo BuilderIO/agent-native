@@ -25,6 +25,7 @@ import {
   backfillFirstPartyAnalyticsBatch,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
+  insertFirstPartyAnalyticsRows,
   renderFirstPartyAnalyticsBigQuerySql,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
@@ -185,8 +186,32 @@ describe("first-party BigQuery backend", () => {
 
     const [orgQuery] = execute.mock.calls[0] ?? [];
     const [personalQuery] = execute.mock.calls[1] ?? [];
-    expect(orgQuery.args.at(-1)).toBe(2_000);
-    expect(personalQuery.args.at(-1)).toBe(2_000);
+    expect(orgQuery.args.at(-1)).toBe(5_000);
+    expect(personalQuery.args.at(-1)).toBe(5_000);
+  });
+
+  it("keeps BigQuery streaming requests bounded", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      insertFirstPartyAnalyticsRows(
+        Array.from({ length: 201 }, (_, index) => ({ id: `event-${index}` })),
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toBe(201);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string).rows,
+    ).toHaveLength(200);
+    expect(
+      JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).rows,
+    ).toHaveLength(1);
+    vi.unstubAllGlobals();
   });
 
   it("hydrates only the bounded indexed keys selected for a batch", async () => {

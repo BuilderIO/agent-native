@@ -36,7 +36,7 @@ const migrationSchema = z.object({
       "Optional BigQuery table reference as dataset.table or project.dataset.table. The default is <BIGQUERY_PROJECT_ID>.analytics.first_party_analytics_events_raw.",
     ),
   cursor: z.string().trim().optional(),
-  limit: z.number().int().min(1).max(2_000).optional(),
+  limit: z.number().int().min(1).max(5_000).optional(),
   confirm: z.boolean().optional(),
 });
 

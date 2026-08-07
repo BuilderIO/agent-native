@@ -73,7 +73,8 @@ const FIRST_PARTY_QUERY_TABLES = [
   "analytics_user_days",
 ] as const;
 const BACKEND_CONFIG_CACHE_TTL_MS = 30_000;
-const MAX_BACKFILL_BATCH_SIZE = 2_000;
+const MAX_BACKFILL_BATCH_SIZE = 5_000;
+const MAX_INSERT_BATCH_SIZE = 200;
 
 const backendConfigCache = new Map<
   string,
@@ -362,8 +363,16 @@ export async function insertFirstPartyAnalyticsRows(
     getAccessToken(),
   ]);
   const payloadRows = rows.map(firstPartyEventRowToBigQuery);
-  for (let offset = 0; offset < payloadRows.length; offset += 50) {
-    await insertBatch(table, token, payloadRows.slice(offset, offset + 50));
+  for (
+    let offset = 0;
+    offset < payloadRows.length;
+    offset += MAX_INSERT_BATCH_SIZE
+  ) {
+    await insertBatch(
+      table,
+      token,
+      payloadRows.slice(offset, offset + MAX_INSERT_BATCH_SIZE),
+    );
   }
   return payloadRows.length;
 }

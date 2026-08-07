@@ -81,10 +81,10 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
 
   it("accepts a larger bounded backfill batch without allowing unbounded input", () => {
     expect(() =>
-      migrateAction.schema.parse({ mode: "backfill", limit: 2_000 }),
+      migrateAction.schema.parse({ mode: "backfill", limit: 5_000 }),
     ).not.toThrow();
     expect(() =>
-      migrateAction.schema.parse({ mode: "backfill", limit: 2_001 }),
+      migrateAction.schema.parse({ mode: "backfill", limit: 5_001 }),
     ).toThrow();
   });
 
