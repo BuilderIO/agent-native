@@ -1153,9 +1153,15 @@ export async function backfillFirstPartyAnalyticsBatch(
   const hydratedById = new Map(
     hydratedRows.map((row) => [backfillRowCursor(row).id, row]),
   );
-  const selectedEvents = selectedIds
-    .map((id) => hydratedById.get(id))
-    .filter((row): row is Record<string, unknown> => row !== undefined);
+  const selectedEvents = selectedIds.map((id) => {
+    const row = hydratedById.get(id);
+    if (!row) {
+      throw new Error(
+        `First-party analytics backfill row ${id} disappeared before hydration`,
+      );
+    }
+    return row;
+  });
   await insertFirstPartyAnalyticsRows(selectedEvents, configuredTable);
   const lastCursor = backfillRowCursor(selectedRows[selectedRows.length - 1]!);
   return {

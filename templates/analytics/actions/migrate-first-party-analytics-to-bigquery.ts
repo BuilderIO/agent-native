@@ -5,16 +5,16 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  getFirstPartyAnalyticsBigQueryBackfillJob,
+  queueFirstPartyAnalyticsBigQueryBackfill,
+} from "../server/jobs/analytics-bigquery-backfill.js";
 import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
 import {
   assertFirstPartyAnalyticsBigQueryReady,
   getFirstPartyAnalyticsBackend,
   saveFirstPartyAnalyticsBackend,
 } from "../server/lib/first-party-analytics-backend.js";
-import {
-  getFirstPartyAnalyticsBigQueryBackfillJob,
-  queueFirstPartyAnalyticsBigQueryBackfill,
-} from "../server/jobs/analytics-bigquery-backfill.js";
 
 async function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -38,14 +38,19 @@ const migrationSchema = z.object({
     .describe(
       "Optional BigQuery table reference as dataset.table or project.dataset.table. The default is <BIGQUERY_PROJECT_ID>.analytics.first_party_analytics_events_raw.",
     ),
-  cursor: z.string().trim().optional(),
-  limit: z.number().int().min(1).max(750).optional(),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(750)
+    .optional()
+    .describe("Optional per-page limit used when mode is prepare."),
   confirm: z.boolean().optional(),
 });
 
 export default defineAction({
   description:
-    "Production migration for the current Analytics organization. Run prepare to validate the configured BigQuery table and enter dual-write mode, then call backfill to enqueue a durable single-flight worker. The worker uses bounded pages, a persisted cursor, a lease, and a database-pressure gate; it pauses instead of competing with live traffic. Call status to inspect progress, then call cutover with confirm=true only after the worker reports completed. New /track events stay in Postgres during dual-write, so a BigQuery outage does not silently lose live data. Cutover is the only step that stops analytics event and rollup writes to Postgres; public-key metadata, derived exception issues, and session-replay data remain in the SQL store.",
+    "Production migration for the current Analytics organization. Run prepare to validate the configured BigQuery table, enter dual-write mode, and enqueue a durable single-flight worker. The worker uses bounded pages, a persisted cursor, a lease, and a database-pressure gate; it pauses instead of competing with live traffic. Call status or backfill to inspect progress, then call cutover with confirm=true only after the worker reports completed. New /track events stay in Postgres during dual-write, so a BigQuery outage does not silently lose live data. Cutover is the only step that stops first-party event and rollup writes to Postgres; public-key metadata, derived exception issues, and session-replay data remain in the SQL store.",
   schema: migrationSchema,
   agentTool: false,
   needsApproval: ({ mode }) => mode === "cutover",
@@ -65,6 +70,14 @@ export default defineAction({
           : await getFirstPartyAnalyticsBigQueryBackfillJob(scope);
       return {
         ...current,
+        backfillCursor:
+          current.sink === "dual"
+            ? (job?.cursor ?? null)
+            : current.backfillCursor,
+        backfillCompleted:
+          current.sink === "dual"
+            ? job?.status === "completed"
+            : current.backfillCompleted,
         ready: Boolean(ready),
         rowCount: ready?.rowCount ?? null,
         table: ready?.table.fullyQualified ?? current.table,
@@ -73,13 +86,25 @@ export default defineAction({
     }
 
     if (mode === "prepare") {
+      if (current.sink === "bigquery") {
+        throw new Error(
+          "This organization has already cut over to BigQuery; preparing it again is not supported.",
+        );
+      }
       const ready =
         await assertFirstPartyAnalyticsBigQueryReady(configuredTable);
+      const existingJob =
+        await getFirstPartyAnalyticsBigQueryBackfillJob(scope);
+      if (existingJob && existingJob.table !== ready.table.fullyQualified) {
+        throw new Error(
+          `BigQuery backfill already targets ${existingJob.table}; prepare the existing migration before changing tables.`,
+        );
+      }
       await saveFirstPartyAnalyticsBackend(scope, {
         sink: "dual",
         table: ready.table.fullyQualified,
-        backfillCursor: null,
-        backfillCompleted: false,
+        backfillCursor: existingJob?.cursor ?? null,
+        backfillCompleted: existingJob?.status === "completed",
       });
       const job = await queueFirstPartyAnalyticsBigQueryBackfill(
         scope,
@@ -122,11 +147,7 @@ export default defineAction({
       );
     }
     const job = await getFirstPartyAnalyticsBigQueryBackfillJob(scope);
-    if (
-      current.sink !== "dual" ||
-      current.backfillCompleted !== true ||
-      job?.status !== "completed"
-    ) {
+    if (current.sink !== "dual" || job?.status !== "completed") {
       throw new Error(
         "Wait for the durable dual-write backfill job to report completed before cutting over to BigQuery.",
       );
@@ -135,7 +156,7 @@ export default defineAction({
     await saveFirstPartyAnalyticsBackend(scope, {
       sink: "bigquery",
       table: ready.table.fullyQualified,
-      backfillCursor: current.backfillCursor,
+      backfillCursor: job.cursor,
       backfillCompleted: true,
     });
     return {

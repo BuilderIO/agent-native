@@ -5,7 +5,6 @@ import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
   backfillFirstPartyAnalyticsBatch,
-  saveFirstPartyAnalyticsBackend,
   type FirstPartyAnalyticsScope,
 } from "../lib/first-party-analytics-backend.js";
 
@@ -196,20 +195,7 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
               status, copied_count, lease_token, lease_expires_at, next_run_at,
               last_error, completed_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, NULL, 'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
-            ON CONFLICT (id) DO UPDATE SET
-              org_id = excluded.org_id,
-              owner_email = excluded.owner_email,
-              table_ref = excluded.table_ref,
-              batch_size = excluded.batch_size,
-              backfill_cursor = NULL,
-              status = 'pending',
-              copied_count = 0,
-              lease_token = NULL,
-              lease_expires_at = NULL,
-              next_run_at = excluded.next_run_at,
-              last_error = NULL,
-              completed_at = NULL,
-              updated_at = excluded.updated_at`,
+            ON CONFLICT (id) DO NOTHING`,
     args: [
       id,
       scope.orgId,
@@ -224,6 +210,11 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
   });
   const job = await getFirstPartyAnalyticsBigQueryBackfillJob(scope);
   if (!job) throw new Error("BigQuery backfill job was not persisted");
+  if (job.table !== table) {
+    throw new Error(
+      `BigQuery backfill already targets ${job.table}; prepare the existing migration before changing tables`,
+    );
+  }
   return job;
 }
 
@@ -291,7 +282,7 @@ async function finishJob(
   now: string,
 ): Promise<void> {
   const completedAt = result.complete ? now : null;
-  await db.execute({
+  const updated = await db.execute({
     sql: `UPDATE ${JOB_TABLE}
              SET status = ?, backfill_cursor = ?, copied_count = copied_count + ?,
                  lease_token = NULL, lease_expires_at = NULL,
@@ -311,6 +302,9 @@ async function finishJob(
     timeoutMs: 5_000,
     maxAttempts: 1,
   });
+  if (updated.rowsAffected !== 1) {
+    throw new Error("BigQuery backfill lost its lease before saving progress");
+  }
 }
 
 async function scheduleRetry(
@@ -429,20 +423,9 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
           ),
       );
       const now = new Date().toISOString();
+      // The lease row is the progress source of truth; the backend setting is
+      // only the migration configuration and cutover marker.
       await finishJob(db, job, batch, now);
-      await runWithRequestContext(
-        { userEmail: job.ownerEmail, orgId: job.orgId },
-        () =>
-          saveFirstPartyAnalyticsBackend(
-            { userEmail: job.ownerEmail, orgId: job.orgId },
-            {
-              sink: "dual",
-              table: job.table,
-              backfillCursor: batch.nextCursor,
-              backfillCompleted: batch.complete,
-            },
-          ),
-      );
       batches += 1;
       copied += batch.copied;
       if (batch.complete) {

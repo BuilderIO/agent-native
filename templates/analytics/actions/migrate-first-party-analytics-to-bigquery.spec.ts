@@ -174,9 +174,12 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
       sink: "dual",
       table,
       backfillCursor: "evt_last",
-      backfillCompleted: true,
+      backfillCompleted: false,
     });
-    mocks.getJob.mockResolvedValueOnce({ status: "completed" });
+    mocks.getJob.mockResolvedValueOnce({
+      status: "completed",
+      cursor: "evt_last",
+    });
 
     await expect(
       migrateAction.run({ mode: "cutover", confirm: true }),
