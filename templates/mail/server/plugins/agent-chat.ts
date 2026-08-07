@@ -40,7 +40,7 @@ export default createAgentChatPlugin({
   // background worker, as content, slides and analytics already do.
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  connectorCatalog: [...MAIL_CONNECTOR_CATALOG],
+  mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG] },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

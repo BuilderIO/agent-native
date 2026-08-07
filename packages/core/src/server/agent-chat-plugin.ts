@@ -325,6 +325,7 @@ import {
   generateActionsPrompt,
   generateCorpusToolsPrompt,
 } from "./agent-chat/framework-prompts.js";
+import { resolveAgentChatMcpOptions } from "./agent-chat/mcp-options.js";
 import {
   resolveA2AAgentDelegationEnabled,
   type AgentChatPluginOptions,
@@ -579,6 +580,12 @@ export function createAgentChatPlugin(
       // here rather than booting with a surface nobody chose.
       const frameworkTools = resolveFrameworkTools(options);
       const disabledFrameworkGroups = frameworkTools.disabledGroups;
+
+      // Same treatment for the MCP mount: one resolved shape, folding the
+      // deprecated `disableMcp` / `mcpServerInfo` / `connectorCatalog` /
+      // `externalAgents` into `mcp`. A2A reads the same object, so the
+      // connector policy cannot diverge between the two external surfaces.
+      const mcpOptions = resolveAgentChatMcpOptions(options);
 
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
@@ -1462,7 +1469,7 @@ export function createAgentChatPlugin(
         skills: buildPublicAgentA2ASkills(allScripts),
         authenticatedSkills: buildAuthenticatedAgentA2ASkills(
           mcpFullActions ?? allScripts,
-          options ?? {},
+          mcpOptions,
         ),
         publicSkillsOnly: true,
         streaming: true,
@@ -1470,7 +1477,7 @@ export function createAgentChatPlugin(
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
             mcpFullActions ?? allScripts,
-            options ?? {},
+            mcpOptions,
           );
           const entry = actions[action];
           if (!entry) {
@@ -2176,27 +2183,31 @@ export function createAgentChatPlugin(
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
 
-      if (options?.disableMcp !== true) {
+      if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
         const { mountMCP } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
           name: options?.appId
             ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
             : "Agent",
-          title: options?.mcpServerInfo?.title,
+          title: mcpOptions.title,
           appId: options?.appId,
           description:
-            options?.mcpServerInfo?.description ??
+            mcpOptions.description ??
             `Agent-native ${options?.appId ?? "app"} agent`,
-          websiteUrl: options?.mcpServerInfo?.websiteUrl,
-          icons: options?.mcpServerInfo?.icons,
+          websiteUrl: mcpOptions.websiteUrl,
+          icons: mcpOptions.icons,
           actions: allScripts,
           productionActions: mcpFullActions,
-          ...(options?.connectorCatalog
-            ? { connectorCatalog: options.connectorCatalog }
+          ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
+          ...(mcpOptions.builtinCrossAppTools !== undefined
+            ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
             : {}),
-          ...(options?.externalAgents
-            ? { externalAgents: options.externalAgents }
+          ...(mcpOptions.connectorCatalog
+            ? { connectorCatalog: mcpOptions.connectorCatalog }
+            : {}),
+          ...(mcpOptions.externalAgents
+            ? { externalAgents: mcpOptions.externalAgents }
             : {}),
           askAgent: async (message: string) => {
             const ownerEmail = getRequestUserEmail();
