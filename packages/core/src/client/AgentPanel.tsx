@@ -1992,6 +1992,12 @@ function AgentPanelInner({
             `[data-agent-fullscreen='true'] .agent-composer-area,` +
             `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
             `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+            `margin-left:auto;margin-right:auto;width:100%;}` +
+            `[data-agent-fullscreen='true'] .agent-composer-area:not(.agent-composer-area--compact){` +
+            `padding-left:0;padding-right:0;}` +
+            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion--composer,` +
+            `[data-agent-fullscreen='true'] .agent-mcp-connection-suggestion-error--composer{` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
       />
@@ -2845,6 +2851,8 @@ export interface AgentSidebarProps {
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   /** Optional link shown in Resources and Settings modes for the full Agent page. */
   agentPageHref?: string;
+  /** Suppress first-run onboarding while a deep-linked resource is open. */
+  suppressFirstRunOnboarding?: boolean;
 }
 
 /**
@@ -2877,10 +2885,12 @@ export function AgentSidebar({
   browserTabId,
   threadUrlSync,
   agentPageHref,
+  suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const showFirstRunOnboarding =
-    SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
+    !suppressFirstRunOnboarding &&
+    (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
     () =>

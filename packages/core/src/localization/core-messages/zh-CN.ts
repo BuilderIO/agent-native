@@ -98,7 +98,7 @@ const messages: AgentChatTranslation = {
   "composer.describeSchedule": "描述应在何时执行什么操作...",
   "composer.describeSkill": "描述您想要创建的技能...",
   "composer.documentTooLarge":
-    "“{{name}}”的大小为 {{size}} MB——为符合消息限制，PDF 上限为 {{maxSize}} MB。请缩小文件或将其拆分为较小的部分。",
+    "“{{name}}”的大小为 {{size}} MB——为符合消息限制，{{label}} 上限为 {{maxSize}} MB。请缩小文件或将其拆分为较小的部分。",
   "composer.file": "文件",
   "composer.imageModel": "图片模型",
   "composer.imagePreview": "图片预览",

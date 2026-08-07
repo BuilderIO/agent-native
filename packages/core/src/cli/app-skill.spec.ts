@@ -212,6 +212,27 @@ describe("app skill packaging", () => {
     );
     expect(codexPlugin.version).toMatch(/^1\.0\.0\+codex\.[0-9a-f]{12}$/);
     expect(fs.existsSync(path.join(outDir, ".mcp.json"))).toBe(true);
+    const standardPlugin = JSON.parse(
+      fs.readFileSync(path.join(outDir, "plugin.json"), "utf-8"),
+    );
+    expect(standardPlugin).toMatchObject({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name: "agent-native-assets",
+      version: codexPlugin.version,
+    });
+    expect(standardPlugin.skills).toBeUndefined();
+    const standardMcp = JSON.parse(
+      fs.readFileSync(path.join(outDir, "mcp.json"), "utf-8"),
+    );
+    expect(standardMcp).toEqual({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      mcpServers: {
+        "agent-native-assets": {
+          type: "streamable-http",
+          url: "https://assets.agent-native.com/_agent-native/mcp",
+        },
+      },
+    });
     const claudeMarketplaceRoot = path.join(
       outDir,
       "adapters",

@@ -254,7 +254,7 @@ const messages: AgentChatTranslation = {
   "composer.describeSchedule": "Descreva o que deve acontecer e quando...",
   "composer.describeSkill": "Descreva a habilidade que você deseja criar...",
   "composer.documentTooLarge":
-    '"{{name}}" tem {{size}} MB. Os PDFs são limitados a {{maxSize}} MB para não ultrapassar o tamanho máximo da mensagem. Reduza o arquivo ou divida-o em partes menores.',
+    '"{{name}}" tem {{size}} MB. {{label}} são limitados a {{maxSize}} MB para não ultrapassar o tamanho máximo da mensagem. Reduza o arquivo ou divida-o em partes menores.',
   "composer.file": "arquivo",
   "composer.imageModel": "Modelo de imagem",
   "composer.imagePreview": "Visualização da imagem",

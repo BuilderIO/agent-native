@@ -235,6 +235,40 @@ describe("LanguagePicker", () => {
     ).toBe("Interface language: English (en-US)");
   });
 
+  it("only lists locales the app catalog declares support for", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+          catalog={{
+            sourceLocale: "en-US",
+            supportedLocales: ["en-US", "es-ES", "fr-FR"],
+          }}
+        >
+          <LanguagePicker label="Interface language" />
+        </AgentNativeI18nProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+
+    const optionLabels = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).map((button) => button.textContent?.trim());
+
+    expect(optionLabels).toEqual([
+      "System",
+      "English (en-US)",
+      "Español (es-ES)",
+      "Français (fr-FR)",
+    ]);
+  });
+
   it("routes the select variant through a registered picker adapter", async () => {
     const CustomPicker = (props: PickerProps) => (
       <div data-custom-language-picker>{String(props.value)}</div>

@@ -104,7 +104,7 @@ const messages: AgentChatTranslation = {
   "composer.describeSchedule": "何をいつ実行するか説明してください...",
   "composer.describeSkill": "作成したいスキルを説明してください...",
   "composer.documentTooLarge":
-    "「{{name}}」は {{size}} MB です。メッセージの上限内に収めるため、PDF は {{maxSize}} MB までに制限されています。ファイルを小さくするか、複数の小さいファイルに分割してください。",
+    "「{{name}}」は {{size}} MB です。メッセージの上限内に収めるため、{{label}} は {{maxSize}} MB までに制限されています。ファイルを小さくするか、複数の小さいファイルに分割してください。",
   "composer.file": "ファイル",
   "composer.imageModel": "画像モデル",
   "composer.imagePreview": "画像プレビュー",

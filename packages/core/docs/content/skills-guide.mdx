@@ -427,6 +427,19 @@ also registers the MCP connector. `BuilderIO/agent-native` is a real GitHub
 repository source for the Vercel/open Skills CLI; `skills.sh` is a discovery and
 leaderboard directory, not an npm-style package namespace.
 
+`app-skill pack` also emits a standard Agent Plugin at the bundle root:
+`plugin.json`, `mcp.json`, and the exported `skills/` directories. Import that
+portable bundle into an Agent-Native workspace with:
+
+```bash
+npx @agent-native/core@latest plugin import ./dist/assets-skill --into . --yes
+```
+
+The importer namespaces Skills under `skills/<plugin>/<skill>`, maps remote
+Streamable HTTP MCP servers into `mcp.config.json`, and ignores package headers
+so they cannot become workspace credentials. Stdio and SSE servers are reported
+and skipped. Authentication remains an app or host Connections concern.
+
 The Claude Code marketplace adapter writes
 `adapters/claude-marketplace/.claude-plugin/marketplace.json` plus a nested
 plugin directory containing `skills/<name>/SKILL.md` and `.mcp.json`. In Claude

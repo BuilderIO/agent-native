@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -648,7 +649,13 @@ function SecretRow({
   );
 }
 
-function RequestRow({ request }: { request: any }) {
+function RequestRow({
+  request,
+  canManage,
+}: {
+  request: any;
+  canManage: boolean;
+}) {
   const [secretValue, setSecretValue] = useState("");
 
   const approve = useActionMutation("approve-vault-request", {
@@ -706,7 +713,7 @@ function RequestRow({ request }: { request: any }) {
           </Badge>
         )}
       </div>
-      {request.status === "pending" && (
+      {request.status === "pending" && canManage ? (
         <div className="mt-3 flex items-end gap-2 border-t pt-3">
           <div className="flex-1 space-y-1">
             <Label className="text-xs">Secret value to provision</Label>
@@ -734,17 +741,45 @@ function RequestRow({ request }: { request: any }) {
             Deny
           </Button>
         </div>
-      )}
+      ) : request.status === "pending" ? (
+        <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+          Waiting for a workspace owner or admin to review this request.
+        </p>
+      ) : null}
     </div>
   );
 }
 
 export default function VaultRoute() {
-  const secretsQuery = useActionQuery("list-vault-secrets", {});
-  const grantsQuery = useActionQuery("list-vault-grants", {});
-  const requestsQuery = useActionQuery("list-vault-requests", {});
-  const auditQuery = useActionQuery("list-vault-audit", { limit: 20 });
-  const accessQuery = useActionQuery("get-vault-access-settings", {});
+  const { org, role, isLoading: orgLoading, error: orgError } = useOrgRole();
+  const accessReady = !orgLoading && !orgError && !!org;
+  const canManageVault =
+    accessReady && (!org.orgId || role === "owner" || role === "admin");
+  const secretsQuery = useActionQuery(
+    "list-vault-secrets",
+    {},
+    { enabled: canManageVault },
+  );
+  const grantsQuery = useActionQuery(
+    "list-vault-grants",
+    {},
+    { enabled: canManageVault },
+  );
+  const requestsQuery = useActionQuery(
+    "list-vault-requests",
+    {},
+    { enabled: accessReady },
+  );
+  const auditQuery = useActionQuery(
+    "list-vault-audit",
+    { limit: 20 },
+    { enabled: canManageVault },
+  );
+  const accessQuery = useActionQuery(
+    "get-vault-access-settings",
+    {},
+    { enabled: accessReady },
+  );
   const { data: secrets, isLoading: secretsLoading } = secretsQuery;
   const { data: grants } = grantsQuery;
   const { data: requests } = requestsQuery;
@@ -787,13 +822,31 @@ export default function VaultRoute() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="audit">Audit</TabsTrigger>
+          {canManageVault ? (
+            <TabsTrigger value="audit">Audit</TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="secrets" className="mt-4 space-y-3">
-          {secretsQuery.isError ||
-          grantsQuery.isError ||
-          accessQuery.isError ? (
+          {!accessReady ? (
+            <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+              Checking workspace access…
+            </div>
+          ) : !canManageVault ? (
+            <div className="rounded-2xl border border-dashed px-6 py-12 text-center">
+              <IconKey size={32} className="mx-auto text-muted-foreground/50" />
+              <h3 className="mt-3 text-sm font-medium text-foreground">
+                Vault management is restricted
+              </h3>
+              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                Workspace owners and admins manage shared secret values. Use a
+                request from the app that needs a key, and an admin can review
+                it from the Requests tab.
+              </p>
+            </div>
+          ) : secretsQuery.isError ||
+            grantsQuery.isError ||
+            accessQuery.isError ? (
             <ActionQueryError
               error={
                 secretsQuery.error ?? grantsQuery.error ?? accessQuery.error
@@ -805,60 +858,64 @@ export default function VaultRoute() {
               }}
             />
           ) : null}
-          <VaultAccessSettingsCard mode={accessMode} />
+          {accessReady && canManageVault ? (
+            <>
+              <VaultAccessSettingsCard mode={accessMode} />
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <IconKey size={16} />
-              {secretsLoading ? (
-                <Skeleton className="h-4 w-20" />
-              ) : (
-                <span>
-                  {`${secrets?.length || 0} secret${(secrets?.length || 0) !== 1 ? "s" : ""}`}
-                </span>
-              )}
-            </div>
-            <AddSecretDialog />
-          </div>
-
-          {!secretsQuery.isError &&
-          secretsLoading &&
-          (secrets ?? []).length === 0
-            ? Array.from({ length: 3 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="rounded-2xl bg-card px-5 py-4 space-y-2"
-                >
-                  <Skeleton className="h-4 w-1/3" />
-                  <Skeleton className="h-3 w-2/3" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <IconKey size={16} />
+                  {secretsLoading ? (
+                    <Skeleton className="h-4 w-20" />
+                  ) : (
+                    <span>
+                      {`${secrets?.length || 0} secret${(secrets?.length || 0) !== 1 ? "s" : ""}`}
+                    </span>
+                  )}
                 </div>
-              ))
-            : (secrets || []).map((secret: any) => (
-                <SecretRow
-                  key={secret.id}
-                  secret={secret}
-                  grants={grantsBySecret[secret.id] || []}
-                  accessMode={accessMode}
-                />
-              ))}
-
-          {!secretsQuery.isError &&
-            !secretsLoading &&
-            (secrets?.length || 0) === 0 && (
-              <div className="rounded-2xl border border-dashed px-6 py-12 text-center">
-                <IconKey
-                  size={32}
-                  className="mx-auto text-muted-foreground/50"
-                />
-                <h3 className="mt-3 text-sm font-medium text-foreground">
-                  No secrets yet
-                </h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Add your first secret to start sharing credentials across
-                  workspace apps.
-                </p>
+                <AddSecretDialog />
               </div>
-            )}
+
+              {!secretsQuery.isError &&
+              secretsLoading &&
+              (secrets ?? []).length === 0
+                ? Array.from({ length: 3 }).map((_, index) => (
+                    <div
+                      key={index}
+                      className="rounded-2xl bg-card px-5 py-4 space-y-2"
+                    >
+                      <Skeleton className="h-4 w-1/3" />
+                      <Skeleton className="h-3 w-2/3" />
+                    </div>
+                  ))
+                : (secrets || []).map((secret: any) => (
+                    <SecretRow
+                      key={secret.id}
+                      secret={secret}
+                      grants={grantsBySecret[secret.id] || []}
+                      accessMode={accessMode}
+                    />
+                  ))}
+
+              {!secretsQuery.isError &&
+                !secretsLoading &&
+                (secrets?.length || 0) === 0 && (
+                  <div className="rounded-2xl border border-dashed px-6 py-12 text-center">
+                    <IconKey
+                      size={32}
+                      className="mx-auto text-muted-foreground/50"
+                    />
+                    <h3 className="mt-3 text-sm font-medium text-foreground">
+                      No secrets yet
+                    </h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Add your first secret to start sharing credentials across
+                      workspace apps.
+                    </p>
+                  </div>
+                )}
+            </>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="requests" className="mt-4 space-y-3">
@@ -869,7 +926,11 @@ export default function VaultRoute() {
             />
           ) : null}
           {(requests || []).map((request: any) => (
-            <RequestRow key={request.id} request={request} />
+            <RequestRow
+              key={request.id}
+              request={request}
+              canManage={canManageVault}
+            />
           ))}
           {!requestsQuery.isError && (requests?.length || 0) === 0 && (
             <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
@@ -878,32 +939,34 @@ export default function VaultRoute() {
           )}
         </TabsContent>
 
-        <TabsContent value="audit" className="mt-4 space-y-2">
-          {auditQuery.isError ? (
-            <ActionQueryError
-              error={auditQuery.error}
-              onRetry={() => void auditQuery.refetch()}
-            />
-          ) : null}
-          {(audit || []).map((event: any) => (
-            <div
-              key={event.id}
-              className="rounded-xl border bg-muted/30 px-4 py-3"
-            >
-              <div className="text-sm font-medium text-foreground">
-                {event.summary}
+        {canManageVault ? (
+          <TabsContent value="audit" className="mt-4 space-y-2">
+            {auditQuery.isError ? (
+              <ActionQueryError
+                error={auditQuery.error}
+                onRetry={() => void auditQuery.refetch()}
+              />
+            ) : null}
+            {(audit || []).map((event: any) => (
+              <div
+                key={event.id}
+                className="rounded-xl border bg-muted/30 px-4 py-3"
+              >
+                <div className="text-sm font-medium text-foreground">
+                  {event.summary}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {event.actor} · {new Date(event.createdAt).toLocaleString()}
+                </div>
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {event.actor} · {new Date(event.createdAt).toLocaleString()}
+            ))}
+            {!auditQuery.isError && (audit?.length || 0) === 0 && (
+              <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+                No vault activity yet.
               </div>
-            </div>
-          ))}
-          {!auditQuery.isError && (audit?.length || 0) === 0 && (
-            <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-              No vault activity yet.
-            </div>
-          )}
-        </TabsContent>
+            )}
+          </TabsContent>
+        ) : null}
       </Tabs>
     </DispatchShell>
   );

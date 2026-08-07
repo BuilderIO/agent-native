@@ -23,7 +23,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import type { Deck } from "@/context/DeckContext";
-import { getAspectRatioDims } from "@/lib/aspect-ratios";
+import { getDeckListingPreviewFrameStyle } from "@/lib/deck-preview-frame";
 
 import SlideRenderer from "./SlideRenderer";
 
@@ -52,7 +52,7 @@ export default function DeckCard({
 }: DeckCardProps) {
   const t = useT();
   const firstSlide = deck.slides?.[0];
-  const previewDims = getAspectRatioDims(deck.aspectRatio);
+  const previewFrameStyle = getDeckListingPreviewFrameStyle(deck.aspectRatio);
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
@@ -106,18 +106,15 @@ export default function DeckCard({
         }}
       >
         {/* Slide Preview */}
-        <div
-          className="relative overflow-hidden bg-muted/30"
-          style={{
-            aspectRatio: `${previewDims.width} / ${previewDims.height}`,
-          }}
-        >
+        <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-muted/30">
           {firstSlide && (
-            <SlideRenderer
-              slide={firstSlide}
-              className="rounded-none"
-              aspectRatio={deck.aspectRatio}
-            />
+            <div className="relative overflow-hidden" style={previewFrameStyle}>
+              <SlideRenderer
+                slide={firstSlide}
+                className="rounded-none"
+                aspectRatio={deck.aspectRatio}
+              />
+            </div>
           )}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[hsl(240,5%,8%)] via-transparent to-transparent opacity-60" />
         </div>

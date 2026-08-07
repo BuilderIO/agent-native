@@ -12,6 +12,7 @@ function resetEnv() {
   process.env = { ...originalEnv };
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_FUNCTION_NAME;
+  delete process.env.NITRO_PRESET;
   delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   delete process.env.LAMBDA_TASK_ROOT;
   delete process.env.AWS_EXECUTION_ENV;
@@ -58,6 +59,16 @@ describe("analytics rollup backfill job registration", () => {
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining("platform scheduler owns"),
     );
+  });
+
+  it("uses the generated Netlify scheduler when Nitro selects the Netlify preset", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.NITRO_PRESET = "netlify";
+
+    const register = await loadRegister();
+    register();
+
+    expect(intervalSpy).not.toHaveBeenCalled();
   });
 
   it("keeps the fallback interval enabled for production Lambda runtimes", async () => {

@@ -1,66 +1,57 @@
 ---
 title: "Add a Page"
-description: "Build a React route that displays your saved data and wire it into the sidebar so the agent can navigate to it."
+description: "Build a React route that displays your saved data and lets the agent open it."
 ---
 
 # Add a Page
 
-This is part four of the Getting Started series. In [Persist Data in SQL](/docs/getting-started-database) you saved action results to a database. Here you'll build a page that displays that data and connect it to the sidebar.
+This is part four of the Getting Started series. In [Persist Data in SQL](/docs/getting-started-database)
+you saved analysis results. Here you'll build a route that reads those same rows
+through `list-text-analyses`.
 
-## Add a page the agent can open {#add-a-page}
+## Create the route {#add-a-page}
 
-Chat is great for conversational interaction, but some data is better inspected
-in a dedicated UI: a table you can scan, sort, or delete rows from. This step
-adds a React route that displays everything saved in `text_analyses`, using the
-same `list-text-analyses` and `delete-text-analysis` actions you already wrote.
-There's no second data layer. The page is just a view over the same SQL state
-the agent reads and writes.
-
-Create the route file at `app/routes/text-analyses.tsx`. Route files in
-`app/routes/` are automatically picked up by the framework. The filename
-becomes the URL path, so this page will be available at
+Route files in `app/routes/` are picked up automatically. Create
+`app/routes/text-analyses.tsx`; it will be available at
 `http://localhost:8080/text-analyses`.
 
 ```tsx filename="app/routes/text-analyses.tsx"
-import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  id: string;
+  input: string;
+  charCount: number;
+  wordCount: number;
+  sentenceCount: number;
+  paragraphCount: number;
+  createdAt: string;
+};
 
 export default function TextAnalysesRoute() {
-  const analyses = useActionQuery("list-text-analyses", {});
-  const deleteAnalysis = useActionMutation("delete-text-analysis");
+  const { data: analyses = [] } = useActionQuery<TextAnalysis[]>(
+    "list-text-analyses",
+    {},
+  );
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <header>
         <h1 className="text-2xl font-semibold">Text analyses</h1>
-        <p className="text-muted-foreground">
-          Results saved by the agent or triggered manually.
-        </p>
+        <p className="text-muted-foreground">Results saved by the agent.</p>
       </header>
       <section className="flex flex-col gap-3">
-        {analyses.data?.length === 0 && (
+        {analyses.length === 0 && (
           <p className="text-muted-foreground">No analyses saved yet.</p>
         )}
-        {analyses.data?.map((row: any) => (
-          <article
-            key={row.id}
-            className="flex items-start justify-between rounded-lg border p-4"
-          >
-            <div className="flex flex-col gap-1">
-              <p className="text-sm font-medium">{row.input}</p>
-              <p className="text-xs text-muted-foreground">
-                {row.word_count} words · {row.char_count} characters ·{" "}
-                {row.sentence_count} sentences
-              </p>
-            </div>
-            <button
-              className="text-xs text-destructive hover:underline"
-              onClick={() => deleteAnalysis.mutate({ id: row.id })}
-            >
-              Delete
-            </button>
+        {analyses.map((analysis) => (
+          <article key={analysis.id} className="rounded-lg border p-4">
+            <p className="text-sm font-medium">{analysis.input}</p>
+            <p className="text-xs text-muted-foreground">
+              {analysis.wordCount} words, {analysis.charCount} characters,{" "}
+              {analysis.sentenceCount} sentences, {analysis.paragraphCount}{" "}
+              paragraphs
+            </p>
           </article>
         ))}
       </section>
@@ -69,122 +60,20 @@ export default function TextAnalysesRoute() {
 }
 ```
 
-`useActionQuery` calls `list-text-analyses` and keeps the result live. If the
-agent saves a new row while the page is open, it appears automatically.
-`useActionMutation` calls `delete-text-analysis` when the user clicks Delete,
-then invalidates the query so the list refreshes.
+`useActionQuery` calls the same action the agent uses. It also refreshes when a
+mutating action completes, so a newly saved analysis appears without a custom
+API route or a second data layer.
 
-Open `http://localhost:8080/text-analyses` in your browser. If you saved an
-analysis in the previous step you'll see it listed. Then ask the agent in chat:
+Open `http://localhost:8080/text-analyses`, or ask the agent:
 
-> Open the text analyses page.
+> Navigate to `/text-analyses`.
 
-If you get a 404, try restarting your dev server.
+The route is enough for this tutorial. Add a sidebar entry later if this becomes
+a primary workflow. For the full `view-screen`, `navigate`, and application-state
+patterns, see [Context Awareness](/docs/context-awareness).
 
-The agent calls the `navigate` action (already included in the Chat
-template) to send the browser to `/text-analyses`. This is what it looks like
-with a few saved rows:
+## Continue
 
-<WireframeBlock id="doc-block-response-insights-page-wireframe">
-  <Screen
-    surface="desktop"
-    html={
-      "<main style='min-height:400px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><div style='max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:20px'><header><h2 style='margin:0 0 4px;font-size:24px;font-weight:600'>Text analyses</h2><p class='wf-muted' style='margin:0;font-size:14px'>Results saved by the agent or triggered manually.</p></header><section style='display:flex;flex-direction:column;gap:10px'><article class='wf-card' data-rough style='display:flex;align-items:center;justify-content:space-between;padding:14px 16px'><div><p style='margin:0 0 4px;font-size:14px;font-weight:500'>Hello world</p><p class='wf-muted' style='margin:0;font-size:12px'>2 words · 11 characters · 1 sentence</p></div><span class='wf-muted' style='font-size:12px'>Delete</span></article><article class='wf-card' data-rough style='display:flex;align-items:center;justify-content:space-between;padding:14px 16px'><div><p style='margin:0 0 4px;font-size:14px;font-weight:500'>The quick brown fox jumps over the lazy dog.</p><p class='wf-muted' style='margin:0;font-size:12px'>9 words · 44 characters · 1 sentence</p></div><span class='wf-muted' style='font-size:12px'>Delete</span></article><article class='wf-card' data-rough style='display:flex;align-items:center;justify-content:space-between;padding:14px 16px'><div><p style='margin:0 0 4px;font-size:14px;font-weight:500'>Pack my box with five dozen liquor jugs.</p><p class='wf-muted' style='margin:0;font-size:12px'>8 words · 40 characters · 1 sentence</p></div><span class='wf-muted' style='font-size:12px'>Delete</span></article></section></div></main>"
-    }
-  />
-</WireframeBlock>
-
-## Extend the navigation {#extend-navigation}
-
-The sidebar's links are a plain array in `app/components/layout/Sidebar.tsx`,
-not a separate config file. Open it and add an entry for the Text analyses
-page next to the existing Chat entry:
-
-```tsx filename="app/components/layout/Sidebar.tsx"
-import { IconList, IconMessageCircle } from "@tabler/icons-react";
-
-const navItems = [
-  {
-    icon: IconMessageCircle,
-    labelKey: "navigation.chat",
-    href: "/",
-    view: "chat",
-  },
-  {
-    icon: IconList,
-    labelKey: "navigation.textAnalyses",
-    href: "/text-analyses",
-    view: "text-analyses",
-  },
-];
-```
-
-`icon` takes an imported Tabler icon component, not a string name. `labelKey`
-looks up a string in the i18n catalog (`app/i18n/en-US.ts` and the other
-locale files); an unregistered key still renders — it falls back to a
-humanized version of the key (`navigation.textAnalyses` becomes "Text
-analyses") — but add it to the catalogs if you want the label translated. See
-[Internationalization](/docs/internationalization).
-
-Save the file. The dev server picks up the change automatically and the sidebar
-updates without a restart.
-
-### Agent navigation
-
-The sidebar link lets users navigate manually. The agent can also open pages on
-its own using two built-in actions that ship with the Chat template:
-
-- **`view-screen`** reads the current route and returns a compact summary of
-  what the user is looking at.
-- **`navigate`** writes a same-origin path to the browser's history.
-
-As you add more pages, keep `navigate` updated so the agent knows what
-destinations exist. Document available paths in `AGENTS.md` so the model can
-reason about them.
-
-When the app has both a full-page chat route and an app page, use the shared chat
-handoff helpers described in [Agent Surfaces](/docs/agent-surfaces#rich-chat):
-`AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`,
-`useAgentChatHomeHandoffLinks`, and `chatViewTransition`. That lets the full
-chat slide into the side panel as the page opens, keeping the same thread while
-the user inspects durable data.
-
-## Project structure {#project-structure}
-
-```text
-my-app/
-  actions/         # Agent-callable and UI-callable operations
-  app/             # React routes, pages, and chat surfaces
-  server/          # Nitro server and SQL schema
-  AGENTS.md        # Always-on instructions for the app agent
-  .agents/         # Skills the agent loads when relevant
-  data/app.db      # Local SQLite state when DATABASE_URL is unset
-```
-
-## What's next {#next}
-
-You've built a complete agentic app: a working chat interface, an action, inline
-rendering, a database, and a page the agent can navigate to. From here:
-
-<Cards>
-
-### [Key Concepts](/docs/key-concepts)
-
-The architecture underneath this tutorial: SQL, actions, live sync, and context
-awareness.
-
-### [Agent Surfaces](/docs/agent-surfaces)
-
-Chat, inline UI, app pages, embedded sidecars, automation, and external agents —
-all the ways your app can surface the agent.
-
-### [Context Awareness](/docs/context-awareness)
-
-`view-screen`, `navigate`, route state, and selected objects — how the agent
-knows what the user is looking at.
-
-### [Deployment](/docs/deployment)
-
-Put your app on your own domain.
-
-</Cards>
+You've built a chat app with an action, SQL-backed data, and a page that reads
+the same source of truth. Continue with [Key Concepts](/docs/key-concepts) or
+[Agent Surfaces](/docs/agent-surfaces) to explore the architecture behind it.

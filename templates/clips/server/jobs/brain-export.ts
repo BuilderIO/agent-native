@@ -18,6 +18,7 @@ const SWEEP_LIMIT = 4;
 const DISCOVERY_LIMIT = 20;
 const BACKFILL_DAYS = 7;
 let skippingLogged = false;
+let running = false;
 
 async function seedRecentBrainExports(): Promise<void> {
   const now = new Date();
@@ -173,12 +174,18 @@ export default function registerBrainExportJob(): void {
     return;
   }
   setInterval(() => {
-    reapExpiredUploads().catch((error) =>
-      console.error("[uploads] lease reaper interval failed:", error),
-    );
-    runBrainExportSweepOnce().catch((error) =>
-      console.error("[brain-export] interval failed:", error),
-    );
+    if (running) return;
+    running = true;
+    Promise.allSettled([
+      reapExpiredUploads().catch((error) =>
+        console.error("[uploads] lease reaper interval failed:", error),
+      ),
+      runBrainExportSweepOnce().catch((error) =>
+        console.error("[brain-export] interval failed:", error),
+      ),
+    ]).finally(() => {
+      running = false;
+    });
   }, SWEEP_INTERVAL_MS);
   console.log(
     `[brain-export] Recurring recovery sweep every ${SWEEP_INTERVAL_MS / 1000}s.`,

@@ -84,6 +84,10 @@ export interface PromptComposerProps {
   ) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Override the generic document attachment cap for a multipart host. */
+  maxDocumentAttachmentBytes?: number;
+  /** Label used in the visible document attachment limit error. */
+  documentAttachmentLimitLabel?: string;
   autoFocus?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -474,6 +478,8 @@ function PromptComposerInner({
   onSubmit,
   placeholder,
   disabled,
+  maxDocumentAttachmentBytes,
+  documentAttachmentLimitLabel,
   autoFocus,
   className,
   style,
@@ -646,6 +652,8 @@ function PromptComposerInner({
         <TiptapComposer
           focusRef={handleRef}
           disabled={disabled || gateComposer}
+          maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
+          documentAttachmentLimitLabel={documentAttachmentLimitLabel}
           placeholder={
             gateComposer
               ? t("agentChat.composer.connectAbove", {

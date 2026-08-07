@@ -6,6 +6,7 @@
  * card list).
  */
 export { DispatchShell } from "./dispatch-shell.js";
+export { AdminShell } from "./admin-navigation.js";
 export { Layout, NavContent } from "./layout/Layout.js";
 export type {
   DispatchExtensionConfig,

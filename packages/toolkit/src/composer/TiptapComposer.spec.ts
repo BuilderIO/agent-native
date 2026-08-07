@@ -259,7 +259,7 @@ describe("createTiptapComposerExtensions", () => {
           file,
         },
       ]),
-    ).toContain('"large.pdf" is 4.0 MB — PDFs are capped at 4 MB');
+    ).toContain('"large.pdf" is 4.0 MB. PDFs are capped at 4 MB');
     expect(
       getOversizedDocumentAttachmentError([
         {
@@ -270,6 +270,72 @@ describe("createTiptapComposerExtensions", () => {
         },
       ]),
     ).toBeNull();
+  });
+
+  it("allows hosts to use a larger multipart document cap", () => {
+    const file = new File(
+      [new Uint8Array(4 * 1024 * 1024 + 1)],
+      "reference.pdf",
+      { type: "application/pdf" },
+    );
+
+    expect(
+      getOversizedDocumentAttachmentError(
+        [
+          {
+            type: "document",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            file,
+          },
+        ],
+        {
+          maxBytes: 50 * 1024 * 1024,
+          label: "Slides reference files",
+        },
+      ),
+    ).toBeNull();
+  });
+
+  it("localizes a custom multipart document cap", () => {
+    const file = new File(
+      [new Uint8Array(4 * 1024 * 1024 + 1)],
+      "reference.pdf",
+      { type: "application/pdf" },
+    );
+    let translatedOptions: Record<string, unknown> | undefined;
+
+    const error = getOversizedDocumentAttachmentError(
+      [
+        {
+          type: "document",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          file,
+        },
+      ],
+      {
+        maxBytes: 4 * 1024 * 1024,
+        label: "Präsentationsdateien",
+        translate: (key, options) => {
+          expect(key).toBe("agentChat.composer.documentTooLarge");
+          translatedOptions = options;
+          return `„${String(options?.name)}“ ist ${String(options?.size)} MB groß. ${String(options?.label)} sind auf ${String(options?.maxSize)} MB begrenzt.`;
+        },
+      },
+    );
+
+    expect(error).toBe(
+      "„reference.pdf“ ist 4.0 MB groß. Präsentationsdateien sind auf 4 MB begrenzt.",
+    );
+    expect(translatedOptions).toEqual(
+      expect.objectContaining({
+        name: "reference.pdf",
+        size: "4.0",
+        label: "Präsentationsdateien",
+        maxSize: "4",
+      }),
+    );
   });
 
   it("maps Enter keybindings to immediate and queued submit intents", () => {

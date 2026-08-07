@@ -172,7 +172,7 @@ function OrganizationHelpIcon({
         <Button
           type="button"
           aria-label="More information"
-          className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&_svg]:!size-3"
         >
           <IconHelpCircle className="size-3" />
         </Button>

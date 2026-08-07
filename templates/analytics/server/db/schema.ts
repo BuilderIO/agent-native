@@ -43,6 +43,16 @@ export const dashboards = table("dashboards", {
   ...ownableColumns(),
 });
 
+/**
+ * Persistent per-name rows serialize concurrent create/rename checks. The row
+ * is deliberately independent of dashboard visibility: callers acquire the
+ * same lock before applying their access-scoped collision check.
+ */
+export const dashboardNameLocks = table("dashboard_name_locks", {
+  nameKey: text("name_key").primaryKey(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
 export const dashboardShares = createSharesTable("dashboard_shares");
 
 /**

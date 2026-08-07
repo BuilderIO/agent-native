@@ -657,6 +657,7 @@ const messages = {
     googleSlidesReferenceTitle: "Google Slides 投影片",
     googleSlidesReferenceConnect: "連接 Google Drive 以匯入 Slides 投影片。",
     googleSlidesReferenceChoose: "選擇 Google Slides 投影片",
+    googleSlidesReferenceUrl: "貼上 Google Slides 連結",
     googleSlidesReferencePicking: "處理中...",
     googleSlidesReferenceConnected:
       "已連接。選擇 Google Slides 投影片，將其匯入為可重複使用的參考內容。",

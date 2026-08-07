@@ -45,6 +45,7 @@ const guards = [
   "guard:additive-migrations",
   "guard:no-silent-coercion",
   "guard:no-raw-colors",
+  "guard:no-boot-data-work",
   "guard:dead-settings-keys",
 ] as const;
 

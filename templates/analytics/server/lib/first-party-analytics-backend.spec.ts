@@ -22,8 +22,10 @@ vi.mock("./credentials-context.js", () => ({
 }));
 
 import {
+  backfillFirstPartyAnalyticsBatch,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
+  insertFirstPartyAnalyticsRows,
   renderFirstPartyAnalyticsBigQuerySql,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
@@ -109,6 +111,208 @@ describe("first-party BigQuery backend", () => {
       fullyQualified:
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     });
+  });
+
+  it("uses separate indexed tenant branches for the backfill cursor", async () => {
+    execute.mockResolvedValue({ rows: [] });
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        null,
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toMatchObject({ copied: 0, complete: true });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    for (const query of [orgQuery, personalQuery]) {
+      expect(query.sql).toContain("SELECT id, received_at");
+      expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
+      expect(query.sql).not.toContain("SELECT *");
+      expect(query.sql).not.toContain("UNION ALL");
+    }
+    expect(orgQuery.args).toEqual(["org_builder", 25]);
+    expect(personalQuery.args).toEqual(["owner@example.com", 25]);
+  });
+
+  it("applies the tuple cursor after the initial backfill batch", async () => {
+    execute.mockResolvedValue({ rows: [] });
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        JSON.stringify({
+          receivedAt: "2026-07-25T11:01:33.023Z",
+          id: "evt_last",
+        }),
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toMatchObject({ copied: 0, complete: true });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    expect(orgQuery.sql).toContain("received_at > ?");
+    expect(personalQuery.sql).toContain("received_at > ?");
+    expect(orgQuery.args).toEqual([
+      "org_builder",
+      "2026-07-25T11:01:33.023Z",
+      "2026-07-25T11:01:33.023Z",
+      "evt_last",
+      25,
+    ]);
+    expect(personalQuery.args).toEqual([
+      "owner@example.com",
+      "2026-07-25T11:01:33.023Z",
+      "2026-07-25T11:01:33.023Z",
+      "evt_last",
+      25,
+    ]);
+  });
+
+  it("keeps an oversized backfill request bounded", async () => {
+    execute.mockResolvedValue({ rows: [] });
+
+    await backfillFirstPartyAnalyticsBatch(
+      { userEmail: "owner@example.com", orgId: "org_builder" },
+      null,
+      10_000,
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    expect(orgQuery.args.at(-1)).toBe(5_000);
+    expect(personalQuery.args.at(-1)).toBe(5_000);
+  });
+
+  it("keeps BigQuery streaming requests bounded", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      insertFirstPartyAnalyticsRows(
+        Array.from({ length: 201 }, (_, index) => ({ id: `event-${index}` })),
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toBe(201);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string).rows,
+    ).toHaveLength(200);
+    expect(
+      JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).rows,
+    ).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("hydrates only the bounded indexed keys selected for a batch", async () => {
+    execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "org-event",
+            received_at: "2026-07-25T11:01:33.023Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "org-event",
+            public_key_id: "pk",
+            event_name: "page_view",
+            timestamp: "2026-07-25T11:01:33.023Z",
+            event_date: "2026-07-25",
+            received_at: "2026-07-25T11:01:33.023Z",
+            properties: "{}",
+            context: "{}",
+            owner_email: "owner@example.com",
+            org_id: "org_builder",
+          },
+        ],
+      });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        null,
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toMatchObject({ copied: 1, complete: true });
+
+    expect(execute).toHaveBeenCalledTimes(3);
+    const [hydrateQuery] = execute.mock.calls[2] ?? [];
+    expect(hydrateQuery.sql).toContain("SELECT id, public_key_id, event_name");
+    expect(hydrateQuery.sql).toContain("WHERE id IN (?)");
+    expect(hydrateQuery.args).toEqual(["org-event"]);
+    vi.unstubAllGlobals();
+  });
+
+  it("chunks SQLite hydration keys without changing selected event order", async () => {
+    const indexedRows = Array.from({ length: 901 }, (_, index) => ({
+      id: `event-${index}`,
+      received_at: new Date(Date.UTC(2026, 6, 25, 0, 0, index)).toISOString(),
+    }));
+    const hydratedRows = indexedRows.map((row) => ({
+      ...row,
+      public_key_id: "pk",
+      event_name: "page_view",
+      timestamp: row.received_at,
+      event_date: "2026-07-25",
+      properties: "{}",
+      context: "{}",
+      owner_email: "owner@example.com",
+      org_id: "org_builder",
+    }));
+    execute.mockImplementation(
+      async (query: { sql: string; args: string[] }) => {
+        if (query.sql.includes("SELECT id, received_at")) {
+          return {
+            rows: query.sql.includes("org_id = ?") ? indexedRows : [],
+          };
+        }
+        return {
+          rows: hydratedRows.filter((row) => query.args.includes(row.id)),
+        };
+      },
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        null,
+        901,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toMatchObject({ copied: 901 });
+
+    expect(execute).toHaveBeenCalledTimes(4);
+    const [firstHydration, secondHydration] = execute.mock.calls.slice(2);
+    expect(firstHydration?.[0].args).toHaveLength(900);
+    expect(secondHydration?.[0].args).toEqual(["event-900"]);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    vi.unstubAllGlobals();
   });
 
   it("persists the cutover setting with its table and completion marker", async () => {

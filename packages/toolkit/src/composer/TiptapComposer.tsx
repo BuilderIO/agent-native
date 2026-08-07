@@ -287,30 +287,38 @@ function isDocumentAttachment(value: Record<string, unknown>): boolean {
 
 export function getOversizedDocumentAttachmentError(
   attachments: ReadonlyArray<unknown>,
-  t?: ComposerTranslate,
+  options: {
+    maxBytes?: number;
+    label?: string;
+    translate?: ComposerTranslate;
+  } = {},
 ): string | null {
+  const maxBytes = options.maxBytes ?? MAX_DOCUMENT_ATTACHMENT_BYTES;
+  const label = options.label ?? "PDFs";
+  const t = options.translate;
   for (const attachment of attachments) {
     if (!attachment || typeof attachment !== "object") continue;
     const candidate = attachment as Record<string, unknown>;
     if (!isDocumentAttachment(candidate)) continue;
     const file = candidate.file;
     if (!(file instanceof File)) continue;
-    if (file.size <= MAX_DOCUMENT_ATTACHMENT_BYTES) continue;
+    if (file.size <= maxBytes) continue;
     const name =
       typeof candidate.name === "string" && candidate.name.trim()
         ? candidate.name
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
-    const maxMb = (MAX_DOCUMENT_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
+    const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
     return (
       t?.("agentChat.composer.documentTooLarge", {
         defaultValue:
-          '"{{name}}" is {{size}} MB — PDFs are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+          '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
         name,
         size: mb,
+        label,
         maxSize: maxMb,
       }) ??
-      `"${name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`
+      `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`
     );
   }
   return null;
@@ -647,6 +655,10 @@ type ExecMode = "build" | "plan";
 export interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
+  /** Override the generic document attachment cap for a multipart host. */
+  maxDocumentAttachmentBytes?: number;
+  /** Label used in the visible document attachment limit error. */
+  documentAttachmentLimitLabel?: string;
   focusRef?: React.Ref<TiptapComposerHandle>;
   /** Programmatically seed the editor with plain text. */
   initialText?: string;
@@ -1704,6 +1716,8 @@ type PopoverState = {
 export function TiptapComposer({
   placeholder,
   disabled = false,
+  maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
+  documentAttachmentLimitLabel = "PDFs",
   focusRef,
   initialText,
   initialTextKey,
@@ -2757,7 +2771,11 @@ export function TiptapComposer({
         return;
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
         attachments,
-        t,
+        {
+          maxBytes: maxDocumentAttachmentBytes,
+          label: documentAttachmentLimitLabel,
+          translate: t,
+        },
       );
       if (oversizedDocumentError) {
         onAttachmentErrorRef.current?.(oversizedDocumentError);

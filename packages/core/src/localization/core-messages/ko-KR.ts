@@ -101,7 +101,7 @@ const messages: AgentChatTranslation = {
   "composer.describeSchedule": "무엇을 언제 실행할지 설명하세요...",
   "composer.describeSkill": "만들려는 스킬을 설명하세요...",
   "composer.documentTooLarge":
-    '"{{name}}"의 크기는 {{size}}MB입니다. 메시지 제한을 지키기 위해 PDF는 {{maxSize}}MB로 제한됩니다. 파일 크기를 줄이거나 더 작은 파일로 나누세요.',
+    '"{{name}}"의 크기는 {{size}}MB입니다. 메시지 제한을 지키기 위해 {{label}}는 {{maxSize}}MB로 제한됩니다. 파일 크기를 줄이거나 더 작은 파일로 나누세요.',
   "composer.file": "파일",
   "composer.imageModel": "이미지 모델",
   "composer.imagePreview": "이미지 미리보기",

@@ -73,4 +73,10 @@ describe("slide context toolbar", () => {
       "onPointerDownCapture={preserveRichTextSelection}",
     );
   });
+
+  it("cancels native image dragging on the editable canvas", () => {
+    expect(editorSource).toContain(
+      "onDragStart={(event) => event.preventDefault()}",
+    );
+  });
 });

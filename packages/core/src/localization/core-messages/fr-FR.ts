@@ -261,7 +261,7 @@ const messages: AgentChatTranslation = {
   "composer.describeSkill":
     "Décrivez la compétence que vous souhaitez créer...",
   "composer.documentTooLarge":
-    "« {{name}} » fait {{size}} MB. Les PDFs sont limités à {{maxSize}} MB afin de respecter la taille maximale des messages. Réduisez la taille du fichier ou divisez-le en plusieurs parties.",
+    "« {{name}} » fait {{size}} MB. {{label}} sont limités à {{maxSize}} MB afin de respecter la taille maximale des messages. Réduisez la taille du fichier ou divisez-le en plusieurs parties.",
   "composer.file": "fichier",
   "composer.imageModel": "Modèle d'image",
   "composer.imagePreview": "Aperçu de l'image",

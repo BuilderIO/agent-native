@@ -15,6 +15,7 @@ import {
   type AgentLoopOutcome,
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
+import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
 import {
   isAuthenticatedReadAction,
@@ -356,12 +357,49 @@ export const DEFAULT_DELEGATED_MAX_ITERATIONS = 80;
 export const DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS = 750_000;
 export const DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS = 20_000;
 
+/**
+ * A sentence naming the wall clock this delegated step actually gets, or "" when
+ * there is no enforced budget (local dev returns 0 from the resolver).
+ *
+ * "I ran out of time before finishing this step" was 39% of all failed inbound
+ * A2A tasks in one measured week, clustered at 35-46s against a 40s foreground
+ * serverless wall. The callee was never told that wall exists: it is handed a
+ * nominal 80 iterations and 750k tokens and plans accordingly, while production
+ * iterations measure ~34s each — so a foreground chunk affords roughly one.
+ *
+ * The clock is already enforced correctly; a second, cruder cap on iterations
+ * would only waste budget. What was missing is that the agent could not see it.
+ * An agent that knows it has forty seconds scopes to forty seconds.
+ */
+function delegatedTimeBudgetNote(
+  runSoftTimeoutMs: number | undefined,
+  backgroundFunction: boolean,
+): string {
+  const softTimeoutMs = resolveRunSoftTimeoutMs(runSoftTimeoutMs, {
+    useHostedDefault: true,
+    backgroundFunction,
+  });
+  if (!Number.isFinite(softTimeoutMs) || softTimeoutMs <= 0) return "";
+  const seconds = Math.max(1, Math.round(softTimeoutMs / 1000));
+  return (
+    `\n<delegated-time-budget>\n` +
+    `This step is cut off after about ${seconds} seconds. Scope the work to fit it. ` +
+    `Prefer one decisive action over exploring, and note that a single tool call plus a model ` +
+    `response commonly takes tens of seconds — so plan on completing very few steps, not many. ` +
+    `If the objective cannot be finished in that window, return the best grounded partial answer ` +
+    `and say what is missing. Do not begin work you cannot finish, and do not treat this budget ` +
+    `as a reason to skip verifying what you do report.\n` +
+    `</delegated-time-budget>`
+  );
+}
+
 export const DELEGATED_AGENT_EXECUTION_CONTRACT = `
 <delegated-agent-contract>
 This request was delegated by another app. You are the specialist owner of the work.
 - Interpret the caller's natural-language objective using your own instructions, skills, data dictionary, credentials, and tools. Choose providers, schemas, queries, and joins here; never ask the caller to invent SQL or source-specific implementation details for you.
 - Finish the objective autonomously in this delegated turn whenever a safe, reasonable default exists. Do not bounce the work back with UI-navigation requests, implementation questions, or intermediate status. Ask for input only when authorization, missing credentials, or a consequential user choice truly blocks progress.
 - When evidence is incomplete, return the best grounded partial answer with explicit coverage gaps instead of refusing or asking the caller to choose your source, filter, dashboard, or workflow.
+- Reach for your own registered actions first and by name. They are the same actions this app's interactive chat uses and are almost always the shortest path to the answer. Do not rediscover your own capabilities by exploring, and never use a shell, filesystem, or code-execution tool to do what one of your actions already does — that is the difference between answering in seconds and answering in minutes.
 - Minimize round trips. Filter, join, aggregate, paginate, stage, and reduce large datasets inside your own tools rather than returning raw records or transcripts.
 - Return a concise caller-ready result with the answer, source and coverage details, relevant counts or IDs, caveats/partial gaps, and exact artifact URLs. Do not return tool transcripts or large raw payloads.
 </delegated-agent-contract>`;
@@ -400,7 +438,13 @@ async function runDelegatedAgentLoop(
     policy?.maxToolResultChars ?? DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS;
   const resolvedRunOptions = {
     ...runOptions,
-    systemPrompt: runOptions.systemPrompt + DELEGATED_AGENT_EXECUTION_CONTRACT,
+    systemPrompt:
+      runOptions.systemPrompt +
+      DELEGATED_AGENT_EXECUTION_CONTRACT +
+      delegatedTimeBudgetNote(
+        pluginOptions.runSoftTimeoutMs,
+        timeoutOptions?.backgroundFunction === true,
+      ),
     // Delegated runs resolve their own model and do not pass through the
     // interactive request handler's output-token setup. Use the same
     // model-aware headroom here so reasoning models (notably GPT-5.x) do

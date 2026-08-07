@@ -101,7 +101,7 @@ const messages: AgentChatTranslation = {
   "composer.describeSchedule": "صِف ما ينبغي أن يحدث وموعد حدوثه...",
   "composer.describeSkill": "صِف المهارة التي تريد إنشاءها...",
   "composer.documentTooLarge":
-    'حجم "{{name}}" هو {{size}} MB — الحد الأقصى لملفات PDFs هو {{maxSize}} MB للالتزام بحدود الرسائل. يُرجى تقليل حجم الملف أو تقسيمه إلى أجزاء أصغر.',
+    'حجم "{{name}}" هو {{size}} MB — الحد الأقصى لـ {{label}} هو {{maxSize}} MB للالتزام بحدود الرسائل. يُرجى تقليل حجم الملف أو تقسيمه إلى أجزاء أصغر.',
   "composer.file": "ملف",
   "composer.imageModel": "نموذج الصور",
   "composer.imagePreview": "معاينة الصورة",
