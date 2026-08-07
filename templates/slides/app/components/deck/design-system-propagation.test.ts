@@ -43,5 +43,11 @@ describe("slide design-system propagation", () => {
     expectsDesignSystemProp(deckEditorSource, "EditorSidebar");
     expectsDesignSystemProp(deckEditorSource, "GeneratingSlidePreview");
     expectsDesignSystemProp(readAppFile("pages/Presentation.tsx"), "View");
+
+    const sharedPresentationSource = readAppFile(
+      "pages/SharedPresentation.tsx",
+    );
+    expect(sharedPresentationSource).toContain("deck.designSystem");
+    expectsDesignSystemProp(sharedPresentationSource, "PresentationView");
   });
 });

@@ -15,7 +15,8 @@
  *   2. Filesystem fallback — `process.cwd()/AGENTS.md` +
  *      `process.cwd()/.agents/skills/` (or legacy `.agent/skills/`). Only reliable in local dev and Node
  *      production (`agent-native start`); not on Netlify/Vercel/CF at runtime.
- *   3. Empty bundle — everything silently returns empty strings.
+ *   3. Configuration and filesystem failures propagate so a broken bundle is
+ *      visible instead of being mistaken for an app with no instructions.
  *
  * Result is cached in module scope so it's only computed once per cold start.
  */
@@ -118,14 +119,6 @@ export function resolveAgentInstructionPaths(
     development: instructions?.development ?? DEFAULT_AGENT_INSTRUCTIONS_PATH,
   };
 }
-
-const EMPTY: AgentsBundle = {
-  agentsMd: "",
-  runtimeAgentsMd: "",
-  developmentAgentsMd: "",
-  workspaceAgentsMd: "",
-  skills: {},
-};
 
 let cached: AgentsBundle | null = null;
 
@@ -442,40 +435,35 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
 
   // 2. Filesystem fallback — works in dev / Node prod. If a workspace core
   //    is present in the ancestor chain, merge its skills + AGENTS.md in.
+  let workspaceSource: WorkspaceAgentsSource | null = null;
   try {
-    let workspaceSource: WorkspaceAgentsSource | null = null;
-    try {
-      const { getWorkspaceCoreExports } =
-        await import("../deploy/workspace-core.js");
-      const ws = await getWorkspaceCoreExports(process.cwd());
-      if (ws) {
-        workspaceSource = {
-          skillsDir: ws.skillsDir,
-          agentsMdPath: ws.agentsMdPath,
-          rootDir: ws.packageDir,
-        };
-      }
-    } catch {
-      // workspace-core discovery isn't available (e.g. edge runtime).
+    const { getWorkspaceCoreExports } =
+      await import("../deploy/workspace-core.js");
+    const ws = await getWorkspaceCoreExports(process.cwd());
+    if (ws) {
+      workspaceSource = {
+        skillsDir: ws.skillsDir,
+        agentsMdPath: ws.agentsMdPath,
+        rootDir: ws.packageDir,
+      };
     }
-    const { createAgentNativeConfigContext, loadResolvedAgentNativeConfig } =
-      await import("../vite/agent-native-config-loader.js");
-    const production = process.env.NODE_ENV === "production";
-    const config = await loadResolvedAgentNativeConfig(
-      process.cwd(),
-      createAgentNativeConfigContext(
-        production ? "build" : "serve",
-        production ? "production" : "development",
-      ),
-    );
-    cached = readAgentsBundleFromFs(process.cwd(), workspaceSource, {
-      instructions: config.instructions,
-    });
-    return cached;
   } catch {
-    cached = EMPTY;
-    return cached;
+    // workspace-core discovery isn't available (e.g. edge runtime).
   }
+  const { createAgentNativeConfigContext, loadResolvedAgentNativeConfig } =
+    await import("../vite/agent-native-config-loader.js");
+  const production = process.env.NODE_ENV === "production";
+  const config = await loadResolvedAgentNativeConfig(
+    process.cwd(),
+    createAgentNativeConfigContext(
+      production ? "build" : "serve",
+      production ? "production" : "development",
+    ),
+  );
+  cached = readAgentsBundleFromFs(process.cwd(), workspaceSource, {
+    instructions: config.instructions,
+  });
+  return cached;
 }
 
 /**
