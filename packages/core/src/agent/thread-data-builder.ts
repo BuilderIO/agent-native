@@ -482,6 +482,7 @@ function findApprovalToolCallIndex(
         part.type === "tool-call" &&
         part.toolName === toolName &&
         part.result === undefined &&
+        typeof part.toolCallId === "string" &&
         /^tc_\d+$/.test(part.toolCallId)
       ) {
         readerLocalCandidates.push(i);
