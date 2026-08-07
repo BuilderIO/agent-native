@@ -2,6 +2,7 @@ import {
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
+  withMigrationRuntime,
 } from "@agent-native/core/db";
 import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 
@@ -33,7 +34,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
-const runAnalyticsMigrations = runMigrations(
+export const runAnalyticsMigrations = runMigrations(
   [
     {
       version: 1,
@@ -1536,9 +1537,16 @@ export default async (nitroApp: any): Promise<void> => {
   }
   // The schema must exist before the first query. Measured cost on this
   // database (180 tables): ~5.5s for the version check alone, which is why the
-  // serverless runtime never runs it on cold starts.
+  // serverless runtime never runs it on cold starts. The scheduled worker is
+  // the one serverless exception and claims migration duty explicitly.
   // guard:allow-boot-data-work — schema must exist before the first query
-  await runAnalyticsMigrations(nitroApp);
+  if (isScheduledRollupRuntime) {
+    await withMigrationRuntime(async () => {
+      await runAnalyticsMigrations(nitroApp);
+    });
+  } else {
+    await runAnalyticsMigrations(nitroApp);
+  }
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),
