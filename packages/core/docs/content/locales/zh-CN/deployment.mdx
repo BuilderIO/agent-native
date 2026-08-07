@@ -308,10 +308,10 @@ Netlify 构建会生成一个计划函数，**每分钟**请求一次 `/_agent-n
 
 **在按量计费、可缩容到零的数据库上，这是错误的默认值。** 每分钟唤醒一次意味着自动挂起永远不会触发，于是即便没人使用应用，数据库也会按持续唤醒来计费并消耗配额。在 Neon 免费套餐上，这会耗尽算力配额，之后数据库会在会话中拒绝**所有**读取——症状是应用彻底不可用，而不是变慢。
 
-| 变量 | 效果 |
-| --- | --- |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM` | 完全跳过该计划函数。数据库可以自动挂起；空闲后的下一位访问者承担其冷启动。 |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE` | 用 5 字段 cron 表达式覆盖节奏，例如 `*/5 * * * *`。无法解析的值会**使构建失败**，而不是静默回退到每分钟一次。 |
+| 变量                                        | 效果                                                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 完全跳过该计划函数。数据库可以自动挂起；空闲后的下一位访问者承担其冷启动。                                                 |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 用 5 字段 cron 表达式覆盖节奏，例如 `*/5 * * * *`。无法解析的值会**使构建失败**，而不是静默回退到每分钟一次。              |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 仅取消后台函数的预热，仍保持服务器温热。预热 `server` 只是一个请求；预热 `-background` 会启动一个新容器并重新探测 schema。 |
 
 如果你使用免费或受配额限制的数据库套餐，请设置 `AGENT_NATIVE_DISABLE_KEEP_WARM=1` 或选择更慢的节奏。
@@ -418,11 +418,11 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `APP_BASE_PATH`                             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                                                                                                                                                                          |
 | `AGENT_PROD_CODE_EXECUTION`                 | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。                                                                                                                                                        |
 | `AGENT_NATIVE_SSR_CACHE`                    | 部署范围的 SSR 外壳缓存策略：未设置/`on` 保持默认硬缓存，`off` 发送 `no-store`，或使用一个时长（例如 `30s` / `5m`）设置更短的新鲜度。参见 [SSR Caching](#ssr-caching)。                                                                                                               |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM` | 跳过 Netlify keep-warm 计划函数，让可缩容到零的数据库能够自动挂起。参见 [Keep-warm](#netlify-keep-warm)。 |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE` | 用 5 字段 cron 表达式覆盖 keep-warm 节奏（默认 `* * * * *`）。无法解析的值会使构建失败。参见 [Keep-warm](#netlify-keep-warm)。 |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 仅取消后台函数的预热，仍保持服务器温热。参见 [Keep-warm](#netlify-keep-warm)。 |
-| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS` | 关闭进程内的兜底清扫定时器（自动化重派发、agent-teams 对账、沙箱执行恢复）。在 serverless 上它们按每个温实例运行，因此查询速率随实例数增长。**仅**在已有持久调度器驱动同样的恢复时才设置，否则排队的工作不会被重试。 |
-| `AGENT_NATIVE_SKIP_ENSURE_TABLES` | 完全跳过按需 schema DDL。移除每次冷启动在做任何工作前都要支付的 schema 探测往返。要求 schema 已经迁移完毕 —— 参见 [按需 schema DDL](#skip-ensure-tables)。 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 跳过 Netlify keep-warm 计划函数，让可缩容到零的数据库能够自动挂起。参见 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                             |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 用 5 字段 cron 表达式覆盖 keep-warm 节奏（默认 `* * * * *`）。无法解析的值会使构建失败。参见 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                        |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 仅取消后台函数的预热，仍保持服务器温热。参见 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                        |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 关闭进程内的兜底清扫定时器（自动化重派发、agent-teams 对账、沙箱执行恢复）。在 serverless 上它们按每个温实例运行，因此查询速率随实例数增长。**仅**在已有持久调度器驱动同样的恢复时才设置，否则排队的工作不会被重试。                                                                  |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 完全跳过按需 schema DDL。移除每次冷启动在做任何工作前都要支付的 schema 探测往返。要求 schema 已经迁移完毕 —— 参见 [按需 schema DDL](#skip-ensure-tables)。                                                                                                                            |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用于预览安全的 Builder 授权中继的专用 32+ 字符共享 HMAC 密钥。只有当授权结果必须写入隔离的预览数据库时，才在获批的企业回调部署和预览部署上设置相同的值。                                                                                                                              |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 仅用于企业回调的、以逗号分隔的精确可信预览来源允许列表（例如 `https://0123456789abcdef01234567--content.netlify.app`）。仅在企业回调部署中设置。Netlify 来源必须使用包含 24 位十六进制 ID、不可变且特定于部署的永久链接；可变的 `deploy-preview-*` 别名、通配符和域名后缀均会被拒绝。 |
 
