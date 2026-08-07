@@ -1,0 +1,85 @@
+---
+title: "액션 추가하기"
+description: "첫 액션을 정의하고 그 결과를 채팅 안에서 차트로 직접 렌더링하세요."
+---
+
+# 액션 추가하기
+
+시작하기 시리즈의 두 번째 단계입니다. [시작하기](/docs/getting-started)에서 Chat 앱을 만들었습니다. 여기서는 타입이 지정된 텍스트 분석을 정의하고 그 결과를 채팅에서 렌더링합니다.
+
+## 액션 추가하기 {#add-an-action}
+
+액션은 에이전트와 UI 모두에서 호출할 수 있는 타입이 지정된 작업입니다. 액션은 `actions/` 디렉터리에 있으며 채팅, React 컴포넌트, CLI 및 다른 호출자가 공유하는 작업 표면입니다.
+
+`actions/analyze-text.ts`를 만드세요.
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z.string().default("The quick brown fox jumps over the lazy dog."),
+  }),
+  outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
+    title: "Text stats",
+  },
+  readOnly: true,
+  run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
+    const points = [
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
+      {
+        label: "Sentences",
+        value: summary.sentences,
+      },
+      {
+        label: "Paragraphs",
+        value: summary.paragraphs,
+      },
+    ];
+
+    return createDataChartWidgetResult({
+      title: "Text statistics",
+      summary,
+      chartSeries: {
+        type: "bar",
+        xKey: "label",
+        series: [{ key: "value", label: "Count" }],
+        data: points,
+      },
+    });
+  },
+});
+```
+
+터미널에서 실행하세요:
+
+```bash
+pnpm action analyze-text --text "Hello world. How are you today?"
+```
+
+또는 채팅에서 에이전트에게 요청하세요:
+
+> Run the analyze-text action on "Hello world. How are you today?"
+
+내장된 `data-chart` 렌더러가 구조화된 결과를 트랜스크립트 안의 차트로 변환합니다. 렌더러 파일을 만들거나 `app/root.tsx`에 임포트할 필요가 없습니다. 사용자 지정 네이티브 컴포넌트는 [Native Chat UI](/docs/native-chat-ui)에서 확인하세요.
+
+## 다음 단계
+
+[페이지 추가하기](/docs/getting-started-pages)로 계속 진행하여 트랜스크립트 밖에서 동일한 액션을 사용하세요. 결과를 대화를 넘어 유지해야 한다면 [SQL에 데이터 저장하기](/docs/getting-started-database)로 돌아가세요.

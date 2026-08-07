@@ -743,8 +743,6 @@ const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
 const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
 
 function siteOrigin(request) {
-  const configured = process.env.URL || process.env.DEPLOY_URL;
-  if (configured) return configured;
   return new URL(request.url).origin;
 }
 

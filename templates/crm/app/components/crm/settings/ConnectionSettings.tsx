@@ -5,6 +5,7 @@ import { Link } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import {
   connectionModeInfo,
@@ -88,13 +89,30 @@ export function ConnectionSettings() {
             <ConnectionRow key={connection.id} connection={connection} />
           ))}
         </div>
+      ) : connectionsQuery.isLoading ? (
+        <div
+          className="mt-6 space-y-2"
+          role="status"
+          aria-busy="true"
+          aria-label={t("connection.loading")}
+        >
+          {[0, 1, 2].map((item) => (
+            <div
+              key={item}
+              className="flex items-center gap-4 rounded-lg border border-border/70 bg-card px-4 py-3.5"
+            >
+              <Skeleton className="size-4" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="h-6 w-20 rounded-full" />
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="mt-6 rounded-lg border border-dashed border-border px-4 py-10 text-center">
-          <p className="text-sm font-medium">
-            {connectionsQuery.isLoading
-              ? t("connection.loading")
-              : t("connection.emptyTitle")}
-          </p>
+          <p className="text-sm font-medium">{t("connection.emptyTitle")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("connection.emptyDescription")}
           </p>

@@ -91,4 +91,22 @@ describe("realtime-token mint endpoint", () => {
     mockSameOrigin.mockReturnValue(true);
     expect((await invoke({ method: "POST" })).e.status).toBe(405);
   });
+
+  it("stamps a 15-minute absolute ceiling the gateway cannot extend", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    try {
+      const { body } = await invoke({ method: "GET" });
+      const verified = verifyRealtimeSubscribeToken((body as any).token, {
+        projectId: (await mockResolveProjectId()) as string,
+        key: SECRET,
+      });
+      expect(verified).toMatchObject({
+        ok: true,
+        absExp: Math.floor(Date.now() / 1000) + 15 * 60,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

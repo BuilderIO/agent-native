@@ -2,8 +2,8 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import {
-  getCallDetail,
-  getCallTranscript,
+  getCallDetails,
+  getCallTranscripts,
   searchCallsForQueries,
   type GongCall,
 } from "../server/lib/gong";
@@ -230,6 +230,20 @@ function recordTimestampMs(record: HubSpotObjectRecord) {
   return Number.isFinite(time) ? time : 0;
 }
 
+function transcriptRowsByCallId(payload: unknown): Map<string, unknown> {
+  const rows = new Map<string, unknown>();
+  if (!payload || typeof payload !== "object") return rows;
+  const callTranscripts = (payload as { callTranscripts?: unknown })
+    .callTranscripts;
+  if (!Array.isArray(callTranscripts)) return rows;
+  for (const row of callTranscripts) {
+    if (!row || typeof row !== "object") continue;
+    const callId = (row as { callId?: unknown }).callId;
+    if (typeof callId === "string" && callId) rows.set(callId, row);
+  }
+  return rows;
+}
+
 async function loadGongEvidence(options: {
   queries: string[];
   days: number;
@@ -269,55 +283,77 @@ async function loadGongEvidence(options: {
     );
   }
 
-  const callDetails = await Promise.all(
-    calls.slice(0, Math.min(5, options.gongLimit)).map(async (call) => {
-      try {
-        return await getCallDetail(call.id);
-      } catch (err) {
-        gaps.push(
-          `Gong call detail ${call.id}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-        return null;
-      }
-    }),
-  );
+  const detailCalls = calls.slice(0, Math.min(5, options.gongLimit));
+  let callDetails: Awaited<ReturnType<typeof getCallDetails>> = [];
+  if (detailCalls.length) {
+    try {
+      const details = await getCallDetails(detailCalls.map((call) => call.id));
+      const detailsById = new Map(details.map((detail) => [detail.id, detail]));
+      callDetails = detailCalls.flatMap((call) => {
+        const detail = detailsById.get(call.id);
+        if (!detail) {
+          gaps.push(`Gong call detail ${call.id}: no detail was returned.`);
+          return [];
+        }
+        return [detail];
+      });
+    } catch (err) {
+      gaps.push(
+        `Gong call details: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
-  const transcripts = options.includeTranscripts
-    ? await Promise.all(
-        calls.slice(0, options.transcriptLimit).map(async (call) => {
-          try {
-            const transcript = await getCallTranscript(call.id);
-            return {
-              callId: call.id,
-              title: call.title,
-              started: call.started,
-              ...extractTranscriptText(transcript, options.transcriptMaxChars),
-            };
-          } catch (err) {
-            gaps.push(
-              `Gong transcript ${call.id}: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            );
-            return {
-              callId: call.id,
-              title: call.title,
-              started: call.started,
-              text: "",
-              sentenceCount: 0,
-              truncated: false,
-              error: err instanceof Error ? err.message : String(err),
-            };
-          }
-        }),
-      )
-    : [];
+  const transcripts: Array<Record<string, unknown>> = [];
+  if (options.includeTranscripts) {
+    const transcriptCalls = calls.slice(0, options.transcriptLimit);
+    try {
+      const rows = transcriptRowsByCallId(
+        await getCallTranscripts(transcriptCalls.map((call) => call.id)),
+      );
+      for (const call of transcriptCalls) {
+        const transcript = rows.get(call.id);
+        if (transcript) {
+          transcripts.push({
+            callId: call.id,
+            title: call.title,
+            started: call.started,
+            ...extractTranscriptText(transcript, options.transcriptMaxChars),
+          });
+        } else {
+          const error = "Gong did not return a transcript for this call.";
+          gaps.push(`Gong transcript ${call.id}: ${error}`);
+          transcripts.push({
+            callId: call.id,
+            title: call.title,
+            started: call.started,
+            text: "",
+            sentenceCount: 0,
+            truncated: false,
+            error,
+          });
+        }
+      }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      for (const call of transcriptCalls) {
+        gaps.push(`Gong transcript ${call.id}: ${error}`);
+        transcripts.push({
+          callId: call.id,
+          title: call.title,
+          started: call.started,
+          text: "",
+          sentenceCount: 0,
+          truncated: false,
+          error,
+        });
+      }
+    }
+  }
 
   return {
     calls,
-    callDetails: callDetails.filter((detail) => detail !== null),
+    callDetails,
     transcripts,
     searchCoverage,
     gaps,

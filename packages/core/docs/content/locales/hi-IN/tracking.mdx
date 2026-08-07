@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 एक एनालिटिक्स इवेंट सक्रिय करें। सभी पंजीकृत प्रदाताओं के प्रशंसक।
 
@@ -104,6 +104,10 @@ track(
   { userId: "steve@builder.io" },
 );
 ```
+
+`source` या तो किसी ऐक्शन का `ctx` है, जिसे सीधे आगे भेजा जाता है, या फिर उन कॉलर्स के लिए `{ userId, anonymousId, sessionId }` मेटा ऑब्जेक्ट है जिनके पास `ctx` नहीं है।
+
+ब्राउज़र सेशन कॉलर को स्वयं देना ज़रूरी नहीं है: यह परिवेशी रिक्वेस्ट कॉन्टेक्स्ट से आता है (`RequestContext.browserSessionId`, जो `X-Agent-Native-Session-Id` हेडर से सेट होता है — इसे ऐक्शन क्लाइंट, चैट और ब्राउज़र का `track()` तीनों भेजते हैं), इसलिए इवेंट चाहे UI ने ट्रिगर किया हो या एजेंट ने, वही विज़िट सहसंबद्ध रहती है। हर प्रोवाइडर इसे अपने सेशन फ़ील्ड पर मैप करता है: PostHog में `$session_id`, जो इवेंट को सेशन रीप्ले से जोड़ता है; Mixpanel और Amplitude में `session_id` प्रॉपर्टी; वेबहुक और Agent Native Analytics में शीर्ष-स्तरीय `sessionId`। बिना ब्राउज़र वाले कॉलर्स (cron, CLI, MCP, A2A) के लिए यह अनुपस्थित रहता है, और मेटा ऑब्जेक्ट का `sessionId` इसे ओवरराइड कर देता है।
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx को सीधे भेजें: इवेंट ctx.userEmail को एट्रिब्यूट होता है और उसी
+    // ब्राउज़र सेशन से जुड़ता है जहाँ से कॉल आया।
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },

@@ -1,9 +1,16 @@
-import { IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconCode,
+  IconCopy,
+  IconExternalLink,
+  IconLoader2,
+} from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import { agentNativePath } from "./api-path.js";
 import { BuilderBMark } from "./builder-mark.js";
+import { writeClipboardText } from "./clipboard.js";
 import { getCallbackOrigin } from "./frame.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { cn } from "./utils.js";
@@ -13,28 +20,28 @@ const CODE_CHANGE_FALLBACK_DETAIL =
   "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.";
 const CODE_CHANGE_FALLBACK_TEXT = `This requires a code change. ${CODE_CHANGE_FALLBACK_DETAIL}`;
 
-function isLocalBrowserOutsideDesktop() {
-  if (typeof window === "undefined" || typeof navigator === "undefined") {
+function isLocalDevelopment() {
+  if (typeof window === "undefined") {
     return false;
   }
   const hostname = window.location.hostname;
-  const local =
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-  return local && !/AgentNativeDesktop/i.test(navigator.userAgent || "");
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  );
 }
 
 export interface ConnectBuilderCardProps {
   configured: boolean;
   /**
    * True when the server has a Builder branch project configured for this
-   * request. When false, the card shows a waitlist CTA instead of a Send
-   * button — the /builder/run endpoint would 403 anyway.
+   * request. When false, the card shows a hosted waitlist CTA or a local code
+   * external coding-agent handoff instead of a Send button.
    */
   builderEnabled?: boolean;
   connectUrl: string;
   orgName?: string | null;
-  /** The user's feature/change request, forwarded to Builder's cloud agent
-   *  when they click Send. Empty for generic "connect Builder" prompts. */
+  /** The user's feature/change request, forwarded to the selected coding
+   *  agent when they click Send. Empty for generic "connect Builder" prompts. */
   prompt?: string;
 }
 
@@ -46,9 +53,9 @@ interface BuilderRunResult {
 }
 
 /**
- * Rich inline card rendered for the `connect-builder` tool call. Shows a
- * prominent Connect button that opens the Builder CLI auth flow and polls
- * /_agent-native/builder/status until credentials land.
+ * Rich inline card rendered for the `connect-builder` tool call. Shows the
+ * Builder handoff when available, or routes local development requests to the
+ * external coding agent.
  */
 export function ConnectBuilderCard({
   configured: initialConfigured,
@@ -64,19 +71,14 @@ export function ConnectBuilderCard({
     popupUrl: initialConnectUrl,
     trackingSource: "connect_builder_card",
   });
-  // Only use the server-rendered props until the hook's first status
-  // fetch returns. After that, the hook is authoritative — including for
-  // the disconnect case (where `flow.configured` flips back to `false`
-  // even though `initialConfigured` was `true` at render time).
-  const configured = flow.hasFetchedStatus
-    ? flow.configured
-    : initialConfigured;
-  const builderEnabled = flow.hasFetchedStatus
+  // Keep the server-rendered handoff state until a successful status response
+  // arrives. A transient status failure must not replace a valid Send CTA with
+  // the hook's initial disconnected defaults.
+  const configured = flow.statusResolved ? flow.configured : initialConfigured;
+  const builderEnabled = flow.statusResolved
     ? flow.builderEnabled
     : initialBuilderEnabled;
-  const orgName = flow.hasFetchedStatus
-    ? flow.orgName
-    : (initialOrgName ?? null);
+  const orgName = flow.statusResolved ? flow.orgName : (initialOrgName ?? null);
   const connecting = flow.connecting;
 
   const [waitlistJoined, setWaitlistJoined] = useState(false);
@@ -86,8 +88,11 @@ export function ConnectBuilderCard({
   const [sending, setSending] = useState(false);
   const [runResult, setRunResult] = useState<BuilderRunResult | null>(null);
   const [sendErr, setSendErr] = useState<string | null>(null);
-  const [localBrowser, setLocalBrowser] = useState(false);
+  const [copyErr, setCopyErr] = useState<string | null>(null);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [localDevelopment] = useState(() => isLocalDevelopment());
   const mountedRef = useRef(true);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether the user clicked "Connect Builder" *this session*. When
   // the connect-then-poll round-trip lands `configured=true`, we use this
   // flag to decide whether to retry the user's pending prompt automatically
@@ -99,9 +104,9 @@ export function ConnectBuilderCard({
 
   useEffect(() => {
     mountedRef.current = true;
-    setLocalBrowser(isLocalBrowserOutsideDesktop());
     return () => {
       mountedRef.current = false;
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
     };
   }, []);
 
@@ -177,8 +182,24 @@ export function ConnectBuilderCard({
     }
   }, [orgName, prompt]);
 
-  // Combine connect-flow errors, send errors, and waitlist errors.
-  const err = sendErr ?? waitlistErr ?? flow.error;
+  const handleCopyPrompt = useCallback(async () => {
+    if (!prompt.trim()) return;
+    setCopyErr(null);
+    const copied = await writeClipboardText(prompt);
+    if (!mountedRef.current) return;
+    if (!copied) {
+      setCopyErr("Couldn't copy the prompt");
+      return;
+    }
+    setPromptCopied(true);
+    if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    copyResetRef.current = setTimeout(() => {
+      if (mountedRef.current) setPromptCopied(false);
+    }, 1600);
+  }, [prompt]);
+
+  // Combine connect-flow errors, send errors, waitlist errors, and copy errors.
+  const err = sendErr ?? waitlistErr ?? copyErr ?? flow.error;
 
   const hasPrompt = prompt.trim().length > 0;
   const canSend = configured && builderEnabled && hasPrompt;
@@ -200,7 +221,9 @@ export function ConnectBuilderCard({
   }, [flow.connecting, canSend, sending, runResult, sendErr, handleSend]);
   // Branch creation is gated by a server-side project id, which may come
   // from deployment config or org-scoped secrets.
-  const showWaitlist = !builderEnabled && hasPrompt;
+  const showExternalAgentHandoff =
+    localDevelopment && !builderEnabled && hasPrompt;
+  const showWaitlist = !localDevelopment && !builderEnabled && hasPrompt;
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
@@ -220,21 +243,21 @@ export function ConnectBuilderCard({
         . Click through to watch progress in the Visual Editor.
       </>
     );
+  } else if (showExternalAgentHandoff) {
+    title = "This requires a code change";
+    subtitle =
+      "Open your coding agent in this project, then paste this request.";
   } else if (showWaitlist) {
     title = "This requires a code change";
     subtitle = waitlistJoined ? (
       <>
-        You're on the waitlist. {CODE_CHANGE_FALLBACK_DETAIL}{" "}
-        {localBrowser
-          ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
-          : "You can still clone the project locally and use the desktop app for code changes."}
+        You're on the waitlist. {CODE_CHANGE_FALLBACK_DETAIL} You can still
+        clone the project locally and use the desktop app for code changes.
       </>
     ) : (
       <>
-        {CODE_CHANGE_FALLBACK_DETAIL}{" "}
-        {localBrowser
-          ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
-          : "You can still clone the project locally and use the desktop app for code changes."}
+        {CODE_CHANGE_FALLBACK_DETAIL} You can still clone the project locally
+        and use the desktop app for code changes.
       </>
     );
   } else if (canSend) {
@@ -277,6 +300,8 @@ export function ConnectBuilderCard({
         >
           {runResult ? (
             <IconLoader2 className="h-5 w-5 animate-spin" />
+          ) : showExternalAgentHandoff ? (
+            <IconCode className="h-5 w-5" />
           ) : (
             <BuilderBMark className="h-5 w-5" />
           )}
@@ -340,6 +365,27 @@ export function ConnectBuilderCard({
                   </>
                 ) : (
                   <>Send to Builder</>
+                )}
+              </button>
+            ) : showExternalAgentHandoff ? (
+              <button
+                type="button"
+                onClick={() => void handleCopyPrompt()}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bg-foreground text-background hover:bg-foreground/90",
+                )}
+              >
+                {promptCopied ? (
+                  <>
+                    <IconCheck className="h-3.5 w-3.5" />
+                    Prompt copied
+                  </>
+                ) : (
+                  <>
+                    <IconCopy className="h-3.5 w-3.5" />
+                    Copy prompt
+                  </>
                 )}
               </button>
             ) : showWaitlist && !waitlistJoined ? (

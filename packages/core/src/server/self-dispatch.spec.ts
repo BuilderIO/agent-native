@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fireInternalDispatch } from "./self-dispatch.js";
+import {
+  fireInternalDispatch,
+  resolveSelfDispatchBaseUrl,
+} from "./self-dispatch.js";
 
 describe("fireInternalDispatch", () => {
   const originalFetch = globalThis.fetch;
@@ -69,6 +72,56 @@ describe("fireInternalDispatch", () => {
     // The /starter base path must be stripped for the host-root function url.
     expect(calledUrl).toBe(
       "https://workspace.example.test/.netlify/functions/starter-agent-background",
+    );
+  });
+
+  it("prefers the current deploy URL over a stable app URL", async () => {
+    const keys = [
+      "DEPLOY_PRIME_URL",
+      "DEPLOY_URL",
+      "URL",
+      "APP_URL",
+      "BETTER_AUTH_URL",
+    ] as const;
+    const previous = Object.fromEntries(
+      keys.map((key) => [key, process.env[key]]),
+    );
+    let calledUrl = "";
+    globalThis.fetch = vi.fn(async (url: string) => {
+      calledUrl = url;
+      return {
+        ok: true,
+        status: 202,
+        statusText: "Accepted",
+        text: async () => "",
+      };
+    }) as unknown as typeof fetch;
+
+    try {
+      process.env.DEPLOY_PRIME_URL =
+        "https://deploy-preview-42--analytics.netlify.app";
+      process.env.DEPLOY_URL = "https://42--analytics.netlify.app";
+      process.env.URL = "https://analytics.netlify.app";
+      process.env.APP_URL = "https://analytics.agent-native.com";
+      delete process.env.BETTER_AUTH_URL;
+
+      expect(resolveSelfDispatchBaseUrl()).toBe(
+        "https://deploy-preview-42--analytics.netlify.app",
+      );
+      await fireInternalDispatch({
+        path: "/.netlify/functions/server-agent-background",
+        taskId: "task-deploy-affinity",
+      });
+    } finally {
+      for (const key of keys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+
+    expect(calledUrl).toBe(
+      "https://deploy-preview-42--analytics.netlify.app/.netlify/functions/server-agent-background",
     );
   });
 
@@ -255,5 +308,37 @@ describe("fireInternalDispatch", () => {
       await Promise.race([unhandledGuard, Promise.resolve()]);
       errorSpy.mockRestore();
     });
+  });
+
+  it("fails closed before fetch when a shared production handoff cannot be signed", async () => {
+    const previous = {
+      NODE_ENV: process.env.NODE_ENV,
+      DATABASE_URL: process.env.DATABASE_URL,
+      A2A_SECRET: process.env.A2A_SECRET,
+    };
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    try {
+      process.env.NODE_ENV = "production";
+      process.env.DATABASE_URL = "postgres://shared.example.test/app";
+      delete process.env.A2A_SECRET;
+
+      await expect(
+        fireInternalDispatch({
+          baseUrl: "https://analytics.example.test",
+          path: "/.netlify/functions/server-agent-background",
+          taskId: "task-missing-secret",
+        }),
+      ).rejects.toThrow(/Cannot sign processor handoff.*A2A_SECRET/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (previous.NODE_ENV === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous.NODE_ENV;
+      if (previous.DATABASE_URL === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = previous.DATABASE_URL;
+      if (previous.A2A_SECRET === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previous.A2A_SECRET;
+    }
   });
 });

@@ -10,6 +10,7 @@ import {
 } from "@shared/media-device-selection";
 import {
   SCREEN_CAPTURE_FRAME_RATE,
+  screenCaptureDisplayOptions,
   screenCaptureVideoConstraints,
 } from "@shared/recording-capture";
 import {
@@ -888,16 +889,8 @@ export class RecorderEngine {
       const displaySurface = normalizeDisplaySurfaceForRuntime(
         this.opts.displaySurface ?? "window",
       );
-      const displayOptions: ExtendedDisplayMediaOptions = {
-        video: screenCaptureVideoConstraints(displaySurface),
-        audio: wantsMic,
-        // Let "Browser tab" open the tab picker. preferCurrentTab turns it
-        // into a current-tab shortcut, which makes choosing another tab harder.
-        selfBrowserSurface:
-          displaySurface === "browser" ? "include" : "exclude",
-        surfaceSwitching: "include",
-        systemAudio: wantsMic ? "include" : "exclude",
-      };
+      const displayOptions: ExtendedDisplayMediaOptions =
+        screenCaptureDisplayOptions(displaySurface);
 
       if (wantsMic || wantsDisplay) {
         this.audioMixCtx?.close().catch(() => {});

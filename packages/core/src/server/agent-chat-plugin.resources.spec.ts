@@ -305,6 +305,22 @@ describe("promptResourceManifestSections", () => {
 });
 
 describe("loadResourcesForPrompt", () => {
+  it("uses runtime-scoped instructions and excludes development instructions", async () => {
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: "",
+      agentsMd: "# Legacy instructions",
+      runtimeAgentsMd: "# Runtime instructions",
+      developmentAgentsMd: "# Development instructions",
+      skills: {},
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test");
+
+    expect(prompt).toContain("# Runtime instructions");
+    expect(prompt).not.toContain("# Development instructions");
+    expect(prompt).not.toContain("# Legacy instructions");
+  });
+
   it("loads bounded package context providers into every prompt path", async () => {
     const unregister = registerPromptContextProvider({
       id: "creative-context-test",

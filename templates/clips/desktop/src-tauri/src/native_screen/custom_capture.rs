@@ -2145,6 +2145,175 @@ const MIX_SOURCE_GRACE: Duration = Duration::from_millis(2000);
 const AUDIO_FORMAT_LPCM: u32 = 0x6C70_636D; // 'lpcm'
 const AUDIO_FORMAT_FLAGS_FLOAT_PACKED: u32 = 1 | 8; // float + packed, interleaved, little-endian
 
+/// Speech RMS the mic auto-gain aims for (~-20 dBFS), and how far it may
+/// travel to get there. It never attenuates: a hot mic keeps its own level
+/// and the limiter below owns peak safety.
+const MIC_AGC_TARGET_RMS: f32 = 0.1;
+const MIC_AGC_MIN_GAIN: f32 = 1.0;
+const MIC_AGC_MAX_GAIN: f32 = 8.0; // +18 dB
+/// Below this RMS the mic is between words: hold the current gain rather than
+/// chasing the target, or every pause swells room tone to speech level.
+///
+/// Set at ~-60 dBFS, not the -50 dBFS that room tone alone would justify. A
+/// quiet built-in MacBook mic — the whole reason this stage exists — can carry
+/// speech at -45 dBFS RMS, and a floor set just under that would gate out the
+/// exact signal it is supposed to lift. Worst case here is room tone amplified
+/// to 0.001 × MIC_AGC_MAX_GAIN, still inaudible.
+const MIC_AGC_NOISE_FLOOR_RMS: f32 = 0.001;
+const MIC_AGC_ENVELOPE_SECONDS: f32 = 0.15;
+/// Asymmetric: back off quickly when the mic gets loud (the limiter should be
+/// a backstop, not the thing shaping the sound), return slowly so a boost
+/// doesn't audibly pump across sentences.
+const MIC_AGC_DUCK_SECONDS: f32 = 0.08;
+const MIC_AGC_BOOST_SECONDS: f32 = 1.5;
+/// Until the first speech has been levelled, converge at this rate instead of
+/// `MIC_AGC_BOOST_SECONDS`. Gain starts at unity, so a quiet mic needs to
+/// travel most of its range; at the steady-state rate that takes several
+/// seconds and the opening sentence audibly swells.
+const MIC_AGC_WARMUP_SECONDS: f32 = 0.2;
+/// How close to the target counts as levelled and ends the warmup.
+const MIC_AGC_CONVERGED_TOLERANCE: f32 = 0.05;
+/// -1.0 dBFS, near the true-peak ceiling the offline loudnorm chain targets.
+const MIX_LIMIT_CEILING: f32 = 0.891;
+const MIX_LIMIT_RELEASE_SECONDS: f32 = 0.15;
+
+/// One-pole smoothing coefficient for a time constant at the mixer's rate.
+///
+/// `exp_m1`, not `1.0 - exp(x)`: at 48 kHz the exponent is ~1e-5, so the
+/// subtraction form cancels away most of the f32 mantissa and the longer time
+/// constants come out with about three significant digits.
+fn one_pole_coefficient(tau_seconds: f32, sample_rate: i32) -> f32 {
+    if tau_seconds <= 0.0 || sample_rate <= 0 {
+        return 1.0;
+    }
+    -(-1.0 / (tau_seconds * sample_rate as f32)).exp_m1()
+}
+
+/// Causal mic auto-gain.
+///
+/// ScreenCaptureKit captures without AGC — unlike the browser path, which gets
+/// one from `autoGainControl` — so a MacBook mic lands far below the -16 LUFS
+/// the offline chain in `native_screen.rs` normalizes to. Live-uploaded clips
+/// never reach that chain: their bytes stream to the server while the writer
+/// is still producing them, so nothing downstream can re-read the file. Gain
+/// has to be decided here, from what has already been heard.
+struct MicAutoGain {
+    mean_square: f32,
+    gain: f32,
+    /// False until the first speech has been levelled; see
+    /// `MIC_AGC_WARMUP_SECONDS`.
+    levelled: bool,
+    envelope_coefficient: f32,
+    warmup_coefficient: f32,
+    duck_coefficient: f32,
+    boost_coefficient: f32,
+}
+
+impl MicAutoGain {
+    fn new(sample_rate: i32) -> Self {
+        Self {
+            mean_square: 0.0,
+            gain: 1.0,
+            levelled: false,
+            envelope_coefficient: one_pole_coefficient(MIC_AGC_ENVELOPE_SECONDS, sample_rate),
+            warmup_coefficient: one_pole_coefficient(MIC_AGC_WARMUP_SECONDS, sample_rate),
+            duck_coefficient: one_pole_coefficient(MIC_AGC_DUCK_SECONDS, sample_rate),
+            boost_coefficient: one_pole_coefficient(MIC_AGC_BOOST_SECONDS, sample_rate),
+        }
+    }
+
+    fn next_gain(&mut self, left: f32, right: f32) -> f32 {
+        let peak = left.abs().max(right.abs());
+        self.mean_square += (peak * peak - self.mean_square) * self.envelope_coefficient;
+        let rms = self.mean_square.max(0.0).sqrt();
+        if rms >= MIC_AGC_NOISE_FLOOR_RMS {
+            let target = (MIC_AGC_TARGET_RMS / rms).clamp(MIC_AGC_MIN_GAIN, MIC_AGC_MAX_GAIN);
+            let coefficient = if !self.levelled {
+                self.warmup_coefficient
+            } else if target < self.gain {
+                self.duck_coefficient
+            } else {
+                self.boost_coefficient
+            };
+            self.gain += (target - self.gain) * coefficient;
+            if !self.levelled && (self.gain - target).abs() <= target * MIC_AGC_CONVERGED_TOLERANCE
+            {
+                self.levelled = true;
+                // Once per recording. A "clip is too quiet" report is only
+                // diagnosable if the log says what the mic measured and how
+                // much was added; `gain` pinned at MIC_AGC_MAX_GAIN means the
+                // cap, not the target, decided the level.
+                crate::logfile::diagnostic(&format!(
+                    "[capture-health] mic auto-gain levelled: rms={rms:.6} gain={:.2} capped={}",
+                    self.gain,
+                    self.gain >= MIC_AGC_MAX_GAIN * 0.99
+                ));
+            }
+        }
+        self.gain
+    }
+}
+
+/// Zero-latency peak limiter over the summed mix.
+///
+/// This replaces a flat 0.5x weight on each source, which bought clip safety
+/// by discarding 6 dB whether or not anything was near full scale. Lookahead
+/// would buy cleaner transients but costs an output delay, and the live
+/// uploader has already streamed the frames preceding it.
+struct PeakLimiter {
+    gain: f32,
+    release_coefficient: f32,
+}
+
+impl PeakLimiter {
+    fn new(sample_rate: i32) -> Self {
+        Self {
+            gain: 1.0,
+            release_coefficient: one_pole_coefficient(MIX_LIMIT_RELEASE_SECONDS, sample_rate),
+        }
+    }
+
+    fn next_gain(&mut self, peak: f32) -> f32 {
+        self.gain += (1.0 - self.gain) * self.release_coefficient;
+        if peak > MIX_LIMIT_CEILING {
+            self.gain = self.gain.min(MIX_LIMIT_CEILING / peak);
+        }
+        self.gain
+    }
+}
+
+/// The mixer's whole gain stage: auto-gain the mic, sum with system audio at
+/// unity, limit the result. Kept separate from `LiveAudioMixer` so the mix rule
+/// is reachable without constructing a `CMFormatDescription` — the reported bug
+/// was a wrong per-frame weight, so that arithmetic is what needs covering.
+struct MixGainStage {
+    mic: MicAutoGain,
+    limiter: PeakLimiter,
+}
+
+impl MixGainStage {
+    fn new(sample_rate: i32) -> Self {
+        Self {
+            mic: MicAutoGain::new(sample_rate),
+            limiter: PeakLimiter::new(sample_rate),
+        }
+    }
+
+    /// One output frame. Neither source is pre-attenuated: system audio passes
+    /// at unity and the mic is only ever boosted, with the limiter owning peak
+    /// safety for the sum.
+    fn frame(&mut self, system: (f32, f32), mic: (f32, f32)) -> (f32, f32) {
+        let mic_gain = self.mic.next_gain(mic.0, mic.1);
+        let left = system.0 + mic.0 * mic_gain;
+        let right = system.1 + mic.1 * mic_gain;
+        let limit = self.limiter.next_gain(left.abs().max(right.abs()));
+        (
+            (left * limit).clamp(-1.0, 1.0),
+            (right * limit).clamp(-1.0, 1.0),
+        )
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 /// Which capture stream a pushed PCM chunk came from.
 enum MixSource {
@@ -2224,63 +2393,6 @@ impl MixerTimeline {
     }
 }
 
-#[cfg(test)]
-mod mixer_timeline_tests {
-    use super::MixerTimeline;
-
-    fn stereo_frames(values: &[f32]) -> Vec<f32> {
-        values.iter().flat_map(|value| [*value, *value]).collect()
-    }
-
-    #[test]
-    fn trims_overlapping_frames_instead_of_extending_the_timeline() {
-        let mut timeline = MixerTimeline::new();
-        timeline.push_at(0, &stereo_frames(&[1.0, 2.0, 3.0, 4.0]), 0, 96_000);
-        timeline.push_at(3, &stereo_frames(&[4.0, 5.0, 6.0, 7.0]), 0, 96_000);
-
-        assert_eq!(
-            timeline.samples,
-            stereo_frames(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
-        );
-        assert_eq!(timeline.end_frame(), 7);
-    }
-
-    #[test]
-    fn ignores_fully_duplicated_buffers() {
-        let mut timeline = MixerTimeline::new();
-        let frames = stereo_frames(&[1.0, 2.0, 3.0]);
-        timeline.push_at(0, &frames, 0, 96_000);
-        timeline.push_at(0, &frames, 0, 96_000);
-
-        assert_eq!(timeline.samples, frames);
-        assert_eq!(timeline.end_frame(), 3);
-    }
-
-    #[test]
-    fn trims_input_that_starts_behind_already_emitted_output() {
-        let mut timeline = MixerTimeline::new();
-        timeline.started = true;
-        timeline.base_frame = 10;
-        timeline.push_at(8, &stereo_frames(&[1.0, 2.0, 3.0, 4.0]), 10, 96_000);
-
-        assert_eq!(timeline.samples, stereo_frames(&[3.0, 4.0]));
-        assert_eq!(timeline.end_frame(), 12);
-    }
-
-    #[test]
-    fn preserves_forward_timestamp_gaps_as_silence() {
-        let mut timeline = MixerTimeline::new();
-        timeline.push_at(0, &stereo_frames(&[1.0, 2.0]), 0, 96_000);
-        timeline.push_at(5, &stereo_frames(&[6.0]), 0, 96_000);
-
-        assert_eq!(
-            timeline.samples,
-            stereo_frames(&[1.0, 2.0, 0.0, 0.0, 0.0, 6.0])
-        );
-        assert_eq!(timeline.end_frame(), 6);
-    }
-}
-
 enum SourceBound {
     /// Started and recently fed; bounds output to `end_frame`.
     Active(i64),
@@ -2313,6 +2425,9 @@ struct LiveAudioMixer {
     out_pos: i64,
     system: MixerTimeline,
     mic: MixerTimeline,
+    /// Gain stage, carried across chunks: emitted frames are already uploaded,
+    /// so its state is the only memory the mix has.
+    gain: MixGainStage,
     created_at: Instant,
 }
 
@@ -2360,6 +2475,7 @@ impl LiveAudioMixer {
             out_pos: 0,
             system: MixerTimeline::new(),
             mic: MixerTimeline::new(),
+            gain: MixGainStage::new(sample_rate),
             created_at: Instant::now(),
         })
     }
@@ -2465,15 +2581,14 @@ impl LiveAudioMixer {
     }
 
     /// Emit mixed sample buffers covering `out_pos..safe_end` in
-    /// `MIX_CHUNK_FRAMES` chunks: average system + mic per frame, clamp, wrap
-    /// as LPCM `CMSampleBuffer`s with contiguous PTS.
+    /// `MIX_CHUNK_FRAMES` chunks: auto-gain the mic, sum with system audio,
+    /// limit, wrap as LPCM `CMSampleBuffer`s with contiguous PTS.
     ///
-    /// Each source is weighted at 0.5 before summing so that two full-scale
-    /// signals (which occurs when a USB audio interface with software monitoring
-    /// routes the mic back through system audio) can never exceed ±1.0 and
-    /// hard-clip. The standard SCK pipeline applies the same 0.5×L + 0.5×R
-    /// pan-downmix for the same reason; loudnorm restores the target loudness
-    /// in post-processing.
+    /// Clip safety belongs to `PeakLimiter`, not to a fixed weight per source.
+    /// Two full-scale signals do occur — a USB interface with software
+    /// monitoring routes the mic back through system audio — but attenuating
+    /// every frame for that case is what left live-uploaded clips ~6 dB below
+    /// the rest, with no post-processing stage left to make it back up.
     fn drain_ready(
         &mut self,
         flush: bool,
@@ -2493,10 +2608,11 @@ impl LiveAudioMixer {
             let mut interleaved = vec![0.0_f32; n * 2];
             for f in 0..n {
                 let frame = a + f as i64;
-                let (sl, sr) = self.system.sample_at(frame);
-                let (ml, mr) = self.mic.sample_at(frame);
-                interleaved[f * 2] = (sl * 0.5 + ml * 0.5).clamp(-1.0, 1.0);
-                interleaved[f * 2 + 1] = (sr * 0.5 + mr * 0.5).clamp(-1.0, 1.0);
+                let (left, right) = self
+                    .gain
+                    .frame(self.system.sample_at(frame), self.mic.sample_at(frame));
+                interleaved[f * 2] = left;
+                interleaved[f * 2 + 1] = right;
             }
             emitted.push(self.build_sample_buffer(&interleaved, a)?);
             a = b;

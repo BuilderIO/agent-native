@@ -10,6 +10,10 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+export {
+  clearAnalyticsSessionId,
+  setAnalyticsSessionId,
+} from "./analytics-session.js";
 import {
   fetchAgentEngineStatus,
   fetchAuthSessionStatus,

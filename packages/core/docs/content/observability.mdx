@@ -307,6 +307,22 @@ Nodes share the run id as `$ai_trace_id`, so PostHog renders one tree per run.
 `$ai_session_id` is the conversation thread; the browser session is sent
 separately as `$session_id` so a trace links to its session replay.
 
+The browser session id travels on the `X-Agent-Native-Session-Id` header. Both
+the agent chat and the action client (`useActionQuery` / `useActionMutation` /
+`callAction`) send it, and the server exposes it to actions and agent runs alike
+as `RequestContext.browserSessionId` — so an action the UI calls and an action
+the agent calls during the same visit correlate. The id rotates after 30 idle
+minutes by default; to correlate a workflow under an id of your own, pin it once
+at startup:
+
+```ts
+import { setAnalyticsSessionId } from "@agent-native/core/client/analytics";
+
+// Pinned ids opt out of idle rotation. Call clearAnalyticsSessionId() to
+// return to the rotating default.
+setAnalyticsSessionId(myWorkflowId);
+```
+
 Tool calls always appear (PostHog derives its tool tags from them), but their
 **arguments** require `captureToolArgs` and message content requires
 `capturePrompts`. When those are off the fields are omitted entirely rather than

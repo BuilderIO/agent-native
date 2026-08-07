@@ -567,10 +567,17 @@ export async function resolveThreadAccess(
   ctx: Omit<AccessContext, "userEmail"> = {},
 ): Promise<ChatThread | null> {
   if (!userEmail || !threadId) return null;
-  const access = await resolveAccess("chat_thread", threadId, {
-    userEmail,
-    orgId: ctx.orgId,
-  });
+  // `skipResourceBody` matters more here than anywhere else: without it the
+  // access load is an unprojected `select()` that pulls `thread_data` — the
+  // whole conversation JSON — and then this function discards the row and reads
+  // it again through `getThread`. Two full-blob reads of the same row per call,
+  // on the agent-chat hot path.
+  const access = await resolveAccess(
+    "chat_thread",
+    threadId,
+    { userEmail, orgId: ctx.orgId },
+    { skipResourceBody: true },
+  );
   if (!access || !roleSatisfies(access.role, minRole)) return null;
   return await getThread(threadId);
 }

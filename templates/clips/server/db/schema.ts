@@ -246,6 +246,13 @@ export const recordingTranscripts = table("recording_transcripts", {
     .notNull()
     .default("pending"),
   failureReason: text("failure_reason"),
+  // The MACHINE-READABLE reason, and the one that decides retryability — see
+  // shared/transcript-failure.ts. `failureReason` above is prose rendered from
+  // this and is for humans only; production accumulated 39 distinct strings
+  // for what turned out to be a handful of conditions, and retryability was
+  // being re-derived by regex over that prose. Nullable for rows written
+  // before this column existed.
+  failureCode: text("failure_code"),
   // Count of automatic retries already attempted after a transient failure
   // (ffmpeg timeout, transient provider/network error). Bounds the
   // fire-and-forget auto-retry pass in request-transcript.ts so a repeatedly

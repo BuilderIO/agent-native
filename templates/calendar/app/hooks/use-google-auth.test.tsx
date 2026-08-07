@@ -187,7 +187,7 @@ describe("useGoogleDesktopAuth", () => {
       () => {
         expect(fetchMock).toHaveBeenCalledWith(
           "/_agent-native/auth/session?_session=token-1",
-          { credentials: "include" },
+          { credentials: "include", signal: expect.any(AbortSignal) },
         );
       },
       { timeout: 4_000 },

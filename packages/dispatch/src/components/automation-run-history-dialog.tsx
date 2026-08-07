@@ -65,7 +65,7 @@ function runDebugPath(run: AutomationRun): string | null {
   if (run.runId) params.set("runId", run.runId);
   else if (run.threadId) params.set("threadId", run.threadId);
   else return null;
-  return `/thread-debug?${params.toString()}`;
+  return `/admin/thread-debug?${params.toString()}`;
 }
 
 export function AutomationRunHistoryDialog({

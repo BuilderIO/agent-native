@@ -40,6 +40,12 @@ vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
 
+import {
+  buildPanel,
+  FIRST_PARTY_DASHBOARD_ID,
+  LEGACY_DAU_BY_TEMPLATE_SQL,
+} from "../server/lib/first-party-metric-catalog";
+
 const { default: getSqlDashboard } = await import("./get-sql-dashboard");
 
 describe("get-sql-dashboard seed fallback", () => {
@@ -115,6 +121,47 @@ describe("get-sql-dashboard seed fallback", () => {
     expect(result.panels).toEqual([]);
     expect(result.layout.panelOrder).toEqual([]);
     expect(result.ownerEmail).toBe("alice@example.com");
+  });
+
+  it("repairs legacy template breakdown SQL when reading the canonical dashboard", async () => {
+    const current = buildPanel("dau-over-time");
+    expect(current).not.toBeNull();
+    mocks.getDashboard.mockResolvedValue({
+      id: FIRST_PARTY_DASHBOARD_ID,
+      kind: "sql",
+      title: "Agent Native Templates (First-party)",
+      config: {
+        name: "Agent Native Templates (First-party)",
+        panels: [
+          {
+            id: "dau-over-time",
+            title: "Signed-In Daily Active Visitors by Template",
+            source: "first-party",
+            chartType: "area",
+            width: 2,
+            sql: LEGACY_DAU_BY_TEMPLATE_SQL,
+          },
+        ],
+      },
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      visibility: "org",
+      role: "owner",
+      canEdit: true,
+      canManage: true,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    });
+
+    const result = (await getSqlDashboard.run({
+      id: FIRST_PARTY_DASHBOARD_ID,
+      includeConfig: true,
+    })) as { panels: Array<{ sql?: string }> };
+
+    expect(result.panels[0]?.sql).toBe(current?.sql);
   });
 
   it("omits full panel SQL by default and returns it when includeConfig is true", async () => {

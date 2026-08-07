@@ -68,7 +68,16 @@ function enqueue(
 ): void {
   const queue = getQueue();
   queue.push({ url, body, headers });
-  if (options?.flushImmediately || queue.length >= MAX_BATCH_SIZE) {
+  // The batch timer is unref'd so it never keeps a long-lived server alive —
+  // but on Netlify/Vercel/Lambda the execution environment can freeze the
+  // moment the event loop looks empty, which is exactly when an unref'd timer
+  // doesn't count. Without a signal, a warm container freezing between
+  // invocations never fires that timer, silently dropping every provider's
+  // queued events for a request that ends in a crash. Default to flushing
+  // synchronously with the response in that environment; a caller (e.g.
+  // Agent Native Analytics' flush-mode override) can still force either way.
+  const flushImmediately = options?.flushImmediately ?? isServerlessRuntime();
+  if (flushImmediately || queue.length >= MAX_BATCH_SIZE) {
     void drainQueue();
   } else if (!getTimer()) {
     const timer = setTimeout(() => {
@@ -187,6 +196,7 @@ function createPostHogProvider(
         properties: {
           distinct_id: distinctId,
           ...properties,
+          ...(event.sessionId ? { $session_id: event.sessionId } : {}),
           timestamp: event.timestamp,
         },
       }),
@@ -226,6 +236,7 @@ function createPostHogProvider(
           distinct_id: distinctId,
           properties: {
             ...event.properties,
+            ...(event.sessionId ? { $session_id: event.sessionId } : {}),
             timestamp: event.timestamp,
           },
         }),
@@ -299,6 +310,9 @@ function createMixpanelProvider(token: string): TrackingProvider {
             ? new Date(event.timestamp).getTime() / 1000
             : undefined,
           ...event.properties,
+          // Mixpanel's own `$session_id` is numeric and assigned by its SDK, so
+          // the browser session lands as a plain property here.
+          ...(event.sessionId ? { session_id: event.sessionId } : {}),
         },
       };
       enqueue("https://api.mixpanel.com/track", JSON.stringify([data]));
@@ -329,7 +343,11 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
           {
             event_type: event.name,
             user_id: event.userId || "anonymous",
-            event_properties: event.properties,
+            // Amplitude's top-level `session_id` must be a numeric epoch, so
+            // the browser session ships as an event property instead.
+            event_properties: event.sessionId
+              ? { ...event.properties, session_id: event.sessionId }
+              : event.properties,
             time: event.timestamp
               ? new Date(event.timestamp).getTime()
               : undefined,
@@ -373,6 +391,7 @@ function createWebhookProvider(
           event: event.name,
           properties: event.properties,
           userId: event.userId,
+          sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),
         extra,
@@ -414,6 +433,7 @@ function createAgentNativeAnalyticsProvider(
           properties: event.properties ?? {},
           userId: event.userId,
           anonymousId: event.anonymousId,
+          sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),
         undefined,

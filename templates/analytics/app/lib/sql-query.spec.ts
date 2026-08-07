@@ -64,7 +64,10 @@ describe("executeSqlQuery", () => {
         query: "SELECT date, signups FROM analytics_events",
         source: "first-party",
       },
-      { signal: controller.signal },
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+      }),
     );
     expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
   });
@@ -83,11 +86,57 @@ describe("executeSqlQuery", () => {
     expect(mocks.callAction).toHaveBeenCalledWith(
       "query-dashboard-panel",
       { query: "SELECT 1", source: "first-party" },
-      {
-        signal: controller.signal,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
         timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
-      },
+      }),
     );
+  });
+
+  it("includes queue time in the dashboard action deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = deferred<{ rows: Record<string, unknown>[] }>();
+      mocks.callAction.mockImplementation(
+        (
+          _name: string,
+          args: { query: string; source: string },
+          options?: { signal?: AbortSignal },
+        ) => {
+          if (args.query === "first") return first.promise;
+          return new Promise((_, reject) => {
+            options?.signal?.addEventListener(
+              "abort",
+              () => {
+                const error = new Error("aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          });
+        },
+      );
+
+      const firstQuery = executeSqlQuery("first", "first-party");
+      await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(1));
+      const secondQuery = executeSqlQuery("second", "first-party");
+
+      await vi.advanceTimersByTimeAsync(100);
+      first.resolve({ rows: [] });
+      await firstQuery;
+      await vi.waitFor(() => expect(mocks.callAction).toHaveBeenCalledTimes(2));
+
+      const secondRejection = expect(secondQuery).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      await vi.advanceTimersByTimeAsync(
+        DASHBOARD_REPORT_ACTION_TIMEOUT_MS - 100,
+      );
+      await secondRejection;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("serializes first-party panel queries without blocking external sources", async () => {

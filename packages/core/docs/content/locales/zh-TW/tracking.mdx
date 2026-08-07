@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 觸發分析事件。扇出到所有註冊的提供者。
 
@@ -104,6 +104,10 @@ track(
   { userId: "steve@builder.io" },
 );
 ```
+
+`source` 可以是直接傳遞的動作 `ctx`，也可以是沒有 `ctx` 的呼叫端所使用的 `{ userId, anonymousId, sessionId }` 中繼資料物件。
+
+瀏覽器工作階段不需要呼叫端自行提供：它來自環境請求內容（`RequestContext.browserSessionId`，由動作用戶端、聊天與瀏覽器端 `track()` 都會送出的 `X-Agent-Native-Session-Id` 標頭設定），因此無論事件是由介面或代理程式觸發，都會關聯到同一次造訪。每個供應商都會將它對應到自己的工作階段欄位：PostHog 使用 `$session_id`，藉此把事件與工作階段重播連結起來；Mixpanel 與 Amplitude 使用 `session_id` 屬性；Webhook 與 Agent Native Analytics 使用最上層的 `sessionId`。對於沒有瀏覽器的呼叫端（cron、CLI、MCP、A2A）此值不存在，而中繼資料物件中的 `sessionId` 會覆寫它。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // 直接傳遞 ctx：事件歸屬於 ctx.userEmail，並關聯到發出呼叫的
+    // 瀏覽器工作階段。
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },

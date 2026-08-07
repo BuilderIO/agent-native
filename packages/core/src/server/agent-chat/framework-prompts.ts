@@ -1,6 +1,7 @@
 import nodePath from "node:path";
 
 import type { ActionEntry } from "../../agent/production-agent.js";
+import type { FrameworkToolGroup } from "../../framework-tools.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import {
   buildFrameworkCore,
@@ -33,7 +34,11 @@ import { lazyFs } from "./lazy-fs.js";
  */
 export function buildFrameworkPrompts(
   examples?: PromptExamples,
-  options?: { databaseTools?: DatabaseToolsOption; extensionTools?: boolean },
+  options?: {
+    databaseTools?: DatabaseToolsOption;
+    extensionTools?: boolean;
+    disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+  },
 ): {
   FRAMEWORK_CORE: string;
   FRAMEWORK_CORE_COMPACT: string;

@@ -27,9 +27,11 @@ import {
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
+  shouldOfferMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
   formatMcpServerError,
   useCreateMcpServer,
@@ -207,6 +209,17 @@ export function FirstRunOnboarding({
     }
 
     if (
+      shouldOfferMcpIntegrationOrganizationScope(
+        integration,
+        hasOrg,
+        canCreateOrgMcp,
+      )
+    ) {
+      setIntegrationDialogId(integration.id);
+      return;
+    }
+
+    if (
       integration.authMode === "none" &&
       integration.connectionMode === "direct"
     ) {
@@ -370,7 +383,15 @@ export function FirstRunOnboarding({
                           ·
                         </span>
                       )}
-                      <span>{capability.label}</span>
+                      <span className="inline-flex items-center gap-0.5">
+                        <span>{capability.label}</span>
+                        {capability.id === "design-system-intelligence" && (
+                          <CapabilityInfoButton
+                            capability={capability}
+                            ariaLabel={`About ${capability.label}`}
+                          />
+                        )}
+                      </span>
                     </React.Fragment>
                   ))}
                   <span aria-hidden="true" className="text-muted-foreground">
@@ -608,7 +629,7 @@ export function FirstRunOnboarding({
               if (!open) setIntegrationDialogId(null);
             }}
             initialIntegrationId={integrationDialogId}
-            defaultScope={canCreateOrgMcp ? "org" : "user"}
+            defaultScope="user"
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={hasOrg}
             onCreateMcpServer={createMcpServer.mutateAsync}
@@ -845,17 +866,13 @@ function McpIntegrationCard({
   return (
     <article className="flex min-w-0 items-center gap-3 border-b border-border/70 py-3.5 sm:pe-4">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-card text-xs font-semibold text-muted-foreground">
-          {integration.name.slice(0, 1)}
-          <img
-            src={integration.logoUrl}
-            alt=""
-            className="absolute inset-0 size-full object-contain p-1"
-            onError={(event) => {
-              event.currentTarget.hidden = true;
-            }}
-          />
-        </span>
+        <McpIntegrationLogo
+          name={integration.name}
+          logoUrl={integration.logoUrl}
+          integrationId={integration.id}
+          className="size-8 rounded-md"
+          imageClassName="size-full p-1"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-medium text-foreground">
@@ -907,22 +924,10 @@ function CapabilityRow({
           >
             {capability.label}
           </span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={`Why ${capability.label} is needed`}
-                className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <IconInfoCircle size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs text-xs">
-              {capability.why}
-            </TooltipContent>
-          </Tooltip>
+          <CapabilityInfoButton
+            capability={capability}
+            ariaLabel={`Why ${capability.label} is needed`}
+          />
         </div>
         <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
           {capability.keySummary}
@@ -937,6 +942,33 @@ function CapabilityRow({
         {capability.required ? "Required" : "Optional"}
       </span>
     </div>
+  );
+}
+
+function CapabilityInfoButton({
+  capability,
+  ariaLabel,
+}: {
+  capability: OnboardingCapability;
+  ariaLabel: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <IconInfoCircle size={13} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs text-xs">
+        {capability.why}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

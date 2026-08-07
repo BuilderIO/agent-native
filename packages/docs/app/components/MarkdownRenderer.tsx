@@ -24,6 +24,7 @@ interface ImageDimensions {
 
 const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
+const MAX_RENDERED_MARKDOWN_CACHE_ENTRIES = 64;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/analytics.png": { width: 1400, height: 710 },
@@ -385,9 +386,24 @@ function createRenderer() {
   return renderer;
 }
 
+const renderedMarkdownCache = new Map<string, string>();
+
 export function renderMarkdownToHtml(markdown: string): string {
+  const cached = renderedMarkdownCache.get(markdown);
+  if (cached !== undefined) {
+    renderedMarkdownCache.delete(markdown);
+    renderedMarkdownCache.set(markdown, cached);
+    return cached;
+  }
+
   const renderer = createRenderer();
-  return marked(markdown, { renderer, async: false }) as string;
+  const html = marked(markdown, { renderer, async: false }) as string;
+  if (renderedMarkdownCache.size >= MAX_RENDERED_MARKDOWN_CACHE_ENTRIES) {
+    const oldest = renderedMarkdownCache.keys().next().value;
+    if (oldest !== undefined) renderedMarkdownCache.delete(oldest);
+  }
+  renderedMarkdownCache.set(markdown, html);
+  return html;
 }
 
 export function resolveRenderedMarkdownHtml(

@@ -1,4 +1,8 @@
 import { getDbExec } from "../db/client.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { hasActiveIntegrationCampaign } from "./integration-campaigns-store.js";
 import {
   configuredIntegrationDurableDispatchScopes,
@@ -49,8 +53,8 @@ const DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS = 16 * 60 * 1000;
 /** After this many attempts we give up and mark the task failed */
 const DEFAULT_SWEEP_LIMIT = 100;
 
-let retryInterval: ReturnType<typeof setInterval> | null = null;
-let initialTimer: ReturnType<typeof setTimeout> | null = null;
+let job: IntervalJobHandle | null = null;
+let startupTimer: ReturnType<typeof setTimeout> | null = null;
 let activeWebhookBaseUrl: string | undefined;
 /**
  * Whether the table exists. Cached after first probe so we don't log every
@@ -338,23 +342,20 @@ function getProcessingStuckAfterMs(): number {
 export function startPendingTasksRetryJob(options?: {
   webhookBaseUrl?: string;
 }): void {
-  if (retryInterval) return;
+  if (job || startupTimer) return;
   activeWebhookBaseUrl = options?.webhookBaseUrl;
 
   // Stagger the first run a bit so we don't hammer the DB immediately on boot.
-  initialTimer = setTimeout(() => {
-    void retryStuckPendingTasks().catch((err) => {
-      console.error("[integrations] Pending-tasks retry job error:", err);
+  startupTimer = setTimeout(() => {
+    startupTimer = null;
+    job = startIntervalJob(async () => void (await retryStuckPendingTasks()), {
+      intervalMs: RETRY_INTERVAL_MS,
+      onError: (err) => {
+        console.error("[integrations] Pending-tasks retry job error:", err);
+      },
     });
   }, 10_000);
-  unrefTimer(initialTimer);
-
-  retryInterval = setInterval(() => {
-    void retryStuckPendingTasks().catch((err) => {
-      console.error("[integrations] Pending-tasks retry job error:", err);
-    });
-  }, RETRY_INTERVAL_MS);
-  unrefTimer(retryInterval);
+  startupTimer.unref?.();
 
   if (process.env.DEBUG) {
     console.log(
@@ -367,17 +368,11 @@ export function startPendingTasksRetryJob(options?: {
 
 /** Stop the retry loop. */
 export function stopPendingTasksRetryJob(): void {
-  if (initialTimer) {
-    clearTimeout(initialTimer);
-    initialTimer = null;
+  if (startupTimer) {
+    clearTimeout(startupTimer);
+    startupTimer = null;
   }
-  if (retryInterval) {
-    clearInterval(retryInterval);
-    retryInterval = null;
-  }
+  job?.stop();
+  job = null;
   activeWebhookBaseUrl = undefined;
-}
-
-function unrefTimer(timer: ReturnType<typeof setInterval>): void {
-  (timer as unknown as { unref?: () => void }).unref?.();
 }

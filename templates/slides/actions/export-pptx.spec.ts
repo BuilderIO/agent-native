@@ -152,6 +152,55 @@ describe("parseSlideHtml", () => {
     ]);
   });
 
+  it("keeps a source-faithful PDF page as a full-slide image", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" style="background: #101820;"><img src="https://files.example/page.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.texts).toHaveLength(0);
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/page.png",
+        x: 0,
+        y: 0,
+        w: expect.closeTo(13.33, 2),
+        h: expect.closeTo(7.5, 2),
+      }),
+    ]);
+  });
+
+  it("letterboxes portrait PDF pages during export", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" data-source-width="900" data-source-height="1600"><img src="https://files.example/portrait.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/portrait.png",
+        x: expect.closeTo((13.33 - 7.5 * (900 / 1600)) / 2, 4),
+        y: 0,
+        w: expect.closeTo(7.5 * (900 / 1600), 4),
+        h: expect.closeTo(7.5, 4),
+      }),
+    ]);
+  });
+
+  it("decodes escaped query parameters in imported PDF image URLs", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true"><img src="https://files.example/page.png?token=abc&amp;signature=def" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images[0]?.src).toBe(
+      "https://files.example/page.png?token=abc&signature=def",
+    );
+  });
+
   it("ignores imported grids with non-positive spacing", () => {
     for (const backgroundSize of [
       "0px 24px",

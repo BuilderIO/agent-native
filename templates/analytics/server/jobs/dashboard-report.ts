@@ -15,6 +15,11 @@ declare global {
 
 let running = false;
 const DEFAULT_MAX_REPORTS_PER_SWEEP = 5;
+// Bounds snapshot/panel/render work per subscription. Originally only applied
+// in serverless mode to fit the function's execution limit; it now also
+// backstops the long-running in-process cron, where a hung query or render
+// call would otherwise leave `running` stuck forever instead of just
+// delaying the next sweep.
 const SERVERLESS_REPORT_DELIVERY_BUDGET_MS = 220_000;
 const SERVERLESS_MAX_REPORTS_PER_SWEEP = 1;
 
@@ -131,9 +136,8 @@ export async function runDashboardReportsOnce(): Promise<{
     remaining = batch.length >= sweepLimit ? 1 : 0;
     for (const sub of batch) {
       processed++;
-      const deliveryDeadlineAt = serverlessDashboardReportRuntime()
-        ? Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS
-        : undefined;
+      const deliveryDeadlineAt =
+        Date.now() + SERVERLESS_REPORT_DELIVERY_BUDGET_MS;
       const retryAt = dashboardReportRetryAt(sub);
       try {
         const result = await runWithRequestContext(

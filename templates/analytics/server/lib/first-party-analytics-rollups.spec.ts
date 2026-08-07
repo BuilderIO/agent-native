@@ -21,6 +21,7 @@ interface Write {
 function mockDb() {
   const writes: Write[] = [];
   const tx = {
+    execute: vi.fn(async (_query: unknown) => ({ rows: [] })),
     insert: vi.fn((table: unknown) => ({
       values: vi.fn((rows: unknown) => ({
         onConflictDoUpdate: vi.fn(async (config: unknown) => {
@@ -208,6 +209,24 @@ describe("upsertFirstPartyAnalyticsRollups", () => {
 
     expect(writes).toHaveLength(2);
     expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not block foreground ingest behind a historical backfill", async () => {
+    const { tx, db } = mockDb();
+    getDbMock.mockReturnValue(db);
+
+    await upsertFirstPartyAnalyticsRollups(
+      [
+        {
+          eventName: "pageview",
+          eventDate: "2026-08-05",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      tx,
+    );
+
+    expect(tx.execute).not.toHaveBeenCalled();
   });
 
   it("fails before opening a transaction for malformed normalized rows", async () => {

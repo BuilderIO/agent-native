@@ -285,11 +285,13 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 <Callout tone="decision">
 
-Le plugin de chat de l'agent en production configure par défaut les outils SQL bruts en lecture seule (`databaseTools: "read"`), afin que les agents inspectent les données appartenant à l'application avec `db-schema` / `db-query` et effectuent les écritures via des actions typées de l'application. Définissez `databaseTools: "write"` (ou `true`) uniquement pour les surfaces de maintenance délibérées qui doivent aussi exposer `db-exec` / `db-patch` de façon restreinte ; définissez `databaseTools: "off"` / `false` pour exiger des actions typées de l'application pour tout accès aux données.
+Le plug-in de chat de l'agent de production met les outils SQL bruts en lecture seule par défaut (`frameworkTools: { database: "read" }`), donc les agents inspectent les données avec `db-schema` / `db-query` et écrivent via les actions typées de l'application. Définissez `database: "write"` (ou `true`) seulement pour les surfaces de maintenance qui doivent exposer `db-exec` / `db-patch`; utilisez `database: "off"` / `false` pour exiger des actions typées pour tout accès aux données.
+
+`frameworkTools` gouverne de la même façon les autres outils propres au framework : partage, commentaires de revue, historique de versions, feature flags, localisation, audit, Context X-Ray, profil, automatisations, docs, resources, web, délégation inter-apps, chat et email. Voir [Production Agent Tools](/docs/deployment#production-agent-tools) pour la liste complète, le preset `"minimal"` et pourquoi désactiver un groupe laisse ses routes HTTP montées.
 
 </Callout>
 
-## Pont de chat de l'agent {#agent-chat-bridge}
+## Pont de discussion pour les agents {#agent-chat-bridge}
 
 L'UI n'appelle jamais un LLM directement. Lorsqu'un utilisateur clique sur « Générer un graphique » ou « Rédiger un résumé », l'UI envoie un message à l'agent via `postMessage`. L'agent effectue le travail. Il dispose de l'historique complet de la conversation, des skills, des instructions et de la capacité d'itérer.
 

@@ -50,6 +50,7 @@ export function AgentTabFrame({
                   title={helpLabel ?? `Open ${title} documentation`}
                   className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 >
+                  {/* guard:allow-large-help-icon - heading documentation control */}
                   <IconHelpCircle className="size-4" />
                 </a>
               )}

@@ -7,6 +7,8 @@ import type { Slide } from "@/context/DeckContext";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { cn } from "@/lib/utils";
 
+import type { DesignSystemData } from "../../../shared/api";
+
 function SlideLoadingArtwork() {
   return (
     <div className="absolute inset-0 flex flex-col justify-center gap-4 bg-muted/30 p-[14%]">
@@ -25,11 +27,13 @@ export default function GeneratingSlidePreview({
   aspectRatio,
   thumbnail = true,
   className,
+  designSystem,
 }: {
   content?: string | null;
   aspectRatio?: AspectRatio;
   thumbnail?: boolean;
   className?: string;
+  designSystem?: DesignSystemData;
 }) {
   const t = useT();
   const cssRatio = (aspectRatio ?? "16:9").replace(":", " / ");
@@ -55,6 +59,7 @@ export default function GeneratingSlidePreview({
           slide={previewSlide}
           aspectRatio={aspectRatio}
           thumbnail={thumbnail}
+          designSystem={designSystem}
           className="h-full w-full"
         />
       ) : (

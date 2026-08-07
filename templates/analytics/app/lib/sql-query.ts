@@ -59,6 +59,29 @@ function createAbortError(): Error {
   return error;
 }
 
+function createDeadlineSignal(
+  parentSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (parentSignal?.aborted) {
+    abortFromParent();
+  } else {
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", abortFromParent);
+    },
+  };
+}
+
 function createSqlQueryRelease(pool: SqlQuerySlotPool): () => void {
   let released = false;
   return () => {
@@ -117,21 +140,25 @@ export async function executeSqlQuery(
   signal?: AbortSignal,
   options?: { reportScreenshot?: boolean },
 ): Promise<SqlQueryResult> {
-  const release = await acquireSqlQuerySlot(source, signal);
+  const deadline = createDeadlineSignal(
+    signal,
+    DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+  );
+  let release: (() => void) | undefined;
   let data: DashboardPanelQueryResponse;
   try {
+    release = await acquireSqlQuerySlot(source, deadline.signal);
     data = await callAction<DashboardPanelQueryResponse>(
       "query-dashboard-panel",
       { query: sql, source },
       {
-        signal,
-        ...(options?.reportScreenshot
-          ? { timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS }
-          : {}),
+        signal: deadline.signal,
+        timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
       },
     );
   } finally {
-    release();
+    release?.();
+    deadline.cleanup();
   }
 
   if (typeof data?.error === "string") {

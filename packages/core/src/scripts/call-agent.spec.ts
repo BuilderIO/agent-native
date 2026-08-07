@@ -63,6 +63,9 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
   getRequestRunContext: () => ({ model: "claude-opus-4-8" }),
+  // `track()` reads the ambient browser session through this getter, so a mock
+  // that omits it makes every tracked event throw inside a best-effort catch.
+  getRequestContext: () => ({ userEmail: "alice+qa@agent-native.test" }),
   isIntegrationCallerRequest: () => true,
   getIntegrationRequestContext: integrationRequestContextMock,
 }));

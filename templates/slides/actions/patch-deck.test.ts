@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   applyOperation,
+  assertSourceImportOperationsPreserved,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -250,6 +252,29 @@ describe("applyOperation — patch-deck-fields", () => {
       fields: { designSystemId: null },
     });
     expect(deck.designSystemId).toBeNull();
+  });
+});
+
+describe("source-imported deck structure", () => {
+  const metadata = buildSourceImportMetadata({
+    format: "pdf",
+    slides: [],
+  });
+
+  it("rejects structural operations while source preservation is enabled", () => {
+    expect(() =>
+      assertSourceImportOperationsPreserved(metadata, [
+        { op: "add-slide", slideId: "s2", fields: { content: "New" } },
+      ]),
+    ).toThrow("source-imported deck");
+  });
+
+  it("allows structural operations for a regular deck", () => {
+    expect(() =>
+      assertSourceImportOperationsPreserved(null, [
+        { op: "delete-slide", slideId: "s1" },
+      ]),
+    ).not.toThrow();
   });
 });
 

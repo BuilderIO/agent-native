@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
+
 const getUserProfileMock = vi.fn();
 const updateUserProfileMock = vi.fn();
 const getBetterAuthMock = vi.fn();
@@ -138,6 +140,47 @@ describe("user profile actions", () => {
     expect(changePassword.agentTool).toBe(false);
     expect(changePassword.toolCallable).toBe(false);
     expect(JSON.stringify(setPassword)).not.toContain("new-password");
+  });
+
+  it("enforces the 12-character minimum before calling Better Auth", async () => {
+    const context = {
+      caller: "frontend" as const,
+      userEmail: "alice@example.com",
+      requestHeaders: new Headers(),
+    };
+    const shortPassword = "p".repeat(PASSWORD_MIN_LENGTH - 1);
+    const validPassword = "p".repeat(PASSWORD_MIN_LENGTH);
+
+    await expect(
+      setPassword.run({ newPassword: shortPassword }, context),
+    ).rejects.toThrow();
+    expect(auth.api.setPassword).not.toHaveBeenCalled();
+
+    await expect(
+      setPassword.run({ newPassword: validPassword }, context),
+    ).resolves.toEqual({ status: true });
+    expect(auth.api.setPassword).toHaveBeenCalledWith({
+      body: { newPassword: validPassword },
+      headers: context.requestHeaders,
+    });
+
+    await expect(
+      changePassword.run(
+        { currentPassword: shortPassword, newPassword: validPassword },
+        context,
+      ),
+    ).resolves.toEqual({ status: true });
+    expect(auth.api.changePassword).toHaveBeenCalledWith({
+      body: { currentPassword: shortPassword, newPassword: validPassword },
+      headers: context.requestHeaders,
+    });
+
+    await expect(
+      changePassword.run(
+        { currentPassword: "", newPassword: validPassword },
+        context,
+      ),
+    ).rejects.toThrow();
   });
 
   it("requires an authenticated request with headers for password actions", async () => {

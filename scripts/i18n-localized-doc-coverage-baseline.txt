@@ -9,9 +9,6 @@ ar-SA|durable-background-runs
 ar-SA|environment-variables
 ar-SA|external-agents-catalog
 ar-SA|generative-ui
-ar-SA|getting-started-actions
-ar-SA|getting-started-database
-ar-SA|getting-started-pages
 ar-SA|http-api
 ar-SA|integrations
 ar-SA|messaging-internals
@@ -85,9 +82,6 @@ de-DE|durable-background-runs
 de-DE|environment-variables
 de-DE|external-agents-catalog
 de-DE|generative-ui
-de-DE|getting-started-actions
-de-DE|getting-started-database
-de-DE|getting-started-pages
 de-DE|http-api
 de-DE|integrations
 de-DE|messaging-internals
@@ -161,9 +155,6 @@ es-ES|durable-background-runs
 es-ES|environment-variables
 es-ES|external-agents-catalog
 es-ES|generative-ui
-es-ES|getting-started-actions
-es-ES|getting-started-database
-es-ES|getting-started-pages
 es-ES|http-api
 es-ES|integrations
 es-ES|messaging-internals
@@ -237,9 +228,6 @@ fr-FR|durable-background-runs
 fr-FR|environment-variables
 fr-FR|external-agents-catalog
 fr-FR|generative-ui
-fr-FR|getting-started-actions
-fr-FR|getting-started-database
-fr-FR|getting-started-pages
 fr-FR|http-api
 fr-FR|integrations
 fr-FR|messaging-internals
@@ -313,9 +301,6 @@ hi-IN|durable-background-runs
 hi-IN|environment-variables
 hi-IN|external-agents-catalog
 hi-IN|generative-ui
-hi-IN|getting-started-actions
-hi-IN|getting-started-database
-hi-IN|getting-started-pages
 hi-IN|http-api
 hi-IN|integrations
 hi-IN|messaging-internals
@@ -389,9 +374,6 @@ ja-JP|durable-background-runs
 ja-JP|environment-variables
 ja-JP|external-agents-catalog
 ja-JP|generative-ui
-ja-JP|getting-started-actions
-ja-JP|getting-started-database
-ja-JP|getting-started-pages
 ja-JP|http-api
 ja-JP|integrations
 ja-JP|messaging-internals
@@ -465,9 +447,6 @@ ko-KR|durable-background-runs
 ko-KR|environment-variables
 ko-KR|external-agents-catalog
 ko-KR|generative-ui
-ko-KR|getting-started-actions
-ko-KR|getting-started-database
-ko-KR|getting-started-pages
 ko-KR|http-api
 ko-KR|integrations
 ko-KR|messaging-internals
@@ -541,9 +520,6 @@ pt-BR|durable-background-runs
 pt-BR|environment-variables
 pt-BR|external-agents-catalog
 pt-BR|generative-ui
-pt-BR|getting-started-actions
-pt-BR|getting-started-database
-pt-BR|getting-started-pages
 pt-BR|http-api
 pt-BR|integrations
 pt-BR|messaging-internals
@@ -617,9 +593,6 @@ zh-CN|durable-background-runs
 zh-CN|environment-variables
 zh-CN|external-agents-catalog
 zh-CN|generative-ui
-zh-CN|getting-started-actions
-zh-CN|getting-started-database
-zh-CN|getting-started-pages
 zh-CN|http-api
 zh-CN|integrations
 zh-CN|messaging-internals
@@ -692,9 +665,6 @@ zh-TW|docs-components
 zh-TW|environment-variables
 zh-TW|external-agents-catalog
 zh-TW|generative-ui
-zh-TW|getting-started-actions
-zh-TW|getting-started-database
-zh-TW|getting-started-pages
 zh-TW|http-api
 zh-TW|integrations
 zh-TW|messaging-internals

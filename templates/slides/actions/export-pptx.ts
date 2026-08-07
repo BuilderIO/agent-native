@@ -182,6 +182,9 @@ export function parseSlideHtml(
 } {
   assertServerPptxExportable(html, slideNumber);
   const dims = getAspectRatioDims(aspectRatio);
+  if (html.includes('data-imported-pdf="true"')) {
+    return parseImportedPdfSlideHtml(html, dims);
+  }
   if (html.includes('data-imported-pptx="true"')) {
     return parseImportedSlideHtml(html, dims);
   }
@@ -370,6 +373,71 @@ export function parseSlideHtml(
 }
 
 type SlideDims = ReturnType<typeof getAspectRatioDims>;
+
+function parseImportedPdfSlideHtml(
+  html: string,
+  dims: SlideDims,
+): {
+  texts: TextElement[];
+  images: ImageElement[];
+  shapes: ShapeElement[];
+  grid?: GridElement;
+  bgColor: string;
+} {
+  const outerStyle = html.match(
+    /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
+  )?.[1];
+  const bgColor = colorToHex(
+    outerStyle
+      ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - imported PDF fallback
+      : "#000000", // guard:allow-raw-color - imported PDF fallback
+  );
+  const src = html.match(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i)?.[1];
+  const outerAttrs = html.match(/<div\b([^>]*)>/i)?.[1] ?? "";
+  const sourceWidth = Number.parseFloat(
+    getAttribute(outerAttrs, "data-source-width") ?? "",
+  );
+  const sourceHeight = Number.parseFloat(
+    getAttribute(outerAttrs, "data-source-height") ?? "",
+  );
+  let x = 0;
+  let y = 0;
+  let w = dims.pptxInches.w;
+  let h = dims.pptxInches.h;
+  if (
+    Number.isFinite(sourceWidth) &&
+    Number.isFinite(sourceHeight) &&
+    sourceWidth > 0 &&
+    sourceHeight > 0
+  ) {
+    const sourceAspect = sourceWidth / sourceHeight;
+    const deckAspect = dims.pptxInches.w / dims.pptxInches.h;
+    if (sourceAspect > deckAspect) {
+      h = w / sourceAspect;
+      y = (dims.pptxInches.h - h) / 2;
+    } else {
+      w = h * sourceAspect;
+      x = (dims.pptxInches.w - w) / 2;
+    }
+  }
+  return {
+    texts: [],
+    images: src
+      ? [
+          {
+            src: decodeHtmlText(src),
+            x,
+            y,
+            w,
+            h,
+            order: 0,
+          },
+        ]
+      : [],
+    shapes: [],
+    bgColor,
+  };
+}
 
 function parseImportedSlideHtml(
   html: string,

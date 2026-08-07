@@ -48,6 +48,10 @@ Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
   work, including hidden `context` and `submit: false` prefill/review flows.
+  Keep actions deterministic and focused. If a workflow is framed as research,
+  analysis, generation, recommendation, or synthesis, let the agent
+  orchestrate provider/data actions in the open AgentSidebar instead of hiding
+  the work in one opaque action or a separate follow-up textbox.
   Only use `useAgentChatContext`, `setAgentChatContextItem`,
   `listAgentChatContext`, `removeAgentChatContextItem`, and
   `clearAgentChatContext` when UI needs two-way sync with staged context chips.

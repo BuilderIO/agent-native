@@ -11,9 +11,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
+import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 
 export interface UploadedFile {
   path: string;
@@ -312,6 +314,8 @@ export default function PromptPopover({
           <PromptComposer
             autoFocus
             attachmentsEnabled
+            maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+            documentAttachmentLimitLabel="Slides reference files"
             disabled={loading || uploading}
             placeholder={placeholder}
             onSubmit={handleSubmit}
@@ -390,34 +394,37 @@ export default function PromptPopover({
               )}
             </div>
             {googleSlidesInputOpen && (
-              <div className="mt-2 flex gap-2">
-                <Input
-                  autoFocus
-                  type="url"
-                  value={googleSlidesUrl}
-                  placeholder={t("home.googleSlidesReferenceUrl")}
-                  aria-label={t("home.googleSlidesReferenceUrl")}
-                  className="h-8 text-xs"
-                  disabled={importingSource !== null || loading || uploading}
-                  onChange={(event) => setGoogleSlidesUrl(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") handleGoogleSlidesImport();
-                  }}
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-8 shrink-0 px-3 text-xs"
-                  disabled={
-                    !googleSlidesUrl.trim() ||
-                    importingSource !== null ||
-                    loading ||
-                    uploading
-                  }
-                  onClick={handleGoogleSlidesImport}
-                >
-                  Import
-                </Button>
+              <div className="mt-2 space-y-2">
+                <GoogleDriveConnectionCta />
+                <div className="flex gap-2">
+                  <Input
+                    autoFocus
+                    type="url"
+                    value={googleSlidesUrl}
+                    placeholder={t("home.googleSlidesReferenceUrl")}
+                    aria-label={t("home.googleSlidesReferenceUrl")}
+                    className="h-8 text-xs"
+                    disabled={importingSource !== null || loading || uploading}
+                    onChange={(event) => setGoogleSlidesUrl(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleGoogleSlidesImport();
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 shrink-0 px-3 text-xs"
+                    disabled={
+                      !googleSlidesUrl.trim() ||
+                      importingSource !== null ||
+                      loading ||
+                      uploading
+                    }
+                    onClick={handleGoogleSlidesImport}
+                  >
+                    Import
+                  </Button>
+                </div>
               </div>
             )}
           </div>

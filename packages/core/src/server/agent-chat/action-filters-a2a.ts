@@ -17,10 +17,12 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
   isAuthenticatedReadAction,
   isAutoReadExcludedActionName,
 } from "../../mcp/build-server.js";
+import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import { withConfiguredAppBasePath } from "../app-base-path.js";
 import type { AgentChatPluginOptions } from "./plugin-options.js";
 
@@ -106,6 +108,18 @@ export function hasRawQueryInput(entry: ActionEntry): boolean {
 }
 
 /**
+ * The two policy fields A2A shares with the MCP mount. Structural rather than
+ * `Pick<AgentChatPluginOptions, …>` so callers pass the *resolved* MCP options:
+ * reading the raw plugin options here would leave A2A on the deprecated
+ * top-level keys, so `mcp: { connectorCatalog }` would narrow the MCP surface
+ * while A2A kept serving the old one.
+ */
+export interface A2AExternalAgentSurface {
+  connectorCatalog?: string[];
+  externalAgents?: ExternalAgentPolicy;
+}
+
+/**
  * Direct A2A action calls share the authenticated external-agent policy with
  * MCP, but remain stricter: only explicitly exposed, authenticated read-only
  * actions can skip the receiver's model loop, and never one that takes a raw
@@ -113,7 +127,7 @@ export function hasRawQueryInput(entry: ActionEntry): boolean {
  */
 export function filterDirectA2AActions(
   actions: Record<string, ActionEntry>,
-  options: Pick<AgentChatPluginOptions, "connectorCatalog" | "externalAgents">,
+  options: A2AExternalAgentSurface,
 ): Record<string, ActionEntry> {
   const catalog = new Set(options.connectorCatalog ?? []);
   const denied = new Set(options.externalAgents?.denyActions ?? []);
@@ -182,7 +196,7 @@ export function buildPublicAgentA2ASkills(
  */
 export function buildAuthenticatedAgentA2ASkills(
   actions: Record<string, ActionEntry>,
-  options: Pick<AgentChatPluginOptions, "connectorCatalog" | "externalAgents">,
+  options: A2AExternalAgentSurface,
 ): Array<{
   id: string;
   name: string;
@@ -570,9 +584,23 @@ export function createA2AEngineToolSurface(
   };
 }
 
+/**
+ * The first-request tool catalog: an explicit `initialToolNames` verbatim, or
+ * the app's OWN actions by default.
+ *
+ * "Its own actions" excludes the framework kits. They arrive in this same
+ * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
+ * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
+ * into every app's first request whether or not the app had those surfaces. They
+ * remain in `availableTools` and are still found by `tool-search`; an app that
+ * wants one on turn one names it in `initialToolNames`.
+ */
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
   configured?: string[],
 ): string[] {
-  return configured ?? Object.keys(templateActions);
+  if (configured) return configured;
+  return Object.entries(templateActions)
+    .filter(([name, entry]) => !isFrameworkGroupedAction(name, entry))
+    .map(([name]) => name);
 }

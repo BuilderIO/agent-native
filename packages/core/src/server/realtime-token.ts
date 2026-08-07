@@ -38,6 +38,13 @@ export const REALTIME_HMAC_SECRET_ENV = "AGENT_NATIVE_REALTIME_HMAC_SECRET";
 
 /** Short TTL — validated at connect; the gateway rotates over the stream. */
 const REALTIME_TOKEN_TTL_SECONDS = 600;
+/**
+ * Ceiling on how long one mint can be extended by gateway rotation before the
+ * client must come back through this session-gated endpoint. Without it a single
+ * mint streams forever and logout, session expiry, user deletion and org removal
+ * never reach an open stream.
+ */
+const REALTIME_SESSION_MAX_SECONDS = 15 * 60;
 
 export function getRealtimeSigningSecret(): string | undefined {
   return process.env[REALTIME_HMAC_SECRET_ENV]?.trim() || undefined;
@@ -94,6 +101,7 @@ export function createRealtimeTokenHandler() {
           owner: session.email,
           orgId: requestContext.orgId,
           ttlSeconds: REALTIME_TOKEN_TTL_SECONDS,
+          absExp: Math.floor(Date.now() / 1000) + REALTIME_SESSION_MAX_SECONDS,
         },
         secret,
       );

@@ -18,25 +18,42 @@ The tracking system provides a single `track()` call that fans out to all regist
 ## How It Works
 
 1. At server startup, `registerBuiltinProviders()` checks env vars and registers any configured providers.
-2. Application code calls `track(eventName, properties, meta)` from actions, plugins, or server routes.
+2. Application code calls `track(eventName, properties, source)` from actions, plugins, or server routes.
 3. The registry fans out the event to every registered provider. Errors are caught and logged -- a failing provider never crashes the caller.
 4. Built-in providers batch HTTP calls (flush every 10 seconds or 50 events, whichever comes first).
 
 ## API
 
-### `track(name, properties?, meta?)`
+### `track(name, properties?, source?)`
 
-Fire an analytics event.
+Fire an analytics event. `source` is either a `{ userId, anonymousId, sessionId }`
+meta object or an action's `ctx` passed straight through.
 
 ```ts
 import { track } from "@agent-native/core/tracking";
 
+// From an action — pass ctx; userId comes from ctx.userEmail.
+run: async ({ name }, ctx) => {
+  track("meal.logged", { mealName: name, calories: 350 }, ctx);
+};
+
+// From a plugin or route with no ctx.
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
   { userId: "user@example.com" },
 );
 ```
+
+The caller's browser session comes from the ambient request context
+(`RequestContext.browserSessionId`, set from the `X-Agent-Native-Session-Id`
+header), so it resolves the same whether the UI called the action or the agent
+did. Pass `sessionId` in the meta object to override it — routes that run
+outside a request context, such as `/_agent-native/track`, do exactly that.
+Providers map it to their own session field: `$session_id` for PostHog (which
+joins the event to session replay), `session_id` as a property for Mixpanel and
+Amplitude, a top-level `sessionId` for webhooks and Agent Native Analytics. It
+is absent for callers with no browser — cron, CLI, MCP, A2A.
 
 ### `identify(userId, traits?)`
 

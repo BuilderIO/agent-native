@@ -102,6 +102,15 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 
 </Callout>
 
+## 本地开发登录 {#local-development-sign-in}
+
+在使用回环地址的开发服务器上，共享登录页面会优先显示 **Continue as local
+dev**。它会创建或复用真实的 Better Auth 开发帐户和会话，因此使用的仍然是应用其他地方相同的已认证流程。
+
+选择 **Show full sign in options** 可显示普通注册、密码、magic link 和社交提供商选项。如果无法创建本地会话，页面会自动显示这些选项，让你可以继续使用标准身份验证。
+
+此便利功能仅在开发或测试环境中通过 `localhost`、`127.0.0.0/8` 或 `::1` 连接时可用。部署预览和托管生产环境会禁用此功能。它不是身份验证绕过。设置 `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` 可选择退出，让本地开发显示普通登录页面。
+
 ## 更好的身份验证（默认） {#better-auth}
 
 默认情况下，Better Auth 支持身份验证。它提供：

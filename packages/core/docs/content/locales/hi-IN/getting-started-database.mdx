@@ -1,0 +1,172 @@
+---
+title: "SQL में Data Persist करें"
+description: "Action results को SQL में save करें जब उन्हें conversations के बीच बने रहना हो।"
+---
+
+# SQL में Data Persist करें
+
+यह Getting Started series का वैकल्पिक चौथा भाग है। [एक Page जोड़ें](/docs/getting-started-pages)
+में आपने route से `analyze-text` को सीधे call किया। यहाँ आप app-owned SQL data
+जोड़ेंगे, जब results को conversations के बीच बने रहना हो।
+
+## एक table जोड़ें {#persist-data}
+
+Chat में SQL runtime, framework tables और local SQLite file default रूप से पहले से
+शामिल हैं। Chat की built-in tables के लिए database install करने, `DATABASE_URL`
+सेट करने या migration जोड़ने की आवश्यकता नहीं है। नई app-owned table के लिए ये
+तीन server files जोड़ें:
+
+1. `server/plugins/db.ts` एक additive migration से table बनाता है।
+2. `server/db/schema.ts` typed queries के लिए table का वर्णन करता है।
+3. `server/db/index.ts` ऐप का typed database client बनाता है।
+
+`server/plugins/db.ts` बनाएं:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "create-text-analyses",
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        paragraph_count INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+`server/db/schema.ts` बनाएं:
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const textAnalyses = table("text_analyses", {
+  id: text("id").primaryKey(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
+  paragraphCount: integer("paragraph_count").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+`server/db/index.ts` बनाएं:
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+```
+
+Migration चलाने के लिए `pnpm dev` को एक बार restart करें। आगे की migrations को
+additive रखें और हर migration को नया `version` और `name` दें।
+
+## Save और list actions जोड़ें
+
+`analyze-text` को read-only रखें और saving के लिए एक अलग explicit action बनाएं।
+`actions/save-text-analysis.ts` बनाएं:
+
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string().min(1),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+    paragraphCount: z.number(),
+  }),
+  run: async (
+    { input, charCount, wordCount, sentenceCount, paragraphCount },
+    ctx,
+  ) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before saving analyses.");
+
+    const id = crypto.randomUUID();
+    await getDb().insert(schema.textAnalyses).values({
+      id,
+      input,
+      charCount,
+      wordCount,
+      sentenceCount,
+      paragraphCount,
+      ownerEmail,
+    });
+
+    return { id };
+  },
+});
+```
+
+`actions/list-text-analyses.ts` बनाएं:
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { desc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the signed-in user's saved text analyses, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async (_, ctx) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before listing analyses.");
+
+    return getDb()
+      .select({
+        id: schema.textAnalyses.id,
+        input: schema.textAnalyses.input,
+        charCount: schema.textAnalyses.charCount,
+        wordCount: schema.textAnalyses.wordCount,
+        sentenceCount: schema.textAnalyses.sentenceCount,
+        paragraphCount: schema.textAnalyses.paragraphCount,
+        createdAt: schema.textAnalyses.createdAt,
+      })
+      .from(schema.textAnalyses)
+      .where(eq(schema.textAnalyses.ownerEmail, ownerEmail))
+      .orderBy(desc(schema.textAnalyses.createdAt));
+  },
+});
+```
+
+ये actions app reads और writes के लिए typed Drizzle client का उपयोग करते हैं। यहाँ
+raw SQL केवल additive migration के लिए आवश्यक है। जब तक आपके action को durable
+domain data की आवश्यकता न हो, इस page को छोड़ सकते हैं।
+
+## इसे आज़माएं
+
+Chat में agent से पूरा flow करने के लिए कहें:
+
+> Run analyze-text on "Hello world", save the result with save-text-analysis, then list my saved text analyses.
+
+सहेजी गई पंक्ति अब एजेंट और `list-text-analyses` को पढ़ने वाले किसी भी पेज के लिए उपलब्ध है।
+
+## आगे बढ़ें
+
+अब आपके पास durable app data है। Actions, SQL और pages एक साथ कैसे काम करते हैं,
+यह जानने के लिए [Key Concepts](/docs/key-concepts) पर आगे बढ़ें।

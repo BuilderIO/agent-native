@@ -6,11 +6,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { listDashboardSummaries } from "../server/lib/dashboards-store";
-
-function normalizeDashboardName(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
+import {
+  listDashboardSummaries,
+  normalizeDashboardName,
+} from "../server/lib/dashboards-store";
 
 async function resolveDashboardIdByName(name: string): Promise<string> {
   const email = getRequestUserEmail();

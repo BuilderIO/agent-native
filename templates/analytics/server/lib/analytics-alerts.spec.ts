@@ -352,9 +352,49 @@ describe("analytics alert evaluation", () => {
     );
   });
 
+  it("emits a scheduled session replay retention sweep", () => {
+    const source = readFileSync(
+      new URL(
+        "../../scripts/emit-netlify-dashboard-report-cron.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const retentionSource = source.slice(
+      source.indexOf("function emitRetentionScheduledTrigger"),
+    );
+
+    expect(source).toContain('const RETENTION_SCHEDULE = "0 3 * * *";');
+    expect(source).toContain(
+      'const RETENTION_ROUTE_PATH = "/api/session-replay/retention";',
+    );
+    expect(source).toContain("emitRetentionScheduledTrigger(retentionToken)");
+    expect(source).toContain("emitRetentionBackgroundWorker(retentionToken)");
+    expect(retentionSource).toContain(
+      '"x-agent-native-session-replay-retention-cron": CRON_TOKEN',
+    );
+    expect(retentionSource).toContain(
+      "globalThis.__AGENT_NATIVE_SESSION_REPLAY_RETENTION_SCHEDULED_RUNTIME__ = true",
+    );
+  });
+
   it("compares the uptime monitor cron bearer secret safely", () => {
     const source = readFileSync(
       new URL("../routes/api/uptime-monitors/run.post.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain('import { timingSafeEqual } from "node:crypto";');
+    expect(source).toContain("timingSafeEqual(Buffer.from(value)");
+    expect(source).not.toContain("return header ===");
+  });
+
+  it("compares the session replay retention cron bearer secret safely", () => {
+    const source = readFileSync(
+      new URL(
+        "../routes/api/session-replay/retention.post.ts",
+        import.meta.url,
+      ),
       "utf8",
     );
 

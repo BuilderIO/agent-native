@@ -55,7 +55,11 @@
  *   surface `errors` in the returned summary.
  */
 
-import { isPostgres, type DbExec } from "./client.js";
+import {
+  isPostgres,
+  isProductionServerlessFunctionRuntime,
+  type DbExec,
+} from "./client.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -99,6 +103,8 @@ export interface EnsureAdditiveColumnsOptions {
 }
 
 export interface EnsureAdditiveColumnsResult {
+  /** Whether this invocation actually inspected the live schema. */
+  mode: "checked" | "skipped-serverless";
   /** `"table.column"` entries that were successfully added. */
   applied: string[];
   /** Declared columns that were intentionally left unpatched, with why. */
@@ -108,7 +114,7 @@ export interface EnsureAdditiveColumnsResult {
 }
 
 function emptyResult(): EnsureAdditiveColumnsResult {
-  return { applied: [], skipped: [], errors: [] };
+  return { mode: "checked", applied: [], skipped: [], errors: [] };
 }
 
 /**
@@ -312,6 +318,9 @@ export async function ensureAdditiveColumns(
   options: EnsureAdditiveColumnsOptions,
 ): Promise<EnsureAdditiveColumnsResult> {
   const { db, tables, logger = defaultLogger } = options;
+  if (isProductionServerlessFunctionRuntime()) {
+    return { ...emptyResult(), mode: "skipped-serverless" };
+  }
   const result = emptyResult();
 
   let getTableConfig: (table: unknown) => DeclaredTableLike;

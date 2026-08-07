@@ -83,11 +83,11 @@ export function readAgentRunTimezone(event: H3Event): string | undefined {
  *
  * Emitted as PostHog's `$session_id` on the run's `$ai_*` events so an agent
  * trace joins to the session replay it happened in. Distinct from
- * `$ai_session_id`, which is the conversation thread.
+ * `$ai_session_id`, which is the conversation thread. Read by both the agent
+ * run path and the HTTP action route, so one visit correlates across the UI's
+ * action calls and the agent's.
  */
-export function readAgentRunBrowserSessionId(
-  event: H3Event,
-): string | undefined {
+export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-session-id");
   const value = Array.isArray(raw) ? raw[0] : raw;
   return typeof value === "string" &&
@@ -205,7 +205,7 @@ export async function resolveAgentRunRequestContext(options: {
 }): Promise<RequestContext> {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
-  const browserSessionId = readAgentRunBrowserSessionId(options.event);
+  const browserSessionId = readBrowserSessionIdHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),

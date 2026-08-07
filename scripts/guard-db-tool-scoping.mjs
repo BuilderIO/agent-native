@@ -51,6 +51,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "analytics:first_party_analytics_cache":
     "internal query cache, accessed through scoped analytics queries",
   "analytics:dashboard_views": "view telemetry, scoped by dashboard/action",
+  "analytics:dashboard_name_locks":
+    "internal dashboard-name serialization rows, never exposed to raw DB tools",
   "brain:brain_ingest_queue": "internal ingestion queue scoped by actions",
   "brain:brain_audience_members":
     "internal audience memberships scoped through Brain actions",

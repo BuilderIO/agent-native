@@ -8,6 +8,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
 
 registerEvent({
@@ -84,6 +85,53 @@ const CLAIM_LEASE_MS = RUN_LIVENESS_CEILING_MS;
 
 /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
 const RUNS_RETAINED_PER_AUTOMATION = 50;
+
+/** Authoritative release-time schema for durable automation history. */
+export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
+  {
+    version: 1,
+    name: "automation-runs-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS ${TABLE} (
+        id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        automation TEXT NOT NULL,
+        path TEXT NOT NULL,
+        scope TEXT,
+        org_id TEXT,
+        run_id TEXT,
+        thread_id TEXT,
+        status TEXT NOT NULL DEFAULT 'running',
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        error TEXT,
+        claimed_at INTEGER,
+        dispatch_pending INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_${TABLE}_owner_automation
+        ON ${TABLE} (owner, automation, started_at)
+    `,
+  },
+  {
+    version: 2,
+    name: "automation-runs-claimed-at",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS claimed_at INTEGER`,
+  },
+  {
+    version: 3,
+    name: "automation-runs-dispatch-pending",
+    sql: `ALTER TABLE ${TABLE}
+      ADD COLUMN IF NOT EXISTS dispatch_pending INTEGER NOT NULL DEFAULT 0`,
+  },
+];
+
+export async function runAutomationRunMigrations(
+  nitroApp: unknown,
+): Promise<void> {
+  await runMigrations(AUTOMATION_RUN_MIGRATIONS, {
+    table: "_automation_run_migrations",
+  })(nitroApp);
+}
 
 let _initPromise: Promise<void> | undefined;
 

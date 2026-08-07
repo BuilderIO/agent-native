@@ -38,6 +38,7 @@ vi.mock("../server/lib/usage-metrics-store.js", () => ({
 
 vi.mock("../server/lib/vault-store.js", () => ({
   getVaultAccessSettings: vi.fn(),
+  canManageVault: vi.fn(async () => false),
   listGrants: vi.fn(),
   listRequests: vi.fn(),
   listSecrets: vi.fn(),

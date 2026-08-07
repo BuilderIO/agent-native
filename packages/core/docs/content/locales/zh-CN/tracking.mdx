@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 触发分析事件。扇出到所有注册的提供商。
 
@@ -104,6 +104,10 @@ track(
   { userId: "steve@builder.io" },
 );
 ```
+
+`source` 可以是直接透传的操作 `ctx`，也可以是没有 `ctx` 的调用方使用的 `{ userId, anonymousId, sessionId }` 元数据对象。
+
+浏览器会话不需要调用方自行提供：它来自环境请求上下文（`RequestContext.browserSessionId`，由操作客户端、聊天和浏览器端 `track()` 都会发送的 `X-Agent-Native-Session-Id` 请求头设置），因此无论事件由界面还是由智能体触发，都会关联到同一次访问。每个提供方都会把它映射到自己的会话字段：PostHog 使用 `$session_id`，从而把事件与会话回放关联起来；Mixpanel 和 Amplitude 使用 `session_id` 属性；Webhook 和 Agent Native Analytics 使用顶层的 `sessionId`。对于没有浏览器的调用方（cron、CLI、MCP、A2A）该值不存在，而元数据对象中的 `sessionId` 会覆盖它。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // 直接透传 ctx：事件归属于 ctx.userEmail，并关联到发起调用的
+    // 浏览器会话。
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },

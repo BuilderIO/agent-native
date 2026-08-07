@@ -24,6 +24,7 @@ import {
   readClientAppState,
   setClientAppState,
 } from "../application-state.js";
+import { usePollLoop } from "../use-poll-loop.js";
 
 const NAVIGATION_PATH = agentNativePath(
   "/_agent-native/application-state/navigation",
@@ -178,49 +179,45 @@ export function useNavigateConsumer(
 ): void {
   const handlerRef = useRef(onNavigate);
   handlerRef.current = onNavigate;
-
+  const mountedRef = useRef(true);
   useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const tick = async () => {
-      if (!active) return;
-      try {
-        const res = await fetch(NAVIGATE_PATH, {
-          method: "GET",
-          credentials: "include",
-          headers: headers(),
-        });
-        if (active && res.ok) {
-          const data = (await res.json()) as NavigateCommand | null;
-          if (
-            data &&
-            data.view === "database" &&
-            typeof data.table === "string" &&
-            data.table
-          ) {
-            const target = data.table;
-            // Clear the one-shot command before acting so it fires once.
-            fetch(NAVIGATE_PATH, {
-              method: "DELETE",
-              credentials: "include",
-              headers: headers({ "X-Agent-Native-CSRF": "1" }),
-            }).catch(() => {});
-            handlerRef.current(target);
-          }
-        }
-      } catch {
-        // Ignore transient errors; the next tick retries.
-      } finally {
-        if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
-      }
-    };
-
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
+    mountedRef.current = true;
     return () => {
-      active = false;
-      if (timer) clearTimeout(timer);
+      mountedRef.current = false;
     };
-  }, [enabled]);
+  }, []);
+
+  usePollLoop(
+    async (signal) => {
+      const res = await fetch(NAVIGATE_PATH, {
+        method: "GET",
+        credentials: "include",
+        headers: headers(),
+        signal,
+      });
+      if (!mountedRef.current || !res.ok) return;
+      const data = (await res.json()) as NavigateCommand | null;
+      if (
+        data &&
+        data.view === "database" &&
+        typeof data.table === "string" &&
+        data.table
+      ) {
+        const target = data.table;
+        // Clear the one-shot command before acting so it fires once.
+        fetch(NAVIGATE_PATH, {
+          method: "DELETE",
+          credentials: "include",
+          headers: headers({ "X-Agent-Native-CSRF": "1" }),
+        }).catch(() => {});
+        handlerRef.current(target);
+      }
+    },
+    {
+      intervalMs: POLL_INTERVAL_MS,
+      leading: false,
+      pauseWhenHidden: true,
+      enabled,
+    },
+  );
 }

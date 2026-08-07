@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const writeAppStateForCurrentTab = vi.fn(async () => {});
 const listDashboardSummaries = vi.fn(async () => [] as any[]);
+const normalizeDashboardName = (value: string) =>
+  value.trim().replace(/\s+/g, " ").toLowerCase();
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppStateForCurrentTab,
@@ -12,6 +14,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 vi.mock("../server/lib/dashboards-store", () => ({
   listDashboardSummaries,
+  normalizeDashboardName,
 }));
 
 const { default: navigateAction } = await import("./navigate");

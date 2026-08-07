@@ -45,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
 interface CrmListRow {
@@ -195,11 +196,30 @@ export function ListsSettings() {
             </section>
           ))}
         </div>
+      ) : listsQuery.isLoading ? (
+        <div
+          className="mt-6 space-y-2"
+          role="status"
+          aria-busy="true"
+          aria-label={t("lists.loading")}
+        >
+          {[0, 1, 2].map((item) => (
+            <div
+              key={item}
+              className="flex items-center gap-4 rounded-lg border border-border/70 bg-card px-4 py-3.5"
+            >
+              <Skeleton className="size-4" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="size-8 rounded-md" />
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="mt-6 rounded-lg border border-dashed border-border px-4 py-10 text-center">
-          <p className="text-sm font-medium">
-            {listsQuery.isLoading ? t("lists.loading") : t("lists.emptyTitle")}
-          </p>
+          <p className="text-sm font-medium">{t("lists.emptyTitle")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("lists.emptyDescription")}
           </p>

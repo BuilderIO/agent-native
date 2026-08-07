@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 分析イベントを発生させます。すべての登録プロバイダーにファンアウトします。
 
@@ -104,6 +104,10 @@ track(
   { userId: "steve@builder.io" },
 );
 ```
+
+`source` には、アクションの `ctx` をそのまま渡すか、`ctx` を持たない呼び出し元向けに `{ userId, anonymousId, sessionId }` のメタオブジェクトを渡します。
+
+ブラウザーセッションは呼び出し元が渡す必要はありません。アンビエントなリクエストコンテキスト（`RequestContext.browserSessionId`。アクションクライアント、チャット、ブラウザーの `track()` がいずれも送信する `X-Agent-Native-Session-Id` ヘッダーから設定されます）から取得されるため、UI がイベントを発生させた場合でもエージェントが発生させた場合でも、同じ訪問として相関付けられます。各プロバイダーは自身のセッションフィールドにマッピングします。PostHog では `$session_id`（イベントとセッションリプレイが結び付きます）、Mixpanel と Amplitude では `session_id` プロパティ、Webhook と Agent Native Analytics ではトップレベルの `sessionId` です。ブラウザーを持たない呼び出し元（cron、CLI、MCP、A2A）では値がなく、メタオブジェクトの `sessionId` が指定されていればそちらが優先されます。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx をそのまま渡す: イベントは ctx.userEmail に紐付き、呼び出し元の
+    // ブラウザーセッションに結び付けられます。
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },

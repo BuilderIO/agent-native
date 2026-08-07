@@ -5,7 +5,7 @@ import { setAppCreationSettings } from "../server/lib/app-creation-store.js";
 
 export default defineAction({
   description:
-    "Set Dispatch settings for creating new workspace apps, and the Builder project this organization uses for cloud code changes. Stores the project id as an organization-scoped credential; does not write env vars or files.",
+    "Set Dispatch settings for creating new workspace apps, and the Builder project this organization uses for cloud code changes. Organization owners and admins only. Stores the project id as an organization-scoped credential; does not write env vars or files.",
   schema: z.object({
     builderProjectId: z
       .string()

@@ -230,6 +230,11 @@ const runSlidesMigrations = runMigrations(
   );
   CREATE INDEX IF NOT EXISTS uploaded_assets_owner_created_idx ON uploaded_assets (owner_email, created_at)`,
     },
+    {
+      version: 21,
+      name: "slides-share-design-system-snapshot",
+      sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_data TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

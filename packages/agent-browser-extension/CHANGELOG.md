@@ -1,5 +1,158 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.66
+
+### Patch Changes
+
+- Updated dependencies [c440e50]
+- Updated dependencies [c440e50]
+- Updated dependencies [c440e50]
+  - @agent-native/core@0.146.0
+
+## 0.1.65
+
+### Patch Changes
+
+- Updated dependencies [c497c85]
+- Updated dependencies [c497c85]
+  - @agent-native/core@0.145.8
+
+## 0.1.64
+
+### Patch Changes
+
+- Updated dependencies [25e1bcf]
+  - @agent-native/core@0.145.7
+
+## 0.1.63
+
+### Patch Changes
+
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+- Updated dependencies [1d5bab1]
+  - @agent-native/core@0.145.6
+
+## 0.1.62
+
+### Patch Changes
+
+- Updated dependencies [da40677]
+  - @agent-native/core@0.145.5
+
+## 0.1.61
+
+### Patch Changes
+
+- Updated dependencies [db62d66]
+- Updated dependencies [db62d66]
+- Updated dependencies [db62d66]
+  - @agent-native/core@0.145.4
+
+## 0.1.60
+
+### Patch Changes
+
+- Updated dependencies [c2b7f82]
+  - @agent-native/core@0.145.3
+
+## 0.1.59
+
+### Patch Changes
+
+- Updated dependencies [66d6736]
+  - @agent-native/core@0.145.2
+
+## 0.1.58
+
+### Patch Changes
+
+- Updated dependencies [b242acf]
+  - @agent-native/core@0.145.1
+
+## 0.1.57
+
+### Patch Changes
+
+- Updated dependencies [48bc314]
+  - @agent-native/core@0.145.0
+
+## 0.1.56
+
+### Patch Changes
+
+- Updated dependencies [bd0b0cd]
+  - @agent-native/core@0.144.3
+
+## 0.1.55
+
+### Patch Changes
+
+- Updated dependencies [e139a20]
+  - @agent-native/core@0.144.2
+
+## 0.1.54
+
+### Patch Changes
+
+- Updated dependencies [8f10ada]
+  - @agent-native/core@0.144.1
+
+## 0.1.53
+
+### Patch Changes
+
+- Updated dependencies [d3f8794]
+- Updated dependencies [d3f8794]
+- Updated dependencies [d3f8794]
+- Updated dependencies [d3f8794]
+- Updated dependencies [d3f8794]
+- Updated dependencies [d3f8794]
+- Updated dependencies [d3f8794]
+  - @agent-native/core@0.144.0
+
+## 0.1.52
+
+### Patch Changes
+
+- Updated dependencies [6ad7634]
+- Updated dependencies [b872cde]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+- Updated dependencies [e177059]
+  - @agent-native/core@0.143.0
+
+## 0.1.51
+
+### Patch Changes
+
+- Updated dependencies [9d8ae68]
+- Updated dependencies [9d8ae68]
+- Updated dependencies [aa24c7e]
+- Updated dependencies [aa24c7e]
+- Updated dependencies [4044d22]
+- Updated dependencies [9d8ae68]
+- Updated dependencies [9d8ae68]
+- Updated dependencies [9d8ae68]
+- Updated dependencies [9d8ae68]
+- Updated dependencies [9d8ae68]
+- Updated dependencies [9d8ae68]
+  - @agent-native/core@0.142.0
+
 ## 0.1.50
 
 ### Patch Changes

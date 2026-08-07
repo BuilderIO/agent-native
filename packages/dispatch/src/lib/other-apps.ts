@@ -12,6 +12,8 @@ export interface WorkspaceAppId {
   isDispatch?: boolean;
 }
 
+const HIDDEN_OTHER_APP_IDS = new Set(["crm", "research"]);
+
 function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -34,7 +36,13 @@ export function filterOtherApps(
   return connectedApps
     .filter((app) => {
       const id = app.id.trim().toLowerCase();
-      if (!id || workspaceAppIds.has(id) || seen.has(id)) return false;
+      if (
+        !id ||
+        HIDDEN_OTHER_APP_IDS.has(id) ||
+        workspaceAppIds.has(id) ||
+        seen.has(id)
+      )
+        return false;
       if (app.source === "workspace") return false;
       if (!isHttpUrl(app.url)) return false;
       seen.add(id);

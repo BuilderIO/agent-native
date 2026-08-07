@@ -11,13 +11,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { openBuilderConnectPopup } from "../settings/useBuilderStatus.js";
+import { usePollLoop } from "../use-poll-loop.js";
+
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function BuilderTranscriptionCta() {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [connectUrl, setConnectUrl] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectStartedAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -45,12 +48,11 @@ export function BuilderTranscriptionCta() {
       });
     return () => {
       mountedRef.current = false;
-      if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
 
   const handleConnect = useCallback(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
+    connectStartedAtRef.current = Date.now();
     setConnecting(true);
     setError(null);
 
@@ -58,33 +60,30 @@ export function BuilderTranscriptionCta() {
       url: connectUrl ?? undefined,
       source: "builder_transcription_cta",
     });
-
-    const start = Date.now();
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(agentNativePath("/_agent-native/builder/status"));
-        if (!r.ok) return;
-        const s = (await r.json()) as { configured: boolean };
-        if (!mountedRef.current) {
-          clearInterval(pollRef.current!);
-          return;
-        }
-        if (s.configured) {
-          clearInterval(pollRef.current!);
-          setConfigured(true);
-          setConnecting(false);
-        } else if (Date.now() - start > 5 * 60 * 1000) {
-          clearInterval(pollRef.current!);
-          setConnecting(false);
-          setError(
-            "Didn't hear back from Builder. Allow popups and try again.",
-          );
-        }
-      } catch {
-        // transient — keep polling
-      }
-    }, 2000);
   }, [connectUrl]);
+
+  usePollLoop(
+    async (signal) => {
+      const started = connectStartedAtRef.current;
+      if (started == null) return;
+      const r = await fetch(agentNativePath("/_agent-native/builder/status"), {
+        signal,
+      });
+      if (!r.ok || !mountedRef.current) return;
+      const s = (await r.json()) as { configured: boolean };
+      if (!mountedRef.current) return;
+      if (s.configured) {
+        connectStartedAtRef.current = null;
+        setConfigured(true);
+        setConnecting(false);
+      } else if (Date.now() - started > POLL_TIMEOUT_MS) {
+        connectStartedAtRef.current = null;
+        setConnecting(false);
+        setError("Didn't hear back from Builder. Allow popups and try again.");
+      }
+    },
+    { intervalMs: 2000, leading: false, enabled: connecting },
+  );
 
   // Already connected or still loading — render nothing
   if (configured === null || configured) return null;

@@ -44,3 +44,8 @@ export {
   uploadAvatar,
   invalidateAvatarCache,
 } from "../use-avatar.js";
+export {
+  usePollLoop,
+  type UsePollLoopOptions,
+  type UsePollLoopHandle,
+} from "../use-poll-loop.js";

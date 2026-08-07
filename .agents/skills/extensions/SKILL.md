@@ -217,9 +217,12 @@ POST /_agent-native/extensions
 
 HTTP creation is disabled by default. The host app must set
 `extensionTools: true` on `createCoreRoutesPlugin()` as well as
-`createAgentChatPlugin()`; otherwise authenticated collection `POST` requests
-return `403` while existing extension runtime, read, edit, and deep-link routes
-remain available for compatibility.
+`frameworkTools: { extensions: true }` on `createAgentChatPlugin()`; otherwise
+authenticated collection `POST` requests return `403` while existing extension
+runtime, read, edit, and deep-link routes remain available for compatibility.
+(`extensionTools` on the agent-chat plugin is the deprecated spelling of
+`frameworkTools.extensions`; the core-routes option keeps its own name because
+it gates route mounting rather than agent tools.)
 
 The action accepts:
 

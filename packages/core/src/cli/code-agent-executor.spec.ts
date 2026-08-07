@@ -530,6 +530,38 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
+  it("keeps structured tool output out of the assistant stdout stream", async () => {
+    useTempCodeAgentsHome();
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Render tool output separately",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "run a command",
+      stdout: output.stream,
+      streamToolOutputToStdout: false,
+      engine: createBashExecutionEngine(),
+    });
+
+    expect(output.read()).toContain("done");
+    expect(output.read()).not.toContain("desktop-tool-output");
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            type: "tool_done",
+            result: expect.stringContaining("desktop-tool-output"),
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("limits recap-source runs to repository reads and one output writer", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
@@ -766,6 +798,45 @@ function createToolCaptureEngine(
       yield {
         type: "assistant-content",
         parts: [{ type: "text", text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
+function createBashExecutionEngine(): AgentEngine {
+  let turn = 0;
+  return {
+    name: "bash-execution",
+    label: "Bash Execution",
+    defaultModel: "bash-execution",
+    supportedModels: ["bash-execution"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      if (turn++ === 0) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "bash-output",
+              name: "bash",
+              input: { command: "echo desktop-tool-output" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
       };
       yield { type: "stop", reason: "end_turn" };
     },
@@ -1107,6 +1178,34 @@ describe("buildCodeAgentSystemPrompt", () => {
 
     expect(prompt).toContain("## Repository instructions");
     expect(prompt).toContain("Always run pnpm typecheck before committing.");
+  });
+
+  it("uses the configured development instruction file without leaking runtime instructions", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-audiences-"));
+    tmpRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    );
+    fs.mkdirSync(path.join(root, "app-agent"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app-agent", "AGENTS.md"),
+      "Runtime-only instructions.",
+    );
+    fs.writeFileSync(
+      path.join(root, "DEVELOPING.md"),
+      "Development-only instructions.",
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("Development-only instructions.");
+    expect(prompt).not.toContain("Runtime-only instructions.");
   });
 
   it("falls back to CLAUDE.md when AGENTS.md is absent", async () => {

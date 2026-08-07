@@ -13,7 +13,11 @@ vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: (...args: any[]) => mockGetUserSetting(...args),
 }));
 
-import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
+import {
+  __resetDomainMatchCacheForTests,
+  autoJoinDomainMatchingOrgs,
+  invalidateDomainMatchCache,
+} from "./auto-join-domain.js";
 
 function queueSelect(...rows: any[][]) {
   for (const r of rows) {
@@ -26,6 +30,9 @@ describe("autoJoinDomainMatchingOrgs", () => {
     vi.clearAllMocks();
     mockExecute.mockResolvedValue({ rows: [] });
     mockGetUserSetting.mockResolvedValue(null);
+    // The no-domain-match negative cache is process state, so it bleeds between
+    // tests exactly the way per-event memoization would.
+    __resetDomainMatchCacheForTests();
   });
 
   it("returns empty when no orgs match the domain", async () => {
@@ -39,6 +46,75 @@ describe("autoJoinDomainMatchingOrgs", () => {
     const out = await autoJoinDomainMatchingOrgs("notanemail");
     expect(out).toEqual({ joined: [], activeOrgId: null });
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("never queries for a free email provider", async () => {
+    // `org/handlers.ts` refuses to set `allowed_domain` to a free provider, so
+    // an org matching gmail.com cannot exist — the probe was structurally
+    // guaranteed to find nothing.
+    for (const email of [
+      "a@gmail.com",
+      "b@outlook.com",
+      "c@yahoo.co.uk",
+      "d@hotmail.com",
+    ]) {
+      const out = await autoJoinDomainMatchingOrgs(email);
+      expect(out).toEqual({ joined: [], activeOrgId: null });
+    }
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("caches a no-match so a repeat call issues no query", async () => {
+    queueSelect([]); // first probe: nothing matches
+    expect(await autoJoinDomainMatchingOrgs("a@nomatch.dev")).toEqual({
+      joined: [],
+      activeOrgId: null,
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+
+    // Same domain, different account — one entry covers the whole domain.
+    expect(await autoJoinDomainMatchingOrgs("b@nomatch.dev")).toEqual({
+      joined: [],
+      activeOrgId: null,
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+
+    // A different domain is not covered by it.
+    queueSelect([]);
+    await autoJoinDomainMatchingOrgs("c@other.dev");
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT cache a failed probe as 'no match'", async () => {
+    // The catch branch cannot tell "no org matches" from "organizations was
+    // unreadable". Caching it would let one blip lock every account at that
+    // domain out of its org for the whole TTL.
+    mockExecute.mockRejectedValueOnce(
+      new Error("no such table: organizations"),
+    );
+    expect(await autoJoinDomainMatchingOrgs("a@flaky.dev")).toEqual({
+      joined: [],
+      activeOrgId: null,
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+
+    queueSelect([{ orgId: "flaky_org" }], []);
+    mockGetUserSetting.mockResolvedValueOnce(null);
+    const out = await autoJoinDomainMatchingOrgs("a@flaky.dev");
+    expect(out.joined).toEqual([{ orgId: "flaky_org" }]);
+  });
+
+  it("stops caching a no-match once allowed_domain is written", async () => {
+    queueSelect([]);
+    await autoJoinDomainMatchingOrgs("a@late.dev");
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+
+    invalidateDomainMatchCache();
+
+    queueSelect([{ orgId: "late_org" }], []);
+    mockGetUserSetting.mockResolvedValueOnce(null);
+    const out = await autoJoinDomainMatchingOrgs("a@late.dev");
+    expect(out.joined).toEqual([{ orgId: "late_org" }]);
   });
 
   it("inserts org_members and sets active-org-id when no prior active org", async () => {

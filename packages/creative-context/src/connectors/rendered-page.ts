@@ -499,6 +499,7 @@ async function installNavigationGuard(
     try {
       parsed = new URL(browserRequest.url());
     } catch {
+      // coercion-ok: an absent optional package means the next compatible probe should run.
       await route.abort("blockedbyclient");
       return;
     }
@@ -724,12 +725,30 @@ async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike 
  * serverless Chromium package and still use Builder Browser or system Chrome.
  */
 async function loadOptionalPlaywright(): Promise<PlaywrightLike | null> {
-  try {
-    return (await import("playwright")) as unknown as PlaywrightLike;
-  } catch {
-    // coercion-ok: the declared browser capability is optional in non-Node runtimes.
-    return null;
+  for (const specifier of [
+    "playwright",
+    "@playwright/test",
+    "playwright-core",
+  ]) {
+    try {
+      const module = (await import(
+        /* @vite-ignore */ specifier
+      )) as unknown as {
+        default?: Partial<PlaywrightLike>;
+      } & Partial<PlaywrightLike>;
+      for (const candidate of [module.default, module]) {
+        if (typeof candidate?.chromium?.launch === "function") {
+          return candidate as PlaywrightLike;
+        }
+      }
+      // coercion-ok: an absent optional package means the next compatible probe should run.
+    } catch {
+      // Try the next compatible browser package before falling back to HTML.
+    }
   }
+
+  // coercion-ok: browser packages are optional in non-Node runtimes.
+  return null;
 }
 
 async function defaultBuilderBrowserRequest(input: {

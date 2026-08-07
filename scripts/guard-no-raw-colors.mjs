@@ -83,6 +83,9 @@ const HEX_COLOR_RE = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b/;
 const COLOR_FUNC_RE = /\b(?:rgba?|hsla?)\(\s*(?!var\()/i;
 
 const UTILITY_MONO_RE = /\b(bg|text|border)-(white|black)(?=[/\s"'`)]|$)/;
+/** The same utility given an explicit `dark:` counterpart on the same line. */
+const PAIRED_MONO_RE =
+  /\bdark:(?:[\w-]+:)*(bg|text|border)-(white|black)(?=[/\s"'`)]|$)/;
 const UTILITY_SHADE_RE =
   /\b(bg|text|border)-(red|green|blue|gray|slate|zinc)-(\d{2,3})(?=[/\s"'`)]|$)/;
 
@@ -133,6 +136,14 @@ function checkLine(lineText) {
     return { snippet: colorFunc[0].trim(), help: HEX_HSL_HELP };
   }
   const mono = UTILITY_MONO_RE.exec(lineText);
+  // `bg-black/5 dark:bg-white/10` is the theme layer, expressed inline: the
+  // pair adapts in both directions, which is the property this guard exists to
+  // protect. Flagging it named one instance of the rule (the literal word
+  // "black") instead of the rule itself, and sent readers to replace working
+  // code with a token that does not exist for scrim/overlay tints.
+  if (mono && PAIRED_MONO_RE.test(lineText)) {
+    return null;
+  }
   if (mono) {
     const [snippet, , word] = mono;
     return {

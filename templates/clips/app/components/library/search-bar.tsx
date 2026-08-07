@@ -31,7 +31,7 @@ function highlight(
     parts.push(
       <mark
         key={`${idx}-${parts.length}`}
-        className="bg-yellow-200 text-foreground rounded-sm px-0.5"
+        className="bg-highlight/30 text-foreground rounded-sm px-0.5"
       >
         {text.slice(idx, idx + q.length)}
       </mark>,

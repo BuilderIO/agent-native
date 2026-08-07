@@ -1,8 +1,7 @@
 /**
- * Shared with the historical backfill so live ingest and migration work hold
- * the same transaction-scoped Postgres lock while they update rollups.
+ * Prevents concurrent historical backfills. Foreground ingest deliberately
+ * does not take this lock: a rebuild must never make request traffic queue
+ * behind a long-running transaction.
  */
-export const FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY =
+export const FIRST_PARTY_ANALYTICS_ROLLUP_BACKFILL_LOCK_KEY =
   "agent-native:analytics-rollup-backfill";
-export const FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL =
-  "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))";

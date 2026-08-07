@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getInitializedDataProgramsAppId: vi.fn(() => "analytics"),
   runDataProgram: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/data-programs", () => ({
+  getInitializedDataProgramsAppId: mocks.getInitializedDataProgramsAppId,
   runDataProgram: mocks.runDataProgram,
   registerDataProgramsShareable: vi.fn(),
 }));
@@ -23,6 +25,8 @@ import {
 describe("dashboard-panel-query: program source", () => {
   beforeEach(() => {
     mocks.runDataProgram.mockReset();
+    mocks.getInitializedDataProgramsAppId.mockReset();
+    mocks.getInitializedDataProgramsAppId.mockReturnValue("analytics");
   });
 
   it("is a recognized dashboard panel source", () => {
@@ -111,6 +115,32 @@ describe("dashboard-panel-query: program source", () => {
         ctx: { userEmail: "alice@example.com", orgId: "org_1" },
         triggeredBy: "panel_view",
       });
+    });
+
+    it("uses the app scope that registered the data-program actions", async () => {
+      mocks.getInitializedDataProgramsAppId.mockReturnValue("app");
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ id: 1 }],
+        schema: [{ name: "id", type: "number" }],
+        truncated: false,
+      });
+
+      const query = normalizeDashboardPanelQuery("program", {
+        programId: "dp_custom_api",
+      });
+      await runDashboardPanelQuery({
+        source: "program",
+        query,
+        ctx,
+      });
+
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: "app",
+          programId: "dp_custom_api",
+        }),
+      );
     });
 
     it("stale-serves lastGoodRun when ok:false but a prior good run exists", async () => {

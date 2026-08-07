@@ -1,165 +1,292 @@
 ---
 title: "Agent-Native app configuration"
-description: "Configure public app defaults with agent-native.json or a typed agent-native.config.ts file."
-search: "agent-native.json agent-native.config.ts onboarding first-run Builder BYOK integrations configuration"
+description: "Configure public Agent-Native app defaults with agent-native.config.ts, its typed aliases, or agent-native.json compatibility."
+search: "agent-native.config.ts agent-native.ts agent-native.mts agent-native.config.mts agent-native.json onboarding runtime readiness configuration instructions"
 ---
 
 # Agent-Native app configuration
 
-Use app configuration for committed, non-secret defaults that should travel
-with the app. Use environment variables for deployment values, credentials,
-and local machine controls. The framework reads `agent-native.json` from the
-app root when the `agentNative()` Vite preset runs.
+Use `agent-native.config.ts` for new shared Agent-Native configuration. It is a
+typed, mode-aware source for committed, non-secret app defaults. The framework
+also accepts `agent-native.ts`, `agent-native.mts`, and
+`agent-native.config.mts` as filename aliases, and continues to read
+`agent-native.json` for compatibility.
 
-The file is an additive app manifest. Existing feature-owned sections such as
-`doctor`, `apps`, and local-file declarations can stay in the same file; the
-onboarding reader only consumes the `version` and `onboarding` fields described
-here.
+The resolved configuration is serialized into the browser bundle. Treat every
+value in these files as public. Put credentials and deployment-specific values
+in the environment or the scoped secret store instead.
 
-## The onboarding contract
+## File location and loading
 
-The shared first-run surface has three supported modes:
+Put one configuration file at the app root, alongside `package.json` and the
+app's Vite configuration. In a workspace, each app has its own root and its own
+configuration file. The Vite preset reads from the current app root, not from
+`server/plugins/` or a workspace-wide directory.
 
-| Mode                       | Local or hosted result                                                                                                                                       |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `off`                      | No shared first-run surface. This is the default for ordinary apps.                                                                                          |
-| `connect`                  | Show Connect Builder or Add your own keys, then go straight to the app. The generic integrations catalog is omitted.                                         |
-| `connect-and-integrations` | Show Connect Builder or Add your own keys, followed by the generic integrations catalog. Use this for a hosted app that should expose its integration setup. |
-
-A turn-into-app result normally commits a mode map so `pnpm dev` is useful
-immediately while a production build has the hosted setup path:
-
-```json filename="agent-native.json"
-{
-  "version": 1,
-  "onboarding": {
-    "firstRun": {
-      "development": "connect",
-      "production": "connect-and-integrations"
-    }
-  }
-}
-```
-
-An ordinary app can omit `onboarding` or make the default explicit:
-
-```json filename="agent-native.json"
-{
-  "version": 1,
-  "onboarding": {
-    "firstRun": "off"
-  }
-}
-```
-
-First-party templates use `off` while running locally and
-`connect-and-integrations` for a production build. The
-`/turn-into-app` skill deliberately changes only the local value to `connect`
-so a newly generated workflow is immediately testable without putting the
-hosted integration catalog in front of the user.
-
-The environment map uses the exact Vite `mode` first, then falls back to
-`development` for `vite dev`, `production` for `vite build`, and finally
-`default` or `off`. This lets a project add a named mode such as `staging`
-without making the app depend on a new environment variable.
-
-## Typed dynamic configuration
-
-When a static JSON map is not enough, add `agent-native.config.ts`. It returns
-the same serializable shape and can use the Vite command and mode:
+For new apps, create `agent-native.config.ts`:
 
 ```ts filename="agent-native.config.ts"
 import { defineAgentNativeConfig } from "@agent-native/core/config";
 
-export default defineAgentNativeConfig(({ command, mode }) => ({
-  version: 1,
-  onboarding: {
-    firstRun:
-      command === "serve" || mode === "preview"
-        ? "connect"
-        : "connect-and-integrations",
-  },
-}));
+export default defineAgentNativeConfig(({ command, mode, isBuild }) => {
+  const hosted = mode === "production";
+
+  return {
+    version: 1,
+    onboarding: {
+      firstRun:
+        command === "serve"
+          ? "connect"
+          : hosted
+            ? "connect-and-integrations"
+            : "connect",
+    },
+    runtime: {
+      auth: { enabled: true },
+      database: { required: hosted },
+      environment: {
+        required: ["PUBLIC_API_ORIGIN"],
+      },
+    },
+    diagnostics: {
+      failOnBuild: isBuild && hosted,
+    },
+  };
+});
 ```
 
-The preset loads `agent-native.config.ts` or `agent-native.config.mts`
-automatically on the supported Node runtime. The TypeScript file takes
-precedence over the JSON app defaults. An explicit `agentNative({
-agentNativeConfig })` option takes precedence over both when an app needs to
-compose configuration in its Vite config.
+This example shows the complete shared option surface. Local `vite serve`
+uses the Connect setup path, a production build includes the integrations
+catalog, production requires auth and a persistent database, and the app
+declares an additional environment variable by name. Replace
+`PUBLIC_API_ORIGIN` with a real non-secret requirement for the app, or remove
+the `required` list when there is no such requirement.
 
-The resolved config is serialized into the browser bundle. Keep it public:
-never put API keys, tokens, database URLs, auth secrets, `AUTH_DISABLED`, or
-other credentials in either config file.
+The factory receives this context:
 
-## Precedence and compatibility
+| Property  | Values or meaning                                                       |
+| --------- | ----------------------------------------------------------------------- |
+| `command` | Vite's `"serve"` or `"build"` command.                                  |
+| `mode`    | The exact Vite mode, such as `development`, `production`, or `staging`. |
+| `isDev`   | `true` for `serve`.                                                     |
+| `isBuild` | `true` for `build`.                                                     |
 
-For a Vite app, the effective value is resolved in this order:
+Export the config as the default export. The loader also accepts a named
+`agentNativeConfig` export for compatibility, but the default export is the
+recommended form.
 
-1. An explicit `agentNativeConfig` passed to `agentNative()` or `defineConfig()`.
-2. The optional typed `agent-native.config.ts` or `.mts` file.
-3. `agent-native.json`.
-4. Framework defaults, which are `off` for first-run onboarding.
-5. The legacy `VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING` flags can still
-   override the resolved public config for older apps, but new apps should not
-   add them. They are public browser flags and remain documented only for
-   migration.
+## Supported options
 
-The development Connect Builder card explains the deployment-level
-`ANTHROPIC_API_KEY` and `OPENAI_API_KEY` fallback and links to the
-[environment-variable reference](/docs/environment-variables). A key in the
-deployment environment is not a substitute for user- or organization-scoped
-credentials in a hosted multi-user app. See [Onboarding & API Keys](/docs/onboarding)
-and [Security](/docs/security) for the credential boundary.
+These are the only shared options read from the typed config and the shared
+configuration portion of `agent-native.json`:
 
-## What belongs in config versus `.env`
+| Option                         | Type                                                              | Effect                                                                                                                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`                      | `1`                                                               | Optional schema version. If provided, it must be `1`.                                                                                                                                     |
+| `onboarding.firstRun`          | `"off"`, `"connect"`, `"connect-and-integrations"`, or a mode map | Chooses the first-run Agent Sidebar setup. `off` hides it. `connect` shows Builder/BYOK setup without the generic integrations catalog. `connect-and-integrations` includes that catalog. |
+| `runtime.auth.enabled`         | `boolean`                                                         | Declares whether the app expects the framework or a custom authentication layer.                                                                                                          |
+| `runtime.database.required`    | `boolean`                                                         | Declares whether production needs a persistent remote SQL database.                                                                                                                       |
+| `runtime.environment.required` | `string[]`                                                        | Declares additional required environment variable names. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values do not belong in the config.                                                   |
+| `diagnostics.failOnBuild`      | `boolean`                                                         | When `true`, a production Vite build throws on runtime configuration issues. When absent or `false`, it reports them without failing the build.                                           |
+| `instructions.runtime`         | `string`                                                          | Optional relative Markdown path for the in-app runtime agent. Defaults to `AGENTS.md`.                                                                                                    |
+| `instructions.development`     | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                   |
 
-Good config candidates are public defaults that describe the product's shape:
+### Separate runtime and development instructions
 
-- first-run onboarding mode and other setup presentation defaults;
-- the app's default MCP catalog visibility or preset filters, once expressed
-  through the shared config contract;
-- route warmup, public design tokens, and other build-time UX choices already
-  passed to the `agentNative()` Vite preset;
-- non-secret app identity and default navigation metadata, if the framework
-  later gives those values a shared runtime consumer.
+The default is intentionally flat: both audiences read `AGENTS.md`, and
+existing apps do not need to change. To keep development guidance out of the
+deployed app agent, opt in with audience-specific paths:
 
-Keep these in environment variables or the secret store:
+```ts filename="agent-native.config.ts"
+import { defineAgentNativeConfig } from "@agent-native/core/config";
 
-- API keys, OAuth secrets, signing keys, database URLs, and provider tokens;
-- `APP_URL`, `APP_BASE_PATH`, deployment preset, port, and host-specific
-  values that change between deploy targets;
-- `AUTH_DISABLED`, test switches, CI controls, and local machine paths;
-- runtime flags whose safe value depends on the hosting environment rather than
-  the app's product contract.
+export default defineAgentNativeConfig({
+  instructions: {
+    runtime: "app-agent/AGENTS.md",
+    development: "DEVELOPING.md",
+  },
+});
+```
 
-The complete inventory is [Environment Variables](/docs/environment-variables).
-That reference is intentionally broader than the config surface and is the
-source to consult before adding a new environment variable.
+Paths are relative to the app root and cannot escape it. If an explicitly
+selected file is missing, that audience receives no file; the framework does
+not fall back to `AGENTS.md`, because that could reintroduce development-only
+guidance into runtime. Skills keep their existing frontmatter audience scope:
+use `scope: runtime`, `scope: dev`, or `scope: both` when a skill needs a
+different boundary.
 
-## Environment audit and next candidates
+### Mode maps for onboarding
 
-The current config surface intentionally starts with onboarding, where a
-committed app default is more useful than a deployment flag. The next good
-public candidates are:
+`firstRun` can be one mode string, or a
+`Partial<Record<string, "off" | "connect" | "connect-and-integrations">> &
+{ default?: "off" | "connect" | "connect-and-integrations" }` map keyed by
+exact Vite modes. The resolver checks the exact `mode` first. If there is no
+exact match, it checks `development` for `serve` or `production` for `build`,
+then `default`, and finally falls back to `off`:
 
-| Candidate                                 | Why it belongs in app config                                               | Status                                                                 |
-| ----------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| MCP catalog visibility and preset filters | Describes which setup choices the app offers, not a secret or host policy. | A good next addition; currently keep using the `agentNative()` option. |
-| Route warmup strategy                     | A product-level loading preference that can be reviewed with the app.      | A good next addition; currently keep using the `agentNative()` option. |
-| Default navigation or app identity        | Makes generated apps open on the right domain route and name.              | Add only after a shared runtime consumer exists.                       |
-| Design-system theme                       | Can vary intentionally per app, but is a larger structured object.         | Keep in `vite.config.ts` or app code until the schema is stable.       |
+```ts filename="agent-native.config.ts"
+import { defineAgentNativeConfig } from "@agent-native/core/config";
 
-Do not move `DATABASE_URL`, `APP_URL`, `PORT`, `NITRO_PRESET`, auth switches,
-provider keys, OAuth secrets, signing keys, telemetry endpoints, or security
-flags into this file. They vary by deploy target, affect trust boundaries, or
-must remain outside the browser bundle. This split keeps config useful for
-scaffolders without turning it into a second environment-variable system.
+export default defineAgentNativeConfig({
+  version: 1,
+  onboarding: {
+    firstRun: {
+      development: "connect",
+      staging: "connect",
+      production: "connect-and-integrations",
+      default: "off",
+    },
+  },
+});
+```
 
-## Why there are two formats
+## Runtime readiness defaults
 
-`agent-native.json` is portable, inspectable, and easy for scaffolders and
-other tools to write. `agent-native.config.ts` follows the typed-config pattern
-used by frameworks such as Next.js while keeping the browser contract
-serializable. Prefer JSON for a fixed app default and TypeScript when the
-default genuinely depends on the Vite command or mode.
+The runtime diagnostics check runs for production configuration. If an option
+is absent, the framework uses these defaults:
+
+| Omitted option                 | Default | Production behavior                                                                                                                                                                                         |
+| ------------------------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runtime.auth.enabled`         | `true`  | Checks that authentication is usable. `AUTH_DISABLED` is treated as false when unset. A standalone deployment needs `BETTER_AUTH_SECRET`; a workspace runtime can derive it from its existing `A2A_SECRET`. |
+| `runtime.database.required`    | `true`  | Requires a persistent remote SQL URL. Local SQLite and other local database fallbacks are reported as unsuitable for production.                                                                            |
+| `runtime.environment.required` | `[]`    | No app-specific environment names are checked unless the app declares them.                                                                                                                                 |
+| `diagnostics.failOnBuild`      | `false` | Production build diagnostics warn instead of throwing. Set `true` for a deliberate build gate.                                                                                                              |
+
+`BETTER_AUTH_URL` is optional when the public origin can be inferred from
+`APP_URL`, known template or request context, or hosting metadata such as
+Netlify or Vercel. Set it when that inference is not correct. The database
+check accepts the app-prefixed database URL, `DATABASE_URL`, or
+`NETLIFY_DATABASE_URL`, according to the runtime environment.
+
+Local development keeps its zero-setup fallbacks. Production diagnostics
+report missing or weak auth secrets, auth disabled in production, invalid
+public auth URLs, missing or local database URLs, and missing app-declared
+environment variables. The redacted report is available at
+`/_agent-native/ping?configuration=1`. The shared shell can show the report and
+offer a **Copy prompt for AI** action; that prompt includes variable names and
+guidance, never secret values.
+
+For example, this is a useful readiness declaration when an app uses the
+framework's normal auth and database contracts:
+
+```ts filename="agent-native.config.ts"
+import { defineAgentNativeConfig } from "@agent-native/core/config";
+
+export default defineAgentNativeConfig({
+  runtime: {
+    auth: { enabled: true },
+    database: { required: true },
+    environment: { required: ["PUBLIC_API_ORIGIN"] },
+  },
+  diagnostics: { failOnBuild: true },
+});
+```
+
+Set the actual deployment values outside the repository. For example, provide
+`BETTER_AUTH_SECRET`, `DATABASE_URL`, and `PUBLIC_API_ORIGIN` in Netlify,
+Vercel, another deployment environment, or the appropriate scoped secret
+store. Do not replace those placeholders with literal values in
+`agent-native.config.ts`.
+
+`diagnostics.failOnBuild` is for runtime configuration diagnostics. It is not
+the same setting as the separate `doctor.failOnBuild` option documented in the
+[Doctor guide](/docs/doctor).
+
+## Precedence and merge behavior
+
+For a Vite app, the effective shared configuration follows this order:
+
+1. Framework defaults. First-run onboarding defaults to `off`; auth and a
+   persistent database default to required in production diagnostics.
+2. `agent-native.json` at the app root.
+3. The automatically loaded typed file, if present. The loader checks these
+   candidates in order: `agent-native.config.ts`, `agent-native.ts`,
+   `agent-native.mts`, `agent-native.config.mts`.
+4. An explicit `agentNativeConfig` passed to `agentNative()` or the legacy
+   `defineConfig()` wrapper. Supplying this option skips automatic typed-file
+   loading, while the explicit value still overlays `agent-native.json`.
+5. For onboarding only, the legacy public Vite variables
+   `VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING` and
+   `VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING_SKIP_INTEGRATIONS` can override the
+   resolved onboarding mode. Use the config file for new work.
+
+Use only one of the four typed filenames. If more than one exists, the first
+candidate in the loader's order wins, with `agent-native.config.ts` preferred
+for new apps. The names are aliases, not four layers that are merged together.
+
+The JSON and typed sources are merged by supported nested section:
+
+- Nested objects such as `runtime.auth`, `runtime.database`,
+  `runtime.environment`, and `diagnostics` are deep-merged.
+- Scalar values from the higher-precedence source replace lower-precedence
+  values.
+- `runtime.environment.required` arrays are combined in base-then-override
+  order and de-duplicated.
+- `onboarding.firstRun` is one setting. If the higher-precedence source
+  supplies it, it replaces the lower-precedence string or mode map as a whole.
+
+For example, JSON can provide `runtime.auth.enabled` and
+`NOTION_API_KEY`, while `agent-native.config.ts` adds `runtime.database.required` and
+`GOOGLE_CLIENT_ID`. The result keeps the auth setting, adds the database
+setting, and checks both environment names.
+
+## What is safe to commit
+
+Safe committed values are public product defaults:
+
+- `version`, onboarding modes, and mode names;
+- `true`/`false` readiness and diagnostics decisions;
+- environment variable names in `runtime.environment.required`;
+- deterministic logic based on the Vite context.
+
+Do not commit these values to either config format:
+
+- API keys, OAuth client secrets, access tokens, signing keys, or passwords;
+- `BETTER_AUTH_SECRET`, `A2A_SECRET`, database URLs, or credential-bearing
+  connection strings;
+- secret values read from `.env` and copied into source;
+- deployment-specific host, port, base-path, or auth-bypass values when they
+  vary by environment.
+
+Even a value that is not a secret should stay in deployment configuration when
+it changes between targets. `agent-native.config.ts` should describe the app's
+public shape, not become a second environment-variable file.
+
+## `agent-native.json` compatibility
+
+`agent-native.json` remains supported for fixed JSON configuration and for
+other app-manifest sections already owned by the framework, such as `doctor`,
+`apps`, and local-file declarations. Do not delete those sections just to add
+typed shared configuration.
+
+Use JSON when a scaffold, editor, or other tool needs a portable file that it
+can read and write without evaluating TypeScript, or when the value is a fixed
+default that never depends on the Vite command or mode:
+
+```json filename="agent-native.json"
+{
+  "version": 1,
+  "onboarding": {
+    "firstRun": "connect"
+  },
+  "runtime": {
+    "auth": { "enabled": true },
+    "database": { "required": true },
+    "environment": { "required": ["PUBLIC_API_ORIGIN"] }
+  },
+  "diagnostics": {
+    "failOnBuild": true
+  }
+}
+```
+
+For new app-owned configuration, prefer `agent-native.config.ts` when the app needs
+types, a mode-aware factory, or a clear place to evolve public defaults. Keep
+`agent-native.json` when portability or existing manifest sections are the
+reason to use it. Both formats accept the same shared options shown above.
+
+For deployment variables, credentials, and the exhaustive variable inventory,
+see [Environment Variables](/docs/environment-variables). A deployment-level
+key is not a substitute for user- or organization-scoped credentials in a
+hosted multi-user app. See [Authentication](/docs/authentication) and
+[Security](/docs/security) for those boundaries.

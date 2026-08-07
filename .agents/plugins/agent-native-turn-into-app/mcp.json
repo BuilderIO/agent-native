@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "agent-native-dispatch": {
+      "type": "streamable-http",
+      "url": "https://dispatch.agent-native.com/mcp"
+    }
+  }
+}

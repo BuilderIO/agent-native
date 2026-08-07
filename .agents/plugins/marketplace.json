@@ -11,6 +11,10 @@
     {
       "name": "agent-native-design",
       "source": { "source": "local", "path": "./agent-native-design" }
+    },
+    {
+      "name": "agent-native-turn-into-app",
+      "source": { "source": "local", "path": "./agent-native-turn-into-app" }
     }
   ]
 }

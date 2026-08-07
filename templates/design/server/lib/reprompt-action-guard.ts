@@ -77,13 +77,17 @@ export function guardRepromptActionRegistry(
           ...entry,
           run: async (args, context) => {
             if (context?.caller === "tool" && context.threadId) {
-              const thread = await getThread(context.threadId);
-              if (!thread) {
+              let thread: Awaited<ReturnType<typeof getThread>>;
+              try {
+                thread = await getThread(context.threadId);
+              } catch {
                 throw new Error(
                   `Cannot verify the agent thread for mutating action ${name}.`,
                 );
               }
-              const intent = threadSelectionIntent(thread);
+              // Off-thread callers (realtime voice, MCP, A2A, cron) have no
+              // stored thread, so they cannot be inside a reprompt turn.
+              const intent = thread ? threadSelectionIntent(thread) : null;
               if (
                 intent === "reprompt" &&
                 !REPROMPT_MUTATION_ALLOWLIST.has(name)

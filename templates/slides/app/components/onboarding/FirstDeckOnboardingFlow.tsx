@@ -29,6 +29,8 @@ import {
   type RecentReference,
 } from "@/lib/recent-references";
 
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+
 type FirstDeckStep = "prompt" | "references";
 
 export function FirstDeckOnboardingFlow({
@@ -153,6 +155,17 @@ export function FirstDeckOnboardingFlow({
               failure,
               t("home.generationStartFailedDescription"),
             ),
+          });
+        },
+        onSetupFailure: (failedPrompt, _failedFiles, failure) => {
+          setPromptInitialText(failedPrompt);
+          setPromptInitialTextKey(Date.now());
+          setStep("prompt");
+          toast.error(t("home.generationStartFailed"), {
+            description:
+              failure instanceof Error
+                ? failure.message
+                : t("home.generationStartFailedDescription"),
           });
         },
       });
@@ -303,6 +316,8 @@ export function FirstDeckOnboardingFlow({
             className="mt-8"
             autoFocus
             attachmentsEnabled
+            maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+            documentAttachmentLimitLabel="Slides reference files"
             disabled={uploading}
             placeholder={t("home.newDeckPlaceholder")}
             onSubmit={handlePromptSubmit}

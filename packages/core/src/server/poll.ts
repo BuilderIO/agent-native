@@ -32,7 +32,11 @@ import {
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { type DbExec, getDbExec, isPostgres } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureIndexExists,
+  ensureIndexExistsConcurrently,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -77,6 +81,21 @@ export interface ChangeEvent {
 const MAX_BUFFER = 200;
 const DURABLE_READ_LIMIT = 1000;
 const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
+/**
+ * Rows per prune statement, and the ceiling on statements per prune call.
+ * The product (400k) leaves headroom over one app's documented production of
+ * ~1k events/sec over the five-minute throttle, so a healthy app catches up;
+ * the cap still bounds how long a single call can run.
+ */
+const DURABLE_PRUNE_BATCH = 10_000;
+const DURABLE_PRUNE_MAX_BATCHES = 40;
+/**
+ * How far back a cold-started process replays durable action markers.
+ * Covers the gap between a separate action process writing its marker and this
+ * process's first poll — seconds in practice. Anything older is history, and
+ * replaying history is what produced 1,169 sync events/sec on one app.
+ */
+const ACTION_MARKER_REPLAY_WINDOW_MS = 60_000;
 const LEGACY_DB_CHECK_INTERVAL_MS = 1000;
 export const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
 export const POLL_CHANGE_EVENT = "poll-change";
@@ -229,10 +248,6 @@ function accessCacheKey(
 
 function accessResourceKey(resourceType: string, resourceId: string): string {
   return `${resourceType}|${resourceId}`;
-}
-
-function accessCacheTtl(allowed: boolean): number {
-  return allowed ? ACCESS_CACHE_TTL_MS : ACCESS_CACHE_DENY_TTL_MS;
 }
 
 function extensionTargetKey(target: ExtensionChangeTarget): string | null {
@@ -393,6 +408,15 @@ export interface AppSyncStateOptions {
    * Postgres only; ignored on SQLite.
    */
   dbAssignedVersions?: boolean;
+  /**
+   * TTL for a cached ALLOW decision. Defaults to 30s.
+   *
+   * `invalidateCollabAccessCache` only reaches the in-process default instance,
+   * so a gateway holding per-app instances cannot be told a share was revoked
+   * and serves its cached ALLOW until this lapses. Shorten it to bound that
+   * window, at the cost of more `can-see` round-trips per shared resource.
+   */
+  accessAllowTtlMs?: number;
 }
 
 /**
@@ -422,6 +446,7 @@ export class AppSyncState {
   private readonly pollEmitter = new EventEmitter();
   private syncEventsInitPromise: Promise<boolean> | undefined;
   private lastDurablePrune = 0;
+  private durablePruneFailures = 0;
 
   /**
    * Whether we've seeded `version` from the DB. In serverless (Netlify,
@@ -474,6 +499,7 @@ export class AppSyncState {
   private readonly accessInFlight = new Set<string>();
   /** Per-resource generation bumped when shares/visibility change. */
   private readonly accessInvalidationEpoch = new Map<string, number>();
+  private readonly accessAllowTtlMs: number;
 
   constructor(options: AppSyncStateOptions = {}) {
     this.getDb = options.getDb ?? getDbExec;
@@ -481,7 +507,12 @@ export class AppSyncState {
     this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
     this.deterministicEventIds = options.deterministicEventIds ?? false;
     this.dbAssignedVersions = options.dbAssignedVersions ?? false;
+    this.accessAllowTtlMs = options.accessAllowTtlMs ?? ACCESS_CACHE_TTL_MS;
     this.pollEmitter.setMaxListeners(0);
+  }
+
+  private accessCacheTtl(allowed: boolean): number {
+    return allowed ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
   }
 
   /**
@@ -588,6 +619,11 @@ export class AppSyncState {
             "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
             guardOptions,
           );
+          await ensureIndexExistsConcurrently(
+            "sync_events_created_at_id_idx",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+            guardOptions,
+          );
           if (this.dbAssignedVersions) {
             await ensureTableExists(
               "sync_version",
@@ -606,6 +642,7 @@ export class AppSyncState {
           "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
           "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
           "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
+          "CREATE INDEX IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
         ]) {
           try {
             await client.execute(ddl);
@@ -622,16 +659,66 @@ export class AppSyncState {
     return this.syncEventsInitPromise;
   }
 
+  /**
+   * Drop events past the retention window, in bounded batches.
+   *
+   * Three things here are load-bearing, all of them learned from a 47 GB
+   * `sync_events` table on a live app:
+   *
+   *   - Prune by `created_at`, the actual retention timestamp, with the
+   *     additive `(created_at, id)` index created above. A version can move
+   *     ahead of the clock under bursty writes, so it is not a retention
+   *     timestamp and cannot define a 24-hour boundary safely.
+   *   - Batch it. One statement deleting an unbounded slice is a long
+   *     transaction, and a long transaction killed mid-flight by a serverless
+   *     worker shutdown is what leaves connections `idle in transaction`
+   *     holding locks — the shape of the 2026-08-06 outage.
+   *   - `ORDER BY version` inside the subquery. Without it the planner
+   *     prefers a sequential scan even with a LIMIT; with it, the existing
+   *     `sync_events_version_idx` drives the batch and the delete is a
+   *     bounded index range scan.
+   *
+   * The `lastDurablePrune` throttle below is per-process, so every serverless
+   * worker prunes on its first poll. That was survivable only once the work
+   * itself became bounded and indexed; if concurrency is still a problem,
+   * the next step is a `pg_try_advisory_xact_lock` so one worker prunes at a
+   * time. Deliberately not done yet — measure before adding a lock.
+   */
   private async pruneDurableEvents(client: DbExec): Promise<void> {
     const now = Date.now();
     if (now - this.lastDurablePrune < 5 * 60 * 1000) return;
     this.lastDurablePrune = now;
-    await client
-      .execute({
-        sql: "DELETE FROM sync_events WHERE created_at < ?",
-        args: [now - DURABLE_RETENTION_MS],
-      })
-      .catch(() => {});
+    const cutoff = now - DURABLE_RETENTION_MS;
+    let deleted = 0;
+    try {
+      for (let batch = 0; batch < DURABLE_PRUNE_MAX_BATCHES; batch++) {
+        const result = await client.execute({
+          // `id IN (...)` rather than ctid/rowid: both are dialect-specific,
+          // and the primary key is indexed on every dialect we ship.
+          sql: `DELETE FROM sync_events WHERE id IN (
+                  SELECT id FROM sync_events WHERE created_at < ?
+                  ORDER BY created_at, id LIMIT ?
+                )`,
+          args: [cutoff, DURABLE_PRUNE_BATCH],
+        });
+        deleted += result.rowsAffected;
+        if (result.rowsAffected < DURABLE_PRUNE_BATCH) break;
+      }
+      this.durablePruneFailures = 0;
+    } catch (err) {
+      // This used to be `.catch(() => {})`. A prune that silently never
+      // succeeded is indistinguishable from one that had nothing to do, which
+      // is how the table reached 47 GB without anyone finding out. Warn once
+      // per failure streak so a persistently broken prune is visible without
+      // repeating every five minutes.
+      this.durablePruneFailures++;
+      if (this.durablePruneFailures === 1) {
+        console.warn(
+          `[agent-native] sync_events prune failed after deleting ${deleted} row(s); the table will grow until this succeeds:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
   }
 
   async persistSyncEvent(
@@ -910,7 +997,10 @@ export class AppSyncState {
       );
       const cached = this.accessCache.get(key);
       const now = Date.now();
-      if (cached && now - cached.checkedAt < accessCacheTtl(cached.allowed)) {
+      if (
+        cached &&
+        now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
+      ) {
         // Fresh, non-expired cache hit → trust the cached decision.
         return cached.allowed ? "visible" : "hidden";
       }
@@ -1360,7 +1450,20 @@ export class AppSyncState {
       // Action markers are durable specifically so a web server can observe work
       // performed by a separate action process. Do not baseline past an existing
       // marker on cold start, or the first poll after the action will miss it.
-      this.lastActionMarkerTs = 0;
+      //
+      // Bounded to a replay window rather than rewound to 0. At 0 the filter
+      // below (`updated_at > lastActionMarkerTs`) passes EVERY row, and the
+      // marker table is one never-pruned row per identity that has ever run a
+      // mutating action — so every cold start re-emitted the entire history.
+      // On one production app that was 2,188 rows replayed ~32 times a minute:
+      // 1,169 sync events/sec, none of it real traffic, against ~1.7/sec that
+      // was. A `> 0` first-run guard like the sibling detectors use would be
+      // wrong here — it would discard the cross-process wakeup this rewind
+      // exists for. Bounding the window keeps that and drops the history.
+      this.lastActionMarkerTs = Math.max(
+        0,
+        actionMarkerTs - ACTION_MARKER_REPLAY_WINDOW_MS,
+      );
       this.replayActionMarkerOnce = actionMarkerTs > 0;
       this.lastScreenRefreshTs = refreshTs;
       this.lastScreenRefreshTsBySession.clear();
@@ -1510,19 +1613,29 @@ export class AppSyncState {
       // serverless action invocations wake the web server's SSE/poll loop as a
       // first-class source:"action" event rather than a generic app-state bump.
       if (actionMarkerTs > this.lastActionMarkerTs) {
+        // Bounded by the same watermark the filter below applies, so a cold
+        // start reads its replay window instead of every marker ever written.
         const actionMarkerResult = await db.execute({
-          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
-          args: [ACTION_CHANGE_MARKER_KEY],
+          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ? ORDER BY updated_at ASC",
+          args: [ACTION_CHANGE_MARKER_KEY, this.lastActionMarkerTs],
         });
         const changedActionMarkers = actionMarkerResult.rows.filter(
           (row) => timestampValue(row.updated_at) > this.lastActionMarkerTs,
         );
-        this.recordActionChanges(
-          changedActionMarkers
-            .map((row) => parseActionChangeMarker(row.session_id, row.value))
-            .filter((target): target is ActionChangeTarget => !!target),
-          `action|${actionMarkerTs}`,
-        );
+        for (const row of changedActionMarkers) {
+          const target = parseActionChangeMarker(row.session_id, row.value);
+          if (!target) continue;
+          // Keyed on the ROW's own timestamp, not the table-wide max: every
+          // process replaying the same marker must produce the same id so
+          // `ON CONFLICT (id) DO NOTHING` collapses them. Keyed on the max,
+          // two processes booting a moment apart hash the same row
+          // differently and each writes its own copy. Matches the extension
+          // marker path.
+          this.recordActionChanges(
+            [target],
+            `action|${timestampValue(row.updated_at)}`,
+          );
+        }
         this.lastActionMarkerTs = actionMarkerTs;
       }
 
@@ -1689,6 +1802,13 @@ export function getDefaultAppSyncState(): AppSyncState {
   if (!_defaultState) {
     _defaultState = new AppSyncState({
       dbAssignedVersions: hostedRealtimeTransportEnabled(),
+      // Only the out-of-band detectors (action markers, extensions, app-state)
+      // pass a dedupeKey, so this changes nothing for ordinary writes — they
+      // keep unique ids. It exists so N processes detecting the SAME external
+      // write collapse to one row via `ON CONFLICT (id) DO NOTHING`. Left off,
+      // it never once executed in production: every dedupeKey threaded through
+      // this file was inert, and each cold start wrote its own duplicate set.
+      deterministicEventIds: true,
     });
   }
   return _defaultState;

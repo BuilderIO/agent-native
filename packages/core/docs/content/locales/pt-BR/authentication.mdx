@@ -102,6 +102,14 @@ Algumas bandeiras ajustam isso; detalhes completos estão na tabela [Environment
 
 </Callout>
 
+## Login no desenvolvimento local {#local-development-sign-in}
+
+Em um servidor de desenvolvimento com endereço de loopback, a página compartilhada de login mostra primeiro **Continue as local dev**. Ela cria ou reutiliza a conta e a sessão de desenvolvimento reais do Better Auth, usando o mesmo fluxo autenticado que existe no restante do aplicativo.
+
+Escolha **Show full sign in options** para mostrar as opções normais de cadastro, senha, magic link e provedores sociais. Se a sessão local não puder ser criada, a página mostrará essas opções automaticamente para que você possa continuar com a autenticação padrão.
+
+Essa conveniência está disponível apenas quando o navegador se conecta por `localhost`, `127.0.0.0/8` ou `::1` em desenvolvimento ou teste. Ela fica desativada em visualizações de implantação e na produção hospedada. Isso não é um desvio de autenticação. Defina `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` para desativá-la e mostrar a página normal de login no desenvolvimento local.
+
 ## Melhor autenticação (padrão) {#better-auth}
 
 Por padrão, o Better Auth possibilita a autenticação. Ele fornece:

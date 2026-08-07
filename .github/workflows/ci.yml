@@ -521,6 +521,10 @@ jobs:
         # workspace app). Calendar covers the requiredPackages →
         # packages/scheduling scaffold path. Together they guard the two
         # distinct ways a workspace template can break `pnpm install`.
+        env:
+          # The PR's core version may not be published to npm yet. Exercise
+          # the scaffold against the core build checked out by this job.
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: |
           cd "$(mktemp -d)"
           node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template chat,calendar,dispatch

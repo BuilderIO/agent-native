@@ -29,6 +29,7 @@ import {
   LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
   LEGACY_WAU_BY_TEMPLATE_SQL,
   MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  FIRST_PARTY_TEMPLATE_NAMES,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
@@ -637,6 +638,42 @@ describe("dashboard catalog", () => {
       const seedPanel = seedPanels.find((panel) => panel.id === id);
       expect(seedPanel?.sql).toContain("{{timeRange}}");
       expect(seedPanel?.sql).toContain("{{emailFilter}}");
+    }
+  });
+
+  it("limits every template breakdown to core first-party templates", () => {
+    const allowedTemplates = FIRST_PARTY_TEMPLATE_NAMES.map(
+      (name) => `'${name}'`,
+    ).join(", ");
+    const templateBreakdownIds = [
+      "signups-over-time",
+      "signups-by-template",
+      "template-interest-over-time",
+      "clicks-by-template",
+      "demo-clicks-over-time",
+      "cli-copies-by-template",
+      "cli-copies-over-time",
+      "pageviews-over-time",
+      "recurring-users-by-template",
+      "recurring-users-by-template-bar",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+      "dau-over-time",
+      "wau-over-time",
+    ];
+
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+    }>;
+
+    for (const id of templateBreakdownIds) {
+      const panel = requiredFirstPartyPanel(id);
+      expect(panel.sql).toContain(`IN (${allowedTemplates})`);
+
+      const seedPanel = seedPanels.find((candidate) => candidate.id === id);
+      if (seedPanel) expect(seedPanel.sql).toBe(panel.sql);
     }
   });
 

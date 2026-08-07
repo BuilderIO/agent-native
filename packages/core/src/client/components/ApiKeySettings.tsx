@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/design-system";
 import { useState, useEffect, useCallback } from "react";
 
 import { agentNativePath } from "../api-path.js";
@@ -106,8 +107,14 @@ export function ApiKeySettings({
 
   if (loading) {
     return (
-      <div style={styles.container}>
-        <p style={styles.loadingText}>Loading API key status...</p>
+      <div
+        style={styles.container}
+        role="status"
+        aria-busy="true"
+        aria-label="Loading API key status"
+      >
+        <Skeleton className="h-3 w-40" />
+        <Skeleton className="mt-3 h-8 w-full" />
       </div>
     );
   }
@@ -210,10 +217,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "13px",
     opacity: 0.6,
     margin: "0 0 16px 0",
-  },
-  loadingText: {
-    fontSize: "13px",
-    opacity: 0.5,
   },
   errorText: {
     fontSize: "13px",

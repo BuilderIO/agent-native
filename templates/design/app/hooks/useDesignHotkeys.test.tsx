@@ -65,6 +65,23 @@ function dispatchKey(
   return event;
 }
 
+async function withSelectedText(text: string, run: () => Promise<void> | void) {
+  const node = document.createElement("p");
+  node.textContent = text;
+  document.body.append(node);
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  try {
+    await run();
+  } finally {
+    selection?.removeAllRanges();
+    node.remove();
+  }
+}
+
 async function withNavigatorPlatform(
   platform: string,
   run: () => void | Promise<void>,
@@ -190,6 +207,33 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     });
     expect(onCopyAsPng).toHaveBeenCalledTimes(1);
     expect(onCopy).not.toHaveBeenCalled();
+  });
+
+  it("leaves Cmd+C and Cmd+X to the browser while chat text is selected", async () => {
+    const onCopy = vi.fn();
+    const onCut = vi.fn();
+    await withSelectedText("copy me from the agent panel", async () => {
+      let copyEvent!: KeyboardEvent;
+      let cutEvent!: KeyboardEvent;
+      await withHotkeys({ onCopy, onCut }, () => {
+        copyEvent = dispatchKey("c", { metaKey: true });
+        cutEvent = dispatchKey("x", { metaKey: true });
+      });
+      expect(copyEvent.defaultPrevented).toBe(false);
+      expect(cutEvent.defaultPrevented).toBe(false);
+    });
+    expect(onCopy).not.toHaveBeenCalled();
+    expect(onCut).not.toHaveBeenCalled();
+  });
+
+  it("still copies the canvas selection when only a collapsed caret exists", async () => {
+    const onCopy = vi.fn();
+    await withSelectedText("", () =>
+      withHotkeys({ onCopy }, () => {
+        dispatchKey("c", { metaKey: true });
+      }),
+    );
+    expect(onCopy).toHaveBeenCalledTimes(1);
   });
 });
 

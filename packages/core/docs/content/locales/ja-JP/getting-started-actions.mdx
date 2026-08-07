@@ -1,0 +1,85 @@
+---
+title: "アクションを追加"
+description: "最初のアクションを定義し、その結果をチャット内にグラフとして直接表示します。"
+---
+
+# アクションを追加
+
+これは「はじめに」シリーズのパート2です。[はじめに](/docs/getting-started)でChatアプリを作成しました。ここでは型付きのテキスト分析を定義し、その結果をチャットに表示します。
+
+## アクションを追加する {#add-an-action}
+
+アクションは、エージェントとUIの両方から呼び出せる型付きの操作です。アクションは`actions/`ディレクトリに配置され、チャット、Reactコンポーネント、CLI、その他の呼び出し元で共有される操作サーフェスになります。
+
+`actions/analyze-text.ts`を作成します。
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z.string().default("The quick brown fox jumps over the lazy dog."),
+  }),
+  outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
+    title: "Text stats",
+  },
+  readOnly: true,
+  run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
+    const points = [
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
+      {
+        label: "Sentences",
+        value: summary.sentences,
+      },
+      {
+        label: "Paragraphs",
+        value: summary.paragraphs,
+      },
+    ];
+
+    return createDataChartWidgetResult({
+      title: "Text statistics",
+      summary,
+      chartSeries: {
+        type: "bar",
+        xKey: "label",
+        series: [{ key: "value", label: "Count" }],
+        data: points,
+      },
+    });
+  },
+});
+```
+
+ターミナルから実行します。
+
+```bash
+pnpm action analyze-text --text "Hello world. How are you today?"
+```
+
+またはチャットでエージェントに尋ねます。
+
+> Run the analyze-text action on "Hello world. How are you today?"
+
+組み込みの`data-chart`レンダラーが構造化された結果をトランスクリプト内のグラフに変換します。レンダラーファイルや`app/root.tsx`へのインポートを追加する必要はありません。カスタムのネイティブコンポーネントについては、[Native Chat UI](/docs/native-chat-ui)を参照してください。
+
+## 次へ
+
+[ページを追加](/docs/getting-started-pages)に進み、トランスクリプトの外で同じアクションを使います。結果を会話をまたいで保持する必要がある場合は、[SQLにデータを永続化する](/docs/getting-started-database)に戻ってください。

@@ -98,8 +98,14 @@ export interface RequestRunContext {
   } | null;
   /** Resolved owner email (set by prepareRun). */
   owner?: string;
-  /** Owner's active Anthropic API key (set by prepareRun). */
+  /** Owner's API key for this run's engine (set by prepareRun). */
   userApiKey?: string;
+  /**
+   * Env var `userApiKey` was issued for. Anything that hands the key to a
+   * fixed provider must check this first — the owner's active engine is not
+   * always Anthropic, and an unchecked key reaches the wrong endpoint.
+   */
+  userApiKeyEnvVar?: string;
   /** Thread ID for the current run (set by onRunStart). */
   threadId?: string;
   /** Run ID for the current run (set by onRunStart). */

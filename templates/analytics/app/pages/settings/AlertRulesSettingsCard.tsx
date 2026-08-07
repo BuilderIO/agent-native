@@ -58,6 +58,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -503,9 +504,9 @@ export function AlertRulesSettingsCard() {
           {isLoading ? (
             <div className="space-y-2">
               {[0, 1, 2].map((item) => (
-                <div
+                <Skeleton
                   key={item}
-                  className="h-14 rounded-md border border-border bg-muted/30"
+                  className="h-14 w-full rounded-md border border-border bg-muted/30"
                 />
               ))}
             </div>

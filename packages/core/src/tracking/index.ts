@@ -5,6 +5,8 @@ export {
   registerTrackingProvider,
   unregisterTrackingProvider,
   listTrackingProviders,
+  type TrackingMeta,
+  type TrackingSource,
 } from "./registry.js";
 export { registerBuiltinProviders } from "./providers.js";
 export {

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   canInviteOrgMembers,
@@ -80,14 +80,30 @@ export function useOrgRole(): UseOrgRoleResult {
   };
 }
 
-export function useOrgMembers() {
+export const ORG_MEMBER_PAGE_SIZE = 25;
+
+export interface OrgMembersPage {
+  members: OrgMember[];
+  totalCount: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+}
+
+export function useOrgMembers(offset = 0) {
   // Scope the cache by active orgId so switching or creating an org forces a
   // fresh fetch rather than briefly showing the previous org's members.
   const { data: org } = useOrg();
-  return useQuery<{ members: OrgMember[] }>({
-    queryKey: ["org-members", org?.orgId ?? null],
-    queryFn: () => apiFetch(`${ORG_BASE}/members`),
+  const params = new URLSearchParams({
+    limit: String(ORG_MEMBER_PAGE_SIZE),
+    offset: String(offset),
+  });
+  return useQuery<OrgMembersPage>({
+    queryKey: ["org-members", org?.orgId ?? null, offset],
+    queryFn: () => apiFetch(`${ORG_BASE}/members?${params}`),
+    enabled: Boolean(org?.orgId),
     staleTime: 30_000,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === org?.orgId ? previousData : undefined,
   });
 }
 

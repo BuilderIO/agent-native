@@ -25,6 +25,14 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
+- When an uploaded PPTX or PDF is being improved, import it into the target deck
+  first with `import-pptx` or `import-file --importIntoDeck true`. Treat the
+  resulting `sourceImport` metadata as the source-of-truth contract: preserve
+  slide count, order, IDs, factual copy, notes, images, and positioned objects;
+  use `update-slide` for bounded visual edits and verify with `get-deck`.
+- A source import with `fidelity: partial` or `imagesSkipped` is not safe to
+  restyle automatically. Report the exact warning rather than silently
+  replacing missing content.
 - Preserve freeform objects and their `data-slide-object-id` values. They are
   absolutely positioned `.fmd-slide` children; keep generated flex/grid in
   normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
@@ -55,18 +63,8 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
 
 ## Persistence Model
 
-Decks are stored as a single JSON blob in the `decks.data` column. All writes
-go through server-side read-modify-write actions that hold a per-deck lock,
-so concurrent writers (human + agent, two humans) touching different slides
-never overwrite each other's work.
-
-**Agent actions** (`update-slide`, `add-slide`): continue to use their dedicated
-granular actions — they share the same in-process deck lock.
-
-**Browser editor** now calls `patch-deck` instead of a full PUT. If you are
-extending the editor's save path, enqueue a granular op (`patch-slide`,
-`delete-slide`, `reorder-slides`, `add-slide`, or `patch-deck-fields`) via
-`enqueueDeckOp` in `DeckContext.tsx` — do NOT add a new full-deck PUT.
+Deck data lives in SQL and all writes go through server-side actions. Read
+`deck-management` before changing persistence or editor save paths.
 
 ## Application State
 

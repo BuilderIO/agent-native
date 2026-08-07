@@ -1,0 +1,65 @@
+---
+title: "添加页面"
+description: "构建一个调用动作并显示其结果的 React 路由。"
+---
+
+# 添加页面
+
+这是 Getting Started 系列的第三部分。在[添加动作](/docs/getting-started-actions)中，你创建了 `analyze-text`。现在，你将从路由调用同一个动作。目前还不需要数据库：Chat 已经包含了 SQL 运行时，供你在需要持久化领域数据时使用。
+
+## 创建路由 {#add-a-page}
+
+`app/routes/` 中的路由文件会自动被识别。创建 `app/routes/text-analyses.tsx`；它将在 `http://localhost:8080/text-analyses` 提供服务。
+
+```tsx filename="app/routes/text-analyses.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
+};
+
+export default function TextAnalysesRoute() {
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
+  );
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">The same action, on a page.</p>
+      </header>
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery` 会调用智能体使用的同一个只读动作。页面暂时不需要自定义 API 路由、第二套数据层或 SQL。
+
+打开 `http://localhost:8080/text-analyses`，或询问智能体：
+
+> Navigate to `/text-analyses`.
+
+对于本教程而言，这个路由已经足够。如果它后来成为主要工作流，再添加侧边栏入口。有关完整的 `view-screen`、`navigate` 和 application-state 模式，请参阅[上下文感知](/docs/context-awareness)。
+
+## 继续
+
+你已经构建了一个带有动作和页面的聊天应用，页面调用相同的真实数据源。当结果需要持久化时，继续阅读[在 SQL 中持久化数据](/docs/getting-started-database)，或者探索[关键概念](/docs/key-concepts)和[Agent Surfaces](/docs/agent-surfaces)。

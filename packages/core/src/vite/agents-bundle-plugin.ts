@@ -17,11 +17,17 @@ import path from "path";
 
 import type { Plugin } from "vite";
 
+import type { AgentNativeConfigInput } from "../config.js";
 import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
 import {
   readAgentsBundleFromFs,
+  resolveAgentInstructionPaths,
   type WorkspaceAgentsSource,
 } from "../server/agents-bundle.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "./agent-native-config-loader.js";
 
 const VIRTUAL_ID = "virtual:agents-bundle";
 const RESOLVED_ID = "\0" + VIRTUAL_ID;
@@ -42,7 +48,14 @@ const TEMPLATE_SKILLS_DIRS = [
  */
 const FULL_RELOAD_COALESCE_MS = 500;
 
-async function emitBundleModule(projectRoot: string): Promise<string> {
+export interface AgentsBundlePluginOptions {
+  agentNativeConfig?: AgentNativeConfigInput;
+}
+
+async function emitBundleModule(
+  projectRoot: string,
+  agentConfig: Awaited<ReturnType<typeof loadResolvedAgentNativeConfig>>,
+): Promise<string> {
   // If the project is inside an enterprise monorepo with a workspace core,
   // merge in its AGENTS.md + skills. Template skills override workspace
   // core skills on name collision.
@@ -60,7 +73,9 @@ async function emitBundleModule(projectRoot: string): Promise<string> {
     // fall back to template-only
   }
 
-  const bundle = readAgentsBundleFromFs(projectRoot, workspaceSource);
+  const bundle = readAgentsBundleFromFs(projectRoot, workspaceSource, {
+    instructions: agentConfig.instructions,
+  });
   // Serialize as JSON and wrap in `export default` — this produces a valid
   // ES module that any bundler (Rollup, esbuild, Rolldown) can statically
   // analyze and tree-shake if nothing imports it.
@@ -72,14 +87,26 @@ export default bundle;
 `;
 }
 
-export function agentsBundlePlugin(): Plugin {
+export function agentsBundlePlugin(
+  options: AgentsBundlePluginOptions = {},
+): Plugin {
   let projectRoot = "";
+  let agentConfigPromise: ReturnType<typeof loadResolvedAgentNativeConfig> =
+    Promise.resolve({});
 
   return {
     name: "agent-native-agents-bundle",
 
-    configResolved(config) {
+    async configResolved(config) {
       projectRoot = config.root;
+      agentConfigPromise = loadResolvedAgentNativeConfig(
+        projectRoot,
+        createAgentNativeConfigContext(config.command, config.mode),
+        {
+          loadProjectConfig: options.agentNativeConfig === undefined,
+          projectConfig: options.agentNativeConfig,
+        },
+      );
     },
 
     resolveId(id) {
@@ -90,7 +117,7 @@ export function agentsBundlePlugin(): Plugin {
     async load(id) {
       if (id !== RESOLVED_ID) return null;
       if (!projectRoot) projectRoot = process.cwd();
-      return await emitBundleModule(projectRoot);
+      return await emitBundleModule(projectRoot, await agentConfigPromise);
     },
 
     async configureServer(server) {
@@ -99,6 +126,15 @@ export function agentsBundlePlugin(): Plugin {
       // the workspace core's AGENTS.md + skills directory (if present)
       // so edits to the enterprise mid-layer propagate to every app.
       const watcher = server.watcher;
+      const agentConfig = await agentConfigPromise;
+      const instructionPaths = resolveAgentInstructionPaths(
+        agentConfig.instructions,
+      );
+      const instructionFiles = new Set(
+        [instructionPaths.runtime, instructionPaths.development].map((file) =>
+          path.resolve(projectRoot, file),
+        ),
+      );
 
       // Resolve the workspace core up front so we can tell which files
       // outside projectRoot should trigger invalidation.
@@ -115,6 +151,8 @@ export function agentsBundlePlugin(): Plugin {
       }
 
       const shouldInvalidate = (file: string): boolean => {
+        if (instructionFiles.has(path.resolve(file))) return true;
+
         const rel = path.relative(projectRoot, file);
         if (!rel.startsWith("..")) {
           if (rel === "AGENTS.md") return true;
@@ -170,6 +208,14 @@ export function agentsBundlePlugin(): Plugin {
       if (fs.existsSync(agentsMdPath)) watcher.add(agentsMdPath);
       for (const skillsDir of skillsDirs) {
         if (fs.existsSync(skillsDir)) watcher.add(skillsDir);
+      }
+      for (const instructionFile of instructionFiles) {
+        if (fs.existsSync(instructionFile)) {
+          watcher.add(instructionFile);
+        } else {
+          const parent = path.dirname(instructionFile);
+          if (fs.existsSync(parent)) watcher.add(parent);
+        }
       }
       if (workspaceAgentsMdPath && fs.existsSync(workspaceAgentsMdPath)) {
         watcher.add(workspaceAgentsMdPath);

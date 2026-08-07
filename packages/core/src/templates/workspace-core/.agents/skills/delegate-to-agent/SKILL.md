@@ -14,11 +14,21 @@ metadata:
 
 ## Rule
 
-The UI never calls an LLM directly. Product workflows are delegated to the
-agent through the chat bridge so users can see, steer, and audit the work.
-Server-side one-shot model calls are an explicit escape hatch for narrow text
-transforms only; use `completeText()` from `@agent-native/core/server` when the
-work intentionally does not need tools, chat history, or run state.
+The app's default AI surface is the agent chat. Any user-facing work that asks
+the model to research, analyze, generate, recommend, synthesize, or reason over
+multiple steps must start or continue in the AgentSidebar so users can see,
+steer, and audit the work. UI buttons use `sendToAgentChat()` with
+`openSidebar: true`, and follow-up or revision text belongs in that same thread
+instead of a second app-local textbox.
+
+Actions are tools, not alternate AI runtimes. Keep them deterministic and
+focused: provider reads, validation, deterministic transforms, CRUD, and
+persistence are good action work. Let the agent orchestrate several such tools
+when the workflow is AI-shaped or user-steerable. Server-side one-shot model
+calls are a rare escape hatch for narrow text transforms only; use
+`completeText()` from `@agent-native/core/server` only when the work
+intentionally does not need tools, chat history, run state, side effects, or
+user steering.
 
 ## Why
 
@@ -35,6 +45,7 @@ sendToAgentChat({
   message: "Generate a summary of this document",
   context: documentContent, // optional hidden context (not shown in chat UI)
   submit: true, // auto-submit to the agent
+  openSidebar: true,
 });
 ```
 
@@ -55,6 +66,10 @@ sendToAgentChat({
 
 This is still a full agent run: tools, actions, thread state, and run tracking
 all remain active. It simply does not focus or open the sidebar.
+
+Use this silent form only for explicitly background or system-initiated work.
+It is not the default for a user clicking an AI-labeled button; visible work
+should open the sidebar so the user can follow and redirect the run.
 
 **From scripts (Node):**
 
@@ -77,8 +92,9 @@ const result = await completeText({
 });
 ```
 
-Wrap user-facing uses in actions so the UI and agent share the same operation.
-Do not call provider SDKs directly.
+If the narrow exception is exposed to the UI, wrap it in an action so the UI
+and agent share the same operation. Keep it clearly non-conversational and do
+not call provider SDKs directly.
 
 **From the UI, detecting when agent is done:**
 
@@ -97,9 +113,9 @@ The `submit` option controls whether the message is sent automatically or placed
 
 | `submit` value | Behavior                                | Use when                                                                            |
 | -------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
-| `true`         | Auto-submits to the agent immediately   | Routine operations the user has already approved                                    |
-| `false`        | Prefills the chat input for user review | High-stakes operations (deleting data, modifying code, API calls with side effects) |
-| omitted        | Uses the project's default setting      | General-purpose delegation                                                          |
+| `true`         | Auto-submits to the agent immediately   | Routine operations with clear intent; keep `openSidebar: true` for visible work |
+| `false`        | Prefills the AgentSidebar composer      | Review, edit, or add detail before the run; use the existing sidebar thread   |
+| omitted        | Uses the project's default setting      | General-purpose delegation                                                       |
 
 ```ts
 // Auto-submit: routine operation
@@ -109,61 +125,43 @@ sendToAgentChat({ message: "Update the project summary", submit: true });
 sendToAgentChat({
   message: "Delete all projects older than 30 days",
   submit: false,
+  openSidebar: true,
 });
 ```
 
-## Capture user input first when generating from a prompt
+## Capture user input in the sidebar
 
-Buttons that produce new content ("New Design", "Create Dashboard", "Make Deck", "Generate Form") need the user's prompt as input. **Never hardcode a generic message** — the result will be a generic generation the user didn't actually ask for.
-
-**Bad** — auto-submits a placeholder message; the user never said what they wanted:
+The AgentSidebar composer is the default prompt surface. When a button needs
+the user to describe what to create, prefill that same composer and let the
+user edit or complete it:
 
 ```tsx
 <Button
   onClick={() =>
-    sendToAgentChat({ message: "make a design", submit: true })
+    sendToAgentChat({
+      message: "Help me create a research report from this brief:",
+      context: researchBrief,
+      submit: false,
+      openSidebar: true,
+    })
   }
 >
-  New Design
+  Start in agent
 </Button>
 ```
 
-**Good** — Popover anchored to the button captures the prompt, then submits it:
-
-```tsx
-<Popover open={open} onOpenChange={setOpen}>
-  <PopoverTrigger asChild>
-    <Button>New Design</Button>
-  </PopoverTrigger>
-  <PopoverContent className="w-96">
-    <Textarea
-      autoFocus
-      value={prompt}
-      onChange={(e) => setPrompt(e.target.value)}
-      placeholder="What do you want to design?"
-    />
-    <Button
-      onClick={() => {
-        sendToAgentChat({ message: prompt, submit: true });
-        setOpen(false);
-        setPrompt("");
-      }}
-    >
-      Create
-    </Button>
-  </PopoverContent>
-</Popover>
-```
-
-**Always ask for input first when** the output depends on a prompt the user must provide — "design what?", "deck about what?", "dashboard for which metric?", "form for which use case?".
-
-**Auto-submit without input is fine when intent is unambiguous:**
+Never auto-submit a generic creative prompt when the user has not said what
+they want. Auto-submit without additional input is fine when intent is
+unambiguous:
 
 - "Try to fix" on a tool error — submits the error details with a clear fix instruction
 - "Retry the last operation" after a transient failure
 - Single-purpose buttons where there is nothing meaningful for the user to add
 
-If you find yourself writing `submit: true` with a hardcoded creative verb (`"design a..."`, `"write a..."`, `"build a..."`), stop and add a Popover.
+Use a Popover only for compact, structured parameters the UI must validate,
+such as a date range, target, or approval choice. Do not add a second freeform
+prompt or follow-up textbox for an AI workflow; keep the conversation and
+revisions in the AgentSidebar thread.
 
 ## Delegating to a Sub-Agent (Agent Teams)
 

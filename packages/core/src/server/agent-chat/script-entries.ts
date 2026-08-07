@@ -817,7 +817,19 @@ export async function createAgentEngineScriptEntries(
       "manage-agent-engine": {
         tool: mod.tool,
         planMode: {
-          effect: (args) => (args.action === "list" ? "read" : "write"),
+          // Reads, per the tool's own enum: only set/set-app-default/
+          // reset-app-default mutate. Misclassifying a read here makes every
+          // call announce a change and bump the global `action` change
+          // version, which is how the model-picker's catalog read ended up
+          // recorded as a write for 1,127 identities.
+          // `allowedValues` stays narrower on purpose — it governs what plan
+          // mode may run, and `test` spends a live model call.
+          effect: (args) =>
+            args.action === "list" ||
+            args.action === "test" ||
+            args.action === "get-app-default"
+              ? "read"
+              : "write",
           allowedValues: { action: ["list"] },
           description: "Plan mode allows listing available agent engines.",
         },

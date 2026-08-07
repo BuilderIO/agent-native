@@ -50,6 +50,43 @@ beforeEach(async () => {
   await runMigrations(dispatchMigrations, {
     table: "dispatch_migrations",
   })({});
+
+  const { getDbExec } = await import("@agent-native/core/db");
+  const exec = getDbExec();
+  await exec.execute({
+    sql: `CREATE TABLE IF NOT EXISTS org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
+    )`,
+    args: [],
+  });
+  await exec.execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: ["approval-owner", orgId, ownerEmail, "owner", Date.now()],
+  });
+  await exec.execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: [
+      "approval-other-owner",
+      otherOrgId,
+      otherOwnerEmail,
+      "owner",
+      Date.now(),
+    ],
+  });
+  await exec.execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: [
+      "approval-owner-other-org",
+      otherOrgId,
+      ownerEmail,
+      "owner",
+      Date.now(),
+    ],
+  });
 });
 
 afterEach(async () => {
@@ -65,6 +102,38 @@ afterEach(async () => {
 });
 
 describe("dispatch approval request status fencing", () => {
+  it("does not approve a request through an owner-email match from another org", async () => {
+    const [{ runWithRequestContext }, { getDbExec }, vaultStore] =
+      await Promise.all([
+        import("@agent-native/core/server"),
+        import("@agent-native/core/db"),
+        import("./vault-store.js"),
+      ]);
+    const exec = getDbExec();
+
+    const created = await runWithRequestContext(
+      { userEmail: ownerEmail, orgId },
+      () =>
+        vaultStore.createRequest({
+          credentialKey: "CROSS_ORG_KEY",
+          appId: "test-app",
+          reason: "must stay in the request org",
+        }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId: otherOrgId }, () =>
+        vaultStore.approveRequest((created as any).id, "secret-value"),
+      ),
+    ).rejects.toThrow("Request not found");
+
+    const rows = await exec.execute({
+      sql: "SELECT status FROM vault_requests WHERE id = ?",
+      args: [(created as any).id],
+    });
+    expect(rows.rows[0]).toMatchObject({ status: "pending" });
+  });
+
   it("applies the change once when approveRequest is called twice on the same request", async () => {
     const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
       await Promise.all([

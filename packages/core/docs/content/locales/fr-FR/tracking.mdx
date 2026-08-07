@@ -91,7 +91,7 @@ Plusieurs fournisseurs peuvent être actifs simultanément. Chaque événement l
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 Déclenchez un événement d'analyse. Distribution à tous les fournisseurs enregistrés.
 
@@ -104,6 +104,10 @@ track(
   { userId: "steve@builder.io" },
 );
 ```
+
+`source` est soit le `ctx` d'une action, transmis tel quel, soit un objet meta `{ userId, anonymousId, sessionId }` pour les appelants qui n'ont pas de `ctx`.
+
+La session du navigateur n'est pas à fournir par l'appelant : elle provient du contexte de requête ambiant (`RequestContext.browserSessionId`, renseigné depuis l'en-tête `X-Agent-Native-Session-Id` qu'envoient le client d'actions, le chat et le `track()` navigateur), de sorte que la même visite est corrélée que l'événement vienne de l'interface ou de l'agent. Chaque fournisseur la mappe sur son propre champ de session : `$session_id` pour PostHog, qui relie l'événement au replay de session ; une propriété `session_id` pour Mixpanel et Amplitude ; un `sessionId` de premier niveau pour les webhooks et Agent Native Analytics. Elle est absente pour les appelants sans navigateur (cron, CLI, MCP, A2A), et un `sessionId` dans l'objet meta la remplace.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // Transmettez ctx tel quel : l'événement est attribué à ctx.userEmail et
+    // rejoint la session de navigateur d'où provient l'appel.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },

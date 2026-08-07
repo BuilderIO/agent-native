@@ -1,6 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { setActiveOrgId } from "./active-org.js";
-import { invalidateRequestMemberOrgIds } from "./request-org-cache.js";
+import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -76,7 +76,7 @@ export async function acceptPendingInvitationsForEmail(
               ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
         args: [nanoid(), inv.orgId, email, role, Date.now()],
       });
-      invalidateRequestMemberOrgIds();
+      invalidateMemberOrgCaches();
     }
     await db.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,

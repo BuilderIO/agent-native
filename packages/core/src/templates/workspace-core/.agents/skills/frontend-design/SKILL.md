@@ -130,6 +130,7 @@ passed this requirement yet.
 - Do not build custom dropdowns, menus, popovers, modals, or confirmations with manual absolute positioning and click-outside effects.
 - Never use browser dialogs (`window.alert`, `window.confirm`, `window.prompt`). Use `AlertDialog`, `Dialog`, or app-specific confirmation UI.
 - Use Tabler icons for all first-party UI icons. Do not add Lucide, Heroicons, inline SVG icon sets, or emoji icons.
+- Keep inline help/info glyphs next to labels at `size-3` (12px) or smaller than the adjacent text. Preserve a larger hit area on the trigger, not the glyph. Use `guard:allow-large-help-icon` only for deliberate heading documentation or menu action exceptions.
 - Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` for action-backed UI. Standard CRUD should go through actions, not custom `/api/` routes.
 - Keep UI optimistic where possible: update cache and navigation immediately, then reconcile or roll back on mutation result.
 - Custom styles belong in Tailwind classes, component CSS, or the existing global CSS theme file; avoid inline styles.
@@ -198,7 +199,11 @@ as an operator would use it repeatedly:
 - Use full `Card` composition when the content has a title, description, content, or actions. Do not dump complex cards into a single `CardContent`.
 - Use `ToggleGroup` for small option sets, `Switch` for binary settings, `Checkbox` for multi-select, `RadioGroup` for one-of-many, and `Slider`/inputs for numeric values.
 - For forms, prefer the app's existing shadcn form pattern. If newer `Field`, `FieldGroup`, or `InputGroup` primitives are installed or appropriate to add, use them instead of raw layout divs.
-- Loading states use `Skeleton`, `Progress`, `Spinner`, or the app's existing loading primitives. Empty states should have one clear next action.
+- Page and section data loading uses layout-matching `Skeleton` geometry. Do
+  not show generic "Loading..." text for content loads; reserve `Spinner` for
+  brief mutations, uploads, and progress actions. Use the app's existing
+  loading primitive when it is a genuine design-system adapter. Empty states
+  should have one clear next action.
 
 ## Anti-Patterns
 

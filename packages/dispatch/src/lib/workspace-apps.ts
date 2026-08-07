@@ -26,6 +26,10 @@ export interface WorkspaceAppSummary {
   archived?: boolean;
 }
 
+export function workspaceAppRoute(appId: string): string {
+  return `/apps/${encodeURIComponent(appId)}`;
+}
+
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   if (app.status === "pending") {
     return app.builderUrl

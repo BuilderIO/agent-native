@@ -56,6 +56,11 @@ The repeated app shell has two distinct navigation surfaces:
   labeled as local, preview, or analyze. For original/generated review, stack
   the source above the result by default and use side-by-side only for short,
   highly scannable content.
+- Deterministic implementation does not make an AI-shaped experience
+  deterministic. If the user expects research, analysis, generation,
+  recommendation, synthesis, visible progress, or steering, route the button
+  to the AgentSidebar and let the agent call focused actions. Keep revisions in
+  the same thread instead of adding a second freeform prompt box.
 - Standalone apps with `AgentSidebar` must resolve one assistant-ui runtime
   context. Match direct assistant-ui pins to the installed core/toolkit peer
   graph, use Vite dedupe/aliases when linked dependencies can split contexts,

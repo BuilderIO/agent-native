@@ -1,0 +1,172 @@
+---
+title: "Persistir dados em SQL"
+description: "Persista os resultados de uma ação em SQL quando eles precisarem sobreviver às conversas."
+---
+
+# Persistir dados em SQL
+
+Esta é a quarta parte opcional da série Primeiros passos. Em [Adicionar uma página](/docs/getting-started-pages)
+você usou `analyze-text` diretamente em uma rota. Aqui, você adicionará dados SQL
+do app quando os resultados precisarem persistir entre conversas.
+
+## Adicione uma tabela {#persist-data}
+
+O Chat já inclui o runtime de SQL, as tabelas do framework e um arquivo SQLite local
+por padrão. Você não precisa instalar um banco de dados, definir `DATABASE_URL` ou
+adicionar uma migração para as tabelas integradas do Chat. Para uma nova tabela do
+app, adicione estes três arquivos do servidor:
+
+1. `server/plugins/db.ts` cria a tabela com uma migração aditiva.
+2. `server/db/schema.ts` descreve a tabela para consultas tipadas.
+3. `server/db/index.ts` cria o cliente de banco de dados tipado do app.
+
+Crie `server/plugins/db.ts`:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      name: "create-text-analyses",
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        paragraph_count INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+Crie `server/db/schema.ts`:
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const textAnalyses = table("text_analyses", {
+  id: text("id").primaryKey(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
+  paragraphCount: integer("paragraph_count").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+Crie `server/db/index.ts`:
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+export { schema };
+```
+
+Reinicie `pnpm dev` uma vez para que a migração seja executada. Mantenha as
+futuras migrações aditivas e dê a cada uma um novo `version` e `name`.
+
+## Adicione ações de salvar e listar
+
+Mantenha `analyze-text` como uma ação somente leitura e torne o salvamento explícito
+com uma ação separada. Crie `actions/save-text-analysis.ts`:
+
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string().min(1),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+    paragraphCount: z.number(),
+  }),
+  run: async (
+    { input, charCount, wordCount, sentenceCount, paragraphCount },
+    ctx,
+  ) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before saving analyses.");
+
+    const id = crypto.randomUUID();
+    await getDb().insert(schema.textAnalyses).values({
+      id,
+      input,
+      charCount,
+      wordCount,
+      sentenceCount,
+      paragraphCount,
+      ownerEmail,
+    });
+
+    return { id };
+  },
+});
+```
+
+Crie `actions/list-text-analyses.ts`:
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { desc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the signed-in user's saved text analyses, newest first.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async (_, ctx) => {
+    const ownerEmail = ctx?.userEmail;
+    if (!ownerEmail) throw new Error("Sign in before listing analyses.");
+
+    return getDb()
+      .select({
+        id: schema.textAnalyses.id,
+        input: schema.textAnalyses.input,
+        charCount: schema.textAnalyses.charCount,
+        wordCount: schema.textAnalyses.wordCount,
+        sentenceCount: schema.textAnalyses.sentenceCount,
+        paragraphCount: schema.textAnalyses.paragraphCount,
+        createdAt: schema.textAnalyses.createdAt,
+      })
+      .from(schema.textAnalyses)
+      .where(eq(schema.textAnalyses.ownerEmail, ownerEmail))
+      .orderBy(desc(schema.textAnalyses.createdAt));
+  },
+});
+```
+
+As ações usam o cliente Drizzle tipado para leituras e gravações do app. SQL bruto
+só é necessário aqui para a migração aditiva. Pule esta página até que sua ação
+precise de dados de domínio persistentes.
+
+## Experimente
+
+No chat, peça ao agente para fazer o fluxo inteiro:
+
+> Run analyze-text on "Hello world", save the result with save-text-analysis, then list my saved text analyses.
+
+A linha salva agora está disponível para o agente e para qualquer página que leia `list-text-analyses`.
+
+## Continue
+
+Agora você tem dados persistentes do app. Continue com [Conceitos principais](/docs/key-concepts)
+para entender como ações, SQL e páginas se encaixam.

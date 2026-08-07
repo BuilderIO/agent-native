@@ -6,6 +6,7 @@ import {
 import { IconCamera, IconCheck, IconLock } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 
+import { PASSWORD_MIN_LENGTH } from "../../shared/password-policy.js";
 import type { UserProfile } from "../../user-profile/shared.js";
 import {
   Popover,
@@ -19,6 +20,7 @@ import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
 import { SchedulingTimezoneField } from "./SchedulingTimezoneField.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
 function profileInitials(name: string): string {
   return (
@@ -82,7 +84,7 @@ function PasswordSettings() {
   const submit = () => {
     setSaved(false);
     setValidationError(null);
-    if (newPassword.length < 8) {
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
       setValidationError("length");
       return;
     }
@@ -113,9 +115,7 @@ function PasswordSettings() {
   if (!session?.email) return null;
 
   const passwordForm = isLoading ? (
-    <p className="text-xs text-muted-foreground">
-      {t("settings.passwordStatusLoading")}
-    </p>
+    <SettingsSkeleton lines={2} />
   ) : authMethods.error ? (
     <p className="text-xs text-destructive">
       {t("settings.passwordSaveError")}

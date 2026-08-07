@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/design-system";
 import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
 import {
   IconPlus,
@@ -834,9 +835,14 @@ export function AgentsSection() {
 
       {/* Agent list */}
       {loading ? (
-        <div className="space-y-1.5">
-          <div className="h-6 w-full rounded bg-muted/50 animate-pulse" />
-          <div className="h-6 w-3/4 rounded bg-muted/50 animate-pulse" />
+        <div
+          className="space-y-1.5"
+          role="status"
+          aria-busy="true"
+          aria-label="Loading connected agents"
+        >
+          <Skeleton className="h-6 w-full bg-muted/50" />
+          <Skeleton className="h-6 w-3/4 bg-muted/50" />
         </div>
       ) : agents.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-border/70 bg-card px-5 py-8 text-center">

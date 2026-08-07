@@ -55,6 +55,11 @@ import {
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
 import {
+  isRetryableTranscriptFailure,
+  transcriptFailureMessage,
+  type TranscriptFailureCode,
+} from "../shared/transcript-failure.js";
+import {
   buildCaptionSegmentsFromText,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -220,6 +225,13 @@ export function recordingMediaFetchTimeoutMs(
 // the completed transcription request.
 const MAX_AUTO_TRANSCRIPT_RETRIES = 2;
 const AUTO_TRANSCRIPT_RETRY_BACKOFF_MS = [5_000, 20_000];
+
+/** The typed code an error already carries, if any. */
+function transcriptFailureCodeFor(err: unknown): TranscriptFailureCode | null {
+  return err instanceof AudioOnlyExtractionError
+    ? (err.code as TranscriptFailureCode)
+    : null;
+}
 
 function isTransientTranscriptionError(err: unknown): boolean {
   if (isTransientExtractionError(err)) return true;
@@ -641,7 +653,13 @@ async function failAudioOnlyPreparation({
   });
   if (preserved) return preserved;
 
-  const transient = isTransientTranscriptionError(err);
+  // The code decides retryability. `isTransientTranscriptionError` stays as the
+  // fallback for errors that carry no code yet — it reads regexes over prose,
+  // which is why a reworded message could once change whether a clip retried.
+  const failureCode = transcriptFailureCodeFor(err);
+  const transient = failureCode
+    ? isRetryableTranscriptFailure(failureCode)
+    : isTransientTranscriptionError(err);
   const nextRetryCount = currentRetryCount + 1;
 
   await upsertTranscriptRow(db, {
@@ -649,6 +667,7 @@ async function failAudioOnlyPreparation({
     ownerEmail,
     status: "failed",
     failureReason: reason,
+    failureCode: failureCode ?? "UNKNOWN",
     segmentsJson: "[]",
     fullText: "",
     now,
@@ -1136,9 +1155,12 @@ const requestTranscriptAction = defineAction({
       const videoUrl = rec.videoUrl;
       if (!videoUrl) throw new Error("Recording has no videoUrl");
       if (rec.hasAudio === false) {
+        // NOT "no speech was detected" — this is a measurement of the stored
+        // file, and blaming the recording sent people hunting for a microphone
+        // problem when the screen-share simply never included audio.
         throw new AudioOnlyExtractionError(
-          "NO_AUDIO_TRACK",
-          "No speech was detected because this recording was saved without audio.",
+          "NO_AUDIO_SAVED",
+          transcriptFailureMessage("NO_AUDIO_SAVED"),
         );
       }
       audioMediaPromise ??= (async () => {
@@ -1464,14 +1486,33 @@ const requestTranscriptAction = defineAction({
     const reason = builderError
       ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
       : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
+    // A cloud failure gets the SAME transient-retry treatment the audio-only
+    // path already has (see `failAudioOnlyPreparation`). This branch classified
+    // the error, logged it, and then fell through with no retry scheduled and
+    // no `retryCount` written — so the one path users report as "it works if I
+    // retry" was the one path that never retried itself. Production bears that
+    // out: `retry_count` averages 0.0 on these rows, while 12 of them say
+    // `fetch failed` and 11 say `timed out after 45` — textbook transient.
+    const cloudTransient = builderError
+      ? isTransientTranscriptionError(new Error(builderError))
+      : false;
+    const cloudNextRetryCount = currentRetryCount + 1;
     await upsertTranscriptRow(db, {
       recordingId: args.recordingId,
       ownerEmail,
       status: "failed",
       failureReason: reason,
+      failureCode: builderError ? "CLOUD_FAILED" : "CLOUD_UNCONFIGURED",
       now,
+      ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
+    if (cloudTransient) {
+      scheduleAutoTranscriptRetry({
+        recordingId: args.recordingId,
+        nextRetryCount: cloudNextRetryCount,
+      });
+    }
     console.warn(`[clips] ${reason}`);
     return {
       recordingId: args.recordingId,
@@ -1488,6 +1529,11 @@ async function upsertTranscriptRow(
     ownerEmail: string;
     status: "pending" | "ready" | "failed";
     failureReason: string | null;
+    /**
+     * Machine-readable cause. This is what decides retryability; the prose in
+     * `failureReason` is rendered from it and is for humans only.
+     */
+    failureCode?: TranscriptFailureCode | null;
     language?: string;
     segmentsJson?: string;
     fullText?: string;
@@ -1523,6 +1569,8 @@ async function upsertTranscriptRow(
         ownerEmail: row.ownerEmail,
         status: row.status,
         failureReason: row.failureReason,
+        // Cleared on success so a recovered row does not keep a stale cause.
+        failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
         ...(row.language ? { language: row.language } : {}),
         ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
         ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
@@ -1539,6 +1587,7 @@ async function upsertTranscriptRow(
       fullText: row.fullText ?? "",
       status: row.status,
       failureReason: row.failureReason,
+      failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
       retryCount: retryCount ?? 0,
       createdAt: row.now,
       updatedAt,

@@ -44,6 +44,9 @@ import {
   isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
+  isKeepWarmBackgroundDeployEnabled,
+  isKeepWarmDeployEnabled,
+  resolveKeepWarmSchedule,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
@@ -59,7 +62,8 @@ import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 const DEFAULT_SSR_CACHE_CONTROL =
   "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
+const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
+  "public, durable, max-age=600, stale-while-revalidate=604800, stale-if-error=3600";
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
@@ -676,6 +680,9 @@ export default (event) =>
 
     expect(source).toContain(
       'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+    );
+    expect(source).toContain(
+      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "public, durable, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
     );
   });
 
@@ -1992,6 +1999,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).not.toContain("includedFiles");
     expect(entry).toContain("await fetch(url");
     expect(entry).toContain("agent-native-netlify-keep-warm");
+    expect(entry).toContain("return new URL(request.url).origin");
     expect(entry).not.toMatch(/^\s*path:/m);
   });
 
@@ -2019,6 +2027,128 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain('createHmac("sha256", secret)');
     expect(entry).toContain("__agentNativeProcessorRoute");
     expect(entry).toContain("A2A_SECRET is required");
+    expect(entry).toContain("return new URL(request.url).origin");
+  });
+
+  describe("keep-warm opt-out and cadence", () => {
+    const KEEP_WARM_ENV_KEYS = [
+      "AGENT_NATIVE_DISABLE_KEEP_WARM",
+      "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND",
+      "AGENT_NATIVE_KEEP_WARM_SCHEDULE",
+    ] as const;
+    let saved: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      saved = {};
+      for (const key of KEEP_WARM_ENV_KEYS) {
+        saved[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of KEEP_WARM_ENV_KEYS) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    });
+
+    it("is ON BY DEFAULT, at the historical once-a-minute cadence", () => {
+      expect(isKeepWarmDeployEnabled()).toBe(true);
+      expect(isKeepWarmBackgroundDeployEnabled()).toBe(true);
+      expect(resolveKeepWarmSchedule()).toBe("* * * * *");
+    });
+
+    it("emits nothing when keep-warm is disabled, so the DB can autosuspend", () => {
+      process.env.AGENT_NATIVE_DISABLE_KEEP_WARM = "1";
+      const cwd = setupNetlifyOutput();
+
+      emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+      expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+    });
+
+    it("honours an overridden cron cadence", () => {
+      process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = "*/5 * * * *";
+      const cwd = setupNetlifyOutput();
+
+      emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+      const entry = fs.readFileSync(
+        path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+        "utf8",
+      );
+      expect(entry).toContain('schedule: "*/5 * * * *"');
+      expect(entry).not.toContain('schedule: "* * * * *"');
+    });
+
+    it("THROWS on an unparseable cadence instead of silently keeping 1/min", () => {
+      // Falling back would leave an operator who set this to stop burning
+      // database quota still burning it, with a green build and no warning.
+      process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = "every 5 minutes";
+      expect(() => resolveKeepWarmSchedule()).toThrow(
+        /must be a 5-field cron expression/,
+      );
+
+      const cwd = setupNetlifyOutput();
+      expect(() => emitSingleTemplateNetlifyKeepWarmFunction(cwd)).toThrow(
+        /AGENT_NATIVE_KEEP_WARM_SCHEDULE/,
+      );
+      // And it throws BEFORE wiping/writing the function dir, so a failed build
+      // never leaves a half-emitted artifact behind.
+      expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+    });
+
+    it("THROWS on a 5-token value whose fields are not cron fields", () => {
+      // Counting tokens is not parsing them: "not a cron expression here" is
+      // five whitespace-separated words and would otherwise ship to Netlify as
+      // a schedule, which is the same silent-wrong-cadence failure above.
+      for (const bad of [
+        "not a cron expression here",
+        "*/0 * * * *",
+        "60 * * * *",
+        "* * * * 9",
+      ]) {
+        process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = bad;
+        expect(() => resolveKeepWarmSchedule()).toThrow(
+          /must be a 5-field cron expression/,
+        );
+      }
+    });
+
+    it("accepts the cron syntax operators an operator would actually reach for", () => {
+      for (const good of [
+        "*/5 * * * *",
+        "0 */6 * * *",
+        "15,45 3 * * 1-5",
+        "0 0 1 JAN *",
+      ]) {
+        process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = good;
+        expect(resolveKeepWarmSchedule()).toBe(good);
+      }
+    });
+
+    it("drops the background warm independently of the server warm", () => {
+      // Warming `server` is one health request; warming `-background` is a
+      // fresh container that pays the whole schema-probe fan-out.
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+      process.env.AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1";
+      try {
+        const cwd = setupNetlifyOutput();
+        emitSingleTemplateNetlifyBackgroundFunction(cwd);
+        emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+        const entry = fs.readFileSync(
+          path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+          "utf8",
+        );
+        expect(entry).toContain("const BACKGROUND_WARM_PATH = null");
+        // The server warm is untouched.
+        expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
+      } finally {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      }
+    });
   });
 
   it("does not emit a keep-warm function without Nitro's server bundle", () => {

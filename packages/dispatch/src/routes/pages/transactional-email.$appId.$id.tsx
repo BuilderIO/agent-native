@@ -3,7 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconArrowLeft } from "@tabler/icons-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 
 import {
   aggregateSharedEmails,
@@ -155,6 +155,7 @@ function useEmailDetail(appId: string, id: string) {
 
 export default function TransactionalEmailDetailRoute() {
   const t = useT();
+  const location = useLocation();
   const params = useParams<{ appId: string; id: string }>();
   const appId = params.appId ?? "";
   const id = params.id ?? "";
@@ -213,7 +214,13 @@ export default function TransactionalEmailDetailRoute() {
     >
       <div className="max-w-3xl space-y-4">
         <Button asChild size="sm" variant="ghost" className="-ml-2">
-          <Link to="/transactional-email">
+          <Link
+            to={
+              location.pathname.startsWith("/admin/")
+                ? "/admin/transactional-email"
+                : "/transactional-email"
+            }
+          >
             <IconArrowLeft size={15} className="mr-1.5" />
             {t("dispatch.transactionalEmail.title")}
           </Link>

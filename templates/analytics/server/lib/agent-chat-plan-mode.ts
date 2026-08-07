@@ -37,6 +37,7 @@ export const INITIAL_TOOL_NAMES = [
   // tool-search round trip (~15 KB of results) before it can even start — or worse,
   // enumerates the cohort page by page through whatever it can already see.
   "provider-api-request",
+  "provider-corpus-job",
   "query-staged-dataset",
   "hubspot-records",
   "navigate",

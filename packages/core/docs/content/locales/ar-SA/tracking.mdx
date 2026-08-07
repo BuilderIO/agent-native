@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 قم بتشغيل حدث التحليلات. المعجبون لجميع مقدمي الخدمة المسجلين.
 
@@ -104,6 +104,10 @@ track(
   { userId: "steve@builder.io" },
 );
 ```
+
+‏`source` هو إمّا `ctx` الخاص بالإجراء يُمرَّر كما هو، أو كائن بيانات وصفية `{ userId, anonymousId, sessionId }` للمستدعين الذين لا يملكون `ctx`.
+
+‏جلسة المتصفح ليست شيئًا على المستدعي تمريره: فهي تأتي من سياق الطلب المحيط (`RequestContext.browserSessionId`، الذي يُضبط من ترويسة `X-Agent-Native-Session-Id` التي يرسلها عميل الإجراءات والدردشة ودالة `track()` في المتصفح)، فتُربط الزيارة نفسها سواء أطلقت الواجهة الحدث أم الوكيل. ويعيّنها كل مزوّد إلى حقل الجلسة الخاص به: `$session_id` في PostHog، وهو ما يربط الحدث بإعادة تشغيل الجلسة؛ وخاصية `session_id` في Mixpanel وAmplitude؛ و`sessionId` على المستوى الأعلى في الويب هوك وAgent Native Analytics. وهي غائبة للمستدعين بلا متصفح (cron وCLI وMCP وA2A)، ويتجاوزها `sessionId` الممرَّر في كائن البيانات الوصفية.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // مرِّر ctx كما هو: يُنسب الحدث إلى ctx.userEmail ويرتبط بجلسة المتصفح
+    // التي جاء منها الاستدعاء.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },

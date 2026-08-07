@@ -227,10 +227,20 @@ interface SlackMembersResponse {
 }
 
 interface SlackUserInfoResponse {
-  user?: { profile?: { email?: string } };
+  user?: {
+    deleted?: boolean;
+    is_app_user?: boolean;
+    is_bot?: boolean;
+    is_workflow_bot?: boolean;
+    profile?: { email?: string };
+  };
 }
 
-type SlackUserEmailCache = Map<string, string | null>;
+type SlackUserEmailCacheEntry =
+  | { kind: "human"; email: string }
+  | { kind: "non-human" }
+  | { kind: "unresolved" };
+type SlackUserEmailCache = Map<string, SlackUserEmailCacheEntry>;
 
 const SLACK_USER_LOOKUP_CONCURRENCY = 4;
 const SLACK_THREAD_CAPTURE_CONCURRENCY = 4;
@@ -1061,9 +1071,7 @@ async function slackPrivateChannelMemberEmails(
   const userIds = Array.from(memberIds);
   if (!userIds.length) return null;
   if (
-    userIds.some(
-      (userId) => userEmailCache.has(userId) && !userEmailCache.get(userId),
-    )
+    userIds.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
   ) {
     return null;
   }
@@ -1087,19 +1095,35 @@ async function slackPrivateChannelMemberEmails(
           "users.info",
           { user: userId },
         );
-        const email = user.user?.profile?.email?.trim().toLowerCase() ?? null;
-        userEmailCache.set(userId, email || null);
+        const slackUser = user.user;
+        if (
+          slackUser?.deleted === true ||
+          slackUser?.is_app_user === true ||
+          slackUser?.is_bot === true ||
+          slackUser?.is_workflow_bot === true
+        ) {
+          userEmailCache.set(userId, { kind: "non-human" });
+          return;
+        }
+        const email = slackUser?.profile?.email?.trim().toLowerCase();
+        userEmailCache.set(
+          userId,
+          email ? { kind: "human", email } : { kind: "unresolved" },
+        );
       }),
     );
-    if (batch.some((userId) => !userEmailCache.get(userId))) return null;
+    if (
+      batch.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
+    ) {
+      return null;
+    }
   }
 
-  const emails: string[] = [];
-  for (const userId of userIds) {
-    const email = userEmailCache.get(userId);
-    if (!email) return null;
-    emails.push(email);
-  }
+  const emails = userIds.flatMap((userId) => {
+    const entry = userEmailCache.get(userId);
+    return entry?.kind === "human" ? [entry.email] : [];
+  });
+  if (!emails.length) return null;
   return Array.from(new Set(emails)).sort();
 }
 

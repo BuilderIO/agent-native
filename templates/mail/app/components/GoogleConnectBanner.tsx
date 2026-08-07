@@ -66,6 +66,16 @@ const STEPS = [
   },
 ];
 
+const DESKTOP_POLL_INTERVAL_MS = 1500;
+const ADD_ACCOUNT_POLL_INTERVAL_MS = 2000;
+// Bounds each poll's fetches so a hung request can't leave its in-flight
+// guard stuck and stall the interval forever.
+const DESKTOP_POLL_ABORT_MS = Math.max(10_000, DESKTOP_POLL_INTERVAL_MS * 4);
+const ADD_ACCOUNT_POLL_ABORT_MS = Math.max(
+  10_000,
+  ADD_ACCOUNT_POLL_INTERVAL_MS * 4,
+);
+
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
@@ -104,6 +114,8 @@ export function GoogleConnectBanner({
   );
   const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const desktopPollInFlightRef = useRef(false);
+  const addAccountPollInFlightRef = useRef(false);
   useEffect(() => {
     return () => {
       if (desktopPollRef.current) clearInterval(desktopPollRef.current);
@@ -130,40 +142,54 @@ export function GoogleConnectBanner({
     const start = Date.now();
     if (desktopPollRef.current) clearInterval(desktopPollRef.current);
     desktopPollRef.current = setInterval(async () => {
+      if (document.hidden || desktopPollInFlightRef.current) return;
+      desktopPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        DESKTOP_POLL_ABORT_MS,
+      );
       try {
-        const res = await fetch(
-          agentNativePath(
-            `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-          ),
-        );
-        const data = await res.json();
-        if (data?.error) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          setDesktopAuthIssue(data);
-        } else if (data?.token) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          await fetch(
+        try {
+          const res = await fetch(
             agentNativePath(
-              `/_agent-native/auth/session?_session=${data.token}`,
+              `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
             ),
-            {
-              credentials: "include",
-            },
+            { signal: controller.signal },
           );
-          window.location.reload();
-        } else if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
+          const data = await res.json();
+          if (data?.error) {
+            clearInterval(desktopPollRef.current!);
+            desktopPollRef.current = null;
+            setDesktopAuthIssue(data);
+          } else if (data?.token) {
+            clearInterval(desktopPollRef.current!);
+            desktopPollRef.current = null;
+            await fetch(
+              agentNativePath(
+                `/_agent-native/auth/session?_session=${data.token}`,
+              ),
+              {
+                credentials: "include",
+                signal: controller.signal,
+              },
+            );
+            window.location.reload();
+          } else if (Date.now() - start > 120_000) {
+            clearInterval(desktopPollRef.current!);
+            desktopPollRef.current = null;
+          }
+        } catch {
+          if (Date.now() - start > 120_000) {
+            clearInterval(desktopPollRef.current!);
+            desktopPollRef.current = null;
+          }
         }
-      } catch {
-        if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-        }
+      } finally {
+        clearTimeout(abortTimer);
+        desktopPollInFlightRef.current = false;
       }
-    }, 1500);
+    }, DESKTOP_POLL_INTERVAL_MS);
   }
 
   const [authError, setAuthError] = useState<string | null>(null);
@@ -274,20 +300,37 @@ export function GoogleConnectBanner({
     const prevCount = accounts.length;
     if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     addAccountPollRef.current = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.accounts?.length > prevCount) {
-          if (addAccountPollRef.current) {
-            clearInterval(addAccountPollRef.current);
-            addAccountPollRef.current = null;
+      if (document.hidden || addAccountPollInFlightRef.current) return;
+      addAccountPollInFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        ADD_ACCOUNT_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        )
+          // coercion-ok: a failed probe and a not-yet-added-account response
+          // both mean "keep waiting"; this loop only acts on an observed
+          // account-count increase.
+          .catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > prevCount) {
+            if (addAccountPollRef.current) {
+              clearInterval(addAccountPollRef.current);
+              addAccountPollRef.current = null;
+            }
+            window.location.reload();
           }
-          window.location.reload();
         }
+      } finally {
+        clearTimeout(abortTimer);
+        addAccountPollInFlightRef.current = false;
       }
-    }, 2000);
+    }, ADD_ACCOUNT_POLL_INTERVAL_MS);
     // accounts.length is captured into prevCount above; including it in deps
     // would tear down and recreate the interval whenever the count changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps

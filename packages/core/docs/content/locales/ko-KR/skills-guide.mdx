@@ -124,6 +124,8 @@ Skills는 `.agents/skills/<name>/SKILL.md`에 거주하며 상담원을 위한 �
 
 **아래 전체 세부정보:** 앱 지원 skills의 메커니즘(매니페스트 형식, CLI 명령, 마켓플레이스 어댑터, 자동 업데이트 해싱)은 [App-backed skills — full details](#app-backed-skills-full)에서 다룹니다.
 
+`app-skill` 패키지는 표준 Agent Plugin 파일도 생성합니다. `agent-native plugin import <path> --into <workspace> --yes`로 Skills와 원격 Streamable HTTP MCP 서버를 가져올 수 있으며, 패키지 헤더는 무시되고 stdio 및 SSE 서버는 보고 후 건너뜁니다.
+
 </Callout>
 
 ## 사용자 정의 skills 생성 {#creating-skills}

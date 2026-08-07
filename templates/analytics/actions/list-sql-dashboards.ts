@@ -74,6 +74,7 @@ export default defineAction({
       id: d.id,
       name: d.name,
       ...(d.parentId ? { parentId: d.parentId } : {}),
+      ...(d.folderId ? { folderId: d.folderId } : {}),
       ownerEmail: d.ownerEmail,
       orgId: d.orgId,
       visibility: d.visibility,

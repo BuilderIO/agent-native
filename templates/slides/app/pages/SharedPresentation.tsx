@@ -7,6 +7,7 @@ import { useParams } from "react-router";
 
 import PresentationView from "@/components/presentation/PresentationView";
 import type { Slide } from "@/context/DeckContext";
+import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
 
 interface SharedPresentationProps {
   initialDeck?: SharedDeckResponse | null;
@@ -81,6 +82,9 @@ export default function SharedPresentation({
     ...s,
     layout: s.layout as Slide["layout"],
   }));
+  const designSystem = deck.designSystem
+    ? mergeDesignSystemData(deck.designSystem)
+    : undefined;
 
   // Use a fake deckId that routes "exit" back to the share page itself
   return (
@@ -88,6 +92,7 @@ export default function SharedPresentation({
       slides={slides}
       deckId={`__shared__/${token}`}
       aspectRatio={deck.aspectRatio}
+      designSystem={designSystem}
     />
   );
 }

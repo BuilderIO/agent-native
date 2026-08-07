@@ -594,6 +594,8 @@ function TranscriptSetupCard({
   const [connectError, setConnectError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const inFlightRef = useRef(false);
+  const visibilityHandlerRef = useRef<(() => void) | null>(null);
 
   const autoRetryRef = useRef(false);
   const onRetryRef = useRef(onRetry);
@@ -601,6 +603,16 @@ function TranscriptSetupCard({
   useEffect(() => {
     onRetryRef.current = onRetry;
   }, [onRetry]);
+
+  const stopVisibilityHandler = useCallback(() => {
+    if (visibilityHandlerRef.current) {
+      document.removeEventListener(
+        "visibilitychange",
+        visibilityHandlerRef.current,
+      );
+      visibilityHandlerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -617,8 +629,9 @@ function TranscriptSetupCard({
     return () => {
       mountedRef.current = false;
       if (pollRef.current) clearInterval(pollRef.current);
+      stopVisibilityHandler();
     };
-  }, []);
+  }, [stopVisibilityHandler]);
 
   useEffect(() => {
     if (!builderConfigured || autoRetryRef.current) return;
@@ -630,36 +643,62 @@ function TranscriptSetupCard({
 
   const handleConnect = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
+    stopVisibilityHandler();
+    inFlightRef.current = false;
     setConnecting(true);
     setConnectError(null);
 
     openBuilderConnectPopup({ source: "clips_transcript_panel" });
 
     const start = Date.now();
-    pollRef.current = setInterval(async () => {
+    const tick = async () => {
+      if (document.hidden || inFlightRef.current) return;
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        Math.max(10_000, 2000 * 4),
+      );
       try {
-        const r = await fetch(agentNativePath("/_agent-native/builder/status"));
+        const r = await fetch(
+          agentNativePath("/_agent-native/builder/status"),
+          {
+            signal: controller.signal,
+          },
+        );
         if (!r.ok) return;
         const s = (await r.json()) as { configured: boolean };
         if (!mountedRef.current) {
           clearInterval(pollRef.current!);
+          stopVisibilityHandler();
           return;
         }
         if (s.configured) {
           clearInterval(pollRef.current!);
+          stopVisibilityHandler();
           setBuilderConfigured(true);
           setConnecting(false);
           onRetry?.();
         } else if (Date.now() - start > 5 * 60 * 1000) {
           clearInterval(pollRef.current!);
+          stopVisibilityHandler();
           setConnecting(false);
           setConnectError(t("transcriptPanel.builderNoResponse"));
         }
       } catch {
-        // transient poll error — keep trying
+        // coercion-ok: a transient poll error keeps the loop running; the
+        // 5-minute bound above surfaces builderNoResponse if it never succeeds.
+      } finally {
+        clearTimeout(abortTimer);
+        inFlightRef.current = false;
       }
-    }, 2000);
-  }, [onRetry]);
+    };
+    pollRef.current = setInterval(() => void tick(), 2000);
+    visibilityHandlerRef.current = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener("visibilitychange", visibilityHandlerRef.current);
+  }, [onRetry, stopVisibilityHandler]);
 
   const isProviderError =
     !isBuilderCreditsExhaustedMessage(failureReason) &&

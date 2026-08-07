@@ -10,14 +10,13 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import { Picker, Switch } from "@agent-native/toolkit/design-system";
+import { Picker, Skeleton, Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconExternalLink,
-  IconLoader2,
   IconLockOpen,
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
@@ -25,6 +24,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { agentNativePath } from "../api-path.js";
 import { SettingsRow } from "./SettingsRow.js";
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -377,20 +377,15 @@ export function VoiceTranscriptionSection({
           label="Voice transcription"
           description="Choose how voice input is transcribed."
           control={
-            <div
-              className="h-9 w-44 animate-pulse rounded-md border border-border bg-muted-foreground/10"
+            <Skeleton
+              className="h-9 w-44 border border-border bg-muted-foreground/10"
               aria-label="Loading voice transcription"
             />
           }
         />
       );
     }
-    return (
-      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <IconLoader2 size={10} className="animate-spin" />
-        Loading…
-      </div>
-    );
+    return <SettingsSkeleton lines={1} />;
   }
 
   if (compact) {

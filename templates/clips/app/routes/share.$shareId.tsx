@@ -529,6 +529,12 @@ export default function ShareRoute() {
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
+  useEffect(() => {
+    if (!viewerCanEdit && panel === "insights") {
+      setPanel("comments");
+    }
+  }, [panel, viewerCanEdit]);
+
   const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
   const agentViewCount = Number(dataQ.data?.data?.agentViewCount ?? 0);
   const showTitleSkeleton = recording
@@ -1102,7 +1108,9 @@ export default function ShareRoute() {
           onValueChange={setPanel}
           className="flex h-full flex-col"
         >
-          <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
+          <TabsList
+            className={`mx-3 mt-3 grid w-auto ${viewerCanEdit ? "grid-cols-4" : "grid-cols-3"}`}
+          >
             <TabsTrigger value="comments" className="text-xs gap-1">
               {t("recordingPage.activity")}
               {comments.length > 0 ? (
@@ -1117,9 +1125,11 @@ export default function ShareRoute() {
             <TabsTrigger value="agent" className="text-xs">
               {t("sharePage.agent")}
             </TabsTrigger>
-            <TabsTrigger value="insights" className="text-xs">
-              {t("sharePage.insights")}
-            </TabsTrigger>
+            {viewerCanEdit ? (
+              <TabsTrigger value="insights" className="text-xs">
+                {t("sharePage.insights")}
+              </TabsTrigger>
+            ) : null}
           </TabsList>
           <TabsContent
             value="agent"
@@ -1187,19 +1197,17 @@ export default function ShareRoute() {
               presentation="share"
             />
           </TabsContent>
-          <TabsContent
-            value="insights"
-            className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
-          >
-            {viewerCanEdit ? (
+          {viewerCanEdit ? (
+            <TabsContent
+              value="insights"
+              className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
+            >
               <InsightsPanel
                 recordingId={recording.id}
                 durationMs={recording.durationMs}
               />
-            ) : (
-              <PublicInsightsState />
-            )}
-          </TabsContent>
+            </TabsContent>
+          ) : null}
         </Tabs>
       </aside>
 
@@ -1312,20 +1320,6 @@ function PublicAgentEmptyState({
           </a>
         </Button>
       </div>
-    </div>
-  );
-}
-
-function PublicInsightsState() {
-  const t = useT();
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <p className="text-sm font-medium text-foreground">
-        {t("sharePage.ownerInsights")}
-      </p>
-      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        {t("sharePage.ownerInsightsDescription")}
-      </p>
     </div>
   );
 }

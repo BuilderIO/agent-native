@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   consumeAgentSidebarUrlOpenOverride,
+  clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
+  getAgentSidebarMaxWidth,
   getAgentSidebarOpenPreferenceKey,
+  getAgentSidebarWideWidth,
   getInitialAgentSidebarOpen,
   hasChatThreadDeepLink,
   requestAgentSidebarOpen,
@@ -29,6 +32,23 @@ function stubMatchMedia(matches: boolean) {
     })),
   );
 }
+
+describe("agent sidebar width presets", () => {
+  it("uses 75% of the desktop viewport for the wide preset", () => {
+    expect(getAgentSidebarWideWidth(1440)).toBe(1080);
+    expect(getAgentSidebarWideWidth(1024)).toBe(768);
+  });
+
+  it("keeps the existing 700px drag ceiling below the wide preset", () => {
+    expect(getAgentSidebarMaxWidth(800)).toBe(700);
+    expect(getAgentSidebarMaxWidth(1440)).toBe(1080);
+  });
+
+  it("clamps manual widths to the responsive maximum", () => {
+    expect(clampAgentSidebarWidth(1200, 1024)).toBe(768);
+    expect(clampAgentSidebarWidth(100, 1440)).toBe(280);
+  });
+});
 
 describe("getInitialAgentSidebarOpen", () => {
   beforeEach(() => {

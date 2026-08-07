@@ -43,7 +43,7 @@ describe("Slides analytics delegation contract", () => {
 
   it("keeps the hosted A2A path wired to Analytics and a fresh Core build", () => {
     expect(agentChatPlugin).toContain("a2aAgentDelegation: true");
-    expect(agentChatPlugin).toContain('databaseTools: "off"');
+    expect(agentChatPlugin).toContain('frameworkTools: { database: "off" }');
     expect(netlifyConfig).toContain("pnpm --filter @agent-native/core build");
   });
 });

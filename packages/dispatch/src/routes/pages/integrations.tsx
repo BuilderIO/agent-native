@@ -12,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -449,9 +450,9 @@ export default function ConnectionsRoute() {
             </div>
             <div className="flex items-center justify-end gap-1.5 border-t px-4 py-2.5 text-xs text-muted-foreground">
               <IconLink size={12} />
-              <a href="/vault" className="hover:underline">
+              <Link to="/admin/vault" className="hover:underline">
                 Open vault for advanced sharing
-              </a>
+              </Link>
             </div>
           </CollapsibleContent>
         </Collapsible>

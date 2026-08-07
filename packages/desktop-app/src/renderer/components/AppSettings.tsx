@@ -622,7 +622,14 @@ export default function AppSettings({
 
   useEffect(() => {
     void refreshRemoteStatus();
-    const timer = window.setInterval(() => void refreshRemoteStatus(), 5000);
+    let inFlight = false;
+    const timer = window.setInterval(() => {
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      void refreshRemoteStatus().finally(() => {
+        inFlight = false;
+      });
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [refreshRemoteStatus]);
 

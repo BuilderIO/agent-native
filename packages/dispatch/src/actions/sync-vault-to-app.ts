@@ -5,7 +5,7 @@ import { syncGrantsToApp } from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
-    "Push vault secrets to an app by calling its env-vars endpoint. In all-apps mode this syncs every vault key; in manual mode it syncs active grants.",
+    "Push vault secrets to an app by calling its env-vars endpoint. Admin only. In all-apps mode this syncs every vault key; in manual mode it syncs active grants.",
   schema: z.object({
     appId: z
       .string()

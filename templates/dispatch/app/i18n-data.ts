@@ -266,6 +266,7 @@ const enUS = {
   },
   dispatch: {
     nav: {
+      admin: "Admin",
       automations: "Automations",
       approvals: "Approvals",
       delivery: "Delivery",
@@ -276,6 +277,18 @@ const enUS = {
       agent: "Agent",
     },
     pages: {
+      adminDescription: "Workspace controls and operations",
+      adminNavigation: "Admin navigation",
+      adminWelcome: "Workspace control plane",
+      adminChooseArea:
+        "Manage apps, connections, automations, and operational tools from one place.",
+      adminChooseAreaHint: "Choose an area from the Admin navigation.",
+      adminWorkspace: "Workspace",
+      adminOperations: "Operations",
+      adminAutomation: "Automation & delivery",
+      adminConnections: "Connections",
+      adminAgentPlatform: "Agent platform",
+      adminWorkspaceExtensions: "Workspace extensions",
       dataLoadFailed: "Couldn't load data",
       dataLoadFailedDescription: "Dispatch couldn't load this data.",
       tryAgain: "Try again",
@@ -713,6 +726,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "管理",
         automations: "自动化",
         approvals: "批准",
         delivery: "投递",
@@ -723,6 +737,17 @@ export const messagesByLocale = {
         agent: "代理",
       },
       pages: {
+        adminDescription: "工作区控制与运营",
+        adminNavigation: "管理导航",
+        adminWelcome: "工作区控制中心",
+        adminChooseArea: "在一个地方管理应用、连接、自动化和运营工具。",
+        adminChooseAreaHint: "从管理导航中选择一个区域。",
+        adminWorkspace: "工作区",
+        adminOperations: "运营",
+        adminAutomation: "自动化与投递",
+        adminConnections: "连接",
+        adminAgentPlatform: "代理平台",
+        adminWorkspaceExtensions: "工作区扩展",
         dataLoadFailed: "无法加载数据",
         dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
         tryAgain: "重试",
@@ -1093,6 +1118,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administración",
         automations: "Automatizaciones",
         approvals: "Aprobaciones",
         delivery: "Entrega",
@@ -1103,6 +1129,19 @@ export const messagesByLocale = {
         agent: "Agente",
       },
       pages: {
+        adminDescription: "Controles y operaciones del espacio de trabajo",
+        adminNavigation: "Navegación de administración",
+        adminWelcome: "Panel de control del espacio de trabajo",
+        adminChooseArea:
+          "Gestiona aplicaciones, conexiones, automatizaciones y herramientas operativas desde un solo lugar.",
+        adminChooseAreaHint:
+          "Elige un área en la navegación de administración.",
+        adminWorkspace: "Espacio de trabajo",
+        adminOperations: "Operaciones",
+        adminAutomation: "Automatización y entrega",
+        adminConnections: "Conexiones",
+        adminAgentPlatform: "Plataforma de agentes",
+        adminWorkspaceExtensions: "Extensiones del espacio de trabajo",
         dataLoadFailed: "No se pudieron cargar los datos",
         dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
         tryAgain: "Intentar de nuevo",
@@ -1484,6 +1523,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administration",
         automations: "Automatisations",
         approvals: "Approbations",
         delivery: "Livraison",
@@ -1494,6 +1534,19 @@ export const messagesByLocale = {
         agent: "Agent",
       },
       pages: {
+        adminDescription: "Contrôles et opérations de l’espace de travail",
+        adminNavigation: "Navigation d’administration",
+        adminWelcome: "Centre de contrôle de l’espace de travail",
+        adminChooseArea:
+          "Gérez les applications, connexions, automatisations et outils opérationnels depuis un seul endroit.",
+        adminChooseAreaHint:
+          "Choisissez une section dans la navigation d’administration.",
+        adminWorkspace: "Espace de travail",
+        adminOperations: "Opérations",
+        adminAutomation: "Automatisation et livraison",
+        adminConnections: "Connexions",
+        adminAgentPlatform: "Plateforme d’agents",
+        adminWorkspaceExtensions: "Extensions de l’espace de travail",
         dataLoadFailed: "Impossible de charger les données",
         dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
         tryAgain: "Réessayer",
@@ -1865,6 +1918,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administration",
         automations: "Automatisierungen",
         approvals: "Freigaben",
         delivery: "Zustellung",
@@ -1875,6 +1929,19 @@ export const messagesByLocale = {
         agent: "Agent",
       },
       pages: {
+        adminDescription: "Arbeitsbereichssteuerung und -betrieb",
+        adminNavigation: "Administrationsnavigation",
+        adminWelcome: "Arbeitsbereichsleitstelle",
+        adminChooseArea:
+          "Verwalte Apps, Verbindungen, Automatisierungen und Betriebstools an einem Ort.",
+        adminChooseAreaHint:
+          "Wähle einen Bereich in der Administrationsnavigation.",
+        adminWorkspace: "Arbeitsbereich",
+        adminOperations: "Betrieb",
+        adminAutomation: "Automatisierung und Zustellung",
+        adminConnections: "Verbindungen",
+        adminAgentPlatform: "Agentenplattform",
+        adminWorkspaceExtensions: "Arbeitsbereichserweiterungen",
         dataLoadFailed: "Daten konnten nicht geladen werden",
         dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
         tryAgain: "Erneut versuchen",
@@ -2240,6 +2307,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "管理",
         automations: "自動化",
         approvals: "承認",
         delivery: "配信",
@@ -2250,6 +2318,18 @@ export const messagesByLocale = {
         agent: "エージェント",
       },
       pages: {
+        adminDescription: "ワークスペースの管理と運用",
+        adminNavigation: "管理ナビゲーション",
+        adminWelcome: "ワークスペースのコントロールプレーン",
+        adminChooseArea:
+          "アプリ、接続、オートメーション、運用ツールを 1 か所で管理します。",
+        adminChooseAreaHint: "管理ナビゲーションから領域を選択してください。",
+        adminWorkspace: "ワークスペース",
+        adminOperations: "運用",
+        adminAutomation: "自動化と配信",
+        adminConnections: "接続",
+        adminAgentPlatform: "エージェントプラットフォーム",
+        adminWorkspaceExtensions: "ワークスペース拡張機能",
         dataLoadFailed: "データを読み込めませんでした",
         dataLoadFailedDescription:
           "Dispatch はこのデータを読み込めませんでした。",
@@ -2611,6 +2691,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "관리",
         automations: "자동화",
         approvals: "승인",
         delivery: "전달",
@@ -2621,6 +2702,17 @@ export const messagesByLocale = {
         agent: "에이전트",
       },
       pages: {
+        adminDescription: "워크스페이스 제어 및 운영",
+        adminNavigation: "관리 탐색",
+        adminWelcome: "워크스페이스 제어 센터",
+        adminChooseArea: "한곳에서 앱, 연결, 자동화 및 운영 도구를 관리하세요.",
+        adminChooseAreaHint: "관리 탐색에서 영역을 선택하세요.",
+        adminWorkspace: "워크스페이스",
+        adminOperations: "운영",
+        adminAutomation: "자동화 및 전달",
+        adminConnections: "연결",
+        adminAgentPlatform: "에이전트 플랫폼",
+        adminWorkspaceExtensions: "워크스페이스 확장",
         dataLoadFailed: "데이터를 불러올 수 없습니다",
         dataLoadFailedDescription:
           "Dispatch에서 이 데이터를 불러오지 못했습니다.",
@@ -2991,6 +3083,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "Administração",
         automations: "Automações",
         approvals: "Aprovações",
         delivery: "Entrega",
@@ -3001,6 +3094,18 @@ export const messagesByLocale = {
         agent: "Agente",
       },
       pages: {
+        adminDescription: "Controles e operações do espaço de trabalho",
+        adminNavigation: "Navegação de administração",
+        adminWelcome: "Central de controle do espaço de trabalho",
+        adminChooseArea:
+          "Gerencie apps, conexões, automações e ferramentas operacionais em um só lugar.",
+        adminChooseAreaHint: "Escolha uma área na navegação de administração.",
+        adminWorkspace: "Espaço de trabalho",
+        adminOperations: "Operações",
+        adminAutomation: "Automação e entrega",
+        adminConnections: "Conexões",
+        adminAgentPlatform: "Plataforma de agentes",
+        adminWorkspaceExtensions: "Extensões do espaço de trabalho",
         dataLoadFailed: "Não foi possível carregar os dados",
         dataLoadFailedDescription:
           "O Dispatch não conseguiu carregar estes dados.",
@@ -3359,6 +3464,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "व्यवस्थापक",
         automations: "ऑटोमेशन",
         approvals: "अनुमोदन",
         delivery: "डिलीवरी",
@@ -3369,6 +3475,18 @@ export const messagesByLocale = {
         agent: "एजेंट",
       },
       pages: {
+        adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
+        adminNavigation: "व्यवस्थापक नेविगेशन",
+        adminWelcome: "वर्कस्पेस नियंत्रण केंद्र",
+        adminChooseArea:
+          "ऐप्स, कनेक्शन, ऑटोमेशन और संचालन टूल एक ही जगह से प्रबंधित करें।",
+        adminChooseAreaHint: "व्यवस्थापक नेविगेशन से कोई क्षेत्र चुनें।",
+        adminWorkspace: "वर्कस्पेस",
+        adminOperations: "संचालन",
+        adminAutomation: "ऑटोमेशन और डिलीवरी",
+        adminConnections: "कनेक्शन",
+        adminAgentPlatform: "एजेंट प्लेटफ़ॉर्म",
+        adminWorkspaceExtensions: "वर्कस्पेस एक्सटेंशन",
         dataLoadFailed: "डेटा लोड नहीं हो सका",
         dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
         tryAgain: "फिर से कोशिश करें",
@@ -3758,6 +3876,7 @@ export const messagesByLocale = {
 
     dispatch: {
       nav: {
+        admin: "الإدارة",
         automations: "الأتمتة",
         approvals: "الموافقات",
         delivery: "التسليم",
@@ -3768,6 +3887,18 @@ export const messagesByLocale = {
         agent: "الوكيل",
       },
       pages: {
+        adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
+        adminNavigation: "تنقل الإدارة",
+        adminWelcome: "مركز التحكم في مساحة العمل",
+        adminChooseArea:
+          "أدر التطبيقات والاتصالات والأتمتة وأدوات التشغيل من مكان واحد.",
+        adminChooseAreaHint: "اختر قسمًا من تنقل الإدارة.",
+        adminWorkspace: "مساحة العمل",
+        adminOperations: "التشغيل",
+        adminAutomation: "الأتمتة والتسليم",
+        adminConnections: "الاتصالات",
+        adminAgentPlatform: "منصة الوكلاء",
+        adminWorkspaceExtensions: "امتدادات مساحة العمل",
         dataLoadFailed: "تعذر تحميل البيانات",
         dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
         tryAgain: "حاول مرة أخرى",

@@ -373,13 +373,19 @@ export function createCollabPlugin(
               (action === "patch" && method === "POST");
 
             if (isWrite) {
-              // assertAccess throws ForbiddenError (→ 403) if no editor access
+              // assertAccess throws ForbiddenError (→ 403) if no editor access.
+              // Projected: only ownerEmail/orgId are read below, and a collab
+              // resource's body is the largest column it has — loading it here
+              // means every keystroke-driven update read the whole document
+              // twice, once for the ACL and once for the edit itself.
               const access = await assertAccess(
                 resourceType,
                 resourceId,
                 "editor",
+                undefined,
+                { skipResourceBody: true },
               );
-              const resource = access.resource as Record<string, unknown>;
+              const resource = access.resource;
               const awarenessScope: CollabAwarenessScope = {
                 resourceType,
                 resourceId,
@@ -394,13 +400,20 @@ export function createCollabPlugin(
                 event.context._collabAwarenessScope = awarenessScope;
               }
             } else {
-              // resolveAccess returns null when no access; return 404 to avoid leaking existence
-              const access = await resolveAccess(resourceType, resourceId);
+              // resolveAccess returns null when no access; return 404 to avoid leaking existence.
+              // Projected: only ownerEmail/orgId are read below, and a collab
+              // resource's body is the largest column it has.
+              const access = await resolveAccess(
+                resourceType,
+                resourceId,
+                undefined,
+                { skipResourceBody: true },
+              );
               if (!access) {
                 setResponseStatus(event, 404);
                 return { error: "Not found" };
               }
-              const resource = access.resource as Record<string, unknown>;
+              const resource = access.resource;
               const awarenessScope: CollabAwarenessScope = {
                 resourceType,
                 resourceId,

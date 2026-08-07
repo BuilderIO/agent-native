@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,6 +204,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — أنشئ سلسلة محادثات منفصلة لهذه المطالبة.
 - **`background`** — مع `newTab`، قم بالتشغيل دون تركيز الخيط الجديد. يتم تتبع المسار المخفي في `RunsTray`.
 - **`openSidebar`** — تم ضبطه على `false` للإرسال في الخلفية/الصامت. يفتح الإعداد الافتراضي الشريط الجانبي حتى يرى المستخدم الاستجابة.
+- **للعمل المرئي الذي يبدأه المستخدم ويستخدم الذكاء الاصطناعي**، استخدم `openSidebar: true`. استخدم `false` فقط للعمل الصامت المحدد في الخلفية أو الذي يبدأه النظام، وأبقِ المتابعات في سلسلة AgentSidebar نفسها.
 - **`type`** — يحتفظ `"content"` (افتراضي) بالعمل في وكيل التطبيق المضمن الذي يعمل من خلال أدوات التطبيق. يوجه `"code"` إلى إطار منفصل قادر على التعامل مع الكود لإجراء تغييرات مصدر المستودع؛ ولا تتوفر الكتابة إلا عندما يمنح المضيف عمدًا أدوات repository/workspace. راجع [Frames](/docs/frames).
 
 يُرجع `sendToAgentChat` `tabId` مستقرًا يمكنك استخدامه لتتبع تشغيل الدردشة.
@@ -222,6 +224,7 @@ sendToAgentChat({
 
 لا يزال هذا وكيلًا كاملاً يتم تشغيله باستخدام الأدوات، وactions، وحالة مؤشر الترابط، والتشغيل
 التتبع. إنه ببساطة لا يسرق التركيز من حالة الشريط الجانبي الحالية للمستخدم.
+أبقِ مطالبات المتابعة والمراجعة في سلسلة الشريط الجانبي الحالية. لا تضف حقل إدخال حرًا ثانيًا بجانب النتيجة؛ استخدم نموذجًا محليًا فقط للقيم المنظمة التي يجب على الواجهة التحقق منها.
 
 عندما يتم تضمين نفس المسار كتطبيق MCP، يتم إرساله
 تتم إعادة توجيه مكالمات `sendToAgentChat()` إلى الدردشة المضيفة حيثما تكون مدعومة؛ انظر
@@ -258,6 +261,10 @@ const { send, isGenerating } = useSendToAgentChat();
 وتجنب النشر مباشرة إلى `/_agent-native/agent-chat` من المنتج UI. إذا كان
 المساعد المسمى مفقود لسطح مخصص حقيقي، قم بإضافة هذا المساعد أولاً لذلك
 لا يتعلم كود العميل عملية نقل ثانية مخصصة.
+
+## اختيار دردشة الوكيل مقابل الإجراء {#agent-or-action}
+
+استخدم `useActionQuery` أو `useActionMutation` مباشرة للعمليات المحلية الحتمية مثل CRUD والتحقق وقراءة موفر البيانات والحفظ. إذا اختبر المستخدم سير العمل على أنه بحث أو تحليل أو إنشاء أو توصية أو تركيب أو استدلال متعدد الخطوات، فابدأه باستخدام `sendToAgentChat({ openSidebar: true })` ودع الوكيل ينسق الإجراءات المركزة. لا يكفي كون التنفيذ حتميًا لإخفاء سير عمل يشبه الذكاء الاصطناعي داخل إجراء واحد مبهم.
 
 ## Typesafe actions من UI: `useActionMutation()` {#use-action-mutation}
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

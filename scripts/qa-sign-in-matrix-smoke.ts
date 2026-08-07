@@ -70,6 +70,12 @@ interface RunningApp {
   appUrl: string;
   child: ChildProcessWithoutNullStreams;
   logs: string[];
+  viteReload: ViteReloadTracker;
+}
+
+interface ViteReloadTracker {
+  /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
+  lastReloadAt: number;
 }
 
 /**
@@ -149,6 +155,7 @@ async function startApp(basePath: string): Promise<RunningApp> {
   const appUrl = `${origin}${basePath}`;
   const dbPath = path.join(tmpRoot, `chat${basePath.replace(/\//g, "-")}.db`);
   const logs: string[] = [];
+  const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   cleanGeneratedFiles();
   // Vite directly, not `pnpm dev`: `agent-native dev` is a passthrough to this
   // same binary, the template's `dev` script adds `--open` (which would launch
@@ -166,8 +173,18 @@ async function startApp(basePath: string): Promise<RunningApp> {
       detached: true,
     },
   );
-  child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
-  child.stderr.on("data", (chunk) => logs.push(chunk.toString()));
+  const appendLog = (chunk: Buffer | string) => {
+    const text = chunk.toString();
+    logs.push(text);
+    if (
+      text.includes("reloading the page") ||
+      text.includes("optimized dependencies changed")
+    ) {
+      viteReload.lastReloadAt = Date.now();
+    }
+  };
+  child.stdout.on("data", appendLog);
+  child.stderr.on("data", appendLog);
   child.on("exit", (code, signal) => {
     logs.push(`\n[chat] exited code=${code} signal=${signal}\n`);
   });
@@ -181,7 +198,32 @@ async function startApp(basePath: string): Promise<RunningApp> {
     doc.includes(`var configured = ${JSON.stringify(basePath)};`),
     `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
   );
-  return { origin, basePath, appUrl, child, logs };
+  return { origin, basePath, appUrl, child, logs, viteReload };
+}
+
+/** Wait until Vite's cold dependency optimization can no longer reload the page. */
+async function waitForViteDepsQuiet(
+  viteReload: ViteReloadTracker,
+  logs: string[],
+  options: { quietMs?: number; timeoutMs?: number } = {},
+): Promise<void> {
+  const quietMs = options.quietMs ?? (process.env.CI ? 8_000 : 4_000);
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (Date.now() - viteReload.lastReloadAt >= quietMs) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(
+    `Vite dep optimization did not settle within ${timeoutMs}ms ` +
+      `(lastReloadAt=${viteReload.lastReloadAt}).\n${logs.slice(-120).join("")}`,
+  );
+}
+
+function markViteBrowserActivity(viteReload: ViteReloadTracker): void {
+  viteReload.lastReloadAt = Date.now();
 }
 
 async function portIsFree(): Promise<boolean> {
@@ -327,27 +369,66 @@ async function navigateAndSettle(
  * reloads that restart the session query, so a single long wait can expire
  * mid-reload on a fresh checkout while the gate itself is fine.
  */
-async function reachSignIn(page: Page, url: string): Promise<URL> {
+async function reachSignIn(
+  page: Page,
+  url: string,
+  viteReload: ViteReloadTracker,
+  logs: string[],
+): Promise<URL> {
   let lastUrl = "";
   for (let attempt = 0; attempt < 4; attempt++) {
-    await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
+    markViteBrowserActivity(viteReload);
+    try {
+      await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        !/net::ERR_ABORTED|navigation.*(?:abort|interrupt)|(?:abort|interrupt).*navigation/i.test(
+          message,
+        )
+      ) {
+        throw error;
+      }
+      lastUrl = page.url();
+      continue;
+    }
     try {
       await page.waitForURL(
         /(?:^|\/)sign-in(?:[?#/]|$)|\/_agent-native\/sign-in(?:[?#/]|$)/,
         { timeout: 30_000 },
       );
-      return new URL(page.url());
     } catch {
       lastUrl = page.url();
+      continue;
     }
+    await waitForViteDepsQuiet(viteReload, logs);
+    return new URL(page.url());
   }
   throw new Error(
     `anonymous visitor never reached sign-in from ${url} (stuck at ${lastUrl})`,
   );
 }
 
-async function signInThroughTheRealForm(page: Page): Promise<void> {
-  await page.click('.tab[data-tab="signup"]');
+async function signInThroughTheRealForm(
+  page: Page,
+  viteReload: ViteReloadTracker,
+  logs: string[],
+): Promise<void> {
+  markViteBrowserActivity(viteReload);
+  await waitForViteDepsQuiet(viteReload, logs);
+  const fullOptionsToggle = page.locator("#local-dev-full-options");
+  if (await fullOptionsToggle.isVisible()) await fullOptionsToggle.click();
+
+  const signupTab = page.locator('.tab[data-tab="signup"]');
+  const signupForm = page.locator("#signup-form");
+  if (
+    !(await signupTab.evaluate((element) =>
+      element.classList.contains("active"),
+    ))
+  ) {
+    await signupTab.click();
+  }
+  await signupForm.waitFor({ state: "visible", timeout: 30_000 });
   await page.fill("#s-email", qaEmail);
   await page.fill("#s-pass", qaPassword);
   await page.fill("#s-pass2", qaPassword);
@@ -365,7 +446,12 @@ async function runDeploySuite(
 
   // 1. Anonymous visitor to a protected route reaches sign-in with a
   //    continuation for THAT route.
-  const gateUrl = await reachSignIn(page, `${app.origin}${protectedPath}`);
+  const gateUrl = await reachSignIn(
+    page,
+    `${app.origin}${protectedPath}`,
+    app.viteReload,
+    app.logs,
+  );
   assert.equal(
     gateUrl.pathname,
     `${app.basePath}${SIGN_IN_ENTRY_PATH}`,
@@ -391,7 +477,7 @@ async function runDeploySuite(
   );
 
   // 2. Signing in through the real login document lands back on that route.
-  await signInThroughTheRealForm(page);
+  await signInThroughTheRealForm(page, app.viteReload, app.logs);
   await page.waitForURL((url) => pathnameOf(url.toString()) === protectedPath, {
     timeout: 60_000,
   });

@@ -50,6 +50,7 @@ async function loadStorageWithSqlite() {
     getDialect: () => "sqlite",
     getDbExec: () => exec,
     isPostgres: () => false,
+    isProductionServerlessFunctionRuntime: () => false,
   }));
   const mod = await import("./storage.js");
   return { sqlite, mod };
@@ -74,6 +75,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -108,6 +110,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -138,6 +141,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "sqlite",
       getDbExec: () => ({ execute }),
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { readAppSecret } = await import("./storage.js");
@@ -154,6 +158,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "postgres",
       getDbExec: () => ({ execute }),
       isPostgres: () => true,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { writeAppSecret } = await import("./storage.js");
@@ -174,9 +179,13 @@ describe("secrets storage bootstrap", () => {
     expect(createSql).toContain("BIGINT");
     expect(createSql).not.toMatch(/\bINTEGER\b/);
 
-    // The first statement is the cheap existence probe, not DDL — proving the
-    // hot path takes no ACCESS EXCLUSIVE lock when the schema already exists.
-    expect(allSql[0]).toContain("information_schema.tables");
+    // The first statement is a lock-free introspection read, not DDL — proving
+    // the hot path takes no ACCESS EXCLUSIVE lock when the schema already
+    // exists. Existence is now resolved from one batched introspection pass per
+    // database (information_schema.columns + pg_indexes) rather than a query per
+    // object, so this asserts the property, not the exact statement.
+    expect(allSql[0]).toMatch(/information_schema|pg_indexes/);
+    expect(allSql[0]).not.toMatch(/CREATE|ALTER|DROP/i);
   });
 
   it("skips all DDL on Postgres when the table and columns already exist", async () => {
@@ -194,6 +203,7 @@ describe("secrets storage bootstrap", () => {
       getDialect: () => "postgres",
       getDbExec: () => ({ execute }),
       isPostgres: () => true,
+      isProductionServerlessFunctionRuntime: () => false,
     }));
 
     const { writeAppSecret } = await import("./storage.js");
@@ -875,6 +885,7 @@ describe("per-request read memo", () => {
     vi.doMock("../db/client.js", () => ({
       getDialect: () => "sqlite",
       isPostgres: () => false,
+      isProductionServerlessFunctionRuntime: () => false,
       getDbExec: () => ({
         async execute(input: string | { sql: string; args?: any[] }) {
           const sql = typeof input === "string" ? input : input.sql;

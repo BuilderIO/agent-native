@@ -46,7 +46,8 @@ use tauri::{Emitter, Manager};
 use clips::{position_popover, toggle_popover};
 use state::{
     ActiveMeetingId, DictationActive, DictationEnabled, LastTranscript, MeetingActive,
-    PopoverShownAt, RecordingActive, TrayAnchor, TrayMeetings, VoiceTargetBundle, VoiceWakePopover,
+    PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor, TrayMeetings,
+    VoiceTargetBundle, VoiceWakePopover,
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
@@ -98,6 +99,9 @@ pub fn run() {
             clips::hide_region_record_border,
             clips::show_region_guide_editor,
             clips::show_region_capture_selector,
+            clips::show_monitor_picker,
+            clips::close_monitor_picker,
+            clips::set_recording_display_override,
             clips::close_bubble,
             clips::show_popover,
             clips::park_popover_offscreen,
@@ -270,6 +274,7 @@ pub fn run() {
         .manage(VoiceWakePopover::default())
         .manage(VoiceTargetBundle::default())
         .manage(LastTranscript::default())
+        .manage(SelectedRecordingDisplay::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
         .manage(capture_graph::CaptureGraphState::default())

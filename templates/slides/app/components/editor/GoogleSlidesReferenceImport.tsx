@@ -121,23 +121,35 @@ export function GoogleSlidesReferenceImport({
 
   const refreshStatus =
     useCallback(async (): Promise<GoogleDocsStatus | null> => {
-      const response = await fetch(
-        endpoint("/_agent-native/google-docs/status"),
-        {
-          credentials: "same-origin",
-        },
-      );
-      const result = await readJson<GoogleDocsStatus>(response);
-      if (!result.ok) {
-        setStatus(null);
-        return null;
-      }
-      if (response.ok && result.data) {
+      try {
+        const response = await fetch(
+          endpoint("/_agent-native/google-docs/status"),
+          {
+            credentials: "same-origin",
+          },
+        );
+        const result = await readJson<GoogleDocsStatus>(response);
+        if (!result.ok) throw result.error;
+        if (!response.ok) {
+          throw new Error(
+            errorFromResponse(
+              response,
+              result.data,
+              "Could not check Google Drive",
+            ),
+          );
+        }
+        if (!result.data) {
+          throw new Error("Google Drive status was empty.");
+        }
+        setError(null);
         setStatus(result.data);
         return result.data;
+      } catch (caught) {
+        setStatus(null);
+        setError(caught instanceof Error ? caught.message : String(caught));
+        return null;
       }
-      setStatus(null);
-      return null;
     }, []);
 
   useEffect(() => {

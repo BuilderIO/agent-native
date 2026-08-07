@@ -98,6 +98,30 @@ describe("gong-calls action", () => {
     expect(result.guidance).toContain("Loaded transcript excerpts");
   });
 
+  it("fails loud when a bounded call search is truncated", async () => {
+    searchCalls.mockResolvedValue({
+      calls: [
+        {
+          id: "call-1",
+          title: "Acme discovery",
+          started: "2026-05-03T10:00:00Z",
+        },
+      ],
+      limit: 1,
+      truncated: true,
+    });
+
+    const result = (await gongCalls.run({
+      company: "Acme",
+      limit: 1,
+    })) as Record<string, any>;
+
+    expect(result.guidance).toContain("Coverage is incomplete");
+    expect(result.guidance).toContain("tracker staging");
+    expect(result.guidance).toContain("provider-corpus-job");
+    expect(result.guidance).not.toContain("increase the limit and page");
+  });
+
   it("pages through the unfiltered call list when exhaustive is requested", async () => {
     getAllCalls.mockResolvedValue({
       calls: [

@@ -283,7 +283,11 @@ same best-effort fan-out as other tracking events.
   upward through `$ai_parent_id` so a backend can rebuild the tree.
   `$ai_session_id` is the thread; the browser session is separate and ships as
   `$session_id`, read from `X-Agent-Native-Session-Id` via
-  `RequestContext.browserSessionId`. Emission lives in `posthog-ai.ts`.
+  `RequestContext.browserSessionId`. The agent chat and the action client both
+  send that header, so a UI action call and the agent's own call during one
+  visit share a session. `setAnalyticsSessionId()` from
+  `@agent-native/core/client/analytics` pins a custom id and opts it out of the
+  30-minute idle rotation. Emission lives in `posthog-ai.ts`.
 - Agent Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,

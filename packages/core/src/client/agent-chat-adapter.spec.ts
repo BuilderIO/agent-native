@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getPendingTurn } from "./active-run-state.js";
@@ -6655,6 +6657,81 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("never condemns a run because the /runs/active poll itself failed", async () => {
+    // "The poll failed" is not "the run is gone". A 5xx from this route used
+    // to coerce to active=false, fall into the no-active-run branch, and drive
+    // a DURABLE abort of a run that was still working — the same
+    // unreadable-as-absent shape CLAUDE.md names. A flaky network tick must
+    // never kill a healthy background turn.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let abortCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-poll-flap",
+        );
+      }
+      if (url.includes("/abort")) {
+        abortCount += 1;
+        return jsonResponse({ ok: true });
+      }
+      // The route is down for the entire window.
+      if (url.includes("/runs/active")) {
+        return jsonResponse({ error: "upstream unavailable" }, 503);
+      }
+      if (url.includes("/runs/run-poll-flap/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-poll-flap",
+      threadId: "thread-poll-flap",
+    });
+    let settled = false;
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "long job" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    ).then((r) => {
+      settled = true;
+      return r;
+    });
+    promise.catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS + 15_000,
+    );
+
+    // Well past the idle window with an unreadable route: still following,
+    // and it never reached for the durable abort.
+    expect(abortCount).toBe(0);
+    expect(settled).toBe(false);
+  });
+
   it("does not surface a fatal terminal outcome for a deferred successor still inside its redispatch bound (awaitingRedispatch)", async () => {
     // The server marks a `chainServerDrivenContinuation` deferral's successor
     // row `awaitingRedispatch: true` on /runs/active for as long as it is
@@ -6864,6 +6941,36 @@ describe("createAgentChatAdapter", () => {
     expect(BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS).toBeLessThan(
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS,
     );
+  });
+
+  it("re-reads server progress before condemning a run the attach outran", async () => {
+    // The kill verdict was rendered against a /runs/active snapshot fetched
+    // BEFORE the attach that had just blocked for its whole duration — so a run
+    // that streamed text and a full tool-argument payload DURING the attach
+    // still looked frozen and got durably aborted. Fleet-wide, 23 of 24
+    // client-watchdog kills hit runs that had progressed within 90s.
+    const source = readFileSync(
+      new URL("./agent-chat-adapter.ts", import.meta.url),
+      "utf8",
+    );
+    const verdictIdx = source.indexOf("const serverProgressAdvanced");
+    expect(verdictIdx).toBeGreaterThan(0);
+    const window = source.slice(
+      source.indexOf("const snapshotSaysStalled"),
+      verdictIdx,
+    );
+    // A second read of the authoritative progress value must happen between the
+    // attach and the verdict, and it must be gated so the healthy path pays
+    // nothing.
+    // Count-based, so renaming a variable cannot satisfy it: the authoritative
+    // progress route must be read TWICE — once for the pre-attach snapshot and
+    // once after the attach, before the verdict.
+    const activeReads = source.split("/runs/active?threadId=").length - 1;
+    expect(activeReads).toBeGreaterThanOrEqual(2);
+    // ...and the second read must sit between the attach and the verdict.
+    expect(window.split("/runs/active?threadId=").length - 1).toBe(1);
+    // ...gated, so a healthy run pays nothing for it.
+    expect(/if \(\w*[Ss]talled\w*\)/.test(window)).toBe(true);
   });
 
   it("per-turn follow budgets stay above the server's own ceilings", async () => {

@@ -1128,6 +1128,7 @@ export default function DeckEditor() {
                   slidePresence={slidePresence}
                   recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
                   generatingSlide={
                     generatingSlideVisible
                       ? {
@@ -1166,6 +1167,7 @@ export default function DeckEditor() {
               <GeneratingSlidePreview
                 content={streamedGeneratingSlideContent}
                 aspectRatio={deck.aspectRatio}
+                designSystem={designSystem}
                 thumbnail={false}
               />
             </div>
@@ -1181,6 +1183,7 @@ export default function DeckEditor() {
                 <GeneratingSlidePreview
                   content={streamedGeneratingSlideContent}
                   aspectRatio={deck.aspectRatio}
+                  designSystem={designSystem}
                   thumbnail={false}
                 />
               </div>

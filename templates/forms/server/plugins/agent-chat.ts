@@ -56,7 +56,7 @@ export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   nativeActionsInDev: true,
   skipFilesContext: true,
-  databaseTools: false,
+  frameworkTools: { database: "off" },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");

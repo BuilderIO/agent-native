@@ -22,6 +22,7 @@ import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -50,6 +51,7 @@ export {
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
@@ -292,6 +294,9 @@ function applyDefaultSsrCacheHeader(
   // actually serves SSR HTML/.data from the edge instead of forwarding every
   // request to origin — for every visitor, authenticated or not.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
+    headers.set(name, value);
+  }
+  for (const [name, value] of Object.entries(resolveSsrCacheKeyHeaders())) {
     headers.set(name, value);
   }
 }

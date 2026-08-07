@@ -12,9 +12,12 @@
  */
 
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
+import { startIntervalJob } from "../server/interval-job.js";
 import { listOAuthAccounts, saveOAuthTokens } from "./store.js";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+/** Bounds each per-account refresh call — this loop runs sequentially over every expiring account. */
+const REFRESH_REQUEST_TIMEOUT_MS = 15_000;
 
 interface GoogleTokens {
   access_token?: string;
@@ -49,6 +52,7 @@ async function refreshOne(refreshToken: string): Promise<RefreshResponse> {
         client_secret: credentials.clientSecret,
         grant_type: "refresh_token",
       }),
+      signal: AbortSignal.timeout(REFRESH_REQUEST_TIMEOUT_MS),
     });
     lastStatusText = res.statusText;
     data = (await res.json()) as Record<string, unknown>;
@@ -121,7 +125,6 @@ export async function refreshExpiringGoogleTokens(
 }
 
 let _started = false;
-let _timer: ReturnType<typeof setInterval> | undefined;
 
 /**
  * Start the refresh loop. Idempotent — calling more than once is a no-op,
@@ -147,29 +150,15 @@ export function startGoogleTokenRefreshLoop(
   const intervalMs = opts.intervalMs ?? 20 * 60 * 1000;
   const bufferMs = opts.bufferMs ?? 15 * 60 * 1000;
 
-  // Kick off an initial pass shortly after startup (not immediately — the DB
+  // Kick off the first pass shortly after startup (not immediately — the DB
   // may still be initializing).
-  const initialTimer = setTimeout(() => {
-    refreshExpiringGoogleTokens({ bufferMs }).catch((err) => {
-      console.error("[google-refresh] initial pass failed:", err);
+  const startupTimer = setTimeout(() => {
+    startIntervalJob(() => refreshExpiringGoogleTokens({ bufferMs }), {
+      intervalMs,
+      onError: (err) => {
+        console.error("[google-refresh] refresh pass failed:", err);
+      },
     });
   }, 30_000);
-
-  _timer = setInterval(() => {
-    refreshExpiringGoogleTokens({ bufferMs }).catch((err) => {
-      console.error("[google-refresh] interval pass failed:", err);
-    });
-  }, intervalMs);
-
-  // Don't let either timer keep the process alive on its own.
-  if (
-    typeof initialTimer === "object" &&
-    initialTimer &&
-    "unref" in initialTimer
-  ) {
-    (initialTimer as { unref: () => void }).unref();
-  }
-  if (typeof _timer === "object" && _timer && "unref" in _timer) {
-    (_timer as { unref: () => void }).unref();
-  }
+  startupTimer.unref?.();
 }

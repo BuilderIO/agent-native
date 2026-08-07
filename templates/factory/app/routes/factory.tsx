@@ -258,7 +258,10 @@ export default function FactoryRoute() {
 
   function updateGraph(next: FactoryCanvasGraph) {
     setDraftGraph(next);
-    setDirty(true);
+    setDirty(
+      !graphData?.graph ||
+        JSON.stringify(next) !== JSON.stringify(graphData.graph),
+    );
   }
 
   function addNode() {
@@ -645,14 +648,29 @@ function AutomationsView({
 
   useEffect(() => {
     if (!selected) {
-      setDraft(null);
+      setDraft((current) => (current === null ? current : null));
       return;
     }
     if (selected.id !== selectedId) {
       selectAutomation(selected.id);
       return;
     }
-    setDraft(draftForAutomation(selected));
+    const nextDraft = draftForAutomation(selected);
+    setDraft((current) => {
+      if (
+        current &&
+        current.id === nextDraft.id &&
+        current.name === nextDraft.name &&
+        current.prompt === nextDraft.prompt &&
+        current.body === nextDraft.body &&
+        current.model === nextDraft.model &&
+        current.schedule === nextDraft.schedule &&
+        current.enabled === nextDraft.enabled
+      ) {
+        return current;
+      }
+      return nextDraft;
+    });
   }, [selected, selectedId]);
 
   async function saveAutomation() {

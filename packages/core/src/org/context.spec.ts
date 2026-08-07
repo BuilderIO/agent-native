@@ -25,6 +25,7 @@ vi.mock("../settings/store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
 }));
 
+import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
   resolveOrgIdForEmail,
@@ -35,6 +36,16 @@ import {
   getA2ASecretByDomain,
   resolveOrgByDomain,
 } from "./context.js";
+import { __resetProcessMemberOrgCacheForTests } from "./request-org-cache.js";
+
+// File-scope, so a describe block added later cannot forget it. The membership
+// and domain-match caches are process state: without this, one test's rows
+// answer the next test's query and the mock's call count is never what the
+// assertion expects.
+beforeEach(() => {
+  __resetProcessMemberOrgCacheForTests();
+  __resetDomainMatchCacheForTests();
+});
 
 // Factory so each test gets a fresh event object — getOrgContext is per-event
 // memoized on event.context, so sharing a module-level object would bleed

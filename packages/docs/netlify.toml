@@ -2,6 +2,44 @@
 command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
 publish = "packages/docs/dist"
 
+# Keep legacy template links at the CDN edge instead of running the SSR
+# redirect loader for every request.
+[[redirects]]
+from = "/templates"
+to = "/apps"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/"
+to = "/apps/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/*"
+to = "/apps/:splat"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates"
+to = "/:locale/apps"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/"
+to = "/:locale/apps/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/*"
+to = "/:locale/apps/:splat"
+status = 301
+force = true
+
 # Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
 [[redirects]]
 from = "/docs/resources"

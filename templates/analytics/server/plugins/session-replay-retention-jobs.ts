@@ -1,19 +1,23 @@
 import { runSessionReplayRetentionOnce } from "../jobs/session-replay-retention";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 let skippingLogged = false;
 
 export default function registerSessionReplayRetentionJobs(): void {
   const isProd = process.env.NODE_ENV === "production";
+  const isServerless = isProductionServerlessRuntime();
   const flag =
     process.env.ANALYTICS_SESSION_REPLAY_RETENTION_JOBS ??
     process.env.RUN_BACKGROUND_JOBS;
-  const enabled = flag === "1" || (isProd && flag !== "0");
+  const enabled = !isServerless && (flag === "1" || (isProd && flag !== "0"));
 
   if (!enabled) {
     if (!skippingLogged) {
       console.log(
-        "[session-replay] Skipping retention job (set ANALYTICS_SESSION_REPLAY_RETENTION_JOBS=1 or RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
+        isServerless
+          ? "[session-replay] Skipping in-process retention job because production serverless runtimes rely on scheduled/background sweeps."
+          : "[session-replay] Skipping retention job (set ANALYTICS_SESSION_REPLAY_RETENTION_JOBS=1 or RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
       );
       skippingLogged = true;
     }

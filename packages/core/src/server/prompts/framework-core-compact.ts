@@ -10,6 +10,10 @@
  */
 
 import {
+  frameworkGroupEnabled,
+  type FrameworkToolGroup,
+} from "../../framework-tools.js";
+import {
   hasDatabaseReadTools,
   hasDatabaseWriteTools,
   type DatabaseToolsOption,
@@ -17,7 +21,7 @@ import {
 import {
   sharedRule8,
   SHARED_RULE_9,
-  SHARED_RULE_14,
+  sharedRule14,
   SHARED_RULE_15,
   SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
@@ -26,6 +30,10 @@ import {
 export interface FrameworkCoreCompactPromptOptions {
   databaseTools?: DatabaseToolsOption;
   extensionTools?: boolean;
+  /** Framework tool groups this app switched off. Every block below that names
+   *  a group's tool by name is gated on this — a prompt naming an absent tool
+   *  makes the model call it, fail, and often report the capability as missing. */
+  disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
 }
 
 /**
@@ -37,6 +45,29 @@ export function buildFrameworkCoreCompact(
   examples?: PromptExamples,
   options?: FrameworkCoreCompactPromptOptions,
 ): string {
+  const groupOn = (group: FrameworkToolGroup) =>
+    frameworkGroupEnabled(options?.disabledFrameworkGroups, group);
+  const resourcesSection = groupOn("resources")
+    ? `### Resources
+
+Use the \`resources\` tool for persistent notes and context files: \`action: "list"\`, \`"read"\`, \`"effective"\`, \`"write"\`, \`"promote"\`, or \`"delete"\`.
+Resources have three levels: workspace defaults inherited from Dispatch, shared organization/app overrides, and personal overrides. Use \`resources\` with \`action: "effective"\` before editing when you need to explain or inspect which level is active for a path.
+Workspace resources are user-facing by default. If you need temporary working files, write them as agent scratch (\`visibility: "agent_scratch"\`); scratch is hidden from the Workspace view by default and expires. Use \`visibility: "workspace"\` only when the user explicitly asked to save/manage that file, or for durable AGENTS.md, LEARNINGS.md, memory, skills, jobs, or custom agents.
+`
+    : "";
+  const extendedCapabilityClauses = [
+    "inline embeds",
+    groupOn("chat") ? "chat history search (`chat-history`)" : "",
+    groupOn("automation") ? "recurring jobs (`manage-jobs`)" : "",
+    "structured memory (`save-memory`/`delete-memory`)",
+    "browser automation (`activate-browser` in production, `set-browser-control` locally)",
+  ].filter(Boolean);
+  const extendedCapabilitiesList = `${extendedCapabilityClauses.slice(0, -1).join(", ")}, and ${extendedCapabilityClauses.at(-1)}`;
+  const callAgentSection = groupOn("workspaceApps")
+    ? `
+For generated media, prefer this app's native generation action; otherwise use \`call-agent\` with agent "assets".
+`
+    : "";
   const hasDatabaseTools = hasDatabaseReadTools(options?.databaseTools);
   const hasDatabaseWrites = hasDatabaseWriteTools(options?.databaseTools);
   const dataRule = hasDatabaseWrites
@@ -79,22 +110,15 @@ ${SHARED_RULE_9}
 **Native widgets** — For table/chart/graph/report requests, prefer actions labeled \`Native chat widget\`; use \`render-data-widget\` for already-summarized data (≤50 rows) instead of markdown tables. Above that, give the total plus the top rows — never retype a full result set as widget arguments. Deliver files in chat, never just a path.
 10. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
 11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts.
-${SHARED_RULE_14}
+${sharedRule14(options)}
 ${SHARED_RULE_15}
 ${SHARED_RULE_AGENT_WARNINGS}
 
-### Resources
-
-Use the \`resources\` tool for persistent notes and context files: \`action: "list"\`, \`"read"\`, \`"effective"\`, \`"write"\`, \`"promote"\`, or \`"delete"\`.
-Resources have three levels: workspace defaults inherited from Dispatch, shared organization/app overrides, and personal overrides. Use \`resources\` with \`action: "effective"\` before editing when you need to explain or inspect which level is active for a path.
-Workspace resources are user-facing by default. If you need temporary working files, write them as agent scratch (\`visibility: "agent_scratch"\`); scratch is hidden from the Workspace view by default and expires. Use \`visibility: "workspace"\` only when the user explicitly asked to save/manage that file, or for durable AGENTS.md, LEARNINGS.md, memory, skills, jobs, or custom agents.
-
+${resourcesSection}
 ### Extended Capabilities
 
-You also have tools for inline embeds, chat history search (\`chat-history\`), recurring jobs (\`manage-jobs\`), structured memory (\`save-memory\`/\`delete-memory\`), and browser automation (\`activate-browser\` in production, \`set-browser-control\` locally). Call \`get-framework-context\` with the matching key — it lists its own topics — for full instructions when needed.
+You also have tools for ${extendedCapabilitiesList}. Call \`get-framework-context\` with the matching key — it lists its own topics — for full instructions when needed.
 
 **Agent teams:** default to doing the work yourself. Delegate ONE sub-agent (\`agent-teams\` action "spawn") for self-contained heavy work; fan out to several only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. Treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming the delegated work is done. Give each sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries) — it can't see this thread — then read all results and synthesize one integrated answer. Full details: \`get-framework-context\` key \`agent-teams\`.
-
-For generated media, prefer this app's native generation action; otherwise use \`call-agent\` with agent "assets".
-`;
+${callAgentSection}`;
 }

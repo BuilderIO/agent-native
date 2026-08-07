@@ -50,4 +50,29 @@ describe("onboarding app profiles", () => {
       "AI model",
     );
   });
+
+  it.each(["assets", "design", "slides"] as const)(
+    "includes design system intelligence for %s",
+    (appId) => {
+      const capability = getOnboardingAppProfile(appId).capabilities.find(
+        (item) => item.id === "design-system-intelligence",
+      );
+
+      expect(capability).toMatchObject({
+        label: "Design system intelligence",
+        required: false,
+        builderIncluded: true,
+      });
+      expect(capability?.why).toContain("brand");
+      expect(capability?.why).toContain("design-system");
+    },
+  );
+
+  it("does not add design system intelligence to unrelated app profiles", () => {
+    expect(
+      getOnboardingAppProfile("analytics").capabilities.map(
+        (capability) => capability.id,
+      ),
+    ).not.toContain("design-system-intelligence");
+  });
 });

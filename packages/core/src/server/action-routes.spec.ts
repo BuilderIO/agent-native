@@ -470,6 +470,46 @@ describe("mountActionRoutes", () => {
     expect(process.env.AGENT_USER_TIMEZONE).toBe("UTC");
   });
 
+  it("carries the browser session id header into request context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          browserSessionId: getRequestContext()?.browserSessionId,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const withSession = {
+      _method: "POST",
+      _headers: { "x-agent-native-session-id": "pinned-session-1" },
+      req: { json: async () => ({}) },
+    };
+    const withoutSession = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+
+    expect(await mounted[0].handler(withSession)).toEqual({
+      browserSessionId: "pinned-session-1",
+    });
+    expect(await mounted[0].handler(withoutSession)).toEqual({
+      browserSessionId: undefined,
+    });
+  });
+
   it("runs optional-auth actions with an anonymous request context when auth resolution returns 401", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestUserEmail } = await import("./request-context.js");
@@ -992,6 +1032,7 @@ describe("mountActionRoutes", () => {
     expect(allowHeaders).toContain("x-agent-native-embed-target");
     expect(allowHeaders).toContain("x-request-source");
     expect(allowHeaders).toContain("x-user-timezone");
+    expect(allowHeaders).toContain("x-agent-native-session-id");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });

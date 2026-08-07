@@ -65,6 +65,19 @@ vi.mock("@agent-native/core/server", () => ({
   }),
 }));
 
+vi.mock("@agent-native/core/server/agent-discovery", () => ({
+  findWorkspaceDispatchAgent: () => undefined,
+  getBuiltinAgents: () => [
+    {
+      id: "dispatch",
+      name: "Dispatch",
+      description: "Workspace hub",
+      url: "https://dispatch.agent-native.com",
+      color: "#000000",
+    },
+  ],
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({}),
 }));
@@ -162,7 +175,7 @@ describe("list-connection-providers", () => {
       id: "jira",
       configured: false,
       setupLink:
-        "/dispatch/integrations?provider=jira&appId=brain&returnTo=ask",
+        "https://dispatch.agent-native.com/integrations?provider=jira&appId=brain&returnTo=ask",
       sourceProviderSupported: false,
       providerHealth: { status: "missing_credentials" },
       rawProviderApi: { available: true },

@@ -1,11 +1,19 @@
 import { mockEvent, type H3Event } from "h3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const resolveSecretMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../server/credential-provider.js", () => ({
+  resolveSecret: resolveSecretMock,
+}));
 
 import {
   clearMcpOAuthFlowCookies,
   isValidMcpOAuthFlow,
   readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
+  resolveMcpOAuthScope,
+  resolveManagedMcpOAuthClient,
   setMcpOAuthFlowCookie,
   type McpOAuthFlow,
 } from "./oauth-routes.js";
@@ -185,6 +193,45 @@ describe("MCP OAuth callback flow validation", () => {
         "<OTHER_STATE>",
       ),
     ).toBe(false);
+  });
+});
+
+describe("managed MCP OAuth clients", () => {
+  it("rejects organization scope for managed MCP OAuth servers", () => {
+    expect(
+      resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org"),
+    ).toBeNull();
+    expect(
+      resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "user"),
+    ).toBe("user");
+    expect(
+      resolveMcpOAuthScope(new URL("https://mcp.example.com"), "org"),
+    ).toBe("org");
+  });
+
+  it("resolves the workspace HubSpot client without exposing its secret to the browser", async () => {
+    resolveSecretMock.mockImplementation(async (key: string) => {
+      if (key === "HUBSPOT_MCP_CLIENT_ID") return "hubspot-client-id";
+      if (key === "HUBSPOT_MCP_CLIENT_SECRET") return "hubspot-client-secret";
+      return null;
+    });
+
+    await expect(
+      resolveManagedMcpOAuthClient(new URL("https://mcp.hubspot.com")),
+    ).resolves.toEqual({
+      client_id: "hubspot-client-id",
+      client_secret: "hubspot-client-secret",
+      token_endpoint_auth_method: "client_secret_post",
+    });
+  });
+
+  it("does not resolve a managed client for an unrelated MCP server", async () => {
+    resolveSecretMock.mockReset();
+
+    await expect(
+      resolveManagedMcpOAuthClient(new URL("https://mcp.example.com")),
+    ).resolves.toBeUndefined();
+    expect(resolveSecretMock).not.toHaveBeenCalled();
   });
 });
 

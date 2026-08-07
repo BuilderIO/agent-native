@@ -12,6 +12,7 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Modal,
   Pressable,
   Share,
@@ -123,8 +124,23 @@ export default function ChatTab() {
   // a token; poll until it lands, then switch to the native chat.
   useEffect(() => {
     if (authState !== "signed-out") return;
-    const interval = setInterval(() => void refreshAuth(), 800);
-    return () => clearInterval(interval);
+    let active = AppState.currentState === "active";
+    let inFlight = false;
+    const tick = () => {
+      if (!active || inFlight) return;
+      inFlight = true;
+      void refreshAuth().finally(() => {
+        inFlight = false;
+      });
+    };
+    const interval = setInterval(tick, 800);
+    const subscription = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
   }, [authState, refreshAuth]);
 
   const { authRequired, clearAuthRequired } = chat;

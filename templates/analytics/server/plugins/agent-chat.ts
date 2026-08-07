@@ -10,6 +10,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
@@ -881,6 +882,10 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
+  // Resource prompt hydration performs additive schema checks. Keep that
+  // work out of production serverless cold starts; it is not needed for the
+  // dashboard's domain prompt and can contend with the request's DB queries.
+  leanPrompt: isProductionServerlessRuntime(),
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   corpusTools: "lazy",
@@ -902,14 +907,16 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   runNoProgressTimeoutMs: ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
-  connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
-  externalAgents: {
-    // Keep the direct MCP surface deliberately curated. External agents
-    // should use ask_app by default; cataloged actions are optional stable
-    // semantic reads for callers with an exact, fully known contract. They are
-    // never a fallback for slow or failed delegation.
-    authenticatedReads: "off",
-    writes: "ask_app_only",
+  mcp: {
+    connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
+    externalAgents: {
+      // Keep the direct MCP surface deliberately curated. External agents
+      // should use ask_app by default; cataloged actions are optional stable
+      // semantic reads for callers with an exact, fully known contract. They
+      // are never a fallback for slow or failed delegation.
+      authenticatedReads: "off",
+      writes: "ask_app_only",
+    },
   },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);

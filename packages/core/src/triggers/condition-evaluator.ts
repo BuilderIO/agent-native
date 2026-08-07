@@ -16,6 +16,8 @@
 
 import { createHash } from "node:crypto";
 
+import { createTtlCache } from "../shared/ttl-cache.js";
+
 /**
  * Bumped whenever the prompt template, model, or hardening logic changes.
  * Included in the cache key so cached "yes" answers from a previous
@@ -23,10 +25,15 @@ import { createHash } from "node:crypto";
  */
 const CONDITION_EVAL_VERSION = "v2";
 
-// LRU cache: hash → { result: boolean, expiresAt: number }
-const _cache = new Map<string, { result: boolean; expiresAt: number }>();
+// Bounded TTL cache: hash → classifier result. Uses the shared primitive so
+// there is one implementation of "expire and cap an in-memory map" rather than
+// one per call site; see `shared/ttl-cache.ts` for which pattern to use where.
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE_SIZE = 500;
+const _cache = createTtlCache<boolean>({
+  ttlMs: CACHE_TTL_MS,
+  maxEntries: MAX_CACHE_SIZE,
+});
 
 function cacheKey(condition: string, payload: unknown): string {
   // Salt the cache key with the prompt version + a separate hash of the
@@ -45,24 +52,6 @@ function cacheKey(condition: string, payload: unknown): string {
   return createHash("sha256").update(raw).digest("hex").slice(0, 32);
 }
 
-function pruneCache(): void {
-  if (_cache.size <= MAX_CACHE_SIZE) return;
-  const now = Date.now();
-  for (const [key, entry] of _cache) {
-    if (entry.expiresAt < now) _cache.delete(key);
-  }
-  // If still too large, drop oldest entries
-  if (_cache.size > MAX_CACHE_SIZE) {
-    const excess = _cache.size - MAX_CACHE_SIZE;
-    let deleted = 0;
-    for (const key of _cache.keys()) {
-      if (deleted >= excess) break;
-      _cache.delete(key);
-      deleted++;
-    }
-  }
-}
-
 /**
  * Evaluate whether a natural-language condition matches an event payload.
  * Returns true if the condition is empty/undefined (unconditional trigger).
@@ -76,14 +65,11 @@ export async function evaluateCondition(
 
   const key = cacheKey(condition, payload);
   const cached = _cache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.result;
-  }
+  if (cached !== undefined) return cached;
 
   const result = await callHaikuClassifier(condition, payload, apiKey);
 
-  pruneCache();
-  _cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
+  _cache.set(key, result);
   return result;
 }
 

@@ -718,6 +718,8 @@ const messages = {
     end: "結束",
     endDate: "結束日期",
     event: "活動",
+    eventUpdated: "事件已更新",
+    updateFailed: "更新事件失敗",
     eventAlerts: "事件提醒",
     eventOptions: "活動選項",
     autoDecline: "自動拒絕",

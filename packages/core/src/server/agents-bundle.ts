@@ -15,7 +15,8 @@
  *   2. Filesystem fallback — `process.cwd()/AGENTS.md` +
  *      `process.cwd()/.agents/skills/` (or legacy `.agent/skills/`). Only reliable in local dev and Node
  *      production (`agent-native start`); not on Netlify/Vercel/CF at runtime.
- *   3. Empty bundle — everything silently returns empty strings.
+ *   3. Configuration and filesystem failures propagate so a broken bundle is
+ *      visible instead of being mistaken for an app with no instructions.
  *
  * Result is cached in module scope so it's only computed once per cold start.
  */
@@ -73,8 +74,15 @@ export interface Skill {
 }
 
 export interface AgentsBundle {
-  /** Contents of the template's AGENTS.md (empty string if missing). */
+  /**
+   * Legacy alias for the runtime instruction file. Empty when an explicitly
+   * configured runtime file is missing.
+   */
   agentsMd: string;
+  /** Contents of the runtime agent's selected instruction file. */
+  runtimeAgentsMd: string;
+  /** Contents of the development agent's selected instruction file. */
+  developmentAgentsMd: string;
   /**
    * Contents of the workspace core's AGENTS.md, if the app is inside an
    * enterprise monorepo with a `workspaceCore` configured. Empty string
@@ -92,7 +100,25 @@ export interface AgentsBundle {
   skills: Record<string, Skill>;
 }
 
-const EMPTY: AgentsBundle = { agentsMd: "", workspaceAgentsMd: "", skills: {} };
+export interface AgentsBundleReadOptions {
+  instructions?: AgentNativeInstructionsConfig;
+}
+
+export interface AgentInstructionPaths {
+  runtime: string;
+  development: string;
+}
+
+const DEFAULT_AGENT_INSTRUCTIONS_PATH = "AGENTS.md";
+
+export function resolveAgentInstructionPaths(
+  instructions?: AgentNativeInstructionsConfig,
+): AgentInstructionPaths {
+  return {
+    runtime: instructions?.runtime ?? DEFAULT_AGENT_INSTRUCTIONS_PATH,
+    development: instructions?.development ?? DEFAULT_AGENT_INSTRUCTIONS_PATH,
+  };
+}
 
 let cached: AgentsBundle | null = null;
 
@@ -181,6 +207,8 @@ export function parseSkillFrontmatter(content: string): Partial<SkillMeta> {
 import fs from "node:fs";
 import path from "node:path";
 
+import type { AgentNativeInstructionsConfig } from "../config.js";
+
 const TEMPLATE_SKILLS_DIRS = [
   path.join(".agents", "skills"),
   path.join(".agent", "skills"),
@@ -214,6 +242,27 @@ export interface WorkspaceAgentsSource {
   agentsMdPath: string | null;
   /** Root dir (used to compute `dir` paths for workspace-core skills). */
   rootDir: string;
+}
+
+function readInstructionFile(cwd: string, relativePath: string): string {
+  const normalizedPath = relativePath.replaceAll("\\", "/");
+  const root = fs.realpathSync(path.resolve(cwd));
+  const absolutePath = path.resolve(root, normalizedPath);
+  if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(
+      `Agent instruction path must stay inside the app root: ${relativePath}`,
+    );
+  }
+
+  if (!fs.existsSync(absolutePath)) return "";
+  const realPath = fs.realpathSync(absolutePath);
+  if (realPath !== root && !realPath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(
+      `Agent instruction path must stay inside the app root: ${relativePath}`,
+    );
+  }
+  if (!fs.statSync(realPath).isFile()) return "";
+  return fs.readFileSync(realPath, "utf-8");
 }
 
 /**
@@ -304,14 +353,14 @@ function readSkillsDir(
 export function readAgentsBundleFromFs(
   cwd: string,
   workspaceSource: WorkspaceAgentsSource | null = null,
+  options: AgentsBundleReadOptions = {},
 ): AgentsBundle {
-  let agentsMd = "";
-  try {
-    const agentsMdPath = path.join(cwd, "AGENTS.md");
-    if (fs.existsSync(agentsMdPath)) {
-      agentsMd = fs.readFileSync(agentsMdPath, "utf-8");
-    }
-  } catch {}
+  const instructionPaths = resolveAgentInstructionPaths(options.instructions);
+  const runtimeAgentsMd = readInstructionFile(cwd, instructionPaths.runtime);
+  const developmentAgentsMd = readInstructionFile(
+    cwd,
+    instructionPaths.development,
+  );
 
   let workspaceAgentsMd = "";
   if (workspaceSource?.agentsMdPath) {
@@ -347,7 +396,15 @@ export function readAgentsBundleFromFs(
     } catch {}
   }
 
-  return { agentsMd, workspaceAgentsMd, skills };
+  return {
+    // Keep the old field useful for callers that only know about the runtime
+    // bundle. Audience-aware consumers should use the explicit fields.
+    agentsMd: runtimeAgentsMd,
+    runtimeAgentsMd,
+    developmentAgentsMd,
+    workspaceAgentsMd,
+    skills,
+  };
 }
 
 /**
@@ -378,28 +435,36 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
 
   // 2. Filesystem fallback — works in dev / Node prod. If a workspace core
   //    is present in the ancestor chain, merge its skills + AGENTS.md in.
+  let workspaceSource: WorkspaceAgentsSource | null = null;
   try {
-    let workspaceSource: WorkspaceAgentsSource | null = null;
-    try {
-      const { getWorkspaceCoreExports } =
-        await import("../deploy/workspace-core.js");
-      const ws = await getWorkspaceCoreExports(process.cwd());
-      if (ws) {
-        workspaceSource = {
-          skillsDir: ws.skillsDir,
-          agentsMdPath: ws.agentsMdPath,
-          rootDir: ws.packageDir,
-        };
-      }
-    } catch {
-      // workspace-core discovery isn't available (e.g. edge runtime).
+    const { getWorkspaceCoreExports } =
+      await import("../deploy/workspace-core.js");
+    const ws = await getWorkspaceCoreExports(process.cwd());
+    if (ws) {
+      workspaceSource = {
+        skillsDir: ws.skillsDir,
+        agentsMdPath: ws.agentsMdPath,
+        rootDir: ws.packageDir,
+      };
     }
-    cached = readAgentsBundleFromFs(process.cwd(), workspaceSource);
-    return cached;
+    // coercion-ok: workspace-core discovery is optional in edge runtimes.
   } catch {
-    cached = EMPTY;
-    return cached;
+    // workspace-core discovery isn't available (e.g. edge runtime).
   }
+  const { createAgentNativeConfigContext, loadResolvedAgentNativeConfig } =
+    await import("../vite/agent-native-config-loader.js");
+  const production = process.env.NODE_ENV === "production";
+  const config = await loadResolvedAgentNativeConfig(
+    process.cwd(),
+    createAgentNativeConfigContext(
+      production ? "build" : "serve",
+      production ? "production" : "development",
+    ),
+  );
+  cached = readAgentsBundleFromFs(process.cwd(), workspaceSource, {
+    instructions: config.instructions,
+  });
+  return cached;
 }
 
 /**

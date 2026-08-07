@@ -464,6 +464,25 @@ describe("ensureAdditiveColumns", () => {
     });
   });
 
+  it("does not inspect schema from a production serverless function", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+    const { ensureAdditiveColumns } =
+      await import("./ensure-additive-columns.js");
+    const client = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    } as any;
+
+    const result = await ensureAdditiveColumns({
+      db: client,
+      tables: [pgSessionRecordings],
+    });
+
+    expect(result.mode).toBe("skipped-serverless");
+    expect(result.applied).toEqual([]);
+    expect(client.execute).not.toHaveBeenCalled();
+  });
+
   it("logs applied/skipped/error lines through an injected logger", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { ensureAdditiveColumns } =

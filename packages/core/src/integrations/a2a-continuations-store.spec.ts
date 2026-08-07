@@ -6,6 +6,7 @@ const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
   isPostgres: isPostgresMock,
+  isProductionServerlessFunctionRuntime: () => false,
   intType: () => "INTEGER",
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));

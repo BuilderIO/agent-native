@@ -106,6 +106,10 @@ import {
   sourceType,
 } from "@/lib/brain";
 import {
+  dispatchIntegrationsHref,
+  getDispatchHref,
+} from "@/lib/dispatch-links";
+import {
   createOneTimeIngestHandoff,
   type OneTimeIngestHandoff,
 } from "@/lib/ingest-handoff";
@@ -416,11 +420,6 @@ function captureCanQueue(capture: BrainCaptureReviewItem) {
 
 function isSourceProvider(providerId: string): providerId is Provider {
   return providers.some((provider) => provider.value === providerId);
-}
-
-function dispatchIntegrationsHref(providerId: string) {
-  const params = new URLSearchParams({ provider: providerId, appId: "brain" });
-  return `/dispatch/integrations?${params.toString()}`;
 }
 
 function grantStateLabel(state: BrainWorkspaceConnectionGrantState, t: BrainT) {
@@ -1045,11 +1044,13 @@ function ProviderCatalog({
   providers: connectionProviders,
   loading,
   workspaceError,
+  dispatchHref,
   onAddSource,
 }: {
   providers: BrainConnectionProvider[];
   loading: boolean;
   workspaceError?: string | null;
+  dispatchHref: string;
   onAddSource: (provider: Provider) => void;
 }) {
   const t = useT();
@@ -1122,7 +1123,8 @@ function ProviderCatalog({
                 provider.providerHealth?.status === "unhealthy" ||
                 provider.providerHealth?.status === "missing_credentials");
             const providerSetupHref =
-              provider.setupLink ?? dispatchIntegrationsHref(provider.id);
+              provider.setupLink ??
+              dispatchIntegrationsHref(provider.id, dispatchHref);
             return (
               <div
                 key={provider.id}
@@ -1411,7 +1413,11 @@ function ProviderCatalog({
                   </Button>
                   {grantState === "needs_grant" || providerNeedsSetup ? (
                     <Button size="sm" variant="outline" asChild>
-                      <a href={providerSetupHref}>
+                      <a
+                        href={providerSetupHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
                         <IconExternalLink className="size-4" />
                         {grantState === "needs_grant"
                           ? t("sources.grantInDispatch")
@@ -1734,6 +1740,7 @@ function SourceListItem({
 
 export default function SourcesRoute() {
   const t = useT();
+  const dispatchHref = getDispatchHref();
   const [params, setParams] = useSearchParams();
   const type = params.get("type") ?? "all";
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -2149,6 +2156,7 @@ export default function SourcesRoute() {
             <ProviderCatalog
               providers={connectionProviders}
               loading={connectionProvidersQuery.isLoading}
+              dispatchHref={dispatchHref}
               workspaceError={
                 connectionProvidersQuery.data?.workspaceConnections?.error ??
                 null
