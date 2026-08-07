@@ -40,6 +40,8 @@ deployment-specific values in the environment or scoped secret store.
 | `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Stable encryption key for a workspace-shared secrets vault.                                     | The same stable key in every app that reads the vault.                                                         |
 | `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Previous workspace key during rotation.                                                         | The old key only; remove it after migration.                                                                   |
 | `ANTHROPIC_API_KEY`                         | Optional deploy-level fallback for the embedded production agent.                               | An API key; prefer scoped credentials for multi-tenant apps.                                                   |
+| `AGENT_ENGINE`                              | Explicitly selects the agent engine instead of auto-detecting from provider keys.               | A registered engine name such as `anthropic`, `ai-sdk:openai`, `builder`, or `codex-cli`.                      |
+| `AGENT_ENGINE_PREFER_BYO_KEY`               | Prefers a provider key you set over the managed Builder gateway during auto-detection.          | `true` or `1`; Builder still applies as the fallback when no provider key is set.                              |
 | `AUTH_MODE`                                 | Selects the local authentication behavior used by CLI and agent flows.                          | Unset or `local`; this is not a browser login bypass.                                                          |
 | `AUTH_DISABLED`                             | Disables auth for local or preview-only work.                                                   | `true` or `1`; never use on a public production app.                                                           |
 | `AUTH_MAGIC_LINK`                           | Controls the password-first versus magic-link sign-in path.                                     | `0` keeps password-first sign-in; otherwise a configured email transport can enable magic links.               |
@@ -90,8 +92,12 @@ specific Google API integrations; they are not required for browser sign-in.
 These are deploy-level fallbacks for single-tenant or local use. Hosted,
 multi-user apps should prefer the scoped credential and connection store.
 
+Every provider key below selects its engine on its own: dropping one in is
+enough, and `AGENT_ENGINE` is only needed to pick between several.
+
 | Variable                       | What it controls                                         | Supported values or format                              |
 | ------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`            | Claude model fallback for the built-in AI engine.        | An Anthropic API key.                                   |
 | `OPENAI_API_KEY`               | OpenAI model, realtime voice, or transcription fallback. | An OpenAI API key.                                      |
 | `OPENAI_BASE_URL`              | OpenAI-compatible endpoint used with `OPENAI_API_KEY`.   | An absolute `http(s)` URL without embedded credentials. |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini model fallback for the built-in AI engine.        | A Google AI API key.                                    |

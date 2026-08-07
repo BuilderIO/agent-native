@@ -415,7 +415,7 @@ describe("integration webhook handler", () => {
         "alice+qa@agent-native.test",
         "plugin-api-key",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
     expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
   });
 
@@ -429,6 +429,45 @@ describe("integration webhook handler", () => {
         "alice+qa@agent-native.test",
         "plugin-api-key",
       ),
-    ).resolves.toBe("scoped-owner-key");
+    ).resolves.toEqual({
+      apiKey: "scoped-owner-key",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+    });
+  });
+
+  it("tags the Anthropic plugin fallback so a non-Anthropic engine cannot receive it", async () => {
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
+    getOwnerApiKeyMock.mockResolvedValue(undefined);
+    readDeployCredentialEnvMock.mockReturnValue(undefined);
+
+    await expect(
+      resolveIntegrationApiKey(
+        "openai",
+        "alice+qa@agent-native.test",
+        "sk-ant-plugin-key",
+      ),
+    ).resolves.toEqual({
+      apiKey: "sk-ant-plugin-key",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+    });
+  });
+
+  it("pairs an explicit OpenAI engine with the OpenAI deploy key", async () => {
+    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
+    getOwnerApiKeyMock.mockResolvedValue(undefined);
+    readDeployCredentialEnvMock.mockImplementation((key: string) =>
+      key === "OPENAI_API_KEY" ? "sk-openai-deploy" : undefined,
+    );
+
+    await expect(
+      resolveIntegrationApiKey(
+        "openai",
+        "alice+qa@agent-native.test",
+        "sk-ant-plugin-key",
+      ),
+    ).resolves.toEqual({
+      apiKey: "sk-openai-deploy",
+      apiKeyEnvVar: "OPENAI_API_KEY",
+    });
   });
 });

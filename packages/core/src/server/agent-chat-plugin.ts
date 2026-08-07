@@ -66,6 +66,7 @@ import {
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
+import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
@@ -3915,16 +3916,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Authentication required" };
           }
 
-          const providerToEnv: Record<string, string> = {
-            anthropic: "ANTHROPIC_API_KEY",
-            openai: "OPENAI_API_KEY",
-            google: "GOOGLE_GENERATIVE_AI_API_KEY",
-            groq: "GROQ_API_KEY",
-            mistral: "MISTRAL_API_KEY",
-            cohere: "COHERE_API_KEY",
-          };
           const secretKey =
-            providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+            PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
 
           try {
             const { writeAppSecret } = await import("../secrets/storage.js");

@@ -7814,6 +7814,7 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
     workerStep("apikey_start");
     let userApiKey: string | undefined;
+    let userApiKeyEnvVar: string | undefined;
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
       userApiKey = await getOwnerApiKey(provider, ownerEmail);
@@ -7826,6 +7827,7 @@ export function createProductionAgentHandler(
         // Read-only env fallback for the requested provider.
         userApiKey = envVar ? readDeployCredentialEnv(envVar) : undefined;
       }
+      if (userApiKey) userApiKeyEnvVar = envVar;
     } else {
       userApiKey = await getOwnerActiveApiKey(ownerEmail);
     }
@@ -7841,6 +7843,16 @@ export function createProductionAgentHandler(
       ? (options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"))
       : undefined;
     const effectiveApiKey = userApiKey ?? hostApiKey;
+    // The host fallback is an Anthropic credential by contract
+    // (`AgentChatPluginOptions.apiKey`). Declaring that keeps it from reaching
+    // an OpenAI/Gemini/etc. engine the user selected but has no key for —
+    // which would ship a live Anthropic secret to that provider and make the
+    // resulting 401 blame a key the user never saved.
+    const effectiveApiKeyEnvVar = userApiKey
+      ? userApiKeyEnvVar
+      : hostApiKey
+        ? "ANTHROPIC_API_KEY"
+        : undefined;
 
     // Resolve engine — per-request engine override takes priority
     // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
@@ -7851,12 +7863,14 @@ export function createProductionAgentHandler(
       engine = await resolveEngine({
         engineOption: requestEngine ?? options.engine,
         apiKey: effectiveApiKey,
+        apiKeyEnvVar: effectiveApiKeyEnvVar,
         model: configuredModel,
         appId: options.appId,
       });
     } catch {
       engine = await resolveEngine({
         apiKey: effectiveApiKey,
+        apiKeyEnvVar: effectiveApiKeyEnvVar,
         appId: options.appId,
       });
     }

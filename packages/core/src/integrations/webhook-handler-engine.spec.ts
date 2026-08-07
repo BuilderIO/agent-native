@@ -1345,6 +1345,7 @@ describe("integration webhook handler engine resolution", () => {
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: "ai-sdk:openai",
         apiKey: "openai-user-key",
+        apiKeyEnvVar: "OPENAI_API_KEY",
         model: "gpt-5.2",
       });
     },
@@ -1400,6 +1401,7 @@ describe("integration webhook handler engine resolution", () => {
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: "anthropic",
         apiKey: "anthropic-org-key",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
         model: "builder-default-model",
         appId: "dispatch",
       });

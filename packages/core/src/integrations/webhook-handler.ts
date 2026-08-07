@@ -381,35 +381,44 @@ function collectCompletedMutationToolResultSummaries(
     .map((event) => ({ tool: event.tool, result: event.result }));
 }
 
+export interface ResolvedIntegrationApiKey {
+  apiKey: string | undefined;
+  /** Env var `apiKey` was issued for; undefined when the key is opaque. */
+  apiKeyEnvVar: string | undefined;
+}
+
 export async function resolveIntegrationApiKey(
   engineOption: WebhookHandlerOptions["engine"],
   ownerEmail: string,
   fallbackApiKey: string,
-): Promise<string | undefined> {
+): Promise<ResolvedIntegrationApiKey> {
+  // `fallbackApiKey` is the plugin's Anthropic credential
+  // (`WebhookHandlerOptions.apiKey`). Tagging it lets `resolveEngine` drop it
+  // when the integration runs on another provider, instead of sending an
+  // Anthropic secret to that provider's endpoint.
+  const anthropicFallback = (): ResolvedIntegrationApiKey =>
+    canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY") &&
+    fallbackApiKey.trim()
+      ? { apiKey: fallbackApiKey.trim(), apiKeyEnvVar: "ANTHROPIC_API_KEY" }
+      : { apiKey: undefined, apiKeyEnvVar: undefined };
+
   const engineName = explicitEngineName(engineOption);
   if (engineName) {
     const provider = engineToProvider(engineName);
-    const userApiKey = await getOwnerApiKey(provider, ownerEmail);
-    if (userApiKey) return userApiKey;
     const envVar = PROVIDER_TO_ENV[provider];
+    const userApiKey = await getOwnerApiKey(provider, ownerEmail);
+    if (userApiKey) return { apiKey: userApiKey, apiKeyEnvVar: envVar };
     const providerEnvKey =
       envVar && canUseDeployCredentialFallbackForRequest(envVar)
         ? readDeployCredentialEnv(envVar)
         : undefined;
-    return (
-      providerEnvKey ||
-      (canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
-        ? fallbackApiKey.trim()
-        : "") ||
-      undefined
-    );
+    if (providerEnvKey) return { apiKey: providerEnvKey, apiKeyEnvVar: envVar };
+    return anthropicFallback();
   }
 
   const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-  if (userApiKey) return userApiKey;
-  return canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
-    ? fallbackApiKey.trim() || undefined
-    : undefined;
+  if (userApiKey) return { apiKey: userApiKey, apiKeyEnvVar: undefined };
+  return anthropicFallback();
 }
 
 /**
@@ -1337,7 +1346,8 @@ async function processIncomingMessage(
             );
             const engine = await resolveEngine({
               engineOption: effectiveEngineOption,
-              apiKey: effectiveApiKey,
+              apiKey: effectiveApiKey.apiKey,
+              apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
               model,
               appId: options.appId,
             });
