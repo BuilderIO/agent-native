@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.144.1
+
+### Patch Changes
+
+- 8f10ada: Ship the latest framework source, scheduler, analytics, and documentation updates.
+
 ## 0.144.0
 
 ### Minor Changes
