@@ -2223,9 +2223,22 @@ function waitForMonitorPickerSelection(): {
  * the user finished picking.
  */
 export async function pickFullscreenRecordingDisplay(): Promise<void> {
-  const shown = await invoke<boolean>("show_monitor_picker");
-  if (!shown) return;
+  // Registered BEFORE showing the picker windows: a fast click (or keyboard
+  // activation) can otherwise fire the selection event before these
+  // listeners exist, and Tauri does not replay events to a listener
+  // registered after the fact — the wait would then sit until its timeout.
   const selection = waitForMonitorPickerSelection();
+  let shown: boolean;
+  try {
+    shown = await invoke<boolean>("show_monitor_picker");
+  } catch (err) {
+    selection.cleanup();
+    throw err;
+  }
+  if (!shown) {
+    selection.cleanup();
+    return;
+  }
   let displayId: number | null = null;
   try {
     displayId = await selection.promise;

@@ -1281,6 +1281,7 @@ fn start_native_session_locked(
     mic_device_label: Option<String>,
     capture_region: Option<NativeCaptureRegion>,
     defer_recording_output: bool,
+    expected_generation: Option<u64>,
 ) -> Result<NativeFullscreenStartInfo, String> {
     let safe_id = sanitize_recording_id(recording_id);
     reset_native_upload_completion_state();
@@ -1290,7 +1291,7 @@ fn start_native_session_locked(
         || mic_device_label
             .as_deref()
             .is_some_and(|v| !v.trim().is_empty());
-    let session = match start_screencapturekit_recording(
+    let mut session = match start_screencapturekit_recording(
         app,
         &safe_id,
         include_audio,
@@ -1337,15 +1338,19 @@ fn start_native_session_locked(
 
     let previous = {
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        guard.take()
+        if let Some(expected) = expected_generation {
+            if state.warm_generation.load(Ordering::SeqCst) != expected {
+                drop(guard);
+                discard_session(&mut session);
+                return Err("Recording cancelled while warming up.".to_string());
+            }
+        }
+        let previous = guard.take();
+        *guard = Some(session);
+        previous
     };
     if let Some(mut previous) = previous {
         discard_session(&mut previous);
-    }
-
-    {
-        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
-        *guard = Some(session);
     }
 
     Ok(NativeFullscreenStartInfo {
@@ -1414,7 +1419,7 @@ pub async fn native_fullscreen_recording_warm(
             .load(Ordering::SeqCst);
         let warm_result = tauri::async_runtime::spawn_blocking(move || {
             let state = app_for_warm.state::<NativeFullscreenRecordingState>();
-            let result = start_native_session_locked(
+            start_native_session_locked(
                 &app_for_warm,
                 &state,
                 &recording_id_for_warm,
@@ -1424,23 +1429,8 @@ pub async fn native_fullscreen_recording_warm(
                 mic_device_label,
                 capture_region,
                 true,
-            );
-            // A cancel that arrived while ScreenCaptureKit setup was still in
-            // flight bumped the generation and found nothing to discard (see
-            // `native_fullscreen_recording_cancel`). Now that a session IS
-            // installed, check again — if the generation moved on, undo the
-            // install instead of leaving an orphaned stream capturing after
-            // the user cancelled.
-            if result.is_ok()
-                && state.warm_generation.load(Ordering::SeqCst) != generation_before_warm
-            {
-                let stale = state.inner.lock().ok().and_then(|mut guard| guard.take());
-                if let Some(mut stale) = stale {
-                    discard_session(&mut stale);
-                }
-                return Err("Recording cancelled while warming up.".to_string());
-            }
-            result
+                Some(generation_before_warm),
+            )
         })
         .await;
         match warm_result {
@@ -1540,6 +1530,7 @@ pub async fn native_fullscreen_recording_begin(
                 mic_device_label,
                 capture_region,
                 false,
+                None,
             )?;
             {
                 let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
