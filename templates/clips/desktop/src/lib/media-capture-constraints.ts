@@ -205,13 +205,20 @@ export async function getAudioStreamWithFallback(
     const stream = await getVoiceFocusedAudioStream(id);
     return id ? stream : replacePhoneDefaultMicIfPossible(stream);
   } catch (err) {
-    const deviceGone =
-      Boolean(id) &&
-      err instanceof DOMException &&
-      err.name === "NotAllowedError" &&
-      !(await enumerateAudioInputDevices()).some(
-        (device) => normalizedMediaDeviceId(device.deviceId) === id,
-      );
+    let deviceGone = false;
+    if (id && err instanceof DOMException && err.name === "NotAllowedError") {
+      try {
+        deviceGone = !(await enumerateAudioInputDevices()).some(
+          (device) => normalizedMediaDeviceId(device.deviceId) === id,
+        );
+      } catch (enumerateErr) {
+        console.warn(
+          "[clips-recorder] could not confirm saved mic is still present after NotAllowedError",
+          enumerateErr,
+        );
+        deviceGone = true;
+      }
+    }
     if (deviceGone) {
       console.warn(
         "[clips-recorder] saved mic no longer enumerated after NotAllowedError; falling back",
