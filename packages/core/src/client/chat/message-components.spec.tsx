@@ -12,6 +12,7 @@ import {
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
   InlineRunErrorNotice,
+  isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
   isMissingFinalResponseWarningText,
   latestUserMessageText,
@@ -284,6 +285,18 @@ describe("assistantMessageHasCompletedCustomUi", () => {
       ]),
     ).toBe(false);
   });
+
+  it("recognizes a completed Builder handoff as interactive UI", () => {
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("assistantMessageHasCustomUi", () => {
@@ -340,6 +353,18 @@ describe("assistantMessageHasCustomUi", () => {
         },
       ]),
     ).toBe(false);
+  });
+
+  it("keeps the Builder handoff treated as interactive UI", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
   });
 });
 
@@ -628,12 +653,12 @@ describe("InlineRunErrorNotice", () => {
 
 describe("isCollapsibleAssistantWorkPart", () => {
   it("keeps the Builder handoff card outside collapsed work", () => {
-    expect(
-      isCollapsibleAssistantWorkPart({
-        type: "tool-call",
-        toolName: "connect-builder",
-      }),
-    ).toBe(false);
+    const builderHandoff = {
+      type: "tool-call",
+      toolName: "connect-builder",
+    };
+    expect(isAlwaysVisibleAssistantTool(builderHandoff)).toBe(true);
+    expect(isCollapsibleAssistantWorkPart(builderHandoff)).toBe(false);
   });
 
   it("still groups ordinary work and reasoning", () => {

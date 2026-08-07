@@ -1064,6 +1064,7 @@ export function assistantMessageHasCompletedCustomUi(
     }
     hasCompletedTool = true;
     lastCompletedToolIsCustomUi =
+      isAlwaysVisibleAssistantTool(record) ||
       record.chatUI !== undefined ||
       record.mcpApp !== undefined ||
       toolCallHasPendingApproval(record);
@@ -1083,7 +1084,8 @@ export function assistantMessageHasCustomUi(content: unknown): boolean {
     };
     return (
       record.type === "tool-call" &&
-      (record.chatUI !== undefined ||
+      (isAlwaysVisibleAssistantTool(record) ||
+        record.chatUI !== undefined ||
         record.mcpApp !== undefined ||
         toolCallHasPendingApproval(record))
     );
@@ -1257,6 +1259,17 @@ function ReasoningMessagePart() {
 
 const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
 
+export function isAlwaysVisibleAssistantTool(part: {
+  type?: unknown;
+  toolName?: unknown;
+}): boolean {
+  return (
+    part.type === "tool-call" &&
+    typeof part.toolName === "string" &&
+    ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName)
+  );
+}
+
 export function isCollapsibleAssistantWorkPart(part: {
   type?: string;
   toolName?: string;
@@ -1267,7 +1280,7 @@ export function isCollapsibleAssistantWorkPart(part: {
   if (part.type === "reasoning") return true;
   return (
     part.type === "tool-call" &&
-    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "") &&
+    !isAlwaysVisibleAssistantTool(part) &&
     part.chatUI === undefined &&
     part.mcpApp === undefined &&
     // Keep the Approve/Deny affordance outside "Worked for…" - needsApproval
