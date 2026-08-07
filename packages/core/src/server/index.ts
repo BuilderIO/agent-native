@@ -206,6 +206,10 @@ export {
   refreshGlobalMcpManager,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export type {
+  AgentChatMcpIcon,
+  AgentChatMcpOptions,
+} from "./agent-chat/mcp-options.js";
 export {
   configureAgentNativeEmbeddedEnvironment,
   createAgentNativeEmbeddedAuthOptions,
@@ -346,6 +350,27 @@ export {
   mergeCoreSharingActions,
   registerPackageActions,
 } from "./action-discovery.js";
+// A standalone `mountMCP` plugin has to compose the same action surface the
+// agent-chat plugin does. Without these, the only way to build one was to
+// hand-roll a copy — which is how a template ends up with a `tool-search` that
+// drifts from the framework's, and an MCP mount that silently ignores
+// `frameworkTools`.
+export {
+  attachToolSearch,
+  createToolSearchEntry,
+  searchToolRegistry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "../agent/tool-search.js";
+export {
+  filterFrameworkToolGroups,
+  frameworkGroupEnabled,
+  resolveFrameworkTools,
+  FRAMEWORK_TOOL_GROUPS,
+  type FrameworkToolGroup,
+  type FrameworkToolsConfig,
+  type FrameworkToolsOption,
+  type ResolvedFrameworkTools,
+} from "../framework-tools.js";
 export {
   registerPromptContextProvider,
   type PromptContextProvider,
