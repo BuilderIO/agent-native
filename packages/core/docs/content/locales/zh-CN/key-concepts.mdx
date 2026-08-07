@@ -11,11 +11,11 @@ description: "代理本机应用如何在三层架构中运作：Core 框架、�
 
 Agent Native 是一个具有三层架构的框架：
 
-| 层级                                       | 内容                                                                                                                                                     |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core：框架**                             | 基础运行时契约：actions、SQL 和 Drizzle 辅助函数、身份验证、应用状态、代理执行、访问检查、路由和实时同步。每个应用都可以直接使用 Core。                   |
-| **Toolkit：可选的可复用组件**              | 共享的应用构建 UI 和产品系统，例如基础组件、编辑器、共享、协作、设置和代理 UX。应用可以使用、组合或 fork 所需的组件。                                     |
-| **Templates：基于 Core 构建的可选应用**    | 完整的、特定领域的应用，具有路由、schema、actions、指令和视觉标识。第一方和自定义模板通常使用 Toolkit，也可以被 fork 并用作起点。                         |
+| 层级                                    | 内容                                                                                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core：框架**                          | 基础运行时契约：actions、SQL 和 Drizzle 辅助函数、身份验证、应用状态、代理执行、访问检查、路由和实时同步。每个应用都可以直接使用 Core。 |
+| **Toolkit：可选的可复用组件**           | 共享的应用构建 UI 和产品系统，例如基础组件、编辑器、共享、协作、设置和代理 UX。应用可以使用、组合或 fork 所需的组件。                   |
+| **Templates：基于 Core 构建的可选应用** | 完整的、特定领域的应用，具有路由、schema、actions、指令和视觉标识。第一方和自定义模板通常使用 Toolkit，也可以被 fork 并用作起点。       |
 
 Core 是基础。Toolkit 和 Templates 都是可选的：模板可以使用 Toolkit，但基于 Core 构建应用并不需要 Toolkit。
 
@@ -119,11 +119,11 @@ Core 是基础。Toolkit 和 Templates 都是可选的：模板可以使用 Tool
 
 一个 turn（回合）是与代理的一次交流：它读取自己的上下文、决定要做什么，然后作出响应。"每个回合都加载"意味着该文件每次都会重新进入上下文，而不仅仅是在会话开始时加载一次。
 
-| 构建块          | 文件                              | 用途                                                                     | 加载时机                             |
-| --------------- | --------------------------------- | ------------------------------------------------------------------------ | ------------------------------------- |
-| **指令**        | `AGENTS.md`                       | 代理应带入每项任务的稳定指导：应用是什么、不变量、语气、索引             | 每个回合                               |
-| **Skills**      | `.agents/skills/<name>/SKILL.md`  | 可复用行为：如何遵循一个工作流、应用一项策略、检查证据，或验证一个输出   | 当 skill 描述与任务匹配时按需加载     |
-| **Actions**     | `actions/<name>.ts`               | 真实操作：读取或写入数据、调用 API、发送消息、运行审批、生成类型化结果   | 每个回合都作为工具列出；仅在被调用时执行 |
+| 构建块      | 文件                             | 用途                                                                   | 加载时机                                 |
+| ----------- | -------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------- |
+| **指令**    | `AGENTS.md`                      | 代理应带入每项任务的稳定指导：应用是什么、不变量、语气、索引           | 每个回合                                 |
+| **Skills**  | `.agents/skills/<name>/SKILL.md` | 可复用行为：如何遵循一个工作流、应用一项策略、检查证据，或验证一个输出 | 当 skill 描述与任务匹配时按需加载        |
+| **Actions** | `actions/<name>.ts`              | 真实操作：读取或写入数据、调用 API、发送消息、运行审批、生成类型化结果 | 每个回合都作为工具列出；仅在被调用时执行 |
 
 Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 工作；一个 action 则是代理在完成这类工作时可以调用的代码路径。例如，
@@ -154,19 +154,19 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 
 采用这个框架之所以有价值，主要在于你不再需要自己构建的那些东西。只要你的应用遵循上述五条规则，你就会继承：
 
-| 功能                                   | 你获得了什么                                                                                                                                                                                                                                                                                                     |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 一个 action = 每个表面                 | 使用 `defineAction()` 定义的每个 action 同时是一个代理工具、一个类型安全的前端 hook（`useActionQuery` / `useActionMutation`）、一个框架自有的 HTTP 传输、一个 CLI 命令、一个供外部客户端使用的 MCP 工具，以及一个供其他代理本机应用使用的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据无需第二次实现，即可添加深层链接和 MCP Apps UI。 |
-| 每个用户的完整代理资源                 | Skills、共享的 `LEARNINGS.md`、个人的 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划任务，以及已连接的 MCP 服务器。全部由 SQL 支撑，无需开发机。参见 [Agent Resources](/docs/agent-resources)。                                                                                                            |
-| 开箱即用的 React 组件                  | `<AgentPanel />` 和 `<AgentSidebar />` 可以在你应用的任意位置渲染聊天 + 资源。参见 [Drop-in Agent](/docs/drop-in-agent)。                                                                                                                                                                                        |
-| BYO 代理聊天运行时                     | 同一个聊天 UI 可以架在 OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI，或者你自己的规范化 HTTP 流之上。参见 [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes)。                                                                                                                |
-| 代理和 UI 之间的实时同步               | 同进程写入会立即通过 `/_agent-native/events` 流式传输；轻量级轮询让无服务器、cron 和跨进程写入保持收敛。变更类 actions 会自动使 action 支持的查询失效，因此代理创建的记录无需手动刷新即可出现。参见下方的 [Live Sync](#polling-sync)。                                                                          |
-| Auth、orgs、RBAC                       | 每个模板都内置了带有 orgs/members/roles 的 Better Auth。参见 [Authentication](/docs/authentication)。如果不止一个用户，请从 [Organizations, Teams & Permissions](/docs/organizations-teams-permissions) 开始。                                                                                                 |
-| 上下文感知                             | 代理始终通过 `navigation` app-state 键知道用户正在查看什么。参见 [Context Awareness](/docs/context-awareness)。                                                                                                                                                                                                 |
-| MCP 客户端 + 服务器，双向              | 该应用摄取 MCP 服务器（本地、远程、hub 共享的），*同时*也将自己的 actions 暴露为一个 MCP 服务器。参见 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。                                                                                                                                  |
-| 跨应用委托                             | 不同应用中的代理通过 [A2A](/docs/a2a-protocol) 通信。同源部署跳过 JWT；跨域部署使用共享的 `A2A_SECRET`。                                                                                                                                                                                                        |
-| 子代理团队                             | 生成一个拥有自己线程和工具的子代理，以聊天内联芯片的形式呈现。参见 [Agent Teams](/docs/agent-teams)。                                                                                                                                                                                                           |
-| 可移植性                               | 任何 Drizzle 支持的 SQL 数据库，任何 Nitro 兼容的主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。                                                                                                                                                                                                     |
+| 功能                      | 你获得了什么                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 一个 action = 每个表面    | 使用 `defineAction()` 定义的每个 action 同时是一个代理工具、一个类型安全的前端 hook（`useActionQuery` / `useActionMutation`）、一个框架自有的 HTTP 传输、一个 CLI 命令、一个供外部客户端使用的 MCP 工具，以及一个供其他代理本机应用使用的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据无需第二次实现，即可添加深层链接和 MCP Apps UI。 |
+| 每个用户的完整代理资源    | Skills、共享的 `LEARNINGS.md`、个人的 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划任务，以及已连接的 MCP 服务器。全部由 SQL 支撑，无需开发机。参见 [Agent Resources](/docs/agent-resources)。                                                                                                                                 |
+| 开箱即用的 React 组件     | `<AgentPanel />` 和 `<AgentSidebar />` 可以在你应用的任意位置渲染聊天 + 资源。参见 [Drop-in Agent](/docs/drop-in-agent)。                                                                                                                                                                                                            |
+| BYO 代理聊天运行时        | 同一个聊天 UI 可以架在 OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI，或者你自己的规范化 HTTP 流之上。参见 [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes)。                                                                                                                                     |
+| 代理和 UI 之间的实时同步  | 同进程写入会立即通过 `/_agent-native/events` 流式传输；轻量级轮询让无服务器、cron 和跨进程写入保持收敛。变更类 actions 会自动使 action 支持的查询失效，因此代理创建的记录无需手动刷新即可出现。参见下方的 [Live Sync](#polling-sync)。                                                                                               |
+| Auth、orgs、RBAC          | 每个模板都内置了带有 orgs/members/roles 的 Better Auth。参见 [Authentication](/docs/authentication)。如果不止一个用户，请从 [Organizations, Teams & Permissions](/docs/organizations-teams-permissions) 开始。                                                                                                                       |
+| 上下文感知                | 代理始终通过 `navigation` app-state 键知道用户正在查看什么。参见 [Context Awareness](/docs/context-awareness)。                                                                                                                                                                                                                      |
+| MCP 客户端 + 服务器，双向 | 该应用摄取 MCP 服务器（本地、远程、hub 共享的），*同时*也将自己的 actions 暴露为一个 MCP 服务器。参见 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。                                                                                                                                                       |
+| 跨应用委托                | 不同应用中的代理通过 [A2A](/docs/a2a-protocol) 通信。同源部署跳过 JWT；跨域部署使用共享的 `A2A_SECRET`。                                                                                                                                                                                                                             |
+| 子代理团队                | 生成一个拥有自己线程和工具的子代理，以聊天内联芯片的形式呈现。参见 [Agent Teams](/docs/agent-teams)。                                                                                                                                                                                                                                |
+| 可移植性                  | 任何 Drizzle 支持的 SQL 数据库，任何 Nitro 兼容的主机（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。                                                                                                                                                                                                                         |
 
 ## SQL 中的数据 {#data-in-sql}
 
@@ -184,9 +184,7 @@ Core 的 SQL 存储会自动创建，并在每个模板中可用：
 <DataModel
   id="doc-block-4w0fu8"
   title="Core 的 SQL 存储"
-  summary={
-    "在每个模板中自动创建。代理和 UI 都会读写这些数据。"
-  }
+  summary={"在每个模板中自动创建。代理和 UI 都会读写这些数据。"}
   entities={[
     {
       id: "application_state",
@@ -386,9 +384,7 @@ useDbSync({ queryClient });
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    变更事件<br /><small class="diagram-muted"
-      >source: action / settings</small
-    >
+    变更事件<br /><small class="diagram-muted">source: action / settings</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center">

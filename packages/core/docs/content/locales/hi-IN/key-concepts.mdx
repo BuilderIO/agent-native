@@ -11,11 +11,11 @@ description: "agent-native ऐप्स तीन लेयर्स में �
 
 Agent Native तीन लेयर्स वाला एक framework है:
 
-| लेयर                                        | यह क्या है                                                                                                                                                                              |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core: framework**                          | मूल runtime contract: actions, SQL और Drizzle helpers, auth, application state, agent execution, access checks, routing, और live sync। हर ऐप सीधे Core का उपयोग कर सकता है।           |
-| **Toolkit: वैकल्पिक reusable पीस**           | primitives, editors, sharing, collaboration, settings, और agent UX जैसे shared app-building UI और product systems। ऐप्स को जो पीस चाहिए उनका उपयोग, compose, या fork कर सकते हैं। |
-| **Templates: Core पर बने वैकल्पिक ऐप्स**     | routes, schema, actions, instructions, और visual identity वाले पूर्ण, डोमेन-specific ऐप्स। First-party और custom templates आमतौर पर Toolkit का उपयोग करते हैं, और starting points के रूप में fork करके इस्तेमाल किए जा सकते हैं। |
+| लेयर                                     | यह क्या है                                                                                                                                                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core: framework**                      | मूल runtime contract: actions, SQL और Drizzle helpers, auth, application state, agent execution, access checks, routing, और live sync। हर ऐप सीधे Core का उपयोग कर सकता है।                                                      |
+| **Toolkit: वैकल्पिक reusable पीस**       | primitives, editors, sharing, collaboration, settings, और agent UX जैसे shared app-building UI और product systems। ऐप्स को जो पीस चाहिए उनका उपयोग, compose, या fork कर सकते हैं।                                                |
+| **Templates: Core पर बने वैकल्पिक ऐप्स** | routes, schema, actions, instructions, और visual identity वाले पूर्ण, डोमेन-specific ऐप्स। First-party और custom templates आमतौर पर Toolkit का उपयोग करते हैं, और starting points के रूप में fork करके इस्तेमाल किए जा सकते हैं। |
 
 Core नींव है। Toolkit और Templates वैकल्पिक हैं: एक template Toolkit का उपयोग कर सकता है, लेकिन Core पर ऐप बनाने के लिए Toolkit ज़रूरी नहीं है।
 
@@ -37,7 +37,8 @@ Runtime पर, हर agent-native ऐप तीन चीज़ें है�
     <div class="diagram-card">
       <span class="diagram-pill accent">Agent</span
       ><small class="diagram-muted"
-        >data पढ़ता + लिखता है, actions चलाता है, configured tools का उपयोग करता है</small
+        >data पढ़ता + लिखता है, actions चलाता है, configured tools का उपयोग करता
+        है</small
       >
     </div>
     <div class="diagram-card">
@@ -117,11 +118,11 @@ Runtime पर, हर agent-native ऐप तीन चीज़ें है�
 
 एक turn agent के साथ एक exchange है: यह अपना context पढ़ता है, तय करता है कि क्या करना है, और respond करता है। हर turn में loaded होने का मतलब है कि file हर बार उस context में फिर से enter होती है, न कि सिर्फ़ session शुरू होने पर एक बार।
 
-| बिल्डिंग ब्लॉक   | File                              | इसके लिए उपयोग करें                                                                            | कब Load होता है                                        |
-| ----------------- | --------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| **Instructions**  | `AGENTS.md`                       | स्थिर मार्गदर्शन जिसे agent को हर task में साथ ले जाना चाहिए: ऐप क्या है, invariants, tone, indexes | हर turn                                                   |
-| **Skills**        | `.agents/skills/<name>/SKILL.md`  | Reusable व्यवहार: किसी workflow को कैसे follow करें, कोई policy कैसे apply करें, evidence कैसे inspect करें, या किसी output को कैसे verify करें | On demand, जब skill का description task से मेल खाए        |
-| **Actions**       | `actions/<name>.ts`               | असली operations: data पढ़ना या लिखना, APIs कॉल करना, messages भेजना, approvals चलाना, typed results produce करना | हर turn tools के रूप में listed; केवल तभी execute होते हैं जब call किए जाएं |
+| बिल्डिंग ब्लॉक   | File                             | इसके लिए उपयोग करें                                                                                                                             | कब Load होता है                                                             |
+| ---------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Instructions** | `AGENTS.md`                      | स्थिर मार्गदर्शन जिसे agent को हर task में साथ ले जाना चाहिए: ऐप क्या है, invariants, tone, indexes                                             | हर turn                                                                     |
+| **Skills**       | `.agents/skills/<name>/SKILL.md` | Reusable व्यवहार: किसी workflow को कैसे follow करें, कोई policy कैसे apply करें, evidence कैसे inspect करें, या किसी output को कैसे verify करें | On demand, जब skill का description task से मेल खाए                          |
+| **Actions**      | `actions/<name>.ts`              | असली operations: data पढ़ना या लिखना, APIs कॉल करना, messages भेजना, approvals चलाना, typed results produce करना                                | हर turn tools के रूप में listed; केवल तभी execute होते हैं जब call किए जाएं |
 
 Skills और actions साथ मिलकर काम करते हैं। एक skill agent को यह सिखाती है कि किसी class के काम को कैसे किया जाए; एक action वह code path है जिसे वह उस काम को करते समय call कर सकता है। उदाहरण के लिए, एक `customer-research` skill agent को बता सकती है कि किन sources को inspect करना है और evidence को कैसे summarize करना है, जबकि `search-crm` और `create-brief` actions असली data fetch और write करते हैं।
 
@@ -148,19 +149,19 @@ Skills और actions साथ मिलकर काम करते हैं
 
 Framework अपनाना मुख्यतः इसलिए valuable है क्योंकि आपको जो चीज़ें बनानी बंद हो जाती हैं। जैसे ही आपका ऐप ऊपर दिए पांच नियमों को follow करता है, आपको ये मिल जाता है:
 
-| Feature                               | आपको क्या मिलता है                                                                                                                                                                                                                                                                                                                       |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| एक action = हर surface                 | `defineAction()` से define की गई हर action एक साथ एक agent tool, एक typesafe frontend hook (`useActionQuery` / `useActionMutation`), एक framework-owned HTTP transport, एक CLI command, external clients के लिए एक MCP tool, और अन्य agent-native ऐप्स के लिए एक A2A tool होती है। वैकल्पिक `link` और `mcpApp` metadata बिना किसी दूसरे implementation के deep links और MCP Apps UI जोड़ देता है। |
-| प्रति user पूर्ण agent resources        | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, और connected MCP servers। सब कुछ SQL-backed है, किसी dev-box की ज़रूरत नहीं। देखें [Agent Resources](/docs/agent-resources)।                                                                                                    |
-| Drop-in React components               | `<AgentPanel />` और `<AgentSidebar />` आपके ऐप में कहीं भी chat + resources render करते हैं। देखें [Drop-in Agent](/docs/drop-in-agent)।                                                                                                                                                                                                     |
-| BYO agent chat runtimes                 | वही chat UI OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, या आपके अपने normalized HTTP stream के ऊपर बैठ सकता है। देखें [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes)।                                                                                                                                |
-| Agent और UI के बीच Live sync            | Same-process writes तुरंत `/_agent-native/events` पर stream होते हैं; एक lightweight poll serverless, cron, और cross-process writes को convergent रखती है। Mutating actions automatically action-backed queries को invalidate कर देती हैं, इसलिए agent द्वारा बनाए गए records बिना manual refresh के दिखाई देते हैं। नीचे देखें [Live Sync](#polling-sync)। |
-| Auth, orgs, RBAC                        | orgs/members/roles के साथ Better Auth हर template में wired है। देखें [Authentication](/docs/authentication)। एक से ज़्यादा user के लिए, शुरुआत करें [Organizations, Teams & Permissions](/docs/organizations-teams-permissions) से।                                                                                                       |
-| Context awareness                       | `navigation` app-state key के ज़रिए agent को हमेशा पता होता है कि user क्या देख रहा है। देखें [Context Awareness](/docs/context-awareness)।                                                                                                                                                                                                    |
-| MCP client + server, दोनों दिशाएं       | ऐप MCP servers (local, remote, hub-shared) को ingest करता है _और_ अपनी actions को एक MCP server के रूप में expose करता है। देखें [MCP Clients](/docs/mcp-clients) और [MCP Protocol](/docs/mcp-protocol)।                                                                                                                                    |
-| Inter-app delegation                    | अलग-अलग ऐप्स में agents [A2A](/docs/a2a-protocol) पर बात करते हैं। Same-origin deploys JWT को skip कर देते हैं; cross-origin एक shared `A2A_SECRET` का उपयोग करता है।                                                                                                                                                                        |
-| Sub-agent teams                         | अपने खुद के thread और tools के साथ एक sub-agent spawn करें, जो chat में inline एक chip के रूप में दिखता है। देखें [Agent Teams](/docs/agent-teams)।                                                                                                                                                                                            |
-| Portability                             | कोई भी Drizzle-supported SQL database, कोई भी Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun)।                                                                                                                                                                                                                     |
+| Feature                           | आपको क्या मिलता है                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| एक action = हर surface            | `defineAction()` से define की गई हर action एक साथ एक agent tool, एक typesafe frontend hook (`useActionQuery` / `useActionMutation`), एक framework-owned HTTP transport, एक CLI command, external clients के लिए एक MCP tool, और अन्य agent-native ऐप्स के लिए एक A2A tool होती है। वैकल्पिक `link` और `mcpApp` metadata बिना किसी दूसरे implementation के deep links और MCP Apps UI जोड़ देता है। |
+| प्रति user पूर्ण agent resources  | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, और connected MCP servers। सब कुछ SQL-backed है, किसी dev-box की ज़रूरत नहीं। देखें [Agent Resources](/docs/agent-resources)।                                                                                                                                                          |
+| Drop-in React components          | `<AgentPanel />` और `<AgentSidebar />` आपके ऐप में कहीं भी chat + resources render करते हैं। देखें [Drop-in Agent](/docs/drop-in-agent)।                                                                                                                                                                                                                                                          |
+| BYO agent chat runtimes           | वही chat UI OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, या आपके अपने normalized HTTP stream के ऊपर बैठ सकता है। देखें [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes)।                                                                                                                                                                                     |
+| Agent और UI के बीच Live sync      | Same-process writes तुरंत `/_agent-native/events` पर stream होते हैं; एक lightweight poll serverless, cron, और cross-process writes को convergent रखती है। Mutating actions automatically action-backed queries को invalidate कर देती हैं, इसलिए agent द्वारा बनाए गए records बिना manual refresh के दिखाई देते हैं। नीचे देखें [Live Sync](#polling-sync)।                                       |
+| Auth, orgs, RBAC                  | orgs/members/roles के साथ Better Auth हर template में wired है। देखें [Authentication](/docs/authentication)। एक से ज़्यादा user के लिए, शुरुआत करें [Organizations, Teams & Permissions](/docs/organizations-teams-permissions) से।                                                                                                                                                              |
+| Context awareness                 | `navigation` app-state key के ज़रिए agent को हमेशा पता होता है कि user क्या देख रहा है। देखें [Context Awareness](/docs/context-awareness)।                                                                                                                                                                                                                                                       |
+| MCP client + server, दोनों दिशाएं | ऐप MCP servers (local, remote, hub-shared) को ingest करता है _और_ अपनी actions को एक MCP server के रूप में expose करता है। देखें [MCP Clients](/docs/mcp-clients) और [MCP Protocol](/docs/mcp-protocol)।                                                                                                                                                                                          |
+| Inter-app delegation              | अलग-अलग ऐप्स में agents [A2A](/docs/a2a-protocol) पर बात करते हैं। Same-origin deploys JWT को skip कर देते हैं; cross-origin एक shared `A2A_SECRET` का उपयोग करता है।                                                                                                                                                                                                                             |
+| Sub-agent teams                   | अपने खुद के thread और tools के साथ एक sub-agent spawn करें, जो chat में inline एक chip के रूप में दिखता है। देखें [Agent Teams](/docs/agent-teams)।                                                                                                                                                                                                                                               |
+| Portability                       | कोई भी Drizzle-supported SQL database, कोई भी Nitro-compatible host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun)।                                                                                                                                                                                                                                                                          |
 
 ## SQL में Data {#data-in-sql}
 
@@ -391,7 +392,9 @@ Diagram उसी sequence को end to end trace करता है:
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-node">
-    Query refetch<br /><small class="diagram-muted">render, बिना reload के</small>
+    Query refetch<br /><small class="diagram-muted"
+      >render, बिना reload के</small
+    >
   </div>
 </div>
 ```
@@ -505,4 +508,3 @@ Chat, native inline UI, full app pages, embedded sidecar, automation, और ext
 Agent-to-agent communication।
 
 </Cards>
-</content>
