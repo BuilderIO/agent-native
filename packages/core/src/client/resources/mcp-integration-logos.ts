@@ -109,8 +109,26 @@ const LOGOS = {
   },
 } as const;
 
+const FALLBACK_MONOGRAMS = {
+  amplitude: "AM",
+  apollo: "AP",
+  "common-room": "CR",
+  exa: "EX",
+  gong: "GO",
+  grafana: "GF",
+  "google-workspace": "GW",
+  pylon: "PY",
+  "builder-cms": "B",
+} as const;
+
 export function mcpIntegrationLogo(id: string): string {
   const logo = LOGOS[id as keyof typeof LOGOS];
-  if (!logo) return "";
+  if (!logo) {
+    const label = FALLBACK_MONOGRAMS[id as keyof typeof FALLBACK_MONOGRAMS];
+    if (!label) return "";
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><text x="12" y="12" text-anchor="middle" dominant-baseline="central" font-family="Arial,sans-serif" font-size="${label.length > 1 ? 8 : 14}" font-weight="700" fill="currentColor">${label}</text></svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }
   return `data:${logo.mime};base64,${logo.data}`;
 }

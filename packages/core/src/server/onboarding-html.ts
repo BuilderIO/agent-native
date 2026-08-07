@@ -15,6 +15,7 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
+import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
 import { signInJourneyInlineScript } from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -92,7 +93,7 @@ const EN_AUTH_COPY = {
   email: "Email",
   password: "Password",
   confirmPassword: "Confirm password",
-  passwordMinPlaceholder: "At least 8 characters",
+  passwordMinPlaceholder: `At least ${PASSWORD_MIN_LENGTH} characters`,
   confirmPasswordPlaceholder: "Confirm password",
   enterPasswordPlaceholder: "Enter password",
   magicLinkTitle: "Welcome",
@@ -195,7 +196,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "电子邮箱",
     password: "密码",
     confirmPassword: "确认密码",
-    passwordMinPlaceholder: "至少 8 个字符",
+    passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 个字符`,
     confirmPasswordPlaceholder: "确认密码",
     enterPasswordPlaceholder: "输入密码",
     magicLinkTitle: "欢迎",
@@ -292,7 +293,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "電子郵件",
     password: "密碼",
     confirmPassword: "確認密碼",
-    passwordMinPlaceholder: "至少 8 個字元",
+    passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 個字元`,
     confirmPasswordPlaceholder: "確認密碼",
     enterPasswordPlaceholder: "輸入密碼",
     magicLinkTitle: "歡迎",
@@ -390,7 +391,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "Email",
     password: "Contraseña",
     confirmPassword: "Confirmar contraseña",
-    passwordMinPlaceholder: "Al menos 8 caracteres",
+    passwordMinPlaceholder: `Al menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar contraseña",
     enterPasswordPlaceholder: "Introduce la contraseña",
     magicLinkTitle: "Bienvenido",
@@ -495,7 +496,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "E-mail",
     password: "Mot de passe",
     confirmPassword: "Confirmer le mot de passe",
-    passwordMinPlaceholder: "Au moins 8 caractères",
+    passwordMinPlaceholder: `Au moins ${PASSWORD_MIN_LENGTH} caractères`,
     confirmPasswordPlaceholder: "Confirmer le mot de passe",
     enterPasswordPlaceholder: "Saisir le mot de passe",
     magicLinkTitle: "Bienvenue",
@@ -601,7 +602,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "E-Mail",
     password: "Passwort",
     confirmPassword: "Passwort bestätigen",
-    passwordMinPlaceholder: "Mindestens 8 Zeichen",
+    passwordMinPlaceholder: `Mindestens ${PASSWORD_MIN_LENGTH} Zeichen`,
     confirmPasswordPlaceholder: "Passwort bestätigen",
     enterPasswordPlaceholder: "Passwort eingeben",
     magicLinkTitle: "Willkommen",
@@ -707,7 +708,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "メール",
     password: "パスワード",
     confirmPassword: "パスワードを確認",
-    passwordMinPlaceholder: "8 文字以上",
+    passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} 文字以上`,
     confirmPasswordPlaceholder: "パスワードを確認",
     enterPasswordPlaceholder: "パスワードを入力",
     magicLinkTitle: "ようこそ",
@@ -812,7 +813,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "이메일",
     password: "비밀번호",
     confirmPassword: "비밀번호 확인",
-    passwordMinPlaceholder: "8자 이상",
+    passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH}자 이상`,
     confirmPasswordPlaceholder: "비밀번호 확인",
     enterPasswordPlaceholder: "비밀번호 입력",
     magicLinkTitle: "환영합니다",
@@ -912,7 +913,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "Email",
     password: "Senha",
     confirmPassword: "Confirmar senha",
-    passwordMinPlaceholder: "Pelo menos 8 caracteres",
+    passwordMinPlaceholder: `Pelo menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar senha",
     enterPasswordPlaceholder: "Digite a senha",
     magicLinkTitle: "Bem-vindo",
@@ -1016,7 +1017,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "ईमेल",
     password: "पासवर्ड",
     confirmPassword: "पासवर्ड की पुष्टि करें",
-    passwordMinPlaceholder: "कम से कम 8 अक्षर",
+    passwordMinPlaceholder: `कम से कम ${PASSWORD_MIN_LENGTH} अक्षर`,
     confirmPasswordPlaceholder: "पासवर्ड की पुष्टि करें",
     enterPasswordPlaceholder: "पासवर्ड दर्ज करें",
     magicLinkTitle: "स्वागत है",
@@ -1116,7 +1117,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     email: "البريد الإلكتروني",
     password: "كلمة المرور",
     confirmPassword: "تأكيد كلمة المرور",
-    passwordMinPlaceholder: "8 أحرف على الأقل",
+    passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} أحرف على الأقل`,
     confirmPasswordPlaceholder: "تأكيد كلمة المرور",
     enterPasswordPlaceholder: "أدخل كلمة المرور",
     magicLinkTitle: "مرحبًا",
@@ -2660,9 +2661,9 @@ ${
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
       <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
-    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="8" />
+    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
-    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="8" />
+    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
       <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
 ${signupLegalNoteHtml}
 ${signupLocalModeNoteHtml}
@@ -4257,9 +4258,9 @@ export function getResetPasswordHtml(): string {
   <p class="subtitle">Set a new password for your account.</p>
   <form id="reset-form">
     <label for="p1">New password</label>
-    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least 8 characters" required minlength="8" />
+    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" />
     <label for="p2">Confirm password</label>
-    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="8" />
+    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" />
     <button type="submit">Save new password</button>
     <p class="msg" id="msg"></p>
   </form>

@@ -113,7 +113,7 @@ describe("first-party BigQuery backend", () => {
   });
 
   it("uses separate indexed tenant branches for the backfill cursor", async () => {
-    execute.mockResolvedValueOnce({ rows: [] });
+    execute.mockResolvedValue({ rows: [] });
 
     await expect(
       backfillFirstPartyAnalyticsBatch(
@@ -124,16 +124,21 @@ describe("first-party BigQuery backend", () => {
       ),
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
-    const [query] = execute.mock.calls[0] ?? [];
-    expect(query.sql).toContain("UNION ALL");
-    expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
-    expect(query.sql).not.toContain("org_id = ? OR");
-    expect(query.sql).not.toContain("received_at > ?");
-    expect(query.args).toEqual(["org_builder", "owner@example.com", 25]);
+    expect(execute).toHaveBeenCalledTimes(2);
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    for (const query of [orgQuery, personalQuery]) {
+      expect(query.sql).toContain("SELECT id, received_at");
+      expect(query.sql).toContain("ORDER BY received_at ASC, id ASC LIMIT ?");
+      expect(query.sql).not.toContain("SELECT *");
+      expect(query.sql).not.toContain("UNION ALL");
+    }
+    expect(orgQuery.args).toEqual(["org_builder", 25]);
+    expect(personalQuery.args).toEqual(["owner@example.com", 25]);
   });
 
   it("applies the tuple cursor after the initial backfill batch", async () => {
-    execute.mockResolvedValueOnce({ rows: [] });
+    execute.mockResolvedValue({ rows: [] });
 
     await expect(
       backfillFirstPartyAnalyticsBatch(
@@ -147,19 +152,75 @@ describe("first-party BigQuery backend", () => {
       ),
     ).resolves.toMatchObject({ copied: 0, complete: true });
 
-    const [query] = execute.mock.calls[0] ?? [];
-    expect(query.sql).toContain("received_at > ?");
-    expect(query.args).toEqual([
+    expect(execute).toHaveBeenCalledTimes(2);
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    expect(orgQuery.sql).toContain("received_at > ?");
+    expect(personalQuery.sql).toContain("received_at > ?");
+    expect(orgQuery.args).toEqual([
       "org_builder",
       "2026-07-25T11:01:33.023Z",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
+      25,
+    ]);
+    expect(personalQuery.args).toEqual([
       "owner@example.com",
       "2026-07-25T11:01:33.023Z",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
       25,
     ]);
+  });
+
+  it("hydrates only the bounded indexed keys selected for a batch", async () => {
+    execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "org-event",
+            received_at: "2026-07-25T11:01:33.023Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "org-event",
+            public_key_id: "pk",
+            event_name: "page_view",
+            timestamp: "2026-07-25T11:01:33.023Z",
+            event_date: "2026-07-25",
+            received_at: "2026-07-25T11:01:33.023Z",
+            properties: "{}",
+            context: "{}",
+            owner_email: "owner@example.com",
+            org_id: "org_builder",
+          },
+        ],
+      });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        null,
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toMatchObject({ copied: 1, complete: true });
+
+    expect(execute).toHaveBeenCalledTimes(3);
+    const [hydrateQuery] = execute.mock.calls[2] ?? [];
+    expect(hydrateQuery.sql).toContain("SELECT id, public_key_id, event_name");
+    expect(hydrateQuery.sql).toContain("WHERE id IN (?)");
+    expect(hydrateQuery.args).toEqual(["org-event"]);
+    vi.unstubAllGlobals();
   });
 
   it("persists the cutover setting with its table and completion marker", async () => {

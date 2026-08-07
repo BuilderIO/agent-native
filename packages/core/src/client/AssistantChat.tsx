@@ -171,7 +171,6 @@ import {
   type Reference,
   type TiptapComposerHandle,
 } from "./composer/index.js";
-import { ContextMeter } from "./context-xray/ContextMeter.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import {
   useAgentDynamicSuggestionsResult,
@@ -5216,10 +5215,6 @@ const AssistantChatInner = forwardRef<
     !isComposerDisabled &&
     !showRunningInUI;
   const canImplementPlan = showPlanModeCallout && latestAssistantWasPlan;
-  const contextXRayEnabled = Boolean(
-    threadId &&
-    (messages.length > 0 || isReconnecting || reconnectContent.length > 0),
-  );
   const handleImplementPlan = useCallback(() => {
     onExecModeChange?.("build");
     void addToQueue(
@@ -5983,17 +5978,7 @@ const AssistantChatInner = forwardRef<
                                 draftScope={threadId || tabId}
                                 interceptBuildRequestsForBuilder
                                 onAttachmentError={setComposerError}
-                                extraActionButton={
-                                  contextXRayEnabled ||
-                                  composerExtraActionButton ? (
-                                    <>
-                                      {contextXRayEnabled && (
-                                        <ContextMeter threadId={threadId} />
-                                      )}
-                                      {composerExtraActionButton}
-                                    </>
-                                  ) : undefined
-                                }
+                                extraActionButton={composerExtraActionButton}
                                 stopButton={
                                   showRunningInUI ? (
                                     <Tooltip>

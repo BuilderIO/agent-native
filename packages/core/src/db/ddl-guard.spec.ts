@@ -85,7 +85,7 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    it("treat an unreadable information_schema as 'unknown' (false)", async () => {
+    it("keeps an unreadable information_schema distinct from an absent object", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists } = await import("./ddl-guard.js");
       const throwing = {
@@ -93,7 +93,7 @@ describe("ddl-guard", () => {
           throw new Error("permission denied for relation");
         },
       } as any;
-      expect(await pgTableExists("app_secrets", throwing)).toBe(false);
+      expect(await pgTableExists("app_secrets", throwing)).toBeUndefined();
     });
   });
 
@@ -210,6 +210,21 @@ describe("ddl-guard", () => {
   });
 
   describe("ensureSchemaObject (probe → guarded DDL → re-probe)", () => {
+    it("does not issue DDL when the existence probe is unavailable", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const { client, calls } = recordingClient();
+      await expect(
+        ensureSchemaObject({
+          probe: async () => undefined,
+          ddl: "ALTER TABLE resources ADD COLUMN thread_id TEXT",
+          label: "column resources.thread_id",
+          injectedClient: client,
+        }),
+      ).rejects.toThrow(/refusing to issue DDL/);
+      expect(calls).toEqual([]);
+    });
+
     it("skips DDL entirely when the object already exists (returns false)", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { ensureSchemaObject } = await import("./ddl-guard.js");

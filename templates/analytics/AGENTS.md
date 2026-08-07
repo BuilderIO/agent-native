@@ -9,8 +9,9 @@ another AI tool.
 
 Prompt cap: 6,000; put detail in `.agents/skills/*`.
 
-Before common workspace or agent UI, read `agent-native-toolkit`; use
-`customizing-agent-native` for configure → compose → eject → propose.
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+discover existing primitives and patterns. Read `customizing-agent-native`
+before adapting shared UI: configure → compose → eject → propose.
 
 ## How To Answer A Data Question
 

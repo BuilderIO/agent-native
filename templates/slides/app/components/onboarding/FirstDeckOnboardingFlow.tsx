@@ -29,6 +29,8 @@ import {
   type RecentReference,
 } from "@/lib/recent-references";
 
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+
 type FirstDeckStep = "prompt" | "references";
 
 export function FirstDeckOnboardingFlow({
@@ -303,6 +305,8 @@ export function FirstDeckOnboardingFlow({
             className="mt-8"
             autoFocus
             attachmentsEnabled
+            maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+            documentAttachmentLimitLabel="Slides reference files"
             disabled={uploading}
             placeholder={t("home.newDeckPlaceholder")}
             onSubmit={handlePromptSubmit}
