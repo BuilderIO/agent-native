@@ -5,7 +5,7 @@ description: "كيفية عمل تطبيقات agent-native عبر ثلاث طب
 
 # المفاهيم الأساسية
 
-كيفية عمل تطبيقات agent-native من الداخل: المبادئ والبنية المعمارية. هذه الصفحة هي العقد: القواعد الثابتة التي يجب أن يتبعها التطبيق ليُحسب agent-native. للاطلاع على الرؤية ومبرر البناء بهذه الطريقة، راجع [What Is Agent-Native?](/docs/what-is-agent-native).
+كيفية عمل تطبيقات agent-native من الداخل: المبادئ والبنية المعمارية. هذه الصفحة هي العقد: القواعد الثابتة التي يجب أن يتبعها التطبيق ليُحسب agent-native. للاطلاع على الرؤية ومبرر البناء بهذه الطريقة، راجع [ما هو Agent-Native؟](/docs/what-is-agent-native).
 
 ## الطبقات الثلاث {#three-layers}
 
@@ -276,7 +276,7 @@ export const forms = table("forms", {
 يمكنك أنت والوكيل معًا فحص تلك البيانات من الطرفية، دون الحاجة إلى عميل SQL منفصل:
 
 ```bash
-# Core actions for quick database inspection
+# إجراءات Core لفحص قاعدة البيانات بسرعة
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 ```
@@ -490,13 +490,13 @@ _الإطار (frame)_ هو البيئة التي تستضيف الوكيل بج
 
 - **[Dispatch](/docs/dispatch):** مستوى التحكم في مساحة العمل، مع بريد وارد مشترك، وخزنة أسرار، ومهام مجدولة، ومنسِّق يفوِّض إلى تطبيقات متخصصة عبر A2A.
 - **[Extensions](/docs/extensions):** تطبيقات Alpine.js مصغَّرة معزولة (sandboxed) ينشئها الوكيل في وقت التشغيل، دون تغييرات في الكود المصدري أو عمليات ترحيل.
-- **[A2A Protocol](/docs/a2a-protocol):** كيف تكتشف التطبيقات في نفس مساحة العمل بعضها البعض وتستدعيه عبر JSON-RPC.
+- **[بروتوكول A2A](/docs/a2a-protocol):** كيف تكتشف التطبيقات في نفس مساحة العمل بعضها البعض وتستدعيه عبر JSON-RPC.
 
 ## الخطوات التالية {#deep-dives}
 
 <Cards>
 
-### [What Is Agent-Native?](/docs/what-is-agent-native)
+### [ما هو Agent-Native؟](/docs/what-is-agent-native)
 
 الرؤية والفلسفة الكامنتان وراء هذه القواعد.
 
@@ -516,7 +516,7 @@ _الإطار (frame)_ هو البيئة التي تستضيف الوكيل بج
 
 الدردشة، وUI مضمَّن أصلي، وصفحات تطبيق كاملة، وsidecar مضمَّن، وأتمتة، ومسارات الوكيل الخارجي.
 
-### [A2A Protocol](/docs/a2a-protocol)
+### [بروتوكول A2A](/docs/a2a-protocol)
 
 التواصل من وكيل إلى وكيل.
 

@@ -5,7 +5,7 @@ description: "代理本机应用如何在三层架构中运作：Core 框架、�
 
 # 关键概念
 
-代理本机应用在幕后如何运作：原则与架构。此页是契约：一个应用要被视为代理本机应用，必须遵循的固定规则。关于这种构建方式背后的愿景与理由，请参阅 [What Is Agent-Native?](/docs/what-is-agent-native)。
+代理本机应用在幕后如何运作：原则与架构。此页是契约：一个应用要被视为代理本机应用，必须遵循的固定规则。关于这种构建方式背后的愿景与理由，请参阅 [什么是 Agent-Native？](/docs/what-is-agent-native)。
 
 ## 三个层次 {#three-layers}
 
@@ -159,10 +159,10 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 | 一个 action = 每个表面    | 使用 `defineAction()` 定义的每个 action 同时是一个代理工具、一个类型安全的前端 hook（`useActionQuery` / `useActionMutation`）、一个框架自有的 HTTP 传输、一个 CLI 命令、一个供外部客户端使用的 MCP 工具，以及一个供其他代理本机应用使用的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据无需第二次实现，即可添加深层链接和 MCP Apps UI。 |
 | 每个用户的完整代理资源    | Skills、共享的 `LEARNINGS.md`、个人的 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划任务，以及已连接的 MCP 服务器。全部由 SQL 支撑，无需开发机。参见 [Agent Resources](/docs/agent-resources)。                                                                                                                                 |
 | 开箱即用的 React 组件     | `<AgentPanel />` 和 `<AgentSidebar />` 可以在你应用的任意位置渲染聊天 + 资源。参见 [Drop-in Agent](/docs/drop-in-agent)。                                                                                                                                                                                                            |
-| BYO 代理聊天运行时        | 同一个聊天 UI 可以架在 OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI，或者你自己的规范化 HTTP 流之上。参见 [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes)。                                                                                                                                     |
+| BYO 代理聊天运行时        | 同一个聊天 UI 可以架在 OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI，或者你自己的规范化 HTTP 流之上。参见 [原生聊天 UI](/docs/native-chat-ui#byo-agent-runtimes)。                                                                                                                                        |
 | 代理和 UI 之间的实时同步  | 同进程写入会立即通过 `/_agent-native/events` 流式传输；轻量级轮询让无服务器、cron 和跨进程写入保持收敛。变更类 actions 会自动使 action 支持的查询失效，因此代理创建的记录无需手动刷新即可出现。参见下方的 [Live Sync](#polling-sync)。                                                                                               |
 | Auth、orgs、RBAC          | 每个模板都内置了带有 orgs/members/roles 的 Better Auth。参见 [Authentication](/docs/authentication)。如果不止一个用户，请从 [Organizations, Teams & Permissions](/docs/organizations-teams-permissions) 开始。                                                                                                                       |
-| 上下文感知                | 代理始终通过 `navigation` app-state 键知道用户正在查看什么。参见 [Context Awareness](/docs/context-awareness)。                                                                                                                                                                                                                      |
+| 上下文感知                | 代理始终通过 `navigation` app-state 键知道用户正在查看什么。参见 [情境意识](/docs/context-awareness)。                                                                                                                                                                                                                               |
 | MCP 客户端 + 服务器，双向 | 该应用摄取 MCP 服务器（本地、远程、hub 共享的），*同时*也将自己的 actions 暴露为一个 MCP 服务器。参见 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。                                                                                                                                                       |
 | 跨应用委托                | 不同应用中的代理通过 [A2A](/docs/a2a-protocol) 通信。同源部署跳过 JWT；跨域部署使用共享的 `A2A_SECRET`。                                                                                                                                                                                                                             |
 | 子代理团队                | 生成一个拥有自己线程和工具的子代理，以聊天内联芯片的形式呈现。参见 [Agent Teams](/docs/agent-teams)。                                                                                                                                                                                                                                |
@@ -273,7 +273,7 @@ export const forms = table("forms", {
 你和代理都可以直接从终端检查这些数据，无需单独的 SQL 客户端：
 
 ```bash
-# Core actions for quick database inspection
+# 用于快速检查数据库的 Core actions
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 ```
@@ -447,13 +447,13 @@ UI 会在路由变化时写入这条数据；代理在采取任何行动之前�
 
 </Callout>
 
-完整模式请见 [Context Awareness](/docs/context-awareness)：导航状态、view-screen、navigate 命令，以及防抖动机制。
+完整模式请见 [情境意识](/docs/context-awareness)：导航状态、view-screen、navigate 命令，以及防抖动机制。
 
 ## 一个 action，多个表面 {#protocols}
 
 把一个领域操作实现为一个 action，只需一次；框架会将它暴露给每一个消费者。同一个 `defineAction()` 会变成一个代理工具、一个类型安全的 UI hook、一个 HTTP 端点、一个 CLI 命令、一个 MCP 工具和一个 A2A 工具，只有当某个表面需要更丰富的交互时，才会额外添加可选的 `link`、`mcpApp`、原生小部件元数据，或 Generative UI 包装器。Skills 和指令负责覆盖行为部分。
 
-完整的协议/表面矩阵（MCP 服务器与 OAuth、MCP Apps、A2A、深层链接、原生聊天小部件、Generative UI、AgentChatRuntime 连接器、Agent Web，以及面向 ACP 和 A2UI 的适配器展望），以及如何选择产品形态（聊天、内联 UI、完整应用页面、嵌入式 sidecar、自动化，或外部代理访问），请见 [Agent Surfaces](/docs/agent-surfaces)。
+完整的协议/表面矩阵（MCP 服务器与 OAuth、MCP Apps、A2A、深层链接、原生聊天小部件、Generative UI、AgentChatRuntime 连接器、Agent Web，以及面向 ACP 和 A2UI 的适配器展望），以及如何选择产品形态（聊天、内联 UI、完整应用页面、嵌入式 sidecar、自动化，或外部代理访问），请见 [Agent 界面](/docs/agent-surfaces)。
 
 ## 应用代码与定制 {#agent-modifies-code}
 
@@ -476,33 +476,33 @@ UI 会在路由变化时写入这条数据；代理在采取任何行动之前�
 
 - **[Dispatch](/docs/dispatch)：** 工作区控制平面，具有共享收件箱、secrets vault、计划任务，以及一个通过 A2A 将工作委托给专项应用的编排器。
 - **[Extensions](/docs/extensions)：** 代理在运行时创建的沙盒化 Alpine.js 迷你应用，无需修改源代码或迁移。
-- **[A2A Protocol](/docs/a2a-protocol)：** 同一工作区内的应用如何通过 JSON-RPC 相互发现并调用。
+- **[A2A协议](/docs/a2a-protocol)：** 同一工作区内的应用如何通过 JSON-RPC 相互发现并调用。
 
 ## 下一步 {#deep-dives}
 
 <Cards>
 
-### [What Is Agent-Native?](/docs/what-is-agent-native)
+### [什么是 Agent-Native？](/docs/what-is-agent-native)
 
 这些规则背后的愿景和理念。
 
-### [Context Awareness](/docs/context-awareness)
+### [情境意识](/docs/context-awareness)
 
 深入介绍导航状态、view-screen 和 navigate 命令。
 
-### [Skills Guide](/docs/skills-guide)
+### [Skills指南](/docs/skills-guide)
 
 框架 skills、领域 skills，以及创建自定义 skills。
 
-### [Native Chat UI](/docs/native-chat-ui)
+### [原生聊天 UI](/docs/native-chat-ui)
 
 由 action 声明的表格、图表，以及 BYO 运行时定位。
 
-### [Agent Surfaces](/docs/agent-surfaces)
+### [Agent 界面](/docs/agent-surfaces)
 
 聊天、原生内联 UI、完整应用页面、嵌入式 sidecar、自动化，以及外部代理路径。
 
-### [A2A Protocol](/docs/a2a-protocol)
+### [A2A协议](/docs/a2a-protocol)
 
 代理间通信。
 

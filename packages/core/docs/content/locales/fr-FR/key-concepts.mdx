@@ -5,7 +5,7 @@ description: "Comment les applications agent-native fonctionnent à travers troi
 
 # Concepts clés
 
-Fonctionnement des applications agent-native en coulisses : les principes et l'architecture. Cette page est le contrat : les règles fixes qu'une application doit respecter pour être considérée comme agent-native. Pour la vision et les arguments en faveur de cette approche, voir [What Is Agent-Native?](/docs/what-is-agent-native).
+Fonctionnement des applications agent-native en coulisses : les principes et l'architecture. Cette page est le contrat : les règles fixes qu'une application doit respecter pour être considérée comme agent-native. Pour la vision et les arguments en faveur de cette approche, voir [Qu'est-ce qu'Agent-Native ?](/docs/what-is-agent-native).
 
 ## Les trois couches {#three-layers}
 
@@ -160,10 +160,10 @@ Adopter le framework est utile surtout pour ce que vous arrêtez de devoir const
 | Une action = toutes les surfaces                | Chaque action définie avec `defineAction()` est simultanément un outil d'agent, un hook frontend typesafe (`useActionQuery` / `useActionMutation`), un transport HTTP appartenant au framework, une commande CLI, un outil MCP pour les clients externes, et un outil A2A pour les autres applications agent-native. Les métadonnées facultatives `link` et `mcpApp` ajoutent des liens profonds et une UI MCP Apps sans seconde implémentation. |
 | Ressources d'agent complètes par utilisateur    | Skills, `LEARNINGS.md` partagé, `memory/MEMORY.md` personnel, `AGENTS.md`, sous-agents personnalisés, jobs planifiés et serveurs MCP connectés. Le tout adossé à SQL, sans machine de développement nécessaire. Voir [Agent Resources](/docs/agent-resources).                                                                                                                                                                                   |
 | Composants React prêts à l'emploi               | `<AgentPanel />` et `<AgentSidebar />` affichent le chat et les ressources n'importe où dans votre application. Voir [Drop-in Agent](/docs/drop-in-agent).                                                                                                                                                                                                                                                                                       |
-| Environnements d'exécution de chat d'agent BYO  | La même UI de chat peut reposer sur OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, ou votre propre flux HTTP normalisé. Voir [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).                                                                                                                                                                                                                                |
+| Environnements d'exécution de chat d'agent BYO  | La même UI de chat peut reposer sur OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, ou votre propre flux HTTP normalisé. Voir [Chat natif UI](/docs/native-chat-ui#byo-agent-runtimes).                                                                                                                                                                                                                                 |
 | Synchronisation en direct entre l'agent et l'UI | Les écritures dans le même processus sont diffusées immédiatement via `/_agent-native/events` ; une interrogation légère maintient la convergence des écritures serverless, cron et inter-processus. Les actions de mutation invalident automatiquement les requêtes adossées aux actions, si bien que les enregistrements créés par l'agent apparaissent sans actualisation manuelle. Voir [Live Sync](#polling-sync) ci-dessous.               |
 | Auth, organisations, RBAC                       | Better Auth avec organisations/membres/rôles est intégré pour chaque template. Voir [Authentication](/docs/authentication). Pour plus d'un utilisateur, commencez par [Organizations, Teams & Permissions](/docs/organizations-teams-permissions).                                                                                                                                                                                               |
-| Conscience du contexte                          | L'agent sait toujours ce que l'utilisateur regarde grâce à la clé d'app-state `navigation`. Voir [Context Awareness](/docs/context-awareness).                                                                                                                                                                                                                                                                                                   |
+| Conscience du contexte                          | L'agent sait toujours ce que l'utilisateur regarde grâce à la clé d'app-state `navigation`. Voir [Conscience du contexte](/docs/context-awareness).                                                                                                                                                                                                                                                                                              |
 | Client + serveur MCP, dans les deux sens        | L'application ingère des serveurs MCP (locaux, distants, partagés par hub) _et_ expose ses propres actions en tant que serveur MCP. Voir [MCP Clients](/docs/mcp-clients) et [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                                                 |
 | Délégation inter-applications                   | Les agents de différentes applications communiquent via [A2A](/docs/a2a-protocol). Les déploiements de même origine se passent de JWT ; l'origine croisée utilise un `A2A_SECRET` partagé.                                                                                                                                                                                                                                                       |
 | Équipes de sous-agents                          | Générez un sous-agent avec son propre fil et ses propres outils, présenté sous forme de puce en ligne dans le chat. Voir [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                                                       |
@@ -276,7 +276,7 @@ export const forms = table("forms", {
 Vous et l'agent pouvez tous deux inspecter ces données depuis le terminal, sans client SQL séparé :
 
 ```bash
-# Core actions for quick database inspection
+# Actions Core pour une inspection rapide de la base de données
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
 ```
@@ -454,13 +454,13 @@ L'UI écrit ceci à chaque changement de route ; l'agent la lit (via `view-scree
 
 </Callout>
 
-Voir [Context Awareness](/docs/context-awareness) pour le pattern complet : état de navigation, view-screen, commandes navigate et prévention du jitter.
+Voir [Conscience du contexte](/docs/context-awareness) pour le pattern complet : état de navigation, view-screen, commandes navigate et prévention du jitter.
 
 ## Une action, plusieurs surfaces {#protocols}
 
 Implémentez une opération de domaine une seule fois sous forme d'action ; le framework l'expose à tous les consommateurs. Le même `defineAction()` devient un outil d'agent, un hook UI typesafe, un endpoint HTTP, une commande CLI, un outil MCP et un outil A2A, avec des métadonnées optionnelles `link`, `mcpApp`, de widget natif, ou des wrappers Generative UI ajoutés uniquement lorsqu'une surface a besoin d'une interaction plus riche. Les skills et les instructions couvrent le comportement.
 
-Pour la matrice complète des protocoles/surfaces (serveur MCP et OAuth, MCP Apps, A2A, liens profonds, widgets de chat natifs, Generative UI, connecteurs AgentChatRuntime, Agent Web, et l'horizon d'adaptateurs pour ACP et A2UI), et pour choisir une forme de produit (chat, UI en ligne, pages d'application complètes, sidecar intégré, automatisation ou accès agent externe), voir [Agent Surfaces](/docs/agent-surfaces).
+Pour la matrice complète des protocoles/surfaces (serveur MCP et OAuth, MCP Apps, A2A, liens profonds, widgets de chat natifs, Generative UI, connecteurs AgentChatRuntime, Agent Web, et l'horizon d'adaptateurs pour ACP et A2UI), et pour choisir une forme de produit (chat, UI en ligne, pages d'application complètes, sidecar intégré, automatisation ou accès agent externe), voir [Surfaces d'agent](/docs/agent-surfaces).
 
 ## Code de l'application et personnalisation {#agent-modifies-code}
 
@@ -483,33 +483,33 @@ Ceux-ci reposent sur le même contrat et ont leurs propres approfondissements :
 
 - **[Dispatch](/docs/dispatch) :** le plan de contrôle de l'espace de travail, avec une boîte de réception partagée, un coffre-fort de secrets, des jobs planifiés et un orchestrateur qui délègue à des applications spécialisées via A2A.
 - **[Extensions](/docs/extensions) :** mini-applications Alpine.js en bac à sable que l'agent crée à l'exécution, sans modification du code source ni migrations.
-- **[A2A Protocol](/docs/a2a-protocol) :** comment les applications d'un même espace de travail se découvrent et s'appellent mutuellement via JSON-RPC.
+- **[Protocole A2A](/docs/a2a-protocol) :** comment les applications d'un même espace de travail se découvrent et s'appellent mutuellement via JSON-RPC.
 
 ## Et ensuite {#deep-dives}
 
 <Cards>
 
-### [What Is Agent-Native?](/docs/what-is-agent-native)
+### [Qu'est-ce qu'Agent-Native ?](/docs/what-is-agent-native)
 
 La vision et la philosophie derrière ces règles.
 
-### [Context Awareness](/docs/context-awareness)
+### [Conscience du contexte](/docs/context-awareness)
 
 État de navigation, view-screen et commandes navigate en détail.
 
-### [Skills Guide](/docs/skills-guide)
+### [Guide Skills](/docs/skills-guide)
 
 Skills du framework, skills de domaine, et création de skills personnalisés.
 
-### [Native Chat UI](/docs/native-chat-ui)
+### [Chat natif UI](/docs/native-chat-ui)
 
 Tableaux et graphiques déclarés par les actions, et posture d'exécution BYO.
 
-### [Agent Surfaces](/docs/agent-surfaces)
+### [Surfaces d'agent](/docs/agent-surfaces)
 
 Chat, UI native en ligne, pages d'application complètes, sidecar intégré, automatisation et parcours d'agent externe.
 
-### [A2A Protocol](/docs/a2a-protocol)
+### [Protocole A2A](/docs/a2a-protocol)
 
 Communication agent à agent.
 
