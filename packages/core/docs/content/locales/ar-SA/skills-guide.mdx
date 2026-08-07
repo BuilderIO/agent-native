@@ -124,6 +124,8 @@ Skills موجود في `.agents/skills/<name>/SKILL.md` ويحتوي على إر
 
 **التفاصيل الكاملة أدناه:** يتم تغطية آليات skills المدعومة بالتطبيق (تنسيق البيان، وأوامر CLI، ومحولات السوق، وتجزئة التحديث التلقائي) في [App-backed skills — full details](#app-backed-skills-full).
 
+تُصدر حزم `app-skill` أيضًا ملفات Agent Plugin قياسية. استخدم `agent-native plugin import <path> --into <workspace> --yes` لاستيراد Skills وMCP البعيدة عبر Streamable HTTP؛ يتم تجاهل الرؤوس، بينما يتم الإبلاغ عن خوادم stdio وSSE وتخطيها.
+
 </Callout>
 
 ## إنشاء skills مخصص {#creating-skills}

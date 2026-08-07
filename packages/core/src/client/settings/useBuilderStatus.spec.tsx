@@ -226,7 +226,7 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(fetch).toHaveBeenCalledWith(
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
       "http://localhost:3000/_agent-native/connection-status/builder",
     );
   });

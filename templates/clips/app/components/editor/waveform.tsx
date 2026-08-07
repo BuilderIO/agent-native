@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 import type { FilmstripFrame, FilmstripSprite } from "@/lib/video-filmstrip";
 import type { WaveformPeaks } from "@/lib/waveform-peaks";
 
+import { getTimelineTotalWidth } from "./timeline-geometry";
+
 export interface WaveformProps {
   /** Peaks computed via `computePeaks()`. */
   peaks: WaveformPeaks | null;
@@ -64,7 +66,6 @@ const VISUAL_MAX_GAIN = 24;
 const VISUAL_GAIN_PERCENTILE = 0.95;
 const VISUAL_SILENCE_FLOOR = 0.001;
 
-const MAX_BASE_TRACK_WIDTH = 8192;
 const MAX_CANVAS_PIXELS_WIDTH = 4096;
 
 function clampSample(value: number): number {
@@ -128,22 +129,8 @@ export function Waveform({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const baseTrackWidth = useMemo(() => {
-    if (durationMs <= 0 || width <= 0) return width;
-    const durationSec = durationMs / 1000;
-    // Scale timeline track width proportionally with duration so long videos don't squish (bounded to safe max allocation)
-    const durationScaledPx = Math.min(
-      MAX_BASE_TRACK_WIDTH,
-      Math.round(durationSec * 14),
-    );
-    return Math.max(width, durationScaledPx);
-  }, [durationMs, width]);
-
-  // The total drawable width (scrolls horizontally). Scales with duration and zoom.
-  const totalWidth = Math.max(
-    baseTrackWidth,
-    Math.floor(baseTrackWidth * Math.max(1, zoom)),
-  );
+  // Zoom is the only source of overflow. At 1x the entire track fits the viewport.
+  const totalWidth = getTimelineTotalWidth(width, zoom);
 
   // A sprite has a fixed frame count, but the track needs however many cells
   // fit at the video's aspect — otherwise cells go portrait and each thumbnail

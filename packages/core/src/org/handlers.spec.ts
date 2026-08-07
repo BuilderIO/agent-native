@@ -55,7 +55,17 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 
 import { putUserSetting } from "../settings/user-settings.js";
-import { listMembersHandler, deleteOrgHandler } from "./handlers.js";
+import {
+  listMembersHandler,
+  deleteOrgHandler,
+  changeMemberRoleHandler,
+  updateOrgHandler,
+  setDomainHandler,
+} from "./handlers.js";
+import {
+  cachedMemberships,
+  __resetProcessMemberOrgCacheForTests,
+} from "./request-org-cache.js";
 
 function makeEvent(path: string, body?: unknown) {
   return { _url: `https://app.example.test${path}`, _body: body } as any;
@@ -216,6 +226,67 @@ describe("org handlers", () => {
         deleteOrgHandler(makeEvent("/_agent-native/org", { name: "Example" })),
       ).rejects.toMatchObject({ statusCode: 400 });
       expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
+  // `cachedMemberships` holds a JOIN of org_members and organizations for 15s
+  // across requests. Anything that edits a column inside that projection —
+  // `role`, `name`, `allowed_domain` — must evict it, or the process keeps
+  // authorizing and rendering from the pre-write snapshot until the TTL lapses.
+  describe("membership cache invalidation", () => {
+    function seedCachedMemberships() {
+      const load = vi.fn(async () => [{ orgId: "org-1", role: "admin" }]);
+      return {
+        load,
+        prime: () => cachedMemberships("member@example.test", load),
+      };
+    }
+
+    beforeEach(() => {
+      __resetProcessMemberOrgCacheForTests();
+    });
+
+    it("evicts the cached role when a member is demoted", async () => {
+      const { load, prime } = seedCachedMemberships();
+      await prime();
+      await prime();
+      expect(load).toHaveBeenCalledTimes(1);
+
+      mockExecute.mockResolvedValue({ rows: [{ role: "admin" }] });
+      await changeMemberRoleHandler(
+        makeEvent("/_agent-native/org/members/member@example.test/role", {
+          role: "member",
+        }),
+      );
+
+      await prime();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it("evicts the cached org name when the org is renamed", async () => {
+      const { load, prime } = seedCachedMemberships();
+      await prime();
+      expect(load).toHaveBeenCalledTimes(1);
+
+      await updateOrgHandler(
+        makeEvent("/_agent-native/org", { name: "Renamed" }),
+      );
+
+      await prime();
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+
+    it("evicts the cached allowed domain when domain auto-join is set", async () => {
+      const { load, prime } = seedCachedMemberships();
+      await prime();
+      expect(load).toHaveBeenCalledTimes(1);
+
+      await setDomainHandler(
+        makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+      );
+
+      await prime();
+      expect(load).toHaveBeenCalledTimes(2);
     });
   });
 });

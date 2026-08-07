@@ -9,7 +9,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -1425,6 +1425,20 @@ const runAnalyticsMigrations = runMigrations(
         sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_idx ON analytics_events (org_id, received_at, id); CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_idx ON analytics_events (owner_email, received_at, id) WHERE org_id IS NULL`,
       },
     },
+    {
+      version: 137,
+      name: "dashboard-name-locks",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_name_locks (
+          name_key TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1456,18 +1470,34 @@ export default async (nitroApp: any): Promise<void> => {
     );
     return;
   }
-  await runAnalyticsMigrations(nitroApp);
-  try {
-    if (await repairPersistedFirstPartyDashboardQueries()) {
-      console.info(
-        "[db] Repaired bounded recurring-user queries on the canonical first-party dashboard.",
-      );
-    }
-  } catch (err) {
-    console.warn(
-      "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
-      err instanceof Error ? err.message : err,
+  const isNetlifyServerlessRuntime =
+    isProductionServerlessRuntime() ||
+    process.env.NETLIFY === "true" ||
+    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT);
+  if (
+    isNetlifyServerlessRuntime &&
+    process.env.ANALYTICS_SKIP_BOOT_MIGRATIONS === "1"
+  ) {
+    console.info(
+      "[db] Skipping Analytics migrations in production serverless runtime by explicit incident flag",
     );
+    return;
+  }
+  // The schema must exist before the first query. Measured cost on this
+  // database (180 tables): ~5.5s for the version check alone, which is why the
+  // serverless runtime skips this entirely via ANALYTICS_SKIP_BOOT_MIGRATIONS
+  // above rather than paying it on every cold start.
+  // guard:allow-boot-data-work — schema must exist before the first query
+  await runAnalyticsMigrations(nitroApp);
+  if (isNetlifyServerlessRuntime) {
+    // The migration list is authoritative; repeating repair and schema
+    // introspection on every function cold start only adds pool pressure.
+    console.info(
+      "[db] Skipping post-migration schema convergence in production serverless runtime",
+    );
+    return;
   }
   try {
     const summary = await ensureAdditiveColumns({

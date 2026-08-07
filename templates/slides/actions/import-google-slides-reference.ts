@@ -302,7 +302,7 @@ export default defineAction({
     const connection = await getGoogleDocsAccessToken(owner);
     if (!connection) {
       throw new Error(
-        "Connect Google Docs before importing a Google Slides deck.",
+        "Google Drive is not connected. Use the Connect Google button in Slides, then try again.",
       );
     }
 

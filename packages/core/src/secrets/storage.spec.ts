@@ -174,9 +174,13 @@ describe("secrets storage bootstrap", () => {
     expect(createSql).toContain("BIGINT");
     expect(createSql).not.toMatch(/\bINTEGER\b/);
 
-    // The first statement is the cheap existence probe, not DDL — proving the
-    // hot path takes no ACCESS EXCLUSIVE lock when the schema already exists.
-    expect(allSql[0]).toContain("information_schema.tables");
+    // The first statement is a lock-free introspection read, not DDL — proving
+    // the hot path takes no ACCESS EXCLUSIVE lock when the schema already
+    // exists. Existence is now resolved from one batched introspection pass per
+    // database (information_schema.columns + pg_indexes) rather than a query per
+    // object, so this asserts the property, not the exact statement.
+    expect(allSql[0]).toMatch(/information_schema|pg_indexes/);
+    expect(allSql[0]).not.toMatch(/CREATE|ALTER|DROP/i);
   });
 
   it("skips all DDL on Postgres when the table and columns already exist", async () => {

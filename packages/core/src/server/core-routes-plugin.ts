@@ -105,6 +105,7 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { readBrowserSessionIdHeader } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
@@ -194,6 +195,7 @@ import {
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
@@ -451,6 +453,13 @@ export function getFrameworkEnvKeys(): EnvKeyConfig[] {
 }
 
 /** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
+/**
+ * Deliberately generous: a genuinely cold Neon compute can take seconds to
+ * accept its first connection, and reporting a slow-but-working database as
+ * timed out would flap. This is a ceiling on hanging, not a latency budget.
+ */
+const DB_HEALTH_PROBE_DEADLINE_MS = 5_000;
+
 export interface DbHealthProbeResult {
   /** The serverless function is live and served the request. */
   ok: true;
@@ -458,6 +467,14 @@ export interface DbHealthProbeResult {
   ready: boolean;
   /** A trivial `SELECT 1` reached the database (false = no DB or unreachable). */
   db: boolean;
+  /**
+   * The probe hit its deadline instead of answering. Reported SEPARATELY from
+   * `db: false`, because "the database said no" and "the database never
+   * replied" are different failures and folding them together is exactly the
+   * coercion this repo bans — a monitor cannot tell an app with no database
+   * from one whose database is hanging.
+   */
+  dbTimedOut?: boolean;
   /** Round-trip time of the probe in milliseconds. */
   ms: number;
   /** Redacted database routing details useful for deploy/runtime checks. */
@@ -492,11 +509,29 @@ export async function runDbHealthProbe(
   let db = false;
   let schema: DatabaseSchemaHealthResult | undefined;
   const dbExec = exec();
+  let dbTimedOut = false;
   try {
-    await dbExec.execute("SELECT 1");
-    db = true;
-  } catch {
+    // An UNBOUNDED await here is what took the docs site down: the health route
+    // hung for 20-40s until the CDN returned 502, the keep-warm cron failed
+    // every minute, and the function stayed permanently cold — a ~10x penalty
+    // on every cache miss. This function's own contract says "Always
+    // resolves"; without a deadline it did not.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("db probe deadline")),
+        DB_HEALTH_PROBE_DEADLINE_MS,
+      );
+    });
+    try {
+      await Promise.race([dbExec.execute("SELECT 1"), deadline]);
+      db = true;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  } catch (err) {
     // Live even when the DB is unreachable or the app has no database.
+    dbTimedOut = (err as Error)?.message === "db probe deadline";
   }
   if (db && options.schema) {
     schema = await runDatabaseSchemaHealthCheck({
@@ -508,6 +543,7 @@ export async function runDbHealthProbe(
     ok: true,
     ready: db && (!schema || schema.ok),
     db,
+    ...(dbTimedOut ? { dbTimedOut: true } : {}),
     ms: Date.now() - startedAt,
     database: {
       configured: database.configured,
@@ -1865,6 +1901,7 @@ export function createCoreRoutesPlugin(
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
       (() => {
+        if (shouldDisableInProcessSweeps()) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
@@ -3558,6 +3595,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              sessionId: readBrowserSessionIdHeader(event),
             });
           } catch {
             // best-effort

@@ -38,6 +38,7 @@ import {
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
 } from "../integrations/integration-durable-dispatch-config.js";
+import { isValidCron } from "../jobs/cron.js";
 import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
@@ -2759,9 +2760,68 @@ const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
 export const NETLIFY_RECURRING_JOBS_FUNCTION_NAME =
   "agent-native-recurring-jobs";
 
+/** Shared shape for the `AGENT_NATIVE_DISABLE_*` build kill switches. */
+function isDisabledByEnv(name: string): boolean {
+  const value = process.env[name]?.trim();
+  return !!value && ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
 export function isRecurringJobsDeployEnabled(): boolean {
-  const value = process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS?.trim();
-  return !value || !["1", "true", "yes", "on"].includes(value.toLowerCase());
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS");
+}
+
+/**
+ * Keep-warm is ON by default, and on a provisioned database that is the right
+ * default. It is the wrong default on a metered scale-to-zero tier: a
+ * once-a-minute wake means autosuspend NEVER fires, so the endpoint bills (and
+ * quota-limits) as if it were awake 100% of the time with zero users online. On
+ * a free-tier Neon that exhausts the compute quota and the database then
+ * hard-blocks every read mid-session — the symptom is a dead app, not a slow one.
+ */
+export function isKeepWarmDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM");
+}
+
+/**
+ * The background warm is a separate, much more expensive knob than the server
+ * warm and gets its own switch. Warming `server` is one health request; warming
+ * the `-background` Lambda is a *fresh container*, so every ping pays the full
+ * on-demand `ensureTable()` schema-probe fan-out (hundreds of
+ * `information_schema` round trips) before it does anything. At the default
+ * cadence that is ~1,440 manufactured cold starts a day that no user asked for.
+ * Turn this off to keep dispatch-latency protection for the server function
+ * while dropping the probe storm.
+ */
+export function isKeepWarmBackgroundDeployEnabled(): boolean {
+  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND");
+}
+
+const DEFAULT_KEEP_WARM_SCHEDULE = "* * * * *";
+
+/**
+ * Cadence for the keep-warm schedule, overridable with
+ * `AGENT_NATIVE_KEEP_WARM_SCHEDULE` (standard 5-field cron).
+ *
+ * An unparseable value THROWS rather than falling back to the default. Falling
+ * back would leave an operator who set this specifically to stop burning
+ * database quota still burning it at the original once-a-minute cadence, with a
+ * successful build and nothing in the log to say the value was ignored.
+ */
+export function resolveKeepWarmSchedule(): string {
+  const raw = process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE?.trim();
+  if (!raw) return DEFAULT_KEEP_WARM_SCHEDULE;
+  const fields = raw.split(/\s+/);
+  // The field count is checked separately from the field values because
+  // `isValidCron` also accepts 6-field (seconds) and `@daily` forms that
+  // Netlify's scheduler does not; "5 fields" is the narrower contract.
+  if (fields.length !== 5 || !isValidCron(raw)) {
+    throw new Error(
+      `AGENT_NATIVE_KEEP_WARM_SCHEDULE must be a 5-field cron expression ` +
+        `(minute hour day month weekday); got "${raw}" (${fields.length} field(s)). ` +
+        `Example: "*/5 * * * *" for every five minutes.`,
+    );
+  }
+  return raw;
 }
 
 /**
@@ -2769,10 +2829,27 @@ export function isRecurringJobsDeployEnabled(): boolean {
  * function and its database every minute. GitHub Actions schedules can be
  * delayed by tens of minutes, which is longer than a scale-to-zero database's
  * autosuspend window and leaves the next visitor to pay the cold-start cost.
+ *
+ * Both halves are opt-out and the cadence is configurable — see
+ * `isKeepWarmDeployEnabled`, `isKeepWarmBackgroundDeployEnabled`, and
+ * `resolveKeepWarmSchedule`. The tradeoff this function encodes is next-visitor
+ * latency against database awake-time, and only the deployment knows which of
+ * those it is paying for.
  */
 export function emitSingleTemplateNetlifyKeepWarmFunction(
   projectCwd: string,
 ): void {
+  if (!isKeepWarmDeployEnabled()) {
+    console.log(
+      "[build] Keep-warm emit skipped: AGENT_NATIVE_DISABLE_KEEP_WARM is set. " +
+        "The database is free to autosuspend; the next visitor after an idle " +
+        "period pays its cold start.",
+    );
+    return;
+  }
+  // Resolved before anything is removed or written, so a bad cron fails the
+  // build rather than leaving a wiped/half-emitted function directory behind.
+  const keepWarmSchedule = resolveKeepWarmSchedule();
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverBundle = path.join(internalDir, "server", "main.mjs");
   if (!fs.existsSync(serverBundle)) {
@@ -2798,7 +2875,9 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
     `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
   );
   const backgroundWarmPath =
-    isDurableBackgroundEmitRequired() && fs.existsSync(backgroundEntryPath)
+    isKeepWarmBackgroundDeployEnabled() &&
+    isDurableBackgroundEmitRequired() &&
+    fs.existsSync(backgroundEntryPath)
       ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
       : "null";
   const entry = `const HEALTH_PATH = "/_agent-native/health";
@@ -2806,8 +2885,6 @@ const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
 
 function siteOrigin(request) {
-  const configured = process.env.URL || process.env.DEPLOY_URL;
-  if (configured) return configured;
   return new URL(request.url).origin;
 }
 
@@ -2865,7 +2942,7 @@ export default async function handler(request) {
 export const config = {
   name: "agent-native server keep warm",
   generator: "agent-native build",
-  schedule: "* * * * *",
+  schedule: ${JSON.stringify(keepWarmSchedule)},
   nodeBundler: "none",
 };
 `;
@@ -2875,7 +2952,9 @@ export const config = {
     entry,
   );
   console.log(
-    `[build] Emitted Netlify scheduled keep-warm function "${NETLIFY_KEEP_WARM_FUNCTION_NAME}".`,
+    `[build] Emitted Netlify scheduled keep-warm function ` +
+      `"${NETLIFY_KEEP_WARM_FUNCTION_NAME}" (schedule "${keepWarmSchedule}", ` +
+      `background warm ${backgroundWarmPath === "null" ? "off" : "on"}).`,
   );
 }
 
@@ -2914,8 +2993,6 @@ const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
 const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
 
 function siteOrigin(request) {
-  const configured = process.env.URL || process.env.DEPLOY_URL;
-  if (configured) return configured;
   return new URL(request.url).origin;
 }
 

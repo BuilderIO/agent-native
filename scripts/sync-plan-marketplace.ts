@@ -4,13 +4,13 @@
  * itself into installable Agent-Native app marketplaces for both Claude Code and
  * Codex.
  *
- * The canonical skill content lives at the repo's top-level `skills/`
- * directory. This script copies each exported app skill into one shared plugin
- * directory per app and writes the Claude + Codex marketplace catalogs and
- * per-host plugin manifests. It mirrors `sync-workspace-core-skills.ts`: it
- * generates by default and validates with `--check`, failing with a clear "run
- * pnpm sync:plan-marketplace" message when the committed tree drifts from
- * source.
+ * The canonical skill content lives in the repo's exported `skills/` directory
+ * or in the framework's `.agents/skills/` directory for internal workflows.
+ * This script copies each exported app skill into one shared plugin directory
+ * per app and writes the Claude + Codex marketplace catalogs and per-host
+ * plugin manifests. It mirrors `sync-workspace-core-skills.ts`: it generates by
+ * default and validates with `--check`, failing with a clear "run pnpm
+ * sync:plan-marketplace" message when the committed tree drifts from source.
  *
  * Version strategy (shared with the generic app-skill packer):
  *  - Claude Code uses commit-SHA versioning, so plugin.json OMITS `version` and
@@ -33,43 +33,67 @@ import { fileURLToPath } from "node:url";
 import prettier from "prettier";
 
 import {
+  AGENT_PLUGIN_MCP_SCHEMA,
+  AGENT_PLUGIN_SCHEMA,
+} from "../packages/core/src/cli/agent-plugin.js";
+import {
   type AppSkillManifest,
   type AppSkillManifestSkill,
+  loadAppSkillManifest,
   resolvePluginVersion,
 } from "../packages/core/src/cli/app-skill.js";
 import { BUILT_IN_APP_SKILLS } from "../packages/core/src/cli/skills.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
-const sourceSkillsDir = join(rootDir, "skills");
 
 type MarketplaceAppId = "visual-plans" | "design";
 
 type MarketplaceApp = {
-  appSkillId: MarketplaceAppId;
-  skillSources: { sourceDir: string; exportAs: string }[];
+  appSkillId?: MarketplaceAppId;
+  manifest?: AppSkillManifest;
+  skillSources: { sourcePath: string; exportAs: string }[];
   brandColor: string;
+  chatgptConnector?: boolean;
 };
+
+const turnIntoAppManifest = loadAppSkillManifest(
+  join(rootDir, "agent-native.app-skill.json"),
+).manifest;
 
 const APP_BUNDLES: MarketplaceApp[] = [
   {
     appSkillId: "visual-plans",
-    // Source skill dir name -> exported skill name. The source dir name does not
-    // always equal the exported skill name (skills/visual-plans -> visual-plan).
+    // Source skill path -> exported skill name. The source path does not always
+    // equal the exported skill name (skills/visual-plans -> visual-plan).
     skillSources: [
-      { sourceDir: "visual-plans", exportAs: "visual-plan" },
-      { sourceDir: "visual-recap", exportAs: "visual-recap" },
-      { sourceDir: "visualize-repo", exportAs: "visualize-repo" },
+      { sourcePath: "skills/visual-plans", exportAs: "visual-plan" },
+      { sourcePath: "skills/visual-recap", exportAs: "visual-recap" },
+      { sourcePath: "skills/visualize-repo", exportAs: "visualize-repo" },
     ],
     brandColor: "#2563EB",
   },
   {
     appSkillId: "design",
     skillSources: [
-      { sourceDir: "design-exploration", exportAs: "design-exploration" },
-      { sourceDir: "visual-edit", exportAs: "visual-edit" },
+      {
+        sourcePath: "skills/design-exploration",
+        exportAs: "design-exploration",
+      },
+      { sourcePath: "skills/visual-edit", exportAs: "visual-edit" },
     ],
     brandColor: "#0F766E",
+  },
+  {
+    manifest: turnIntoAppManifest,
+    skillSources: [
+      {
+        sourcePath: ".agents/skills/turn-into-app",
+        exportAs: "turn-into-app",
+      },
+    ],
+    brandColor: "#2563EB",
+    chatgptConnector: true,
   },
 ];
 
@@ -81,6 +105,9 @@ const check = process.argv.includes("--check");
 type GeneratedFile = { rel: string; content: string };
 
 function manifestFor(app: MarketplaceApp): AppSkillManifest {
+  if (app.manifest) return app.manifest;
+  if (!app.appSkillId)
+    throw new Error("Marketplace app is missing a manifest.");
   return BUILT_IN_APP_SKILLS[app.appSkillId].manifest;
 }
 
@@ -102,8 +129,8 @@ function keywords(app: MarketplaceApp): string[] {
   ];
 }
 
-function readSkillSource(sourceDir: string): string {
-  const file = join(sourceSkillsDir, sourceDir, "SKILL.md");
+function readSkillSource(sourcePath: string): string {
+  const file = join(rootDir, sourcePath, "SKILL.md");
   if (!existsSync(file)) {
     throw new Error(`Canonical app skill source not found: ${file}`);
   }
@@ -115,8 +142,8 @@ function readSkillSource(sourceDir: string): string {
  * sorted posix-relative paths. These are the progressive-disclosure reference
  * files (e.g. references/wireframe.md) that ship next to SKILL.md.
  */
-function listSkillSiblingFiles(sourceDir: string): string[] {
-  const root = join(sourceSkillsDir, sourceDir);
+function listSkillSiblingFiles(sourcePath: string): string[] {
+  const root = join(rootDir, sourcePath);
   const out: string[] = [];
   const walk = (dir: string, prefix: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -170,8 +197,8 @@ async function jsonFile(rel: string, value: unknown): Promise<GeneratedFile> {
  * resolved Codex version are computed over the exact canonical bytes we commit.
  */
 function hashManifestSkills(app: MarketplaceApp): AppSkillManifestSkill[] {
-  return app.skillSources.map(({ sourceDir, exportAs }) => ({
-    path: join("skills", sourceDir),
+  return app.skillSources.map(({ sourcePath, exportAs }) => ({
+    path: sourcePath,
     visibility: "exported" as const,
     exportAs,
   }));
@@ -196,19 +223,19 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
     // including any sibling reference files (e.g. references/wireframe.md) so
     // the packaged plugin ships the same progressive-disclosure files as
     // `skills/`.
-    for (const { sourceDir, exportAs } of app.skillSources) {
+    for (const { sourcePath, exportAs } of app.skillSources) {
       const body = rewriteSkillFrontmatterName(
-        readSkillSource(sourceDir),
+        readSkillSource(sourcePath),
         exportAs,
       );
       files.push({
         rel: join(".agents", "plugins", name, "skills", exportAs, "SKILL.md"),
         content: body,
       });
-      for (const rel of listSkillSiblingFiles(sourceDir)) {
+      for (const rel of listSkillSiblingFiles(sourcePath)) {
         files.push({
           rel: join(".agents", "plugins", name, "skills", exportAs, rel),
-          content: readFileSync(join(sourceSkillsDir, sourceDir, rel), "utf-8"),
+          content: readFileSync(join(rootDir, sourcePath, rel), "utf-8"),
         });
       }
     }
@@ -225,10 +252,63 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       },
     };
 
+    // Standard Agent Plugin files live at the package root. Keep the legacy
+    // host adapter files below because Codex and Claude still use their own
+    // discovery conventions, but make the committed bundle portable too.
+    files.push(
+      await jsonFile(join(".agents", "plugins", name, "plugin.json"), {
+        $schema: AGENT_PLUGIN_SCHEMA,
+        name,
+        version: codexPluginVersion(app),
+        description: manifest.description,
+        author: {
+          name: "Agent-Native",
+          url: "https://agent-native.com",
+        },
+        homepage: manifest.hosted.url,
+        repository: "https://github.com/BuilderIO/agent-native",
+        license: "MIT",
+        keywords: keywords(app),
+      }),
+    );
+    files.push(
+      await jsonFile(join(".agents", "plugins", name, "mcp.json"), {
+        $schema: AGENT_PLUGIN_MCP_SCHEMA,
+        mcpServers: {
+          [manifest.mcp.serverName]: {
+            type: "streamable-http",
+            url: manifest.hosted.mcpUrl,
+          },
+        },
+      }),
+    );
+
     // Shared .mcp.json for both hosts.
     files.push(
       await jsonFile(join(".agents", "plugins", name, ".mcp.json"), mcpServers),
     );
+
+    if (app.chatgptConnector) {
+      files.push(
+        await jsonFile(
+          join(
+            ".agents",
+            "plugins",
+            name,
+            "adapters",
+            "chatgpt-mcp",
+            "connector.json",
+          ),
+          {
+            name: manifest.mcp.serverName,
+            title: manifest.displayName,
+            url: manifest.hosted.mcpUrl,
+            auth: manifest.auth?.mode ?? "oauth",
+            surfaces: manifest.surfaces,
+          },
+        ),
+      );
+    }
 
     // Claude manifest — OMIT version (commit-SHA versioning).
     files.push(
