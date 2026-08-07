@@ -626,10 +626,10 @@ describe("describeDbError", () => {
   it("keeps the per-client logger from printing [object ErrorEvent]", async () => {
     const { EventEmitter } = await import("node:events");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { attachNeonPoolErrorLogger } = await import("./client.js");
+    const { guardNeonPool } = await import("./client.js");
 
     const pool = new EventEmitter();
-    attachNeonPoolErrorLogger(pool, "db/neon");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon");
     const client = new EventEmitter();
     pool.emit("connect", client);
     client.emit("error", { type: "error", message: "Connection terminated" });
@@ -641,7 +641,70 @@ describe("describeDbError", () => {
   });
 });
 
-describe("attachNeonPoolErrorLogger", () => {
+describe("guardNeonPool", () => {
+  it("does not let a refused connect immediately produce another attempt", async () => {
+    // Production sat in this loop for hours: Neon refuses the ATTEMPT ("Failed
+    // to acquire permit... Too many database connection attempts are currently
+    // ongoing"), the failed acquire leaves zero idle clients, so the next
+    // execute() connects again — and retryOnConnectionError backs off only
+    // 100ms. The process answers a refusal by manufacturing the next attempt,
+    // which is what keeps the refusal true.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { EventEmitter } = await import("node:events");
+    const { guardNeonPool, isConnectionError } = await import("./client.js");
+
+    // Verbatim Neon refusal tagged 53300 — the worst case, where the existing
+    // retry loop WOULD classify it as retryable.
+    const refusal = Object.assign(
+      new Error(
+        "Failed to acquire permit to connect to the database. Too many database connection attempts are currently ongoing.",
+      ),
+      { code: "53300" },
+    );
+    let attempts = 0;
+    const pool: any = Object.assign(new EventEmitter(), {
+      idleCount: 0,
+      connect: async () => {
+        attempts++;
+        throw refusal;
+      },
+    });
+    guardNeonPool(pool, "postgres://gate-refuse.neon.tech/db");
+
+    await expect(pool.connect()).rejects.toBe(refusal);
+    expect(attempts).toBe(1);
+
+    const second = await pool.connect().catch((e: unknown) => e);
+    expect(attempts).toBe(1); // 2 without the gate
+    // Must NOT look retryable, or retryOnConnectionError drives the storm back.
+    expect(isConnectionError(second)).toBe(false);
+    // ...but must still say what actually happened.
+    expect((second as Error).message).toContain("Failed to acquire permit");
+  });
+
+  it("still serves a checkout from an idle client during cooldown", async () => {
+    // A cooldown must degrade throughput, not black out a warm instance.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { EventEmitter } = await import("node:events");
+    const { guardNeonPool } = await import("./client.js");
+
+    let attempts = 0;
+    const pool: any = Object.assign(new EventEmitter(), {
+      idleCount: 0,
+      connect: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error("refused");
+        return { released: true };
+      },
+    });
+    guardNeonPool(pool, "postgres://gate-idle.neon.tech/db");
+
+    await expect(pool.connect()).rejects.toThrow("refused");
+    pool.idleCount = 1; // a warm client is now available
+    await expect(pool.connect()).resolves.toEqual({ released: true });
+    expect(attempts).toBe(2);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -651,10 +714,10 @@ describe("attachNeonPoolErrorLogger", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const on = vi.fn();
     const pool = { on };
-    const { attachNeonPoolErrorLogger } = await import("./client.js");
+    const { guardNeonPool } = await import("./client.js");
 
-    attachNeonPoolErrorLogger(pool, "db/neon-auth");
-    attachNeonPoolErrorLogger(pool, "db/neon-auth");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon-auth");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon-auth");
 
     // Deduped per pool: a pool-level "error" listener + a "connect" listener,
     // wired exactly once despite the second attach call.
@@ -679,12 +742,12 @@ describe("attachNeonPoolErrorLogger", () => {
     // synchronously on emit — so this test fails (throws) without the fix.
     const { EventEmitter } = await import("node:events");
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { attachNeonPoolErrorLogger } = await import("./client.js");
+    const { guardNeonPool } = await import("./client.js");
 
     const pool = new EventEmitter();
     // Pools may exceed the default 10-listener warning under load; mirror prod.
     pool.setMaxListeners(0);
-    attachNeonPoolErrorLogger(pool, "db/neon");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon");
 
     // Control: a client the pool never announced has no listener and WOULD crash.
     const orphan = new EventEmitter();

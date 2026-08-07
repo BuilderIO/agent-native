@@ -1,5 +1,4 @@
 import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
-import { LanguagePicker } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import { useLocation, useNavigate } from "react-router";
@@ -91,7 +90,6 @@ export function Header({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <LanguagePicker variant="icon" />
         <RunsTray limit={8} onOpenThread={openRunThread} />
         {showAgentToggle ? (
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />

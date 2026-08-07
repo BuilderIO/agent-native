@@ -1491,7 +1491,6 @@ const deDE = {
     templatesSection: "Apps",
     gettingStarted: "Erste Schritte",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Was ist Agent-Native?",
     agentSurfaces: "Agent-Oberflächen",

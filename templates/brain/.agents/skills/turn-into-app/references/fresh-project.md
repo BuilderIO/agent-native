@@ -50,14 +50,33 @@ skills. For a ChatGPT Project or any host that exposes only the MCP connector,
 also place the skill instructions or this reference in the Project
 instructions/knowledge files. Then add and authenticate the Dispatch MCP
 connector from the packaged `adapters/chatgpt-mcp/connector.json`.
+This single connector is enough: Dispatch provisions or reuses the Builder
+project through the Builder Projects API, so do not ask the user to add a
+separate Builder CMS MCP for app creation.
+Builder's separate Fusion MCP is available as a custom remote connector at
+`https://mcp.builder.io/mcp/fusion` for direct Builder work. It can run an
+existing project, but it cannot provision the repo-backed Agent-Native
+workspace project, so it is optional and not a replacement for the Dispatch
+handoff in this skill. Do not add Builder's CMS MCP for this workflow.
+
+For Claude Web, ChatGPT Web, and their web Projects, the host is an
+orchestrator, not the build environment. After forming the source brief, call
+the Dispatch `start-workspace-app-creation` action so Builder creates the app
+in the connected workspace. Do not use the host's code interpreter, shell,
+artifact editor, `create_workspace_app`, or local `pnpm`/`npm` commands. If the
+handoff action is unavailable, stop and ask the user to authenticate Dispatch;
+do not fall back to a local sandbox build. Claude Code and Codex Code are the
+local-agent exception and may follow the implementation steps in the main
+skill.
 
 In a new Project chat, say:
 
 ```text
 Turn this project into an app. Use the visible Project instructions,
 knowledge files, and any selected successful runs as the source. Create the
-app in the connected Agent-Native workspace, keep the source brief bounded,
-and report the real path and verification result.
+app in the connected Agent-Native workspace through Dispatch and Builder, keep
+the source brief bounded, and report the real Builder branch/path and
+verification result. Do not build it in this chat's sandbox.
 ```
 
 If the host does not show the Project instructions or files to the model, stop

@@ -1,7 +1,7 @@
 {
   "name": "agent-native-turn-into-app",
-  "version": "1.0.0+codex.a55ffa90a78a",
-  "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app with a focused UI, visible agent handoffs, local verification, and deployment guidance.",
+  "version": "1.0.0+codex.5430c9cab656",
+  "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
   "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://dispatch.agent-native.com",
   "license": "MIT",
@@ -16,7 +16,7 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Turn Into App",
-    "shortDescription": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app with a focused UI, visible agent handoffs, local verification, and deployment guidance.",
+    "shortDescription": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
     "longDescription": "Turn Into App packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill. The plugin connects to hosted Turn Into App by default; use the Agent-Native CLI when you need a custom/self-hosted app URL.",
     "developerName": "Agent-Native",
     "category": "Productivity",

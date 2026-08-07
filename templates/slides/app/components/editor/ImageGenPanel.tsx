@@ -79,7 +79,7 @@ export function buildImageGenerationContext({
   }
 
   contextParts.push(
-    '\nGenerate 3 variations. Show each as an inline rendered image preview using markdown image syntax (![Variation 1](url)), not a plain text link — the chat renders "![]()" as an actual image but "[]()" as a bare link. Let the user pick their favorite, then insert the chosen generated image into the slide content in the right place.',
+    '\nGenerate 3 preview-only variations. Show each as an inline rendered image preview using markdown image syntax (![Variation 1](url)), not a plain text link — the chat renders "![]()" as an actual image but "[]()" as a bare link. After the user chooses one, place that preview URL with update-slide and then get-deck to verify the persisted slide HTML contains it before claiming success. For a direct one-image request instead, call `generate-image-api` with insertIntoSlide: true plus deckId and slideId; claim it was added only if the action returns inserted: true.',
   );
 
   return contextParts.join("\n");

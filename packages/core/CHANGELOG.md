@@ -1,5 +1,71 @@
 # @agent-native/core
 
+## 0.146.2
+
+### Patch Changes
+
+- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
+- Updated dependencies [a107169]
+  - @agent-native/toolkit@0.13.5
+
+## 0.146.1
+
+### Patch Changes
+
+- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
+- 6071f7d: Compact agent sidebar shortcut hints and keep the sidebar's wider drawer as its only expand action.
+- 6071f7d: Make the serverless request-path migration skip opt-in via
+  `AGENT_NATIVE_RELEASE_MIGRATIONS`.
+
+  `runMigrations` skips schema work in a production serverless request runtime,
+  which is correct only for an app that migrates somewhere else. Exactly one of
+  seventeen templates has a release migration entrypoint. For the other sixteen,
+  an unconditional skip would not defer the work — it would delete it: a newly
+  added migration silently never applies, and a fresh deploy comes up with
+  missing tables. Nothing fails at the moment of the skip, so the first symptom
+  is a missing-table error in production, far from the cause.
+
+  An app now declares that it owns migrations at release time by setting
+  `AGENT_NATIVE_RELEASE_MIGRATIONS=1`. Analytics sets it in `netlify.toml`
+  alongside its `migrate:production` build step; every other app keeps its
+  existing behavior until it has one.
+
+  Note that the Netlify _build_ environment also sets `NETLIFY=true`, so the
+  release step itself looks like a serverless request to this guard — it works
+  only because the entrypoint claims duty through `withMigrationRuntime()`. A
+  migration entrypoint that forgets that wrapper silently no-ops at build time.
+
+## 0.146.0
+
+### Minor Changes
+
+- c440e50: Add opt-in audience-specific instruction paths and make `agent-native.config.ts` the canonical typed config filename.
+
+### Patch Changes
+
+- c440e50: Stop a refused database connection from immediately producing another attempt.
+
+  Neon rejects a connection _attempt_, not a connection: "Failed to acquire
+  permit to connect to the database. Too many database connection attempts are
+  currently ongoing." A failed acquire leaves the pool with zero idle clients, so
+  the next `execute()` calls `connect()` again — and `retryOnConnectionError`
+  backs off only 100ms. The process answered each refusal by manufacturing the
+  next attempt, which is what kept the refusal true; production stayed wedged
+  until the compute was restarted by hand.
+
+  Every Neon pool now passes through `guardNeonPool` (renamed from
+  `attachNeonPoolErrorLogger`), which holds a short jittered per-endpoint
+  cooldown after a failed attempt. Checking out an already-idle client is not an
+  attempt and still succeeds, so a cooldown degrades throughput instead of taking
+  a warm instance offline. `DbConnectCooldownError` is deliberately not
+  classified as a connection error, so the retry loop exits instead of re-entering
+  the storm, and it reads as transient so shed load surfaces as 503 rather than 500. Tune with `DB_CONNECT_COOLDOWN_MS`.
+
+  The added `url` argument makes any pool that skips the gate a compile error
+  rather than a silent bypass.
+
+- c440e50: Offer local source-code handoffs to external coding agents instead of the Builder waitlist.
+
 ## 0.145.8
 
 ### Patch Changes
