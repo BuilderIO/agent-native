@@ -233,7 +233,8 @@ describe("parsePptxPresentation", () => {
   });
 
   it("resolves each slide's schemeClr against its own layout's master/theme, not the deck's first master", async () => {
-    const slideXml = (label: string) => `
+    const slideXml = (label: string) =>
+      `
       <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
         <p:cSld><p:spTree>
           <p:sp>
@@ -250,7 +251,10 @@ describe("parsePptxPresentation", () => {
     `.trim();
 
     const presentation = await parsePptxPresentation(
-      await buildPptxBufferWithTwoMasters(slideXml("First"), slideXml("Second")),
+      await buildPptxBufferWithTwoMasters(
+        slideXml("First"),
+        slideXml("Second"),
+      ),
     );
 
     const firstText = presentation.slides[0]?.texts.find(

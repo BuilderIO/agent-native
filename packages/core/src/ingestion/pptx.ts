@@ -417,7 +417,10 @@ async function resolveSlideMasterContext(args: {
   themeCache: Map<string, Promise<ThemeInfo>>;
   masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
 }): Promise<
-  | { colorContext: ColorContext; placeholderDefaults: PlaceholderDefaultColors }
+  | {
+      colorContext: ColorContext;
+      placeholderDefaults: PlaceholderDefaultColors;
+    }
   | undefined
 > {
   const layoutRelationship = [...args.slideRelationships.values()].find(
