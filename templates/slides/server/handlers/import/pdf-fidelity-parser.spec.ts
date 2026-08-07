@@ -257,10 +257,7 @@ describe("walkPageGraphics", () => {
   it("detects a full-page fill as the background when the color is known", async () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
-      [
-        ["#000000"],
-        [OPS.fill, [], [0, 0, 100, 100]],
-      ],
+      [["#000000"], [OPS.fill, [], [0, 0, 100, 100]]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.backgroundColor).toBe("#000000");
@@ -278,10 +275,7 @@ describe("walkPageGraphics", () => {
   it("collects a thin filled rect as an underline candidate", async () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
-      [
-        ["#000000"],
-        [OPS.fill, [], [10, 50, 40, 51]],
-      ],
+      [["#000000"], [OPS.fill, [], [10, 50, 40, 51]]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.underlineRects).toEqual([
@@ -292,10 +286,7 @@ describe("walkPageGraphics", () => {
   it("collects a zero-height stroked hairline as an underline candidate", async () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
-      [
-        ["#000000"],
-        [OPS.stroke, [], [10, 50, 40, 50]],
-      ],
+      [["#000000"], [OPS.stroke, [], [10, 50, 40, 50]]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.underlineRects).toEqual([
@@ -306,10 +297,7 @@ describe("walkPageGraphics", () => {
   it("ignores a degenerate zero-length stroke (a point, not a line)", async () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
-      [
-        ["#000000"],
-        [OPS.stroke, [], [10, 50, 10, 50]],
-      ],
+      [["#000000"], [OPS.stroke, [], [10, 50, 10, 50]]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.underlineRects).toEqual([]);
@@ -318,10 +306,7 @@ describe("walkPageGraphics", () => {
   it("does not mistake a large filled block for an underline", async () => {
     const page = fakePage(
       [OPS.setFillRGBColor, OPS.constructPath],
-      [
-        ["#000000"],
-        [OPS.fill, [], [10, 10, 40, 40]],
-      ],
+      [["#000000"], [OPS.fill, [], [10, 10, 40, 40]]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.underlineRects).toEqual([]);
