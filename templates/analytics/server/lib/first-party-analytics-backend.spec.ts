@@ -173,6 +173,22 @@ describe("first-party BigQuery backend", () => {
     ]);
   });
 
+  it("keeps an oversized backfill request bounded", async () => {
+    execute.mockResolvedValue({ rows: [] });
+
+    await backfillFirstPartyAnalyticsBatch(
+      { userEmail: "owner@example.com", orgId: "org_builder" },
+      null,
+      10_000,
+      "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    );
+
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    const [personalQuery] = execute.mock.calls[1] ?? [];
+    expect(orgQuery.args.at(-1)).toBe(2_000);
+    expect(personalQuery.args.at(-1)).toBe(2_000);
+  });
+
   it("hydrates only the bounded indexed keys selected for a batch", async () => {
     execute
       .mockResolvedValueOnce({

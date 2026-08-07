@@ -537,6 +537,74 @@ Run capped job ${index}.`,
     expect(runCount).toBe(8);
   });
 
+  it("does not let blocked jobs starve a later valid job", async () => {
+    const resources = Array.from({ length: 9 }, (_, index) => {
+      const owner =
+        index < 8
+          ? `blocked-${index}@agent-native.test`
+          : "valid@agent-native.test";
+      return {
+        id: `resource-blocked-${index}`,
+        owner,
+        path: `jobs/blocked-${index}.md`,
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: ${owner}
+---
+
+Run job ${index}.`,
+      };
+    });
+    resourceListAllOwnersMock.mockResolvedValueOnce(resources);
+    dbExecuteMock.mockImplementation(
+      async (query: { sql?: string; args?: unknown[] }) => {
+        const email = query.args?.[0];
+        if (
+          query.sql?.includes('FROM "user"') &&
+          typeof email === "string" &&
+          email.startsWith("blocked-")
+        ) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        return { rows: [{ "1": 1 }], rowsAffected: 1 };
+      },
+    );
+    let runCount = 0;
+    runAgentLoopWrapperMock.mockImplementation(async () => {
+      runCount += 1;
+      return {
+        inputTokens: 100,
+        outputTokens: 25,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 5,
+        model: "test-model",
+      };
+    });
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(runCount).toBe(1);
+    expect(
+      resourcePutMock.mock.calls.filter((call) =>
+        String(call[2]).includes("lastStatus: skipped"),
+      ),
+    ).toHaveLength(8);
+    expect(
+      resourcePutMock.mock.calls.some(
+        (call) =>
+          call[0] === "valid@agent-native.test" &&
+          call[1] === "jobs/blocked-8.md",
+      ),
+    ).toBe(true);
+  });
+
   it("passes persisted MCP capabilities to the background action suppliers", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {

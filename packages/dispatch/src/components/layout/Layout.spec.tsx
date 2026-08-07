@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AdminShell } from "../admin-navigation";
 import { TooltipProvider } from "../ui/tooltip";
 import { formatThreadAge, NavContent } from "./Layout";
 
@@ -167,14 +168,54 @@ describe("Dispatch NavContent", () => {
     });
 
     const lists = [...container.querySelectorAll("nav > ul")];
-    expect(lists).toHaveLength(4);
+    expect(lists).toHaveLength(2);
     expect(lists[0].className).toContain("gap-1");
-    expect(lists[1].className).toContain("mt-5");
     expect(lists[1].className).toContain("gap-1");
-    expect(lists[2].className).toContain("mt-3");
-    expect(lists[2].className).toContain("gap-1");
-    expect(lists[3].querySelector('a[href="/settings"]')).not.toBeNull();
+    expect(lists[1].querySelector('a[href="/admin"]')).not.toBeNull();
+    expect(lists[1].querySelector('a[href="/settings"]')).not.toBeNull();
     expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
+  });
+
+  it("keeps management routes out of the primary navigation", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector('a[href="/admin"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/operations"]')).toBeNull();
+    expect(container.querySelector('a[href="/metrics"]')).toBeNull();
+    expect(container.textContent).not.toContain("Automation & delivery");
+  });
+
+  it("renders the Admin control plane with grouped nested routes", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/admin/metrics"]}>
+          <TooltipProvider>
+            <AdminShell>
+              <div>Admin content</div>
+            </AdminShell>
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const shell = container.querySelector("[data-dispatch-admin-shell]");
+    expect(shell).not.toBeNull();
+    expect(shell?.textContent).toContain("Operations");
+    expect(shell?.textContent).toContain("Automation & delivery");
+    expect(shell?.querySelector('a[href="/admin/metrics"]')).not.toBeNull();
+    expect(
+      shell?.querySelector('a[href="/admin/metrics"][aria-current="page"]'),
+    ).not.toBeNull();
+    expect(shell?.querySelector('a[href="/metrics"]')).toBeNull();
+    expect(shell?.querySelector('a[href="/admin/apps"]')).toBeNull();
   });
 
   it("shows ready workspace apps as direct links and highlights the active app", async () => {
@@ -221,6 +262,7 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).not.toContain("Agent-Native Dispatch");
 
     const settingsLink = container.querySelector('a[href="/settings"]');
+    const adminLink = container.querySelector('a[href="/admin"]');
     const organization = [...container.querySelectorAll("div")].find(
       (element) => element.textContent?.trim() === "Organization",
     );
@@ -229,9 +271,13 @@ describe("Dispatch NavContent", () => {
     );
 
     expect(settingsLink).not.toBeNull();
+    expect(adminLink).not.toBeNull();
     expect(organization).toBeDefined();
     expect(footerActions).not.toBeNull();
     expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(organization!.compareDocumentPosition(footerActions!)).toBe(

@@ -73,6 +73,7 @@ const FIRST_PARTY_QUERY_TABLES = [
   "analytics_user_days",
 ] as const;
 const BACKEND_CONFIG_CACHE_TTL_MS = 30_000;
+const MAX_BACKFILL_BATCH_SIZE = 2_000;
 
 const backendConfigCache = new Map<
   string,
@@ -1075,7 +1076,10 @@ export async function backfillFirstPartyAnalyticsBatch(
   limit: number,
   configuredTable?: string | null,
 ): Promise<FirstPartyAnalyticsBackfillBatch> {
-  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 500);
+  const boundedLimit = Math.min(
+    Math.max(Math.floor(limit), 1),
+    MAX_BACKFILL_BATCH_SIZE,
+  );
   const db = getDbExec();
   const parsedCursor = parseBackfillCursor(cursor);
   const branches = scope.orgId

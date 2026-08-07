@@ -182,6 +182,9 @@ export function parseSlideHtml(
 } {
   assertServerPptxExportable(html, slideNumber);
   const dims = getAspectRatioDims(aspectRatio);
+  if (html.includes('data-imported-pdf="true"')) {
+    return parseImportedPdfSlideHtml(html, dims);
+  }
   if (html.includes('data-imported-pptx="true"')) {
     return parseImportedSlideHtml(html, dims);
   }
@@ -370,6 +373,44 @@ export function parseSlideHtml(
 }
 
 type SlideDims = ReturnType<typeof getAspectRatioDims>;
+
+function parseImportedPdfSlideHtml(
+  html: string,
+  dims: SlideDims,
+): {
+  texts: TextElement[];
+  images: ImageElement[];
+  shapes: ShapeElement[];
+  grid?: GridElement;
+  bgColor: string;
+} {
+  const outerStyle = html.match(
+    /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
+  )?.[1];
+  const bgColor = colorToHex(
+    outerStyle
+      ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - imported PDF fallback
+      : "#000000", // guard:allow-raw-color - imported PDF fallback
+  );
+  const src = html.match(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i)?.[1];
+  return {
+    texts: [],
+    images: src
+      ? [
+          {
+            src,
+            x: 0,
+            y: 0,
+            w: dims.pptxInches.w,
+            h: dims.pptxInches.h,
+            order: 0,
+          },
+        ]
+      : [],
+    shapes: [],
+    bgColor,
+  };
+}
 
 function parseImportedSlideHtml(
   html: string,

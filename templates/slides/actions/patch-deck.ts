@@ -26,6 +26,10 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import {
+  assertSourceSlidePreserved,
+  sourceImportForDeck,
+} from "../server/lib/source-import.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +83,13 @@ const PatchSlideOp = z.object({
   op: z.literal("patch-slide"),
   slideId: z.string(),
   fields: SlideFieldsSchema,
+  preserveSource: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      "Keep source-imported images and factual copy (default true). Set false only for an explicit rewrite.",
+    ),
 });
 
 /** Delete a single slide by ID */
@@ -402,6 +413,18 @@ export default defineAction({
         throw new Error(
           `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
         );
+      }
+
+      for (const op of operations) {
+        if (op.op !== "patch-slide" || op.fields.content === undefined) {
+          continue;
+        }
+        assertSourceSlidePreserved({
+          metadata: sourceImportForDeck(deck.sourceImport),
+          slideId: op.slideId,
+          nextContent: normalizeSlidePadding(op.fields.content),
+          preserveSource: op.preserveSource,
+        });
       }
 
       for (const op of operations) {

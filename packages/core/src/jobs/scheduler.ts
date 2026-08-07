@@ -75,6 +75,7 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
 const _activeScheduledJobs = new Set<string>();
+const _preflightingScheduledJobs = new Set<string>();
 
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
@@ -174,7 +175,7 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
     if (!_hasJobsCache) return;
     const now = new Date();
 
-    const dueJobs: Array<{
+    const dueJobCandidates: Array<{
       key: string;
       resource: Resource;
       meta: JobFrontmatter;
@@ -227,12 +228,57 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       if (!body.trim()) continue;
 
       const key = `${resource.owner}:${resource.path}`;
-      if (_activeScheduledJobs.has(key)) continue;
-      if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) continue;
+      if (
+        _activeScheduledJobs.has(key) ||
+        _preflightingScheduledJobs.has(key)
+      ) {
+        continue;
+      }
+      dueJobCandidates.push({ key, resource, meta, body });
+    }
 
-      _activeScheduledJobs.add(key);
-      reservedJobKeys.add(key);
-      dueJobs.push({ key, resource, meta, body });
+    const dueJobs: typeof dueJobCandidates = [];
+    for (const candidate of dueJobCandidates) {
+      if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) break;
+      if (
+        _activeScheduledJobs.has(candidate.key) ||
+        _preflightingScheduledJobs.has(candidate.key)
+      ) {
+        continue;
+      }
+
+      // Identity checks can reject stale jobs that remain due for admin review.
+      // Do this before reserving a concurrency slot, otherwise the first eight
+      // permanently blocked jobs can starve every later valid job forever.
+      _preflightingScheduledJobs.add(candidate.key);
+      try {
+        const identity = await resolveBackgroundAutomationIdentity({
+          name: candidate.resource.path
+            .replace(/^jobs\//, "")
+            .replace(/\.md$/, ""),
+          meta: candidate.meta,
+          body: candidate.body,
+          resource: candidate.resource,
+        });
+        if (!identity.ok) {
+          await recordIdentityFailure(
+            candidate.resource,
+            candidate.meta,
+            candidate.body,
+            now,
+            identity.reason,
+          );
+          continue;
+        }
+        if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) {
+          break;
+        }
+        _activeScheduledJobs.add(candidate.key);
+        reservedJobKeys.add(candidate.key);
+        dueJobs.push(candidate);
+      } finally {
+        _preflightingScheduledJobs.delete(candidate.key);
+      }
     }
 
     if (dueJobs.length > 0) dispatchedAt = Date.now();
@@ -334,6 +380,37 @@ interface ExecuteJobOptions {
   manual?: boolean;
 }
 
+async function recordIdentityFailure(
+  resource: Resource,
+  meta: JobFrontmatter,
+  body: string,
+  now: Date,
+  reason: string,
+  historyId?: string,
+): Promise<JobExecutionResult> {
+  const jobName = resource.path.replace(/^jobs\//, "").replace(/\.md$/, "");
+  console.warn(
+    `[recurring-jobs] Skipping job "${jobName}": ${reason}. ` +
+      `User/membership no longer valid — leaving cron entry for admin review.`,
+  );
+  // Keep blocked jobs due so an admin can find them, but do not let their
+  // persistent failure consume an execution slot on every scheduler sweep.
+  const alreadyRecorded =
+    meta.lastStatus === "skipped" && meta.lastError === reason;
+  meta.lastCheck = now.toISOString();
+  meta.lastStatus = "skipped";
+  meta.lastError = reason;
+  if (!alreadyRecorded) await updateResource(resource, meta, body);
+  if (historyId) {
+    await finishAutomationRun(
+      historyId,
+      "error",
+      `Automation did not run: ${reason}. No delivery was confirmed.`,
+    );
+  }
+  return { status: "skipped", error: reason };
+}
+
 async function executeJob(
   resource: Resource,
   meta: JobFrontmatter,
@@ -358,29 +435,14 @@ async function executeJob(
   // failure; leave the cron entry alone so an admin can purge after
   // investigation.
   if (!identity.ok) {
-    console.warn(
-      `[recurring-jobs] Skipping job "${jobName}": ${identity.reason}. ` +
-        `User/membership no longer valid — leaving cron entry for admin review.`,
+    return recordIdentityFailure(
+      resource,
+      meta,
+      body,
+      now,
+      identity.reason,
+      options.historyId,
     );
-    // Mark as skipped without resetting nextRun so an admin can find it.
-    // `lastRun` is deliberately untouched: the job did not run, and stamping
-    // it here made a permanently blocked job look like it ran every minute.
-    // Re-writing an unchanged resource on every tick also churns the poll
-    // stream, so only persist when the failure state actually changed.
-    const alreadyRecorded =
-      meta.lastStatus === "skipped" && meta.lastError === identity.reason;
-    meta.lastCheck = now.toISOString();
-    meta.lastStatus = "skipped";
-    meta.lastError = identity.reason;
-    if (!alreadyRecorded) await updateResource(resource, meta, body);
-    if (options.historyId) {
-      await finishAutomationRun(
-        options.historyId,
-        "error",
-        `Automation did not run: ${identity.reason}. No delivery was confirmed.`,
-      );
-    }
-    return { status: "skipped", error: identity.reason };
   }
   const jobUserEmail = identity.identity.userEmail;
   const jobOrgId = identity.identity.orgId;

@@ -152,6 +152,25 @@ describe("parseSlideHtml", () => {
     ]);
   });
 
+  it("keeps a source-faithful PDF page as a full-slide image", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" style="background: #101820;"><img src="https://files.example/page.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.texts).toHaveLength(0);
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/page.png",
+        x: 0,
+        y: 0,
+        w: expect.closeTo(13.33, 2),
+        h: expect.closeTo(7.5, 2),
+      }),
+    ]);
+  });
+
   it("ignores imported grids with non-positive spacing", () => {
     for (const backgroundSize of [
       "0px 24px",

@@ -10,7 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import {
   aggregateSharedEmails,
@@ -180,14 +180,18 @@ function EmailRow({
   engagementLoading: boolean;
 }) {
   const t = useT();
+  const location = useLocation();
   const [previewOpen, setPreviewOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const detailBase = location.pathname.startsWith("/admin/")
+    ? "/admin/transactional-email"
+    : "/transactional-email";
 
   return (
     <TableRow>
       <TableCell className="align-top">
         <Link
-          to={`/transactional-email/${appId}/${email.id}`}
+          to={`${detailBase}/${appId}/${email.id}`}
           className="text-sm font-medium text-foreground hover:underline"
         >
           {email.name}

@@ -79,6 +79,15 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
     expect(migrateAction.needsApproval({ mode: "backfill" })).toBe(false);
   });
 
+  it("accepts a larger bounded backfill batch without allowing unbounded input", () => {
+    expect(() =>
+      migrateAction.schema.parse({ mode: "backfill", limit: 2_000 }),
+    ).not.toThrow();
+    expect(() =>
+      migrateAction.schema.parse({ mode: "backfill", limit: 2_001 }),
+    ).toThrow();
+  });
+
   it("prepares the current organization for dual-write", async () => {
     await expect(
       migrateAction.run({ mode: "prepare", table }),

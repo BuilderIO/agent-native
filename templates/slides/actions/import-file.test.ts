@@ -269,13 +269,76 @@ describe("import-file PDF source extraction", () => {
       aspectRatio: "16:9",
     });
     const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
-    const importedSlide = JSON.parse(updateCall.data).slides[0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    const importedSlide = updatedDeck.slides[0];
     expect(importedSlide.content).toContain("object-fit: contain");
     expect(importedSlide.content).toContain(
       "https://files.example/source-page.png",
     );
     expect(importedSlide.content).not.toContain("Source title");
     expect(importedSlide.notes).toBe("Source title\nSource body");
+    expect(updatedDeck.sourceImport).toMatchObject({
+      mode: "source-preserving",
+      format: "pdf",
+      fidelity: "source-faithful",
+      slideCount: 1,
+      slideIds: [importedSlide.id],
+    });
+    expect(updatedDeck.sourceImport.slides[0].imageUrls).toEqual([
+      "https://files.example/source-page.png",
+    ]);
+  });
+
+  it("keeps scanned or image-only PDF pages instead of dropping them", async () => {
+    mockPdfText.mockResolvedValue({ pages: [] });
+    mockPdfScreenshot.mockResolvedValue({
+      pages: [
+        {
+          pageNumber: 1,
+          width: 1200,
+          height: 1600,
+          data: new Uint8Array([4, 5, 6]),
+        },
+      ],
+    });
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Scanned deck",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    const result = (await action.run({
+      filePath: "scanned.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "4:5",
+    });
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.slides).toHaveLength(1);
+    expect(updatedDeck.slides[0].notes).toBe("");
+    expect(updatedDeck.sourceImport.fidelity).toBe("source-faithful");
   });
 
   it("starts Builder indexing for .fig files", async () => {
