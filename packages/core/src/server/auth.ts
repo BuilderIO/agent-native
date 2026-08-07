@@ -179,6 +179,12 @@ import {
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
 import { captureAuthError } from "./sentry.js";
+import {
+  forgetCachedSessionEmail,
+  getCachedSessionEmail,
+  invalidateSessionEmailCache,
+  setCachedSessionEmail,
+} from "./session-email-cache.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
@@ -1064,6 +1070,9 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
+  // The upsert can REBIND an existing token to a different email, so a cached
+  // resolution for it is now wrong.
+  invalidateSessionEmailCache();
 }
 
 export async function hasLegacySessionForEmail(
@@ -1090,13 +1099,20 @@ export async function removeSession(token: string): Promise<void> {
       args: [token],
     }),
   );
+  // Sign-out must take effect immediately, not after the cache TTL.
+  invalidateSessionEmailCache();
 }
 
 /**
  * Look up the email associated with a legacy session token.
  * Returns null if the session doesn't exist, is expired, or has no email.
+ *
+ * Resolutions are cached across requests — see `session-email-cache.ts` for the
+ * TTL and the only-cache-successes rule.
  */
 export async function getSessionEmail(token: string): Promise<string | null> {
+  const cached = getCachedSessionEmail(token);
+  if (cached !== undefined) return cached;
   await ensureSessionTable();
   const client = getDbExec();
   const { rows } = await retryIfSessionsMissing(() =>
@@ -1112,9 +1128,12 @@ export async function getSessionEmail(token: string): Promise<string | null> {
       sql: `DELETE FROM sessions WHERE token = ?`,
       args: [token],
     });
+    forgetCachedSessionEmail(token);
     return null;
   }
-  return (rows[0].email as string) ?? null;
+  const email = (rows[0].email as string) ?? null;
+  if (email) setCachedSessionEmail(token, email);
+  return email;
 }
 
 // ---------------------------------------------------------------------------
@@ -1380,6 +1399,7 @@ async function consumeDesktopExchangeFromDB(
       sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
+    forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
@@ -3409,6 +3429,9 @@ async function mountBetterAuthRoutes(
                   args: [userEmail],
                 });
               }
+              // Deleted by email, so the removed tokens are unknown here — the
+              // whole cache goes.
+              invalidateSessionEmailCache();
             }
           } catch {
             // Best-effort — don't block the response
@@ -3677,6 +3700,7 @@ async function mountBetterAuthRoutes(
         } catch {
           // Best-effort.
         }
+        invalidateSessionEmailCache();
 
         // 3. Drop the current request's cookie and best-effort sign out
         // of Better Auth (so the response sets the proper expiry header).

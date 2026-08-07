@@ -105,6 +105,7 @@ import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
 import { createAutomationsHandler } from "../triggers/routes.js";
 import { createAgentEngineApiKeyHandler } from "./agent-engine-api-key-route.js";
+import { readBrowserSessionIdHeader } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
 import { getSession, type AuthSession } from "./auth.js";
@@ -194,6 +195,7 @@ import {
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
@@ -1899,6 +1901,7 @@ export function createCoreRoutesPlugin(
       // poll-time drain in run-code covers deployments where warm-instance
       // timers rarely fire.
       (() => {
+        if (shouldDisableInProcessSweeps()) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
@@ -3592,6 +3595,7 @@ export function createCoreRoutesPlugin(
           try {
             track(validation.name as string, properties, {
               userId: userEmail,
+              sessionId: readBrowserSessionIdHeader(event),
             });
           } catch {
             // best-effort

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 
 import {
   abortRun,
@@ -31,6 +32,27 @@ import { isTerminalWireEvent, messageText } from "./types";
  * interval. Scroll/entering animations run on the UI thread regardless.
  */
 const FLUSH_INTERVAL_MS = 50;
+const NAVIGATE_POLL_INTERVAL_MS = 2000;
+const NAVIGATE_POLL_TIMEOUT_MS = Math.max(
+  10_000,
+  NAVIGATE_POLL_INTERVAL_MS * 4,
+);
+
+/**
+ * Bounds `call` so a hung request can't pin the poll's `inFlight` guard
+ * forever. `call` keeps running if it loses the race, but nothing awaits it
+ * beyond this, so a late resolution can't clobber a newer poll cycle.
+ */
+function withPollTimeout<T>(call: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Poll timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
+}
 
 export interface AgentChatSettings {
   model?: string;
@@ -570,32 +592,56 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   // Poll for navigate commands from the agent
   useEffect(() => {
     if (!mountedRef.current) return;
-    const pollInterval = setInterval(async () => {
-      // Don't poll while streaming
-      if (stateRef.current.isStreaming) return;
+    let active = AppState.currentState === "active";
+    let inFlight = false;
+    const tick = async () => {
+      // Don't poll while streaming, backgrounded, or a previous tick is still in flight
+      if (stateRef.current.isStreaming || !active || inFlight) return;
+      inFlight = true;
+      try {
+        // Poll and acknowledge against the active thread's app — a command
+        // written by a Dispatch/Content/etc. thread lives on that origin, not
+        // the default Chat one.
+        const origin = baseUrlRef.current;
+        const command = await withPollTimeout(
+          fetchNavigateCommand(origin),
+          NAVIGATE_POLL_TIMEOUT_MS,
+        ).catch((err: unknown) => {
+          // A failed or timed-out probe is not "no command pending" — the two
+          // are indistinguishable downstream, so say which one happened.
+          console.warn("[agent-chat] navigate command poll failed:", err);
+          return null;
+        });
+        if (!command) return;
 
-      // Poll and acknowledge against the active thread's app — a command
-      // written by a Dispatch/Content/etc. thread lives on that origin, not
-      // the default Chat one.
-      const origin = baseUrlRef.current;
-      const command = await fetchNavigateCommand(origin);
-      if (!command) return;
-
-      const dedupKey = navigateCommandDedupKey(command);
-      if (lastProcessedWriteIdRef.current === dedupKey) {
+        const dedupKey = navigateCommandDedupKey(command);
+        if (lastProcessedWriteIdRef.current === dedupKey) {
+          void deleteNavigateCommand(origin);
+          return;
+        }
+        lastProcessedWriteIdRef.current = dedupKey;
         void deleteNavigateCommand(origin);
-        return;
-      }
-      lastProcessedWriteIdRef.current = dedupKey;
-      void deleteNavigateCommand(origin);
 
-      const targetThreadId = extractThreadId(command);
-      if (targetThreadId && targetThreadId !== threadId) {
-        openThread(targetThreadId, origin);
+        const targetThreadId = extractThreadId(command);
+        if (targetThreadId && targetThreadId !== threadId) {
+          openThread(targetThreadId, origin);
+        }
+      } finally {
+        inFlight = false;
       }
-    }, 2000);
+    };
+    const pollInterval = setInterval(
+      () => void tick(),
+      NAVIGATE_POLL_INTERVAL_MS,
+    );
+    const subscription = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+    });
 
-    return () => clearInterval(pollInterval);
+    return () => {
+      clearInterval(pollInterval);
+      subscription.remove();
+    };
   }, [threadId, openThread]);
 
   const getRunId = useCallback(

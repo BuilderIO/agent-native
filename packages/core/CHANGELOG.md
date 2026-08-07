@@ -1,5 +1,120 @@
 # @agent-native/core
 
+## 0.145.5
+
+### Patch Changes
+
+- da40677: Fix realtime voice tool calls failing with "Invalid or expired realtime voice capability" on serverless deploys. The capability minted by `/_agent-native/realtime-voice/session` lived in a per-process `Map`, so under `NITRO_PRESET=netlify` a tool call that landed on a different instance than the SDP request was rejected — the agent would report that it could not read the current selection and ask the user to reopen the editor. The capability is now an HMAC-signed token carrying the caller's identity, browser tab, and allowed tool names, so any instance can verify it.
+
+  Two behavior changes follow from that. The grant no longer slides on use — it cannot be extended server-side — so its TTL is now an absolute 75 minutes, covering the provider's maximum session length. And when a `tool-search` widens the manifest, the tool response carries a re-issued capability that the client adopts; without it, calls to the newly discovered tools would 404.
+
+  Fix dictation stopping instantly with no error anywhere. `SpeechRecognition` always fires `end` after `error`, and `useVoiceDictation`'s `end` handler returned the composer to idle — erasing the message `onerror` had just set. Every speech failure was therefore invisible in both the UI and the console. `end` no longer overwrites a reported error.
+
+  Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
+
+  The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
+
+- Updated dependencies [da40677]
+  - @agent-native/toolkit@0.13.4
+
+## 0.145.4
+
+### Patch Changes
+
+- db62d66: Fix `frameworkTools` silently ignoring eight of its own switches.
+
+  `sharing`, `review`, `history`, `featureFlags`, `localization`, `contextXray`, `userProfile`, and `audit` are removed by `filterFrameworkToolGroups`, which matched on `ActionEntry.frameworkGroup`. That tag is written in exactly one place — `mergeCoreSharingActions` — and the plugin calls it against `httpActions`, the registry documented as deliberately ungated so the UI keeps working. So the tag never reached the agent registry: any app loading core kits through `loadActionsFromStaticRegistry` or its own actions directory held untagged entries, and setting those eight groups to `false` did nothing. The other groups (`database`, `extensions`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`) were unaffected — they are gated at construction, where the registry is built empty.
+
+  Group membership now resolves by name first and tag second (`resolveFrameworkGroup`), so a switch works no matter how the action was registered. `CORE_ACTION_GROUPS` moves to `framework-tools.ts` (still re-exported from `action-discovery.ts`) so the filter can read it without an import cycle; the `frameworkGroup` stamp stays as a pre-resolved copy but nothing depends on it any more.
+
+  The same tag dependency broke `resolveInitialToolNames`, which excludes framework kits from the DEFAULT first-request tool list — untagged apps were promoting ~45 framework schemas into every first request. Fixed by the same change.
+
+  Guard tests cover both consumers using deliberately **untagged** fixtures built from `CORE_ACTION_GROUPS`, since the previous tests hand-stamped `frameworkGroup` and so passed against inputs no real app produced. They also assert an app action that merely resembles a kit name (`share-portfolio` under `sharing: false`) is left alone.
+
+- db62d66: Accept Client ID Metadata documents that advertise grant types beyond `authorization_code`/`refresh_token`. The MCP OAuth client-metadata validator rejected the whole document when it listed any other grant — so Claude.ai, whose CIMD document also lists `urn:ietf:params:oauth:grant-type:jwt-bearer`, could not connect at all. Only the length/shape of `grant_types` is validated now; the token endpoint already honors just `authorization_code` and `refresh_token` regardless of what the document declares.
+- db62d66: Consolidate every MCP setting on `createAgentChatPlugin` under one `mcp: {}` option, and add `mcp.catalog: "app"`.
+
+  `mcp` accepts `enabled`, `catalog`, `connectorCatalog`, `externalAgents`, `builtinCrossAppTools`, `title`, `description`, `websiteUrl`, and `icons`. The top-level `disableMcp`, `mcpServerInfo`, `connectorCatalog`, and `externalAgents` stay accepted for one minor and are deprecated; the nested value wins, and setting both forms to disagreeing values throws at plugin init rather than booting an app with an MCP surface nobody chose (same contract as `resolveFrameworkTools`). `disableMcp: true` and `mcp.enabled: false` are normalized as inverses, so a correctly migrated app is not read as a conflict.
+
+  Two behavior fixes come with it:
+  - `builtinCrossAppTools` had no route through the plugin at all — it was reachable only by calling `mountMCP` directly. That is why `frameworkTools: "minimal"` and `workspaceApps: false` could never remove the cross-app builtins (`list_apps`, `open_app`, `ask_app`, `ask_app_status`, `create_embed_session`, `create_workspace_app`, `list_templates`) from an app using the normal plugin entry point: the MCP layer merges them downstream of the `frameworkTools` filter. `mcp.builtinCrossAppTools: false` is now the switch.
+  - A2A read the connector policy straight off the raw plugin options, so `mcp.connectorCatalog` would have narrowed the MCP surface while A2A kept serving the old one. `filterDirectA2AActions` / `buildAuthenticatedAgentA2ASkills` now take the resolved shape, so the two external surfaces cannot diverge.
+
+  `mcp.catalog: "app"` serves external callers exactly the app's own tool registry, flat — the same actions the in-app agent holds, with no cross-app builtins, no `ask-agent`, no `tool-search`, and no compact/connector trimming. `externalAgents.denyActions` and the OAuth scope filter still apply, since both are explicit removals rather than catalog tiering, and the dev-open surface split is unchanged (an unauthenticated loopback probe still gets `actions`, not `productionActions`). Weigh the token cost before setting it: an app registering ~100 actions puts every schema in the caller's context on `tools/list`, which is what the compact default exists to avoid.
+
+  Also folds the per-tier `tools/call` gate into one rule — the advertised set is the callable surface on every tier except the explicit `--full-catalog` opt-in — so adding a tier can no longer default to "everything callable" by omission.
+
+  `tool-search` is fixed on both ends over MCP. It is dropped entirely from every flat catalog (`mcp.catalog: "app"` and the `--full-catalog` opt-in), where every tool is already listed beside it and it could only describe its own neighbours. On the trimmed catalogs, where it does earn its place, it is now scoped to the advertised set: previously it closed over the app's whole registry while `tools/call` accepted only the advertised subset, so it answered with names that came straight back as "Unknown tool". `attachToolSearch`, `searchToolRegistry`, `createToolSearchEntry`, `TOOL_SEARCH_ACTION_NAME`, `resolveFrameworkTools`, `filterFrameworkToolGroups`, and `frameworkGroupEnabled` are now exported from `@agent-native/core/server`, so a standalone `mountMCP` plugin can compose the same surface the agent-chat plugin does instead of hand-rolling a copy that drifts.
+
+## 0.145.3
+
+### Patch Changes
+
+- c2b7f82: Bound how long a hosted realtime stream can outlive the session that authorized it. Subscribe tokens now carry an optional `absExp` ceiling that `verifyRealtimeSubscribeToken` enforces independently of `exp` (rejecting with `session_expired`), and the mint endpoint sets it to 15 minutes. The gateway re-signs a stream's token every few minutes without consulting the app, so previously one mint could be extended indefinitely and logout, session expiry, user deletion or org removal never reached an open stream. Rotation must copy `absExp` verbatim and refuse to rotate past it.
+
+  `AppSyncStateOptions` also gains `accessAllowTtlMs` (default 30s). `invalidateCollabAccessCache` only reaches the in-process default instance, so a gateway holding per-app instances cannot be told a share was revoked and keeps serving its cached ALLOW until the TTL lapses; a shorter value bounds that window at the cost of more `can-see` round-trips.
+
+## 0.145.2
+
+### Patch Changes
+
+- 66d6736: Stop handing an Anthropic credential to a non-Anthropic engine. When a user selected an OpenAI (or Gemini, Groq, Mistral, Cohere) engine but had no key for it, the deploy-level `ANTHROPIC_API_KEY` — or the plugin's `options.apiKey` — was passed straight through to that provider's endpoint. The provider rejected it with a 401, and the failure was then recorded against `OPENAI_API_KEY`, so the user saw "the model provider rejected the saved API key" for a key they had never saved.
+
+  `resolveEngine` now accepts `apiKeyEnvVar` so a caller can declare which env var its key was issued for, and drops the key when the selected engine does not use that var. The previous protection compared key values against stored secrets, which only worked on automatic engine selection and could never match a host-supplied key; declaring provenance covers the explicit `engineOption` branches too.
+
+  Every caller that resolved a key before choosing an engine now goes through one resolver, `resolveOwnerEngineApiKey`, which reads the key for the engine that will actually be selected instead of for whatever the saved `agent-engine` setting names. That closes the same leak in web chat with a plugin-level `engine`, `completeText`, the A2A and MCP processors, agent-teams sub-agents, and Brain's capture classifier. Chat title generation posts directly to Anthropic, so it now asks for the owner's Anthropic key specifically and falls back to a truncated title rather than sending another provider's key; the sub-agent Anthropic fallback engine likewise refuses to inherit a run key issued for a different provider.
+
+  The chat `save-key` route reads the provider-to-env mapping from `PROVIDER_ENV_META` instead of a local copy that omitted OpenRouter, and the environment-variable docs list `ANTHROPIC_API_KEY` alongside the other provider fallbacks plus `AGENT_ENGINE` / `AGENT_ENGINE_PREFER_BYO_KEY`.
+
+## 0.145.1
+
+### Patch Changes
+
+- b242acf: Cut idle database round trips on serverless deployments.
+  - The Netlify keep-warm scheduled function is now opt-out and its cadence configurable (`AGENT_NATIVE_DISABLE_KEEP_WARM`, `AGENT_NATIVE_KEEP_WARM_SCHEDULE`), and the expensive background-function warm can be dropped on its own (`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND`). Previously a once-a-minute wake was hardcoded, so a scale-to-zero database (Neon, Aurora Serverless v2, paused-compute Supabase) never autosuspended and burned its compute quota with zero users online. Defaults are unchanged; an unparseable cron fails the build rather than silently reverting to the old cadence.
+  - Thread ACL checks no longer load the conversation blob. `resolveThreadAccess` was loading the full `chat_threads` row — including `thread_data` — for the access decision, discarding it, and reading the same row again, so every agent-chat request downloaded the conversation twice. The share dialog and collab routes got the same projected-load fix.
+  - The SQL-backed SSE relay now backs off from 500ms toward 2s after a run has been quiet for several polls, and probes `reapIfStale` on its own 5s cadence instead of the 500ms status cadence — a reap cannot match a row younger than 15s, so it was issuing ~30 rounds of round trips before it could do anything. Streaming cadence is unchanged.
+  - The in-process backstop sweep timers can be turned off with `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS` where a durable scheduler already drives the same recovery. On serverless these timers run per warm container, so their query rate scaled with instance count rather than with load.
+  - Domain auto-join no longer probes `organizations` on every authenticated request. It short-circuits free email providers (which can never match, since an org may not claim one as its `allowed_domain`) and caches a no-match per domain, invalidated when `allowed_domain` is written. Previously this ran once per request for every account not already in a domain-matched org, with no fixed point.
+  - Session-token and org-membership resolution are cached across requests behind short TTLs plus write invalidation, instead of one round trip each per request. `getAllSettings` is memoized per request and now seeds the single-key settings cache.
+  - Added `shared/ttl-cache.ts` as the single bounded-TTL cache primitive and moved the hand-rolled one in `triggers/condition-evaluator.ts` onto it. Failed reads are never cached anywhere, so an unreadable table can't be served as "absent".
+  - On-demand `ensureTable()` schema probes are answered from one batched introspection pass per database (two queries) instead of one query per table, column, and index — up to ~390 serial round trips per cold start before this. The snapshot is keyed per database client, so the hosted multi-app gateway can never be answered with another app's schema, and an unreadable `information_schema` falls back to per-object probes rather than being read as "the schema is empty". `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` skips the probe-and-DDL machinery entirely for deployments that run real migrations.
+  - Default resources are seeded once per database instead of once per process, behind a durable marker. Previously every cold start re-issued ~10 `INSERT … ON CONFLICT DO NOTHING` writes plus two migration scans for rows that had existed since day one. Note the behavior change: a default resource the user deletes is no longer silently recreated on the next cold start.
+  - Expired agent-scratch cleanup no longer blocks resource reads. `resourceGet`/`resourceGetByPath`/`resourceList` each awaited a `DELETE` before their own `SELECT`, which doubled the round trips, took row locks inside a user-facing request, and could fail the read outright.
+  - `useDbSync` now applies `actionInvalidatePredicate` to the framework-prefix invalidate too. An app's opt-out list was silently conditional: honoured for batches carrying an `action` event, ignored for batches carrying only `db`/`collab`/`settings`/`screen-refresh`.
+
+## 0.145.0
+
+### Minor Changes
+
+- 48bc314: Add `frameworkTools` to `createAgentChatPlugin()` so an app can choose which of the framework's own agent tools it exposes — `database`, `extensions`, `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, and `email`, plus a `"minimal"` preset. Disabling a group removes it from the agent surfaces (chat, MCP, A2A, background runs) while leaving its HTTP action routes mounted for the UI, and drops the prompt blocks that named its tools.
+
+  Framework tools are also no longer promoted into the first model request by default: the ~45 sharing/review/history/flag schemas that `autoDiscoverActions` merges in now stay behind `tool-search` unless an app names them in `initialToolNames`. Apps keep every capability and send a much smaller first request.
+
+  Deprecates the top-level `databaseTools` and `extensionTools` options in favor of `frameworkTools.database` and `frameworkTools.extensions`. Both are still honored; setting a top-level flag and its `frameworkTools` equivalent to conflicting values now throws at plugin startup instead of booting with an unintended tool surface.
+
+## 0.144.3
+
+### Patch Changes
+
+- bd0b0cd: Hold the poll slot until an attempt settles, and abort in-flight attempts on stop()
+
+## 0.144.2
+
+### Patch Changes
+
+- e139a20: Share one browser session id across the agent run and the actions a page calls. Only the chat adapter sent `X-Agent-Native-Session-Id`, and only the agent-run path read it, so `RequestContext.browserSessionId` was always undefined inside an action — a UI action call and the agent's own call during the same visit could not be joined to one `$session_id`. The action client now sends the header and the action route reads it into request context.
+
+  Let `track()` take an action's `ctx` as its third argument — `track("project_created", { template }, ctx)` — instead of restating `{ userId: ctx?.userEmail }` at every call site, and resolve the browser session from the ambient request context so no caller has to thread it. `TrackingEvent` carries it as a typed `sessionId` that each provider maps to its own field (`$session_id` for PostHog, a `session_id` property for Mixpanel and Amplitude, a top-level `sessionId` for webhooks and Agent Native Analytics), rather than leaking one backend's reserved key into every other backend. The browser `track()` helper sends the session header too, so a client event and the server events from the same visit no longer land in different sessions.
+
+  Let an app pin that id with `setAnalyticsSessionId()` (and drop it with `clearAnalyticsSessionId()`) from `@agent-native/core/client/analytics`. A pinned id opts out of the 30-minute idle rotation, so a workflow that spans a quiet stretch stays one correlated session instead of silently splitting in two. Ids the transport cannot carry — empty, over 127 characters, whitespace, or non-ASCII — throw at the call site rather than unlinking every later request.
+
+## 0.144.1
+
+### Patch Changes
+
+- 8f10ada: Ship the latest framework source, scheduler, analytics, and documentation updates.
+
 ## 0.144.0
 
 ### Minor Changes

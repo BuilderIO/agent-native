@@ -40,7 +40,11 @@ import {
   uploadRecordingThumbnail,
 } from "@/lib/thumbnail-capture";
 import {
+  editedToOriginal,
+  effectiveDuration,
   getExcludedRanges,
+  isExcluded,
+  originalToEdited,
   parseEdits,
   type TrimRange,
 } from "@/lib/timestamp-mapping";
@@ -418,6 +422,49 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
       useState(false);
     const excludedRanges = useMemo(() => getExcludedRanges(edits), [edits]);
+    const scrubberTimeline = useMemo(() => {
+      const mapMarker = (originalMs: number): number | null => {
+        if (!Number.isFinite(originalMs) || isExcluded(originalMs, edits)) {
+          return null;
+        }
+        return originalToEdited(originalMs, edits);
+      };
+
+      return {
+        durationMs: effectiveDuration(resolvedDurationMs, edits),
+        currentMs: originalToEdited(currentMs, edits),
+        comments: (comments ?? []).flatMap((comment) => {
+          const editedMs = mapMarker(comment.videoTimestampMs);
+          return editedMs === null
+            ? []
+            : [
+                {
+                  id: comment.id,
+                  content: comment.content,
+                  videoTimestampMs: editedMs,
+                },
+              ];
+        }),
+        chapters: (chapters ?? []).flatMap((chapter) => {
+          const editedMs = mapMarker(chapter.startMs);
+          return editedMs === null
+            ? []
+            : [{ startMs: editedMs, title: chapter.title }];
+        }),
+        reactions: (reactions ?? []).flatMap((reaction) => {
+          const editedMs = mapMarker(reaction.videoTimestampMs);
+          return editedMs === null
+            ? []
+            : [
+                {
+                  id: reaction.id,
+                  emoji: reaction.emoji,
+                  videoTimestampMs: editedMs,
+                },
+              ];
+        }),
+      };
+    }, [chapters, comments, currentMs, edits, reactions, resolvedDurationMs]);
     const activeVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(activeVideoSrc),
       [activeVideoSrc],
@@ -954,16 +1001,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const seekByMs = useCallback(
       (deltaMs: number) => {
         const v = videoRef.current;
-        const liveMs =
+        const liveOriginalMs =
           v &&
           Number.isFinite(v.currentTime) &&
           v.currentTime >= 0 &&
           v.currentTime < 1e7
             ? Math.floor(v.currentTime * 1000)
             : currentMs;
-        seekToVisibleMs(liveMs + deltaMs);
+        const liveEditedMs = originalToEdited(liveOriginalMs, edits);
+        seekToVisibleMs(editedToOriginal(liveEditedMs + deltaMs, edits));
       },
-      [currentMs, seekToVisibleMs],
+      [currentMs, edits, seekToVisibleMs],
     );
 
     // Imperative handle for parent
@@ -1780,8 +1828,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           >
             <PlayerControls
               isPlaying={isPlaying}
-              durationMs={resolvedDurationMs}
-              currentMs={currentMs}
+              durationMs={scrubberTimeline.durationMs}
+              currentMs={scrubberTimeline.currentMs}
               volume={volume}
               muted={muted}
               speed={speed}
@@ -1789,16 +1837,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               isFullscreen={isFullscreen}
               isPip={isPip}
               theaterMode={!!theaterMode}
-              comments={comments}
-              chapters={chapters}
-              reactions={reactions}
-              excludedRanges={excludedRanges}
+              comments={scrubberTimeline.comments}
+              chapters={scrubberTimeline.chapters}
+              reactions={scrubberTimeline.reactions}
               hasCaptions={!!transcriptSegments?.length}
               onPlayPause={() => {
                 togglePlayback();
               }}
-              onSeek={(ms) => {
-                seekToVisibleMs(ms);
+              onSeek={(editedMs) => {
+                seekToVisibleMs(editedToOriginal(editedMs, edits));
               }}
               onSeekRelative={seekByMs}
               onVolumeChange={(vol) => {

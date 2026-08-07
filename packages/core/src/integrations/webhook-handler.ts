@@ -20,16 +20,14 @@ import {
   resolveEngine,
 } from "../agent/engine/index.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
-import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
   filterInitialEngineTools,
-  getOwnerActiveApiKey,
-  getOwnerApiKey,
-  engineToProvider,
+  resolveOwnerEngineApiKey,
   type ActionEntry,
+  type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
 import {
   appendDurableContinuationContext,
@@ -61,10 +59,6 @@ import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import {
-  canUseDeployCredentialFallbackForRequest,
-  readDeployCredentialEnv,
-} from "../server/credential-provider.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
@@ -326,21 +320,6 @@ export interface WebhookHandlerOptions {
   >;
 }
 
-function explicitEngineName(
-  engineOption: WebhookHandlerOptions["engine"],
-): string | undefined {
-  if (!engineOption) return undefined;
-  if (typeof engineOption === "string") return engineOption;
-  if (
-    typeof engineOption === "object" &&
-    !("stream" in engineOption) &&
-    typeof engineOption.name === "string"
-  ) {
-    return engineOption.name;
-  }
-  return undefined;
-}
-
 async function resolveIntegrationEngineOption(
   engineOption: WebhookHandlerOptions["engine"],
   appId?: string,
@@ -381,35 +360,18 @@ function collectCompletedMutationToolResultSummaries(
     .map((event) => ({ tool: event.tool, result: event.result }));
 }
 
+export type ResolvedIntegrationApiKey = ResolvedOwnerApiKey;
+
 export async function resolveIntegrationApiKey(
   engineOption: WebhookHandlerOptions["engine"],
   ownerEmail: string,
   fallbackApiKey: string,
-): Promise<string | undefined> {
-  const engineName = explicitEngineName(engineOption);
-  if (engineName) {
-    const provider = engineToProvider(engineName);
-    const userApiKey = await getOwnerApiKey(provider, ownerEmail);
-    if (userApiKey) return userApiKey;
-    const envVar = PROVIDER_TO_ENV[provider];
-    const providerEnvKey =
-      envVar && canUseDeployCredentialFallbackForRequest(envVar)
-        ? readDeployCredentialEnv(envVar)
-        : undefined;
-    return (
-      providerEnvKey ||
-      (canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
-        ? fallbackApiKey.trim()
-        : "") ||
-      undefined
-    );
-  }
-
-  const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-  if (userApiKey) return userApiKey;
-  return canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")
-    ? fallbackApiKey.trim() || undefined
-    : undefined;
+): Promise<ResolvedIntegrationApiKey> {
+  return resolveOwnerEngineApiKey({
+    engineOption,
+    ownerEmail,
+    anthropicFallback: fallbackApiKey,
+  });
 }
 
 /**
@@ -1337,7 +1299,8 @@ async function processIncomingMessage(
             );
             const engine = await resolveEngine({
               engineOption: effectiveEngineOption,
-              apiKey: effectiveApiKey,
+              apiKey: effectiveApiKey.apiKey,
+              apiKeyEnvVar: effectiveApiKey.apiKeyEnvVar,
               model,
               appId: options.appId,
             });
