@@ -75,6 +75,7 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
 const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
+const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
 
@@ -227,6 +228,8 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
 
       // Skip if body is empty
       if (!body.trim()) continue;
+
+      if (hasRecentIdentityFailure(meta, now)) continue;
 
       const key = `${resource.owner}:${resource.path}`;
       if (
@@ -419,6 +422,19 @@ async function recordIdentityFailure(
     );
   }
   return { status: "skipped", error: reason };
+}
+
+function hasRecentIdentityFailure(meta: JobFrontmatter, now: Date): boolean {
+  if (meta.lastStatus !== "skipped" || !meta.lastCheck || !meta.lastError) {
+    return false;
+  }
+  const lastCheckMs = Date.parse(meta.lastCheck);
+  const elapsedMs = now.getTime() - lastCheckMs;
+  return (
+    Number.isFinite(lastCheckMs) &&
+    elapsedMs >= 0 &&
+    elapsedMs < IDENTITY_FAILURE_RETRY_MS
+  );
 }
 
 async function executeJob(

@@ -171,6 +171,24 @@ describe("parseSlideHtml", () => {
     ]);
   });
 
+  it("letterboxes portrait PDF pages during export", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" data-source-width="900" data-source-height="1600"><img src="https://files.example/portrait.png" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images).toEqual([
+      expect.objectContaining({
+        src: "https://files.example/portrait.png",
+        x: expect.closeTo((13.33 - 7.5 * (900 / 1600)) / 2, 4),
+        y: 0,
+        w: expect.closeTo(7.5 * (900 / 1600), 4),
+        h: expect.closeTo(7.5, 4),
+      }),
+    ]);
+  });
+
   it("decodes escaped query parameters in imported PDF image URLs", () => {
     const result = parseSlideHtml(
       `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true"><img src="https://files.example/page.png?token=abc&amp;signature=def" alt="" /></div>`,

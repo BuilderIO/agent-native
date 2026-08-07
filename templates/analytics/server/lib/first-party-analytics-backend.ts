@@ -1051,6 +1051,8 @@ function backfillRowsByIdsSql(ids: string[]): {
   };
 }
 
+const MAX_SQLITE_BIND_VARIABLES = 900;
+
 function backfillRowCursor(
   row: Record<string, unknown>,
 ): FirstPartyAnalyticsBackfillCursor {
@@ -1131,18 +1133,25 @@ export async function backfillFirstPartyAnalyticsBatch(
   }
 
   const selectedIds = selectedRows.map((row) => backfillRowCursor(row).id);
-  const hydratedQuery = backfillRowsByIdsSql(selectedIds);
-  const hydratedResult = await db.execute({
-    sql: hydratedQuery.sql,
-    args: hydratedQuery.args,
-    timeoutMs: 20_000,
-    maxAttempts: 1,
-  });
+  const hydratedRows: Record<string, unknown>[] = [];
+  for (
+    let offset = 0;
+    offset < selectedIds.length;
+    offset += MAX_SQLITE_BIND_VARIABLES
+  ) {
+    const hydratedQuery = backfillRowsByIdsSql(
+      selectedIds.slice(offset, offset + MAX_SQLITE_BIND_VARIABLES),
+    );
+    const hydratedResult = await db.execute({
+      sql: hydratedQuery.sql,
+      args: hydratedQuery.args,
+      timeoutMs: 20_000,
+      maxAttempts: 1,
+    });
+    hydratedRows.push(...(hydratedResult.rows as Record<string, unknown>[]));
+  }
   const hydratedById = new Map(
-    (hydratedResult.rows as Record<string, unknown>[]).map((row) => [
-      backfillRowCursor(row).id,
-      row,
-    ]),
+    hydratedRows.map((row) => [backfillRowCursor(row).id, row]),
   );
   const selectedEvents = selectedIds
     .map((id) => hydratedById.get(id))

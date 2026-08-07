@@ -275,6 +275,8 @@ describe("import-file PDF source extraction", () => {
     expect(importedSlide.content).toContain(
       "https://files.example/source-page.png",
     );
+    expect(importedSlide.content).toContain('data-source-width="1600"');
+    expect(importedSlide.content).toContain('data-source-height="900"');
     expect(importedSlide.content).not.toContain("Source title");
     expect(importedSlide.notes).toBe("Source title\nSource body");
     expect(updatedDeck.sourceImport).toMatchObject({

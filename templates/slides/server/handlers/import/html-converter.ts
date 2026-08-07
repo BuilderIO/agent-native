@@ -53,8 +53,19 @@ export function buildFullBleedImageSlideHtml(
 }
 
 /** Render a rasterized source page without changing its layout or text. */
-export function buildFullPageImageSlideHtml(imageUrl: string): string {
-  return `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true" style="position: relative; width: 100%; height: 100%; overflow: hidden; background: hsl(var(--background));">
+export function buildFullPageImageSlideHtml(
+  imageUrl: string,
+  sourceWidth?: number,
+  sourceHeight?: number,
+): string {
+  const sourceDimensions =
+    Number.isFinite(sourceWidth) &&
+    Number.isFinite(sourceHeight) &&
+    sourceWidth! > 0 &&
+    sourceHeight! > 0
+      ? ` data-source-width="${sourceWidth}" data-source-height="${sourceHeight}"`
+      : "";
+  return `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true"${sourceDimensions} style="position: relative; width: 100%; height: 100%; overflow: hidden; background: hsl(var(--background));">
     <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;" />
 </div>`;
 }

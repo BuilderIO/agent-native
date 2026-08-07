@@ -450,7 +450,11 @@ async function importPdfPagesAsFullBleedSlides(args: {
       return {
         slide: {
           id,
-          content: buildFullPageImageSlideHtml(uploadResult.url),
+          content: buildFullPageImageSlideHtml(
+            uploadResult.url,
+            screenshot.width,
+            screenshot.height,
+          ),
           layout: "full-image",
           notes: page.text,
         },
