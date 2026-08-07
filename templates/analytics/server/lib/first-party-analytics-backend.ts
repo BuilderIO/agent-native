@@ -73,7 +73,7 @@ const FIRST_PARTY_QUERY_TABLES = [
   "analytics_user_days",
 ] as const;
 const BACKEND_CONFIG_CACHE_TTL_MS = 30_000;
-const MAX_BACKFILL_BATCH_SIZE = 5_000;
+const MAX_BACKFILL_BATCH_SIZE = 750;
 const MAX_INSERT_BATCH_SIZE = 200;
 
 const backendConfigCache = new Map<

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Send local source-code handoffs to the local coding agent instead of the Builder waitlist.
+Offer local source-code handoffs to external coding agents instead of the Builder waitlist.

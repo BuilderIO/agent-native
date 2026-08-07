@@ -9,14 +9,14 @@ import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 const mocks = vi.hoisted(() => ({
   useBuilderConnectFlow: vi.fn(),
   start: vi.fn(),
-  sendToAgentChat: vi.fn(),
+  writeClipboardText: vi.fn(),
 }));
 
 vi.mock("./settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
-vi.mock("./agent-chat.js", () => ({
-  sendToAgentChat: mocks.sendToAgentChat,
+vi.mock("./clipboard.js", () => ({
+  writeClipboardText: mocks.writeClipboardText,
 }));
 
 describe("ConnectBuilderCard", () => {
@@ -46,6 +46,7 @@ describe("ConnectBuilderCard", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     originalLocation = window.location;
     setLocation("https://agent-native.test/");
+    mocks.writeClipboardText.mockResolvedValue(true);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
       configured: true,
@@ -72,7 +73,7 @@ describe("ConnectBuilderCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends local code changes to the coding agent instead of a waitlist", () => {
+  it("offers an external coding-agent handoff instead of a waitlist", async () => {
     setLocation("http://localhost:8080/");
 
     act(() => {
@@ -86,28 +87,32 @@ describe("ConnectBuilderCard", () => {
       );
     });
 
-    expect(container.textContent).toContain("Use your coding agent");
-    expect(container.textContent).toContain("Send to coding agent");
+    expect(container.textContent).toContain("This requires a code change");
+    expect(container.textContent).toContain(
+      "Open your coding agent in this project, then paste this request.",
+    );
+    expect(container.textContent).not.toContain("Claude Code");
+    expect(container.textContent).not.toContain("Codex");
+    expect(container.textContent).toContain("Copy prompt");
     expect(container.textContent).not.toContain("waitlist");
     expect(container.textContent).not.toContain("Download desktop app");
 
     const button = Array.from(container.querySelectorAll("button")).find(
-      (element) => element.textContent?.includes("Send to coding agent"),
+      (element) => element.textContent?.includes("Copy prompt"),
     );
     expect(button).toBeTruthy();
 
-    act(() => {
+    await act(async () => {
       button?.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true }),
       );
+      await Promise.resolve();
     });
 
-    expect(mocks.sendToAgentChat).toHaveBeenCalledWith({
-      message: "Update the dashboard layout",
-      submit: true,
-      type: "code",
-      newTab: true,
-    });
+    expect(mocks.writeClipboardText).toHaveBeenCalledWith(
+      "Update the dashboard layout",
+    );
+    expect(container.textContent).toContain("Prompt copied");
   });
 
   it("shows a code-change fallback when Builder Cloud Agents are unavailable", () => {

@@ -1,10 +1,16 @@
-import { IconCode, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconCode,
+  IconCopy,
+  IconExternalLink,
+  IconLoader2,
+} from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath } from "./api-path.js";
 import { BuilderBMark } from "./builder-mark.js";
+import { writeClipboardText } from "./clipboard.js";
 import { getCallbackOrigin } from "./frame.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { cn } from "./utils.js";
@@ -29,7 +35,7 @@ export interface ConnectBuilderCardProps {
   /**
    * True when the server has a Builder branch project configured for this
    * request. When false, the card shows a hosted waitlist CTA or a local code
-   * agent handoff instead of a Send button.
+   * external coding-agent handoff instead of a Send button.
    */
   builderEnabled?: boolean;
   connectUrl: string;
@@ -49,7 +55,7 @@ interface BuilderRunResult {
 /**
  * Rich inline card rendered for the `connect-builder` tool call. Shows the
  * Builder handoff when available, or routes local development requests to the
- * local coding agent.
+ * external coding agent.
  */
 export function ConnectBuilderCard({
   configured: initialConfigured,
@@ -82,8 +88,11 @@ export function ConnectBuilderCard({
   const [sending, setSending] = useState(false);
   const [runResult, setRunResult] = useState<BuilderRunResult | null>(null);
   const [sendErr, setSendErr] = useState<string | null>(null);
+  const [copyErr, setCopyErr] = useState<string | null>(null);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [localDevelopment] = useState(() => isLocalDevelopment());
   const mountedRef = useRef(true);
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether the user clicked "Connect Builder" *this session*. When
   // the connect-then-poll round-trip lands `configured=true`, we use this
   // flag to decide whether to retry the user's pending prompt automatically
@@ -97,6 +106,7 @@ export function ConnectBuilderCard({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (copyResetRef.current) clearTimeout(copyResetRef.current);
     };
   }, []);
 
@@ -172,18 +182,24 @@ export function ConnectBuilderCard({
     }
   }, [orgName, prompt]);
 
-  const handleSendToLocalAgent = useCallback(() => {
+  const handleCopyPrompt = useCallback(async () => {
     if (!prompt.trim()) return;
-    sendToAgentChat({
-      message: prompt,
-      submit: true,
-      type: "code",
-      newTab: true,
-    });
+    setCopyErr(null);
+    const copied = await writeClipboardText(prompt);
+    if (!mountedRef.current) return;
+    if (!copied) {
+      setCopyErr("Couldn't copy the prompt");
+      return;
+    }
+    setPromptCopied(true);
+    if (copyResetRef.current) clearTimeout(copyResetRef.current);
+    copyResetRef.current = setTimeout(() => {
+      if (mountedRef.current) setPromptCopied(false);
+    }, 1600);
   }, [prompt]);
 
-  // Combine connect-flow errors, send errors, and waitlist errors.
-  const err = sendErr ?? waitlistErr ?? flow.error;
+  // Combine connect-flow errors, send errors, waitlist errors, and copy errors.
+  const err = sendErr ?? waitlistErr ?? copyErr ?? flow.error;
 
   const hasPrompt = prompt.trim().length > 0;
   const canSend = configured && builderEnabled && hasPrompt;
@@ -205,7 +221,8 @@ export function ConnectBuilderCard({
   }, [flow.connecting, canSend, sending, runResult, sendErr, handleSend]);
   // Branch creation is gated by a server-side project id, which may come
   // from deployment config or org-scoped secrets.
-  const showLocalAgent = localDevelopment && !builderEnabled && hasPrompt;
+  const showExternalAgentHandoff =
+    localDevelopment && !builderEnabled && hasPrompt;
   const showWaitlist = !localDevelopment && !builderEnabled && hasPrompt;
 
   // Title + subtitle depend on which mode we're in. We compute them up front
@@ -226,10 +243,10 @@ export function ConnectBuilderCard({
         . Click through to watch progress in the Visual Editor.
       </>
     );
-  } else if (showLocalAgent) {
-    title = "Use your coding agent";
+  } else if (showExternalAgentHandoff) {
+    title = "This requires a code change";
     subtitle =
-      "This project is running locally. Send this request to your coding agent to make the code change.";
+      "Open your coding agent in this project, then paste this request.";
   } else if (showWaitlist) {
     title = "This requires a code change";
     subtitle = waitlistJoined ? (
@@ -283,7 +300,7 @@ export function ConnectBuilderCard({
         >
           {runResult ? (
             <IconLoader2 className="h-5 w-5 animate-spin" />
-          ) : showLocalAgent ? (
+          ) : showExternalAgentHandoff ? (
             <IconCode className="h-5 w-5" />
           ) : (
             <BuilderBMark className="h-5 w-5" />
@@ -350,17 +367,26 @@ export function ConnectBuilderCard({
                   <>Send to Builder</>
                 )}
               </button>
-            ) : showLocalAgent ? (
+            ) : showExternalAgentHandoff ? (
               <button
                 type="button"
-                onClick={handleSendToLocalAgent}
+                onClick={() => void handleCopyPrompt()}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
                   "bg-foreground text-background hover:bg-foreground/90",
                 )}
               >
-                Send to coding agent
-                <IconExternalLink className="h-3.5 w-3.5" />
+                {promptCopied ? (
+                  <>
+                    <IconCheck className="h-3.5 w-3.5" />
+                    Prompt copied
+                  </>
+                ) : (
+                  <>
+                    <IconCopy className="h-3.5 w-3.5" />
+                    Copy prompt
+                  </>
+                )}
               </button>
             ) : showWaitlist && !waitlistJoined ? (
               <button
