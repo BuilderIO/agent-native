@@ -15,6 +15,7 @@ import {
   mcpIntegrationAuthLabel,
   mergeDefaultMcpIntegrations,
   resolveMcpIntegrationScope,
+  shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
 } from "./mcp-integration-catalog.js";
 
@@ -31,6 +32,35 @@ describe("MCP integration catalog", () => {
     expect(context7?.authMode).toBe("none");
     expect(semgrep?.url).toBe("https://mcp.semgrep.ai/mcp");
     expect(semgrep?.authMode).toBe("none");
+  });
+
+  it("opts only verified shared-capable integrations into organization scope", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const exa = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "exa",
+    )!;
+    const gong = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "gong",
+    )!;
+    const hubspot = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "hubspot",
+    )!;
+
+    expect(context7.supportsOrganizationScope).toBe(true);
+    expect(exa.supportsOrganizationScope).toBe(true);
+    expect(gong.supportsOrganizationScope).toBe(true);
+    expect(hubspot.supportsOrganizationScope).not.toBe(true);
+    expect(
+      shouldOfferMcpIntegrationOrganizationScope(context7, true, true),
+    ).toBe(true);
+    expect(
+      shouldOfferMcpIntegrationOrganizationScope(context7, true, false),
+    ).toBe(false);
+    expect(
+      shouldOfferMcpIntegrationOrganizationScope(hubspot, true, true),
+    ).toBe(false);
   });
 
   it("replaces one remote MCP preset without dropping the rest", () => {
@@ -379,6 +409,7 @@ describe("MCP integration catalog", () => {
     expect(resolveMcpIntegrationScope("org", false, true)).toBe("user");
     expect(resolveMcpIntegrationScope("org", true, false)).toBe("user");
     expect(resolveMcpIntegrationScope("org", true, true)).toBe("org");
+    expect(resolveMcpIntegrationScope("org", true, true, false)).toBe("user");
     expect(resolveMcpIntegrationScope("user", true, true)).toBe("user");
   });
 

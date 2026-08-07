@@ -46,6 +46,12 @@ export interface DefaultMcpIntegration {
    * Keep the connection user-scoped even when the client itself is shared.
    */
   managedOAuth?: boolean;
+  /**
+   * The provider supports a workspace connection whose access can be shared
+   * with permitted workspace members. Keep this opt-in until provider scope
+   * semantics are verified.
+   */
+  supportsOrganizationScope?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -89,6 +95,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "verified",
     logoUrl: mcpIntegrationLogo("context7"),
+    supportsOrganizationScope: true,
     docsUrl: "https://context7.com/",
     keywords: ["docs", "documentation", "libraries", "frameworks"],
   },
@@ -221,6 +228,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "provider-setup",
     verification: "restricted",
     logoUrl: mcpIntegrationLogo("gong"),
+    supportsOrganizationScope: true,
     docsUrl:
       "https://help.gong.io/docs/create-an-integration-to-connect-to-the-mcp-server",
     setupNoteKey: "mcpIntegrations.catalog.gong.setupNote",
@@ -247,6 +255,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("semgrep"),
+    supportsOrganizationScope: true,
     docsUrl: "https://github.com/semgrep/mcp#readme",
     keywords: ["security", "sast", "code scanning", "vulnerabilities"],
   },
@@ -331,6 +340,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("exa"),
+    supportsOrganizationScope: true,
     docsUrl: "https://exa.ai/docs/reference/exa-mcp",
     setupNoteKey: "mcpIntegrations.catalog.exa.setupNote",
     keywords: [
@@ -961,8 +971,14 @@ export function resolveMcpIntegrationScope(
   defaultScope: "user" | "org",
   hasOrg: boolean,
   canCreateOrgMcp: boolean,
+  supportsOrganizationScope = true,
 ): "user" | "org" {
-  return defaultScope === "org" && hasOrg && canCreateOrgMcp ? "org" : "user";
+  return defaultScope === "org" &&
+    hasOrg &&
+    canCreateOrgMcp &&
+    supportsOrganizationScope
+    ? "org"
+    : "user";
 }
 
 export function shouldOfferMcpOrganizationScope(
@@ -970,6 +986,18 @@ export function shouldOfferMcpOrganizationScope(
   canCreateOrgMcp: boolean,
 ): boolean {
   return hasOrg && canCreateOrgMcp;
+}
+
+export function shouldOfferMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+  hasOrg: boolean,
+  canCreateOrgMcp: boolean,
+): boolean {
+  return (
+    shouldOfferMcpOrganizationScope(hasOrg, canCreateOrgMcp) &&
+    integration.supportsOrganizationScope === true &&
+    integration.managedOAuth !== true
+  );
 }
 
 export function filterMcpIntegrations(

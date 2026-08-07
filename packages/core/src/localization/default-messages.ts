@@ -1038,8 +1038,20 @@ const messages = {
       "Paste a Streamable HTTP or SSE endpoint and optional headers.",
     oauthNotice:
       "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
+    providerSetupRequired: "Provider setup required",
+    providerSetupDescription:
+      "Complete the required setup in {{name}} first. Then return here to authorize your account.",
+    providerSetupFormDescription:
+      "Review the provider requirements and open the official setup guide before connecting your account.",
+    continueToConnect: "I've completed setup",
+    setupTitle: "Set up {{name}}",
     personal: "Personal",
     organization: "Organization",
+    scopeQuestion: "Who should be able to use this connection?",
+    personalDescription: "Only you can use this connection.",
+    sharedWithWorkspace: "Shared with workspace",
+    organizationDescription:
+      "Permitted workspace members can use this connection. Provider permissions still apply.",
     serverNameRequired:
       "Enter an integration name before connecting with OAuth.",
     serverName: "Integration name",

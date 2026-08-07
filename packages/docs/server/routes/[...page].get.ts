@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import {
   createH3SSRHandler,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "@agent-native/core/server/ssr-handler";
 import {
   createError,
@@ -18,7 +19,6 @@ import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index"
 import { wrapDocumentResponse } from "../../lib/analytics";
 
 const SITE_URL = "https://www.agent-native.com";
-const DOCS_NETLIFY_VARY = "query=_data|index";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ssrHandler = createH3SSRHandler(
@@ -50,7 +50,9 @@ export default async function docsPageHandler(event: H3Event) {
     // These page URLs can return either HTML or markdown based on Accept.
     // Keep the variants isolated in browser/CDN caches.
     setHeader(event, "vary", "Accept");
-    setHeader(event, "netlify-vary", DOCS_NETLIFY_VARY);
+    for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+      setHeader(event, k, v);
+    }
     return markdown.content;
   }
 
@@ -70,7 +72,9 @@ function setSsrCacheHeaders(event: H3Event) {
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
-  setHeader(event, "netlify-vary", DOCS_NETLIFY_VARY);
+  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+    setHeader(event, k, v);
+  }
 }
 
 function responseWithVaryAccept(response: Response): Response {
@@ -96,7 +100,9 @@ function appendVary(headers: Headers, value: string) {
       headers.set("vary", `${existing}, ${value}`);
     }
   }
-  headers.set("netlify-vary", DOCS_NETLIFY_VARY);
+  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+    headers.set(k, v);
+  }
 }
 
 function readAgentWebAssetForRequest(

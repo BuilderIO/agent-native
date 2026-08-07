@@ -67,6 +67,7 @@ import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+import { WorkspaceAppsRail } from "./workspace-apps-rail";
 
 export type DispatchNavSection = "primary" | "operations";
 
@@ -806,6 +807,8 @@ export function NavContent({
           >
             {primaryNavItems.map(renderNavItem)}
           </ul>
+
+          <WorkspaceAppsRail collapsed={collapsed} onNavigate={onNavigate} />
 
           {collapsed ? (
             <>

@@ -21,6 +21,7 @@ import {
   getDefaultMcpIntegrations,
   isMcpConnectionFailureText,
   navigateToMcpOAuthStart,
+  shouldOfferMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
@@ -141,6 +142,20 @@ export function McpConnectionSuggestion({
     [mcpServersQuery.data],
   );
   const connected = integration ? isConnected(integration, servers) : false;
+  const hasOrg = Boolean(mcpServersQuery.data?.orgId);
+  const canCreateOrgMcp = Boolean(
+    hasOrg &&
+    (mcpServersQuery.data?.role === "owner" ||
+      mcpServersQuery.data?.role === "admin"),
+  );
+  const shouldChooseScope = Boolean(
+    integration &&
+    shouldOfferMcpIntegrationOrganizationScope(
+      integration,
+      hasOrg,
+      canCreateOrgMcp,
+    ),
+  );
   const shouldSuggest =
     mcpServersQuery.isSuccess &&
     integration &&
@@ -162,6 +177,12 @@ export function McpConnectionSuggestion({
 
     if (apiFallback) {
       openAgentSettings(`secrets:${apiFallback.secretKey}`);
+      return;
+    }
+
+    if (shouldChooseScope) {
+      saveMcpConnectionResume(variant === "response" ? contextText : text);
+      setDialogOpen(true);
       return;
     }
 
@@ -307,8 +328,8 @@ export function McpConnectionSuggestion({
         }}
         initialIntegrationId={integration.id}
         defaultScope="user"
-        canCreateOrgMcp={false}
-        hasOrg={Boolean(mcpServersQuery.data?.orgId)}
+        canCreateOrgMcp={canCreateOrgMcp}
+        hasOrg={hasOrg}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}
         onCreated={() => {
           setDismissedId(integration.id);
