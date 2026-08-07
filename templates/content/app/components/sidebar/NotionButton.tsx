@@ -167,6 +167,7 @@ export function NotionButton() {
 
     // Poll for connection
     pollRef.current = setInterval(async () => {
+      if (document.hidden) return;
       const result = await refetch();
       if (result.data?.connected) {
         clearInterval(pollRef.current);

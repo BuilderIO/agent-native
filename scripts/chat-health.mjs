@@ -67,6 +67,33 @@ const BAD_TURN_BUDGET = 0.1;
 /** Share of received A2A tasks that may fail or hang before --strict fails. */
 const A2A_FAIL_BUDGET = 0.1;
 const CONNECT_TIMEOUT_S = 20;
+// Thresholds set from a real outage, not intuition. Healthy analytics right now
+// reads 0 / 128ms / 1; at the point it went down it read 20 / 6000ms / 56.
+const MAX_IDLE_TXN_AGE_S = 60;
+const MAX_TRIVIAL_QUERY_MS = 1_000;
+const MAX_SAME_QUERY_CONCURRENCY = 10;
+
+/** Reasons this app's database looks pressured, or [] when it looks fine. */
+function dbPressureWarnings(p) {
+  if (!p) return [];
+  const out = [];
+  if (p.idle_in_txn > 0 && p.oldest_idle_txn_s > MAX_IDLE_TXN_AGE_S) {
+    out.push(
+      `${p.idle_in_txn} idle-in-transaction (oldest ${p.oldest_idle_txn_s}s) — workers killed mid-transaction still holding locks`,
+    );
+  }
+  if (p.trivial_query_ms > MAX_TRIVIAL_QUERY_MS) {
+    out.push(
+      `SELECT 1 took ${p.trivial_query_ms}ms — the database itself is slow, not the app`,
+    );
+  }
+  if (p.max_same_query >= MAX_SAME_QUERY_CONCURRENCY) {
+    out.push(
+      `${p.max_same_query} concurrent copies of one query — a hot path is stampeding`,
+    );
+  }
+  return out;
+}
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -177,6 +204,37 @@ FROM a2a_tasks
 WHERE status_state = 'failed' AND created_at > $1
 GROUP BY 1 ORDER BY tasks DESC LIMIT 4`;
 
+// Database pressure — the three signals that preceded a real outage and that
+// nothing here was watching.
+//
+// Analytics degraded for hours before it fell over, and every check we had said
+// UP until the moment it said DOWN. What was actually true, and visible the
+// whole time in pg_stat_activity:
+//
+//   - 11-20 connections stuck `idle in transaction` up to 283s, left behind by
+//     serverless workers killed mid-transaction. They hold locks; nothing
+//     reaped them.
+//   - `SELECT 1` drifting from ~0.2s to 6s as those locks accumulated.
+//   - 47-56 concurrent copies of one unprojected query, each dragging a JSON
+//     blob per row.
+//
+// None of that is "down". All of it is the hour before down. A monitor that
+// only distinguishes 200 from 500 cannot see any of it.
+const DB_PRESSURE_SQL = `
+SELECT
+  count(*)::int AS connections,
+  count(*) FILTER (WHERE state = 'idle in transaction')::int AS idle_in_txn,
+  coalesce(round(max(extract(epoch from (now() - state_change)))
+    FILTER (WHERE state = 'idle in transaction'))::int, 0) AS oldest_idle_txn_s,
+  coalesce((
+    SELECT max(c) FROM (
+      SELECT count(*)::int AS c FROM pg_stat_activity
+      WHERE state = 'active' AND query <> '' GROUP BY left(query, 60)
+    ) q
+  ), 0)::int AS max_same_query
+FROM pg_stat_activity
+WHERE pid <> pg_backend_pid()`;
+
 async function measure({ name, url }, since) {
   const sql = postgres(url, {
     ssl: "require",
@@ -199,7 +257,17 @@ async function measure({ name, url }, since) {
     } catch {
       a2a = null;
     }
-    return { name, ...totals, reasons, a2a };
+    // Timed, because latency on a trivial query IS the signal: it drifted from
+    // ~0.2s to 6s during the incident while every other check still said UP.
+    let dbPressure = null;
+    try {
+      const t0 = Date.now();
+      const [p] = await sql.unsafe(DB_PRESSURE_SQL);
+      dbPressure = { ...p, trivial_query_ms: Date.now() - t0 };
+    } catch {
+      dbPressure = null;
+    }
+    return { name, ...totals, reasons, a2a, dbPressure };
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -322,6 +390,18 @@ if (asJson) {
     );
   }
 
+  const pressured = scored
+    .map((r) => ({ name: r.name, warns: dbPressureWarnings(r.dbPressure) }))
+    .filter((x) => x.warns.length > 0);
+  if (pressured.length > 0) {
+    console.log(
+      `\nDatabase pressure — the hour before an outage looks like this\n`,
+    );
+    for (const { name, warns } of pressured) {
+      for (const w of warns) console.log(`! ${name.padEnd(11)} ${w}`);
+    }
+  }
+
   for (const u of unreachable) {
     console.log(`  ✗ ${u.name}: UNREACHABLE — ${u.error}`);
   }
@@ -329,6 +409,9 @@ if (asJson) {
 
 // An app we could not reach is an unknown, not a pass. Report it as a failure
 // in strict mode rather than quietly averaging it away.
+if (strict && scored.some((r) => dbPressureWarnings(r.dbPressure).length > 0)) {
+  process.exit(1);
+}
 if (unreachable.length > 0 && strict) process.exit(1);
 if (strict && scored.some((r) => r.badRate > BAD_TURN_BUDGET)) process.exit(1);
 if (

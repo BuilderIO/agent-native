@@ -18,6 +18,12 @@ import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js"
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
+  buildSourceImportMetadata,
+  mergeSourceImportMetadata,
+  sourceImportForDeck,
+  type SourceImportSlideSnapshot,
+} from "../server/lib/source-import.js";
+import {
   ASPECT_RATIOS,
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
@@ -30,9 +36,9 @@ const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 export default defineAction({
   description:
     "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
-    "For PPTX files, returns parsed slides with text and layout info ready for conversion. " +
+    "For PPTX files, returns parsed slides with text and layout info ready for conversion, or writes positioned source-preserving slides when importIntoDeck is true. " +
     "For DOCX files, returns structured sections extracted from the document. " +
-    "For PDF files, returns extracted text organized by page. " +
+    "For PDF files, returns extracted text organized by page, or source-faithful page-image slides when importIntoDeck is true. " +
     "For Figma .fig files, requires Builder.io (free tier available) and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
     "The agent can then use the extracted content to create a deck via create-deck or add-slide, or tell the user where Builder is indexing the design system.",
   schema: z.object({
@@ -53,7 +59,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe(
-        "If true, append slides converted from the file to the end of deckId's existing slides.",
+        "If true, append slides to deckId. PDF pages are imported as source-faithful images that preserve their original layout and aspect ratio; use the default false when editable extracted source text is needed.",
       ),
     maxChars: z.coerce
       .number()
@@ -152,7 +158,37 @@ export default defineAction({
           (total, r) => total + r.imageSkippedCount,
           0,
         );
-        await appendDeckSlides(deckId, title, slides, "import-file:pptx");
+        const sourceImport = buildSourceImportMetadata({
+          format: "pptx",
+          slides: pptxResults.map((result) => ({
+            id: result.slide.id,
+            text: result.sourceText,
+            notes: result.slide.notes ?? "",
+            imageUrls: result.imageUrls,
+            editableText: true,
+          })),
+          imagesSkipped,
+        });
+        if (imagesSkipped > 0) {
+          throw new Error(
+            `Source-faithful PPTX import could not preserve ${imagesSkipped} image(s). No slides were written. Retry with browser-renderable images or use a PDF export for page-faithful preservation.`,
+          );
+        }
+        const aspectRatio =
+          presentation.slides[0]?.widthEmu && presentation.slides[0]?.heightEmu
+            ? nearestAspectRatio(
+                presentation.slides[0].widthEmu,
+                presentation.slides[0].heightEmu,
+              )
+            : undefined;
+        await appendDeckSlides(
+          deckId,
+          title,
+          slides,
+          "import-file:pptx",
+          aspectRatio,
+          sourceImport,
+        );
         return {
           format: "pptx",
           title,
@@ -254,8 +290,6 @@ export default defineAction({
         });
       }
 
-      const { convertSectionsToSlides } =
-        await import("../server/handlers/import/html-converter.js");
       const pdf = new PDFParse({
         data: new Uint8Array(fileBuffer),
         CanvasFactory: canvasFactory,
@@ -270,29 +304,6 @@ export default defineAction({
         );
       }
 
-      if (importIntoDeck) {
-        if (!deckId) throw new Error("deckId is required to import into deck");
-        const sections = textPages.map((p) => ({
-          heading: `Page ${p.num}`,
-          content: p.text,
-        }));
-        const slideHtmlArray = convertSectionsToSlides(sections);
-        const slides = slideHtmlArray.map((content) => ({
-          id: newSlideId(),
-          content,
-          layout: "content",
-          notes: "",
-        }));
-        await appendDeckSlides(deckId, title, slides, "import-file:pdf");
-        return {
-          format: "pdf",
-          title,
-          pageCount: pages.length,
-          slideCount: slides.length,
-          deckId,
-          imported: true,
-        };
-      }
       const totalTextLength = textPages.reduce(
         (sum, p) => sum + p.text.length,
         0,
@@ -393,6 +404,10 @@ async function importPdfPagesWithFidelity(args: {
     await pdf.destroy();
   }
 
+  if (pages.length === 0) {
+    throw new Error("The PDF renderer returned no importable pages.");
+  }
+
   // Source decks (e.g. Instagram carousel exports) are commonly portrait or
   // square, not the deck editor's 16:9 default — match the canvas to the
   // PDF's own real page proportions instead of stretching/cropping it.
@@ -408,7 +423,7 @@ async function importPdfPagesWithFidelity(args: {
   // `Promise.all` here would fire one image-upload batch per page at once,
   // and a large deck can be dozens of pages.
   const uploadLimit = pLimit(4);
-  const slides = await Promise.all(
+  const imported = await Promise.all(
     pages.map((page, index) =>
       uploadLimit(async () => {
         const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
@@ -421,11 +436,21 @@ async function importPdfPagesWithFidelity(args: {
           const [content] = convertSectionsToSlides([
             { heading: firstLine || `Page ${page.num}`, content: page.text },
           ]);
+          const id = newSlideId();
           return {
-            id: newSlideId(),
-            content: content ?? '<div class="fmd-slide"></div>',
-            layout: "content",
-            notes: page.text,
+            slide: {
+              id,
+              content: content ?? '<div class="fmd-slide"></div>',
+              layout: "content",
+              notes: page.text,
+            },
+            snapshot: {
+              id,
+              text: page.text,
+              notes: page.text,
+              imageUrls: [],
+              editableText: true,
+            } satisfies SourceImportSlideSnapshot,
           };
         }
 
@@ -452,17 +477,39 @@ async function importPdfPagesWithFidelity(args: {
           uploaded.urls,
         );
 
+        const id = newSlideId();
         return {
-          id: newSlideId(),
-          content,
-          layout: "content",
-          notes: page.text,
+          slide: {
+            id,
+            content,
+            layout: "content",
+            notes: page.text,
+          },
+          snapshot: {
+            id,
+            text: page.text,
+            notes: page.text,
+            imageUrls: Object.values(uploaded.urls),
+            editableText: true,
+          } satisfies SourceImportSlideSnapshot,
         };
       }),
     ),
   );
+  const slides = imported.map((entry) => entry.slide);
+  const sourceImport = buildSourceImportMetadata({
+    format: "pdf",
+    slides: imported.map((entry) => entry.snapshot),
+  });
 
-  await appendDeckSlides(deckId, title, slides, "import-file:pdf", aspectRatio);
+  await appendDeckSlides(
+    deckId,
+    title,
+    slides,
+    "import-file:pdf",
+    aspectRatio,
+    sourceImport,
+  );
 
   return {
     format: "pdf",
@@ -494,6 +541,8 @@ async function buildPptxSlide(
     splitByParagraph?: boolean;
   };
   imageSkippedCount: number;
+  sourceText: string;
+  imageUrls: string[];
 }> {
   const { convertToSlideHtml } =
     await import("../server/handlers/import/html-converter.js");
@@ -502,9 +551,10 @@ async function buildPptxSlide(
     slideIndex,
     ownerEmail,
   });
+  const id = newSlideId();
   return {
     slide: {
-      id: newSlideId(),
+      id,
       content: convertToSlideHtml(slide, uploadedImages.urls, themeFont),
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
@@ -512,6 +562,8 @@ async function buildPptxSlide(
       ...(slide.splitByParagraph ? { splitByParagraph: true } : {}),
     },
     imageSkippedCount: uploadedImages.imageSkippedCount,
+    sourceText: slide.texts.map((text) => text.content).join("\n"),
+    imageUrls: Object.values(uploadedImages.urls),
   };
 }
 
@@ -603,6 +655,7 @@ async function appendDeckSlides(
   }>,
   source: string,
   aspectRatio?: AspectRatio,
+  sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
 ) {
   await assertAccess("deck", deckId, "editor");
 
@@ -636,11 +689,18 @@ async function appendDeckSlides(
     // every slide already on it.
     const hadExistingSlides = previousSlides.length > 0;
     const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
+    const nextSourceImport = sourceImport
+      ? mergeSourceImportMetadata(
+          sourceImportForDeck(previousData.sourceImport),
+          sourceImport,
+        )
+      : sourceImportForDeck(previousData.sourceImport);
     const data = {
       ...previousData,
       title: nextTitle,
       slides: [...previousSlides, ...slides],
       ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
+      ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };
 
@@ -661,12 +721,20 @@ async function appendDeckSlides(
 }
 
 function safeParseDeckData(raw: string): Record<string, unknown> {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
+    parsed = JSON.parse(raw);
   } catch {
-    return {};
+    throw new Error(
+      "The target deck contains invalid JSON; refusing to overwrite it.",
+    );
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      "The target deck data is invalid; refusing to overwrite it.",
+    );
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function stripTags(html: string): string {

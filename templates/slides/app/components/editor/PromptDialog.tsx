@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
@@ -313,6 +314,8 @@ export default function PromptPopover({
           <PromptComposer
             autoFocus
             attachmentsEnabled
+            maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+            documentAttachmentLimitLabel="Slides reference files"
             disabled={loading || uploading}
             placeholder={placeholder}
             onSubmit={handleSubmit}

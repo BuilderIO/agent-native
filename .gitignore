@@ -5,6 +5,10 @@ dist
 docs/superpowers
 .DS_Store
 
+# Local bridge and data artifacts
+/bridge/
+/data/
+
 .idea/
 
 /*.png

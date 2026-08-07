@@ -26,6 +26,11 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import {
+  assertSourceSlidePreserved,
+  sourceImportForDeck,
+  type SourceImportMetadata,
+} from "../server/lib/source-import.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +84,13 @@ const PatchSlideOp = z.object({
   op: z.literal("patch-slide"),
   slideId: z.string(),
   fields: SlideFieldsSchema,
+  preserveSource: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      "Keep source-imported images and factual copy (default true). Set false only for an explicit rewrite.",
+    ),
 });
 
 /** Delete a single slide by ID */
@@ -140,6 +152,24 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+
+export function assertSourceImportOperationsPreserved(
+  metadata: SourceImportMetadata | null,
+  operations: Operation[],
+): void {
+  if (!metadata) return;
+  const structuralOperation = operations.find(
+    (operation) =>
+      operation.op === "delete-slide" ||
+      operation.op === "reorder-slides" ||
+      operation.op === "add-slide",
+  );
+  if (!structuralOperation) return;
+
+  throw new Error(
+    `Cannot ${structuralOperation.op} on a source-imported deck while source preservation is enabled. Preserve the imported slide structure, or use an explicit source rewrite workflow.`,
+  );
+}
 
 // The browser uses the full operation union above. Agents additionally use
 // this action for one bounded, deck-wide layout repair: one patch-slide per
@@ -402,6 +432,27 @@ export default defineAction({
         throw new Error(
           `Cannot patch missing slide(s): ${[...new Set(missingSlideIds)].join(", ")}`,
         );
+      }
+
+      const sourceImport = sourceImportForDeck(deck.sourceImport);
+      assertSourceImportOperationsPreserved(sourceImport, operations);
+      for (const op of operations) {
+        if (
+          op.op !== "patch-slide" ||
+          (op.fields.content === undefined && op.fields.notes === undefined)
+        ) {
+          continue;
+        }
+        assertSourceSlidePreserved({
+          metadata: sourceImport,
+          slideId: op.slideId,
+          nextContent:
+            op.fields.content === undefined
+              ? undefined
+              : normalizeSlidePadding(op.fields.content),
+          nextNotes: op.fields.notes,
+          preserveSource: op.preserveSource,
+        });
       }
 
       for (const op of operations) {
