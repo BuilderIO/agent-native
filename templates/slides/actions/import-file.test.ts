@@ -341,6 +341,60 @@ describe("import-file PDF source extraction", () => {
     expect(updatedDeck.sourceImport.fidelity).toBe("source-faithful");
   });
 
+  it("retains source provenance when appending to a nonempty deck", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Appended source page" }],
+    });
+    mockPdfScreenshot.mockResolvedValue({
+      pages: [
+        {
+          pageNumber: 1,
+          width: 1600,
+          height: 900,
+          data: new Uint8Array([7, 8, 9]),
+        },
+      ],
+    });
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Existing deck",
+                data: JSON.stringify({
+                  slides: [{ id: "existing", content: "Existing" }],
+                }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    await action.run({
+      filePath: "append.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    });
+
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.slides).toHaveLength(2);
+    expect(updatedDeck.sourceImport).toMatchObject({
+      format: "pdf",
+      slideCount: 1,
+      slideIds: [updatedDeck.slides[1].id],
+    });
+  });
+
   it("starts Builder indexing for .fig files", async () => {
     const figBuffer = Buffer.from([
       0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69, 0, 0, 0, 0,

@@ -398,7 +398,7 @@ function parseImportedPdfSlideHtml(
     images: src
       ? [
           {
-            src,
+            src: decodeHtmlText(src),
             x: 0,
             y: 0,
             w: dims.pptxInches.w,

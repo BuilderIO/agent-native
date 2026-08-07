@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertSourceSlidePreserved,
   buildSourceImportMetadata,
+  mergeSourceImportMetadata,
 } from "./source-import.js";
 
 describe("source import preservation", () => {
@@ -62,5 +63,48 @@ describe("source import preservation", () => {
         preserveSource: false,
       }),
     ).not.toThrow();
+  });
+
+  it("rejects edits that remove imported speaker notes", () => {
+    expect(() =>
+      assertSourceSlidePreserved({
+        metadata,
+        slideId: "slide-1",
+        nextNotes: "",
+      }),
+    ).toThrow("remove or change imported speaker notes");
+  });
+
+  it("merges provenance when another import is appended", () => {
+    const incoming = buildSourceImportMetadata({
+      format: "pptx",
+      importedAt: "2026-08-06T01:00:00.000Z",
+      slides: [
+        {
+          id: "slide-2",
+          text: "A second source slide",
+          notes: "Second notes",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+
+    expect(mergeSourceImportMetadata(metadata, incoming)).toMatchObject({
+      format: "pptx",
+      slideCount: 2,
+      slideIds: ["slide-1", "slide-2"],
+      slides: [metadata.slides[0], incoming.slides[0]],
+    });
+  });
+
+  it("rejects appending a different source format", () => {
+    const incoming = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [],
+    });
+    expect(() => mergeSourceImportMetadata(metadata, incoming)).toThrow(
+      "Cannot append a PDF source import to a PPTX source-imported deck",
+    );
   });
 });

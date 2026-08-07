@@ -39,6 +39,37 @@ export function buildSourceImportMetadata(args: {
   };
 }
 
+export function mergeSourceImportMetadata(
+  existing: SourceImportMetadata | null,
+  incoming: SourceImportMetadata,
+): SourceImportMetadata {
+  if (!existing) return incoming;
+  if (existing.format !== incoming.format) {
+    throw new Error(
+      `Cannot append a ${incoming.format.toUpperCase()} source import to a ${existing.format.toUpperCase()} source-imported deck. Import matching source formats separately so every slide keeps its provenance.`,
+    );
+  }
+
+  const slidesById = new Map<string, SourceImportSlideSnapshot>();
+  for (const slide of existing.slides) slidesById.set(slide.id, slide);
+  for (const slide of incoming.slides) slidesById.set(slide.id, slide);
+  const slides = [...slidesById.values()];
+  const imagesSkipped =
+    (existing.imagesSkipped ?? 0) + (incoming.imagesSkipped ?? 0);
+
+  return {
+    ...incoming,
+    fidelity:
+      existing.fidelity === "partial" || incoming.fidelity === "partial"
+        ? "partial"
+        : "source-faithful",
+    slideCount: slides.length,
+    slideIds: slides.map((slide) => slide.id),
+    slides,
+    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+  };
+}
+
 export function sourceImportForDeck(
   value: unknown,
 ): SourceImportMetadata | null {
@@ -89,7 +120,8 @@ function sourceWords(value: string): Set<string> {
 export function assertSourceSlidePreserved(args: {
   metadata: SourceImportMetadata | null;
   slideId: string;
-  nextContent: string;
+  nextContent?: string;
+  nextNotes?: string;
   preserveSource?: boolean;
 }): void {
   if (args.preserveSource === false || !args.metadata) return;
@@ -97,6 +129,18 @@ export function assertSourceSlidePreserved(args: {
     (slide) => slide.id === args.slideId,
   );
   if (!snapshot) return;
+
+  if (
+    args.nextNotes !== undefined &&
+    snapshot.notes.length > 0 &&
+    args.nextNotes !== snapshot.notes
+  ) {
+    throw new Error(
+      `Source-preserving edit would remove or change imported speaker notes on slide ${args.slideId}. Preserve the source notes, or pass preserveSource=false only when the user explicitly asks for a rewrite.`,
+    );
+  }
+
+  if (args.nextContent === undefined) return;
 
   const nextImageUrls = new Set(extractImageUrls(args.nextContent));
   const missingImages = snapshot.imageUrls.filter(

@@ -29,6 +29,7 @@ import { notifyClients } from "../server/handlers/decks.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
+  type SourceImportMetadata,
 } from "../server/lib/source-import.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
@@ -151,6 +152,24 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+
+export function assertSourceImportOperationsPreserved(
+  metadata: SourceImportMetadata | null,
+  operations: Operation[],
+): void {
+  if (!metadata) return;
+  const structuralOperation = operations.find(
+    (operation) =>
+      operation.op === "delete-slide" ||
+      operation.op === "reorder-slides" ||
+      operation.op === "add-slide",
+  );
+  if (!structuralOperation) return;
+
+  throw new Error(
+    `Cannot ${structuralOperation.op} on a source-imported deck while source preservation is enabled. Preserve the imported slide structure, or use an explicit source rewrite workflow.`,
+  );
+}
 
 // The browser uses the full operation union above. Agents additionally use
 // this action for one bounded, deck-wide layout repair: one patch-slide per
@@ -415,14 +434,23 @@ export default defineAction({
         );
       }
 
+      const sourceImport = sourceImportForDeck(deck.sourceImport);
+      assertSourceImportOperationsPreserved(sourceImport, operations);
       for (const op of operations) {
-        if (op.op !== "patch-slide" || op.fields.content === undefined) {
+        if (
+          op.op !== "patch-slide" ||
+          (op.fields.content === undefined && op.fields.notes === undefined)
+        ) {
           continue;
         }
         assertSourceSlidePreserved({
-          metadata: sourceImportForDeck(deck.sourceImport),
+          metadata: sourceImport,
           slideId: op.slideId,
-          nextContent: normalizeSlidePadding(op.fields.content),
+          nextContent:
+            op.fields.content === undefined
+              ? undefined
+              : normalizeSlidePadding(op.fields.content),
+          nextNotes: op.fields.notes,
           preserveSource: op.preserveSource,
         });
       }

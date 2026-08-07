@@ -74,6 +74,7 @@ export interface SchedulerDeps extends BackgroundAutomationDeps {
 }
 
 const MAX_CONCURRENT_SCHEDULED_JOBS = 8;
+const MAX_IDENTITY_PREFLIGHTS_PER_TICK = MAX_CONCURRENT_SCHEDULED_JOBS * 4;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
 
@@ -237,19 +238,28 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       dueJobCandidates.push({ key, resource, meta, body });
     }
 
-    const dueJobs: typeof dueJobCandidates = [];
+    const preflightCandidates: typeof dueJobCandidates = [];
     for (const candidate of dueJobCandidates) {
-      if (_activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS) break;
+      if (
+        _activeScheduledJobs.size >= MAX_CONCURRENT_SCHEDULED_JOBS ||
+        preflightCandidates.length >= MAX_IDENTITY_PREFLIGHTS_PER_TICK
+      ) {
+        break;
+      }
       if (
         _activeScheduledJobs.has(candidate.key) ||
         _preflightingScheduledJobs.has(candidate.key)
       ) {
         continue;
       }
+      preflightCandidates.push(candidate);
+    }
 
-      // Identity checks can reject stale jobs that remain due for admin review.
-      // Do this before reserving a concurrency slot, otherwise the first eight
-      // permanently blocked jobs can starve every later valid job forever.
+    // Identity checks can reject stale jobs that remain due for admin review.
+    // Bound the checks so a large blocked backlog cannot consume the whole
+    // invocation or make valid jobs wait behind an unbounded stale queue.
+    const dueJobs: typeof dueJobCandidates = [];
+    for (const candidate of preflightCandidates) {
       _preflightingScheduledJobs.add(candidate.key);
       try {
         const identity = await resolveBackgroundAutomationIdentity({

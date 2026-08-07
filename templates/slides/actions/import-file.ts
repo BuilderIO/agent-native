@@ -20,6 +20,8 @@ import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-sys
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
   buildSourceImportMetadata,
+  mergeSourceImportMetadata,
+  sourceImportForDeck,
   type SourceImportSlideSnapshot,
 } from "../server/lib/source-import.js";
 import {
@@ -655,12 +657,18 @@ async function appendDeckSlides(
     // every slide already on it.
     const hadExistingSlides = previousSlides.length > 0;
     const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
+    const nextSourceImport = sourceImport
+      ? mergeSourceImportMetadata(
+          sourceImportForDeck(previousData.sourceImport),
+          sourceImport,
+        )
+      : sourceImportForDeck(previousData.sourceImport);
     const data = {
       ...previousData,
       title: nextTitle,
       slides: [...previousSlides, ...slides],
       ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
-      ...(!hadExistingSlides && sourceImport ? { sourceImport } : {}),
+      ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };
 

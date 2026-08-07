@@ -171,6 +171,18 @@ describe("parseSlideHtml", () => {
     ]);
   });
 
+  it("decodes escaped query parameters in imported PDF image URLs", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pdf" data-imported-pdf="true"><img src="https://files.example/page.png?token=abc&amp;signature=def" alt="" /></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.images[0]?.src).toBe(
+      "https://files.example/page.png?token=abc&signature=def",
+    );
+  });
+
   it("ignores imported grids with non-positive spacing", () => {
     for (const backgroundSize of [
       "0px 24px",
