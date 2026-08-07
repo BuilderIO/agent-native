@@ -137,6 +137,7 @@ const SQLITE_BACKFILL_STATEMENTS = [
 type BackfillStatus =
   | "completed"
   | "already-complete"
+  | "disabled"
   | "skipped-lock"
   | "already-running";
 
@@ -320,6 +321,9 @@ async function runD1Backfill(
  * each scan the full event history.
  */
 export async function runAnalyticsRollupBackfillOnce(): Promise<AnalyticsRollupBackfillResult> {
+  if (process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS?.trim() === "0") {
+    return { status: "disabled", remaining: 1 };
+  }
   if (running) {
     return { status: "already-running", remaining: 1 };
   }

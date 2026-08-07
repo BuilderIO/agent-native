@@ -24,6 +24,7 @@ const INITIAL_TOOL_NAMES = [
   "start-builder-for-item",
   "govern-agent-native-pull-request",
   "babysit-pull-request",
+  "babysit-agent-native-pull-request",
   "approve-factory-item",
   "list-triage-rules",
   "get-triage-config",
@@ -70,7 +71,9 @@ BuilderIO author, a clear bug, passing CI, and handled review feedback. Auto-mer
 also requires a verified Factory Builder run. When a user says to do a review-gated
 item now, use the explicit approval action, which records the approver and applies
 the rule's configured executor policy. Keep Slack replies concise and link to the
-Factory item when a review is needed.`,
+Factory item when a review is needed. The scheduled builder-io-bot PR babysitter
+posts its exact feedback-fix request through GitHub, persists a 20-minute quiet
+window, and never approves or merges.`,
 } satisfies AgentChatPluginOptions;
 
 export default createAgentChatPlugin(options);

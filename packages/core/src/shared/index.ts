@@ -24,6 +24,20 @@ export { truncate } from "./truncate.js";
 export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
+  buildRuntimeConfigPrompt,
+  formatRuntimeConfigReport,
+  getRuntimeConfigReport,
+  parseRuntimeConfigReport,
+  runtimeConfigRequirementsFromSearchParams,
+  type RuntimeConfigEnvironment,
+  type RuntimeConfigIssue,
+  type RuntimeConfigIssueCode,
+  type RuntimeConfigIssueSeverity,
+  type RuntimeConfigPhase,
+  type RuntimeConfigReport,
+  type RuntimeConfigRequirements,
+} from "./runtime-config.js";
+export {
   llmConnectionTrackingProperties,
   normalizeLlmConnection,
   type LlmConnectionStatus,
@@ -55,6 +69,11 @@ export {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";
+export {
+  createPollEngine,
+  type PollEngineOptions,
+  type PollEngineHandle,
+} from "./poll-engine.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,

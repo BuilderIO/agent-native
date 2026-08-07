@@ -19,10 +19,27 @@ export default defineAction({
     const { orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    const health = await getAutomationSchedulerHealth({
-      appId: "factory",
-      orgId,
-    });
+    const [organizationHealth, globalHealth] = await Promise.all([
+      getAutomationSchedulerHealth({
+        appId: "factory",
+        orgId,
+      }),
+      getAutomationSchedulerHealth({ appId: "factory", orgId: null }),
+    ]);
+    const health =
+      [organizationHealth, globalHealth]
+        .filter(
+          (candidate): candidate is NonNullable<typeof candidate> =>
+            candidate !== null && candidate.lastCheckedAt !== null,
+        )
+        .sort(
+          (left, right) =>
+            (right.lastCheckedAt ?? 0) - (left.lastCheckedAt ?? 0),
+        )[0] ??
+      organizationHealth ??
+      globalHealth;
+    const healthScope =
+      health?.orgId === orgId ? ("organization" as const) : ("global" as const);
     if (!health?.lastCheckedAt) {
       return {
         status: "no-data" as const,
@@ -30,6 +47,7 @@ export default defineAction({
         lastDispatchedAt: health?.lastDispatchedAt ?? null,
         lastError: health?.lastError ?? null,
         runtime: health?.runtime ?? null,
+        scope: healthScope,
         staleAfterMs: STALE_AFTER_MS,
       };
     }
@@ -44,6 +62,7 @@ export default defineAction({
       lastDispatchedAt: health.lastDispatchedAt,
       lastError: health.lastError,
       runtime: health.runtime,
+      scope: healthScope,
       staleAfterMs: STALE_AFTER_MS,
     };
   },

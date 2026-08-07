@@ -1146,6 +1146,14 @@ const migrations = runMigrations(
         expires_at INTEGER NOT NULL
       )`,
     },
+    {
+      version: 64,
+      name: "recording-transcripts-failure-code",
+      // Additive. Existing rows keep failure_code NULL and their prose; new
+      // failures record a code that owns retryability instead of having it
+      // re-derived by regex over the message.
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN failure_code TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

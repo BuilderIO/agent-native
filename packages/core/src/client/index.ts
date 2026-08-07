@@ -94,6 +94,8 @@ export {
   stopSessionReplay,
   getAnalyticsAnonymousId,
   getAnalyticsSessionId,
+  setAnalyticsSessionId,
+  clearAnalyticsSessionId,
   getFirstTouchAttribution,
   setSentryUser,
   setTrackingIdentity,

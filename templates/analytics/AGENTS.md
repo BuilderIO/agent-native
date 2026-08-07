@@ -1,50 +1,41 @@
 # Analytics — Agent Guide
 
-Analytics is an agent-native BI workspace for data sources, queries, dashboards,
-charts, and warehouse integrations. Dashboards are the canonical user-facing
-artifact; legacy analyses remain readable only for compatibility.
+Analytics is an agent-native BI workspace for sources, queries, dashboards,
+charts, and warehouse integrations. Dashboards are canonical; legacy analyses
+remain readable for compatibility.
 
-Use all connected sources and MCP tools; reason over fetched data here, and do
-not suggest another AI tool.
+Use connected sources and MCP tools; reason over fetched data here, not via
+another AI tool.
 
 Prompt cap: 6,000; put detail in `.agents/skills/*`.
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; use
-`customizing-agent-native` for the configure → compose → eject → propose
-ladder.
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+discover existing primitives and patterns. Read `customizing-agent-native`
+before adapting shared UI: configure → compose → eject → propose.
 
 ## How To Answer A Data Question
 
-1. **Search existing work first.** Call `search-analytics-query-catalog` before
-   writing a query. Adapt the closest saved SQL to the requested filters and
-   window, run it once, and stop.
-2. **One bounded call.** List, filter, count, and cohort questions ("which X,
-   excluding Y") are a single SQL statement, or one `run-code` script that
-   filters server-side. Never page through a cohort or fan out per item to apply
-   a filter.
-3. **Escalate only on a miss.** If the catalog returns nothing usable, make at
-   most one discovery pass (`list-data-dictionary`, `search-bigquery-schema`,
-   `data-source-status`), then query. Don't cross-check or add breakdowns
-   nobody asked for.
-4. **Answer in chat.** Give the result directly with a short table or inline
-   chart — never deflect to "check the dashboard." Keep native data widgets to
-   already-summarized data (≤50 rows); above that, state the total and show the
-   top rows.
-5. **Deliver exports in chat.** See `analysis-workspace`; never return only a
-   path or tell the user to find a download elsewhere.
-6. **Chunk only for reading.** Group into 5-10 with per-item notes only when 30+
-   items each need qualitative reading no query can do (call transcripts, ticket
-   threads). Chunking a question a query could answer is the most expensive
-   mistake available here. See `adhoc-analysis`.
+1. **Search existing work first.** Call `search-analytics-query-catalog`, adapt
+   the closest saved SQL to the requested filters/window, run it once, and stop.
+2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
+   or one server-side `run-code` script; never page or fan out per item.
+3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
+   pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
+   then query; don't cross-check or add unasked breakdowns.
+4. **Answer in chat.** Return a short table or inline chart, not a dashboard
+   pointer. Native widgets show summarized data (≤50 rows); above that, state the
+   total and top rows.
+5. **Deliver exports in chat.** See `analysis-workspace`; don't return only a path.
+6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
+   cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
 
 ## Core Rules
 
-- A sibling app asking over A2A sends a question or shaped input, never SQL. It
-  lacks this app's schema, data dictionary, dashboards, and dialect knowledge,
-  so raw-query actions (`sql`, `code`, `script`, `expression`) are not
-  sibling-invocable. Prefer natural-language delegation so this app retains its
-  instructions, source selection, and tools. Shaped reads are stable contracts,
-  not workarounds for delegation; this app still owns the query.
+- A sibling app asking over A2A sends a question or shaped input, never SQL.
+  Raw-query actions (`sql`, `code`, `script`, `expression`) are not
+  sibling-invocable because this app owns schema, source selection, and tools.
+  Prefer natural-language delegation; shaped reads are stable contracts, not
+  delegation workarounds.
 - For open-ended delegated requests, choose a safe default and label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; only present values you actually retrieved, and state uncertainty.
@@ -54,9 +45,8 @@ ladder.
   access checks with raw SQL for ownable resources.
 - Provider actions are bounded shortcuts, not limits. For broad or
   absence-sensitive Gong work, stage raw API data and use
-  `query-staged-dataset` or a Data Program; if raw transcript bodies are
-  required, use `provider-corpus-job`. See `provider-api`, `data-programs`, and
-  `gong`.
+  `query-staged-dataset` or a Data Program; use `provider-corpus-job` for raw
+  transcript bodies. See `provider-api`, `data-programs`, and `gong`.
 - Custom APIs use the `provider-api-register` action for public HTTPS provider
   metadata and `test-custom-api-connection` for bounded GET previews. Store
   credential values in Settings, pass only key names to provider actions, and
@@ -92,7 +82,8 @@ ladder.
   `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
-  with `type="dashboard-panel"`.
+  with `type="dashboard-panel"`. Read `dashboard-management` for the
+  `/dashboards` overview and folder actions.
 
 ## Skills
 

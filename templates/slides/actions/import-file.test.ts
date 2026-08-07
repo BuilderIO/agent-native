@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadUserUploadedFile = vi.hoisted(() => vi.fn());
 const mockPdfText = vi.hoisted(() => vi.fn());
+const mockPdfScreenshot = vi.hoisted(() => vi.fn());
+const mockUploadFile = vi.hoisted(() => vi.fn());
 const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
@@ -17,6 +19,8 @@ const mockCanvasFactory = vi.hoisted(() => ({
   reset: vi.fn(),
   destroy: vi.fn(),
 }));
+const mockGetDb = vi.hoisted(() => vi.fn());
+const mockEq = vi.hoisted(() => vi.fn(() => "where"));
 
 vi.mock("pdf-parse/worker", () => ({
   CanvasFactory: mockCanvasFactory,
@@ -37,6 +41,10 @@ vi.mock("pdf-parse", () => ({
       return mockPdfText();
     }
 
+    async getScreenshot(...args: unknown[]) {
+      return mockPdfScreenshot(...args);
+    }
+
     async destroy() {
       return mockPdfDestroy();
     }
@@ -49,9 +57,17 @@ vi.mock("./_uploaded-files.js", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: vi.fn(),
+  getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: { decks: {} },
 }));
+
+vi.mock("drizzle-orm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("drizzle-orm")>();
+  return {
+    ...actual,
+    eq: (...args: unknown[]) => mockEq(...args),
+  };
+});
 
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: vi.fn(),
@@ -59,6 +75,10 @@ vi.mock("../server/handlers/decks.js", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/file-upload", () => ({
+  uploadFile: (...args: unknown[]) => mockUploadFile(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -91,7 +111,10 @@ beforeEach(() => {
   mockPdfParseOptions.mockReset();
   mockPdfSetWorker.mockReset();
   mockPdfDestroy.mockClear();
+  mockPdfScreenshot.mockReset();
   mockGetPdfWorkerData.mockClear();
+  mockGetDb.mockReset();
+  mockUploadFile.mockReset();
   mockReadUserUploadedFile.mockImplementation(async (filePath: string) => ({
     data: Buffer.from("%PDF-1.7\n"),
     filename: filePath,
@@ -111,6 +134,9 @@ beforeEach(() => {
   mockUpsertBuilderProxyDesignSystem.mockResolvedValue({
     localDesignSystemId: "builder-ds-1",
     instructions: "Builder design-system indexing has started.",
+  });
+  mockUploadFile.mockResolvedValue({
+    url: "https://files.example/source-page.png",
   });
 });
 
@@ -182,6 +208,193 @@ describe("import-file PDF source extraction", () => {
         format: "pdf",
       }),
     ).rejects.toThrow("No importable text found in this PDF");
+  });
+
+  it("imports complete PDF page screenshots without flattening their layout", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Source title\nSource body" }],
+    });
+    mockPdfScreenshot.mockResolvedValue({
+      pages: [
+        {
+          pageNumber: 1,
+          width: 1600,
+          height: 900,
+          data: new Uint8Array([1, 2, 3]),
+        },
+      ],
+    });
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Imported deck",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    const result = (await action.run({
+      filePath: "source.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(mockPdfScreenshot).toHaveBeenCalledWith({
+      desiredWidth: 1600,
+      imageBuffer: true,
+      imageDataUrl: false,
+    });
+    expect(mockUploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: Buffer.from([1, 2, 3]),
+        mimeType: "image/png",
+      }),
+    );
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "16:9",
+    });
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    const importedSlide = updatedDeck.slides[0];
+    expect(importedSlide.content).toContain("object-fit: contain");
+    expect(importedSlide.content).toContain(
+      "https://files.example/source-page.png",
+    );
+    expect(importedSlide.content).toContain('data-source-width="1600"');
+    expect(importedSlide.content).toContain('data-source-height="900"');
+    expect(importedSlide.content).not.toContain("Source title");
+    expect(importedSlide.notes).toBe("Source title\nSource body");
+    expect(updatedDeck.sourceImport).toMatchObject({
+      mode: "source-preserving",
+      format: "pdf",
+      fidelity: "source-faithful",
+      slideCount: 1,
+      slideIds: [importedSlide.id],
+    });
+    expect(updatedDeck.sourceImport.slides[0].imageUrls).toEqual([
+      "https://files.example/source-page.png",
+    ]);
+  });
+
+  it("keeps scanned or image-only PDF pages instead of dropping them", async () => {
+    mockPdfText.mockResolvedValue({ pages: [] });
+    mockPdfScreenshot.mockResolvedValue({
+      pages: [
+        {
+          pageNumber: 1,
+          width: 1200,
+          height: 1600,
+          data: new Uint8Array([4, 5, 6]),
+        },
+      ],
+    });
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Scanned deck",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    const result = (await action.run({
+      filePath: "scanned.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "4:5",
+    });
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.slides).toHaveLength(1);
+    expect(updatedDeck.slides[0].notes).toBe("");
+    expect(updatedDeck.sourceImport.fidelity).toBe("source-faithful");
+  });
+
+  it("retains source provenance when appending to a nonempty deck", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Appended source page" }],
+    });
+    mockPdfScreenshot.mockResolvedValue({
+      pages: [
+        {
+          pageNumber: 1,
+          width: 1600,
+          height: 900,
+          data: new Uint8Array([7, 8, 9]),
+        },
+      ],
+    });
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Existing deck",
+                data: JSON.stringify({
+                  slides: [{ id: "existing", content: "Existing" }],
+                }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    await action.run({
+      filePath: "append.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    });
+
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.slides).toHaveLength(2);
+    expect(updatedDeck.sourceImport).toMatchObject({
+      format: "pdf",
+      slideCount: 1,
+      slideIds: [updatedDeck.slides[1].id],
+    });
   });
 
   it("starts Builder indexing for .fig files", async () => {

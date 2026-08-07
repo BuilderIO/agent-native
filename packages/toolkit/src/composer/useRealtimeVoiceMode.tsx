@@ -111,6 +111,9 @@ export interface RealtimeVoiceToolResult {
   output: string;
   approvalKey?: string;
   expandedTools?: RealtimeVoiceFunctionTool[];
+  /** Re-issued when discovery widens the manifest. Calls to the new names 404
+   * until this replaces the session's capability. */
+  capability?: string;
 }
 
 export interface RealtimeVoiceSessionAnswer {
@@ -1600,6 +1603,7 @@ function useRealtimeVoiceModeController(
           output: errorMessage(toolError),
         };
       }
+      if (result.capability) capabilityRef.current = result.capability;
       if (
         transportGeneration !== transportGenerationRef.current ||
         channelRef.current !== transportChannel

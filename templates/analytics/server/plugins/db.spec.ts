@@ -233,7 +233,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "const writeRollups = async (tx: any) => {",
     );
     const lockIdx = analyticsRollupsTsSource.lastIndexOf(
-      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
+      "pg_advisory_xact_lock",
     );
     expect(writeIdx).toBeGreaterThan(-1);
     expect(lockIdx).toBeGreaterThan(writeIdx);
@@ -248,15 +248,53 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
+  it("does not run dashboard repair during database startup", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    expect(pluginSource).not.toContain(
+      "repairPersistedFirstPartyDashboardQueries",
+    );
+  });
+
   it("skips Analytics migrations in non-rollup durable background functions", () => {
     const pluginSource = dbTsSource.slice(
       dbTsSource.lastIndexOf("export default async"),
     );
-    expect(pluginSource).toMatch(
-      /if \(isInBackgroundFunctionRuntime\(\) && !isScheduledRollupRuntime\) \{[\s\S]*?return;\s*\}\s*await runAnalyticsMigrations\(/,
+    const backgroundGuardIdx = pluginSource.indexOf(
+      "if (isInBackgroundFunctionRuntime() && !isScheduledRollupRuntime) {",
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    expect(backgroundGuardIdx).toBeGreaterThan(-1);
+    expect(migrationsCallIdx).toBeGreaterThan(backgroundGuardIdx);
+    expect(pluginSource.slice(backgroundGuardIdx, migrationsCallIdx)).toMatch(
+      /return;/,
     );
     expect(pluginSource).toContain(
       "__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__",
     );
+  });
+
+  it("returns before runAnalyticsMigrations in unscheduled production serverless runtime", () => {
+    const pluginSource = dbTsSource.slice(
+      dbTsSource.lastIndexOf("export default async"),
+    );
+    const serverlessGuardIdx = pluginSource.indexOf(
+      "if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {",
+    );
+    const migrationsCallIdx = pluginSource.indexOf(
+      "await runAnalyticsMigrations(",
+    );
+    expect(serverlessGuardIdx).toBeGreaterThan(-1);
+    expect(migrationsCallIdx).toBeGreaterThan(serverlessGuardIdx);
+    expect(pluginSource.slice(serverlessGuardIdx, migrationsCallIdx)).toMatch(
+      /return;/,
+    );
+    expect(pluginSource).toContain(
+      "Skipping Analytics migrations in production serverless runtime",
+    );
+    expect(pluginSource).not.toContain("ANALYTICS_SKIP_BOOT_MIGRATIONS");
   });
 });

@@ -73,6 +73,12 @@ export interface AgentNativeI18nCatalog {
   sourceLocale?: LocaleCode;
   messages?: LocaleMessages;
   loadMessages?: (locale: LocaleCode) => Promise<LocaleMessages | null>;
+  /**
+   * Locales this app actually ships translations for. Defaults to every
+   * framework-supported locale when omitted, which only matches apps whose
+   * `loadMessages` covers all of them.
+   */
+  supportedLocales?: readonly LocaleCode[];
 }
 
 export interface AgentNativeI18nProviderProps {
@@ -92,6 +98,7 @@ interface LocaleContextValue {
   metadata: LocaleMetadata;
   setPreference: (preference: LocalePreference) => Promise<void>;
   loading: boolean;
+  supportedLocales: readonly LocaleCode[];
 }
 
 declare global {
@@ -275,6 +282,7 @@ export function AgentNativeI18nProvider({
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
   const loadMessages = catalog?.loadMessages;
+  const supportedLocales = catalog?.supportedLocales ?? SUPPORTED_LOCALES;
   const hydration = readHydrationPayload();
   const initialState = useMemo(
     () => resolveInitialState({ initialLocale, initialPreference }),
@@ -463,8 +471,16 @@ export function AgentNativeI18nProvider({
       metadata: LOCALE_METADATA[locale],
       setPreference,
       loading,
+      supportedLocales,
     }),
-    [loading, locale, preference, setPreference, sourceLocale],
+    [
+      loading,
+      locale,
+      preference,
+      setPreference,
+      sourceLocale,
+      supportedLocales,
+    ],
   );
 
   return (
@@ -574,6 +590,15 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "agentPanel.cliRequiresDevModeDescription":
     "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
   "agentPanel.toggleAgent": "Toggle agent",
+  "runtimeConfig.warningTitle": "Production configuration warning",
+  "runtimeConfig.errorTitle": "Production configuration error",
+  "runtimeConfig.issue_one": "{{count}} issue",
+  "runtimeConfig.issue_other": "{{count}} issues",
+  "runtimeConfig.showDetails": "Show configuration details",
+  "runtimeConfig.hideDetails": "Hide configuration details",
+  "runtimeConfig.copyPrompt": "Copy prompt for AI",
+  "runtimeConfig.copied": "Prompt copied",
+  "runtimeConfig.copyFailed": "Copy failed",
 };
 
 function flattenMessages(
@@ -690,7 +715,7 @@ export function LanguagePicker({
   label?: string;
   variant?: "select" | "icon" | "ghost-icon";
 }) {
-  const { locale, preference, setPreference } = useLocale();
+  const { locale, preference, setPreference, supportedLocales } = useLocale();
   const [open, setOpen] = useState(false);
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
@@ -705,7 +730,7 @@ export function LanguagePicker({
           },
         ]
       : []),
-    ...SUPPORTED_LOCALES.map((code) => ({
+    ...supportedLocales.map((code) => ({
       value: code,
       label: `${LOCALE_METADATA[code].nativeName} (${code})`,
       description: code,

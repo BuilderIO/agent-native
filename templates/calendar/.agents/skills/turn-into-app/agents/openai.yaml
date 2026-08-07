@@ -1,4 +1,4 @@
 interface:
   display_name: "Turn Into App"
-  short_description: "Turn a thread or skill into a runnable app"
-  default_prompt: "Scan the current thread, turn the workflow into a new Agent-Native app with clear buttons, run it locally, verify it, and complete the deployment handoff."
+  short_description: "Turn project context or a workflow into a runnable app"
+  default_prompt: "Use the visible project context first, then any supplied workflow. Turn the instructions, knowledge files, and selected successful runs into a new Agent-Native app with clear buttons, run it locally, verify it, and complete the deployment handoff."

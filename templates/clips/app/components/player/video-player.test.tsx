@@ -273,6 +273,29 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
+  it("shows the edited duration without exposing cut ranges", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 2_000, endMs: 4_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.querySelector('[title^="Cut:"]')).toBeNull();
+    expect(container.textContent).toContain("0:00/0:08");
+    expect(container.textContent).not.toContain("0:00/0:10");
+  });
+
   it("stops a hung play attempt and leaves playback retryable", () => {
     const video = getVideo();
     const playSpy = vi

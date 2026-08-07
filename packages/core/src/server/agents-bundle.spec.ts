@@ -392,6 +392,17 @@ describe("readAgentsBundleFromFs", () => {
       expect(skill!.meta.description).toContain("Use when");
     }
 
+    const turnIntoApp = runtimeSkills.find(
+      (candidate) => candidate.meta.name === "turn-into-app",
+    );
+    expect(turnIntoApp!.content).toContain(
+      "A fresh Claude or ChatGPT Project is a valid source",
+    );
+    expect(turnIntoApp!.content).toContain(
+      "MCP connector does not read hidden",
+    );
+    expect(turnIntoApp!.extraFiles).toContain("references/fresh-project.md");
+
     const promptBlock = generateSkillsPromptBlock(bundle);
     expect(promptBlock).toContain("`turn-into-app`");
     expect(promptBlock).toContain("`turn-into-skill`");

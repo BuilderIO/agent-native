@@ -1,235 +1,93 @@
 ---
 title: "Add an Action"
-description: "Define your first action and render its result as a UI component directly inside the chat transcript."
+description: "Define your first action and render its result as a chart directly inside the chat."
 ---
 
 # Add an Action
 
-This is part two of the Getting Started series. In [Getting Started](/docs/getting-started) you created a Chat app and connected an AI engine. Here you'll define your first action and render its result inline in chat.
+This is part two of the Getting Started series. In [Getting Started](/docs/getting-started)
+you created a Chat app. Here you'll define a typed text analyzer and render its
+result in the chat.
 
 ## Add an action {#add-an-action}
 
-An action is a typed operation that both your agent and your UI can call. It's
-how the agent does things in your app. Actions live in the `actions/` directory
-and can be triggered from chat, from React components, from the CLI, or on a
-schedule. You define them once and call them from anywhere.
+An action is a typed operation that both the agent and your UI can call. Actions
+live in the `actions/` directory and are the shared operation surface for chat,
+React components, the CLI, and other callers.
 
-### Try the starter action
-
-The Chat template includes a `hello` action at `actions/hello.ts`:
-
-```ts filename="actions/hello.ts"
-import { defineAction } from "@agent-native/core/action";
-import { z } from "zod";
-
-export default defineAction({
-  description: "Return a friendly greeting.",
-  schema: z.object({
-    name: z.string().default("world").describe("Name to greet"),
-  }),
-  http: { method: "GET" },
-  run: async ({ name }) => {
-    return { message: `Hello, ${name}!` };
-  },
-});
-```
-
-Run it from the terminal (inside your `my-app/` directory):
-
-```bash
-pnpm action hello --name Alice
-```
-
-Or open your app at `http://localhost:8080` and ask the agent in the chat there:
-
-> Use the hello action with the name Alice.
-
-### Add your own action
-
-Replace the starter action with the first real operation in your domain. This example
-counts words, sentences, and paragraphs in any text you pass it. It computes
-everything locally, so there's nothing to configure and no external service to connect.
-
-Create a new file called `analyze-text.ts` in your `actions/` directory:
+Create `actions/analyze-text.ts`:
 
 ```ts filename="actions/analyze-text.ts"
 import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
 import { z } from "zod";
-
-const textStatsSchema = z.object({
-  title: z.string(),
-  points: z.array(z.object({ label: z.string(), value: z.number() })),
-});
 
 export default defineAction({
   description: "Count words, sentences, and paragraphs in a block of text.",
   schema: z.object({
-    text: z
-      .string()
-      .default(
-        "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.",
-      ),
+    text: z.string().default("The quick brown fox jumps over the lazy dog."),
   }),
-  outputSchema: textStatsSchema,
+  outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
   chatUI: {
-    renderer: "text.stats-chart",
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
     title: "Text stats",
   },
   readOnly: true,
-  run: async ({ text }) => ({
-    title: "Text statistics",
-    points: [
-      { label: "Characters", value: text.length },
-      { label: "Words", value: text.split(/\s+/).filter(Boolean).length },
+  run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
+    const points = [
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
       {
         label: "Sentences",
-        value: text.split(/[.!?]+/).filter(Boolean).length,
+        value: summary.sentences,
       },
       {
         label: "Paragraphs",
-        value: text.split(/\n\n+/).filter(Boolean).length,
+        value: summary.paragraphs,
       },
-    ],
-  }),
+    ];
+
+    return createDataChartWidgetResult({
+      title: "Text statistics",
+      summary,
+      chartSeries: {
+        type: "bar",
+        xKey: "label",
+        series: [{ key: "value", label: "Count" }],
+        data: points,
+      },
+    });
+  },
 });
 ```
 
-Try it from the terminal:
+Run it from the terminal:
 
 ```bash
 pnpm action analyze-text --text "Hello world. How are you today?"
 ```
 
-Or open your app at `http://localhost:8080` and ask the agent in the chat there:
+Or ask the agent in chat:
 
 > Run the analyze-text action on "Hello world. How are you today?"
 
-#### Define once, call from anywhere
+The built-in `data-chart` renderer turns the structured result into a chart in
+the transcript. There is no renderer file or `app/root.tsx` import to add. For
+custom native components, see [Native Chat UI](/docs/native-chat-ui).
 
-This action is now reachable from chat, React hooks, CLI, HTTP, MCP, A2A,
-scheduled jobs, and webhooks.
+## Continue
 
-TIP: Any time you want the agent to call a specific action without ambiguity, phrasing it as "Run the `<action-name>` action" is most reliable. Natural-language prompts work well once the agent has enough context about your app's domain. For a brand-new app with no data or context yet, explicit is safer.
-
-## Render the result inline {#render-inline}
-
-When the agent runs `analyze-text`, it returns structured data: a title and an
-array of counts. By default the agent will describe that data in prose: "The
-text has 9 words, 2 sentences..." and so on. That works, but you can
-also render the result as a real UI component (a bar chart, a table, a card)
-directly inside the chat transcript, right where the agent responded.
-
-This is what `chatUI.renderer` in the action does. It's a label that says "when
-this action's result appears in chat, hand it to this React component instead of
-summarizing it in text." The component receives the validated action output as
-props and renders whatever you want.
-
-In the next step, you'll create `app/chat-renderers.tsx`, but first, add one import line
-to `app/root.tsx` so it runs on startup:
-
-```ts filename="app/root.tsx"
-import "./chat-renderers";
-```
-
-Add it alongside your other imports at the top of the file. That's the only
-change to `root.tsx`. The import just ensures the file runs and registers the
-renderer. Now create the renderer file:
-
-```tsx filename="app/chat-renderers.tsx"
-import {
-  registerActionChatRenderer,
-  type ToolRendererProps,
-} from "@agent-native/core/client/chat";
-
-type TextStatsResult = {
-  title: string;
-  points: Array<{ label: string; value: number }>;
-};
-
-const MAX_BAR_PX = 80;
-
-function TextStatsChart({ context }: ToolRendererProps) {
-  const result = context.resultJson as TextStatsResult;
-  const max = Math.max(...result.points.map((point) => point.value), 1);
-  return (
-    <section className="rounded-lg border bg-card p-4">
-      <h3 className="text-sm font-medium">{result.title}</h3>
-      <div className="mt-4 flex items-end gap-2">
-        {result.points.map((point) => (
-          <div
-            key={point.label}
-            className="flex flex-1 flex-col items-center gap-2"
-          >
-            <div
-              className="w-full rounded-t bg-blue-500"
-              style={{
-                height: `${Math.max(Math.round((point.value / max) * MAX_BAR_PX), 2)}px`,
-              }}
-            />
-            <span className="text-xs text-muted-foreground">{point.label}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-registerActionChatRenderer({
-  id: "text.stats-chart",
-  renderer: "text.stats-chart",
-  Component: TextStatsChart,
-});
-```
-
-Once the renderer is registered, the agent's response looks like this. Instead
-of a paragraph of text, your React component renders directly inside the chat
-transcript:
-
-<WireframeBlock id="doc-block-inline-result-wireframe">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(640px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>Run the analyze-text action on \"Hello world. How are you today?\"</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(480px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>Rendered with text.stats-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>Text statistics</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:80px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Characters</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:18px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Words</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:2px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Sentences</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:2px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Paragraphs</span></div></div></section></div></div></div>"
-    }
-  />
-</WireframeBlock>
-
-Use this step when the result belongs where the agent is speaking:
-
-- setup summaries
-- short reports
-- approvals
-- tables or charts small enough to inspect inline
-- links into durable app views
-
-For reusable generic outputs, the framework also ships built-in
-`data-chart` and `data-table` renderers, plus `data-insights` for combined
-summary/chart/table cards. See [Native Chat UI](/docs/native-chat-ui). For
-temporary controls the agent creates at runtime, see
-[Generative UI](/docs/generative-ui).
-
-## What's next {#next}
-
-<Cards>
-
-### [Persist Data in SQL](/docs/getting-started-database)
-
-Save action results to a database so the agent can reference them across
-conversations. Next in the series.
-
-### [Actions](/docs/actions)
-
-Schemas, auth, approvals, hooks, and transport — the full reference for what
-actions can do.
-
-### [Native Chat UI](/docs/native-chat-ui)
-
-Built-in renderers for tables, charts, and typed cards — beyond the custom
-renderer you just built.
-
-### [Key Concepts](/docs/key-concepts)
-
-The architecture underneath this tutorial: SQL, actions, live sync, and context
-awareness.
-
-</Cards>
+Continue with [Add a Page](/docs/getting-started-pages) to use the same action
+outside the transcript. When results need to survive conversations, return to
+[Persist Data in SQL](/docs/getting-started-database).

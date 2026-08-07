@@ -127,6 +127,7 @@ function buildNewWorkspaceAppPrompt(input: {
     `Generate a concise one-sentence app description from the user prompt before coding; save it in apps/${input.appId}/package.json "description" so Dispatch and A2A can describe the app.`,
     `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
     grantRequest,
+    `Workspace credential rule: use the Dispatch workspace vault and the app's scoped secret or workspace-connection resolver for provider credentials. Framework apps should use resolveSecret from @agent-native/core/server; existing builder-workspace apps should use their resolveConnectorSecret helper. Do not ask a non-admin builder to add keys to local project settings or .env, and do not copy vault values into app code. If a needed key is not available, request it through Dispatch's vault workflow or surface the provider connection setup path.`,
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
     `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
     ``,

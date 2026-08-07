@@ -135,6 +135,7 @@ passed this requirement yet.
   an icon you haven't used elsewhere in this app, confirm it exists by grepping
   `node_modules/@tabler/icons-react/dist/tabler-icons-react.d.ts` (or the package's icon list)
   for the exact name, and pick the closest real match if your first guess isn't there.
+- Keep inline help/info glyphs next to labels at `size-3` (12px) or smaller than the adjacent text. Preserve a larger hit area on the trigger, not the glyph. Use `guard:allow-large-help-icon` only for deliberate heading documentation or menu action exceptions.
 - Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` for action-backed UI. Standard CRUD should go through actions, not custom `/api/` routes.
 - Keep UI optimistic where possible: update cache and navigation immediately, then reconcile or roll back on mutation result.
 - Custom styles belong in Tailwind classes, component CSS, or the existing global CSS theme file; avoid inline styles.

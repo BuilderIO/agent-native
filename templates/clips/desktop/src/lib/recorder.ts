@@ -79,6 +79,12 @@ import {
   type PauseTransitionQueue,
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
+import {
+  guardRecordingStart,
+  RECORDING_START_TIMEOUT_MS,
+  RecordingStartCancelledError,
+  RecordingStartTimeoutError,
+} from "./recording-start-guard";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import { prepareRewindRecordingStart } from "./rewind-recording-start";
 import { singleFlight } from "./single-flight";
@@ -151,6 +157,20 @@ const NO_SPEECH_TRANSCRIPT_FAILURE =
 const TRANSCRIPTION_START_FAILURE =
   "macOS Speech recognition could not start for this recording. Check Speech Recognition, System Audio, and Microphone permissions, then retry transcription.";
 
+function throwIfRecordingStartAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new RecordingStartCancelledError();
+}
+
+function stopMediaStream(stream: MediaStream | null | undefined): void {
+  stream?.getTracks().forEach((track) => {
+    try {
+      track.stop();
+    } catch {
+      // coercion-ok: stopping an already-ended capture track is best-effort cleanup.
+    }
+  });
+}
+
 function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") return false;
   const platform =
@@ -212,6 +232,8 @@ export interface StartParams {
   cameraOn: boolean;
   /** Record + transcribe system/desktop audio. Default true. */
   systemAudioOn?: boolean;
+  /** Cancels or bounds the pre-record capture setup. */
+  signal?: AbortSignal;
   localRecordingMode?: LocalRecordingMode;
   /**
    * Pre-acquired camera stream owned by the popover's session effect. The
@@ -1507,6 +1529,7 @@ async function createServerRecording(
     requestStreaming?: boolean;
     streamingUploadClient?: StreamingUploadClient;
     visibility?: "public" | "private";
+    signal?: AbortSignal;
   },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
@@ -1526,6 +1549,7 @@ async function createServerRecording(
       // requests without Allow-Credentials — and dev auth is bypassed, so
       // cookies aren't needed.
       credentials: "include",
+      signal: options?.signal,
       body: JSON.stringify({
         hasCamera,
         hasAudio,
@@ -2087,7 +2111,159 @@ async function selectRegionForRecording(): Promise<RegionCaptureRect> {
   }
 }
 
-async function prepareCountdownEventWaiter(timeoutMs = 4000): Promise<{
+class MonitorPickerCancelledError extends Error {
+  constructor() {
+    super("Full-screen monitor selection cancelled");
+    this.name = "AbortError";
+  }
+}
+
+/**
+ * Safety net only — a normal pick takes as long as the user needs. This
+ * guards against the picker windows being torn down by something other than
+ * a click or Escape (a monitor disconnecting mid-pick, some other teardown)
+ * with neither selection event ever firing, which would otherwise hang the
+ * recording-start flow forever. Matches the "abandon after a while" window
+ * used elsewhere in this file (see `CUE_IDLE_CLEANUP_MS` in audio-cue.ts).
+ */
+const MONITOR_PICKER_SELECTION_TIMEOUT_MS = 5 * 60_000;
+
+function waitForMonitorPickerSelection(): {
+  promise: Promise<number | null>;
+  cleanup: () => void;
+} {
+  let settled = false;
+  const unlistens: UnlistenFn[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const cleanup = () => {
+    settled = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    for (const unlisten of unlistens.splice(0)) {
+      try {
+        unlisten();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const promise = new Promise<number | null>((resolve, reject) => {
+    const finish = (cancelled: boolean, displayId: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (cancelled) reject(new MonitorPickerCancelledError());
+      else resolve(displayId);
+    };
+
+    timer = setTimeout(() => {
+      finish(true, null);
+    }, MONITOR_PICKER_SELECTION_TIMEOUT_MS);
+
+    const track = (listener: Promise<UnlistenFn>) => {
+      listener
+        .then((unlisten) => {
+          if (settled) {
+            try {
+              unlisten();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          unlistens.push(unlisten);
+        })
+        .catch((err) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(err);
+        });
+    };
+
+    track(
+      listen<{ displayId?: number | null }>(
+        "clips:monitor-picker-selected",
+        (event) => {
+          const raw = event.payload?.displayId;
+          const displayId =
+            typeof raw === "number" && Number.isFinite(raw) && raw > 0
+              ? raw
+              : null;
+          finish(false, displayId);
+        },
+      ),
+    );
+    track(
+      listen("clips:monitor-picker-cancelled", () => {
+        finish(true, null);
+      }),
+    );
+  });
+
+  return { promise, cleanup };
+}
+
+/**
+ * When more than one monitor is connected, shows a small "record this
+ * screen" popup centered on each one and waits for the user to pick one —
+ * or cancel with Escape, which aborts the whole recording start. Resolves
+ * immediately with no popup when there's only one monitor, matching the
+ * prior single-monitor behavior.
+ *
+ * Callers must await this BEFORE flipping any "recording is starting" UI
+ * state (toolbar, timer, etc.) — that chrome positions itself on whatever
+ * `tray_monitor_physical_rect` returns at the moment it's shown, which
+ * reads this pick. Called from `startNativeFullscreenRecording` instead,
+ * the toolbar was already up (and pinned to the wrong screen) by the time
+ * the user finished picking.
+ */
+export async function pickFullscreenRecordingDisplay(): Promise<void> {
+  // Registered BEFORE showing the picker windows: a fast click (or keyboard
+  // activation) can otherwise fire the selection event before these
+  // listeners exist, and Tauri does not replay events to a listener
+  // registered after the fact — the wait would then sit until its timeout.
+  const selection = waitForMonitorPickerSelection();
+  let shown: boolean;
+  try {
+    shown = await invoke<boolean>("show_monitor_picker");
+  } catch (err) {
+    selection.cleanup();
+    throw err;
+  }
+  if (!shown) {
+    selection.cleanup();
+    return;
+  }
+  let displayId: number | null = null;
+  try {
+    displayId = await selection.promise;
+  } catch (err) {
+    selection.cleanup();
+    await invoke("close_monitor_picker").catch(() => {});
+    throw err;
+  }
+  try {
+    // Deliberately not swallowed: if this fails, `tray_display_id` falls
+    // back to the tray-anchor screen with no way for the caller to tell
+    // that happened, silently recording a different screen than the one
+    // the user just picked. Propagate so the caller aborts the start
+    // instead.
+    await invoke("set_recording_display_override", { displayId });
+  } finally {
+    selection.cleanup();
+    await invoke("close_monitor_picker").catch(() => {});
+  }
+}
+
+async function prepareCountdownEventWaiter(
+  timeoutMs = 4000,
+  signal?: AbortSignal,
+): Promise<{
   event: Promise<string>;
   cleanup: () => void;
 }> {
@@ -2117,6 +2293,7 @@ async function prepareCountdownEventWaiter(timeoutMs = 4000): Promise<{
 
   const cleanup = () => {
     window.removeEventListener("keydown", onKeyDown);
+    signal?.removeEventListener("abort", onAbort);
     if (timer) {
       clearTimeout(timer);
       timer = null;
@@ -2139,6 +2316,12 @@ async function prepareCountdownEventWaiter(timeoutMs = 4000): Promise<{
       resolveEvent(cause);
     }
   };
+  const onAbort = () => finish("cancel", "abort");
+  if (signal?.aborted) {
+    onAbort();
+  } else {
+    signal?.addEventListener("abort", onAbort, { once: true });
+  }
 
   // Await both registrations before the countdown can become visible. A fast
   // Return previously closed the overlay before these asynchronous listeners
@@ -2190,14 +2373,19 @@ async function showRegionRecordBorder(region: RegionCaptureRect | null) {
   });
 }
 
-async function runRecordingCountdown(wantsScreen: boolean) {
+async function runRecordingCountdown(
+  wantsScreen: boolean,
+  signal?: AbortSignal,
+) {
   // The recording-start chime is intentionally NOT played here. It fires from
   // `audioCue.playBeforeCapture()` at the real capture-start (right before the
   // recorder/native capture is kicked off) so the beep lines up with the moment
   // recording actually begins — not one second early on the countdown's "1".
   const countdown = await prepareCountdownEventWaiter(
     COUNTDOWN_EVENT_TIMEOUT_MS,
+    signal,
   );
+  throwIfRecordingStartAborted(signal);
   await showRegionGuidesForRecording(wantsScreen);
   let countdownGeneration: number;
   try {
@@ -2504,6 +2692,7 @@ async function tryStartRewindFullscreenRecording(
       includeSystemAudio,
       { voiceProcessing: false },
     ).catch((err) => {
+      if (params.signal?.aborted) throw err;
       console.warn("[clips-recorder] rewind transcription start failed:", err);
       return null;
     });
@@ -2518,7 +2707,9 @@ async function tryStartRewindFullscreenRecording(
       void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
   };
-  await invoke("show_preparing");
+  await guardRecordingStart(invoke("show_preparing"), {
+    signal: params.signal,
+  });
   const recordingPromise = localOnly
     ? Promise.resolve<{ id: string; uploadMode: UploadMode }>({
         id: folderName,
@@ -2542,6 +2733,7 @@ async function tryStartRewindFullscreenRecording(
             // fail with 409 after the local encode has completed.
             requestStreaming: true,
             streamingUploadClient: "desktop-native",
+            signal: params.signal,
           },
         );
       })();
@@ -2549,18 +2741,22 @@ async function tryStartRewindFullscreenRecording(
     const recording = await prepareRewindRecordingStart({
       async prepare() {
         const preparedRecording = await recordingPromise;
+        throwIfRecordingStartAborted(params.signal);
         id = preparedRecording.id;
         uploadMode = preparedRecording.uploadMode ?? "buffered";
-        await invoke<RewindClipBackendStatus>("rewind_clip_prepare", {
-          artifactLabel: id,
-          serverUrl: localOnly ? null : params.serverUrl,
-          recordingId: localOnly ? null : id,
-          authToken: localOnly ? null : (params.authToken ?? ""),
-          cookie: localOnly ? null : (params.cookie ?? ""),
-          includeMic,
-          includeSystemAudio,
-          hasCamera: wantsCamera,
-        });
+        await guardRecordingStart(
+          invoke<RewindClipBackendStatus>("rewind_clip_prepare", {
+            artifactLabel: id,
+            serverUrl: localOnly ? null : params.serverUrl,
+            recordingId: localOnly ? null : id,
+            authToken: localOnly ? null : (params.authToken ?? ""),
+            cookie: localOnly ? null : (params.cookie ?? ""),
+            includeMic,
+            includeSystemAudio,
+            hasCamera: wantsCamera,
+          }),
+          { signal: params.signal },
+        );
         return preparedRecording;
       },
       async countdown() {
@@ -2569,14 +2765,17 @@ async function tryStartRewindFullscreenRecording(
         // Overlap whisper startup with the countdown so the capture boundary
         // never waits on it, but have both settled before activation.
         await Promise.all([
-          runRecordingCountdown(true),
+          runRecordingCountdown(true, params.signal),
           startRewindTranscription(),
         ]);
         console.log("[rewind-latency] countdown completed");
       },
       async activate(preparedRecording) {
         const activationStarted = performance.now();
-        await invoke<RewindClipBackendStatus>("rewind_clip_start");
+        await guardRecordingStart(
+          invoke<RewindClipBackendStatus>("rewind_clip_start"),
+          { signal: params.signal },
+        );
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
@@ -2913,8 +3112,13 @@ async function tryStartRewindFullscreenRecording(
         console.error("[clips-recorder] Rewind handle.cancel() threw:", error);
       });
     }),
+    listen("clips:toolbar-ready", () => {
+      emit("clips:toolbar-enabled", !stopped).catch(() => {});
+      emitState();
+    }),
   ]);
   tickHandle = window.setInterval(emitState, 500);
+  emit("clips:toolbar-sync").catch(() => {});
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitState();
   return handle;
@@ -2965,14 +3169,28 @@ async function startNativeFullscreenRecording(
   };
   const startNativeTranscriptionBeforeRecording = async () => {
     if (localOnly || !canTranscribeLocally || transcriptionCapture) return;
-    transcriptionCapture = await startTranscriptionCapture(
+    throwIfRecordingStartAborted(params.signal);
+    transcriptionCapture = await guardRecordingStart(
+      startTranscriptionCapture(
+        {
+          deviceId: params.micId,
+          label: micDeviceLabel,
+        },
+        wantsSystemAudio,
+        { voiceProcessing: false },
+      ),
       {
-        deviceId: params.micId,
-        label: micDeviceLabel,
+        signal: params.signal,
+        onLateResolve: (capture) => {
+          void capture?.cancel().catch(() => {});
+        },
       },
-      wantsSystemAudio,
-      { voiceProcessing: false },
     );
+    if (params.signal?.aborted) {
+      await transcriptionCapture?.cancel().catch(() => {});
+      transcriptionCapture = null;
+      throw new RecordingStartCancelledError();
+    }
     if (
       canTranscribeLocally &&
       !transcriptionCapture &&
@@ -2983,6 +3201,7 @@ async function startNativeFullscreenRecording(
   };
 
   try {
+    throwIfRecordingStartAborted(params.signal);
     await invoke("park_popover_offscreen").catch(() => {});
     emit("clips:popover-visible", false).catch(() => {});
 
@@ -2993,6 +3212,9 @@ async function startNativeFullscreenRecording(
       // down on stop, cancel, and the error paths below.
       await showRegionRecordBorder(captureRegion);
     }
+    // Full-screen's monitor pick already happened in the caller, before
+    // `recordingFlowActive`/the toolbar went up — see
+    // `pickFullscreenRecordingDisplay`'s doc comment for why.
 
     if (localOnly && localRecordingMode === "separate" && wantsCamera) {
       localCameraStream =
@@ -3033,22 +3255,34 @@ async function startNativeFullscreenRecording(
     // current device name.
     if (wantsAudio && params.micId) {
       try {
-        const probe = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: { exact: params.micId },
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
+        const probe = await guardRecordingStart(
+          navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: { exact: params.micId },
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+            },
+            video: false,
+          }),
+          {
+            signal: params.signal,
+            onLateResolve: stopMediaStream,
           },
-          video: false,
-        });
+        );
         const liveLabel = probe.getAudioTracks()[0]?.label?.trim();
-        probe.getTracks().forEach((track) => track.stop());
+        stopMediaStream(probe);
         if (liveLabel) micDeviceLabel = liveLabel;
         console.log(
           `[clips-recorder] mic resolve: id=${params.micId} storedLabel=${JSON.stringify(params.micLabel ?? null)} liveLabel=${JSON.stringify(liveLabel ?? null)} -> using=${JSON.stringify(micDeviceLabel)}`,
         );
       } catch (probeErr) {
+        if (
+          params.signal?.aborted ||
+          probeErr instanceof RecordingStartTimeoutError
+        ) {
+          throw probeErr;
+        }
         // Probe failed (rotated/stale deviceId, device unplugged, or denied) —
         // fall back to the stored label, which the Rust side name-matches.
         console.warn(
@@ -3070,17 +3304,26 @@ async function startNativeFullscreenRecording(
     // attach the recording output at the exact start moment. No-op when SCK is
     // unavailable — `begin` then does a normal immediate start.
     const warmMic = (recordingId: string) =>
-      invoke("native_fullscreen_recording_warm", {
-        recordingId,
-        ...captureAudioParams,
-      }).catch((err) => {
+      guardRecordingStart(
+        invoke("native_fullscreen_recording_warm", {
+          recordingId,
+          ...captureAudioParams,
+        }),
+        { signal: params.signal },
+      ).catch((err) => {
+        if (
+          params.signal?.aborted ||
+          err instanceof RecordingStartTimeoutError
+        ) {
+          throw err;
+        }
         console.warn("[clips-recorder] mic warm failed:", err);
       });
     const clickStartedAt = Date.now();
     if (localOnly) {
       // Local recordings have no create-recording round-trip; still overlap
       // Whisper startup with countdown + deferred SCK warm.
-      const countdownPromise = runRecordingCountdown(true);
+      const countdownPromise = runRecordingCountdown(true, params.signal);
       id = localFolderName;
       const warmPromise = (async () => {
         const warmStartedAt = Date.now();
@@ -3105,7 +3348,7 @@ async function startNativeFullscreenRecording(
         mode: params.mode,
         source: params.source,
       });
-      const countdownPromise = runRecordingCountdown(true);
+      const countdownPromise = runRecordingCountdown(true, params.signal);
       const recordingPromise = (async () => {
         const captureTitle = await captureTitlePromise;
         const createStartedAt = Date.now();
@@ -3119,6 +3362,7 @@ async function startNativeFullscreenRecording(
               mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
               requestStreaming: true,
               streamingUploadClient: "desktop-native",
+              signal: params.signal,
             },
           );
         } finally {
@@ -3174,19 +3418,23 @@ async function startNativeFullscreenRecording(
     }
 
     await audioCue.playBeforeCapture();
+    throwIfRecordingStartAborted(params.signal);
     // Phase 2: attach the recording output now that the mic is warm (or do a
     // normal immediate start if warming was skipped/failed). Transcription has
     // already been awaited above so AVAudioEngine won't reconfigure mid-write.
     const beginStartedAt = Date.now();
-    await invoke("native_fullscreen_recording_begin", {
-      recordingId: id,
-      ...captureAudioParams,
-      // Live-upload credentials are read on the Rust side from the shared
-      // meetings-watcher session; only signal whether this is a local-only
-      // recording (which never uploads to the server).
-      localOnly,
-      hasCamera: wantsCamera,
-    });
+    await guardRecordingStart(
+      invoke("native_fullscreen_recording_begin", {
+        recordingId: id,
+        ...captureAudioParams,
+        // Live-upload credentials are read on the Rust side from the shared
+        // meetings-watcher session; only signal whether this is a local-only
+        // recording (which never uploads to the server).
+        localOnly,
+        hasCamera: wantsCamera,
+      }),
+      { signal: params.signal },
+    );
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );
@@ -3347,7 +3595,16 @@ async function startNativeFullscreenRecording(
         );
       });
     await localCameraExport?.cancel().catch(() => {});
-    await invoke("native_fullscreen_recording_cancel").catch((err) =>
+    // A restart discards this take and immediately starts a replacement on
+    // the SAME screen without re-running the monitor picker (native restarts
+    // hand off the live capture, not a browser display stream — see
+    // `pickFullscreenRecordingDisplay`'s skip condition in app.tsx). Without
+    // `preserveDisplayOverride`, these calls would clear the pick before the
+    // replacement recording ever reads it, silently falling back to the
+    // tray-anchor screen.
+    await invoke("native_fullscreen_recording_cancel", {
+      preserveDisplayOverride: forRestart,
+    }).catch((err) =>
       console.warn("[clips-recorder] native fullscreen cancel failed:", err),
     );
     if (bubbleCaptureExcluded) {
@@ -3361,7 +3618,9 @@ async function startNativeFullscreenRecording(
     }
     streamCleanups.forEach((cleanup) => cleanup());
     if (forRestart) {
-      await invoke("hide_recording_chrome").catch(() => {});
+      await invoke("hide_recording_chrome", {
+        preserveDisplayOverride: true,
+      }).catch(() => {});
     } else {
       await endSession();
     }
@@ -3705,10 +3964,15 @@ async function startNativeFullscreenRecording(
         console.error("[clips-recorder] native handle.cancel() threw:", err);
       });
     }),
+    listen("clips:toolbar-ready", () => {
+      emit("clips:toolbar-enabled", !stopped).catch(() => {});
+      emitState();
+    }),
   ]);
   stateUnlistens = toolbarUnlistens;
   tickHandle = setInterval(emitState, 500);
   startSegmentRotator();
+  emit("clips:toolbar-sync").catch(() => {});
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitState();
 
@@ -3816,8 +4080,28 @@ function bubbleSizeRatioForName(size: string | null | undefined): number {
 export async function startRecording(
   params: StartParams,
 ): Promise<RecorderHandle> {
+  const startController = new AbortController();
+  const cancelStartup = () => {
+    startController.abort();
+    void emit("clips:countdown-cancel").catch(() => {});
+    void invoke("native_fullscreen_recording_cancel").catch(() => {});
+    void invoke("hide_recording_chrome").catch(() => {});
+  };
+  const startPromise = startRecordingInner({
+    ...params,
+    signal: startController.signal,
+  });
   try {
-    return await startRecordingInner(params);
+    return await guardRecordingStart(startPromise, {
+      signal: params.signal,
+      timeoutMs: RECORDING_START_TIMEOUT_MS,
+      onCancel: cancelStartup,
+      onLateResolve: (handle) => {
+        void handle.cancel().catch((err) => {
+          console.warn("[clips-recorder] late start cleanup failed:", err);
+        });
+      },
+    });
   } catch (err) {
     await invoke("hide_recording_chrome").catch(() => {});
     const e = err as { name?: string; message?: string } | null;
@@ -4028,21 +4312,72 @@ async function startRecordingInner(
       ? getAudioStreamWithFallback(params.micId, params.micLabel)
       : null;
 
+  // getDisplayMedia can remain pending in a long-lived WebKit tray webview.
+  // Track every stream that does arrive so cancel/timeout can stop it even
+  // when another capture promise never settles.
+  const pendingCaptureStreams = new Set<MediaStream>();
+  const trackCapturePromise = (
+    promise: Promise<MediaStream> | null,
+  ): Promise<MediaStream> | null => {
+    if (!promise) return null;
+    return promise.then((stream) => {
+      if (params.signal?.aborted) {
+        stopMediaStream(stream);
+      } else {
+        pendingCaptureStreams.add(stream);
+      }
+      return stream;
+    });
+  };
+  const trackedDisplayStreamPromise = trackCapturePromise(displayStreamPromise);
+  const trackedCameraStreamPromise = trackCapturePromise(
+    bubbleCameraStreamPromise,
+  );
+  const trackedAudioStreamPromise = trackCapturePromise(audioStreamPromise);
+  const pendingCaptureAbort = () => {
+    pendingCaptureStreams.forEach(stopMediaStream);
+    pendingCaptureStreams.clear();
+  };
+  params.signal?.addEventListener("abort", pendingCaptureAbort, {
+    once: true,
+  });
+  const clearPendingCaptureTracking = () => {
+    params.signal?.removeEventListener("abort", pendingCaptureAbort);
+    pendingCaptureStreams.clear();
+  };
+  let captureStartCleaned = false;
+  const cleanupUnstartedCapture = () => {
+    if (captureStartCleaned) return;
+    captureStartCleaned = true;
+    pendingCaptureAbort();
+    clearPendingCaptureTracking();
+    streamCleanups.forEach((cleanup) => cleanup());
+  };
+  const trackedCapturePromises = [
+    trackedDisplayStreamPromise,
+    trackedCameraStreamPromise,
+    trackedAudioStreamPromise,
+  ];
+
   let captureSuspension: RewindCaptureSuspensionLease;
   try {
-    captureSuspension = await suspensionPromise;
+    captureSuspension = await guardRecordingStart(suspensionPromise, {
+      signal: params.signal,
+      onLateResolve: (lease) => {
+        if (!lease.leaseId) return;
+        void invoke("rewind_capture_suspension_release", {
+          leaseId: lease.leaseId,
+        }).catch(() => {});
+      },
+    });
   } catch (err) {
     // A picker may already have resolved while IPC was in flight. Tear down
     // every possible stream before surfacing the fail-closed suspension error.
-    const streams = await Promise.allSettled([
-      displayStreamPromise,
-      bubbleCameraStreamPromise,
-      audioStreamPromise,
-    ]);
-    streams.forEach((result) => {
-      if (result.status === "fulfilled") {
-        result.value?.getTracks().forEach((track) => track.stop());
-      }
+    cleanupUnstartedCapture();
+    void Promise.allSettled(trackedCapturePromises).then((streams) => {
+      streams.forEach((result) => {
+        if (result.status === "fulfilled") stopMediaStream(result.value);
+      });
     });
     throw err;
   }
@@ -4055,11 +4390,10 @@ async function startRecordingInner(
     // track that DID resolve, then re-throw the original error so the caller's
     // catch still sees `NotAllowedError` / `AbortError` as before.
     console.log("[clips-recorder] allSettled IN — streams dispatched");
-    const settled = await Promise.allSettled([
-      displayStreamPromise,
-      bubbleCameraStreamPromise,
-      audioStreamPromise,
-    ]);
+    const settled = await guardRecordingStart(
+      Promise.allSettled(trackedCapturePromises),
+      { signal: params.signal },
+    );
     console.log(
       "[clips-recorder] allSettled OUT — settled statuses:",
       settled.map((s) => s.status),
@@ -4235,7 +4569,10 @@ async function startRecordingInner(
         combined,
       });
 
-      const countdownPromise = runRecordingCountdown(wantsScreen);
+      const countdownPromise = runRecordingCountdown(
+        wantsScreen,
+        params.signal,
+      );
       const localExportPromise = prepareLocalRecordingExport(targets);
       let localExport: Awaited<ReturnType<typeof prepareLocalRecordingExport>>;
       try {
@@ -4244,13 +4581,7 @@ async function startRecordingInner(
           localExportPromise,
         ]);
       } catch (err) {
-        [displayStream, audioStream].forEach((stream) =>
-          stream?.getTracks().forEach((track) => track.stop()),
-        );
-        streamCleanups.forEach((cleanup) => cleanup());
-        if (!popoverOwnsCamera) {
-          bubbleCameraStream?.getTracks().forEach((track) => track.stop());
-        }
+        cleanupUnstartedCapture();
         throw err;
       }
 
@@ -4268,7 +4599,10 @@ async function startRecordingInner(
       function emitState(paused: boolean) {
         const now = Date.now();
         const pausedNowMs = paused && pausedAt ? now - pausedAt : 0;
-        const elapsedMs = now - startedAt - accumulatedPauseMs - pausedNowMs;
+        const elapsedMs =
+          startedAt > 0
+            ? now - startedAt - accumulatedPauseMs - pausedNowMs
+            : 0;
         emit("clips:recorder-state", {
           paused,
           elapsedMs,
@@ -4299,8 +4633,15 @@ async function startRecordingInner(
             console.error("[clips-recorder] local handle.cancel() threw:", err);
           });
         }),
+        listen("clips:toolbar-ready", () => {
+          emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
+            () => {},
+          );
+          emitState(pausedAt != null);
+        }),
       ]);
       stateUnlistens = toolbarUnlistens;
+      emit("clips:toolbar-sync").catch(() => {});
 
       await showRegionGuidesForRecording(wantsScreen);
       await audioCue.playBeforeCapture();
@@ -4413,7 +4754,12 @@ async function startRecordingInner(
         },
       };
 
-      return recorderWithCaptureSuspension(handle, releaseCaptureSuspension);
+      const wrappedHandle = recorderWithCaptureSuspension(
+        handle,
+        releaseCaptureSuspension,
+      );
+      clearPendingCaptureTracking();
+      return wrappedHandle;
     }
 
     const uploadPrimaryVideo = createUploadOptimizedVideoStream(primaryVideo);
@@ -4443,14 +4789,18 @@ async function startRecordingInner(
     console.log(
       "[clips-recorder] invoking show_countdown + createServerRecording",
     );
-    const countdownPromise = runRecordingCountdown(wantsScreen);
+    const countdownPromise = runRecordingCountdown(wantsScreen, params.signal);
     console.time("[clips-recorder] createServerRecording duration");
     const recordingPromise = createServerRecording(
       params.serverUrl,
       wantsCamera,
       recordingAudio.tracks.length > 0,
       captureTitle,
-      { mimeType: mimeType || "video/webm", requestStreaming: true },
+      {
+        mimeType: mimeType || "video/webm",
+        requestStreaming: true,
+        signal: params.signal,
+      },
     ).finally(() => {
       console.timeEnd("[clips-recorder] createServerRecording duration");
     });
@@ -4664,7 +5014,8 @@ async function startRecordingInner(
     function emitState(paused: boolean) {
       const now = Date.now();
       const pausedNowMs = paused && pausedAt ? now - pausedAt : 0;
-      const elapsedMs = now - startedAt - accumulatedPauseMs - pausedNowMs;
+      const elapsedMs =
+        startedAt > 0 ? now - startedAt - accumulatedPauseMs - pausedNowMs : 0;
       emit("clips:recorder-state", {
         paused,
         elapsedMs,
@@ -4716,8 +5067,15 @@ async function startRecordingInner(
           console.error("[clips-recorder] handle.cancel() threw:", err);
         });
       }),
+      listen("clips:toolbar-ready", () => {
+        emit("clips:toolbar-enabled", startedAt > 0 && !stopped).catch(
+          () => {},
+        );
+        emitState(pausedAt != null);
+      }),
     ]);
     stateUnlistens = toolbarUnlistens;
+    emit("clips:toolbar-sync").catch(() => {});
 
     await showRegionGuidesForRecording(wantsScreen);
     await audioCue.playBeforeCapture();
@@ -5228,8 +5586,14 @@ async function startRecordingInner(
       },
     };
 
-    return recorderWithCaptureSuspension(handle, releaseCaptureSuspension);
+    const wrappedHandle = recorderWithCaptureSuspension(
+      handle,
+      releaseCaptureSuspension,
+    );
+    clearPendingCaptureTracking();
+    return wrappedHandle;
   } catch (err) {
+    cleanupUnstartedCapture();
     await releaseCaptureSuspension();
     throw err;
   }

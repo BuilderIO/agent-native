@@ -13,6 +13,8 @@ import {
 } from "@/components/editor/PromptDialog";
 import { addSlideAgentMessage } from "@/lib/agent-visible-message";
 
+import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 
 function truncateSourceForContext(prompt: string): {
@@ -46,7 +48,7 @@ function describeUploadedFilesForAgent(
     "",
     "File handling rules:",
     `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` when the user wants the deck/slides imported, or to extract slide source from a presentation.`,
-    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed.`,
+    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text.`,
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
@@ -241,6 +243,8 @@ export function AddSlidePopover({
       )}
       <PromptComposer
         autoFocus
+        maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
+        documentAttachmentLimitLabel="Slides reference files"
         placeholder={t("editorSidebar.promptPlaceholder")}
         draftScope={`slides:add-slide:${deckId}`}
         onSubmit={handleSubmit}

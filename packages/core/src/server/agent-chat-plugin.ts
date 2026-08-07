@@ -66,6 +66,7 @@ import {
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
+import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
@@ -78,6 +79,7 @@ import {
   subscribeToRun,
   type ActionEntry,
   type AgentLoopOutcome,
+  type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
 import {
   callerHasRunAccess,
@@ -137,6 +139,10 @@ import {
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
+import {
+  filterFrameworkToolGroups,
+  resolveFrameworkTools,
+} from "../framework-tools.js";
 import {
   verifyInternalToken,
   extractBearerToken,
@@ -198,6 +204,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
+import { startIntervalJob } from "./interval-job.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
@@ -318,6 +325,7 @@ import {
   generateActionsPrompt,
   generateCorpusToolsPrompt,
 } from "./agent-chat/framework-prompts.js";
+import { resolveAgentChatMcpOptions } from "./agent-chat/mcp-options.js";
 import {
   resolveA2AAgentDelegationEnabled,
   type AgentChatPluginOptions,
@@ -348,6 +356,7 @@ import {
   createResourceScriptEntries,
 } from "./agent-chat/script-entries.js";
 import { parseSkillFrontmatter } from "./agent-chat/skill-frontmatter.js";
+import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
 export { _agentChatPromptSectionsForTests };
@@ -565,6 +574,19 @@ export function createAgentChatPlugin(
       // function means "the user currently has dev mode ON" (live).
       const isDevMode = () => currentDevMode;
 
+      // Resolve the framework's own tool surface once, folding the deprecated
+      // `databaseTools` / `extensionTools` into `frameworkTools` so every
+      // consumer below reads a single shape. Conflicting old/new values throw
+      // here rather than booting with a surface nobody chose.
+      const frameworkTools = resolveFrameworkTools(options);
+      const disabledFrameworkGroups = frameworkTools.disabledGroups;
+
+      // Same treatment for the MCP mount: one resolved shape, folding the
+      // deprecated `disableMcp` / `mcpServerInfo` / `connectorCatalog` /
+      // `externalAgents` into `mcp`. A2A reads the same object, so the
+      // connector policy cannot diverge between the two external surfaces.
+      const mcpOptions = resolveAgentChatMcpOptions(options);
+
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
       // startup, not per-request.
@@ -574,8 +596,9 @@ export function createAgentChatPlugin(
         PROD_FRAMEWORK_PROMPT_COMPACT,
         DEV_FRAMEWORK_PROMPT_COMPACT,
       } = buildFrameworkPrompts(options?.promptExamples, {
-        databaseTools: options?.databaseTools,
-        extensionTools: options?.extensionTools,
+        databaseTools: frameworkTools.database,
+        extensionTools: frameworkTools.extensions,
+        disabledFrameworkGroups,
       });
 
       // Route readiness must not wait on settings scans, remote hub fetches, or
@@ -708,15 +731,25 @@ export function createAgentChatPlugin(
         // Package action registration is optional.
       }
 
-      // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
-      const resourceScripts = await createResourceScriptEntries();
-      const docsScripts = await createDocsScriptEntries();
+      // Resource, chat, docs, db, and cross-agent scripts are available in both
+      // prod and dev modes, unless the app switched the group off through
+      // `frameworkTools`. Gating at construction is deliberate: an empty map
+      // flows through all thirteen registry composition sites below, whereas a
+      // condition at each spread site is the same omission waiting to happen
+      // thirteen times. Matching HTTP routes are mounted from `httpActions`,
+      // which is built from the ungated sets so the UI keeps working.
+      const resourceScripts = frameworkTools.isEnabled("resources")
+        ? await createResourceScriptEntries()
+        : {};
+      const docsScripts = frameworkTools.isEnabled("docs")
+        ? await createDocsScriptEntries()
+        : {};
       const databaseToolsMode = normalizeDatabaseToolsMode(
-        options?.databaseTools,
+        frameworkTools.database,
       );
       const databaseToolsEnabled = databaseToolsMode !== "off";
       const databaseWriteToolsEnabled = databaseToolsMode === "write";
-      const extensionToolsEnabled = options?.extensionTools === true;
+      const extensionToolsEnabled = frameworkTools.extensions;
       const dbScripts = databaseToolsEnabled
         ? await createDbScriptEntries(databaseToolsMode, {
             extensionTools: extensionToolsEnabled,
@@ -733,12 +766,20 @@ export function createAgentChatPlugin(
         options?.appId,
       );
       const loopSettingsScripts = await createAgentLoopSettingsScriptEntries();
-      const chatScripts = {
-        ...(await createChatScriptEntries()),
-        ...engineScripts,
-        ...loopSettingsScripts,
-      };
-      const callAgentScript = await createCallAgentScriptEntry(options?.appId);
+      // `httpActions` spreads engineScripts/loopSettingsScripts directly, so
+      // gating here removes them from the agent's tools without unmounting the
+      // routes the settings UI calls.
+      const chatScripts = frameworkTools.isEnabled("chat")
+        ? {
+            ...(await createChatScriptEntries()),
+            ...engineScripts,
+            ...loopSettingsScripts,
+          }
+        : {};
+      // Both `call-agent` and `describe-workspace-apps` come from this factory.
+      const callAgentScript = frameworkTools.isEnabled("workspaceApps")
+        ? await createCallAgentScriptEntry(options?.appId)
+        : {};
       let runNowSchedulerDeps: SchedulerDeps | null = null;
       const browserTools = createBuilderBrowserTool({
         getOrigin: () =>
@@ -909,7 +950,16 @@ export function createAgentChatPlugin(
       // surface, prompt, MCP/A2A list, and job/trigger runner below. The full
       // `*All` sets are reserved for `httpActions`, which keeps agent-hidden
       // actions reachable from the frontend / HTTP.
-      const templateScripts = filterAgentTools(templateScriptsAll);
+      //
+      // The framework's own action kits (sharing, review, history, flags, …)
+      // arrive in this same registry through `autoDiscoverActions`, tagged with
+      // `frameworkGroup`. Subtracting disabled groups HERE is what removes them
+      // from every downstream agent surface at once; `httpActions` re-merges
+      // them ungated, so the share dialog and review threads keep their routes.
+      const templateScripts = filterFrameworkToolGroups(
+        filterAgentTools(templateScriptsAll),
+        disabledFrameworkGroups,
+      );
       // Compact is the safe default for every app, including generated and
       // third-party apps that have not curated a starter list yet. Keep the
       // app's own action surface immediately callable; framework, provider,
@@ -922,7 +972,10 @@ export function createAgentChatPlugin(
         templateScripts,
         options?.initialToolNames,
       );
-      const discoveredActions = filterAgentTools(discoveredActionsAll);
+      const discoveredActions = filterFrameworkToolGroups(
+        filterAgentTools(discoveredActionsAll),
+        disabledFrameworkGroups,
+      );
       // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
       // concurrent requests on a long-lived Node process — overlapping
@@ -962,29 +1015,36 @@ export function createAgentChatPlugin(
       // Automation tools + fetch tool — depend on owner via callback.
       // Each callback short-circuits with a clear error when the run context
       // has no authenticated owner (see SECURITY note on getCurrentRunOwner).
+      const automationGroupEnabled = frameworkTools.isEnabled("automation");
       let automationTools: Record<string, ActionEntry> = {};
       try {
-        const { createAutomationToolEntries } =
-          await import("../triggers/actions.js");
-        automationTools = createAutomationToolEntries(() =>
-          requireCurrentRunOwner("manage automations"),
-        );
+        if (automationGroupEnabled) {
+          const { createAutomationToolEntries } =
+            await import("../triggers/actions.js");
+          automationTools = createAutomationToolEntries(() =>
+            requireCurrentRunOwner("manage automations"),
+          );
+        }
       } catch {}
       let notificationTools: Record<string, ActionEntry> = {};
       try {
-        const { createNotificationToolEntries } =
-          await import("../notifications/actions.js");
-        notificationTools = createNotificationToolEntries(() =>
-          requireCurrentRunOwner("manage notifications"),
-        );
+        if (automationGroupEnabled) {
+          const { createNotificationToolEntries } =
+            await import("../notifications/actions.js");
+          notificationTools = createNotificationToolEntries(() =>
+            requireCurrentRunOwner("manage notifications"),
+          );
+        }
       } catch {}
       let progressTools: Record<string, ActionEntry> = {};
       try {
-        const { createProgressToolEntries } =
-          await import("../progress/actions.js");
-        progressTools = createProgressToolEntries(() =>
-          requireCurrentRunOwner("manage progress"),
-        );
+        if (automationGroupEnabled) {
+          const { createProgressToolEntries } =
+            await import("../progress/actions.js");
+          progressTools = createProgressToolEntries(() =>
+            requireCurrentRunOwner("manage progress"),
+          );
+        }
       } catch {}
       let githubRepoTools: Record<string, ActionEntry> = {};
       try {
@@ -1003,68 +1063,73 @@ export function createAgentChatPlugin(
           },
         });
       } catch {}
+      const webGroupEnabled = frameworkTools.isEnabled("web");
       let fetchTool: Record<string, ActionEntry> = {};
       try {
-        const { createFetchToolEntry } =
-          await import("../extensions/fetch-tool.js");
-        // Resolve `${keys.NAME}` through the same request-scope cascade
-        // already used by extension fetches (extensions/routes.ts) and
-        // automation connector headers (automation/index.ts): user scope
-        // first (personal overrides win), then the active org scope (the
-        // Dispatch vault syncs workspace secrets here), then workspace
-        // scope. Org/workspace vault rows are write-gated (org-admin +
-        // Dispatch vault UI), so this is safe to read by default — unlike
-        // the opt-in-only user→workspace fallback in resolveKeyReferences
-        // (see audit 05 H2 in secrets/substitution.ts), which stays off.
-        // Previously this tool only looked at scope "user", so a
-        // ${keys.NAME} reference to a key synced into the org/workspace
-        // vault could never resolve here even though the same key already
-        // worked for extension fetches and automations.
-        const {
-          resolveKeyReferencesWithRequestScopes,
-          validateUrlAllowlist,
-          getKeyAllowlist,
-          getResolvedKeyAllowlist,
-        } = await import("../secrets/substitution.js");
-        fetchTool = createFetchToolEntry({
-          resolveKeys: async (text) =>
-            resolveKeyReferencesWithRequestScopes(
-              text,
-              requireCurrentRunOwner("resolve key references"),
-            ),
-          validateUrl: async (url, usedKeys, resolvedKeys) => {
-            for (const keyName of usedKeys) {
-              const allowlist = await resolveFetchToolKeyAllowlist(
-                keyName,
-                resolvedKeys,
-                requireCurrentRunOwner("validate URL allowlist"),
-                { getKeyAllowlist, getResolvedKeyAllowlist },
-              );
-              if (allowlist && !validateUrlAllowlist(url, allowlist)) {
-                return false;
+        if (webGroupEnabled) {
+          const { createFetchToolEntry } =
+            await import("../extensions/fetch-tool.js");
+          // Resolve `${keys.NAME}` through the same request-scope cascade
+          // already used by extension fetches (extensions/routes.ts) and
+          // automation connector headers (automation/index.ts): user scope
+          // first (personal overrides win), then the active org scope (the
+          // Dispatch vault syncs workspace secrets here), then workspace
+          // scope. Org/workspace vault rows are write-gated (org-admin +
+          // Dispatch vault UI), so this is safe to read by default — unlike
+          // the opt-in-only user→workspace fallback in resolveKeyReferences
+          // (see audit 05 H2 in secrets/substitution.ts), which stays off.
+          // Previously this tool only looked at scope "user", so a
+          // ${keys.NAME} reference to a key synced into the org/workspace
+          // vault could never resolve here even though the same key already
+          // worked for extension fetches and automations.
+          const {
+            resolveKeyReferencesWithRequestScopes,
+            validateUrlAllowlist,
+            getKeyAllowlist,
+            getResolvedKeyAllowlist,
+          } = await import("../secrets/substitution.js");
+          fetchTool = createFetchToolEntry({
+            resolveKeys: async (text) =>
+              resolveKeyReferencesWithRequestScopes(
+                text,
+                requireCurrentRunOwner("resolve key references"),
+              ),
+            validateUrl: async (url, usedKeys, resolvedKeys) => {
+              for (const keyName of usedKeys) {
+                const allowlist = await resolveFetchToolKeyAllowlist(
+                  keyName,
+                  resolvedKeys,
+                  requireCurrentRunOwner("validate URL allowlist"),
+                  { getKeyAllowlist, getResolvedKeyAllowlist },
+                );
+                if (allowlist && !validateUrlAllowlist(url, allowlist)) {
+                  return false;
+                }
               }
-            }
-            return true;
-          },
-        });
+              return true;
+            },
+          });
+        }
       } catch {}
       let webSearchTool: Record<string, ActionEntry> = {};
       try {
-        const { createWebSearchToolEntry } =
-          await import("../extensions/web-search-tool.js");
-        const {
-          getBuilderWebSearchBaseUrl,
-          resolveBuilderCredentials,
-          resolveSecret,
-        } = await import("./credential-provider.js");
-        const { getBuilderGatewayRequestHeaders } =
-          await import("../agent/engine/builder-gateway-headers.js");
-        webSearchTool = createWebSearchToolEntry({
-          resolveSecret,
-          resolveBuilderCredentials,
-          getBuilderWebSearchBaseUrl,
-          getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
-        });
+        if (webGroupEnabled) {
+          const { createWebSearchToolEntry } =
+            await import("../extensions/web-search-tool.js");
+          const {
+            getBuilderWebSearchBaseUrl,
+            resolveBuilderCredentials,
+            resolveSecret,
+          } = await import("./credential-provider.js");
+          const { getBuilderGatewayRequestHeaders } =
+            await import("../agent/engine/builder-gateway-headers.js");
+          webSearchTool = createWebSearchToolEntry({
+            resolveSecret,
+            resolveBuilderCredentials,
+            getBuilderWebSearchBaseUrl,
+            getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
+          });
+        }
       } catch {}
       let workspaceFilesTool: Record<string, ActionEntry> = {};
       try {
@@ -1116,12 +1181,14 @@ export function createAgentChatPlugin(
       let coreEmailTools: Record<string, ActionEntry> = {};
       let backgroundCoreEmailTools: Record<string, ActionEntry> = {};
       try {
-        const { createCoreEmailActionEntries } =
-          await import("./email-actions.js");
-        coreEmailTools = createCoreEmailActionEntries();
-        backgroundCoreEmailTools = createCoreEmailActionEntries({
-          unattended: true,
-        });
+        if (frameworkTools.isEnabled("email")) {
+          const { createCoreEmailActionEntries } =
+            await import("./email-actions.js");
+          coreEmailTools = createCoreEmailActionEntries();
+          backgroundCoreEmailTools = createCoreEmailActionEntries({
+            unattended: true,
+          });
+        }
       } catch {}
 
       // Core read-attachment tool — always registered so the agent can page
@@ -1402,7 +1469,7 @@ export function createAgentChatPlugin(
         skills: buildPublicAgentA2ASkills(allScripts),
         authenticatedSkills: buildAuthenticatedAgentA2ASkills(
           mcpFullActions ?? allScripts,
-          options ?? {},
+          mcpOptions,
         ),
         publicSkillsOnly: true,
         streaming: true,
@@ -1410,7 +1477,7 @@ export function createAgentChatPlugin(
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
             mcpFullActions ?? allScripts,
-            options ?? {},
+            mcpOptions,
           );
           const entry = actions[action];
           if (!entry) {
@@ -1605,9 +1672,14 @@ export function createAgentChatPlugin(
 
           // Use the SAME agent setup as the interactive chat — identical tools,
           // prompt, and capabilities. The A2A agent IS the app's agent.
-          const { getOwnerActiveApiKey } =
+          const { resolveOwnerEngineApiKey } =
             await import("../agent/production-agent.js");
-          const ownerApiKey = await getOwnerActiveApiKey(userEmail);
+          const { apiKey: ownerApiKey, apiKeyEnvVar: ownerApiKeyEnvVar } =
+            await resolveOwnerEngineApiKey({
+              engineOption: options?.engine,
+              ownerEmail: userEmail,
+              anthropicFallback: options?.apiKey,
+            });
           // A2A runs are reconstructed in a fresh processor request, so they
           // do not pass through the interactive handler's prepareRun hook.
           // Seed the same mutable run context before resolving the engine and
@@ -1620,6 +1692,7 @@ export function createAgentChatPlugin(
           if (a2aRunContext) {
             a2aRunContext.owner = userEmail;
             a2aRunContext.userApiKey = ownerApiKey;
+            a2aRunContext.userApiKeyEnvVar = ownerApiKeyEnvVar;
             // The async processor restores the original request origin from
             // task metadata. Only derive a fallback for synchronous A2A calls
             // where the inbound event is still the caller request.
@@ -1639,7 +1712,8 @@ export function createAgentChatPlugin(
           }
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
-            apiKey: ownerApiKey ?? options?.apiKey,
+            apiKey: ownerApiKey,
+            apiKeyEnvVar: ownerApiKeyEnvVar,
             appId: options?.appId,
           });
 
@@ -1651,6 +1725,8 @@ export function createAgentChatPlugin(
             owner,
             lazyContext,
             options?.appId,
+            undefined,
+            { disabledFrameworkGroups },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -2107,39 +2183,57 @@ export function createAgentChatPlugin(
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
 
-      if (options?.disableMcp !== true) {
+      if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
         const { mountMCP } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
           name: options?.appId
             ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
             : "Agent",
-          title: options?.mcpServerInfo?.title,
+          title: mcpOptions.title,
           appId: options?.appId,
           description:
-            options?.mcpServerInfo?.description ??
+            mcpOptions.description ??
             `Agent-native ${options?.appId ?? "app"} agent`,
-          websiteUrl: options?.mcpServerInfo?.websiteUrl,
-          icons: options?.mcpServerInfo?.icons,
+          websiteUrl: mcpOptions.websiteUrl,
+          icons: mcpOptions.icons,
           actions: allScripts,
           productionActions: mcpFullActions,
-          ...(options?.connectorCatalog
-            ? { connectorCatalog: options.connectorCatalog }
+          ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
+          ...(mcpOptions.builtinCrossAppTools !== undefined
+            ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
             : {}),
-          ...(options?.externalAgents
-            ? { externalAgents: options.externalAgents }
+          ...(mcpOptions.connectorCatalog
+            ? { connectorCatalog: mcpOptions.connectorCatalog }
+            : {}),
+          ...(mcpOptions.externalAgents
+            ? { externalAgents: mcpOptions.externalAgents }
             : {}),
           askAgent: async (message: string) => {
             const ownerEmail = getRequestUserEmail();
             const mcpRunId = crypto.randomUUID();
-            const { getOwnerActiveApiKey } =
+            const { resolveOwnerEngineApiKey } =
               await import("../agent/production-agent.js");
-            const ownerApiKey = ownerEmail
-              ? await getOwnerActiveApiKey(ownerEmail)
-              : undefined;
+            const ownerApiKey = await resolveOwnerEngineApiKey({
+              engineOption: options?.engine,
+              ownerEmail,
+              anthropicFallback: options?.apiKey,
+            });
+            // `ask_app` runs outside the interactive handler, so nothing seeds
+            // the run context for it — and `onEngineResolved` never fires on
+            // this path either. Without the resolved key and its provenance
+            // here, an agent-team sub-agent spawned from an MCP run falls back
+            // to the plugin host key while the parent bills the owner's BYO
+            // credential. Same reason the A2A branch above seeds it.
+            const mcpRunContext = ensureRequestRunContext();
+            if (mcpRunContext) {
+              mcpRunContext.userApiKey = ownerApiKey.apiKey;
+              mcpRunContext.userApiKeyEnvVar = ownerApiKey.apiKeyEnvVar;
+            }
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,
-              apiKey: ownerApiKey ?? options?.apiKey,
+              apiKey: ownerApiKey.apiKey,
+              apiKeyEnvVar: ownerApiKey.apiKeyEnvVar,
               appId: options?.appId,
             });
             const mcpModelCandidate =
@@ -2210,6 +2304,8 @@ export function createAgentChatPlugin(
               SHARED_OWNER,
               lazyContext,
               options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -2741,13 +2837,21 @@ export function createAgentChatPlugin(
         getActions: buildSubAgentActions,
         getEngine: () => {
           const runCtx = getRequestRunContext();
+          // Sub-agents must inherit the parent run's resolved key so
+          // delegations spawned by agent-teams don't silently fall back to
+          // the platform key while the parent uses BYO credentials. This
+          // fallback engine is Anthropic, so a key the parent resolved for
+          // another provider is not inheritable — passing it anyway sends a
+          // live OpenAI/Gemini secret to Anthropic's endpoint.
+          const inheritableKey =
+            runCtx?.userApiKeyEnvVar === undefined ||
+            runCtx.userApiKeyEnvVar === "ANTHROPIC_API_KEY"
+              ? runCtx?.userApiKey
+              : undefined;
           return (
             runCtx?.engine ??
             createAnthropicEngine({
-              // Sub-agents must inherit the parent run's resolved key so
-              // delegations spawned by agent-teams don't silently fall back
-              // to the platform key while the parent uses BYO credentials.
-              apiKey: runCtx?.userApiKey ?? options?.apiKey,
+              apiKey: inheritableKey ?? options?.apiKey,
             })
           );
         },
@@ -2767,8 +2871,10 @@ export function createAgentChatPlugin(
       // Job management tool (manage-jobs)
       let jobTools: Record<string, ActionEntry> = {};
       try {
-        const { createJobTools } = await import("../jobs/tools.js");
-        jobTools = createJobTools();
+        if (automationGroupEnabled) {
+          const { createJobTools } = await import("../jobs/tools.js");
+          jobTools = createJobTools();
+        }
       } catch {}
 
       // Lean mode: only template actions + essential framework tools. Drop
@@ -2922,14 +3028,18 @@ export function createAgentChatPlugin(
       // content is what the token-saving modes strip.
       const prepareRun = async (event: any) => {
         const owner = await getOwnerFromEvent(event);
-        const { getOwnerActiveApiKey } =
+        const { resolveOwnerEngineApiKey } =
           await import("../agent/production-agent.js");
-        const userApiKey = await getOwnerActiveApiKey(owner);
+        const userApiKey = await resolveOwnerEngineApiKey({
+          engineOption: options?.engine,
+          ownerEmail: owner,
+        });
         const runCtx = ensureRequestRunContext();
         if (runCtx) {
           runCtx.requestOrigin = getOrigin(event);
           runCtx.owner = owner;
-          runCtx.userApiKey = userApiKey;
+          runCtx.userApiKey = userApiKey.apiKey;
+          runCtx.userApiKeyEnvVar = userApiKey.apiKeyEnvVar;
         }
         const extra = await resolveExtraContext(event, owner);
         return { owner, extra };
@@ -3152,6 +3262,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             owner,
             lazyContext,
             options?.appId,
+            undefined,
+            { disabledFrameworkGroups },
           );
           // In lazy context mode, skip embedding the full schema. When database
           // tools are enabled the agent can call `db-schema` on demand.
@@ -3426,6 +3538,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               owner,
               lazyContext,
               options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
             );
             const schemaBlock =
               lazyContext || !databaseToolsEnabled
@@ -3636,21 +3750,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               resolveConfig: async ({ payload, ownerEmail, orgId: _orgId }) => {
                 // Resolve the owner's API key so BYO-key sub-agents use the
                 // same credentials as the parent chat.
-                let apiKey: string | undefined;
+                let resolvedKey: ResolvedOwnerApiKey = {
+                  apiKey: undefined,
+                  apiKeyEnvVar: undefined,
+                };
                 try {
-                  const { getOwnerActiveApiKey } =
+                  const { resolveOwnerEngineApiKey } =
                     await import("../agent/production-agent.js");
-                  apiKey =
-                    (await getOwnerActiveApiKey(ownerEmail)) ?? undefined;
+                  resolvedKey = await resolveOwnerEngineApiKey({
+                    engineOption: options?.engine,
+                    ownerEmail,
+                    anthropicFallback: options?.apiKey,
+                  });
                 } catch {
-                  apiKey = undefined;
+                  resolvedKey = { apiKey: undefined, apiKeyEnvVar: undefined };
                 }
                 // Use the same resolveEngine path as the A2A and MCP
                 // processors so Builder-gateway/OpenAI users get their
                 // configured engine instead of always hitting the Anthropic SDK.
                 const engine = await resolveEngine({
                   engineOption: options?.engine,
-                  apiKey: apiKey ?? options?.apiKey,
+                  apiKey: resolvedKey.apiKey,
+                  apiKeyEnvVar: resolvedKey.apiKeyEnvVar,
                   appId: options?.appId,
                 });
                 const modelCandidate =
@@ -3914,16 +4035,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "Authentication required" };
           }
 
-          const providerToEnv: Record<string, string> = {
-            anthropic: "ANTHROPIC_API_KEY",
-            openai: "OPENAI_API_KEY",
-            google: "GOOGLE_GENERATIVE_AI_API_KEY",
-            groq: "GROQ_API_KEY",
-            mistral: "MISTRAL_API_KEY",
-            cohere: "COHERE_API_KEY",
-          };
           const secretKey =
-            providerToEnv[provider] ?? `${provider.toUpperCase()}_API_KEY`;
+            PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
 
           try {
             const { writeAppSecret } = await import("../secrets/storage.js");
@@ -4575,10 +4688,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             .trim();
           // Mirror the chat-run resolution so BYO-key users have title
           // generation billed to their own key instead of the platform key.
-          const { getOwnerActiveApiKey } =
+          // This request goes straight to Anthropic, so it needs the owner's
+          // Anthropic key specifically — the active engine may be another
+          // provider, whose key must never be sent here. Owners without one
+          // get the truncated title.
+          const { getOwnerApiKeyForEngine } =
             await import("../agent/production-agent.js");
-          const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-          const apiKey = userApiKey;
+          const { apiKey } = await getOwnerApiKeyForEngine(
+            "anthropic",
+            ownerEmail,
+          );
           if (!apiKey) {
             // Fallback: truncate the message
             return { title: cleanMessage.trim().slice(0, 60) };
@@ -5870,11 +5989,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const isBackgroundRuntime = isInBackgroundFunctionRuntime();
       const disableRecurringJobsRuntime =
         isBackgroundRuntime || shouldDisableRecurringJobsRuntime();
+      // Opt-in kill switch for the backstop sweep timers below. On serverless
+      // these are billed per warm container, so their query rate scales with
+      // instance count rather than with anything happening. See
+      // `shouldDisableInProcessSweeps`.
+      const sweepsDisabled = shouldDisableInProcessSweeps();
+      if (sweepsDisabled) {
+        console.log(
+          "[agent-native] In-process backstop sweeps disabled " +
+            "(AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS). A durable scheduler must " +
+            "drive automation redispatch, agent-teams reconciliation, and " +
+            "sandbox-execution recovery, or queued work will not be retried.",
+        );
+      }
 
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
-      // Uses setInterval so it works in all deployment environments without
-      // requiring Nitro experimental tasks configuration.
+      // Long-lived runtimes use setInterval; serverless runtimes rely on a
+      // platform-owned sweep because an invocation cannot own a durable loop.
       try {
         const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
@@ -5885,6 +6017,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               owner,
               lazyContext,
               options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -5901,8 +6035,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // fetchTool/webSearchTool/toolActions catalog every tick.
           getInitialToolNames: (job?: RecurringJobContext) => [
             ...effectiveInitialToolNames,
-            "manage-jobs",
-            "manage-progress",
+            // Only promotable while the group that supplies them is on; with
+            // `automation` off the prompt no longer names them either.
+            ...(automationGroupEnabled
+              ? ["manage-jobs", "manage-progress"]
+              : []),
             ...(job?.meta.mcpTools ?? []),
           ],
           apiKey: options?.apiKey,
@@ -5987,7 +6124,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // A non-Netlify self-dispatch only waits for the request to leave the
       // current invocation. Keep the durable history row as a retryable queue
       // so a frozen serverless handoff is recovered on the next sweep.
-      if (!isBackgroundRuntime) {
+      if (!isBackgroundRuntime && !sweepsDisabled) {
         (() => {
           let inFlight = false;
           const sweep = async () => {
@@ -6024,7 +6161,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // per instance; cheap (one indexed query when no active tasks are found).
       // Throttled by the same per-owner interval guard inside reconcileAgentTeamRunsForOwner.
       (() => {
-        if (isBackgroundRuntime) return;
+        if (isBackgroundRuntime || sweepsDisabled) return;
         // Track when this instance last ran the sweep so only one sweep fires
         // per 2-min window even if multiple timers fire in overlapping invocations.
         let lastSweep = 0;
@@ -6185,13 +6322,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // comment above for why this exists and the timing budget in
       // run-store.ts's `UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS` doc comment.
       (() => {
-        if (isBackgroundRuntime) return;
+        if (isBackgroundRuntime || sweepsDisabled) return;
         setTimeout(() => {
           (async () => {
             const { UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS } =
               await import("../agent/run-store.js");
-            setInterval(() => {
-              (async () => {
+            startIntervalJob(
+              async () => {
                 const {
                   listUnclaimedBackgroundRunRows,
                   shouldRedispatchUnclaimedBackgroundRun,
@@ -6219,10 +6356,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     () => {},
                   );
                 }
-              })().catch(() => {
-                // best-effort — never break the server
-              });
-            }, UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS);
+              },
+              { intervalMs: UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS },
+            );
           })().catch(() => {
             // best-effort — if run-store fails to load, the slow sweep below
             // still provides eventual (loud) recovery.
@@ -6237,7 +6373,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // still fails loud, and it survives the fast sweep having missed a row
       // entirely (e.g. a restart landed between fast-sweep ticks).
       (() => {
-        if (isBackgroundRuntime) return;
+        if (isBackgroundRuntime || sweepsDisabled) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
 
@@ -6323,6 +6459,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 owner,
                 lazyContext,
                 options?.appId,
+                undefined,
+                { disabledFrameworkGroups },
               );
               const schemaBlock = lazyContext
                 ? ""

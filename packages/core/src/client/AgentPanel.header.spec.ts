@@ -210,6 +210,36 @@ describe("AgentPanel mode and full-view visibility", () => {
   });
 });
 
+describe("AgentPanel header overflow actions", () => {
+  it("keeps width and full-view actions out of the icon row", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const headerActions = source.slice(
+      source.indexOf("const renderHeaderActions"),
+      source.indexOf(
+        "<DropdownMenu open=",
+        source.indexOf("const renderHeaderActions"),
+      ),
+    );
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(headerActions).not.toContain("IconArrowsHorizontal");
+    expect(headerActions).not.toContain("IconArrowsMaximize");
+    expect(overflowMenu).toContain("onSelect={wideDrawerAction}");
+    expect(overflowMenu).toContain(
+      "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
+    );
+    expect(overflowMenu).toContain('t("agentPanel.openFullView")');
+    expect(overflowMenu).toContain(
+      "<DropdownMenuShortcut>{fullscreenHint}</DropdownMenuShortcut>",
+    );
+  });
+});
+
 describe("AgentChatSurface chrome defaults", () => {
   it("hides the legacy header and chat tab row by default", () => {
     const surface = AgentChatSurface({ mode: "page" });
