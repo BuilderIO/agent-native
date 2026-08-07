@@ -240,7 +240,7 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    it("report existence on Postgres from information_schema / pg_indexes", async () => {
+    it("report valid and ready index existence on Postgres", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists, pgColumnExists, pgIndexExists } =
         await import("./ddl-guard.js");
@@ -252,6 +252,8 @@ describe("ddl-guard", () => {
       expect(
         await pgIndexExists("settings_updated_at_idx", present.client),
       ).toBe(true);
+      expect(present.calls.some((sql) => /indisvalid/.test(sql))).toBe(true);
+      expect(present.calls.some((sql) => /indisready/.test(sql))).toBe(true);
 
       const absent = recordingClient(() => ({ rows: [] }));
       expect(await pgTableExists("app_secrets", absent.client)).toBe(false);

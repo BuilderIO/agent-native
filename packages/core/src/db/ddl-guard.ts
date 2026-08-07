@@ -107,7 +107,16 @@ async function loadSchemaSnapshot(
         `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`,
       ),
       client.execute(
-        `SELECT indexname FROM pg_indexes WHERE schemaname = 'public'`,
+        `SELECT indexes.indexname
+         FROM pg_indexes AS indexes
+         JOIN pg_class AS index_class ON index_class.relname = indexes.indexname
+         JOIN pg_namespace AS index_namespace
+           ON index_namespace.oid = index_class.relnamespace
+          AND index_namespace.nspname = indexes.schemaname
+         JOIN pg_index AS index_state ON index_state.indexrelid = index_class.oid
+         WHERE indexes.schemaname = 'public'
+           AND index_state.indisvalid
+           AND index_state.indisready`,
       ),
     ]);
     // An EMPTY result is a valid snapshot (a fresh database really has nothing
@@ -284,8 +293,8 @@ export async function pgColumnExists(
 }
 
 /**
- * True when running against Postgres AND an index with the given name already
- * exists in the `public` schema. Returns `false` on SQLite, for invalid
+ * True when running against Postgres AND a valid, ready index with the given
+ * name already exists in the `public` schema. Returns `false` on SQLite, for invalid
  * identifiers, and `undefined` when `pg_indexes` is unreadable.
  *
  * `CREATE INDEX` (without CONCURRENTLY) takes a `SHARE` lock that blocks
@@ -315,8 +324,20 @@ export async function pgIndexExists(
   if (cached !== undefined) return cached;
   try {
     const { rows } = await client.execute({
-      sql: `SELECT 1 FROM pg_indexes
-            WHERE schemaname = 'public' AND indexname = ? LIMIT 1`,
+      sql: `SELECT 1
+            FROM pg_indexes AS indexes
+            JOIN pg_class AS index_class
+              ON index_class.relname = indexes.indexname
+            JOIN pg_namespace AS index_namespace
+              ON index_namespace.oid = index_class.relnamespace
+             AND index_namespace.nspname = indexes.schemaname
+            JOIN pg_index AS index_state
+              ON index_state.indexrelid = index_class.oid
+            WHERE indexes.schemaname = 'public'
+              AND indexes.indexname = ?
+              AND index_state.indisvalid
+              AND index_state.indisready
+            LIMIT 1`,
       args: [indexName],
     });
     return rows.length > 0;
