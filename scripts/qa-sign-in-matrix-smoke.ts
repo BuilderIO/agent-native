@@ -453,6 +453,17 @@ async function signInThroughTheRealForm(
   page: Page,
   app: RunningApp,
 ): Promise<void> {
+  // On a loopback hostname (every deploy this script starts) the sign-in
+  // document defaults to a one-click local-dev sign-in and hides the real
+  // tabs/forms behind a toggle button — see __anShouldStartWithLocalDev in
+  // onboarding-html.ts. Reveal them first, or `.tab[data-tab="signup"]`
+  // resolves in the DOM but stays collapsed to 0x0 and never becomes
+  // "visible" to Playwright's actionability check.
+  const revealFullOptions = page.locator("#local-dev-full-options");
+  if (await revealFullOptions.isVisible().catch(() => false)) {
+    await revealFullOptions.click();
+  }
+
   // The sign-in document can still be mid Vite dep-optimize when we land on
   // it; a reload firing under an in-flight click surfaces as the resolved
   // element failing the "visible" actionability check, not a nav error. Wait
