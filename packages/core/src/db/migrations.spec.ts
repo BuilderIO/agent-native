@@ -187,6 +187,22 @@ describe("runMigrations – serverless request runtime", () => {
     expect(getDbExec).toHaveBeenCalled();
   });
 
+  it("fails the release run when a migration fails", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 0 }]);
+    exec.execute.mockRejectedValueOnce(new Error("release DDL failed"));
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "release_migrations" });
+
+    await expect(
+      withMigrationRuntime(async () => {
+        await plugin(null);
+      }),
+    ).rejects.toThrow("release DDL failed");
+  });
+
   it("still migrates when a caller explicitly opts in", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY", "true");

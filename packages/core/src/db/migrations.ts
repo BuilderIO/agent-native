@@ -852,6 +852,10 @@ export function runMigrations(
         !!globalThis.process?.env?.VERCEL ||
         "__cf_env" in globalThis ||
         "__env__" in globalThis;
+      // A release migration runs in the same Netlify environment as a request,
+      // but it must fail the deploy when DDL fails instead of publishing an
+      // app against an incomplete schema.
+      if (isMigrationAuthorizedRuntime()) throw err;
       if (typeof globalThis.process?.exit === "function" && !isServerless) {
         process.exit(1);
       }

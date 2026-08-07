@@ -53,6 +53,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "catalog:",
+    "tsx": "^4.20.3",
     "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:",
