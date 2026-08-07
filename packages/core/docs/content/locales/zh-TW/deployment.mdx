@@ -302,6 +302,37 @@ npx @agent-native/core@latest deploy --preset netlify
 
 工作區建置在 `dist/_workspace_static/` 下寫入靜態資產，並將每個應用程式路由到自己的 Netlify 函式，而無需強制資產重新導向，因此像 `/mail/assets/...` 這樣的檔案會在伺服器函式處理應用程式路由之前靜態提供服務。
 
+### Keep-warm 與縮容至零的資料庫 {#netlify-keep-warm}
+
+Netlify 建置會產生一個排程函式，**每分鐘**請求一次 `/_agent-native/health`。這會讓伺服器函式與其資料庫保持溫熱，使閒置一段時間後的下一位訪客不必承擔冷啟動（在 Neon 上為 1–5 秒）。在預先配置的運算上，這是正確的預設值。
+
+**在按量計費、可縮容至零的資料庫上，這是錯誤的預設值。** 每分鐘喚醒一次代表自動暫停永遠不會觸發，於是即使沒人使用應用程式，資料庫也會按持續喚醒計費並耗用配額。在 Neon 免費方案上，這會耗盡運算配額，之後資料庫會在工作階段中拒絕**所有**讀取——症狀是應用程式完全無法使用，而不是變慢。
+
+| 變數                                        | 效果                                                                                                                   |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 完全略過該排程函式。資料庫可以自動暫停；閒置後的下一位訪客承擔其冷啟動。                                               |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 以 5 欄位 cron 運算式覆寫節奏，例如 `*/5 * * * *`。無法解析的值會**使建置失敗**，而不是靜默回退到每分鐘一次。          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 僅取消背景函式的預熱，仍保持伺服器溫熱。預熱 `server` 只是一個請求；預熱 `-background` 會啟動新容器並重新探測 schema。 |
+
+如果你使用免費或受配額限制的資料庫方案，請設定 `AGENT_NATIVE_DISABLE_KEEP_WARM=1` 或選擇更慢的節奏。
+
+### 按需 schema DDL {#skip-ensure-tables}
+
+每個 store 在首次接觸資料庫時呼叫 `ensureTable()`，它會探測 `information_schema` / `pg_indexes`，並只對確實缺少的物件執行 `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX`。在長期執行的 Node 伺服器上，這個開銷每次啟動只付一次，幾乎看不見。在 serverless 上，「首次接觸」發生在**每一次冷啟動**，涉及約 57 個 store —— 因此一個冷請求可能在做任何實際工作之前先付出數百次序列往返。
+
+有兩點可以減少它：
+
+- 這些探測由**每個資料庫一次批次 introspection**（兩條查詢）來回答，而不是每張表、每個欄位、每個索引各一條查詢。這是自動的，無需設定。
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` 會完全略過探測與 DDL 流程，這是可取得的最大冷啟動延遲收益。
+
+當你的資料庫 schema 已經遷移完畢、且不希望應用啟動去建立或修改資料表時，請設定 `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` —— 這是具備真實遷移步驟的生產部署的常規情況。
+
+<Callout tone="risk">
+
+**這個開關不會、也無法「失敗即關閉」。** 如果 schema 確實缺少，第一條真實查詢會大聲失敗，而不是就地修復 —— 這正是目的，但也代表遷移由你負責。不要在依賴應用啟動來建立資料表的部署上設定它。
+
+</Callout>
+
 ## Cloudflare 頁面 {#cloudflare-pages}
 
 ```ts
@@ -387,6 +418,11 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 | `APP_BASE_PATH`                             | 將應用程式安裝在前綴下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自動設定；保持未設定為獨立。                                                                                                                                                                              |
 | `AGENT_PROD_CODE_EXECUTION`                 | 可選的正式環境程式碼執行模式：`off`（預設）、`sandboxed` 或 `trusted`。參見[Production Code Execution](#production-code-execution)。                                                                                                                                                      |
 | `AGENT_NATIVE_SSR_CACHE`                    | 部署範圍的 SSR 外殼快取策略：未設定/`on` 保持預設硬快取，`off` 傳送 `no-store`，或使用一個時長（例如 `30s` / `5m`）設定更短的新鮮度。參見 [SSR Caching](#ssr-caching)。                                                                                                                   |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 略過 Netlify keep-warm 排程函式，讓可縮容至零的資料庫能夠自動暫停。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                 |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 以 5 欄位 cron 運算式覆寫 keep-warm 節奏（預設 `* * * * *`）。無法解析的值會使建置失敗。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 僅取消背景函式的預熱，仍保持伺服器溫熱。參見 [Keep-warm](#netlify-keep-warm)。                                                                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 關閉行程內的後備清掃計時器（自動化重新派送、agent-teams 對帳、沙箱執行復原）。在 serverless 上它們會依每個溫實例執行，因此查詢速率隨實例數成長。**僅**在已有持久排程器驅動相同復原時才設定，否則排隊的工作不會被重試。                                                                    |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 完全略過按需 schema DDL。移除每次冷啟動在做任何工作前都要支付的 schema 探測往返。要求 schema 已經遷移完畢 —— 參見 [按需 schema DDL](#skip-ensure-tables)。                                                                                                                                |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用於預覽安全的 Builder 授權中繼的專用 32+ 字元共用 HMAC 金鑰。只有當授權結果必須寫入隔離的預覽資料庫時，才在核准的企業回呼部署和預覽部署上設定相同的值。                                                                                                                                  |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 僅供企業回呼使用、以逗號分隔的精確可信預覽來源允許清單（例如 `https://0123456789abcdef01234567--content.netlify.app`）。僅在企業回呼部署中設定。Netlify 來源必須使用包含 24 位十六進位 ID、不可變且特定於部署的永久連結；可變的 `deploy-preview-*` 別名、萬用字元和網域尾碼都會遭到拒絕。 |
 
