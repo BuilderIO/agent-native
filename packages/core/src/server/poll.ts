@@ -77,6 +77,14 @@ export interface ChangeEvent {
 const MAX_BUFFER = 200;
 const DURABLE_READ_LIMIT = 1000;
 const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
+/**
+ * Rows per prune statement, and the ceiling on statements per prune call.
+ * The product (200k) comfortably exceeds one app's steady-state production of
+ * ~1k events/sec over the five-minute throttle, so a healthy app always
+ * catches up; the cap only bounds how long a single call can run.
+ */
+const DURABLE_PRUNE_BATCH = 10_000;
+const DURABLE_PRUNE_MAX_BATCHES = 20;
 const LEGACY_DB_CHECK_INTERVAL_MS = 1000;
 export const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
 export const POLL_CHANGE_EVENT = "poll-change";
@@ -422,6 +430,7 @@ export class AppSyncState {
   private readonly pollEmitter = new EventEmitter();
   private syncEventsInitPromise: Promise<boolean> | undefined;
   private lastDurablePrune = 0;
+  private durablePruneFailures = 0;
 
   /**
    * Whether we've seeded `version` from the DB. In serverless (Netlify,
@@ -622,16 +631,68 @@ export class AppSyncState {
     return this.syncEventsInitPromise;
   }
 
+  /**
+   * Drop events past the retention window, in bounded batches.
+   *
+   * Three things here are load-bearing, all of them learned from a 47 GB
+   * `sync_events` table on a live app:
+   *
+   *   - Prune by `version`, not `created_at`. Only `version` is indexed, so
+   *     the old `WHERE created_at < ?` planned as a sequential scan of the
+   *     whole table. `version` is `GREATEST(v + 1, epoch_ms)`, so it is epoch
+   *     milliseconds that can only run AHEAD of the clock under write
+   *     pressure; measured drift against `created_at` is under a second either
+   *     way, which is nothing against a 24-hour window.
+   *   - Batch it. One statement deleting an unbounded slice is a long
+   *     transaction, and a long transaction killed mid-flight by a serverless
+   *     worker shutdown is what leaves connections `idle in transaction`
+   *     holding locks — the shape of the 2026-08-06 outage.
+   *   - `ORDER BY version` inside the subquery. Without it the planner
+   *     prefers a sequential scan even with a LIMIT; with it, the existing
+   *     `sync_events_version_idx` drives the batch and the delete is a
+   *     bounded index range scan.
+   *
+   * The `lastDurablePrune` throttle below is per-process, so every serverless
+   * worker prunes on its first poll. That was survivable only once the work
+   * itself became bounded and indexed; if concurrency is still a problem,
+   * the next step is a `pg_try_advisory_xact_lock` so one worker prunes at a
+   * time. Deliberately not done yet — measure before adding a lock.
+   */
   private async pruneDurableEvents(client: DbExec): Promise<void> {
     const now = Date.now();
     if (now - this.lastDurablePrune < 5 * 60 * 1000) return;
     this.lastDurablePrune = now;
-    await client
-      .execute({
-        sql: "DELETE FROM sync_events WHERE created_at < ?",
-        args: [now - DURABLE_RETENTION_MS],
-      })
-      .catch(() => {});
+    const cutoff = now - DURABLE_RETENTION_MS;
+    let deleted = 0;
+    try {
+      for (let batch = 0; batch < DURABLE_PRUNE_MAX_BATCHES; batch++) {
+        const result = await client.execute({
+          // `id IN (...)` rather than ctid/rowid: both are dialect-specific,
+          // and the primary key is indexed on every dialect we ship.
+          sql: `DELETE FROM sync_events WHERE id IN (
+                  SELECT id FROM sync_events WHERE version < ?
+                  ORDER BY version LIMIT ?
+                )`,
+          args: [cutoff, DURABLE_PRUNE_BATCH],
+        });
+        deleted += result.rowsAffected;
+        if (result.rowsAffected < DURABLE_PRUNE_BATCH) break;
+      }
+      this.durablePruneFailures = 0;
+    } catch (err) {
+      // This used to be `.catch(() => {})`. A prune that silently never
+      // succeeded is indistinguishable from one that had nothing to do, which
+      // is how the table reached 47 GB without anyone finding out. Warn once
+      // per failure streak so a persistently broken prune is visible without
+      // repeating every five minutes.
+      this.durablePruneFailures++;
+      if (this.durablePruneFailures === 1) {
+        console.warn(
+          `[agent-native] sync_events prune failed after deleting ${deleted} row(s); the table will grow until this succeeds:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
   }
 
   async persistSyncEvent(
