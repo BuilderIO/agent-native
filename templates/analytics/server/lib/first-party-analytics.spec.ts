@@ -21,6 +21,7 @@ const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
 }));
 const analyticsDbMocks = vi.hoisted(() => {
+  const getDb = vi.fn();
   const selectLimit = vi.fn();
   const insertValues = vi.fn();
   const updateWhere = vi.fn();
@@ -37,7 +38,9 @@ const analyticsDbMocks = vi.hoisted(() => {
   db.update = vi.fn(() => ({
     set: vi.fn(() => ({ where: updateWhere })),
   }));
+  getDb.mockReturnValue(db);
   return {
+    getDb,
     selectLimit,
     insertValues,
     updateWhere,
@@ -51,7 +54,7 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
 }));
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
-  getDb: () => analyticsDbMocks.db,
+  getDb: analyticsDbMocks.getDb,
 }));
 vi.mock("./first-party-analytics-rollups.js", () => ({
   upsertFirstPartyAnalyticsRollups: rollupMocks.upsert,
@@ -79,11 +82,14 @@ import {
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
+  touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
 
 beforeEach(() => {
   execute.mockReset();
+  analyticsDbMocks.getDb.mockReset();
+  analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.selectLimit.mockReset();
   analyticsDbMocks.insertValues.mockReset();
   analyticsDbMocks.updateWhere.mockReset();
@@ -171,6 +177,14 @@ describe("public-key last-used stamp", () => {
       stampWrites += (text.match(/\.set\(\{\s*lastUsedAt:/g) ?? []).length;
     }
     expect(stampWrites).toBe(1);
+  });
+
+  it("does not reject when acquiring the stamp database fails", async () => {
+    analyticsDbMocks.getDb.mockRejectedValueOnce(new Error("db unavailable"));
+
+    await expect(
+      touchPublicKeyLastUsedAt("apk_123", "2026-08-07T17:00:00.000Z"),
+    ).resolves.toBeUndefined();
   });
 });
 
