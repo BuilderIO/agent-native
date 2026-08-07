@@ -34,6 +34,10 @@ import {
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   processA2AContinuationById,
@@ -193,7 +197,12 @@ import {
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-let a2aContinuationRetryInterval: ReturnType<typeof setInterval> | null = null;
+// Timer-driven sweep only — the atomic DB claim inside
+// processDueA2AContinuations already makes concurrent calls (this timer, the
+// opportunistic post-dispatch sweep, etc.) safe.
+let a2aContinuationJob: IntervalJobHandle | null = null;
+let a2aContinuationStartupTimer: ReturnType<typeof setTimeout> | null = null;
+const A2A_CONTINUATION_SWEEP_INTERVAL_MS = 60_000;
 const INTEGRATION_DELIVERY_LEASE_MS = 2 * 60_000;
 
 async function checkpointIntegrationDeliveryRetry(
@@ -328,23 +337,23 @@ async function containFailedDeliveryTransition(
 function startA2AContinuationRetryJob(
   adapters: Map<string, PlatformAdapter>,
 ): void {
-  if (a2aContinuationRetryInterval) return;
-  const initialTimer = setTimeout(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
+  if (a2aContinuationJob || a2aContinuationStartupTimer) return;
+  a2aContinuationStartupTimer = setTimeout(() => {
+    a2aContinuationStartupTimer = null;
+    a2aContinuationJob = startIntervalJob(
+      () => processDueA2AContinuations({ adapters }),
+      {
+        intervalMs: A2A_CONTINUATION_SWEEP_INTERVAL_MS,
+        onError: (err) => {
+          console.error(
+            "[integrations] A2A continuation retry job failed:",
+            err,
+          );
+        },
+      },
+    );
   }, 10_000);
-  unrefTimer(initialTimer);
-  a2aContinuationRetryInterval = setInterval(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
-  }, 60_000);
-  unrefTimer(a2aContinuationRetryInterval);
-}
-
-function unrefTimer(timer: ReturnType<typeof setInterval>): void {
-  (timer as unknown as { unref?: () => void }).unref?.();
+  a2aContinuationStartupTimer.unref?.();
 }
 
 // ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────

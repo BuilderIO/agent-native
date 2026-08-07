@@ -433,6 +433,49 @@ npx @agent-native/core@latest deploy --preset netlify
 
 The workspace build writes static assets under `dist/_workspace_static/` and routes each app to its own Netlify function without forced asset redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
 
+### Keep-warm and scale-to-zero databases {#netlify-keep-warm}
+
+The Netlify build emits a scheduled function that requests `/_agent-native/health` **every minute**. That keeps the server function and its database warm so the next visitor after an idle period doesn't pay a cold start (1–5s on Neon). On provisioned compute this is the right default.
+
+**On a metered scale-to-zero database it is the wrong default.** A once-a-minute wake means autosuspend never fires, so the database bills and quota-limits as though it were awake continuously with nobody using the app. On a free-tier Neon this exhausts the compute quota, and the database then rejects **all** reads mid-session — the symptom is a dead app, not a slow one.
+
+Three knobs, all opt-in, defaults unchanged:
+
+| Variable                                    | Effect                                                                                                                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Skips the scheduled function entirely. The database is free to autosuspend; the next visitor after an idle period pays its cold start.                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Overrides the cadence with a 5-field cron expression, e.g. `*/5 * * * *`. An unparseable value **fails the build** rather than silently reverting to once a minute.          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drops only the background-function warm, keeping the server warm. Warming `server` is one request; warming `-background` starts a fresh container that re-probes the schema. |
+
+If you are on a free or otherwise quota-limited database tier, set `AGENT_NATIVE_DISABLE_KEEP_WARM=1` or pick a slower cadence.
+
+### On-demand schema DDL {#skip-ensure-tables}
+
+Each store calls `ensureTable()` on its first database touch, which probes
+`information_schema` / `pg_indexes` and issues `CREATE TABLE` / `ADD COLUMN` /
+`CREATE INDEX` only for what is genuinely missing. On a long-lived Node server
+that cost is paid once per boot and is invisible. On serverless, "first touch" is
+**every cold start**, across ~57 stores — so a cold request can pay a few hundred
+serial round trips before it does any real work.
+
+Two things reduce it:
+
+- The probes are answered from **one batched introspection pass per database**
+  (two queries), instead of one query per table, column, and index. This is
+  automatic and needs no configuration.
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` skips the probe-and-DDL machinery
+  altogether, which is the largest cold-start latency win available.
+
+Set `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` when your database schema is already
+migrated and you do not want application boot creating or altering tables — the
+normal case for a production deployment with a real migration step.
+
+<Callout tone="risk">
+
+**This flag does not and cannot fail closed.** If the schema is in fact missing, the first real query fails loudly rather than being repaired on the fly — which is the point, but it means you own the migration story. Do not set it on a deployment that relies on application boot to provision its tables.
+
+</Callout>
+
 ## Cloudflare Pages {#cloudflare-pages}
 
 ```ts filename="vite.config.ts"
@@ -532,6 +575,11 @@ hosting behavior.
 | `APP_URL`                                   | Optional canonical public origin. Checked ahead of `BETTER_AUTH_URL` when resolving the A2A JWT audience, the OAuth public origin, self-dispatch webhook targets, and generated resource links. Set it explicitly on preview/staging deploys where the request host is unreliable.                                                                                      |
 | `AGENT_PROD_CODE_EXECUTION`                 | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                       |
 | `AGENT_NATIVE_SSR_CACHE`                    | Deployment-wide SSR shell cache policy: unset/`on` keeps the default hard-cache, `off` sends `no-store`, or a duration such as `30s` / `5m` sets a shorter freshness. See [SSR Caching](#ssr-caching).                                                                                                                                                                  |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Skip the Netlify keep-warm scheduled function so a scale-to-zero database can autosuspend. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                         |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Override the keep-warm cadence with a 5-field cron expression (default `* * * * *`). An unparseable value fails the build. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drop only the background-function warm and keep the server warm. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                   |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Turn off the in-process backstop sweep timers (automation redispatch, agent-teams reconciliation, sandbox-execution recovery). On serverless these run per warm container, so their query rate scales with instance count. Set it **only** where a durable scheduler already drives the same recovery, or queued work will not be retried.                              |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Skip on-demand schema DDL entirely. Removes the schema-probe round trips every cold start pays before doing any work. Requires that your schema is already migrated — see [On-demand schema DDL](#skip-ensure-tables).                                                                                                                                                  |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dedicated 32+ char shared HMAC secret for preview-safe Builder authorization relay. Set the same value on the approved corporate callback deployment and preview deployments only when authorization must land in an isolated preview database.                                                                                                                         |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Corporate callback-only, comma-separated allowlist of exact trusted preview origins (for example, `https://0123456789abcdef01234567--content.netlify.app`). Set it only on the corporate callback deployment. Netlify origins must use an immutable, deploy-specific 24-hex permalink; mutable `deploy-preview-*` aliases, wildcards, and domain suffixes are rejected. |
 
@@ -585,16 +633,19 @@ Rotate signing/session keys by replacing the env var on every instance and redep
 
 ## Production Agent Tools {#production-agent-tools}
 
-Production agents get the app's registered actions plus framework tools from
-the agent chat plugin. SQL inspection is enabled by default, while database
-writes go through typed app actions unless the app explicitly opts into raw
-write tools:
+Production agents get the app's registered actions plus the framework's own
+tools. `frameworkTools` selects which of those framework tools this app exposes.
+Every group defaults to today's behavior, so omitting the option changes
+nothing:
 
 ```ts filename="server/plugins/agent-chat.ts"
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
 });
 ```
 
@@ -604,17 +655,48 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — default. Registers only `db-schema` and `db-query`;
+`database` and `extensions` accept the values the old top-level flags did:
+
+- `database: "read"` — default. Registers only `db-schema` and `db-query`;
   agents inspect data with SQL but must use typed app actions for writes.
-- `databaseTools: "write"` or `true` — additionally registers `db-exec` and
+- `database: "write"` or `true` — additionally registers `db-exec` and
   `db-patch` for deliberate raw SQL maintenance. Writes are scoped to the
   current user/org and schema changes are blocked.
-- `databaseTools: "off"` or `false` — removes raw database tools from the
+- `database: "off"` or `false` — removes raw database tools from the
   agent surface so the app's actions are the only data access path.
-- `extensionTools: true` — opts the app into framework extension-management
+- `extensions: true` — opts the app into framework extension-management
   actions and prompt guidance (`create-extension`, `update-extension`, etc.).
-  Set it on both plugins to also allow authenticated REST creation. Extensions
-  are disabled by default.
+  Set `extensionTools: true` on the core-routes plugin as well to allow
+  authenticated REST creation. Extensions are disabled by default.
+
+The remaining groups are booleans, all on by default: `sharing`, `review`,
+`history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat`, and `email`. Use `frameworkTools: "minimal"` to turn every group off at
+once for a voice-first or single-purpose app, or
+`frameworkTools: { preset: "minimal", resources: true }` to keep just one — an
+explicit group key always wins over the preset.
+
+Switching a group off removes it from the **agent** surfaces only: interactive
+chat, MCP, A2A, and background runs. The matching HTTP action routes stay
+mounted, because the UI reaches them through client hooks — disabling `sharing`
+must not 404 a share dialog that is still on screen. Weigh that parity cost
+before using it: the framework's contract is that anything the UI can do the
+agent can do, so `sharing: false` alongside a visible share button is a
+deliberate break, and only makes sense when the app has no such surface at all.
+
+Framework tools are no longer promoted into the first model request by default,
+independent of this option. They stay in the searchable registry and load
+through `tool-search`, or immediately if the app names them in
+`initialToolNames`.
+
+<Callout tone="warning">
+  The top-level `databaseTools` and `extensionTools` options are deprecated in
+  favor of `frameworkTools.database` and `frameworkTools.extensions`. They are
+  still honored, but setting a top-level flag and its `frameworkTools`
+  equivalent to conflicting values throws at plugin startup rather than booting
+  with a tool surface nobody chose.
+</Callout>
 
 ## Production Code Execution {#production-code-execution}
 

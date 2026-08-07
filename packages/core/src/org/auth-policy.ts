@@ -1,4 +1,5 @@
 import { getDbExec } from "../db/client.js";
+import { invalidateSessionEmailCache } from "../server/session-email-cache.js";
 
 export type RequiredAuthProvider = "google" | null;
 
@@ -176,6 +177,9 @@ export async function setRequiredAuthProvider(
   } catch (error) {
     if (!isMissingLegacySessionTable(error)) throw error;
   }
+  // Revoking a whole org's sessions must land immediately, not after the
+  // resolution cache's TTL.
+  invalidateSessionEmailCache();
 
   return {
     revokedBetterAuthSessions: Number(betterAuthResult.rowsAffected ?? 0),

@@ -1,5 +1,48 @@
 # @agent-native/core
 
+## 0.145.1
+
+### Patch Changes
+
+- b242acf: Cut idle database round trips on serverless deployments.
+  - The Netlify keep-warm scheduled function is now opt-out and its cadence configurable (`AGENT_NATIVE_DISABLE_KEEP_WARM`, `AGENT_NATIVE_KEEP_WARM_SCHEDULE`), and the expensive background-function warm can be dropped on its own (`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND`). Previously a once-a-minute wake was hardcoded, so a scale-to-zero database (Neon, Aurora Serverless v2, paused-compute Supabase) never autosuspended and burned its compute quota with zero users online. Defaults are unchanged; an unparseable cron fails the build rather than silently reverting to the old cadence.
+  - Thread ACL checks no longer load the conversation blob. `resolveThreadAccess` was loading the full `chat_threads` row — including `thread_data` — for the access decision, discarding it, and reading the same row again, so every agent-chat request downloaded the conversation twice. The share dialog and collab routes got the same projected-load fix.
+  - The SQL-backed SSE relay now backs off from 500ms toward 2s after a run has been quiet for several polls, and probes `reapIfStale` on its own 5s cadence instead of the 500ms status cadence — a reap cannot match a row younger than 15s, so it was issuing ~30 rounds of round trips before it could do anything. Streaming cadence is unchanged.
+  - The in-process backstop sweep timers can be turned off with `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS` where a durable scheduler already drives the same recovery. On serverless these timers run per warm container, so their query rate scaled with instance count rather than with load.
+  - Domain auto-join no longer probes `organizations` on every authenticated request. It short-circuits free email providers (which can never match, since an org may not claim one as its `allowed_domain`) and caches a no-match per domain, invalidated when `allowed_domain` is written. Previously this ran once per request for every account not already in a domain-matched org, with no fixed point.
+  - Session-token and org-membership resolution are cached across requests behind short TTLs plus write invalidation, instead of one round trip each per request. `getAllSettings` is memoized per request and now seeds the single-key settings cache.
+  - Added `shared/ttl-cache.ts` as the single bounded-TTL cache primitive and moved the hand-rolled one in `triggers/condition-evaluator.ts` onto it. Failed reads are never cached anywhere, so an unreadable table can't be served as "absent".
+  - On-demand `ensureTable()` schema probes are answered from one batched introspection pass per database (two queries) instead of one query per table, column, and index — up to ~390 serial round trips per cold start before this. The snapshot is keyed per database client, so the hosted multi-app gateway can never be answered with another app's schema, and an unreadable `information_schema` falls back to per-object probes rather than being read as "the schema is empty". `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` skips the probe-and-DDL machinery entirely for deployments that run real migrations.
+  - Default resources are seeded once per database instead of once per process, behind a durable marker. Previously every cold start re-issued ~10 `INSERT … ON CONFLICT DO NOTHING` writes plus two migration scans for rows that had existed since day one. Note the behavior change: a default resource the user deletes is no longer silently recreated on the next cold start.
+  - Expired agent-scratch cleanup no longer blocks resource reads. `resourceGet`/`resourceGetByPath`/`resourceList` each awaited a `DELETE` before their own `SELECT`, which doubled the round trips, took row locks inside a user-facing request, and could fail the read outright.
+  - `useDbSync` now applies `actionInvalidatePredicate` to the framework-prefix invalidate too. An app's opt-out list was silently conditional: honoured for batches carrying an `action` event, ignored for batches carrying only `db`/`collab`/`settings`/`screen-refresh`.
+
+## 0.145.0
+
+### Minor Changes
+
+- 48bc314: Add `frameworkTools` to `createAgentChatPlugin()` so an app can choose which of the framework's own agent tools it exposes — `database`, `extensions`, `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, and `email`, plus a `"minimal"` preset. Disabling a group removes it from the agent surfaces (chat, MCP, A2A, background runs) while leaving its HTTP action routes mounted for the UI, and drops the prompt blocks that named its tools.
+
+  Framework tools are also no longer promoted into the first model request by default: the ~45 sharing/review/history/flag schemas that `autoDiscoverActions` merges in now stay behind `tool-search` unless an app names them in `initialToolNames`. Apps keep every capability and send a much smaller first request.
+
+  Deprecates the top-level `databaseTools` and `extensionTools` options in favor of `frameworkTools.database` and `frameworkTools.extensions`. Both are still honored; setting a top-level flag and its `frameworkTools` equivalent to conflicting values now throws at plugin startup instead of booting with an unintended tool surface.
+
+## 0.144.3
+
+### Patch Changes
+
+- bd0b0cd: Hold the poll slot until an attempt settles, and abort in-flight attempts on stop()
+
+## 0.144.2
+
+### Patch Changes
+
+- e139a20: Share one browser session id across the agent run and the actions a page calls. Only the chat adapter sent `X-Agent-Native-Session-Id`, and only the agent-run path read it, so `RequestContext.browserSessionId` was always undefined inside an action — a UI action call and the agent's own call during the same visit could not be joined to one `$session_id`. The action client now sends the header and the action route reads it into request context.
+
+  Let `track()` take an action's `ctx` as its third argument — `track("project_created", { template }, ctx)` — instead of restating `{ userId: ctx?.userEmail }` at every call site, and resolve the browser session from the ambient request context so no caller has to thread it. `TrackingEvent` carries it as a typed `sessionId` that each provider maps to its own field (`$session_id` for PostHog, a `session_id` property for Mixpanel and Amplitude, a top-level `sessionId` for webhooks and Agent Native Analytics), rather than leaking one backend's reserved key into every other backend. The browser `track()` helper sends the session header too, so a client event and the server events from the same visit no longer land in different sessions.
+
+  Let an app pin that id with `setAnalyticsSessionId()` (and drop it with `clearAnalyticsSessionId()`) from `@agent-native/core/client/analytics`. A pinned id opts out of the 30-minute idle rotation, so a workflow that spans a quiet stretch stays one correlated session instead of silently splitting in two. Ids the transport cannot carry — empty, over 127 characters, whitespace, or non-ASCII — throw at the call site rather than unlinking every later request.
+
 ## 0.144.1
 
 ### Patch Changes

@@ -8,6 +8,10 @@
  * reproduced verbatim in both prompts — keep them here.
  */
 import {
+  frameworkGroupEnabled,
+  type FrameworkToolGroup,
+} from "../../framework-tools.js";
+import {
   normalizeDatabaseToolsMode,
   type DatabaseToolsOption,
 } from "../../scripts/db/tool-mode.js";
@@ -26,6 +30,9 @@ export interface PromptExamples {
 export interface SharedRuleOptions {
   databaseTools?: DatabaseToolsOption;
   extensionTools?: boolean;
+  /** Framework tool groups this app switched off. Any rule naming a group's
+   *  tool must drop that reference — see `frameworkGroupEnabled`. */
+  disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
 }
 
 const DEFAULT_PROVIDER_ACTIONS = [
@@ -98,14 +105,23 @@ export const SHARED_RULE_9 = `9. **Never fabricate — verify results, report fa
    - **Recover instead of giving up** — treat a failure or ambiguous result as a signal to retry the obvious fix, try an alternate tool or approach, or clearly hand the blocker back with what you tried; never silently give up, and never paper over a failure by claiming success.`;
 
 /**
- * Rule 12 (const name retained as SHARED_RULE_14 for import stability) —
- * Planning and progress. Deliberately states only when to open a progress run;
- * the start/update/complete discipline lives in `manage-progress`'s own tool
+ * Rule 12 (name retained as `sharedRule14` for import stability) — Planning and
+ * progress. Deliberately states only when to open a progress run; the
+ * start/update/complete discipline lives in `manage-progress`'s own tool
  * description (packages/core/src/progress/actions.ts). Re-adding the mechanics
  * here means every turn pays for guidance the model only needs once it has the
  * tool loaded.
+ *
+ * Drops the `manage-progress` reference when the `automation` group is off, so
+ * the rule never names a tool the request does not carry. The planning
+ * discipline itself still applies — only the tool call goes away.
  */
-export const SHARED_RULE_14 = `12. **Plan and track multi-step work** — When a task spans several real steps the user would want to watch, open a \`manage-progress\` run so the work is visible while it's still in flight, and keep it updated as you go rather than after the fact; the tool's own description carries the full discipline. Skip it for single-action lookups, simple reads, and anything that finishes in one tool call — never create single-step plans.`;
+export function sharedRule14(options?: SharedRuleOptions): string {
+  if (!frameworkGroupEnabled(options?.disabledFrameworkGroups, "automation")) {
+    return `12. **Plan and track multi-step work** — When a task spans several real steps, work through them in order and tell the user where you are as you go rather than only at the end. Skip ceremony for single-action lookups, simple reads, and anything that finishes in one tool call.`;
+  }
+  return `12. **Plan and track multi-step work** — When a task spans several real steps the user would want to watch, open a \`manage-progress\` run so the work is visible while it's still in flight, and keep it updated as you go rather than after the fact; the tool's own description carries the full discipline. Skip it for single-action lookups, simple reads, and anything that finishes in one tool call — never create single-step plans.`;
+}
 
 /**
  * Rule 14 — Relay agent warnings. Named for what it is rather than its number,
