@@ -27,9 +27,9 @@ The focused user-facing guides remain authoritative for their areas:
   - settings UI and provider-specific credential metadata
 
 For committed, non-secret app defaults such as first-run onboarding, prefer
-`agent-native.ts` and use the [Agent-Native app configuration
+`agent-native.config.ts` and use the [Agent-Native app configuration
 guide](../packages/core/docs/content/agent-native-config.mdx) instead of adding
-another `VITE_*` flag. `agent-native.mts`, `agent-native.config.ts`,
+another `VITE_*` flag. `agent-native.ts`, `agent-native.mts`,
 `agent-native.config.mts`, and `agent-native.json` remain supported. Keep credentials
 and deployment-specific values in the environment or scoped secret store.
 

@@ -59,6 +59,10 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import {
+  createAgentNativeConfigContext,
+  loadResolvedAgentNativeConfig,
+} from "../vite/agent-native-config-loader.js";
 import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   addCodeAgentCommandToAllowlist,
@@ -1622,12 +1626,21 @@ export async function buildCodeAgentSystemPrompt(
   cwd: string,
   permissionMode: CodeAgentPermissionMode,
 ): Promise<string> {
-  const bundle = readAgentsBundleFromFs(cwd);
+  const appConfig = await loadResolvedAgentNativeConfig(
+    cwd,
+    createAgentNativeConfigContext("serve", "development"),
+  );
+  const bundle = readAgentsBundleFromFs(cwd, null, {
+    instructions: appConfig.instructions,
+  });
 
   // If the bundle has no AGENTS.md, try CLAUDE.md as a fallback — many repos
   // use that name for agent instructions (e.g. Claude Code projects).
-  let agentsMdContent = bundle.agentsMd;
-  if (!agentsMdContent.trim()) {
+  let agentsMdContent = bundle.developmentAgentsMd ?? bundle.agentsMd;
+  if (
+    !agentsMdContent.trim() &&
+    appConfig.instructions?.development === undefined
+  ) {
     try {
       const fs = await import("node:fs");
       const path = await import("node:path");

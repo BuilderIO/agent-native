@@ -72,6 +72,8 @@ function skill(name: string, scope: Skill["meta"]["scope"]): Skill {
 function bundleWith(skills: Skill[]): AgentsBundle {
   return {
     agentsMd: "",
+    runtimeAgentsMd: "",
+    developmentAgentsMd: "",
     workspaceAgentsMd: "",
     skills: Object.fromEntries(skills.map((s) => [s.meta.name, s])),
   };
@@ -231,9 +233,49 @@ describe("readAgentsBundleFromFs", () => {
     try {
       const bundle = readAgentsBundleFromFs(tpl);
       expect(bundle.agentsMd).toContain("Only-template");
+      expect(bundle.runtimeAgentsMd).toContain("Only-template");
+      expect(bundle.developmentAgentsMd).toContain("Only-template");
       expect(bundle.workspaceAgentsMd).toBe("");
       expect(bundle.skills.alpha).toBeDefined();
       expect(bundle.skills.alpha!.meta.description).toBe("A skill");
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("loads separate runtime and development instruction files when configured", () => {
+    const tpl = makeTemplate(null);
+    fs.writeFileSync(
+      path.join(tpl, "DEVELOPING.md"),
+      "# Development\nOnly-development",
+    );
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        instructions: {
+          runtime: "AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      });
+      expect(bundle.runtimeAgentsMd).toContain("Only-template");
+      expect(bundle.developmentAgentsMd).toContain("Only-development");
+      expect(bundle.agentsMd).toBe(bundle.runtimeAgentsMd);
+    } finally {
+      fs.rmSync(tpl, { recursive: true, force: true });
+    }
+  });
+
+  it("does not fall back when an explicitly configured instruction file is missing", () => {
+    const tpl = makeTemplate(null);
+    try {
+      const bundle = readAgentsBundleFromFs(tpl, null, {
+        instructions: {
+          runtime: "runtime-only/AGENTS.md",
+          development: "development-only/AGENTS.md",
+        },
+      });
+      expect(bundle.runtimeAgentsMd).toBe("");
+      expect(bundle.developmentAgentsMd).toBe("");
+      expect(bundle.agentsMd).toBe("");
     } finally {
       fs.rmSync(tpl, { recursive: true, force: true });
     }
