@@ -360,7 +360,7 @@ describe("dashboard report sweep", () => {
     );
   });
 
-  it("omits the delivery deadline off Netlify", async () => {
+  it("also sets a delivery deadline off Netlify, as a hang backstop for the in-process cron", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
@@ -368,7 +368,7 @@ describe("dashboard report sweep", () => {
     await runDashboardReportsOnce();
 
     const options = mocks.sendDashboardReportSubscription.mock.calls[0][1];
-    expect(options).not.toHaveProperty("deadlineAt");
+    expect(options).toHaveProperty("deadlineAt", expect.any(Number));
   });
 
   it("claims one report per sweep on Netlify regardless of the override", async () => {

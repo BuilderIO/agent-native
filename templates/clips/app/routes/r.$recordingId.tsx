@@ -183,21 +183,6 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
   return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
 }
 
-function InsightsUnavailableState() {
-  const t = useT();
-
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <p className="text-sm font-medium text-foreground">
-        {t("sharePage.ownerInsights")}
-      </p>
-      <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        {t("sharePage.ownerInsightsDescription")}
-      </p>
-    </div>
-  );
-}
-
 function parseTimeParam(raw: string | null): number {
   if (!raw) return 0;
   const value = raw.trim();
@@ -298,18 +283,6 @@ export default function RecordingPage() {
   const lastPlayerStateWriteRef = useRef(0);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
   const [metadataRefreshUntil, setMetadataRefreshUntil] = useState(0);
-
-  useEffect(() => {
-    if (
-      panelParam === "agent" ||
-      panelParam === "comments" ||
-      panelParam === "transcript" ||
-      panelParam === "insights" ||
-      panelParam === "settings"
-    ) {
-      setPanel(panelParam);
-    }
-  }, [panelParam]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -414,6 +387,25 @@ export default function RecordingPage() {
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  useEffect(() => {
+    if (!canEdit && (panel === "insights" || panel === "settings")) {
+      setPanel("comments");
+    }
+  }, [canEdit, panel]);
+
+  useEffect(() => {
+    if (
+      (panelParam === "agent" ||
+        panelParam === "comments" ||
+        panelParam === "transcript" ||
+        panelParam === "insights" ||
+        panelParam === "settings") &&
+      ((panelParam !== "insights" && panelParam !== "settings") || canEdit)
+    ) {
+      setPanel(panelParam);
+    }
+  }, [canEdit, panelParam]);
+
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
   const titleGenerationPaused = Boolean(
@@ -1149,7 +1141,7 @@ export default function RecordingPage() {
       trigger("comments", t("recordingPage.activity")),
       trigger("transcript", t("recordingPage.transcript")),
       trigger("agent", t("recordingPage.agent")),
-      trigger("insights", t("recordingPage.insights")),
+      canEdit ? trigger("insights", t("recordingPage.insights")) : null,
       canEdit ? trigger("settings", t("recordingPage.settings")) : null,
     ];
 
@@ -1162,7 +1154,7 @@ export default function RecordingPage() {
         <TabsList
           className={cn(
             "mx-3 mt-3 grid w-auto",
-            canEdit ? "grid-cols-5" : "grid-cols-4",
+            canEdit ? "grid-cols-5" : "grid-cols-3",
           )}
         >
           {triggers}
@@ -1259,19 +1251,17 @@ export default function RecordingPage() {
             presentation={compact ? "share" : "default"}
           />
         </TabsContent>
-        <TabsContent
-          value="insights"
-          className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
-        >
-          {canEdit ? (
+        {canEdit ? (
+          <TabsContent
+            value="insights"
+            className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+          >
             <InsightsPanel
               recordingId={recording.id}
               durationMs={recording.durationMs}
             />
-          ) : (
-            <InsightsUnavailableState />
-          )}
-        </TabsContent>
+          </TabsContent>
+        ) : null}
         {canEdit ? (
           <TabsContent
             value="settings"

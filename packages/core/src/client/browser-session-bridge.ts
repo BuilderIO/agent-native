@@ -3,6 +3,7 @@ import type {
   AgentNativeBrowserSessionRecord,
   AgentNativeBrowserSessionRequest,
 } from "../browser-sessions/types.js";
+import { createPollEngine } from "../shared/poll-engine.js";
 import { agentNativePath } from "./api-path.js";
 import {
   announceAgentNativeFrameReady,
@@ -65,9 +66,33 @@ export interface AgentNativeBrowserSessionBridge {
 const DEFAULT_ENDPOINT = "/_agent-native/browser-sessions";
 const DEFAULT_HEARTBEAT_MS = 5_000;
 const DEFAULT_POLL_MS = 500;
+const REQUEST_ABORT_MIN_MS = 10_000;
+// Relaxed cadence floor applied while the tab is hidden — mirrors
+// use-poll-loop.ts's `pauseWhenHidden: false` default so a backgrounded tab
+// keeps heartbeating (the server-side session TTL still needs refreshing)
+// instead of going fully silent.
+const HIDDEN_INTERVAL_FLOOR_MS = 10_000;
+
+function isDocumentHidden(): boolean {
+  return (
+    typeof document !== "undefined" && document.visibilityState === "hidden"
+  );
+}
 
 function browserSessionId(): string {
   return `browser-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Bounds a single request so a hung fetch can't leave the caller waiting
+// forever on a wedged connection.
+function requestAbortMs(
+  options: AgentNativeBrowserSessionBridgeOptions,
+): number {
+  const cadence = Math.min(
+    options.pollMs ?? DEFAULT_POLL_MS,
+    options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
+  );
+  return Math.max(REQUEST_ABORT_MIN_MS, cadence * 4);
 }
 
 function messageError(error: unknown): Error {
@@ -116,30 +141,50 @@ async function postJson(
   path: string,
   body: unknown,
 ): Promise<any> {
-  const response = await fetchImpl(options)(endpointPath(options, path), {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Agent-Native-CSRF": "1",
-    },
-    body: JSON.stringify(body ?? {}),
-  });
-  return readJsonResponse(response);
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), requestAbortMs(options))
+    : null;
+  try {
+    const response = await fetchImpl(options)(endpointPath(options, path), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Agent-Native-CSRF": "1",
+      },
+      body: JSON.stringify(body ?? {}),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    return readJsonResponse(response);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 async function deleteJson(
   options: AgentNativeBrowserSessionBridgeOptions,
   path: string,
 ): Promise<void> {
-  const response = await fetchImpl(options)(endpointPath(options, path), {
-    method: "DELETE",
-    credentials: "include",
-    headers: {
-      "X-Agent-Native-CSRF": "1",
-    },
-  });
-  await readJsonResponse(response);
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), requestAbortMs(options))
+    : null;
+  try {
+    const response = await fetchImpl(options)(endpointPath(options, path), {
+      method: "DELETE",
+      credentials: "include",
+      headers: {
+        "X-Agent-Native-CSRF": "1",
+      },
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    await readJsonResponse(response);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 function hostRequestOptions(
@@ -403,10 +448,7 @@ export function createAgentNativeBrowserSessionBridge(
   let currentSessionId: string | null = options.sessionId ?? null;
   let fallbackSessionId: string | null = null;
   let started = false;
-  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-  let pollTimer: ReturnType<typeof setInterval> | undefined;
-  let refreshing = false;
-  let polling = false;
+  let onVisibility: (() => void) | undefined;
 
   async function refreshRegistration(): Promise<AgentNativeBrowserSessionRecord> {
     const direct = hasDirectHost(options);
@@ -440,16 +482,6 @@ export function createAgentNativeBrowserSessionBridge(
       ttlMs: options.ttlMs,
     });
     return body.session as AgentNativeBrowserSessionRecord;
-  }
-
-  async function heartbeat(): Promise<void> {
-    if (refreshing) return;
-    refreshing = true;
-    try {
-      await refreshRegistration();
-    } finally {
-      refreshing = false;
-    }
   }
 
   async function claimOnce(): Promise<AgentNativeBrowserSessionRequest | null> {
@@ -488,15 +520,30 @@ export function createAgentNativeBrowserSessionBridge(
     return request;
   }
 
-  async function poll(): Promise<void> {
-    if (polling) return;
-    polling = true;
-    try {
-      await claimOnce();
-    } finally {
-      polling = false;
-    }
-  }
+  // This is a plain factory function, not a React component, so it can't use
+  // the usePollLoop hook — createPollEngine gives each loop the same
+  // never-overlaps/never-stalls guarantees imperatively. The relaxed hidden
+  // cadence + visibilitychange wiring below mirrors what use-poll-loop.ts
+  // does internally for `pauseWhenHidden: false`.
+  const heartbeatEngine = createPollEngine(
+    () => refreshRegistration().then(() => {}),
+    {
+      intervalMs: () => {
+        const base = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+        return isDocumentHidden()
+          ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
+          : base;
+      },
+    },
+  );
+  const pollEngine = createPollEngine(() => claimOnce().then(() => {}), {
+    intervalMs: () => {
+      const base = options.pollMs ?? DEFAULT_POLL_MS;
+      return isDocumentHidden()
+        ? Math.max(base, HIDDEN_INTERVAL_FLOOR_MS)
+        : base;
+    },
+  });
 
   const bridge: AgentNativeBrowserSessionBridge = {
     get sessionId() {
@@ -508,25 +555,29 @@ export function createAgentNativeBrowserSessionBridge(
       if (!hasDirectHost(options)) {
         announceAgentNativeFrameReady(hostRequestOptions(options));
       }
-      void heartbeat();
-      void poll();
-      heartbeatTimer = setInterval(
-        () => void heartbeat(),
-        options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
-      );
-      pollTimer = setInterval(
-        () => void poll(),
-        options.pollMs ?? DEFAULT_POLL_MS,
-      );
+      heartbeatEngine.start();
+      pollEngine.start();
+      onVisibility = () => {
+        if (isDocumentHidden()) {
+          heartbeatEngine.reschedule();
+          pollEngine.reschedule();
+        } else {
+          heartbeatEngine.pollNow();
+          pollEngine.pollNow();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibility);
       return bridge;
     },
     stop() {
       if (!started) return;
       started = false;
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      if (pollTimer) clearInterval(pollTimer);
-      heartbeatTimer = undefined;
-      pollTimer = undefined;
+      heartbeatEngine.stop();
+      pollEngine.stop();
+      if (onVisibility) {
+        document.removeEventListener("visibilitychange", onVisibility);
+        onVisibility = undefined;
+      }
       if (currentSessionId) {
         void deleteJson(
           options,

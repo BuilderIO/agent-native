@@ -20,10 +20,18 @@ const pageTitles: Record<string, string> = {
   "/approvals": "Approvals",
   "/automations": "Automations",
   "/audit": "Audit",
+  "/dreams": "Dreams",
+  "/thread-debug": "Thread Debug",
+  "/transactional-email": "Transactional email",
   "/settings": "Settings",
 };
 
 function resolveTitle(pathname: string): string {
+  if (pathname === "/admin" || pathname === "/admin/") return "Admin";
+  if (pathname.startsWith("/admin/")) {
+    const adminPath = pathname.slice("/admin".length);
+    return pageTitles[adminPath] ?? "Admin";
+  }
   if (pageTitles[pathname]) return pageTitles[pathname];
 
   if (pathname.startsWith("/extensions")) return "Extensions";

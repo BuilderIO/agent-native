@@ -36,9 +36,9 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
  * True when running against Postgres AND the given table already exists in the
  * `public` schema. Returns `false` on SQLite (callers gate their own behaviour
- * there), for invalid identifiers, or when `information_schema` is unreadable —
- * the conservative answer "not known to exist" makes the caller fall through to
- * its idempotent `CREATE TABLE IF NOT EXISTS`, preserving today's behaviour.
+ * there), for invalid identifiers, and `undefined` when `information_schema`
+ * is unreadable. Unknown must stay distinct from absent: treating a timed-out
+ * probe as missing starts a DDL lock storm on a busy serverless database.
  *
  * This is a plain read (no lock), so it never blocks on an `ACCESS EXCLUSIVE`
  * lock the way `CREATE`/`ALTER` would.
@@ -47,7 +47,7 @@ export async function pgTableExists(
   table: string,
   injectedClient?: DbExec,
   dialectIsPostgres?: boolean,
-): Promise<boolean> {
+): Promise<boolean | undefined> {
   // The dialect override travels with an injected client: a multi-app process
   // (the hosted Realtime Gateway) probes a per-app Postgres DB even when its
   // own process-global DB is absent or SQLite.
@@ -63,16 +63,18 @@ export async function pgTableExists(
     });
     return rows.length > 0;
   } catch {
-    // information_schema unreadable (permissions / non-standard backend) —
-    // report "unknown" so the caller falls back to IF NOT EXISTS.
-    return false;
+    // coercion-ok: undefined is a typed unreadable state; callers throw rather
+    // than issuing DDL against an unverified schema.
+    // A failed probe is not evidence that the table is absent. Let the caller
+    // fail loudly rather than issuing DDL against a database it cannot read.
+    return undefined;
   }
 }
 
 /**
  * True when running against Postgres AND the given column already exists on the
  * given table in the `public` schema. Returns `false` on SQLite, for invalid
- * identifiers, or when `information_schema` is unreadable.
+ * identifiers, and `undefined` when `information_schema` is unreadable.
  *
  * Plain read — no lock taken.
  */
@@ -80,7 +82,7 @@ export async function pgColumnExists(
   table: string,
   column: string,
   injectedClient?: DbExec,
-): Promise<boolean> {
+): Promise<boolean | undefined> {
   if (!isPostgres()) return false;
   if (!PLAIN_IDENTIFIER.test(table) || !PLAIN_IDENTIFIER.test(column)) {
     return false;
@@ -95,14 +97,16 @@ export async function pgColumnExists(
     });
     return rows.length > 0;
   } catch {
-    return false;
+    // coercion-ok: undefined distinguishes an unreadable schema probe from an
+    // absent column, and ensureSchemaObject fails closed on it.
+    return undefined;
   }
 }
 
 /**
  * True when running against Postgres AND an index with the given name already
  * exists in the `public` schema. Returns `false` on SQLite, for invalid
- * identifiers, or when `pg_indexes` is unreadable.
+ * identifiers, and `undefined` when `pg_indexes` is unreadable.
  *
  * `CREATE INDEX` (without CONCURRENTLY) takes a `SHARE` lock that blocks
  * writes, so on a fresh background-worker process behind a concurrent
@@ -113,7 +117,7 @@ export async function pgIndexExists(
   indexName: string,
   injectedClient?: DbExec,
   dialectIsPostgres?: boolean,
-): Promise<boolean> {
+): Promise<boolean | undefined> {
   if (
     !(dialectIsPostgres ?? isPostgres()) ||
     !PLAIN_IDENTIFIER.test(indexName)
@@ -129,7 +133,9 @@ export async function pgIndexExists(
     });
     return rows.length > 0;
   } catch {
-    return false;
+    // coercion-ok: undefined distinguishes an unreadable schema probe from an
+    // absent index, and ensureSchemaObject fails closed on it.
+    return undefined;
   }
 }
 
@@ -160,8 +166,8 @@ export async function pgIndexExists(
  * `false` only when it already existed up front (no DDL issued).
  */
 export async function ensureSchemaObject(options: {
-  /** Lock-free existence check; `true` ⇒ already present, skip DDL. */
-  probe: () => Promise<boolean>;
+  /** Lock-free existence check; `true` ⇒ present, `undefined` ⇒ unreadable. */
+  probe: () => Promise<boolean | undefined>;
   /** DDL to run only when `probe()` reports the object missing. */
   ddl: string;
   /** Human-readable name of what's being ensured, for the error message. */
@@ -175,7 +181,13 @@ export async function ensureSchemaObject(options: {
 }): Promise<boolean> {
   const { probe, ddl, label, lockTimeout, injectedClient, dialectIsPostgres } =
     options;
-  if (await probe()) return false;
+  const initiallyExists = await probe();
+  if (initiallyExists === true) return false;
+  if (initiallyExists === undefined) {
+    throw new Error(
+      `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
+    );
+  }
   const ran = await runGuardedDdl(ddl, {
     lockTimeout,
     injectedClient,
@@ -185,7 +197,13 @@ export async function ensureSchemaObject(options: {
   // The DDL was swallowed by a lock-timeout. The object is virtually always
   // already correct by the time a contended boot retries (a concurrent
   // connection created it), so re-probe before giving up.
-  if (await probe()) return true;
+  const existsAfterTimeout = await probe();
+  if (existsAfterTimeout === true) return true;
+  if (existsAfterTimeout === undefined) {
+    throw new Error(
+      `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
+    );
+  }
   // Still missing after a swallowed timeout: do NOT memoize success with absent
   // schema. Throw so the caller's init promise rejects and the next call
   // retries, rather than leaving ensureTable "initialized" against a table/
@@ -300,6 +318,7 @@ export async function runGuardedDdl(
   ddl: string,
   options: {
     lockTimeout?: string;
+    idleInTransactionTimeout?: string;
     injectedClient?: DbExec;
     dialectIsPostgres?: boolean;
   } = {},
@@ -311,12 +330,28 @@ export async function runGuardedDdl(
   }
 
   const lockTimeout = options.lockTimeout ?? "3s";
+  // Comfortably longer than any DDL this guard runs (it only ever executes
+  // statements already probed as necessary), so it can only fire on a
+  // transaction nobody is driving any more.
+  const idleInTransactionTimeout = options.idleInTransactionTimeout ?? "30s";
   try {
     if (typeof client.transaction === "function") {
       await client.transaction(async (tx) => {
         // SET LOCAL is transaction-scoped: it reverts on COMMIT/ROLLBACK and
         // never persists on the pooled connection.
         await tx.execute(`SET LOCAL lock_timeout = '${lockTimeout}'`);
+        // A serverless worker that is killed mid-transaction — OOM, function
+        // wall, cold-start reap — never reaches COMMIT or ROLLBACK, and the
+        // pooled connection goes back to the pool still inside this
+        // transaction, holding its locks until something reaps it. Nothing
+        // does. Measured in production: 11 sessions stuck `idle in
+        // transaction` for up to 283s, every one of them last executing the
+        // SET LOCAL above, while ordinary queries on that database went from
+        // ~1.5s to 5-7s. Postgres reaps these itself when told to, and the
+        // timeout is the only part of this that survives the process dying.
+        await tx.execute(
+          `SET LOCAL idle_in_transaction_session_timeout = '${idleInTransactionTimeout}'`,
+        );
         await tx.execute(ddl);
       });
     } else {

@@ -2,8 +2,15 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { getBetterAuth } from "../../server/better-auth-instance.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../../shared/password-policy.js";
 
-const passwordSchema = z.string().min(8).max(128);
+const passwordSchema = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH)
+  .max(PASSWORD_MAX_LENGTH);
 
 export default defineAction({
   description: "Add a password to the signed-in user's account.",
