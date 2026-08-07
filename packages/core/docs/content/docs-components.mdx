@@ -223,6 +223,218 @@ Add more `###` sections to get 3 or 4 columns (max 4). The red/green label accen
 
 ---
 
+## Image
+
+<Image
+  src="/screenshots/dispatch.png"
+  alt="Dispatch app screenshot showing the run history sidebar"
+  align="left"
+  width={320}
+  caption="Dispatch's run history sidebar."
+>
+
+Aligning an image left or right turns it into a two-column row. The image sits on that side, and this markdown is the paired text on the other side. Leave `align` unset, or set it to `"full"`, for a normal full-width image with no paired text.
+
+</Image>
+
+```mdx
+<Image
+  src="/screenshots/dispatch.png"
+  alt="Dispatch app screenshot showing the run history sidebar"
+  align="left"
+  width={320}
+  caption="Dispatch's run history sidebar."
+>
+
+Aligning an image left or right turns it into a two-column row. The image sits on that side, and this markdown is the paired text on the other side. Leave `align` unset, or set it to `"full"`, for a normal full-width image with no paired text.
+
+</Image>
+```
+
+`alt` is required. `align` is `"full"` (the default), `"left"`, or `"right"`. `width` is an optional pixel hint for the image column when aligned, and has no effect on `"full"`. `caption` renders in small muted text under the image. Anything between the open and close tags is markdown, and becomes the paired text next to the image when aligned, or plain content below it when full width. Omit the children entirely for a self-closing `<Image ... />` with no paired text.
+
+For a plain full-width image with no paired text, omit `align` (or set it to `"full"`) and skip the children entirely:
+
+<Image
+  src="/screenshots/mail.png"
+  alt="Mail app screenshot showing the inbox and reading pane"
+  caption="The default inbox view."
+/>
+
+```mdx
+<Image
+  src="/screenshots/mail.png"
+  alt="Mail app screenshot showing the inbox and reading pane"
+  caption="The default inbox view."
+/>
+```
+
+---
+
+## Video
+
+<Video
+  src="/videos/product-tour.mp4"
+  alt="A short screen recording of creating a new action from the CLI"
+  align="right"
+  width={320}
+  caption="Creating an action from the CLI."
+>
+
+Same shape as `Image`, aligned the other way this time. The video sits on the right, and this text sits on the left. `src` must be a direct video file, mp4 or webm. Third-party embed links like YouTube or Loom aren't supported, since that would need an `<iframe>`, which the docs system doesn't allow for security reasons.
+
+</Video>
+
+```mdx
+<Video
+  src="/videos/product-tour.mp4"
+  alt="A short screen recording of creating a new action from the CLI"
+  align="right"
+  width={320}
+  caption="Creating an action from the CLI."
+>
+
+Same shape as `Image`, aligned the other way this time. The video sits on the right, and this text sits on the left. `src` must be a direct video file, mp4 or webm. Third-party embed links like YouTube or Loom aren't supported, since that would need an `<iframe>`, which the docs system doesn't allow for security reasons.
+
+</Video>
+```
+
+Identical attributes to `Image` (`src`, `alt`, `align`, `width`, `caption`, and paired markdown children), except `src` must point to a direct video file rather than an embed link. `alt` becomes the video's `aria-label`, since `<video>` has no native `alt` attribute.
+
+Pass `autoplay` to play the video automatically once it's visible. It always forces `muted` alongside it, since browsers block autoplay with sound regardless of the attribute. It also never autoplays for a viewer with `prefers-reduced-motion: reduce` set. That viewer instead gets a normal paused player, and pressing play themselves gives them full, unmuted playback rather than a silently-muted one.
+
+Pass `loop` to restart the video from the beginning once it ends. It's independent of `autoplay`, so a looping video that isn't set to autoplay just loops once the viewer presses play themselves.
+
+The same full-width form applies here too, omit `align` and the children for a plain full-width video:
+
+<Video
+  src="/videos/product-tour.mp4"
+  alt="A full walkthrough recording of building an action end to end"
+  caption="Building an action end to end."
+/>
+
+```mdx
+<Video
+  src="/videos/product-tour.mp4"
+  alt="A full walkthrough recording of building an action end to end"
+  caption="Building an action end to end."
+/>
+```
+
+---
+
+## Signature
+
+<Signature
+  id="docs-components-signature"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "The question, its options, and how it should behave.",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description:
+            "The complete question. Clear, specific, ends with a question mark.",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description:
+            'Very short chip/heading, about 12 characters, e.g. `"Date range"`.',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description: "2-4 distinct options.",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description: 'Adds a free-text "Other" option.',
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "Multi-select instead of single-select.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      'The picked value, `value[]` when `allowMultiple`, the typed "Other" text, or `null` if skipped.',
+  }}
+/>
+
+```mdx
+<Signature
+  id="docs-components-signature"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "The question, its options, and how it should behave.",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description:
+            "The complete question. Clear, specific, ends with a question mark.",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description:
+            'Very short chip/heading, about 12 characters, e.g. `"Date range"`.',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description: "2-4 distinct options.",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description: 'Adds a free-text "Other" option.',
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "Multi-select instead of single-select.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      'The picked value, `value[]` when `allowMultiple`, the typed "Other" text, or `null` if skipped.',
+  }}
+/>
+```
+
+`Signature` is self-closing. `name` plus `params` build the code-style call line shown at the top (an optional param renders as `name?: type`). Each param is `{ name, type, optional?, default?, description }`, matching a plain field. An object-shaped param (like `input` above) can add a nested `fields` array of the same shape to break down its properties, so one block replaces both a hand-written signature line and a separate options table. `returns` is optional and takes the same `{ type, description? }` shape. Descriptions render through the normal markdown pipeline, so backticks and bold work.
+
+Use this over a hand-written `ts` fence plus a prose bullet list whenever a reference page documents a specific function, hook, or action's call shape, per the `writing-reference-docs` skill.
+
+---
+
 ## kbd — keyboard shortcut
 
 Press [[⌘K]] to open the command palette. Save with [[Ctrl+S]] before running the dev server. Navigate fields with [[Tab]] and [[Shift+Tab]].
@@ -487,5 +699,8 @@ Like `TabsBlock`, `Columns` is self-closing with a single JSON `columns` attribu
 | Same task in multiple tools or frameworks | `Tabs`                               |
 | Side-by-side code (labeled columns)       | `Columns`                            |
 | Project directory structure               | `FileTree`                           |
+| A function/hook/action's call shape       | `Signature`                          |
+| An image, full width or with paired text  | `Image`                              |
+| A video, full width or with paired text   | `Video`                              |
 | Inline keyboard shortcut                  | `[[Key]]`                            |
 | Architecture or flow diagram              | Mermaid fence                        |

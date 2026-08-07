@@ -681,6 +681,235 @@ h4 {
   font-size: 14px;
 }
 
+/* Signature: function/hook signature reference — call line + parameter/return
+   breakdown, collapsed to the call line until clicked.
+   Usage in MDX: <Signature name params={[...]} returns={{...}} /> */
+.docs-sig-wrap {
+  margin: 24px 0;
+}
+
+.docs-sig-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-secondary);
+  margin: 0 0 8px;
+}
+
+.docs-sig-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: none;
+  border-bottom: 1px solid var(--docs-border);
+  border-radius: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-x: auto;
+}
+
+.docs-sig-line:hover {
+  background: color-mix(in srgb, var(--bg-secondary) 85%, var(--fg) 6%);
+}
+
+.docs-sig-line:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -2px;
+}
+
+.docs-sig-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--fg-secondary);
+  transition: transform 0.15s;
+}
+
+.docs-sig-line[aria-expanded="true"] .docs-sig-chevron {
+  transform: rotate(90deg);
+}
+
+.docs-sig-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  white-space: pre;
+}
+
+.docs-sig-section {
+  padding: 16px;
+}
+
+.docs-sig-section + .docs-sig-section {
+  border-top: 1px solid var(--docs-border);
+}
+
+.docs-sig-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-secondary);
+  margin: 0 0 12px;
+}
+
+.docs-sig-params {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.docs-sig-param + .docs-sig-param {
+  padding-top: 14px;
+  border-top: 1px dashed var(--docs-border);
+}
+
+.docs-sig-field-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.docs-sig-field-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.docs-sig-field-type {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--docs-accent);
+}
+
+.docs-sig-field-tag {
+  font-size: 11px;
+  color: var(--fg-secondary);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+}
+
+.docs-sig-field-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+}
+
+.docs-sig-field .docs-content {
+  margin-top: 6px;
+}
+
+.docs-sig-field .docs-content p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+.docs-sig-nested-fields {
+  margin: 10px 0 0 16px;
+  padding-left: 12px;
+  border-left: 1px solid var(--docs-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Image / Video: full width, or aligned left/right with paired markdown text.
+   Usage in MDX: <Image src alt align width caption>paired text</Image>
+   and the same shape for <Video>. Shared layout lives in media-layout.tsx. */
+.docs-media {
+  margin: 24px 0;
+}
+
+.docs-media-full {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.docs-media-full .docs-media-figure {
+  width: 100%;
+}
+
+.docs-media-left,
+.docs-media-right {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.docs-media-left .docs-media-figure,
+.docs-media-right .docs-media-figure {
+  flex: 0 0 40%;
+  max-width: 45%;
+}
+
+.docs-media-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+.docs-media-text p {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.docs-media-text p:last-child {
+  margin-bottom: 0;
+}
+
+.docs-media img,
+.docs-media video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--docs-border);
+  background: var(--bg-secondary);
+}
+
+.docs-media-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.docs-media-caption p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.docs-media-full .docs-media-caption {
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .docs-media-left,
+  .docs-media-right {
+    flex-direction: column;
+  }
+  .docs-media-left .docs-media-figure,
+  .docs-media-right .docs-media-figure {
+    max-width: 100%;
+    flex-basis: auto !important;
+  }
+}
+
 /* Sidebar nav */
 .docs-sidebar-nav {
   overflow-anchor: none;
