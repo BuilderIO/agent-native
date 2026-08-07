@@ -86,8 +86,8 @@ export function WorkspaceAppsRail({
         aria-label={collapsed ? label : undefined}
         onClick={onNavigate}
         className={cn(
-          "flex h-8 items-center rounded-md text-sm transition-colors",
-          collapsed ? "w-8 justify-center" : "w-full gap-2 px-2 text-start",
+          "flex h-9 items-center rounded-md text-sm transition-colors",
+          collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
           active
             ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -117,7 +117,7 @@ export function WorkspaceAppsRail({
     <div
       className={cn(
         "mt-4 border-t border-sidebar-border pt-3",
-        collapsed ? "px-1" : "px-2",
+        collapsed ? "px-1.5" : "px-2",
       )}
       data-dispatch-apps-rail
     >

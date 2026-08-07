@@ -173,7 +173,7 @@ describe("Dispatch NavContent", () => {
     expect(lists[1].className).toContain("gap-1");
     expect(lists[1].querySelector('a[href="/admin"]')).not.toBeNull();
     expect(lists[1].querySelector('a[href="/settings"]')).not.toBeNull();
-    expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
+    expect(lists[0].querySelector("a")?.className).toContain("size-9");
   });
 
   it("keeps management routes out of the primary navigation", async () => {
