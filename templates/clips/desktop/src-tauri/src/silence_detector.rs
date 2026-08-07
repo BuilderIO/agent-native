@@ -470,10 +470,18 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     _ => {}
                 }
 
+                // Require audio corroboration for every trigger in this
+                // watcher: backgrounding the call app, or its process
+                // dropping its mic input, does not by itself prove the call
+                // ended — a browser tab can report either transition while
+                // the meeting is still playing through system audio. Only
+                // quiet mic+system audio alongside the signal does.
+                let audio_quiet = audio_recently_silent(&state, threshold_ms);
+
                 let microphone_released = microphone_release_stop_ready(
                     call_app_used_microphone,
                     microphone_released_at.map(|at| Instant::now().duration_since(at)),
-                );
+                ) && audio_quiet;
 
                 let frontmost_call_ended = ever_seen_front
                     && last_front_at
@@ -481,11 +489,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                             Instant::now().duration_since(t).as_millis() as u64 >= threshold_ms
                         })
                         .unwrap_or(false)
-                    // Require audio corroboration: backgrounding the call app
-                    // (native or browser-hosted) to type notes in another app
-                    // does not prove the call ended — only quiet mic+system
-                    // audio alongside the background transition does.
-                    && audio_recently_silent(&state, threshold_ms);
+                    && audio_quiet;
 
                 if microphone_released || frontmost_call_ended {
                     let _ = app.emit("meetings:call-ended", ());
