@@ -919,9 +919,20 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
             let pos = monitor.position();
             let size = monitor.size();
             let scale = monitor.scale_factor().max(1.0);
-            let display_id =
+            // Fail closed: a `0` placeholder here would round-trip through
+            // the URL and back as a `null` pick, which `set_recording_display_override`
+            // accepts as "no override" — clicking this exact card would then
+            // silently record whatever the tray-anchor heuristic picks
+            // instead of the screen the user is looking at right now.
+            let Some(display_id) =
                 display_id_for_monitor_rect(pos.x, pos.y, size.width, size.height, scale)
-                    .unwrap_or(0);
+            else {
+                eprintln!(
+                    "[clips-tray] monitor picker: could not resolve a display id for monitor {index}"
+                );
+                close_monitor_picker_windows(&app);
+                return Err("Could not identify one of the connected displays.".to_string());
+            };
             let gutter = overlay_shadow_gutter_physical(&app);
             let content_w: u32 = (240.0 * scale).round() as u32;
             let content_h: u32 = (150.0 * scale).round() as u32;
@@ -939,7 +950,7 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
                 )
                 .into(),
             );
-            let win = WebviewWindowBuilder::new(&app, &label, url)
+            let win = match WebviewWindowBuilder::new(&app, &label, url)
                 .title("Choose a screen to record")
                 .decorations(false)
                 .transparent(true)
@@ -951,10 +962,18 @@ pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
                 .focused(true)
                 .accept_first_mouse(true)
                 .build()
-                .map_err(|e| {
+            {
+                Ok(win) => win,
+                Err(e) => {
                     eprintln!("[clips-tray] monitor picker build failed: {}", e);
-                    e.to_string()
-                })?;
+                    // Earlier iterations already built and showed windows for
+                    // other monitors — without this they'd stay open and
+                    // always-on-top indefinitely since nothing else tears
+                    // them down after this function errors out.
+                    close_monitor_picker_windows(&app);
+                    return Err(e.to_string());
+                }
+            };
             let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
             let _ = win.set_position(PhysicalPosition::new(x, y));
             let _ = win.set_ignore_cursor_events(false);

@@ -2255,6 +2255,7 @@ export async function pickFullscreenRecordingDisplay(): Promise<void> {
     // instead.
     await invoke("set_recording_display_override", { displayId });
   } finally {
+    selection.cleanup();
     await invoke("close_monitor_picker").catch(() => {});
   }
 }
