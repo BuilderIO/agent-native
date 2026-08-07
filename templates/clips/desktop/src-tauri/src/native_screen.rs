@@ -270,6 +270,14 @@ mod native_upload_mode_tests {
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
+    /// Bumped by `native_fullscreen_recording_cancel`. The warm task runs on
+    /// a blocking-pool thread and can still be mid-setup when a cancel
+    /// arrives — at that point `inner` is still empty, so cancel's own
+    /// `take()` finds nothing to discard. The warm task re-checks this
+    /// generation right after it installs its session; if it moved on, a
+    /// cancel arrived while it was working and it must undo the install
+    /// instead of leaving an orphaned, still-capturing stream behind.
+    warm_generation: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -1400,9 +1408,13 @@ pub async fn native_fullscreen_recording_warm(
         // responsive.
         let app_for_warm = app.clone();
         let recording_id_for_warm = recording_id.clone();
+        let generation_before_warm = app
+            .state::<NativeFullscreenRecordingState>()
+            .warm_generation
+            .load(Ordering::SeqCst);
         let warm_result = tauri::async_runtime::spawn_blocking(move || {
             let state = app_for_warm.state::<NativeFullscreenRecordingState>();
-            start_native_session_locked(
+            let result = start_native_session_locked(
                 &app_for_warm,
                 &state,
                 &recording_id_for_warm,
@@ -1412,7 +1424,23 @@ pub async fn native_fullscreen_recording_warm(
                 mic_device_label,
                 capture_region,
                 true,
-            )
+            );
+            // A cancel that arrived while ScreenCaptureKit setup was still in
+            // flight bumped the generation and found nothing to discard (see
+            // `native_fullscreen_recording_cancel`). Now that a session IS
+            // installed, check again — if the generation moved on, undo the
+            // install instead of leaving an orphaned stream capturing after
+            // the user cancelled.
+            if result.is_ok()
+                && state.warm_generation.load(Ordering::SeqCst) != generation_before_warm
+            {
+                let stale = state.inner.lock().ok().and_then(|mut guard| guard.take());
+                if let Some(mut stale) = stale {
+                    discard_session(&mut stale);
+                }
+                return Err("Recording cancelled while warming up.".to_string());
+            }
+            result
         })
         .await;
         match warm_result {
@@ -2119,6 +2147,11 @@ pub async fn native_fullscreen_recording_cancel(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
+    // Bump BEFORE taking the session: a warm task on a blocking-pool thread
+    // may still be mid-setup right now, with nothing installed yet for this
+    // `take()` to find. Bumping first guarantees that when it later checks
+    // the generation after installing its session, it sees this cancel.
+    state.warm_generation.fetch_add(1, Ordering::SeqCst);
     let session = {
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
         guard.take()

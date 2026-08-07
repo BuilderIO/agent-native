@@ -2900,7 +2900,10 @@ export function App() {
     /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
-    if (recorder && !options?.ignoreActiveRecorder) {
+    if (
+      (recorder || recordingFlowGateRef.current) &&
+      !options?.ignoreActiveRecorder
+    ) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — recorder already active",
       );
@@ -2942,17 +2945,27 @@ export function App() {
     });
 
     if (mode !== "camera" && nativeFullscreenRecordingActive) {
+      // Latch re-entry protection before these awaits, not after — both the
+      // permission prompt and the monitor picker below can take a while (the
+      // picker waits on the user), and without this a double-click while
+      // either is pending passes the top-of-function guard and starts a
+      // second, competing recording-start flow. The real flow-active latch
+      // further below hasn't run yet at this point, so reset this on every
+      // early return in this block.
+      recordingFlowGateRef.current = true;
       try {
         const granted = await invoke<boolean>(
           "request_macos_screen_recording_access",
         );
         if (!granted) {
+          recordingFlowGateRef.current = false;
           setReadinessOpen(true);
           setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
           openPrivacySettings("screen");
           return null;
         }
       } catch (err) {
+        recordingFlowGateRef.current = false;
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
@@ -2969,6 +2982,7 @@ export function App() {
         } catch {
           // User cancelled the screen picker (Escape) — abort silently,
           // same as dismissing the native macOS screen picker.
+          recordingFlowGateRef.current = false;
           return null;
         }
       }

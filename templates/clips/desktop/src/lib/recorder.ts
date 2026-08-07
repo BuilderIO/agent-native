@@ -2118,15 +2118,30 @@ class MonitorPickerCancelledError extends Error {
   }
 }
 
+/**
+ * Safety net only — a normal pick takes as long as the user needs. This
+ * guards against the picker windows being torn down by something other than
+ * a click or Escape (a monitor disconnecting mid-pick, some other teardown)
+ * with neither selection event ever firing, which would otherwise hang the
+ * recording-start flow forever. Matches the "abandon after a while" window
+ * used elsewhere in this file (see `CUE_IDLE_CLEANUP_MS` in audio-cue.ts).
+ */
+const MONITOR_PICKER_SELECTION_TIMEOUT_MS = 5 * 60_000;
+
 function waitForMonitorPickerSelection(): {
   promise: Promise<number | null>;
   cleanup: () => void;
 } {
   let settled = false;
   const unlistens: UnlistenFn[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   const cleanup = () => {
     settled = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
     for (const unlisten of unlistens.splice(0)) {
       try {
         unlisten();
@@ -2144,6 +2159,10 @@ function waitForMonitorPickerSelection(): {
       if (cancelled) reject(new MonitorPickerCancelledError());
       else resolve(displayId);
     };
+
+    timer = setTimeout(() => {
+      finish(true, null);
+    }, MONITOR_PICKER_SELECTION_TIMEOUT_MS);
 
     const track = (listener: Promise<UnlistenFn>) => {
       listener
@@ -2215,8 +2234,16 @@ export async function pickFullscreenRecordingDisplay(): Promise<void> {
     await invoke("close_monitor_picker").catch(() => {});
     throw err;
   }
-  await invoke("set_recording_display_override", { displayId }).catch(() => {});
-  await invoke("close_monitor_picker").catch(() => {});
+  try {
+    // Deliberately not swallowed: if this fails, `tray_display_id` falls
+    // back to the tray-anchor screen with no way for the caller to tell
+    // that happened, silently recording a different screen than the one
+    // the user just picked. Propagate so the caller aborts the start
+    // instead.
+    await invoke("set_recording_display_override", { displayId });
+  } finally {
+    await invoke("close_monitor_picker").catch(() => {});
+  }
 }
 
 async function prepareCountdownEventWaiter(
