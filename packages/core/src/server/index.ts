@@ -171,6 +171,11 @@ export {
 export { createPollEventsHandler } from "./poll-events.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
+  BETTER_AUTH_MIGRATIONS,
+  runBetterAuthMigrations,
+} from "./better-auth-migrations.js";
+export { runFrameworkReleaseMigrations } from "./release-migrations.js";
+export {
   initServerSentry,
   isServerSentryEnabled,
   setSentryUserForRequest,

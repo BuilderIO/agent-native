@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
   migrationPlugin: vi.fn(),
   ensureAdditiveColumns: vi.fn(async () => ({ errors: [] })),
   getDbExec: vi.fn(),
+  withMigrationRuntime: vi.fn(async (run: () => Promise<unknown>) => run()),
 }));
 
 declare global {
@@ -16,6 +17,7 @@ vi.mock("@agent-native/core/db", () => ({
   ensureAdditiveColumns: state.ensureAdditiveColumns,
   getDbExec: state.getDbExec,
   runMigrations: vi.fn(() => state.migrationPlugin),
+  withMigrationRuntime: state.withMigrationRuntime,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -35,6 +37,7 @@ describe("Analytics database plugin boot contract", () => {
     state.migrationPlugin.mockReset();
     state.ensureAdditiveColumns.mockClear();
     state.getDbExec.mockReset();
+    state.withMigrationRuntime.mockClear();
     vi.resetModules();
   });
 
@@ -61,6 +64,7 @@ describe("Analytics database plugin boot contract", () => {
     await register({});
 
     expect(state.migrationPlugin).toHaveBeenCalledTimes(1);
+    expect(state.withMigrationRuntime).toHaveBeenCalledTimes(1);
     expect(state.ensureAdditiveColumns).toHaveBeenCalledTimes(1);
   });
 

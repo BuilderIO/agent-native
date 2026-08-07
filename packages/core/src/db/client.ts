@@ -954,6 +954,67 @@ export function isServerlessRuntime(): boolean {
 }
 
 /**
+ * True for production serverless execution contexts. Netlify also exposes
+ * `NETLIFY=true` in its build environment, so build-time code that owns
+ * migrations must use `withMigrationRuntime()` explicitly.
+ */
+export function isProductionServerlessFunctionRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
+    return false;
+  }
+
+  return Boolean(
+    env.NETLIFY === "true" ||
+    env.NETLIFY_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.AWS_LAMBDA_FUNCTION_VERSION ||
+    env.LAMBDA_TASK_ROOT ||
+    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    env.VERCEL_FUNCTION_ID ||
+    env.VERCEL_REGION ||
+    env.VERCEL === "1",
+  );
+}
+
+const SCHEMA_MUTATION_STATEMENT =
+  /^\s*(?:CREATE|ALTER|DROP|TRUNCATE|COMMENT|REINDEX|GRANT|REVOKE)\b/i;
+
+function rawSql(statement: DbExecStatement): string {
+  return typeof statement === "string" ? statement : statement.sql;
+}
+
+/** True for statements that change database schema or database privileges. */
+export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
+  return SCHEMA_MUTATION_STATEMENT.test(rawSql(statement));
+}
+
+/**
+ * Request functions must never be able to prepare or mutate schema. Throwing
+ * here makes an unconverted ensureTable path fail loudly instead of silently
+ * reporting success against a missing table. The release migration wrapper
+ * is the only supported production opt-in.
+ */
+export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
+  const migrationRuntime =
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_MIGRATION_RUNTIME__ === true;
+  if (
+    isProductionServerlessFunctionRuntime() &&
+    !migrationRuntime &&
+    isSchemaMutationStatement(statement)
+  ) {
+    throw new Error(
+      "Schema mutation attempted in a production serverless request. Run migrations in the release job instead.",
+    );
+  }
+}
+
+/**
  * postgres.js pool options tuned per runtime. idle_timeout is shortened on
  * serverless so a thawed-but-idle instance releases its connections quickly.
  * Long-lived Node servers keep the larger pool for throughput.
@@ -962,10 +1023,29 @@ export function isServerlessRuntime(): boolean {
  * process, not one per consumer. See {@link neonPoolMax} for why the cap must
  * leave room for concurrency.
  */
+/**
+ * Identifies the connection in `pg_stat_activity.application_name`.
+ *
+ * Without it every backend reports `pgbouncer` and a runaway query is
+ * anonymous. A 58 MB `SELECT id, config FROM dashboards` ran 20-wide against
+ * production and could not be traced to a caller: it appears nowhere in the
+ * repo or any built bundle, and `pg_stat_statements` is not installed. This is
+ * the cheapest thing that would have named it.
+ */
+function poolApplicationName(): string {
+  const site =
+    process.env.SITE_NAME ??
+    process.env.NETLIFY_SITE_NAME ??
+    process.env.AGENT_NATIVE_APP_NAME ??
+    "app";
+  return `agent-native:${site}`.slice(0, 63);
+}
+
 export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
+    connection: { application_name: poolApplicationName() },
     max: serverless ? serverlessPoolMax() : 20,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
@@ -973,6 +1053,7 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
     ...(serverless
       ? {
           connection: {
+            application_name: poolApplicationName(),
             idle_in_transaction_session_timeout: 30_000,
           },
         }
@@ -1880,7 +1961,39 @@ async function createDbExecInternal(
 }
 
 export async function createDbExec(config: DbExecConfig = {}): Promise<DbExec> {
-  return createDbExecInternal(config, false);
+  const exec = await createDbExecInternal(config, false);
+  return guardSchemaMutations(exec);
+}
+
+function guardSchemaMutations(exec: DbExec): DbExec {
+  const guarded: DbExec = {
+    async execute(statement) {
+      assertSchemaMutationAllowed(statement);
+      return exec.execute(statement);
+    },
+  };
+  if (exec.atomicBatch) {
+    guarded.atomicBatch = async (statements) => {
+      for (const statement of statements) {
+        assertSchemaMutationAllowed(statement);
+      }
+      return exec.atomicBatch!(statements);
+    };
+  }
+  if (exec.transaction) {
+    guarded.transaction = (fn) =>
+      exec.transaction!((tx) =>
+        fn({
+          ...tx,
+          execute: async (statement) => {
+            assertSchemaMutationAllowed(statement);
+            return tx.execute(statement);
+          },
+        }),
+      );
+  }
+  if (exec.close) guarded.close = () => exec.close!();
+  return guarded;
 }
 
 async function initClient(): Promise<void> {
@@ -1947,6 +2060,7 @@ export function getDbExec(): DbExec {
   async function execAnnotated(
     s: string | { sql: string; args?: unknown[] },
   ): ReturnType<DbExec["execute"]> {
+    assertSchemaMutationAllowed(s);
     try {
       return await _exec!.execute(sanitize(s));
     } catch (err) {
@@ -1957,6 +2071,7 @@ export function getDbExec(): DbExec {
   // Return a proxy that lazy-inits on first call
   const proxy: DbExec = {
     async execute(sql) {
+      assertSchemaMutationAllowed(sql);
       if (!_initPromise) _initPromise = initClient();
       try {
         await _initPromise;
@@ -1972,14 +2087,21 @@ export function getDbExec(): DbExec {
       const wrapper: DbExec = {
         execute: (s) => execAnnotated(s),
         atomicBatch: _exec!.atomicBatch
-          ? (statements) =>
-              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          ? async (statements) => {
+              for (const statement of statements) {
+                assertSchemaMutationAllowed(statement);
+              }
+              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
+            }
           : undefined,
         transaction: _exec!.transaction
           ? (fn) =>
               _exec!.transaction!((tx) =>
                 fn({
-                  execute: (s) => tx.execute(sanitize(s)),
+                  execute: (s) => {
+                    assertSchemaMutationAllowed(s);
+                    return tx.execute(sanitize(s));
+                  },
                   transaction: tx.transaction,
                 }),
               )
@@ -2000,14 +2122,21 @@ export function getDbExec(): DbExec {
       const wrapper: DbExec = {
         execute: (s) => execAnnotated(s),
         atomicBatch: _exec!.atomicBatch
-          ? (statements) =>
-              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          ? async (statements) => {
+              for (const statement of statements) {
+                assertSchemaMutationAllowed(statement);
+              }
+              return _exec!.atomicBatch!(statements.map((s) => sanitize(s)));
+            }
           : undefined,
         transaction: _exec!.transaction
           ? (innerFn) =>
               _exec!.transaction!((tx) =>
                 innerFn({
-                  execute: (s) => tx.execute(sanitize(s)),
+                  execute: (s) => {
+                    assertSchemaMutationAllowed(s);
+                    return tx.execute(sanitize(s));
+                  },
                   transaction: tx.transaction,
                 }),
               )
@@ -2017,7 +2146,10 @@ export function getDbExec(): DbExec {
       if (_exec!.transaction) {
         return _exec!.transaction((tx) =>
           fn({
-            execute: (s) => tx.execute(sanitize(s)),
+            execute: (s) => {
+              assertSchemaMutationAllowed(s);
+              return tx.execute(sanitize(s));
+            },
             transaction: tx.transaction,
           }),
         );
@@ -2030,6 +2162,9 @@ export function getDbExec(): DbExec {
       return explicitTransaction(wrapper.execute)(fn);
     },
     async atomicBatch(statements) {
+      for (const statement of statements) {
+        assertSchemaMutationAllowed(statement);
+      }
       if (!_initPromise) _initPromise = initClient();
       try {
         await _initPromise;
@@ -2041,8 +2176,12 @@ export function getDbExec(): DbExec {
       if (!_exec!.atomicBatch) {
         throw new Error("This database does not support atomic batches.");
       }
-      const batch = (items: typeof statements) =>
-        _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+      const batch = async (items: typeof statements) => {
+        for (const item of items) {
+          assertSchemaMutationAllowed(item);
+        }
+        return _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+      };
       Object.assign(proxy, { atomicBatch: batch });
       return batch(statements);
     },

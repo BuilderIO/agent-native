@@ -25,6 +25,10 @@ describe("db/client dialect detection", () => {
       globalThis as Record<string, unknown>,
       "__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__",
     );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_MIGRATION_RUNTIME__",
+    );
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     vi.resetModules();
   });
@@ -124,8 +128,43 @@ describe("db/client dialect detection", () => {
       idle_in_transaction_session_timeout: 30_000,
     });
     expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
+      // Without this every backend reports `pgbouncer` in pg_stat_activity, and
+      // a runaway query cannot be attributed to the app that issued it.
+      application_name: "agent-native:app",
       idle_in_transaction_session_timeout: 30_000,
     });
+  });
+
+  it("recognizes production serverless execution and honors local emulation", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const { isProductionServerlessFunctionRuntime } =
+      await import("./client.js");
+
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    vi.stubEnv("NETLIFY_LOCAL", "true");
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
+  it("rejects request-time schema mutations but permits release migrations", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "analytics");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+
+    expect(() => assertSchemaMutationAllowed("SELECT 1")).not.toThrow();
+    expect(() =>
+      assertSchemaMutationAllowed(
+        "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
+      ),
+    ).toThrow(/release job/);
+
+    (globalThis as Record<string, unknown>).__AGENT_NATIVE_MIGRATION_RUNTIME__ =
+      true;
+    expect(() =>
+      assertSchemaMutationAllowed(
+        "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
+      ),
+    ).not.toThrow();
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {

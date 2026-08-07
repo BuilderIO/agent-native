@@ -199,7 +199,11 @@ as an operator would use it repeatedly:
 - Use full `Card` composition when the content has a title, description, content, or actions. Do not dump complex cards into a single `CardContent`.
 - Use `ToggleGroup` for small option sets, `Switch` for binary settings, `Checkbox` for multi-select, `RadioGroup` for one-of-many, and `Slider`/inputs for numeric values.
 - For forms, prefer the app's existing shadcn form pattern. If newer `Field`, `FieldGroup`, or `InputGroup` primitives are installed or appropriate to add, use them instead of raw layout divs.
-- Loading states use `Skeleton`, `Progress`, `Spinner`, or the app's existing loading primitives. Empty states should have one clear next action.
+- Page and section data loading uses layout-matching `Skeleton` geometry. Do
+  not show generic "Loading..." text for content loads; reserve `Spinner` for
+  brief mutations, uploads, and progress actions. Use the app's existing
+  loading primitive when it is a genuine design-system adapter. Empty states
+  should have one clear next action.
 
 ## Anti-Patterns
 
