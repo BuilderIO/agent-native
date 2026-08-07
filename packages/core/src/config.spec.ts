@@ -111,4 +111,45 @@ describe("agent-native app config", () => {
       }),
     ).toThrow("must contain valid environment variable names");
   });
+
+  it("normalizes audience-specific instruction paths", () => {
+    expect(
+      normalizeAgentNativeConfig({
+        instructions: {
+          runtime: "app-agent/AGENTS.md",
+          development: "DEVELOPING.md",
+        },
+      }),
+    ).toEqual({
+      instructions: {
+        runtime: "app-agent/AGENTS.md",
+        development: "DEVELOPING.md",
+      },
+    });
+  });
+
+  it("deep-merges instruction paths", () => {
+    expect(
+      mergeAgentNativeConfigs(
+        { instructions: { runtime: "AGENTS.md" } },
+        { instructions: { development: "DEVELOPING.md" } },
+      ),
+    ).toEqual({
+      instructions: {
+        runtime: "AGENTS.md",
+        development: "DEVELOPING.md",
+      },
+    });
+  });
+
+  it.each(["/tmp/AGENTS.md", "../AGENTS.md", "", "C:\\AGENTS.md"])(
+    "rejects unsafe instruction path %s",
+    (instructionPath) => {
+      expect(() =>
+        normalizeAgentNativeConfig({
+          instructions: { runtime: instructionPath },
+        }),
+      ).toThrow("must be a non-empty relative file path inside the app root");
+    },
+  );
 });

@@ -73,7 +73,7 @@ const FIRST_PARTY_QUERY_TABLES = [
   "analytics_user_days",
 ] as const;
 const BACKEND_CONFIG_CACHE_TTL_MS = 30_000;
-const MAX_BACKFILL_BATCH_SIZE = 5_000;
+const MAX_BACKFILL_BATCH_SIZE = 750;
 const MAX_INSERT_BATCH_SIZE = 200;
 
 const backendConfigCache = new Map<
@@ -1153,9 +1153,15 @@ export async function backfillFirstPartyAnalyticsBatch(
   const hydratedById = new Map(
     hydratedRows.map((row) => [backfillRowCursor(row).id, row]),
   );
-  const selectedEvents = selectedIds
-    .map((id) => hydratedById.get(id))
-    .filter((row): row is Record<string, unknown> => row !== undefined);
+  const selectedEvents = selectedIds.map((id) => {
+    const row = hydratedById.get(id);
+    if (!row) {
+      throw new Error(
+        `First-party analytics backfill row ${id} disappeared before hydration`,
+      );
+    }
+    return row;
+  });
   await insertFirstPartyAnalyticsRows(selectedEvents, configuredTable);
   const lastCursor = backfillRowCursor(selectedRows[selectedRows.length - 1]!);
   return {

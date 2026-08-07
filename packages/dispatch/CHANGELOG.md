@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.20.1
+
+### Patch Changes
+
+- c440e50: Route Turn Into App requests from Claude Web, ChatGPT Web, and web Projects to Builder through Dispatch instead of building in the host sandbox.
+
 ## 0.20.0
 
 ### Minor Changes

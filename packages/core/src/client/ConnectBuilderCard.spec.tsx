@@ -9,18 +9,44 @@ import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 const mocks = vi.hoisted(() => ({
   useBuilderConnectFlow: vi.fn(),
   start: vi.fn(),
+  writeClipboardText: vi.fn(),
 }));
 
 vi.mock("./settings/useBuilderStatus.js", () => ({
   useBuilderConnectFlow: mocks.useBuilderConnectFlow,
 }));
+vi.mock("./clipboard.js", () => ({
+  writeClipboardText: mocks.writeClipboardText,
+}));
 
 describe("ConnectBuilderCard", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let originalLocation: Location;
+
+  function setLocation(href: string) {
+    const url = new URL(href);
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        href: url.href,
+        origin: url.origin,
+        hostname: url.hostname,
+        pathname: url.pathname,
+        search: url.search,
+        hash: url.hash,
+        reload: vi.fn(),
+        assign: vi.fn(),
+        replace: vi.fn(),
+      },
+    });
+  }
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    originalLocation = window.location;
+    setLocation("https://agent-native.test/");
+    mocks.writeClipboardText.mockResolvedValue(true);
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
       configured: true,
@@ -39,8 +65,54 @@ describe("ConnectBuilderCard", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("offers an external coding-agent handoff instead of a waitlist", async () => {
+    setLocation("http://localhost:8080/");
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled={false}
+          connectUrl="https://builder.io/cli-auth"
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("This requires a code change");
+    expect(container.textContent).toContain(
+      "Open your coding agent in this project, then paste this request.",
+    );
+    expect(container.textContent).not.toContain("Claude Code");
+    expect(container.textContent).not.toContain("Codex");
+    expect(container.textContent).toContain("Copy prompt");
+    expect(container.textContent).not.toContain("waitlist");
+    expect(container.textContent).not.toContain("Download desktop app");
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (element) => element.textContent?.includes("Copy prompt"),
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(mocks.writeClipboardText).toHaveBeenCalledWith(
+      "Update the dashboard layout",
+    );
+    expect(container.textContent).toContain("Prompt copied");
   });
 
   it("shows a code-change fallback when Builder Cloud Agents are unavailable", () => {
@@ -94,6 +166,7 @@ describe("ConnectBuilderCard", () => {
   });
 
   it("sends the background-coding use case when joining the waitlist", async () => {
+    setLocation("https://agent-native.test/");
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
       [];
     vi.stubGlobal(

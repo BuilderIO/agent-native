@@ -773,6 +773,9 @@ export function isTransientDatabaseError(err: unknown): boolean {
   const code = String(error?.code ?? error?.cause?.code ?? "");
   if (
     code === "ECHECKOUTTIMEOUT" ||
+    // Shed load during a connect cooldown is transient by construction — the
+    // endpoint refused, we chose not to re-ask yet. Surfaces as 503, not 500.
+    code === "DB_CONNECT_COOLDOWN" ||
     code === "EMAXCONN" ||
     code === "53300" ||
     code === "57014" ||
@@ -1185,8 +1188,99 @@ export function describeDbError(err: unknown): string {
   return String(err);
 }
 
-export function attachNeonPoolErrorLogger(
+/**
+ * How long one endpoint stops ATTEMPTING to connect after an attempt failed.
+ * Jittered so concurrent function instances do not re-probe in lockstep.
+ */
+function connectCooldownMs(): number {
+  const raw = Number(process.env.DB_CONNECT_COOLDOWN_MS);
+  const base = Number.isFinite(raw) && raw > 0 ? raw : 2_000;
+  return Math.round(base * (0.5 + Math.random()));
+}
+
+/**
+ * Thrown INSTEAD of attempting, while an endpoint is in cooldown.
+ *
+ * The refused attempt's error is described in the message and deliberately NOT
+ * attached as `cause`: isConnectionError() walks `cause.code`/`cause.message`,
+ * so a cause would reclassify this as retryable and retryOnConnectionError
+ * would drive the storm straight back.
+ */
+export class DbConnectCooldownError extends Error {
+  code = "DB_CONNECT_COOLDOWN";
+  constructor(remainingMs: number, refusedBy: string) {
+    super(
+      `Database is refusing connection attempts; not attempting again for ${remainingMs}ms. Last failure: ${refusedBy}`,
+    );
+    this.name = "DbConnectCooldownError";
+  }
+}
+
+const connectCooldowns = new Map<
+  string,
+  { until: number; refusedBy: string }
+>();
+
+/**
+ * Neon rejects a connection ATTEMPT, not a connection: "Failed to acquire
+ * permit to connect to the database. Too many database connection attempts are
+ * currently ongoing." A failed acquire leaves the pool with zero idle clients,
+ * so the next execute() calls connect() again — and retryOnConnectionError
+ * backs off only 100ms. The process answers a refusal by manufacturing the next
+ * attempt, which is what keeps the refusal true. Production sat in this loop
+ * until the compute was restarted by hand.
+ *
+ * Hold a short cooldown per endpoint so a refused attempt cannot produce the
+ * next one. Checking out an ALREADY-IDLE client is not an attempt and passes
+ * through, so a cooldown degrades throughput instead of taking the process
+ * offline.
+ */
+function gateNeonConnect(
+  pool: Record<string, any>,
+  url: string,
+  label: string,
+): void {
+  const connect = pool.connect;
+  if (typeof connect !== "function") return;
+  const gated = function gatedConnect(this: unknown, ...args: unknown[]) {
+    const idle = typeof pool.idleCount === "number" ? pool.idleCount : 0;
+    const gate = connectCooldowns.get(url);
+    if (idle === 0 && gate && Date.now() < gate.until) {
+      return Promise.reject(
+        new DbConnectCooldownError(gate.until - Date.now(), gate.refusedBy),
+      );
+    }
+    return Promise.resolve(connect.apply(this, args)).then(
+      (client: unknown) => {
+        connectCooldowns.delete(url);
+        return client;
+      },
+      (err: unknown) => {
+        const refusedBy = describeDbError(err);
+        const ms = connectCooldownMs();
+        // One line per cooldown window, not per shed request.
+        if (!gate || Date.now() >= gate.until) {
+          console.warn(
+            `[${label}] connection attempt refused; pausing attempts ${ms}ms:`,
+            refusedBy,
+          );
+        }
+        connectCooldowns.set(url, { until: Date.now() + ms, refusedBy });
+        throw err;
+      },
+    );
+  };
+  // Carry the wrapped function's own properties onto the wrapper. A pool's
+  // `connect` may be instrumented — metrics, tracing, a test spy — and
+  // replacing it with a bare closure would silently drop that instrumentation
+  // along with any assertions built on it.
+  Object.assign(gated, connect);
+  pool.connect = gated;
+}
+
+export function guardNeonPool(
   pool: unknown,
+  url: string,
   label = "db/neon",
 ): void {
   if (!pool || typeof pool !== "object") return;
@@ -1197,6 +1291,7 @@ export function attachNeonPoolErrorLogger(
   if (typeof withEvents.on !== "function") return;
 
   loggedNeonPools.add(pool);
+  gateNeonConnect(pool as Record<string, any>, url, label);
   withEvents.on("error", (err: unknown) => {
     console.warn(
       `[${label}] pool error (will reconnect on next query):`,
@@ -1466,7 +1561,7 @@ async function createDbExecInternal(
       const pool = trackSingletonResources
         ? sharedDbPool("neon", url, makePool)
         : makePool();
-      attachNeonPoolErrorLogger(pool);
+      guardNeonPool(pool, url);
       const httpSql = bgHttp ? neon(url, { fullResults: true }) : null;
       async function queryNeonClient(
         client: any,

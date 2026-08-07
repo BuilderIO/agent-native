@@ -193,7 +193,7 @@ export function buildRuntimeConfigPrompt(
     "Detected issues:",
     issueLines || "- No issues were reported.",
     "",
-    "Inspect the app's agent-native.json or agent-native.ts, its deployment configuration, and the framework defaults. Make the smallest safe fix. Keep secrets out of source control. Do not print secret values in your response. Tell me exactly which deploy settings still need to be set, then verify the production build and runtime health check.",
+    "Inspect the app's agent-native.json or agent-native.config.ts (including compatibility aliases), its deployment configuration, and the framework defaults. Make the smallest safe fix. Keep secrets out of source control. Do not print secret values in your response. Tell me exactly which deploy settings still need to be set, then verify the production build and runtime health check.",
   ].join("\n");
 }
 
