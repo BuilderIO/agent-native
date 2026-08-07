@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.144.3
+
+### Patch Changes
+
+- bd0b0cd: Hold the poll slot until an attempt settles, and abort in-flight attempts on stop()
+
 ## 0.144.2
 
 ### Patch Changes
