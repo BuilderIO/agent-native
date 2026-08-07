@@ -7,7 +7,9 @@ import {
   contrastingDefaultColor,
   groupIntoBlocks,
   groupIntoLines,
+  groupIntoStyledLines,
   mergeLine,
+  mergeLineRuns,
   textItemToBox,
   walkPageGraphics,
   type LinkRect,
@@ -161,6 +163,65 @@ describe("groupIntoLines", () => {
   });
 });
 
+describe("mergeLineRuns", () => {
+  it("merges adjacent same-style items into one run", () => {
+    const runs = mergeLineRuns([
+      box({ text: "Hel", left: 0, right: 20, color: "#ffffff" }),
+      box({ text: "lo", left: 20, right: 35, color: "#ffffff" }),
+    ]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].text).toBe("Hello");
+  });
+
+  it("keeps a color change as a separate run instead of collapsing to the first item's color", () => {
+    const runs = mergeLineRuns([
+      box({ text: "Nike NYC: ", left: 0, right: 100, color: "#ffffff" }),
+      box({ text: "Event Details", left: 100, right: 220, color: "#18b6f6" }),
+    ]);
+    expect(runs).toHaveLength(2);
+    expect(runs.map((r) => [r.text, r.color])).toEqual([
+      ["Nike NYC: ", "#ffffff"],
+      ["Event Details", "#18b6f6"],
+    ]);
+  });
+
+  it("keeps a bold change as a separate run even when the color matches", () => {
+    const runs = mergeLineRuns([
+      box({ text: "Bold ", left: 0, right: 40, bold: true }),
+      box({ text: "regular", left: 40, right: 100, bold: false }),
+    ]);
+    expect(runs).toHaveLength(2);
+  });
+});
+
+describe("groupIntoStyledLines", () => {
+  it("keeps a line's distinct-styled runs separate instead of collapsing to one style", () => {
+    const lines = groupIntoStyledLines([
+      box({
+        text: "Nike NYC: ",
+        top: 100,
+        bottom: 112,
+        fontSize: 12,
+        left: 0,
+        right: 100,
+        color: "#ffffff",
+      }),
+      box({
+        text: "Event Details",
+        top: 100,
+        bottom: 112,
+        fontSize: 12,
+        left: 100,
+        right: 220,
+        color: "#18b6f6",
+      }),
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].runs).toHaveLength(2);
+    expect(lines[0].runs.map((r) => r.color)).toEqual(["#ffffff", "#18b6f6"]);
+  });
+});
+
 describe("groupIntoBlocks", () => {
   it("keeps same-size consecutive lines in one block", () => {
     const lines: TextRunBox[] = [
@@ -224,7 +285,7 @@ describe("walkPageGraphics", () => {
       [["#0000ff"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textColors).toEqual(["#0000ff"]);
+    expect(graphics.textRuns).toEqual([{ length: 1, color: "#0000ff" }]);
   });
 
   it("skips a zero-glyph showText op instead of pushing a stray color entry, since getTextContent never reports an item for one", async () => {
@@ -239,7 +300,10 @@ describe("walkPageGraphics", () => {
       [["#ffffff"], [[{}]], [[]], ["#18b6f6"], [[{}]]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textColors).toEqual(["#ffffff", "#18b6f6"]);
+    expect(graphics.textRuns).toEqual([
+      { length: 1, color: "#ffffff" },
+      { length: 1, color: "#18b6f6" },
+    ]);
   });
 
   it("marks the color unknown after a named Pattern fill (scn with a pattern name), instead of reusing a stale value", async () => {
@@ -248,7 +312,7 @@ describe("walkPageGraphics", () => {
       [["Pattern1"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textColors).toEqual([undefined]);
+    expect(graphics.textRuns).toEqual([{ length: 1, color: undefined }]);
   });
 
   it("decodes a resolved hex color from a setFillColorN op (ICCBased/CalRGB/Separation colors routed through scn are pre-resolved to a hex string the same way rg is)", async () => {
@@ -257,7 +321,7 @@ describe("walkPageGraphics", () => {
       [["#ffffff"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textColors).toEqual(["#ffffff"]);
+    expect(graphics.textRuns).toEqual([{ length: 1, color: "#ffffff" }]);
   });
 
   it("decodes a resolved hex color from a setFillColorN op, matching a solid black page background set via scn instead of rg/g", async () => {

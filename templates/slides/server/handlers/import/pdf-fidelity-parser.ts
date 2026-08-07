@@ -331,6 +331,11 @@ export function annotateLineDecorations(
 
 /** Group same-baseline runs into lines, in the order pdf.js emitted them (reading order for typical single-column pages). */
 export function groupIntoLines(items: TextRunBox[]): TextRunBox[] {
+  return groupByBaseline(items).map(mergeLine);
+}
+
+/** Shared by `groupIntoLines` and `groupIntoStyledLines`: cluster items whose baselines are close enough to read as the same physical line. */
+function groupByBaseline(items: TextRunBox[]): TextRunBox[][] {
   const lines: TextRunBox[][] = [];
   let current: TextRunBox[] = [];
   for (const item of items) {
@@ -347,18 +352,77 @@ export function groupIntoLines(items: TextRunBox[]): TextRunBox[] {
     }
   }
   if (current.length) lines.push(current);
-  return lines.map(mergeLine);
+  return lines;
+}
+
+/** A physical line that may mix more than one styled run (e.g. "Nike NYC: " white next to "Event Details" blue) instead of collapsing the whole line to one style. */
+export interface TextLine extends Rect {
+  fontSize: number;
+  runs: TextRunBox[];
+}
+
+/**
+ * Merge same-line runs left-to-right into styled runs: adjacent items
+ * sharing the same color/bold/italic/underline/href collapse into one run
+ * (joining across word-sized gaps, same as `mergeLine`), but a style change
+ * always starts a new run instead of being silently overwritten by
+ * whichever item happens to sort first.
+ */
+export function mergeLineRuns(items: TextRunBox[]): TextRunBox[] {
+  const sorted = [...items].sort((a, b) => a.left - b.left);
+  const runs: TextRunBox[] = [];
+  for (const item of sorted) {
+    const prev = runs[runs.length - 1];
+    const sameStyle =
+      prev !== undefined &&
+      prev.color === item.color &&
+      prev.bold === item.bold &&
+      prev.italic === item.italic &&
+      prev.underline === item.underline &&
+      prev.href === item.href;
+    if (prev && sameStyle) {
+      const needsSpace = item.left - prev.right > item.fontSize * 0.25;
+      prev.text += (needsSpace ? " " : "") + item.text;
+      prev.right = Math.max(prev.right, item.right);
+      prev.top = Math.min(prev.top, item.top);
+      prev.bottom = Math.max(prev.bottom, item.bottom);
+    } else {
+      runs.push({ ...item });
+    }
+  }
+  return runs;
+}
+
+/** Like `groupIntoLines`, but keeps each line's distinct-styled runs separate — needed once a line can mix colors/weights within itself. */
+export function groupIntoStyledLines(items: TextRunBox[]): TextLine[] {
+  return groupByBaseline(items).map((lineItems) => ({
+    ...rectFromCorners(
+      lineItems.flatMap(
+        (s) =>
+          [
+            [s.left, s.top],
+            [s.right, s.bottom],
+          ] as [number, number][],
+      ),
+    ),
+    fontSize: lineItems[0].fontSize,
+    runs: mergeLineRuns(lineItems),
+  }));
 }
 
 /**
  * Group lines into text blocks (paragraph-level elements) so a heading and
  * an unrelated body paragraph don't collapse into one giant text box — a
  * new block starts on a size change, a big left-indent jump, or a vertical
- * gap wider than the previous line's own height.
+ * gap wider than the previous line's own height. Generic over both a
+ * single-style `TextRunBox` line and a multi-run `TextLine`, since both
+ * carry the `top`/`bottom`/`left`/`fontSize` this grouping actually reads.
  */
-export function groupIntoBlocks(lines: TextRunBox[]): TextRunBox[][] {
-  const blocks: TextRunBox[][] = [];
-  let current: TextRunBox[] = [];
+export function groupIntoBlocks<T extends Rect & { fontSize: number }>(
+  lines: T[],
+): T[][] {
+  const blocks: T[][] = [];
+  let current: T[] = [];
   for (const line of lines) {
     const prev = current[current.length - 1];
     if (prev) {
@@ -383,35 +447,141 @@ export function groupIntoBlocks(lines: TextRunBox[]): TextRunBox[][] {
 /** A run needs to overlap most of a candidate background image to inherit its "assume dark" contrast — a run merely near a small inset photo shouldn't be treated as sitting on top of it. */
 const BACKGROUND_IMAGE_OVERLAP_RATIO = 0.5;
 
+/**
+ * `getTextContent()`'s internal font id (e.g. `"g_d0_f1"`) is never the
+ * PDF's real font name — its own bold detection needs the actual resolved
+ * font object's `.name` (e.g. `"MUFUZY+Poppins-Bold"`), which pdf.js has
+ * already loaded into `page.commonObjs` by the time text content resolves.
+ */
+function resolveRealFontName(
+  page: PDFPageProxy,
+  fontName: string | undefined,
+  cache: Map<string, string>,
+): string {
+  if (!fontName) return "";
+  const cached = cache.get(fontName);
+  if (cached !== undefined) return cached;
+  let resolved = fontName;
+  try {
+    if (page.commonObjs.has(fontName)) {
+      const font = page.commonObjs.get(fontName) as { name?: string } | null;
+      if (font?.name) resolved = font.name;
+    }
+  } catch {
+    // coercion-ok: `commonObjs.get` throwing means the font object isn't
+    // resolved yet — `resolved` already defaults to the internal id, so
+    // bold detection just won't match for this run instead of failing.
+  }
+  cache.set(fontName, resolved);
+  return resolved;
+}
+
+/**
+ * A single `getTextContent()` item only ever carries one font/position, but
+ * a page's content stream can paint it with more than one fill color —
+ * pdf.js merges runs purely by geometric continuity (position + font),
+ * never by paint color, so "Nike NYC: " (white) immediately followed by
+ * "Event Details" (blue) on the same line is reported as one merged item.
+ * Slicing that item's own text and placed width proportionally by
+ * character count recovers each color as its own run.
+ */
+function sliceTextItemBySegments(
+  item: TextItem,
+  viewportTransform: Mat,
+  segments: TextColorRun[],
+): { box: TextRunBox; colorKnown: boolean }[] {
+  if (segments.length <= 1) {
+    const color = segments[0]?.color;
+    const box = textItemToBox(item, viewportTransform, color);
+    return box ? [{ box, colorKnown: color !== undefined }] : [];
+  }
+  const fullBox = textItemToBox(item, viewportTransform, DEFAULT_TEXT_COLOR);
+  if (!fullBox) return [];
+  const totalChars = item.str.length;
+  const spanX = fullBox.right - fullBox.left;
+  const results: { box: TextRunBox; colorKnown: boolean }[] = [];
+  let charOffset = 0;
+  for (const segment of segments) {
+    const text = item.str.slice(charOffset, charOffset + segment.length);
+    if (text.trim().length > 0) {
+      const startFraction = charOffset / totalChars;
+      const endFraction = (charOffset + segment.length) / totalChars;
+      results.push({
+        box: {
+          ...fullBox,
+          left: fullBox.left + spanX * startFraction,
+          right: fullBox.left + spanX * endFraction,
+          text,
+          color: segment.color ?? DEFAULT_TEXT_COLOR,
+        },
+        colorKnown: segment.color !== undefined,
+      });
+    }
+    charOffset += segment.length;
+  }
+  return results;
+}
+
 async function buildTextElements(
   page: PDFPageProxy,
   viewportTransform: Mat,
   pageNumber: number,
-  textColors: (string | undefined)[],
+  textRuns: TextColorRun[],
   backgroundColor: string | undefined,
   backgroundImageRect: Rect | undefined,
   underlineRects: UnderlineRect[],
   linkRects: LinkRect[],
 ): Promise<ParsedElement[]> {
   const content = await page.getTextContent();
-  // `getTextContent()` can report a stray empty-string item for a
-  // zero-glyph run that pdf.js otherwise merges away (a leftover artifact
-  // of a style-boundary split in the source PDF) — `walkPageGraphics`
-  // already skips those same zero-glyph ops when building `textColors`, so
-  // the two timelines only line up once both drop them the same way.
   const rawItems = content.items.filter(
     (item): item is TextItem => "str" in item && item.str.trim().length > 0,
   );
-  // Only trust the color timeline when it lines up 1:1 with the text items —
-  // pdf.js can split one showText op into multiple items (or vice versa) for
-  // heavily kerned text, and a misaligned zip would paint the wrong run the
-  // wrong color, which is worse than the uniform default.
-  const colorsAlign = textColors.length === rawItems.length;
-  const boxes = rawItems
-    .map((item, i) => {
-      const knownColor = colorsAlign ? textColors[i] : undefined;
-      const box = textItemToBox(item, viewportTransform, knownColor);
-      if (!box || knownColor !== undefined) return box;
+  const fontNameCache = new Map<string, string>();
+
+  // Walk `textRuns` alongside `rawItems` by character count rather than by
+  // index — the two lists don't share a 1:1 item boundary (see
+  // `sliceTextItemBySegments`), so each item claims exactly as many
+  // characters worth of segments as its own text is long.
+  const segmentQueue = [...textRuns];
+  const boxes = rawItems.flatMap((item) => {
+    const realFontName = resolveRealFontName(
+      page,
+      item.fontName,
+      fontNameCache,
+    );
+    const itemForBox = { ...item, fontName: realFontName };
+    const itemSegments: TextColorRun[] = [];
+    let consumed = 0;
+    while (consumed < item.str.length && segmentQueue.length > 0) {
+      const segment = segmentQueue[0];
+      const remaining = item.str.length - consumed;
+      if (segment.length <= remaining) {
+        itemSegments.push(segment);
+        consumed += segment.length;
+        segmentQueue.shift();
+      } else {
+        // This segment overshoots the item boundary — pdf.js's merge
+        // doesn't line up with our op-derived segment counts (e.g. a
+        // ligature collapsing multiple glyphs into fewer output
+        // characters). Split what fits and leave the remainder queued for
+        // the next item instead of corrupting this item's text.
+        itemSegments.push({ length: remaining, color: segment.color });
+        segmentQueue[0] = { ...segment, length: segment.length - remaining };
+        consumed = item.str.length;
+      }
+    }
+    if (consumed < item.str.length) {
+      itemSegments.push({
+        length: item.str.length - consumed,
+        color: undefined,
+      });
+    }
+    return sliceTextItemBySegments(
+      itemForBox,
+      viewportTransform,
+      itemSegments,
+    ).map(({ box, colorKnown }) => {
+      if (colorKnown) return box;
       // No recovered color for this run — rather than guessing "blank
       // white paper" for the whole page, check what's actually behind
       // THIS run: a title over a background photo needs a different
@@ -424,15 +594,23 @@ async function buildTextElements(
         ...box,
         color: contrastingDefaultColor(backgroundColor, sitsOnBackgroundImage),
       };
-    })
-    .filter((b): b is TextRunBox => b !== undefined);
+    });
+  });
   if (boxes.length === 0) return [];
 
-  const lines = annotateLineDecorations(
-    groupIntoLines(boxes),
+  const styledLines = groupIntoStyledLines(boxes);
+  const flatRuns = styledLines.flatMap((line) => line.runs);
+  const decoratedRuns = annotateLineDecorations(
+    flatRuns,
     underlineRects,
     linkRects,
   );
+  let cursor = 0;
+  const lines: TextLine[] = styledLines.map((line) => {
+    const runs = decoratedRuns.slice(cursor, cursor + line.runs.length);
+    cursor += line.runs.length;
+    return { ...line, runs };
+  });
   const blocks = groupIntoBlocks(lines);
 
   return blocks.map((blockLines, index) => {
@@ -441,17 +619,15 @@ async function buildTextElements(
     const right = Math.max(...blockLines.map((l) => l.right));
     const bottom = Math.max(...blockLines.map((l) => l.bottom));
     const paragraphs: ParsedParagraph[] = blockLines.map((line) => ({
-      runs: [
-        {
-          content: line.text,
-          fontSize: line.fontSize,
-          color: line.color,
-          bold: line.bold,
-          italic: line.italic,
-          underline: line.underline,
-          href: line.href,
-        },
-      ],
+      runs: line.runs.map((run) => ({
+        content: run.text,
+        fontSize: run.fontSize,
+        color: run.color,
+        bold: run.bold,
+        italic: run.italic,
+        underline: run.underline,
+        href: run.href,
+      })),
       alignment: "left",
     }));
     return {
@@ -466,12 +642,18 @@ async function buildTextElements(
   });
 }
 
+/** The fill color active during one real (non-empty) text-showing op, plus how many characters it covers — `getTextContent()` can merge several differently-colored ops into a single item (it only splits on position/font continuity, never on paint color), so recovering per-color runs within one item means walking this list by character count rather than by item. */
+export interface TextColorRun {
+  length: number;
+  color: string | undefined;
+}
+
 interface PageGraphics {
   imageRects: Rect[];
   /** The earliest fill covering most of the page — almost always the deck's background. */
   backgroundColor: string | undefined;
-  /** Fill color active at each text-showing op, in operator-list order (for zipping against `getTextContent()` items); `undefined` means it wasn't recoverable. */
-  textColors: (string | undefined)[];
+  /** Fill color + character length of each real text-showing op, in operator-list order; `color` is undefined when it wasn't recoverable. */
+  textRuns: TextColorRun[];
   /** Thin filled/stroked rects found anywhere on the page — underline candidates, matched against text lines afterward. */
   underlineRects: UnderlineRect[];
 }
@@ -493,7 +675,7 @@ export async function walkPageGraphics(
   const viewportTransform = viewport.transform;
   const opList = await page.getOperatorList();
   const imageRects: Rect[] = [];
-  const textColors: (string | undefined)[] = [];
+  const textRuns: TextColorRun[] = [];
   const underlineRects: UnderlineRect[] = [];
   let backgroundColor: string | undefined;
   let fillColor = DEFAULT_TEXT_COLOR;
@@ -535,15 +717,23 @@ export async function walkPageGraphics(
       });
       imageRects.push(rectFromCorners(deviceCorners));
     } else if (TEXT_SHOWING_OPS.has(fn)) {
-      // A zero-glyph showText (a leftover empty run from a style-boundary
-      // split in the source PDF) never produces an item from
-      // `getTextContent()` — pushing a color entry for it anyway would
-      // desync `textColors` from `rawItems`, and just one such run on a
-      // page silently discards every real color the whole page recovered
-      // (see `colorsAlign` in `buildTextElements`).
+      // Count only the glyph descriptors, not the raw kerning-adjustment
+      // numbers a `TJ` array can interleave between them, so this length
+      // matches the character count `getTextContent()` will report for the
+      // text these glyphs decode to.
       const glyphs = args[0];
-      if (!Array.isArray(glyphs) || glyphs.length > 0) {
-        textColors.push(fillColorKnown ? fillColor : undefined);
+      const length = Array.isArray(glyphs)
+        ? glyphs.filter((g) => typeof g === "object" && g !== null).length
+        : 1;
+      // A zero-glyph showText (a leftover empty run from a style-boundary
+      // split in the source PDF) never produces any characters in
+      // `getTextContent()` — skip it instead of pushing a zero-length
+      // segment that would just sit there contributing nothing.
+      if (length > 0) {
+        textRuns.push({
+          length,
+          color: fillColorKnown ? fillColor : undefined,
+        });
       }
     } else if (fn === OPS.constructPath) {
       const paintOp = args[0];
@@ -606,7 +796,7 @@ export async function walkPageGraphics(
       fillColorKnown = color !== undefined;
     }
   }
-  return { imageRects, backgroundColor, textColors, underlineRects };
+  return { imageRects, backgroundColor, textRuns, underlineRects };
 }
 
 /**
@@ -713,7 +903,7 @@ export async function parsePdfFidelity(
         page,
         viewportTransform,
         pageNumber,
-        graphics.textColors,
+        graphics.textRuns,
         graphics.backgroundColor,
         backgroundImageRect,
         graphics.underlineRects,
