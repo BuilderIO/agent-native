@@ -6,15 +6,19 @@ import {
   IconClockHour4,
   IconEyeOff,
   IconPlus,
-  IconStack2,
 } from "@tabler/icons-react";
 import { useState } from "react";
+import { Outlet, useParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
-import { AppList } from "../../components/app-list-row";
-import { ConnectedAppCard } from "../../components/connected-app-card";
+import {
+  APP_LIST_GRID_CLASS,
+  APP_LIST_GRID_ROW_CLASS,
+  AppList,
+} from "../../components/app-list-row";
 import { CreateAppPopover } from "../../components/create-app-popover";
 import { DispatchShell } from "../../components/dispatch-shell";
+import { OtherAppsSection } from "../../components/other-apps-section";
 import { Button } from "../../components/ui/button";
 import {
   Collapsible,
@@ -23,15 +27,11 @@ import {
 } from "../../components/ui/collapsible";
 import { Skeleton } from "../../components/ui/skeleton";
 import { WorkspaceAppCard } from "../../components/workspace-app-card";
-import {
-  WorkspaceTemplatesSection,
-  type CuratedWorkspaceTemplatesResult,
-  type WorkspaceTemplateLabels,
+import type {
+  CuratedWorkspaceTemplatesResult,
+  WorkspaceTemplateLabels,
 } from "../../components/workspace-template-card";
-import {
-  filterOtherApps,
-  type ConnectedAppSummary,
-} from "../../lib/other-apps";
+import type { ConnectedAppSummary } from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
 import type { WorkspaceAppSummary } from "../../lib/workspace-apps";
 
@@ -45,7 +45,12 @@ interface WorkspaceInfo {
   appCount: number;
 }
 
-export default function AppsRoute() {
+export default function AppsRouteEntry() {
+  const { appId } = useParams();
+  return appId ? <Outlet /> : <AppsRoute />;
+}
+
+function AppsRoute() {
   const t = useT();
   const [showPending, setShowPending] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -73,10 +78,6 @@ export default function AppsRoute() {
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
   const archivedApps = allApps.filter((app) => app.archived);
-  const otherApps = filterOtherApps(
-    (connectedAppsQuery.data || []) as ConnectedAppSummary[],
-    allApps,
-  );
   const showAppSkeletons = appsLoading && allApps.length === 0;
   const templateLabels: WorkspaceTemplateLabels = {
     appId: t("dispatch.pages.remixAppIdLabel"),
@@ -90,6 +91,7 @@ export default function AppsRoute() {
     remixError: t("dispatch.pages.remixError"),
     appIdRequired: t("dispatch.pages.appIdRequired"),
     source: t("dispatch.pages.source"),
+    openApp: t("dispatch.pages.openApp", { defaultValue: "Open app" }),
     viewLiveApp: t("dispatch.pages.openApp", { defaultValue: "Open" }),
   };
 
@@ -154,9 +156,13 @@ export default function AppsRoute() {
           ) : showAppSkeletons ? (
             <AppsSkeletonGrid />
           ) : activeApps.length > 0 ? (
-            <AppList>
+            <AppList className={APP_LIST_GRID_CLASS}>
               {activeApps.map((app) => (
-                <WorkspaceAppCard key={app.id} app={app} />
+                <WorkspaceAppCard
+                  key={app.id}
+                  app={app}
+                  className={APP_LIST_GRID_ROW_CLASS}
+                />
               ))}
             </AppList>
           ) : pendingApps.length > 0 ? (
@@ -207,9 +213,13 @@ export default function AppsRoute() {
                 </CollapsibleTrigger>
               </div>
               <CollapsibleContent>
-                <AppList>
+                <AppList className={APP_LIST_GRID_CLASS}>
                   {pendingApps.map((app) => (
-                    <WorkspaceAppCard key={app.id} app={app} />
+                    <WorkspaceAppCard
+                      key={app.id}
+                      app={app}
+                      className={APP_LIST_GRID_ROW_CLASS}
+                    />
                   ))}
                 </AppList>
               </CollapsibleContent>
@@ -217,63 +227,28 @@ export default function AppsRoute() {
           </Collapsible>
         ) : null}
 
-        {curatedTemplatesQuery.isError ? (
-          <section className="space-y-3 border-t pt-6">
-            <ActionQueryError
-              error={curatedTemplatesQuery.error}
-              onRetry={() => void curatedTemplatesQuery.refetch()}
-            />
-          </section>
-        ) : curatedTemplatesQuery.data ? (
-          <section className="space-y-3 border-t pt-6">
-            <div className="flex min-w-0 items-start gap-2">
-              <IconStack2
-                size={16}
-                className="mt-0.5 shrink-0 text-muted-foreground"
-              />
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-foreground">
-                  {t("dispatch.pages.availableApps", {
-                    defaultValue: "Available apps",
-                  })}
-                </h2>
-              </div>
-            </div>
-            <WorkspaceTemplatesSection
-              templates={
-                curatedTemplatesQuery.data as CuratedWorkspaceTemplatesResult
-              }
-              labels={templateLabels}
-              onRemixSuccess={() => {
-                void appsQuery.refetch();
-                void curatedTemplatesQuery.refetch();
-              }}
-            />
-          </section>
-        ) : null}
-
-        {connectedAppsQuery.isError ? (
-          <section className="space-y-3 border-t pt-6">
-            <OtherAppsHeading count={0} />
-            <ActionQueryError
-              error={connectedAppsQuery.error}
-              onRetry={() => void connectedAppsQuery.refetch()}
-            />
-          </section>
-        ) : connectedAppsQuery.isLoading || otherApps.length > 0 ? (
-          <section className="space-y-3 border-t pt-4">
-            <OtherAppsHeading count={otherApps.length} />
-            {connectedAppsQuery.isLoading ? (
-              <OtherAppsSkeletonList />
-            ) : (
-              <AppList>
-                {otherApps.map((app) => (
-                  <ConnectedAppCard key={app.id} app={app} />
-                ))}
-              </AppList>
-            )}
-          </section>
-        ) : null}
+        <OtherAppsSection
+          templates={
+            curatedTemplatesQuery.data as
+              | CuratedWorkspaceTemplatesResult
+              | undefined
+          }
+          connectedApps={
+            connectedAppsQuery.data as ConnectedAppSummary[] | undefined
+          }
+          workspaceApps={allApps}
+          templatesLoading={curatedTemplatesQuery.isLoading}
+          connectedAppsLoading={connectedAppsQuery.isLoading}
+          templatesError={curatedTemplatesQuery.error}
+          connectedAppsError={connectedAppsQuery.error}
+          onRetryTemplates={() => void curatedTemplatesQuery.refetch()}
+          onRetryConnectedApps={() => void connectedAppsQuery.refetch()}
+          templateLabels={templateLabels}
+          onRemixSuccess={() => {
+            void appsQuery.refetch();
+            void curatedTemplatesQuery.refetch();
+          }}
+        />
 
         {archivedApps.length > 0 ? (
           <Collapsible open={showHidden} onOpenChange={setShowHidden}>
@@ -316,9 +291,13 @@ export default function AppsRoute() {
                 </CollapsibleTrigger>
               </div>
               <CollapsibleContent>
-                <AppList>
+                <AppList className={APP_LIST_GRID_CLASS}>
                   {archivedApps.map((app) => (
-                    <WorkspaceAppCard key={app.id} app={app} />
+                    <WorkspaceAppCard
+                      key={app.id}
+                      app={app}
+                      className={APP_LIST_GRID_ROW_CLASS}
+                    />
                   ))}
                 </AppList>
               </CollapsibleContent>
@@ -330,52 +309,16 @@ export default function AppsRoute() {
   );
 }
 
-function OtherAppsHeading({ count }: { count: number }) {
-  const t = useT();
-  return (
-    <div className="flex min-w-0 items-start gap-2">
-      <IconStack2 size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0">
-        <h2 className="truncate text-sm font-semibold text-foreground">
-          {t("dispatch.pages.otherApps")}
-        </h2>
-        {count > 0 ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {t("dispatch.pages.availableCount", { count })}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function OtherAppsSkeletonList() {
-  return (
-    <AppList>
-      {Array.from({ length: 3 }).map((_, index) => (
-        <div
-          key={index}
-          className="flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0"
-        >
-          <Skeleton className="size-8 shrink-0 rounded-md" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-3 w-2/3" />
-          </div>
-          <Skeleton className="h-8 w-16 shrink-0 rounded-md" />
-        </div>
-      ))}
-    </AppList>
-  );
-}
-
 function AppsSkeletonGrid() {
   return (
-    <AppList>
+    <AppList className={APP_LIST_GRID_CLASS}>
       {Array.from({ length: 3 }).map((_, index) => (
         <div
           key={index}
-          className="flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0"
+          className={cn(
+            "flex min-w-0 items-center gap-3 border-b px-4 py-3.5 last:border-b-0",
+            APP_LIST_GRID_ROW_CLASS,
+          )}
         >
           <Skeleton className="size-8 shrink-0 rounded-md" />
           <div className="min-w-0 flex-1 space-y-2">
