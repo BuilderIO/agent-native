@@ -32,9 +32,7 @@ export default function registerAnalyticsRollupBackfillJobs(): void {
   const flag =
     process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS ??
     process.env.RUN_BACKGROUND_JOBS;
-  const enabled =
-    !platformSchedulerOwnsBackfill() &&
-    flag === "1";
+  const enabled = !platformSchedulerOwnsBackfill() && flag === "1";
 
   if (!enabled) {
     if (!skippingLogged) {

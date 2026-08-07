@@ -102,6 +102,7 @@ async function createShareLink(event: any, deckId: string) {
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           designSystemData = JSON.stringify(parsed as DesignSystemData);
         }
+        // coercion-ok: malformed optional style data keeps a valid deck shareable.
       } catch {
         // A malformed style record should not make an otherwise valid deck
         // impossible to share; the presentation will use its default tokens.
@@ -178,6 +179,7 @@ export const getSharedDeck = defineEventHandler(async (event) => {
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         response.designSystem = parsed as DesignSystemData;
       }
+      // coercion-ok: malformed optional snapshots remain viewable with default tokens.
     } catch {
       // Keep legacy or malformed snapshots viewable with default tokens.
     }

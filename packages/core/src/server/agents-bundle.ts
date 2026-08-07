@@ -447,6 +447,7 @@ export async function loadAgentsBundle(): Promise<AgentsBundle> {
         rootDir: ws.packageDir,
       };
     }
+    // coercion-ok: workspace-core discovery is optional in edge runtimes.
   } catch {
     // workspace-core discovery isn't available (e.g. edge runtime).
   }
