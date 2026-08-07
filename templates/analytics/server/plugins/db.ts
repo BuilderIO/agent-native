@@ -1541,10 +1541,13 @@ export default async (nitroApp: any): Promise<void> => {
   // the one serverless exception and claims migration duty explicitly.
   // guard:allow-boot-data-work — schema must exist before the first query
   if (isScheduledRollupRuntime) {
+    // guard:allow-boot-data-work — scheduled worker owns the release migration
     await withMigrationRuntime(async () => {
+      // guard:allow-boot-data-work — scheduled worker owns the release migration
       await runAnalyticsMigrations(nitroApp);
     });
   } else {
+    // guard:allow-boot-data-work — long-lived local runtime owns the migration
     await runAnalyticsMigrations(nitroApp);
   }
   try {
