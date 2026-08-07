@@ -89,6 +89,7 @@ import {
 } from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
+import { roundGeo, trace } from "./design-trace";
 import { DesignCanvas } from "./DesignCanvas";
 import { dndHostLog } from "./dnd-debug";
 import {
@@ -2189,6 +2190,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const sourceIsBoard = sourceScreenId === boardFileId;
       setCrossScreenSourceIsBoard(sourceIsBoard);
       const target = getFrameEntryAtPoint(boardPoint);
+      trace("drop", "resolve-target", {
+        pointerInCanvasUnits: {
+          x: Math.round(boardPoint.x),
+          y: Math.round(boardPoint.y),
+        },
+        hitFrame: target?.id ?? null,
+        sourceScreen: sourceScreenId,
+        sourceIsBoard,
+        frames: Object.entries(frameGeometryRef.current ?? {}).map(
+          ([id, g]: [string, any]) =>
+            `${id.slice(0, 6)} @ ${Math.round(g.x)},${Math.round(g.y)} ${Math.round(g.width)}x${Math.round(g.height)}`,
+        ),
+        verdict:
+          target && target.id !== sourceScreenId
+            ? "will drop into that frame"
+            : target
+              ? "hit the SOURCE frame, so no cross-screen move"
+              : "NO frame under the pointer — drop cannot resolve a screen",
+      });
       if (target && target.id !== sourceScreenId) {
         const nextTarget = { id: target.id, geometry: target.geometry };
         if (crossScreenTargetRef.current?.id !== nextTarget.id) {
@@ -2274,6 +2294,16 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint.y >= sourceFrameGeometry.y &&
         lastBoardPoint.y <= sourceFrameGeometry.y + sourceFrameGeometry.height;
       if (droppedInsideSourceScreen) return;
+      trace("drop", "finalize", {
+        candidate: candidate?.id ?? null,
+        sourceScreen: sourceScreenId,
+        droppedInsideSourceScreen,
+        outcome: droppedInsideSourceScreen
+          ? "discarded — pointer never left the source screen"
+          : candidate
+            ? "moving into candidate"
+            : "no candidate; falling back to the board",
+      });
       const targetCandidate =
         candidate ??
         (boardFileId && sourceScreenId !== boardFileId && boardFrameGeometry
@@ -4488,9 +4518,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 0,
               )
             : null;
-          onCreateScreenFrame(
-            clampFrameGeometryToViewport(draftGeometry, viewportBounds),
+          const screenGeometry = clampFrameGeometryToViewport(
+            draftGeometry,
+            viewportBounds,
           );
+          trace("screen", "create-from-frame-tool", {
+            why: "frame tool started on empty canvas, so it becomes a SCREEN",
+            drawn: roundGeo(draftGeometry),
+            committed: roundGeo(screenGeometry),
+            clamped:
+              Math.round(draftGeometry.x) !== Math.round(screenGeometry.x) ||
+              Math.round(draftGeometry.y) !== Math.round(screenGeometry.y),
+          });
+          onCreateScreenFrame(screenGeometry);
           if (activeTool === undefined) {
             setLocalActiveTool("move");
           }
@@ -4498,6 +4538,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           finishDrag();
           return;
         }
+        trace("draw", "commit-primitive", {
+          tool: state.tool,
+          startedInScreen: state.originFrameId ?? "(empty canvas → board)",
+        });
         const nextDraft = createDraftPrimitive({
           tool: state.tool,
           start: state.originCanvas,
@@ -7487,6 +7531,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const chromeScale = scale > 0 ? 1 / scale : 1;
   const showPixelGrid = canvasZoom >= PIXEL_GRID_ZOOM;
   const effectiveTool = normalizeCanvasTool(activeTool ?? localActiveTool);
+  const lastTracedToolRef = useRef<string | null>(null);
+  if (lastTracedToolRef.current !== effectiveTool) {
+    lastTracedToolRef.current = effectiveTool;
+    trace("tool", "active-tool", { tool: effectiveTool });
+  }
   useEffect(() => {
     effectiveToolRef.current = effectiveTool;
   }, [effectiveTool]);

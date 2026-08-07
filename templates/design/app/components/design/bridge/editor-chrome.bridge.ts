@@ -5070,10 +5070,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (isOverlayElement(target)) continue;
       if (isLayerInteractionBlocked(target)) {
         lastEditorPointWasBlocked = true;
+        dndLog("select:blocked", { el: getSelector(target) });
         return null;
       }
       return target;
     }
+    dndLog("select:nothing-at-point", { x: clientX, y: clientY });
     return null;
   }
 

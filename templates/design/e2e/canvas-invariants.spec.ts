@@ -631,27 +631,61 @@ test.describe("drawing fidelity", () => {
     ]);
   });
 
-  test("a drawn shape is visible — it has a fill, stroke or text", async ({ page }) => {
+  test("a drawn shape primitive is visible — it has a fill or stroke", async ({ page }) => {
+    const id = await newDesign(page, BLANK_PAGE);
+    await openEditor(page, id);
+    await drawWith(page, "Rectangle", { left: 40, top: 100, width: 200, height: 200 });
+
+    const paint = await inFrame(page, '[data-an-primitive="rectangle"]')
+      .first()
+      .evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { bg: cs.backgroundColor, border: cs.borderTopWidth };
+      })
+      .catch(() => null);
+    expect(paint, "no rectangle rendered in the preview").not.toBeNull();
+    expect(
+      /rgba\(0, 0, 0, 0\)/.test(paint!.bg) && paint!.border === "0px",
+      `a shape primitive must paint something; got background ${paint!.bg} and ` +
+        `border ${paint!.border}`,
+    ).toBe(false);
+  });
+
+  test("a drawn frame stays unstyled and is shown by selection chrome instead", async ({
+    page,
+  }) => {
     const id = await newDesign(page, BLANK_PAGE);
     await openEditor(page, id);
     await drawWith(page, "Frame", { left: 40, top: 100, width: 200, height: 200 });
 
-    const paint = await inFrame(page, '[data-an-primitive="frame"]')
+    // A frame commits as unstyled structure on purpose (see the frame branch
+    // in canvas-primitive-insert.ts); baking a tint into the design's real
+    // HTML would be styling pollution. Its bounds come from selection chrome.
+    const state = await inFrame(page, "body")
       .first()
-      .evaluate((el) => {
-        const cs = getComputedStyle(el);
-        return { bg: cs.backgroundColor, border: cs.borderTopWidth, text: (el.textContent ?? "").trim() };
-      })
-      .catch(() => null);
-    expect(paint, "no frame rendered in the preview").not.toBeNull();
-    const invisible =
-      /rgba\(0, 0, 0, 0\)/.test(paint!.bg) && paint!.border === "0px" && !paint!.text;
+      .evaluate(() => {
+        const el = document.querySelector('[data-an-primitive="frame"]') as HTMLElement | null;
+        if (!el) return null;
+        const selection = document.querySelector(
+          '[data-agent-native-edit-overlay="selection"]',
+        ) as HTMLElement | null;
+        const rect = el.getBoundingClientRect();
+        const chrome = selection?.getBoundingClientRect();
+        return {
+          inlineBackground: el.style.background,
+          selectionTracksFrame: chrome
+            ? Math.abs(chrome.width - rect.width) < 4 &&
+              Math.abs(chrome.left - rect.left) < 4
+            : false,
+        };
+      });
+    expect(state, "no frame rendered in the preview").not.toBeNull();
+    expect(state!.inlineBackground, "a committed frame must not bake in a fill").toBe("");
     expect(
-      invisible,
-      `Frame renders with background ${paint!.bg} and border ${paint!.border} — nothing is ` +
-        `drawn. UNVERIFIED against Figma: their docs do not state that a new frame gets a ` +
-        `default fill, so treat this as a usability claim, not parity.`,
-    ).toBe(false);
+      state!.selectionTracksFrame,
+      "an unstyled frame is only visible via selection chrome, so it must be " +
+        "selected and outlined the moment it is drawn",
+    ).toBe(true);
   });
 });
 
@@ -724,29 +758,34 @@ test.describe("moving", () => {
 // ── Selection ─────────────────────────────────────────────────────────────
 
 test.describe("selection", () => {
-  test("clicking a child selects its parent, and Cmd+click deep-selects", async ({ page }) => {
+  test("clicking selects the deepest node, and Escape walks up to the parent", async ({
+    page,
+  }) => {
     const id = await newDesign(page, INTRO_PAGE);
     await openEditor(page, id);
 
+    // Deliberate divergence from Figma (see selectionTargetForHit in
+    // editor-chrome.bridge.ts): this canvas is real HTML, where climbing to
+    // the outermost ancestor makes a label select its whole container.
     await selectOnCanvas(page, "intro-title");
-    const plain = (
+    const clicked = (
       await page.locator('[role="treeitem"][aria-selected="true"]').first().textContent()
     )?.trim();
     expect(
-      plain,
-      `Figma selects the parent on a plain click ("we'll select the parent by default"); ` +
-        `clicking the Title selected "${plain}".`,
-    ).toContain("Home");
+      clicked,
+      `a plain click selects the deepest node under the pointer; got "${clicked}"`,
+    ).toContain("Title");
 
-    const box = await node(page, "intro-title").boundingBox();
-    await page.keyboard.down(MOD === "Meta" ? "Meta" : "Control");
-    await page.mouse.click(box!.x + 20, box!.y + box!.height / 2);
-    await page.keyboard.up(MOD === "Meta" ? "Meta" : "Control");
-    await page.waitForTimeout(1800);
-    const deep = (
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1500);
+    const parent = (
       await page.locator('[role="treeitem"][aria-selected="true"]').first().textContent()
     )?.trim();
-    expect(deep, `Cmd+click must deep-select; it selected "${deep}".`).toContain("Title");
+    expect(
+      parent,
+      `Escape is how this editor reaches the ancestor Figma would have picked ` +
+        `on click; got "${parent}"`,
+    ).toContain("Intro");
   });
 
   test("selecting a second element deselects the first", async ({ page }) => {

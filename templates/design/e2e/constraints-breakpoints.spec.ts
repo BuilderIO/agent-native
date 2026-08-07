@@ -30,12 +30,22 @@ const FIXTURE = `<!doctype html>
 
 let baseURL = "";
 
-async function postAction(page: Page, name: string, input: Record<string, unknown>) {
-  const res = await page.request.post(`${baseURL}/_agent-native/actions/${name}`, {
-    data: input,
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok()) throw new Error(`${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`);
+async function postAction(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+) {
+  const res = await page.request.post(
+    `${baseURL}/_agent-native/actions/${name}`,
+    {
+      data: input,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  if (!res.ok())
+    throw new Error(
+      `${name}: ${res.status()} ${(await res.text()).slice(0, 200)}`,
+    );
   return res.json();
 }
 
@@ -63,7 +73,10 @@ async function designRecord(page: Page, designId: string) {
 
 async function indexHtml(page: Page, designId: string): Promise<string> {
   const record = await designRecord(page, designId);
-  return (record.files ?? []).find((f: any) => f.filename === "index.html")?.content ?? "";
+  return (
+    (record.files ?? []).find((f: any) => f.filename === "index.html")
+      ?.content ?? ""
+  );
 }
 
 function toolbar(page: Page): Locator {
@@ -87,12 +100,23 @@ function node(page: Page, id: string): Locator {
 }
 
 async function openEditor(page: Page, designId: string): Promise<void> {
-  await page.goto(`${baseURL}/design/${designId}`, { waitUntil: "domcontentloaded" });
-  await toolbar(page).locator('button[aria-label="Move"]').waitFor({ timeout: 45_000 });
-  await page.locator("iframe[data-design-preview-iframe]").first().waitFor({ timeout: 30_000 });
+  await page.goto(`${baseURL}/design/${designId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await toolbar(page)
+    .locator('button[aria-label="Move"]')
+    .waitFor({ timeout: 45_000 });
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .first()
+    .waitFor({ timeout: 30_000 });
   await page.waitForTimeout(2500);
   for (let i = 0; i < 5; i += 1) {
-    await page.getByRole("button", { name: "Expand layer" }).first().click().catch(() => {});
+    await page
+      .getByRole("button", { name: "Expand layer" })
+      .first()
+      .click()
+      .catch(() => {});
     await page.waitForTimeout(250);
   }
   await page.waitForTimeout(500);
@@ -108,7 +132,10 @@ async function rendered(page: Page, id: string) {
 /** Resize the parent through the inspector, isolating constraints from the
  *  broken resize handles. */
 async function setWidth(page: Page, value: string): Promise<void> {
-  const input = page.getByText("W", { exact: true }).first().locator("xpath=following::input[1]");
+  const input = page
+    .getByText("W", { exact: true })
+    .first()
+    .locator("xpath=following::input[1]");
   await input.fill(value);
   await input.press("Enter");
   await page.waitForTimeout(2200);
@@ -137,13 +164,25 @@ test.describe("constraints (Figma parity)", () => {
     await openEditor(page, id);
     await layerRow(page, "Child").click();
     await page.waitForTimeout(1500);
-    expect(await openConstraints(page), "no Constraints control for a child of a frame").toBe(true);
+    expect(
+      await openConstraints(page),
+      "no Constraints control for a child of a frame",
+    ).toBe(true);
 
     const text = await page.evaluate(() => {
-      const heading = Array.from(document.querySelectorAll<HTMLElement>("*")).find(
-        (el) => el.children.length === 0 && (el.textContent ?? "").trim() === "Constraints",
+      const heading = Array.from(
+        document.querySelectorAll<HTMLElement>("*"),
+      ).find(
+        (el) =>
+          el.children.length === 0 &&
+          (el.textContent ?? "").trim() === "Constraints",
       );
-      return heading?.parentElement?.parentElement?.innerText?.replace(/\s+/g, " ") ?? "";
+      return (
+        heading?.parentElement?.parentElement?.innerText?.replace(
+          /\s+/g,
+          " ",
+        ) ?? ""
+      );
     });
     expect(
       text,
@@ -152,7 +191,9 @@ test.describe("constraints (Figma parity)", () => {
     expect(text).toMatch(/Top/i);
   });
 
-  test("a Left+Top child keeps its offset when the parent widens", async ({ page }) => {
+  test("a Left+Top child keeps its offset when the parent widens", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     const before = await rendered(page, "child");
@@ -176,7 +217,9 @@ test.describe("constraints (Figma parity)", () => {
     ).toBe(Math.round(before.left - parentBefore.left));
   });
 
-  test("a Scale-constrained child keeps its percentage of the parent width", async ({ page }) => {
+  test("a Scale-constrained child keeps its percentage of the parent width", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await layerRow(page, "Child").click();
@@ -184,9 +227,9 @@ test.describe("constraints (Figma parity)", () => {
     const opened = await openConstraints(page);
     test.skip(!opened, "no Constraints control to set Scale with");
 
-    const scaleOption = page.getByRole("option", { name: /Scale/i }).or(
-      page.getByRole("menuitem", { name: /Scale/i }),
-    );
+    const scaleOption = page
+      .getByRole("option", { name: /Scale/i })
+      .or(page.getByRole("menuitem", { name: /Scale/i }));
     const hasScale = await scaleOption.count();
     test.skip(hasScale === 0, "no Scale constraint option exposed");
     await scaleOption.first().click();
@@ -210,7 +253,9 @@ test.describe("constraints (Figma parity)", () => {
     ).toBeCloseTo(ratio, 2);
   });
 
-  test("constraints are not offered for a child of an auto-layout frame", async ({ page }) => {
+  test("constraints are not offered for a child of an auto-layout frame", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
     await layerRow(page, "Auto Child").click();
@@ -220,21 +265,26 @@ test.describe("constraints (Figma parity)", () => {
       `Figma: "It's not possible to apply constraints to layers ... in an auto layout frame."`,
     ).toBe(0);
   });
-
-  test.skip("constraints are not offered for a layer outside any frame", async () => {
-    // Figma's "outside of a frame" means the page canvas. In Design every
-    // screen element lives inside the screen frame, so the equivalent case is
-    // a board-level element — needs a board fixture, not a body child.
-  });
 });
 
 test.describe("breakpoints (Design's Framer model, not Figma)", () => {
-  test("add-breakpoint records the width in the design's breakpointSet", async ({ page }) => {
+  test("add-breakpoint records the width in the design's breakpointSet", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
-    await postAction(page, "add-breakpoint", { designId: id, label: "Tablet", widthPx: 810 });
+    await postAction(page, "add-breakpoint", {
+      designId: id,
+      label: "Tablet",
+      widthPx: 810,
+    });
     const record = await designRecord(page, id);
-    const data = typeof record.data === "string" ? JSON.parse(record.data || "{}") : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map((b: any) => b.widthPx);
+    const data =
+      typeof record.data === "string"
+        ? JSON.parse(record.data || "{}")
+        : (record.data ?? {});
+    const widths = (data.breakpointSet?.breakpoints ?? []).map(
+      (b: any) => b.widthPx,
+    );
     expect(
       widths,
       `skill: add-breakpoint "adds a device-width frame to designs.data.breakpointSet". ` +
@@ -244,21 +294,44 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
 
   test("a duplicate breakpoint width is ignored", async ({ page }) => {
     const id = await newDesign(page);
-    await postAction(page, "add-breakpoint", { designId: id, label: "Tablet", widthPx: 810 });
-    await postAction(page, "add-breakpoint", { designId: id, label: "Tablet", widthPx: 810 }).catch(() => {});
+    await postAction(page, "add-breakpoint", {
+      designId: id,
+      label: "Tablet",
+      widthPx: 810,
+    });
+    await postAction(page, "add-breakpoint", {
+      designId: id,
+      label: "Tablet",
+      widthPx: 810,
+    }).catch(() => {});
     const record = await designRecord(page, id);
-    const data = typeof record.data === "string" ? JSON.parse(record.data || "{}") : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map((b: any) => b.widthPx);
+    const data =
+      typeof record.data === "string"
+        ? JSON.parse(record.data || "{}")
+        : (record.data ?? {});
+    const widths = (data.breakpointSet?.breakpoints ?? []).map(
+      (b: any) => b.widthPx,
+    );
     expect(
       widths.filter((w: number) => w === 810).length,
       `skill: "Duplicate widths are ignored". Got ${JSON.stringify(widths)}.`,
     ).toBe(1);
   });
 
-  test("an edit at a narrower breakpoint scopes to next-wider minus one", async ({ page }) => {
+  test("an edit at a narrower breakpoint scopes to next-wider minus one", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
-    await postAction(page, "add-breakpoint", { designId: id, label: "Tablet", widthPx: 810 });
-    await postAction(page, "add-breakpoint", { designId: id, label: "Phone", widthPx: 390 });
+    await postAction(page, "add-breakpoint", {
+      designId: id,
+      label: "Tablet",
+      widthPx: 810,
+    });
+    await postAction(page, "add-breakpoint", {
+      designId: id,
+      label: "Phone",
+      widthPx: 390,
+    });
     await postAction(page, "apply-visual-edit", {
       source: { kind: "design-file", designId: id, filename: "index.html" },
       intent: {
@@ -282,11 +355,18 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
     ).toContain(809);
   });
 
-  test("the default device set is a desktop base plus mobile only", async ({ page }) => {
+  test("the default device set is a desktop base plus mobile only", async ({
+    page,
+  }) => {
     const id = await newDesign(page);
     const record = await designRecord(page, id);
-    const data = typeof record.data === "string" ? JSON.parse(record.data || "{}") : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map((b: any) => b.widthPx);
+    const data =
+      typeof record.data === "string"
+        ? JSON.parse(record.data || "{}")
+        : (record.data ?? {});
+    const widths = (data.breakpointSet?.breakpoints ?? []).map(
+      (b: any) => b.widthPx,
+    );
     test.skip(
       widths.length === 0,
       "create-design injects no breakpointSet; the documented default applies to generate-design",

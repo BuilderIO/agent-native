@@ -36,7 +36,9 @@ async function postAction(
     { data: input, headers: { "Content-Type": "application/json" } },
   );
   if (!res.ok())
-    throw new Error(`${name}: ${res.status()} ${(await res.text()).slice(0, 300)}`);
+    throw new Error(
+      `${name}: ${res.status()} ${(await res.text()).slice(0, 300)}`,
+    );
   return res.json();
 }
 
@@ -74,7 +76,7 @@ function openTag(html: string, nodeId: string): string {
   return html.slice(start, html.indexOf(">", at) + 1);
 }
 
-test.beforeAll(async ({ }, testInfo) => {
+test.beforeAll(async ({}, testInfo) => {
   baseURL =
     (testInfo.project.use as { baseURL?: string }).baseURL ??
     process.env.E2E_BASE_URL ??
@@ -135,9 +137,11 @@ test.describe("promoting to a component", () => {
       nodeId: "btn-a",
       name: "PrimaryButton",
     });
-    const listed = await postAction(page, "list-design-components", {
-      designId: id,
-    });
+    const listed = await page.request
+      .get(
+        `${baseURL}/_agent-native/actions/list-design-components?designId=${id}`,
+      )
+      .then((r) => r.json());
     const names = JSON.stringify(listed);
     expect(
       names,

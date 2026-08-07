@@ -3788,10 +3788,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (isOverlayElement(target)) continue;
         if (isLayerInteractionBlocked(target)) {
           lastEditorPointWasBlocked = true;
+          dndLog("select:blocked", { el: getSelector(target) });
           return null;
         }
         return target;
       }
+      dndLog("select:nothing-at-point", { x: clientX, y: clientY });
       return null;
     }
     function stopNativeInteraction(e) {

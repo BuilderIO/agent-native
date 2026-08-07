@@ -239,6 +239,7 @@ import type {
   IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
+import { trace } from "@/components/design/design-trace";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import {
@@ -2607,6 +2608,11 @@ function DesignEditor() {
   useEffect(() => {
     hasActiveSelectionRef.current =
       selectedElement !== null || selectedLayerIdsState.length > 0;
+    trace("select", "selection-changed", {
+      layers: selectedLayerIdsState,
+      element: selectedElement?.selector ?? null,
+      hasSelection: hasActiveSelectionRef.current,
+    });
   }, [selectedElement, selectedLayerIdsState]);
   // Tracks the nodeId of the most recently created TEXT primitive across one
   // handleCreatePrimitive → handlePrimitiveCreated round-trip. Cleared after
@@ -10189,6 +10195,15 @@ function DesignEditor() {
         clipboardMutation?: ClipboardContentMutationPublication;
       } = {},
     ) => {
+      trace("persist", "write-file", {
+        file: activeFile?.filename ?? null,
+        bytes: nextContent.length,
+        blocked: !activeFile
+          ? "no active file"
+          : !canEditDesignRef.current
+            ? "read-only design"
+            : null,
+      });
       if (!activeFile || !canEditDesignRef.current) return;
       const shouldRecordHistory =
         options.recordHistory !== false && !options.updatedAt;
@@ -13491,6 +13506,10 @@ function DesignEditor() {
         originalStyles?: Record<string, string>;
       } = {},
     ) => {
+      trace("persist", "commit-styles", {
+        selector: typeof selector === "string" ? selector : null,
+        props: Object.keys(styles ?? {}),
+      });
       if (!activeFile || !canEditDesign) return;
       // Cross-pipeline write race guard (see GlslShaderPanel.tsx's module doc
       // comment on withShaderWriteLock/waitForShaderWriteToSettle): a shader
@@ -17195,6 +17214,10 @@ function DesignEditor() {
   ]);
 
   const handleDuplicateSelection = useCallback(() => {
+    trace("structure", "duplicate-selection", {
+      canEdit: canEditDesign,
+      selectedLayers: selectedLayerIdsState.length,
+    });
     if (!canEditDesign) return;
     // U19: duplicate is a discrete one-shot action — see the matching note
     // in handlePasteSelection.
@@ -17383,6 +17406,7 @@ function DesignEditor() {
   ]);
 
   const handleDeleteSelection = useCallback(() => {
+    trace("structure", "delete", { layers: selectedLayerIdsState.length });
     if (!canEditDesign) return;
     // U19: delete is a discrete one-shot action — see the matching note in
     // handlePasteSelection.
@@ -18036,6 +18060,7 @@ function DesignEditor() {
 
   // Wrap the current multi-layer selection into a new group container.
   const handleGroupSelection = useCallback(() => {
+    trace("structure", "group", { layers: selectedLayerIdsState.length });
     if (!canEditDesign || !activeFile) return;
     const selectedRuntimeLayerIds = selectedLayerIdsState.filter(
       (layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId)?.runtimeOnly,
@@ -18361,6 +18386,7 @@ function DesignEditor() {
   // useDesignHotkeys' Alt+A/D/W/S/H/V bindings.
   const handleAlignSelection = useCallback(
     (edge: DesignHotkeyAlignEdge) => {
+      trace("structure", "align", { layers: selectedLayerIdsState.length });
       if (!canEditDesign) return;
 
       // Overview, 2+ selected SCREENS: align each screen's frame geometry to
@@ -18928,6 +18954,10 @@ function DesignEditor() {
   //      multiple screens remain unsupported because screens cannot safely be
   //      nested without a first-class screen-container model.
   const handleAddAutoLayout = useCallback(() => {
+    trace("structure", "add-auto-layout", {
+      layers: selectedLayerIdsState.length,
+      view: viewModeRef.current,
+    });
     if (!canEditDesign) return;
 
     // Overview handles whole screens; a layer selection must still reach the
@@ -19267,6 +19297,7 @@ function DesignEditor() {
   // Figma does: ungrouping leaves the former children selected so the user
   // can immediately keep working with them.
   const handleUngroupSelection = useCallback(() => {
+    trace("structure", "ungroup", { layers: selectedLayerIdsState.length });
     if (!canEditDesign || !activeFile) return;
     const selectedRuntimeLayerIds = selectedLayerIdsState.filter(
       (layerId) => codeLayerOwnerByNodeIdRef.current.get(layerId)?.runtimeOnly,
@@ -19712,6 +19743,19 @@ function DesignEditor() {
         targetScreenId,
         targetAnchorPlacement,
         targetDropMode,
+      });
+      trace("drop", "cross-screen-persist", {
+        from: sourceScreenId,
+        to: targetScreenId,
+        mode: targetDropMode,
+        placement: targetAnchorPlacement,
+        anchor: targetAnchorNodeId ?? targetAnchorSelector ?? null,
+        node: sourceNodeId ?? sourceSelector,
+        blocked: !canEditDesign
+          ? "read-only design"
+          : sourceScreenId === targetScreenId
+            ? "same screen — nothing to move"
+            : null,
       });
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
@@ -20905,6 +20949,7 @@ function DesignEditor() {
 
   const handleNudgeSelection = useCallback(
     (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
+      trace("structure", "nudge", { direction, largeStep });
       if (!canEditDesign) return;
       const nudgeAmounts = editorPreferences.nudge;
       const freeTranslation = resolveNudgeIntent({
@@ -21042,6 +21087,7 @@ function DesignEditor() {
   // but undo/redo transactions use the UndoManager as origin so we must also
   // advance lastLocalContentRef and trigger the debounced save here.
   const handleUndo = useCallback(() => {
+    trace("history", "undo", {});
     if (!canEditDesign) return;
     // U10: an in-progress drag hasn't been committed yet (onGeometryCommit /
     // the content update fires on drag END), so undoing mid-drag would pop a
@@ -21711,6 +21757,7 @@ function DesignEditor() {
   ]);
 
   const handleRedo = useCallback(() => {
+    trace("history", "redo", {});
     if (!canEditDesign) return;
     // U10: see the matching guard in handleUndo — don't redo into a document
     // state an in-progress, uncommitted drag is about to overwrite anyway.
@@ -22488,6 +22535,7 @@ function DesignEditor() {
   ]);
 
   const handleZoomIn = useCallback(() => {
+    trace("tool", "zoom-in", {});
     setZoom((z) => getNextZoomStepUp(z));
   }, [setZoom]);
 
