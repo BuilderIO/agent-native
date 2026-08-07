@@ -54,10 +54,9 @@ describe("sync_events prune", () => {
     vi.restoreAllMocks();
   });
 
-  // The old statement was `DELETE FROM sync_events WHERE created_at < ?`.
-  // Only `version` is indexed, so that planned as a sequential scan over the
-  // whole table — 47 GB on one production app.
-  it("prunes by the indexed version column, oldest first, in bounded batches", async () => {
+  // The retention timestamp is indexed additively, so this stays an indexed
+  // range scan without treating the monotonic version cursor as wall time.
+  it("prunes by the indexed retention timestamp, oldest first, in bounded batches", async () => {
     const db = makeDb({ deletedPerBatch: [10_000, 3] });
     await stateWith(db).persistSyncEvent({
       version: 1,
@@ -68,9 +67,9 @@ describe("sync_events prune", () => {
 
     expect(db.deletes).toHaveLength(2);
     const [first] = db.deletes;
-    expect(first.sql).toContain("version < ?");
-    expect(first.sql).toContain("ORDER BY version");
-    expect(first.sql).not.toContain("created_at <");
+    expect(first.sql).toContain("created_at < ?");
+    expect(first.sql).toContain("ORDER BY created_at, id");
+    expect(first.sql).not.toContain("version <");
     // Bounded: a LIMIT argument, and a cutoff 24h behind the clock.
     expect(first.args).toEqual([1_800_000_000_000 - 86_400_000, 10_000]);
   });
@@ -95,7 +94,7 @@ describe("sync_events prune", () => {
       type: "change",
       key: "k",
     });
-    expect(db.deletes).toHaveLength(20);
+    expect(db.deletes).toHaveLength(40);
   });
 
   // The previous `.catch(() => {})` is why a table could reach 47 GB with

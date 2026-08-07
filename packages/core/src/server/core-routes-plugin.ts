@@ -517,6 +517,7 @@ export async function runDbHealthProbe(
 ): Promise<DbHealthProbeResult> {
   const startedAt = Date.now();
   let db = false;
+  let trivialQueryMs: number | undefined;
   let schema: DatabaseSchemaHealthResult | undefined;
   const dbExec = exec();
   let dbTimedOut = false;
@@ -534,8 +535,10 @@ export async function runDbHealthProbe(
       );
     });
     try {
+      const trivialQueryStartedAt = Date.now();
       await Promise.race([dbExec.execute("SELECT 1"), deadline]);
       db = true;
+      trivialQueryMs = Date.now() - trivialQueryStartedAt;
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -554,7 +557,7 @@ export async function runDbHealthProbe(
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
-      ? await probeDbPressure(dbExec, database.dialect)
+      ? await probeDbPressure(dbExec, database.dialect, { trivialQueryMs })
       : { measured: false, reason: "database unreachable" };
   }
   return {

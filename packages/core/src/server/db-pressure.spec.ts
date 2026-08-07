@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  DB_PRESSURE_SQL,
   MAX_IDLE_TXN_AGE_S,
   MAX_SAME_QUERY_CONCURRENCY,
   MAX_TRIVIAL_QUERY_MS,
@@ -60,6 +61,26 @@ describe("probeDbPressure", () => {
       "postgres",
     );
     expect(result).toMatchObject({ measured: true, connections: 8 });
+  });
+
+  it("excludes the probe connection from both activity scans", () => {
+    expect(DB_PRESSURE_SQL.match(/pid <> pg_backend_pid\(\)/g)).toHaveLength(2);
+  });
+
+  it("uses the liveness query duration instead of the pressure query duration", async () => {
+    const queries: string[] = [];
+    const result = await probeDbPressure(
+      {
+        execute: async (sql) => {
+          queries.push(sql);
+          return { rows: [row] };
+        },
+      },
+      "postgres",
+      { trivialQueryMs: 128 },
+    );
+    expect(queries).toEqual([DB_PRESSURE_SQL]);
+    expect(result).toMatchObject({ measured: true, trivialQueryMs: 128 });
   });
 
   it("accepts string counters from drivers that widen bigints", async () => {

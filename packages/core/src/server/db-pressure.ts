@@ -63,7 +63,10 @@ SELECT
   coalesce((
     SELECT max(c) FROM (
       SELECT count(*)::int AS c FROM pg_stat_activity
-      WHERE state = 'active' AND query <> '' GROUP BY left(query, 60)
+      WHERE pid <> pg_backend_pid()
+        AND state = 'active'
+        AND query <> ''
+      GROUP BY left(query, 60)
     ) q
   ), 0)::int AS max_same_query
 FROM pg_stat_activity
@@ -109,6 +112,7 @@ function readCount(row: Record<string, unknown>, key: string): number | null {
 export async function probeDbPressure(
   exec: { execute: (sql: string) => Promise<unknown> },
   dialect: string,
+  options: { trivialQueryMs?: number } = {},
 ): Promise<DbPressure> {
   if (dialect !== "postgres") {
     return {
@@ -117,8 +121,9 @@ export async function probeDbPressure(
     };
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const startedAt = Date.now();
   try {
+    const trivialQueryMs =
+      options.trivialQueryMs ?? (await measureTrivialQuery(exec));
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(
         () => reject(new Error("pressure probe deadline")),
@@ -129,7 +134,6 @@ export async function probeDbPressure(
       exec.execute(DB_PRESSURE_SQL),
       deadline,
     ])) as { rows?: unknown[] } | undefined;
-    const trivialQueryMs = Date.now() - startedAt;
     const row = result?.rows?.[0] as Record<string, unknown> | undefined;
     if (!row) {
       return { measured: false, reason: "pressure query returned no rows" };
@@ -157,6 +161,25 @@ export async function probeDbPressure(
       measured: false,
       reason: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function measureTrivialQuery(exec: {
+  execute: (sql: string) => Promise<unknown>;
+}): Promise<number> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
+  try {
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("trivial query deadline")),
+        PRESSURE_PROBE_DEADLINE_MS,
+      );
+    });
+    await Promise.race([exec.execute("SELECT 1"), deadline]);
+    return Date.now() - startedAt;
   } finally {
     if (timer) clearTimeout(timer);
   }
