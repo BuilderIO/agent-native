@@ -957,6 +957,19 @@ h4 {
   background: transparent;
   border-color: currentColor;
 }
+/* white and white-destructive pick their text color assuming the badge's own
+   fixed white fill. Stroking clears that fill, so the page background shows
+   through instead — fall back to the theme-aware text used elsewhere for the
+   same purpose, or dark-theme stroke leaves near-black-on-black/white-on-white
+   text with no fill to provide contrast. */
+.docs-badge[data-color="white"][data-stroke="true"] {
+  color: var(--fg);
+  border-color: var(--docs-border);
+}
+.docs-badge[data-color="white-destructive"][data-stroke="true"] {
+  color: var(--docs-badge-red-text);
+  border-color: currentColor;
+}
 
 .docs-badge[data-disabled="true"] {
   opacity: 0.45;

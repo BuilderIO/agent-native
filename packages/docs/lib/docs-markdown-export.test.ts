@@ -204,6 +204,38 @@ describe("docsBodyToMarkdownMirror", () => {
     expect(mirror.match(/Wrapping `<AgentSidebar \/>`/g)?.length).toBe(4);
   });
 
+  it("protects JSX-looking titles that carry attributes, including linked Cards headings", () => {
+    const markdown = [
+      "<Cards>",
+      "",
+      '### [Wrapping <AgentSidebar mode="compact" />](/docs/agent-sidebar)',
+      "",
+      "Body.",
+      "",
+      "</Cards>",
+      "",
+      "<Accordion>",
+      "",
+      '### Wrapping <AgentSidebar mode="compact" />',
+      "",
+      "Body.",
+      "",
+      "</Accordion>",
+    ].join("\n");
+
+    const mirror = docsBodyToMarkdownMirror(markdown);
+
+    const unescaped =
+      mirror.match(/(?<!`)<AgentSidebar mode="compact" \/>/g) ?? [];
+    expect(unescaped).toEqual([]);
+    expect(mirror).toContain(
+      '[Wrapping `<AgentSidebar mode="compact" />`](/docs/agent-sidebar)',
+    );
+    expect(
+      mirror.match(/Wrapping `<AgentSidebar mode="compact" \/>`/g)?.length,
+    ).toBe(2);
+  });
+
   it("lowers Diagram MDX child fences to crawlable markdown", () => {
     const markdown = [
       '<Diagram title="Lifecycle" caption="Runtime lifecycle">',

@@ -34,15 +34,19 @@ function fenced(language: string, code: unknown): string {
   return [`\`\`\`${language}`, String(code ?? "").trimEnd(), "```"].join("\n");
 }
 
+const JSX_ATTR =
+  /\s+[a-zA-Z_][a-zA-Z0-9_-]*(?:=(?:"[^"]*"|'[^']*'|\{[^{}]*\}))?/;
+const JSX_TAG = new RegExp(
+  `<\\/?[A-Z][A-Za-z0-9.]*(?:${JSX_ATTR.source})*\\s*\\/?>`,
+  "g",
+);
+
 function protectInlineJsx(value: string): string {
-  return value.replace(
-    /<\/?[A-Z][A-Za-z0-9.]*\s*\/?>/g,
-    (match, offset, source: string) => {
-      const before = source[offset - 1];
-      const after = source[offset + match.length];
-      return before === "`" && after === "`" ? match : `\`${match}\``;
-    },
-  );
+  return value.replace(JSX_TAG, (match, offset, source: string) => {
+    const before = source[offset - 1];
+    const after = source[offset + match.length];
+    return before === "`" && after === "`" ? match : `\`${match}\``;
+  });
 }
 
 function headingForBlock(segment: BlockSegment, fallback: string): string[] {
