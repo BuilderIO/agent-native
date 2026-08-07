@@ -330,6 +330,38 @@ async function parseMasterGrid(args: {
     lineWidthEmu,
   };
 }
+/** Resolves a slide master's color-alias mapping plus its title/body default text-color fills (from p:txStyles), so placeholder text without its own explicit color can inherit the right one. */
+async function parseMasterColorInfo(args: {
+  zip: ZipArchive;
+  target: string;
+  parseXml: (xml: string) => unknown;
+}): Promise<{
+  clrMap: Record<string, string>;
+  titleFill: Record<string, unknown> | null;
+  bodyFill: Record<string, unknown> | null;
+}> {
+  const empty = { clrMap: {}, titleFill: null, bodyFill: null };
+  const path = args.target.startsWith("/")
+    ? args.target.slice(1)
+    : "ppt/" + args.target.replace(/^\.\.\//, "");
+  const xml = await args.zip.file(path)?.async("string");
+  if (!xml) return empty;
+  const root = record(record(args.parseXml(xml))?.["p:sldMaster"]);
+  if (!root) return empty;
+  const clrMap = parseClrMapNode(record(root["p:clrMap"]));
+  const txStyles = record(root["p:txStyles"]);
+  const titleDefRPr = record(
+    record(record(txStyles?.["p:titleStyle"])?.["a:lvl1pPr"])?.["a:defRPr"],
+  );
+  const bodyDefRPr = record(
+    record(record(txStyles?.["p:bodyStyle"])?.["a:lvl1pPr"])?.["a:defRPr"],
+  );
+  return {
+    clrMap,
+    titleFill: record(titleDefRPr?.["a:solidFill"]),
+    bodyFill: record(bodyDefRPr?.["a:solidFill"]),
+  };
+}
 
 interface ParsedShapeTransform {
   x: number;
@@ -471,9 +503,16 @@ async function parseShapeFragment(
     record(record(record(node["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"])?.["@_type"],
   );
   const shapeProperties = record(node["p:spPr"]);
-  const text = parseTextBody(node);
-  const fill = parseShapeFill(shapeProperties);
-  const line = parseShapeLine(shapeProperties);
+  const rawText = parseTextBody(node, args.colorContext);
+  const placeholderDefaultColor =
+    placeholderType === "title" || placeholderType === "ctrTitle"
+      ? args.placeholderDefaults?.title
+      : placeholderType
+        ? args.placeholderDefaults?.body
+        : undefined;
+  const text = applyPlaceholderDefaultColor(rawText, placeholderDefaultColor);
+  const fill = parseShapeFill(shapeProperties, args.colorContext);
+  const line = parseShapeLine(shapeProperties, args.colorContext);
   const shapeType = stringValue(
     record(shapeProperties?.["a:prstGeom"])?.["@_prst"],
   );
@@ -664,7 +703,10 @@ function applyTransform(
   };
 }
 
-function parseTextBody(node: Record<string, unknown>): ParsedPptxParagraph[] {
+function parseTextBody(
+  node: Record<string, unknown>,
+  context?: ColorContext,
+): ParsedPptxParagraph[] {
   const txBody = record(node["p:txBody"]);
   if (!txBody) return [];
   return asArray(txBody["a:p"]).map((rawParagraph) => {
@@ -677,7 +719,7 @@ function parseTextBody(node: Record<string, unknown>): ParsedPptxParagraph[] {
       if (content) {
         runs.push({
           content,
-          ...runProperties(record(run?.["a:rPr"]), {}),
+          ...runProperties(record(run?.["a:rPr"]), {}, context),
         });
       }
     }
@@ -687,12 +729,12 @@ function parseTextBody(node: Record<string, unknown>): ParsedPptxParagraph[] {
       if (content) {
         runs.push({
           content,
-          ...runProperties(record(field?.["a:rPr"]), {}),
+          ...runProperties(record(field?.["a:rPr"]), {}, context),
         });
       }
     }
     const bullet = record(pPr?.["a:buChar"]);
-    const bulletColor = parseColor(record(pPr?.["a:buClr"]));
+    const bulletColor = parseColor(record(pPr?.["a:buClr"]), context);
     const bulletFont = stringValue(record(pPr?.["a:buFont"])?.["@_typeface"]);
     const bulletSize = Number(record(pPr?.["a:buSzPts"])?.["@_val"]);
     const lineSpacing = parseParagraphSpacing(pPr?.["a:lnSpc"]);
@@ -749,18 +791,20 @@ function parseTextBoxProperties(
 
 function parseShapeFill(
   shapeProperties: Record<string, unknown> | null,
+  context?: ColorContext,
 ): string | undefined {
   if (!shapeProperties) return undefined;
   if (shapeProperties["a:noFill"] !== undefined) return undefined;
-  return parseColor(record(shapeProperties["a:solidFill"]));
+  return parseColor(record(shapeProperties["a:solidFill"]), context);
 }
 
 function parseShapeLine(
   shapeProperties: Record<string, unknown> | null,
+  context?: ColorContext,
 ): { color: string; width?: number } | undefined {
   const line = record(shapeProperties?.["a:ln"]);
   if (!line || line["a:noFill"] !== undefined) return undefined;
-  const color = parseColor(record(line["a:solidFill"]));
+  const color = parseColor(record(line["a:solidFill"]), context);
   if (!color) return undefined;
   const width = Number(line["@_w"]);
   return {
@@ -769,12 +813,74 @@ function parseShapeLine(
   };
 }
 
-function parseColor(value: Record<string, unknown> | null): string | undefined {
+/**
+ * A slide's `schemeClr` references (`tx1`, `bg1`, `accent2`, ...) only mean
+ * something once resolved against the presentation's actual theme palette
+ * and the active `bg1`/`tx1`-style alias mapping — without this, every
+ * scheme-referenced color (which is how most professionally authored decks
+ * set placeholder text color, rather than a literal `srgbClr`) was
+ * unresolvable and silently dropped.
+ */
+interface ColorContext {
+  themeColorsByName: Record<string, string>;
+  clrMap: Record<string, string>;
+}
+
+/** PowerPoint's default `bg1`/`tx1`-style alias mapping, used whenever a master doesn't declare its own `<p:clrMap>`. */
+const IDENTITY_CLR_MAP: Record<string, string> = {
+  bg1: "lt1",
+  tx1: "dk1",
+  bg2: "lt2",
+  tx2: "dk2",
+  accent1: "accent1",
+  accent2: "accent2",
+  accent3: "accent3",
+  accent4: "accent4",
+  accent5: "accent5",
+  accent6: "accent6",
+  hlink: "hlink",
+  folHlink: "folHlink",
+};
+
+const CLR_MAP_ALIASES = Object.keys(IDENTITY_CLR_MAP);
+
+/** Reads a `<p:clrMap .../>` or `<a:overrideClrMapping .../>` node's alias attributes into an alias→theme-slot map. */
+function parseClrMapNode(
+  node: Record<string, unknown> | null,
+): Record<string, string> {
+  const map: Record<string, string> = {};
+  if (!node) return map;
+  for (const alias of CLR_MAP_ALIASES) {
+    const target = stringValue(node[`@_${alias}`]);
+    if (target) map[alias] = target;
+  }
+  return map;
+}
+
+function resolveSchemeColorName(
+  name: string,
+  context: ColorContext | undefined,
+): string | undefined {
+  if (!context) return undefined;
+  const slot = context.clrMap[name] ?? IDENTITY_CLR_MAP[name] ?? name;
+  return context.themeColorsByName[slot];
+}
+
+function parseColor(
+  value: Record<string, unknown> | null,
+  context?: ColorContext,
+): string | undefined {
   if (!value) return undefined;
   const rgb = stringValue(record(value["a:srgbClr"])?.["@_val"]);
   if (rgb) return `#${rgb}`;
   const scheme = stringValue(record(value["a:schemeClr"])?.["@_val"]);
   if (!scheme) return undefined;
+  const resolved = resolveSchemeColorName(scheme, context);
+  if (resolved) return resolved;
+  // No theme/clrMap available for this slot (or the theme didn't define
+  // it) — fall back to a coarse dark/light guess along the standard
+  // identity mapping, so tx1/dk1/bg1/lt1 text stays visible rather than
+  // silently vanishing.
   const pptxDarkColor = "#000000"; // guard:allow-raw-color - PPTX dark scheme fallback
   const pptxLightColor = "#ffffff"; // guard:allow-raw-color - PPTX light scheme fallback
   const fallback: Record<string, string> = {
@@ -782,6 +888,10 @@ function parseColor(value: Record<string, unknown> | null): string | undefined {
     dk2: pptxDarkColor,
     lt1: pptxLightColor,
     lt2: pptxLightColor,
+    tx1: pptxDarkColor,
+    tx2: pptxDarkColor,
+    bg1: pptxLightColor,
+    bg2: pptxLightColor,
   };
   return fallback[scheme];
 }
@@ -923,22 +1033,33 @@ export function parsePptxSlideMetadata(
   };
 }
 
+interface ThemeInfo {
+  colors: string[];
+  colorsByName: Record<string, string>;
+  fonts: string[];
+}
+
 async function parseTheme(
   zip: ZipArchive,
   parseXml: (xml: string) => unknown,
-): Promise<ParsedPptxPresentation["theme"]> {
+): Promise<ThemeInfo> {
   const xml = await zip.file("ppt/theme/theme1.xml")?.async("string");
-  if (!xml) return undefined;
+  if (!xml) return { colors: [], colorsByName: {}, fonts: [] };
   const root = record(parseXml(xml));
   const elements = record(record(root?.["a:theme"])?.["a:themeElements"]);
   const scheme = record(elements?.["a:clrScheme"]);
   const colors: string[] = [];
+  const colorsByName: Record<string, string> = {};
   for (const [key, value] of Object.entries(scheme ?? {})) {
     if (key.startsWith("@_")) continue;
     const color = record(value);
     const rgb = stringValue(record(color?.["a:srgbClr"])?.["@_val"]);
     const system = stringValue(record(color?.["a:sysClr"])?.["@_lastClr"]);
-    if (rgb || system) colors.push(`#${rgb ?? system}`);
+    if (!rgb && !system) continue;
+    const hex = `#${rgb ?? system}`;
+    colors.push(hex);
+    const slotName = key.replace(/^a:/, "");
+    colorsByName[slotName] = hex;
   }
   const fontScheme = record(elements?.["a:fontScheme"]);
   const fonts = ["a:majorFont", "a:minorFont"].flatMap((key) => {
@@ -947,7 +1068,7 @@ async function parseTheme(
     );
     return value ? [value] : [];
   });
-  return colors.length || fonts.length ? { colors, fonts } : undefined;
+  return { colors, colorsByName, fonts };
 }
 
 function collectTextRuns(
@@ -1054,9 +1175,7 @@ function runProperties(
 ): Omit<ParsedPptxTextRun, "content"> {
   if (!value) return inherited;
   const size = Number(value["@_sz"]);
-  const rgb = stringValue(
-    record(record(value["a:solidFill"])?.["a:srgbClr"])?.["@_val"],
-  );
+  const color = parseColor(record(value["a:solidFill"]), context);
   const fontFamily =
     stringValue(record(value["a:latin"])?.["@_typeface"]) ??
     stringValue(record(value["a:ea"])?.["@_typeface"]) ??
@@ -1070,7 +1189,7 @@ function runProperties(
       ? { italic: true }
       : {}),
     ...(Number.isFinite(size) && size > 0 ? { fontSize: size / 100 } : {}),
-    ...(rgb ? { color: `#${rgb}` } : {}),
+    ...(color ? { color } : {}),
     ...(fontFamily ? { fontFamily } : {}),
     ...(value["@_u"] && value["@_u"] !== "none" ? { underline: true } : {}),
   };
