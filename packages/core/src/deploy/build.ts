@@ -38,6 +38,7 @@ import {
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
 } from "../integrations/integration-durable-dispatch-config.js";
+import { isValidCron } from "../jobs/cron.js";
 import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
@@ -2810,10 +2811,13 @@ export function resolveKeepWarmSchedule(): string {
   const raw = process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE?.trim();
   if (!raw) return DEFAULT_KEEP_WARM_SCHEDULE;
   const fields = raw.split(/\s+/);
-  if (fields.length !== 5) {
+  // The field count is checked separately from the field values because
+  // `isValidCron` also accepts 6-field (seconds) and `@daily` forms that
+  // Netlify's scheduler does not; "5 fields" is the narrower contract.
+  if (fields.length !== 5 || !isValidCron(raw)) {
     throw new Error(
       `AGENT_NATIVE_KEEP_WARM_SCHEDULE must be a 5-field cron expression ` +
-        `(minute hour day month weekday); got ${fields.length} field(s): "${raw}". ` +
+        `(minute hour day month weekday); got "${raw}" (${fields.length} field(s)). ` +
         `Example: "*/5 * * * *" for every five minutes.`,
     );
   }

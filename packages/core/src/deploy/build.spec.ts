@@ -2099,6 +2099,35 @@ describe("durable-background Netlify function emit (single-template, default-on)
       expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
     });
 
+    it("THROWS on a 5-token value whose fields are not cron fields", () => {
+      // Counting tokens is not parsing them: "not a cron expression here" is
+      // five whitespace-separated words and would otherwise ship to Netlify as
+      // a schedule, which is the same silent-wrong-cadence failure above.
+      for (const bad of [
+        "not a cron expression here",
+        "*/0 * * * *",
+        "60 * * * *",
+        "* * * * 9",
+      ]) {
+        process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = bad;
+        expect(() => resolveKeepWarmSchedule()).toThrow(
+          /must be a 5-field cron expression/,
+        );
+      }
+    });
+
+    it("accepts the cron syntax operators an operator would actually reach for", () => {
+      for (const good of [
+        "*/5 * * * *",
+        "0 */6 * * *",
+        "15,45 3 * * 1-5",
+        "0 0 1 JAN *",
+      ]) {
+        process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = good;
+        expect(resolveKeepWarmSchedule()).toBe(good);
+      }
+    });
+
     it("drops the background warm independently of the server warm", () => {
       // Warming `server` is one health request; warming `-background` is a
       // fresh container that pays the whole schema-probe fan-out.

@@ -113,6 +113,12 @@ export async function cachedMemberships<T>(
  * request memo leaves the process cache serving the pre-write answer for the
  * rest of the TTL — the user joins an org and the app keeps insisting they
  * haven't.
+ *
+ * "Membership write" is wider than `INSERT`/`DELETE org_members`: the cached
+ * rows are a JOIN, so `org_members.role` and the `organizations.name` /
+ * `organizations.allowed_domain` columns it selects are cached too. Demoting an
+ * admin, renaming an org, or turning domain-join on without calling this keeps
+ * the pre-write answer authorizing and rendering requests until the TTL lapses.
  */
 export function invalidateMemberOrgCaches(): void {
   cacheForRequest(false)?.clear();

@@ -671,6 +671,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
       args: [role, ctx.orgId, memberEmailLower],
     });
+    invalidateMemberOrgCaches();
 
     return { email: memberEmailLower, role };
   },
@@ -703,6 +704,9 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET name = ? WHERE id = ?`,
     args: [name, ctx.orgId],
   });
+  // `orgName` is joined into the cached membership rows, so a rename that skips
+  // this leaves every member's org context showing the old name for the TTL.
+  invalidateMemberOrgCaches();
 
   return { orgId: ctx.orgId, name };
 });
@@ -980,6 +984,9 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
   // the negative cache keeps every account at that domain out of it for the
   // rest of the TTL, right after an owner deliberately turned domain-join on.
   invalidateDomainMatchCache();
+  // `allowedDomain` is joined into the cached membership rows too, and existing
+  // members read it to decide whether a domain auto-join is still needed.
+  invalidateMemberOrgCaches();
 
   return { domain: raw };
 });
