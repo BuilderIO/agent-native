@@ -1,7 +1,8 @@
-import { IconExternalLink, IconLoader2 } from "@tabler/icons-react";
+import { IconCode, IconExternalLink, IconLoader2 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
+import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath } from "./api-path.js";
 import { BuilderBMark } from "./builder-mark.js";
 import { getCallbackOrigin } from "./frame.js";
@@ -13,28 +14,28 @@ const CODE_CHANGE_FALLBACK_DETAIL =
   "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.";
 const CODE_CHANGE_FALLBACK_TEXT = `This requires a code change. ${CODE_CHANGE_FALLBACK_DETAIL}`;
 
-function isLocalBrowserOutsideDesktop() {
-  if (typeof window === "undefined" || typeof navigator === "undefined") {
+function isLocalDevelopment() {
+  if (typeof window === "undefined") {
     return false;
   }
   const hostname = window.location.hostname;
-  const local =
-    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-  return local && !/AgentNativeDesktop/i.test(navigator.userAgent || "");
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  );
 }
 
 export interface ConnectBuilderCardProps {
   configured: boolean;
   /**
    * True when the server has a Builder branch project configured for this
-   * request. When false, the card shows a waitlist CTA instead of a Send
-   * button — the /builder/run endpoint would 403 anyway.
+   * request. When false, the card shows a hosted waitlist CTA or a local code
+   * agent handoff instead of a Send button.
    */
   builderEnabled?: boolean;
   connectUrl: string;
   orgName?: string | null;
-  /** The user's feature/change request, forwarded to Builder's cloud agent
-   *  when they click Send. Empty for generic "connect Builder" prompts. */
+  /** The user's feature/change request, forwarded to the selected coding
+   *  agent when they click Send. Empty for generic "connect Builder" prompts. */
   prompt?: string;
 }
 
@@ -46,9 +47,9 @@ interface BuilderRunResult {
 }
 
 /**
- * Rich inline card rendered for the `connect-builder` tool call. Shows a
- * prominent Connect button that opens the Builder CLI auth flow and polls
- * /_agent-native/builder/status until credentials land.
+ * Rich inline card rendered for the `connect-builder` tool call. Shows the
+ * Builder handoff when available, or routes local development requests to the
+ * local coding agent.
  */
 export function ConnectBuilderCard({
   configured: initialConfigured,
@@ -81,7 +82,7 @@ export function ConnectBuilderCard({
   const [sending, setSending] = useState(false);
   const [runResult, setRunResult] = useState<BuilderRunResult | null>(null);
   const [sendErr, setSendErr] = useState<string | null>(null);
-  const [localBrowser, setLocalBrowser] = useState(false);
+  const [localDevelopment] = useState(() => isLocalDevelopment());
   const mountedRef = useRef(true);
   // Tracks whether the user clicked "Connect Builder" *this session*. When
   // the connect-then-poll round-trip lands `configured=true`, we use this
@@ -94,7 +95,6 @@ export function ConnectBuilderCard({
 
   useEffect(() => {
     mountedRef.current = true;
-    setLocalBrowser(isLocalBrowserOutsideDesktop());
     return () => {
       mountedRef.current = false;
     };
@@ -172,6 +172,16 @@ export function ConnectBuilderCard({
     }
   }, [orgName, prompt]);
 
+  const handleSendToLocalAgent = useCallback(() => {
+    if (!prompt.trim()) return;
+    sendToAgentChat({
+      message: prompt,
+      submit: true,
+      type: "code",
+      newTab: true,
+    });
+  }, [prompt]);
+
   // Combine connect-flow errors, send errors, and waitlist errors.
   const err = sendErr ?? waitlistErr ?? flow.error;
 
@@ -195,7 +205,8 @@ export function ConnectBuilderCard({
   }, [flow.connecting, canSend, sending, runResult, sendErr, handleSend]);
   // Branch creation is gated by a server-side project id, which may come
   // from deployment config or org-scoped secrets.
-  const showWaitlist = !builderEnabled && hasPrompt;
+  const showLocalAgent = localDevelopment && !builderEnabled && hasPrompt;
+  const showWaitlist = !localDevelopment && !builderEnabled && hasPrompt;
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
@@ -215,21 +226,21 @@ export function ConnectBuilderCard({
         . Click through to watch progress in the Visual Editor.
       </>
     );
+  } else if (showLocalAgent) {
+    title = "Use your coding agent";
+    subtitle =
+      "This project is running locally. Send this request to your coding agent to make the code change.";
   } else if (showWaitlist) {
     title = "This requires a code change";
     subtitle = waitlistJoined ? (
       <>
-        You're on the waitlist. {CODE_CHANGE_FALLBACK_DETAIL}{" "}
-        {localBrowser
-          ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
-          : "You can still clone the project locally and use the desktop app for code changes."}
+        You're on the waitlist. {CODE_CHANGE_FALLBACK_DETAIL} You can still
+        clone the project locally and use the desktop app for code changes.
       </>
     ) : (
       <>
-        {CODE_CHANGE_FALLBACK_DETAIL}{" "}
-        {localBrowser
-          ? "Since this project is already running locally, open it in the desktop app for local coding tools or keep editing from your clone."
-          : "You can still clone the project locally and use the desktop app for code changes."}
+        {CODE_CHANGE_FALLBACK_DETAIL} You can still clone the project locally
+        and use the desktop app for code changes.
       </>
     );
   } else if (canSend) {
@@ -272,6 +283,8 @@ export function ConnectBuilderCard({
         >
           {runResult ? (
             <IconLoader2 className="h-5 w-5 animate-spin" />
+          ) : showLocalAgent ? (
+            <IconCode className="h-5 w-5" />
           ) : (
             <BuilderBMark className="h-5 w-5" />
           )}
@@ -336,6 +349,18 @@ export function ConnectBuilderCard({
                 ) : (
                   <>Send to Builder</>
                 )}
+              </button>
+            ) : showLocalAgent ? (
+              <button
+                type="button"
+                onClick={handleSendToLocalAgent}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "bg-foreground text-background hover:bg-foreground/90",
+                )}
+              >
+                Send to coding agent
+                <IconExternalLink className="h-3.5 w-3.5" />
               </button>
             ) : showWaitlist && !waitlistJoined ? (
               <button

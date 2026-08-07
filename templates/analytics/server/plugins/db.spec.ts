@@ -228,17 +228,10 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("keeps the incremental rollup lock inside the rollup write transaction", () => {
-    const writeIdx = analyticsRollupsTsSource.indexOf(
-      "const writeRollups = async (tx: any) => {",
-    );
-    const lockIdx = analyticsRollupsTsSource.lastIndexOf(
-      "pg_advisory_xact_lock",
-    );
-    expect(writeIdx).toBeGreaterThan(-1);
-    expect(lockIdx).toBeGreaterThan(writeIdx);
-    expect(analyticsRollupsTsSource).toContain(
-      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY",
+  it("does not serialize foreground rollup ingest behind historical backfill", () => {
+    expect(analyticsRollupsTsSource).not.toContain("pg_advisory_xact_lock");
+    expect(analyticsRollupsTsSource).not.toContain(
+      "FIRST_PARTY_ANALYTICS_ROLLUP_BACKFILL_LOCK_KEY",
     );
   });
 

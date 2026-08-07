@@ -1,8 +1,6 @@
-import { isPostgres } from "@agent-native/core/db";
 import { sql } from "@agent-native/core/db/schema";
 
 import { getDb, schema } from "../db/index.js";
-import { FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY } from "./analytics-rollup-lock.js";
 
 /**
  * The normalized subset emitted by first-party analytics ingest. Keeping this
@@ -143,15 +141,10 @@ export async function upsertFirstPartyAnalyticsRollups(
   }
 
   const writeRollups = async (tx: any) => {
-    if (isPostgres()) {
-      // The historical backfill takes this lock before its raw-event
-      // snapshot. Holding it through ingest's rollup increment prevents the
-      // backfill's monotonic upsert from losing a concurrently committed
-      // event.
-      await tx.execute(
-        sql`SELECT pg_advisory_xact_lock(hashtextextended(${FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_KEY}, 0::bigint))`,
-      );
-    }
+    // Do not take the historical backfill advisory lock here. Foreground
+    // ingest must not wait behind a long-running rebuild; the incremental
+    // conflict update and the backfill's GREATEST upsert are both monotonic,
+    // and Postgres serializes the conflicting row updates itself.
     const dailyRows = [...dailyRollups.values()];
     await tx
       .insert(schema.analyticsEventDailyRollups)
