@@ -1358,7 +1358,6 @@ fn start_native_session_locked(
 #[tauri::command]
 pub async fn native_fullscreen_recording_warm(
     app: AppHandle,
-    state: State<'_, NativeFullscreenRecordingState>,
     recording_id: String,
     include_audio: bool,
     capture_system_audio: bool,
@@ -1370,7 +1369,6 @@ pub async fn native_fullscreen_recording_warm(
     {
         let _ = (
             app,
-            state,
             recording_id,
             include_audio,
             capture_system_audio,
@@ -1383,25 +1381,49 @@ pub async fn native_fullscreen_recording_warm(
 
     #[cfg(target_os = "macos")]
     {
-        // Only the mic introduces a warm-up gap; with mic off there's nothing
-        // to pre-warm, so `begin` just starts normally. SCK failures are
-        // swallowed too — `begin` detects the absent warm session and falls
-        // back to an immediate start, so warming is always best-effort.
-        if include_audio {
-            if let Err(err) = start_native_session_locked(
-                &app,
+        // Warm regardless of mic: the real cost here is SCShareableContent
+        // lookup + SCStream/output construction + `start_capture`, not just
+        // the microphone. Gating this on `include_audio` left every mic-off
+        // recording to do that full setup synchronously inside `begin` —
+        // i.e. after the countdown — which is exactly the multi-second gap
+        // between "countdown hits zero" and "capture actually starts" that
+        // mic-on recordings never had. SCK failures here are swallowed —
+        // `begin` detects the absent warm session and falls back to an
+        // immediate start, so warming is always best-effort.
+        //
+        // `SCShareableContent::get()` blocks its calling thread on a real
+        // condvar wait (not polling) that this file's own comments elsewhere
+        // clock at multi-second — that's the whole reason this exists instead
+        // of running at `begin`. Run it via `spawn_blocking` so that wait
+        // parks a blocking-pool thread instead of a tokio worker, which the
+        // countdown's `Promise.all` overlap is also relying on to stay
+        // responsive.
+        let app_for_warm = app.clone();
+        let recording_id_for_warm = recording_id.clone();
+        let warm_result = tauri::async_runtime::spawn_blocking(move || {
+            let state = app_for_warm.state::<NativeFullscreenRecordingState>();
+            start_native_session_locked(
+                &app_for_warm,
                 &state,
-                &recording_id,
+                &recording_id_for_warm,
                 include_audio,
                 capture_system_audio,
                 mic_device_id,
                 mic_device_label,
                 capture_region,
                 true,
-            ) {
+            )
+        })
+        .await;
+        match warm_result {
+            Ok(Ok(_)) => {}
+            Ok(Err(err)) => {
                 eprintln!(
-                    "[clips-tray] microphone pre-warm unavailable; will start normally at begin: {err}"
+                    "[clips-tray] recording pre-warm unavailable; will start normally at begin: {err}"
                 );
+            }
+            Err(join_err) => {
+                eprintln!("[clips-tray] recording pre-warm task panicked: {join_err}");
             }
         }
         Ok(())
@@ -2094,6 +2116,7 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
 
 #[tauri::command]
 pub async fn native_fullscreen_recording_cancel(
+    app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
 ) -> Result<(), String> {
     let session = {
@@ -2103,6 +2126,10 @@ pub async fn native_fullscreen_recording_cancel(
     if let Some(mut session) = session {
         discard_session(&mut session);
     }
+    // An aborted start (countdown/warm cancelled before `begin`) never reaches
+    // `hide_recording_chrome`, so the picker's monitor override must also be
+    // cleared here or it would wrongly apply to the next recording attempt.
+    crate::state::SelectedRecordingDisplay::set(&app, None);
     Ok(())
 }
 
@@ -3895,7 +3922,21 @@ pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, p
     let _ = app.emit("clips:pending-uploads-changed", ());
 }
 
+/// Convert a physical-pixel point to the logical-point coordinate space
+/// `CGDisplay::displays_with_point` requires (dividing by the monitor's own
+/// scale factor) and resolve which display owns it. Shared by every place in
+/// this file that maps a screen point to a `CGDirectDisplayID`.
 #[cfg(target_os = "macos")]
+pub(crate) fn cg_display_id_at_physical_point(
+    cx_phys: f64,
+    cy_phys: f64,
+    scale: f64,
+) -> Option<u32> {
+    let point = CGPoint::new(cx_phys / scale, cy_phys / scale);
+    let (ids, _) = CGDisplay::displays_with_point(point, 4).ok()?;
+    ids.into_iter().next()
+}
+
 /// Return the `CGDirectDisplayID` of the display containing the centre of
 /// the last-clicked tray icon. Uses the Tauri monitor list to locate the
 /// right monitor and converts from physical pixels to the logical-point
@@ -3904,6 +3945,12 @@ pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, p
 /// fails — callers fall back to the first available display.
 #[cfg(target_os = "macos")]
 pub(crate) fn tray_display_id(app: &AppHandle) -> Option<u32> {
+    // A multi-monitor picker pick always wins over the tray-anchor heuristic
+    // below — see `SelectedRecordingDisplay`'s doc comment for its lifecycle.
+    if let Some(id) = crate::state::SelectedRecordingDisplay::get(app) {
+        return Some(id);
+    }
+
     let tray_rect = app
         .try_state::<crate::state::TrayAnchor>()
         .and_then(|a| a.0.lock().ok().and_then(|g| *g))?;
@@ -3946,9 +3993,43 @@ pub(crate) fn tray_display_id(app: &AppHandle) -> Option<u32> {
         .map(|m| m.scale_factor())
         .unwrap_or(2.0);
 
-    let point = CGPoint::new(cx_phys / scale, cy_phys / scale);
-    let (ids, _) = CGDisplay::displays_with_point(point, 4).ok()?;
-    ids.into_iter().next()
+    cg_display_id_at_physical_point(cx_phys, cy_phys, scale)
+}
+
+/// Reverse of the monitor-center-to-CGDisplayID resolution above: given a
+/// CGDirectDisplayID (as picked in the multi-monitor screen picker), find the
+/// Tauri monitor whose center resolves to it and return its physical rect.
+/// Used so overlay windows (countdown, toolbar, finalizing, ...) shown during
+/// a recording that used the picker land on the same screen the user picked,
+/// not the tray icon's screen.
+#[cfg(target_os = "macos")]
+pub(crate) fn monitor_rect_for_display_id(
+    app: &AppHandle,
+    display_id: u32,
+) -> Option<(i32, i32, u32, u32)> {
+    let monitors = app
+        .get_webview_window("popover")?
+        .available_monitors()
+        .ok()?;
+    for monitor in monitors {
+        let pos = monitor.position();
+        let size = monitor.size();
+        let scale = monitor.scale_factor().max(1.0);
+        let cx_phys = pos.x as f64 + size.width as f64 / 2.0;
+        let cy_phys = pos.y as f64 + size.height as f64 / 2.0;
+        if cg_display_id_at_physical_point(cx_phys, cy_phys, scale) == Some(display_id) {
+            return Some((pos.x, pos.y, size.width, size.height));
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn monitor_rect_for_display_id(
+    _app: &AppHandle,
+    _display_id: u32,
+) -> Option<(i32, i32, u32, u32)> {
+    None
 }
 
 #[cfg(target_os = "macos")]

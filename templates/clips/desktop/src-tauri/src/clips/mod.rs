@@ -47,6 +47,7 @@ const FLOW_BAR_LABEL: &str = "flow-bar";
 const REGION_GUIDES_LABEL: &str = "region-guides";
 const REGION_GUIDE_EDITOR_LABEL: &str = "region-guide-editor";
 const REGION_RECORD_BORDER_LABEL: &str = "region-record-border";
+const MONITOR_PICKER_LABEL_PREFIX: &str = "monitor-picker-";
 const ONBOARDING_LABEL: &str = "onboarding";
 const OVERLAY_LABELS: &[&str] = &[
     COUNTDOWN_LABEL,
@@ -859,6 +860,134 @@ pub async fn show_region_capture_selector(app: AppHandle) -> Result<(), String> 
     Ok(())
 }
 
+fn close_monitor_picker_windows(app: &AppHandle) {
+    for (label, window) in app.webview_windows() {
+        if label.starts_with(MONITOR_PICKER_LABEL_PREFIX) {
+            let _ = window.close();
+        }
+    }
+}
+
+/// Resolve the CGDirectDisplayID a monitor's own center point maps to, using
+/// that monitor's own scale factor (mixed-DPI multi-monitor setups can differ
+/// per screen, unlike the single popover-scale shortcut `tray_display_id`
+/// uses elsewhere).
+#[cfg(target_os = "macos")]
+fn display_id_for_monitor_rect(x: i32, y: i32, width: u32, height: u32, scale: f64) -> Option<u32> {
+    let cx_phys = x as f64 + width as f64 / 2.0;
+    let cy_phys = y as f64 + height as f64 / 2.0;
+    crate::native_screen::cg_display_id_at_physical_point(cx_phys, cy_phys, scale)
+}
+
+/// One small "record this screen" popup centered on every connected monitor,
+/// shown before a full-screen native recording starts when more than one
+/// monitor is connected. The React view in each window emits
+/// `clips:monitor-picker-selected` (with the display id baked into its own
+/// URL) or `clips:monitor-picker-cancelled`; the recorder driver listens for
+/// either and calls `close_monitor_picker` to tear all of them down. Returns
+/// `false` without opening anything when there's only one monitor, so the
+/// caller can skip straight to its existing single-monitor start path.
+#[tauri::command]
+pub async fn show_monitor_picker(app: AppHandle) -> Result<bool, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(false)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        close_monitor_picker_windows(&app);
+        // Every fresh pick starts clean — a leftover pick from a previous
+        // recording must never apply here, including the single-monitor
+        // early-return below.
+        crate::state::SelectedRecordingDisplay::set(&app, None);
+        let monitors = app
+            .get_webview_window("popover")
+            .and_then(|w| w.available_monitors().ok())
+            .unwrap_or_default();
+        if monitors.len() <= 1 {
+            return Ok(false);
+        }
+        let total = monitors.len();
+        // Only the LAST window gets the full activate/makeKey/focus dance —
+        // `present_interactive_window` steals key-window status from
+        // whichever window had it, so calling it once per monitor just
+        // re-steals focus from the previous iteration's window for no
+        // lasting effect. A plain `show()` is enough for the rest.
+        let mut last_window: Option<WebviewWindow> = None;
+        for (index, monitor) in monitors.iter().enumerate() {
+            let pos = monitor.position();
+            let size = monitor.size();
+            let scale = monitor.scale_factor().max(1.0);
+            let display_id =
+                display_id_for_monitor_rect(pos.x, pos.y, size.width, size.height, scale)
+                    .unwrap_or(0);
+            let gutter = overlay_shadow_gutter_physical(&app);
+            let content_w: u32 = (240.0 * scale).round() as u32;
+            let content_h: u32 = (150.0 * scale).round() as u32;
+            let w = content_w + gutter * 2;
+            let h = content_h + gutter * 2;
+            let x = pos.x + (size.width as i32 - w as i32) / 2;
+            let y = pos.y + (size.height as i32 - h as i32) / 2;
+            let label = format!("{MONITOR_PICKER_LABEL_PREFIX}{index}");
+            let url = WebviewUrl::App(
+                format!(
+                    "index.html?index={}&total={}&displayId={}#monitor-picker",
+                    index + 1,
+                    total,
+                    display_id
+                )
+                .into(),
+            );
+            let win = WebviewWindowBuilder::new(&app, &label, url)
+                .title("Choose a screen to record")
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .shadow(false)
+                .visible(false)
+                .focused(true)
+                .accept_first_mouse(true)
+                .build()
+                .map_err(|e| {
+                    eprintln!("[clips-tray] monitor picker build failed: {}", e);
+                    e.to_string()
+                })?;
+            let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
+            let _ = win.set_position(PhysicalPosition::new(x, y));
+            let _ = win.set_ignore_cursor_events(false);
+            set_capture_excluded_always(&win);
+            configure_overlay_behavior(&win);
+            let _ = win.show();
+            last_window = Some(win);
+        }
+        if let Some(win) = last_window {
+            present_interactive_window(&win);
+        }
+        Ok(true)
+    }
+}
+
+#[tauri::command]
+pub async fn close_monitor_picker(app: AppHandle) -> Result<(), String> {
+    close_monitor_picker_windows(&app);
+    Ok(())
+}
+
+/// Stash the user's monitor-picker pick for `tray_display_id` to consume the
+/// next time it resolves a target display — i.e. for the native full-screen
+/// recording about to start.
+#[tauri::command]
+pub async fn set_recording_display_override(
+    app: AppHandle,
+    display_id: Option<u32>,
+) -> Result<(), String> {
+    crate::state::SelectedRecordingDisplay::set(&app, display_id);
+    Ok(())
+}
+
 /// Vertical recording pill anchored to the left edge. Stop + timer + pause,
 /// with hover-revealed restart/cancel controls matching Loom's left-rail
 /// placement. Draggable, always on top.
@@ -1066,6 +1195,7 @@ pub async fn hide_overlays(
     preserve_finalizing: Option<bool>,
 ) -> Result<(), String> {
     stop_countdown_control_tracking();
+    close_monitor_picker_windows(&app);
     for label in overlay_labels_to_hide(preserve_finalizing.unwrap_or(false)) {
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
@@ -1104,6 +1234,10 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
             let _ = w.close();
         }
     }
+    // A recording that used the multi-monitor picker is over — clear its
+    // display override so the NEXT recording (which might skip the picker
+    // entirely on a single monitor) doesn't inherit a stale target screen.
+    crate::state::SelectedRecordingDisplay::set(&app, None);
     // If meeting or voice flows showed a recording pill, auto-hide it after
     // recording stops. Bail early if a new recording came up in the meantime.
     let app_for_pill = app.clone();

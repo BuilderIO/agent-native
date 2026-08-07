@@ -2111,6 +2111,114 @@ async function selectRegionForRecording(): Promise<RegionCaptureRect> {
   }
 }
 
+class MonitorPickerCancelledError extends Error {
+  constructor() {
+    super("Full-screen monitor selection cancelled");
+    this.name = "AbortError";
+  }
+}
+
+function waitForMonitorPickerSelection(): {
+  promise: Promise<number | null>;
+  cleanup: () => void;
+} {
+  let settled = false;
+  const unlistens: UnlistenFn[] = [];
+
+  const cleanup = () => {
+    settled = true;
+    for (const unlisten of unlistens.splice(0)) {
+      try {
+        unlisten();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const promise = new Promise<number | null>((resolve, reject) => {
+    const finish = (cancelled: boolean, displayId: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (cancelled) reject(new MonitorPickerCancelledError());
+      else resolve(displayId);
+    };
+
+    const track = (listener: Promise<UnlistenFn>) => {
+      listener
+        .then((unlisten) => {
+          if (settled) {
+            try {
+              unlisten();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          unlistens.push(unlisten);
+        })
+        .catch((err) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(err);
+        });
+    };
+
+    track(
+      listen<{ displayId?: number | null }>(
+        "clips:monitor-picker-selected",
+        (event) => {
+          const raw = event.payload?.displayId;
+          const displayId =
+            typeof raw === "number" && Number.isFinite(raw) && raw > 0
+              ? raw
+              : null;
+          finish(false, displayId);
+        },
+      ),
+    );
+    track(
+      listen("clips:monitor-picker-cancelled", () => {
+        finish(true, null);
+      }),
+    );
+  });
+
+  return { promise, cleanup };
+}
+
+/**
+ * When more than one monitor is connected, shows a small "record this
+ * screen" popup centered on each one and waits for the user to pick one —
+ * or cancel with Escape, which aborts the whole recording start. Resolves
+ * immediately with no popup when there's only one monitor, matching the
+ * prior single-monitor behavior.
+ *
+ * Callers must await this BEFORE flipping any "recording is starting" UI
+ * state (toolbar, timer, etc.) — that chrome positions itself on whatever
+ * `tray_monitor_physical_rect` returns at the moment it's shown, which
+ * reads this pick. Called from `startNativeFullscreenRecording` instead,
+ * the toolbar was already up (and pinned to the wrong screen) by the time
+ * the user finished picking.
+ */
+export async function pickFullscreenRecordingDisplay(): Promise<void> {
+  const shown = await invoke<boolean>("show_monitor_picker");
+  if (!shown) return;
+  const selection = waitForMonitorPickerSelection();
+  let displayId: number | null = null;
+  try {
+    displayId = await selection.promise;
+  } catch (err) {
+    selection.cleanup();
+    await invoke("close_monitor_picker").catch(() => {});
+    throw err;
+  }
+  await invoke("set_recording_display_override", { displayId }).catch(() => {});
+  await invoke("close_monitor_picker").catch(() => {});
+}
+
 async function prepareCountdownEventWaiter(
   timeoutMs = 4000,
   signal?: AbortSignal,
@@ -3063,6 +3171,9 @@ async function startNativeFullscreenRecording(
       // down on stop, cancel, and the error paths below.
       await showRegionRecordBorder(captureRegion);
     }
+    // Full-screen's monitor pick already happened in the caller, before
+    // `recordingFlowActive`/the toolbar went up — see
+    // `pickFullscreenRecordingDisplay`'s doc comment for why.
 
     if (localOnly && localRecordingMode === "separate" && wantsCamera) {
       localCameraStream =

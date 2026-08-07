@@ -6229,3 +6229,67 @@ body[data-clips-route="recording-pill"] #root {
     transform: rotate(360deg);
   }
 }
+
+/*
+ * One of these windows opens centered on every connected monitor when a
+ * full-screen native recording is about to start with more than one monitor
+ * attached (see `show_monitor_picker`). The window itself is already sized
+ * and positioned by Rust, so the card just fills it.
+ */
+.monitor-picker-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: transparent;
+}
+
+.monitor-picker-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  color: white;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.monitor-picker-card:hover,
+.monitor-picker-card:focus-visible {
+  background: rgba(32, 35, 43, 0.96);
+  border-color: rgba(255, 255, 255, 0.24);
+  outline: none;
+}
+
+.monitor-picker-title {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.monitor-picker-subtitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.monitor-picker-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+}

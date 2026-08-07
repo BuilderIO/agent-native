@@ -92,6 +92,7 @@ import {
   exportBrowserRecordingBackup,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
+  pickFullscreenRecordingDisplay,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
@@ -2955,6 +2956,21 @@ export function App() {
         setReadinessOpen(true);
         setRecError(err instanceof Error ? err.message : String(err));
         return null;
+      }
+      // A restart hands off the already-live display stream from the take
+      // it's replacing (see `discardForRestart`/`preAcquiredDisplayStream`
+      // below) — it must keep recording the same screen, not re-prompt.
+      if (source === "full-screen" && !options?.resumeCapture) {
+        try {
+          // Must resolve before `recordingFlowActive` flips the toolbar on
+          // below — the toolbar reads the pick to place itself on the
+          // chosen screen the first time it's shown.
+          await pickFullscreenRecordingDisplay();
+        } catch {
+          // User cancelled the screen picker (Escape) — abort silently,
+          // same as dismissing the native macOS screen picker.
+          return null;
+        }
       }
     }
 
