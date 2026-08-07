@@ -93,6 +93,10 @@ import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MIN_LENGTH_MESSAGE,
+} from "../shared/password-policy.js";
+import {
   SIGN_IN_CONTINUATION_PARAM,
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
@@ -3562,9 +3566,13 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3840,9 +3848,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {

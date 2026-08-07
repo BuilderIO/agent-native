@@ -3,6 +3,8 @@
 // can load it during SSR. Do not import core runtime code from src/templates:
 // templates ship as verbatim copy-only scaffolding (.ts), so their compiled
 // .js never exists in dist.
+import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
+
 const messages = {
   workspaceFile: {
     download: "Download",
@@ -70,7 +72,7 @@ const messages = {
     passwordNewLabel: "New password",
     passwordConfirmLabel: "Confirm new password",
     passwordPlaceholder: "Enter password",
-    passwordMinLength: "Password must be at least 8 characters",
+    passwordMinLength: PASSWORD_MIN_LENGTH_MESSAGE,
     passwordMismatch: "Passwords do not match",
     passwordSave: "Save password",
     passwordSaving: "Saving...",
