@@ -421,6 +421,16 @@ export async function resolveOAuthCredentialAccess<
             .refresh({ identity, credential: state.credential })
             .finally(stopHeartbeat),
         );
+        const stillOwnsLease = await acquireLease(
+          identity,
+          holder,
+          leaseMs,
+          dependencies.now(),
+        );
+        if (!stillOwnsLease) {
+          await dependencies.sleep(waitMs);
+          continue;
+        }
         const saved = await replaceOAuthTokensIfRevision(
           identity.provider,
           storageAccountId(identity, options.legacyAccountKey),

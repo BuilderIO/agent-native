@@ -307,6 +307,22 @@ describe("MCP OAuth client", () => {
     expect(new Headers(redirectedInit.headers).has("authorization")).toBe(
       false,
     );
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://other.example.com/token" },
+      }),
+    );
+    await expect(
+      fetchFn!("https://auth.example.com/token", {
+        method: "POST",
+        headers: { Authorization: "Bearer <TOKEN>" },
+        body: "code=<CODE>&code_verifier=<CODE_VERIFIER>",
+      }),
+    ).rejects.toThrow(/cannot forward a request body across origins/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("finishes the code exchange without exposing the token to the flow result", async () => {

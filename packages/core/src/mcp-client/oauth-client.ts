@@ -93,10 +93,19 @@ function guardedOAuthFetch(): GuardedFetch {
       await response.body?.cancel().catch(() => undefined);
 
       const nextHeaders = new Headers(currentInit.headers);
-      if (nextUrl.origin !== currentUrl.origin) {
+      const changesOrigin = nextUrl.origin !== currentUrl.origin;
+      if (changesOrigin) {
         nextHeaders.delete("authorization");
         nextHeaders.delete("cookie");
         nextHeaders.delete("proxy-authorization");
+        if (
+          (response.status === 307 || response.status === 308) &&
+          currentInit.body != null
+        ) {
+          throw new Error(
+            "MCP OAuth redirect cannot forward a request body across origins.",
+          );
+        }
       }
       const nextInit: RequestInit = {
         ...currentInit,

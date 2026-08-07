@@ -302,51 +302,79 @@ describe("OAuth credential lifecycle", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves a successful rotated token when the refresh lease is stolen", async () => {
+  it("reloads the winning rotation when a successful redeemer loses its lease", async () => {
     await saveOAuthCredential(
       identity,
       credential({ expiresAt: Date.now() - 1 }),
     );
-    let finishRefresh!: () => void;
-    const refreshGate = new Promise<void>((resolve) => {
-      finishRefresh = resolve;
+    let finishStaleRefresh!: () => void;
+    const staleRefreshGate = new Promise<void>((resolve) => {
+      finishStaleRefresh = resolve;
     });
-    const refresh = vi.fn(async ({ credential: current }) => {
-      await refreshGate;
+    let finishWinningRefresh!: () => void;
+    const winningRefreshGate = new Promise<void>((resolve) => {
+      finishWinningRefresh = resolve;
+    });
+    const staleRefresh = vi.fn(async ({ credential: current }) => {
+      await staleRefreshGate;
       return {
         ...current,
         tokens: {
           ...current.tokens,
-          access_token: "<LEASE_LOSS_ACCESS_TOKEN>",
-          refresh_token: "<LEASE_LOSS_REFRESH_TOKEN>",
+          access_token: "<STALE_ACCESS_TOKEN>",
+          refresh_token: "<STALE_REFRESH_TOKEN>",
+        },
+        tokenExpiresAt: Date.now() + 3_600_000,
+      };
+    });
+    const winningRefresh = vi.fn(async ({ credential: current }) => {
+      await winningRefreshGate;
+      return {
+        ...current,
+        tokens: {
+          ...current.tokens,
+          access_token: "<WINNING_ACCESS_TOKEN>",
+          refresh_token: "<WINNING_REFRESH_TOKEN>",
         },
         tokenExpiresAt: Date.now() + 3_600_000,
       };
     });
 
-    const pending = resolveOAuthCredentialAccess(identity, {
-      refresh,
+    const stale = resolveOAuthCredentialAccess(identity, {
+      refresh: staleRefresh,
       leaseMs: 12,
       waitMs: 1,
       maxWaitMs: 1_000,
+      dependencies: { holderId: () => "stale-holder" },
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
     const key = [...state.settings.keys()][0];
     state.settings.set(key, {
-      holder: "competing-process",
+      holder: "winning-holder",
       expiresAt: Date.now() + 10_000,
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    finishRefresh();
-
-    await expect(pending).resolves.toMatchObject({
-      accessToken: "<LEASE_LOSS_ACCESS_TOKEN>",
-      state: { kind: "connected" },
+    const winner = resolveOAuthCredentialAccess(identity, {
+      refresh: winningRefresh,
+      leaseMs: 12,
+      waitMs: 1,
+      maxWaitMs: 1_000,
+      dependencies: { holderId: () => "winning-holder" },
     });
+    await vi.waitFor(() => expect(winningRefresh).toHaveBeenCalledTimes(1));
+    finishStaleRefresh();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    finishWinningRefresh();
+
+    await expect(Promise.all([stale, winner])).resolves.toEqual([
+      expect.objectContaining({ accessToken: "<WINNING_ACCESS_TOKEN>" }),
+      expect.objectContaining({ accessToken: "<WINNING_ACCESS_TOKEN>" }),
+    ]);
+    expect(staleRefresh).toHaveBeenCalledTimes(1);
+    expect(winningRefresh).toHaveBeenCalledTimes(1);
     await expect(readOAuthCredentialState(identity)).resolves.toMatchObject({
       kind: "connected",
       credential: {
-        tokens: { refresh_token: "<LEASE_LOSS_REFRESH_TOKEN>" },
+        tokens: { refresh_token: "<WINNING_REFRESH_TOKEN>" },
       },
     });
   });
