@@ -399,6 +399,30 @@ async function reachSignIn(page: Page, url: string): Promise<URL> {
   );
 }
 
+/**
+ * Best-effort pre-load of the app's client bundle before any strictly-timed
+ * step runs. The chat app's shared entry pulls in composer-only chunks
+ * (tiptap, radix, rrweb) that Vite only discovers on this app's first real
+ * browser navigation — discovering them fires the exact full-page reload
+ * that otherwise ambushes a click deep inside `signInThroughTheRealForm`.
+ * Errors are swallowed; the real navigations below retry from scratch and
+ * hit an already-warm dependency cache.
+ */
+async function warmupViteDeps(page: Page, app: RunningApp): Promise<void> {
+  try {
+    await page.goto(`${app.origin}${app.basePath}/`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+  } catch {
+    // ignored — best effort
+  }
+  await waitForViteDepsQuiet(app.viteReload, app.logs, {
+    quietMs: 10_000,
+    timeoutMs: 90_000,
+  }).catch(() => {});
+}
+
 async function signInThroughTheRealForm(
   page: Page,
   app: RunningApp,
@@ -414,7 +438,7 @@ async function signInThroughTheRealForm(
     await waitForViteDepsQuiet(app.viteReload, app.logs);
     const reloadAtStart = app.viteReload.lastReloadAt;
     try {
-      await page.click('.tab[data-tab="signup"]', { timeout: 15_000 });
+      await page.click('.tab[data-tab="signup"]', { timeout: 20_000 });
       await page.fill("#s-email", qaEmail);
       await page.fill("#s-pass", qaPassword);
       await page.fill("#s-pass2", qaPassword);
@@ -438,6 +462,8 @@ async function runDeploySuite(
   const label = app.basePath || "/ (root)";
   const page = await context.newPage();
   const protectedPath = `${app.basePath}${PROTECTED_ROUTE}`;
+
+  await warmupViteDeps(page, app);
 
   // 1. Anonymous visitor to a protected route reaches sign-in with a
   //    continuation for THAT route.
