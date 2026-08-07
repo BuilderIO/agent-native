@@ -263,7 +263,7 @@ describe("DiagramBlock expand affordance", () => {
               {
                 from: "start",
                 to: "guard",
-                label: "already on /_agent-native/sign-in",
+                label: "already on /sign-in",
               },
             ],
           }}
@@ -272,7 +272,7 @@ describe("DiagramBlock expand affordance", () => {
     });
 
     const label = Array.from(container.querySelectorAll("span")).find((node) =>
-      node.textContent?.includes("/_agent-native/sign-in"),
+      node.textContent?.includes("/sign-in"),
     );
 
     expect(label?.className).toContain("whitespace-normal");

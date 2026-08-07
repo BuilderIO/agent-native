@@ -14,6 +14,12 @@
 
 @source "./**/*.{ts,tsx}";
 
+/* Keep the editable agent prompt readable even if the generated text utility
+   is missing or loses a cascade tie during the hosted build. */
+.agent-composer-root [data-agent-composer-slot="editor-input"] {
+  color: hsl(var(--foreground));
+}
+
 /* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
    toolbar serves this purpose instead, so we don't want a redundant bar. */
 button[title="Open agent sidebar"] {

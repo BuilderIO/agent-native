@@ -36,7 +36,7 @@ function Probe() {
       <a href="/dashboard" data-testid="chrome-link">
         Dashboard
       </a>
-      <a href="/settings#integrations" data-testid="settings-link">
+      <a href="/settings/integrations" data-testid="settings-link">
         Settings
       </a>
       <a href="/api/export.csv" data-testid="api-link">

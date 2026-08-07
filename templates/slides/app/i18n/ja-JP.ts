@@ -653,17 +653,17 @@ const messages = {
     showMineDecks: "自分が作成したデッキを表示",
     mine: "自分",
     deckCount_other: "デッキ",
-    createDeckOrVisual: "デッキまたはビジュアルを作成",
+    createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
     deleteDeckTitle: "デッキを削除しますか？",
     deleteDeckDescription:
       "このデッキとすべてのスライドを完全に削除します。この操作は元に戻せません。",
     cancel: "キャンセル",
     delete: "削除",
-    newDeckPromptTitle: "新しいデッキ",
-    newDeckPlaceholder: "デッキ、ビジュアル、図について説明してください...",
+    newDeckPromptTitle: "新しいプレゼンテーション",
+    newDeckPlaceholder: "生成したいプレゼンテーションを説明してください...",
     skipPrompt: "プロンプトをスキップ",
-    firstDeckPromptTitle: "何を作りたいですか？",
+    firstDeckPromptTitle: "どのようなプレゼンテーションを生成しますか？",
     firstDeckSkip: "スキップ",
     chooseReferences: "参照を選択",
     addDesignSystem: "+ デザインシステム",
@@ -683,6 +683,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Slides デッキをインポートするには Google Drive に接続してください。",
     googleSlidesReferenceChoose: "Google Slides デッキを選択",
+    googleSlidesReferenceUrl: "Google Slides のリンクを貼り付け",
     googleSlidesReferencePicking: "処理中...",
     googleSlidesReferenceConnected:
       "接続済みです。再利用可能なリファレンスとしてインポートする Google Slides デッキを選択してください。",
@@ -714,8 +715,7 @@ const messages = {
     signIn: "サインイン",
     emptyTitle: "まだデッキがありません",
     createFirstDeck: "最初のデッキを作成",
-    emptyDescription:
-      "AI 生成で美しいプレゼンテーション、単独ビジュアル、図表、画像豊かなストーリーを作成できます。",
+    emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
   },
 };
 

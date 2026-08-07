@@ -636,16 +636,16 @@ const messages = {
     showMineDecks: "显示我创建的幻灯片",
     mine: "我的",
     deckCount_other: "份幻灯片",
-    createDeckOrVisual: "创建幻灯片或视觉页",
+    createDeckOrVisual: "创建演示文稿",
     noMineDecks: "你还没有创建任何幻灯片。",
     deleteDeckTitle: "删除幻灯片？",
     deleteDeckDescription: "这会永久删除此幻灯片及其所有页面。此操作无法撤销。",
     cancel: "取消",
     delete: "删除",
-    newDeckPromptTitle: "新建幻灯片",
-    newDeckPlaceholder: "描述你的幻灯片、视觉页或图表...",
+    newDeckPromptTitle: "新建演示文稿",
+    newDeckPlaceholder: "描述你想生成的演示文稿...",
     skipPrompt: "跳过提示",
-    firstDeckPromptTitle: "你想创建什么？",
+    firstDeckPromptTitle: "我们要生成什么类型的演示文稿？",
     firstDeckSkip: "跳过",
     chooseReferences: "选择参考资料",
     addDesignSystem: "+ 设计系统",
@@ -664,6 +664,7 @@ const messages = {
     googleSlidesReferenceTitle: "Google Slides 幻灯片",
     googleSlidesReferenceConnect: "连接 Google Drive 以导入 Slides 幻灯片。",
     googleSlidesReferenceChoose: "选择 Google Slides 幻灯片",
+    googleSlidesReferenceUrl: "粘贴 Google Slides 链接",
     googleSlidesReferencePicking: "处理中...",
     googleSlidesReferenceConnected:
       "已连接。选择一个 Google Slides 幻灯片并将其导入为可重复使用的参考内容。",
@@ -695,8 +696,7 @@ const messages = {
     signIn: "登录",
     emptyTitle: "还没有幻灯片",
     createFirstDeck: "创建你的第一份幻灯片",
-    emptyDescription:
-      "使用 AI 生成精美演示文稿、独立视觉页、图表和图像丰富的故事。",
+    emptyDescription: "使用 AI 生成精美演示文稿。",
   },
 };
 

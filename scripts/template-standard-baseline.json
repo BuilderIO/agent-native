@@ -45,6 +45,11 @@
       "rule": "byte-sync:gitignore-source:mismatch",
       "template": "plan",
       "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "slides",
+      "note": "Slides stores development-only PPTX import fallback assets under data/import-assets/, so its generated-app ignore list intentionally extends the shared base."
     }
   ]
 }

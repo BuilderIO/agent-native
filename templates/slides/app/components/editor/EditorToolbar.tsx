@@ -67,6 +67,7 @@ import {
   type AspectRatio,
   DEFAULT_ASPECT_RATIO,
 } from "@/lib/aspect-ratios";
+import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import { parseUploadResponse } from "@/lib/upload-response";
 import { shortcutLabel } from "@/lib/utils";
@@ -288,10 +289,9 @@ export default function EditorToolbar({
   canEdit = true,
 }: EditorToolbarProps) {
   const t = useT();
-  // Mirror Google Slides: the share dialog exposes both the editor URL
-  // (primary) and the presentation URL (secondary). Access is enforced on
-  // the deck, not the URL shape — anyone with at least viewer access can
-  // open either link.
+  // Public decks default to the read-only presentation URL so recipients do
+  // not get sent through the editor's auth gate. Restricted decks keep the
+  // editor URL primary, where auth resolves viewer access.
   const editorUrl =
     typeof window === "undefined"
       ? `/deck/${deckId}`
@@ -300,6 +300,21 @@ export default function EditorToolbar({
     typeof window === "undefined"
       ? `/p/${deckId}`
       : `${window.location.origin}${appPath(`/p/${deckId}`)}`;
+  const shareLinks = {
+    editor: {
+      url: editorUrl,
+      label: t("editorToolbar.editorLink"),
+      description: t("editorToolbar.editorLinkDescription"),
+    },
+    presentation: {
+      url: presentationUrl,
+      label: t("editorToolbar.presentationLink"),
+      description: t("editorToolbar.presentationLinkDescription"),
+    },
+  };
+  const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
+  const primaryShareLink = shareLinks[shareLinkOrder.primary];
+  const secondaryShareLink = shareLinks[shareLinkOrder.secondary];
 
   // Live save state for the toolbar indicator, so users always see whether
   // their work has committed (a lost-deck report motivated surfacing this).
@@ -950,14 +965,12 @@ export default function EditorToolbar({
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
-          shareUrl={editorUrl}
-          shareUrlLabel={t("editorToolbar.editorLink")}
-          shareUrlDescription={t("editorToolbar.editorLinkDescription")}
-          secondaryShareUrl={presentationUrl}
-          secondaryShareUrlLabel={t("editorToolbar.presentationLink")}
-          secondaryShareUrlDescription={t(
-            "editorToolbar.presentationLinkDescription",
-          )}
+          shareUrl={primaryShareLink.url}
+          shareUrlLabel={primaryShareLink.label}
+          shareUrlDescription={primaryShareLink.description}
+          secondaryShareUrl={secondaryShareLink.url}
+          secondaryShareUrlLabel={secondaryShareLink.label}
+          secondaryShareUrlDescription={secondaryShareLink.description}
           shareTabs={{
             tabs: [
               {

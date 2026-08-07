@@ -9,6 +9,7 @@
  *   POST   /_agent-native/mcp/servers           add a server
  *   DELETE /_agent-native/mcp/servers/:id       remove a server (scope via ?scope=)
  *   POST   /_agent-native/mcp/servers/:id/test  dry-run connect (no persist)
+ *   POST   /_agent-native/mcp/servers/:id/reconnect retry connect + refresh
  *   POST   /_agent-native/mcp/servers/test      dry-run a URL before persisting
  *   GET    /_agent-native/mcp/builtin           list built-in capability toggles
  *   POST   /_agent-native/mcp/builtin           update built-in capability toggles
@@ -108,6 +109,18 @@ function projectForClient(
     createdAt: stored.createdAt,
     mergedId: mergedConfigKey(scope, stored, ownerId),
     status,
+  };
+}
+
+function reconnectStatusForClient(
+  manager: McpClientManager,
+  mergedId: string,
+): ServerStatus {
+  const status = statusFor(manager, mergedId);
+  if (status.state !== "error") return status;
+  return {
+    state: "error",
+    error: formatMcpConnectError(status.error),
   };
 }
 
@@ -446,6 +459,13 @@ export function mountMcpServersRoutes(
           const id = parts[0];
           if (parts.length === 2 && parts[1] === "test" && method === "POST") {
             return handleTestExisting(event, manager, id);
+          }
+          if (
+            parts.length === 2 &&
+            parts[1] === "reconnect" &&
+            method === "POST"
+          ) {
+            return handleReconnectExisting(event, manager, id);
           }
           if (parts.length === 1 && method === "DELETE") {
             return handleDelete(event, manager, id);
@@ -1076,6 +1096,48 @@ async function handleTestExisting(
     return { ok: false, error: result.error };
   }
   return { ok: true, toolCount: result.toolCount, tools: result.tools };
+}
+
+async function handleReconnectExisting(
+  event: H3Event,
+  manager: McpClientManager,
+  id: string,
+) {
+  const scope = getQuery(event).scope;
+  const parsedScope =
+    scope === "org" ? "org" : scope === "user" ? "user" : null;
+  if (!parsedScope) {
+    setResponseStatus(event, 400);
+    return { error: 'scope query param must be "user" or "org"' };
+  }
+  const { email, orgId } = await resolveContextForRequest(event);
+
+  let scopeId: string | null = null;
+  if (parsedScope === "user") {
+    scopeId = email;
+  } else {
+    scopeId = orgId;
+  }
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+
+  const list = await listRemoteServers(parsedScope, scopeId);
+  const server = list.find((s) => s.id === id);
+  if (!server) {
+    setResponseStatus(event, 404);
+    return { error: "Server not found" };
+  }
+
+  await reconfigureManager(manager);
+  const mergedId = mergedConfigKey(parsedScope, server, scopeId);
+  const status = reconnectStatusForClient(manager, mergedId);
+  const projected = projectForClient(server, parsedScope, scopeId, status);
+  return {
+    ok: true,
+    server: projected,
+  };
 }
 
 async function tryConnect(

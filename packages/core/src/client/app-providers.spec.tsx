@@ -120,7 +120,7 @@ describe("AppProviders session gate", () => {
     expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
     expect(useSessionMock).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
-      `/_agent-native/sign-in?c=${encodeContinuation("/inbox")}`,
+      `/sign-in?c=${encodeContinuation("/inbox")}`,
     );
   });
 

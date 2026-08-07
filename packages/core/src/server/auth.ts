@@ -94,7 +94,10 @@ import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
+  decodeContinuation,
   normalizeAppPath,
   signInJourney,
 } from "../shared/sign-in-journey.js";
@@ -114,6 +117,7 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -1143,6 +1147,40 @@ function getRequestHost(event: H3Event): string | undefined {
   );
 }
 
+function parseRequestUrl(rawUrl: string | undefined): URL | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl, "http://an.invalid");
+  } catch {
+    // coercion-ok: an invalid request URL has no query context to classify.
+    return null;
+  }
+}
+
+function hasInitialPromptQuery(rawUrl: string | undefined): boolean {
+  return !!parseRequestUrl(rawUrl)?.searchParams.get("initialPrompt")?.trim();
+}
+
+function requestHasInitialPrompt(event: H3Event): boolean {
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  if (hasInitialPromptQuery(rawUrl)) return true;
+
+  const requestUrl = parseRequestUrl(rawUrl);
+  if (!requestUrl) return false;
+  const continuation = requestUrl.searchParams.get(SIGN_IN_CONTINUATION_PARAM);
+  if (
+    continuation &&
+    hasInitialPromptQuery(
+      decodeContinuation(continuation, getConfiguredAppBasePath()) ?? undefined,
+    )
+  ) {
+    return true;
+  }
+
+  const legacyReturn = requestUrl.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM);
+  return legacyReturn ? hasInitialPromptQuery(legacyReturn) : false;
+}
+
 function getOnboardingHtmlOptions(
   options: AuthOptions,
   event?: H3Event,
@@ -1159,6 +1197,7 @@ function getOnboardingHtmlOptions(
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
+    initialPrompt: event ? requestHasInitialPrompt(event) : false,
   };
 }
 
@@ -1932,11 +1971,12 @@ function createAuthGuardFn(): (
     }
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
-    // (share links, embeds) here with a `?return=<path>` query. The cached
-    // login document validates that return path in the browser and redirects
-    // there after sign-in or when its client-side session check finds an
-    // existing session.
-    if (p === "/_agent-native/sign-in") {
+    // (share links, embeds) here with a `?return=<path>` query. The clean
+    // `/sign-in` path is canonical; keep the old framework path as a
+    // compatibility alias. The cached login document validates that return
+    // path in the browser and redirects there after sign-in or when its
+    // client-side session check finds an existing session.
+    if (p === SIGN_IN_ENTRY_PATH || p === SIGN_IN_LEGACY_ENTRY_PATH) {
       // Preserve the zero-setup localhost experience without putting a
       // session lookup back on the cacheable app-shell URL. The client gate
       // reaches this explicit entrypoint after discovering there is no
@@ -1946,7 +1986,8 @@ function createAuthGuardFn(): (
           queryStart >= 0 ? url.slice(queryStart + 1) : "",
         );
         // `?return=` is read as a fallback FOREVER. Generated apps in the wild
-        // hand-write `/_agent-native/sign-in?return=…` and cannot be upgraded;
+        // hand-write the legacy `/_agent-native/sign-in?return=…` path and
+        // cannot be upgraded;
         // dropping the fallback would send them all to "/" — a UX quirk no
         // test would catch. New producers emit `c`; only NEW `?return=`
         // producers are forbidden, never this consumer.

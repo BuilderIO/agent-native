@@ -9,7 +9,7 @@ const ExtensionsListPage = lazy(() =>
 
 export function ExtensionsSettingsContent() {
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="w-full">
       <Suspense
         fallback={
           <div className="flex min-h-[28rem] items-center justify-center text-muted-foreground">

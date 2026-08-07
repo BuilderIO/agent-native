@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.141.5",
+  "version": "0.143.0",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -261,6 +261,10 @@
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
+    },
+    "./cli/agent-plugin": {
+      "types": "./dist/cli/agent-plugin.d.ts",
+      "default": "./dist/cli/agent-plugin.js"
     },
     "./testing": {
       "types": "./dist/testing.d.ts",

@@ -13,7 +13,8 @@ on:
     - cron: "17 * * * *"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  issues: write
 
 concurrency:
   group: keep-neon-warm
@@ -31,3 +32,20 @@ jobs:
           node-version: 22
       - name: Ping /_agent-native/health for every app
         run: node scripts/keep-warm.mjs --strict
+      - name: Report failure on a rolling issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TITLE="Production health check failing"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BODY="Scheduled audit failed: $RUN_URL"
+          ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n1)
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
+          else
+            gh issue create --repo "${{ github.repository }}" --title "$TITLE" --body "$BODY"
+          fi

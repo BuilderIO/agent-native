@@ -380,7 +380,7 @@ function MyComponent() {
 Les modèles comportant des **pages publiques** (liens de partage, intégrations, pages marketing) nécessitent souvent un CTA sur la page qui demande aux utilisateurs anonymes de se connecter et les ramène à la page sur laquelle ils se trouvaient. Le framework fournit un point d'entrée unique pour cela :
 
 ```
-/_agent-native/sign-in?return=<same-origin-path>
+/sign-in?return=<same-origin-path>
 ```
 
 Lorsqu'un spectateur anonyme accède à ce URL, la page de connexion du framework est servie. Après une connexion réussie (n'importe quel flux : jeton, e-mail/mot de passe ou Google OAuth), le spectateur est redirigé vers `return`.
@@ -395,8 +395,7 @@ import { Button } from "@/components/ui/button";
 function SignInCta() {
   const onClick = () => {
     const ret = window.location.pathname + window.location.search;
-    window.location.href =
-      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+    window.location.href = "/sign-in?return=" + encodeURIComponent(ret);
   };
   return <Button onClick={onClick}>Sign in</Button>;
 }
@@ -404,13 +403,13 @@ function SignInCta() {
 
 ### Chemins privés marqués
 
-Les pages normales de l’application utilisent une seule coque SSR impersonnelle et mise en cache publiquement pour tous les visiteurs. `AppProviders` vérifie la session côté client ; sur un chemin privé tel que `/dashboard`, il redirige un visiteur anonyme vers `/_agent-native/sign-in?return=%2Fdashboard` avant de monter l’interface privée. Après connexion, le visiteur revient sur `/dashboard`. Utilisez `isPublicPath` pour les routes publiques/SEO, ou `sessionBypass` pour une surface authentifiée par un autre mécanisme limité, tel qu’un jeton d’intégration MCP.
+Les pages normales de l’application utilisent une seule coque SSR impersonnelle et mise en cache publiquement pour tous les visiteurs. `AppProviders` vérifie la session côté client ; sur un chemin privé tel que `/dashboard`, il redirige un visiteur anonyme vers `/sign-in?return=%2Fdashboard` avant de monter l’interface privée. Après connexion, le visiteur revient sur `/dashboard`. Utilisez `isPublicPath` pour les routes publiques/SEO, ou `sessionBypass` pour une surface authentifiée par un autre mécanisme limité, tel qu’un jeton d’intégration MCP.
 
 La durée de mise en cache de cette coque est un paramètre valable pour l’ensemble du déploiement — voir [SSR Caching](/docs/deployment#ssr-caching) pour `AGENT_NATIVE_SSR_CACHE`. Raccourcir ou désactiver le cache ne change que la durée ; le SSR continue de rendre la branche anonyme avec les cookies supprimés.
 
 ### Dans les coulisses : Google OAuth
 
-Les deux flux (le point d'entrée explicite `/_agent-native/sign-in` et le cas du chemin marqué par un signet) transmettent le retour URL via l'état OAuth. L'état est signé HMAC, il ne peut donc pas être falsifié pendant le transport. Lors du rappel, le retour URL est revalidé comme étant de même origine avant la redirection — de sorte qu'une clé de signature divulguée ne peut toujours pas être transformée en un oracle de redirection ouverte.
+Les deux flux (le point d'entrée explicite `/sign-in` et le cas du chemin marqué par un signet) transmettent le retour URL via l'état OAuth. L'état est signé HMAC, il ne peut donc pas être falsifié pendant le transport. Lors du rappel, le retour URL est revalidé comme étant de même origine avant la redirection — de sorte qu'une clé de signature divulguée ne peut toujours pas être transformée en un oracle de redirection ouverte.
 
 Si votre modèle encapsule directement `/_agent-native/google/auth-url` (par exemple, les modèles de courrier et de calendrier le font, pour élargir les portées), acceptez une requête `?return=<path>` et transférez-la via le formulaire d'objet d'options de `encodeOAuthState` :
 

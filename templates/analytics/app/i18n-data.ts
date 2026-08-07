@@ -19,7 +19,6 @@ const enUS = {
     monitoringErrors: "Errors",
     admin: "Admin",
     agents: "Agents",
-    templateCatalog: "Catalog",
     dashboards: "Dashboards",
     analyses: "Analyses",
     explorer: "Explorer",
@@ -28,6 +27,7 @@ const enUS = {
     navigation: "Navigation",
     openNavigation: "Open navigation",
     loadingDashboardTitle: "Loading dashboard title",
+    templateCatalog: "Catalog",
   },
   dashboardHeader: {
     updated: "Updated {{date}}",
@@ -188,10 +188,6 @@ const enUS = {
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
-    dashboardTemplates: "Dashboard templates",
-    dashboardTemplatesDescription:
-      "Install a source-controlled dashboard when you need a starting point.",
-    openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
     errorEmailNotifications: "Email new error alerts",
@@ -202,11 +198,6 @@ const enUS = {
     bellSoundDescription:
       "Play a sound when the agent finishes a run. Off by default.",
     bellSoundSaveFailed: "Couldn't save the sound preference.",
-    about: "About",
-    aboutDescription:
-      "Analytics is a tool for connecting data sources and building custom dashboards. Connect Google Analytics, BigQuery, Stripe, and more, then ask the agent to create dashboards.",
-    aboutUsage:
-      "Use the Data Sources page to manage connections. Use the Query Explorer for ad-hoc BigQuery SQL.",
     replayStorage: "Session replay storage",
     replayStorageDescription:
       "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
@@ -461,8 +452,8 @@ const enUS = {
     visibilityorg: "Shared with org",
     visibilitypublic: "Public",
     advanced: "Advanced",
-    database: "App Databases",
     openCatalog: "Open catalog",
+    database: "App Databases",
     dbConnectionsTitle: "Connected app databases",
     dbConnectionsDescription:
       "Connect other agent-native app databases for admin-only inspection and repair. This does not expose Analytics data to every user.",
@@ -963,6 +954,90 @@ const enUS = {
     configuredCount: "{{count}} configured",
     searchPlaceholder: "Search data sources...",
     noMatch: 'No data sources match "{{search}}"',
+    customApi: {
+      title: "Custom API",
+      description:
+        "Connect an API endpoint and query its data in Analytics. Use a public HTTPS endpoint; hosted Analytics cannot reach localhost.",
+      expand: "Expand",
+      collapse: "Collapse",
+      endpointLabel: "Endpoint URL",
+      endpointPlaceholder: "https://api.example.com/v1/data",
+      methodLabel: "HTTP method",
+      authLabel: "Authentication",
+      authNone: "No authentication",
+      authApiKey: "API key",
+      authBearer: "Bearer token",
+      apiKeyLabel: "API key",
+      apiKeyPlaceholder: "Enter API key",
+      bearerTokenLabel: "Bearer token",
+      bearerTokenPlaceholder: "Enter bearer token",
+      setup: "Set up connection",
+      save: "Save connection",
+      test: "Test connection",
+      testing: "Testing connection…",
+      saving: "Saving connection…",
+      settingsKeyGuidance:
+        "Store secrets in Settings to reuse this connection.",
+      openSettings: "Open Settings",
+      connectionResult: "Connection result",
+      sampleResponse: "Sample response",
+      handoffButton: "Ask the agent to finish setup",
+      handoffPrompt: "Help me finish setting up this Custom API connection.",
+      requiredEndpoint: "Enter an endpoint URL.",
+      invalidEndpoint: "Enter a valid HTTP or HTTPS URL.",
+      requiredCredential:
+        "Enter the credential for this authentication method.",
+      testFailed: "Connection test failed. Check the endpoint and credentials.",
+      saveFailed: "Could not save this connection. Try again.",
+      authBasic: "Basic authentication",
+      invalidQuery: "Enter valid JSON query parameters.",
+      registerError: "Could not register this API.",
+      testError: "Could not test this API.",
+      agentPrompt: "Save this Custom API query as a reusable data program.",
+      keyHint: "Credential key:",
+      register: "Register API",
+      unknown: "Unknown",
+      rowCount: "Rows",
+      columns: "Columns",
+      fields: {
+        label: "Name",
+        baseUrl: "Base URL",
+        path: "Query path",
+        query: "Query parameters",
+        itemsPath: "Items path",
+        docsUrl: "Documentation URL",
+        authType: "Authentication type",
+        usernameKey: "Username key",
+        passwordKey: "Password key",
+        credentialKey: "Credential key",
+        headerName: "Header name",
+      },
+      placeholders: {
+        label: "e.g. Weather API",
+        baseUrl: "https://api.example.com",
+        path: "/v1/forecast",
+        query: '{ "limit": 100 }',
+        itemsPath: "e.g. data.items",
+        docsUrl: "https://docs.example.com",
+      },
+    },
+  },
+  analyticsBackend: {
+    recommendationTitle: "Use an external analytics backend for heavy history",
+    recommendationDescription:
+      "Neon remains the default for recent operational analytics. Connect BigQuery for warehouse SQL and historical analysis, or Amplitude for product analytics, funnels, and retention. Connecting one does not automatically move /track events or backfill existing Neon data.",
+    connectedTitle: "External analytics backends are ready",
+    connectedDescription:
+      "Use BigQuery for warehouse SQL and historical analysis, or Amplitude for product analytics, funnels, and retention. The built-in /track collector continues to write to first-party Analytics unless you explicitly configure another collection path.",
+    options: "External options",
+    monitorDescription:
+      "Neon is still a good fit. Keep an eye on event volume and query latency; this card will suggest an external backend if pressure grows.",
+    healthyDescription:
+      "Neon is a good fit for this first-party data right now. We will suggest BigQuery or Amplitude if volume or query latency grows.",
+    unavailableDescription:
+      "We could not check first-party Analytics pressure right now. Reload and try again before changing backends.",
+    configured: "Configured",
+    setUp: "Set up",
   },
   panelEditor: {
     chartTypeLine: "Line",
@@ -1452,6 +1527,71 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}}已配置",
       searchPlaceholder: "搜索数据源...",
       noMatch: "没有数据源匹配“{{search}}”",
+      customApi: {
+        title: "自定义 API",
+        description:
+          "连接 API 端点并在 Analytics 中查询数据。请使用公开 HTTPS 端点；托管版 Analytics 无法访问 localhost。",
+        expand: "展开",
+        collapse: "收起",
+        endpointLabel: "端点 URL",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "HTTP 方法",
+        authLabel: "身份验证",
+        authNone: "无需身份验证",
+        authApiKey: "API 密钥",
+        authBearer: "Bearer 令牌",
+        apiKeyLabel: "API 密钥",
+        apiKeyPlaceholder: "输入 API 密钥",
+        bearerTokenLabel: "Bearer 令牌",
+        bearerTokenPlaceholder: "输入 Bearer 令牌",
+        setup: "设置连接",
+        save: "保存连接",
+        test: "测试连接",
+        testing: "正在测试连接…",
+        saving: "正在保存连接…",
+        settingsKeyGuidance: "在设置中保存密钥，以便重复使用此连接。",
+        openSettings: "打开设置",
+        connectionResult: "连接结果",
+        sampleResponse: "示例响应",
+        handoffButton: "请代理完成设置",
+        handoffPrompt: "帮我完成这个自定义 API 连接的设置。",
+        requiredEndpoint: "请输入端点 URL。",
+        invalidEndpoint: "请输入有效的 HTTP 或 HTTPS URL。",
+        requiredCredential: "请输入此身份验证方式的凭据。",
+        testFailed: "连接测试失败。请检查端点和凭据。",
+        saveFailed: "无法保存连接，请重试。",
+        authBasic: "基本身份验证",
+        invalidQuery: "请输入有效的 JSON 查询参数。",
+        registerError: "无法注册此 API。",
+        testError: "无法测试此 API。",
+        agentPrompt: "将此自定义 API 查询保存为可重复使用的数据程序。",
+        keyHint: "凭据密钥：",
+        register: "注册 API",
+        unknown: "未知",
+        rowCount: "行数",
+        columns: "列",
+        fields: {
+          label: "名称",
+          baseUrl: "基础 URL",
+          path: "查询路径",
+          query: "查询参数",
+          itemsPath: "项目路径",
+          docsUrl: "文档 URL",
+          authType: "身份验证类型",
+          usernameKey: "用户名密钥",
+          passwordKey: "密码密钥",
+          credentialKey: "凭据密钥",
+          headerName: "标头名称",
+        },
+        placeholders: {
+          label: "例如天气 API",
+          baseUrl: "例如 https://api.example.com",
+          path: "例如 /v1/forecast",
+          query: '例如 { "limit": 100 }',
+          itemsPath: "例如 data.items",
+          docsUrl: "例如 https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "线",
@@ -1772,6 +1912,75 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}} configurado",
       searchPlaceholder: "Buscar fuentes de datos...",
       noMatch: 'Ninguna fuente de datos coincide con "{{search}}"',
+      customApi: {
+        title: "API personalizada",
+        description:
+          "Conecta un endpoint API y consulta sus datos en Analytics. Usa un endpoint HTTPS público; Analytics alojado no puede acceder a localhost.",
+        expand: "Expandir",
+        collapse: "Contraer",
+        endpointLabel: "URL del endpoint",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "Método HTTP",
+        authLabel: "Autenticación",
+        authNone: "Sin autenticación",
+        authApiKey: "Clave API",
+        authBearer: "Token Bearer",
+        apiKeyLabel: "Clave API",
+        apiKeyPlaceholder: "Introduce la clave API",
+        bearerTokenLabel: "Token Bearer",
+        bearerTokenPlaceholder: "Introduce el token Bearer",
+        setup: "Configurar conexión",
+        save: "Guardar conexión",
+        test: "Probar conexión",
+        testing: "Probando conexión…",
+        saving: "Guardando conexión…",
+        settingsKeyGuidance:
+          "Guarda los secretos en Configuración para reutilizar esta conexión.",
+        openSettings: "Abrir configuración",
+        connectionResult: "Resultado de conexión",
+        sampleResponse: "Respuesta de ejemplo",
+        handoffButton: "Pedir al agente que termine",
+        handoffPrompt:
+          "Ayúdame a terminar de configurar esta conexión de API personalizada.",
+        requiredEndpoint: "Introduce una URL de endpoint.",
+        invalidEndpoint: "Introduce una URL HTTP o HTTPS válida.",
+        requiredCredential:
+          "Introduce la credencial de este método de autenticación.",
+        testFailed: "La prueba falló. Revisa el endpoint y las credenciales.",
+        saveFailed: "No se pudo guardar la conexión. Inténtalo de nuevo.",
+        authBasic: "Autenticación básica",
+        invalidQuery: "Introduce parámetros JSON válidos.",
+        registerError: "No se pudo registrar esta API.",
+        testError: "No se pudo probar esta API.",
+        agentPrompt:
+          "Guarda esta consulta de API personalizada como un programa de datos reutilizable.",
+        keyHint: "Clave de credencial:",
+        register: "Registrar API",
+        unknown: "Desconocido",
+        rowCount: "Filas",
+        columns: "Columnas",
+        fields: {
+          label: "Nombre",
+          baseUrl: "URL base",
+          path: "Ruta de consulta",
+          query: "Parámetros de consulta",
+          itemsPath: "Ruta de elementos",
+          docsUrl: "URL de documentación",
+          authType: "Tipo de autenticación",
+          usernameKey: "Clave de usuario",
+          passwordKey: "Clave de contraseña",
+          credentialKey: "Clave de credencial",
+          headerName: "Nombre del encabezado",
+        },
+        placeholders: {
+          label: "p. ej., API del tiempo",
+          baseUrl: "p. ej., https://api.example.com",
+          path: "p. ej., /v1/forecast",
+          query: 'p. ej., { "limit": 100 }',
+          itemsPath: "p. ej., data.items",
+          docsUrl: "p. ej., https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "Línea",
@@ -2109,6 +2318,75 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}} configuré",
       searchPlaceholder: "Rechercher des sources de données...",
       noMatch: 'Aucune source de données ne correspond à "{{search}}"',
+      customApi: {
+        title: "API personnalisée",
+        description:
+          "Connectez un endpoint API et interrogez ses données dans Analytics. Utilisez un endpoint HTTPS public ; Analytics hébergé ne peut pas accéder à localhost.",
+        expand: "Développer",
+        collapse: "Réduire",
+        endpointLabel: "URL de l’endpoint",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "Méthode HTTP",
+        authLabel: "Authentification",
+        authNone: "Aucune authentification",
+        authApiKey: "Clé API",
+        authBearer: "Jeton Bearer",
+        apiKeyLabel: "Clé API",
+        apiKeyPlaceholder: "Saisissez la clé API",
+        bearerTokenLabel: "Jeton Bearer",
+        bearerTokenPlaceholder: "Saisissez le jeton Bearer",
+        setup: "Configurer la connexion",
+        save: "Enregistrer la connexion",
+        test: "Tester la connexion",
+        testing: "Test de la connexion…",
+        saving: "Enregistrement…",
+        settingsKeyGuidance:
+          "Enregistrez les secrets dans Paramètres pour réutiliser cette connexion.",
+        openSettings: "Ouvrir les paramètres",
+        connectionResult: "Résultat de la connexion",
+        sampleResponse: "Réponse exemple",
+        handoffButton: "Demander à l’agent de terminer",
+        handoffPrompt:
+          "Aidez-moi à terminer la configuration de cette connexion API personnalisée.",
+        requiredEndpoint: "Saisissez une URL d’endpoint.",
+        invalidEndpoint: "Saisissez une URL HTTP ou HTTPS valide.",
+        requiredCredential:
+          "Saisissez l’identifiant requis pour cette authentification.",
+        testFailed: "Échec du test. Vérifiez l’endpoint et les identifiants.",
+        saveFailed: "Impossible d’enregistrer la connexion. Réessayez.",
+        authBasic: "Authentification de base",
+        invalidQuery: "Saisissez des paramètres JSON valides.",
+        registerError: "Impossible d’enregistrer cette API.",
+        testError: "Impossible de tester cette API.",
+        agentPrompt:
+          "Enregistrez cette requête d’API personnalisée comme programme de données réutilisable.",
+        keyHint: "Clé d’identification :",
+        register: "Enregistrer l’API",
+        unknown: "Inconnu",
+        rowCount: "Lignes",
+        columns: "Colonnes",
+        fields: {
+          label: "Nom",
+          baseUrl: "URL de base",
+          path: "Chemin de requête",
+          query: "Paramètres de requête",
+          itemsPath: "Chemin des éléments",
+          docsUrl: "URL de documentation",
+          authType: "Type d’authentification",
+          usernameKey: "Clé du nom d’utilisateur",
+          passwordKey: "Clé du mot de passe",
+          credentialKey: "Clé d’identification",
+          headerName: "Nom de l’en-tête",
+        },
+        placeholders: {
+          label: "ex. API météo",
+          baseUrl: "ex. https://api.example.com",
+          path: "ex. /v1/forecast",
+          query: 'ex. { "limit": 100 }',
+          itemsPath: "ex. data.items",
+          docsUrl: "ex. https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "Doubler",
@@ -2444,6 +2722,77 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}} konfiguriert",
       searchPlaceholder: "Datenquellen durchsuchen...",
       noMatch: "Keine Datenquelle entspricht „{{search}}“",
+      customApi: {
+        title: "Benutzerdefinierte API",
+        description:
+          "Verbinde einen API-Endpunkt und frage seine Daten in Analytics ab. Verwende einen öffentlichen HTTPS-Endpunkt; gehostetes Analytics kann localhost nicht erreichen.",
+        expand: "Aufklappen",
+        collapse: "Zuklappen",
+        endpointLabel: "Endpunkt-URL",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "HTTP-Methode",
+        authLabel: "Authentifizierung",
+        authNone: "Keine Authentifizierung",
+        authApiKey: "API-Schlüssel",
+        authBearer: "Bearer-Token",
+        apiKeyLabel: "API-Schlüssel",
+        apiKeyPlaceholder: "API-Schlüssel eingeben",
+        bearerTokenLabel: "Bearer-Token",
+        bearerTokenPlaceholder: "Bearer-Token eingeben",
+        setup: "Verbindung einrichten",
+        save: "Verbindung speichern",
+        test: "Verbindung testen",
+        testing: "Verbindung wird getestet…",
+        saving: "Verbindung wird gespeichert…",
+        settingsKeyGuidance:
+          "Speichere Geheimnisse in den Einstellungen, um diese Verbindung wiederzuverwenden.",
+        openSettings: "Einstellungen öffnen",
+        connectionResult: "Verbindungsergebnis",
+        sampleResponse: "Beispielantwort",
+        handoffButton: "Agenten Einrichtung abschließen lassen",
+        handoffPrompt:
+          "Hilf mir, diese benutzerdefinierte API-Verbindung einzurichten.",
+        requiredEndpoint: "Gib eine Endpunkt-URL ein.",
+        invalidEndpoint: "Gib eine gültige HTTP- oder HTTPS-URL ein.",
+        requiredCredential:
+          "Gib die Anmeldedaten für diese Authentifizierung ein.",
+        testFailed:
+          "Verbindungstest fehlgeschlagen. Prüfe Endpunkt und Anmeldedaten.",
+        saveFailed:
+          "Verbindung konnte nicht gespeichert werden. Versuche es erneut.",
+        authBasic: "Basisauthentifizierung",
+        invalidQuery: "Gib gültige JSON-Abfrageparameter ein.",
+        registerError: "Diese API konnte nicht registriert werden.",
+        testError: "Diese API konnte nicht getestet werden.",
+        agentPrompt:
+          "Speichere diese benutzerdefinierte API-Abfrage als wiederverwendbares Datenprogramm.",
+        keyHint: "Berechtigungsschlüssel:",
+        register: "API registrieren",
+        unknown: "Unbekannt",
+        rowCount: "Zeilen",
+        columns: "Spalten",
+        fields: {
+          label: "Name",
+          baseUrl: "Basis-URL",
+          path: "Abfragepfad",
+          query: "Abfrageparameter",
+          itemsPath: "Elementpfad",
+          docsUrl: "Dokumentations-URL",
+          authType: "Authentifizierungstyp",
+          usernameKey: "Benutzerschlüssel",
+          passwordKey: "Passwortschlüssel",
+          credentialKey: "Berechtigungsschlüssel",
+          headerName: "Headername",
+        },
+        placeholders: {
+          label: "z. B. Wetter-API",
+          baseUrl: "z. B. https://api.example.com",
+          path: "z. B. /v1/forecast",
+          query: 'z. B. { "limit": 100 }',
+          itemsPath: "z. B. data.items",
+          docsUrl: "z. B. https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "Linie",
@@ -2774,6 +3123,75 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}}設定済み",
       searchPlaceholder: "データソースを検索...",
       noMatch: "「{{search}}」に一致するデータ ソースはありません",
+      customApi: {
+        title: "カスタム API",
+        description:
+          "API エンドポイントを接続し、Analytics でデータをクエリします。公開 HTTPS エンドポイントを使用してください。ホスト型 Analytics から localhost には接続できません。",
+        expand: "展開",
+        collapse: "折りたたむ",
+        endpointLabel: "エンドポイント URL",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "HTTP メソッド",
+        authLabel: "認証",
+        authNone: "認証なし",
+        authApiKey: "API キー",
+        authBearer: "Bearer トークン",
+        apiKeyLabel: "API キー",
+        apiKeyPlaceholder: "API キーを入力",
+        bearerTokenLabel: "Bearer トークン",
+        bearerTokenPlaceholder: "Bearer トークンを入力",
+        setup: "接続を設定",
+        save: "接続を保存",
+        test: "接続をテスト",
+        testing: "接続をテスト中…",
+        saving: "接続を保存中…",
+        settingsKeyGuidance:
+          "設定にシークレットを保存すると、この接続を再利用できます。",
+        openSettings: "設定を開く",
+        connectionResult: "接続結果",
+        sampleResponse: "レスポンス例",
+        handoffButton: "エージェントに設定を任せる",
+        handoffPrompt:
+          "このカスタム API 接続の設定を完了するのを手伝ってください。",
+        requiredEndpoint: "エンドポイント URL を入力してください。",
+        invalidEndpoint: "有効な HTTP または HTTPS URL を入力してください。",
+        requiredCredential: "この認証方式の認証情報を入力してください。",
+        testFailed:
+          "接続テストに失敗しました。エンドポイントと認証情報を確認してください。",
+        saveFailed: "接続を保存できませんでした。もう一度お試しください。",
+        authBasic: "Basic 認証",
+        invalidQuery: "有効な JSON クエリパラメーターを入力してください。",
+        registerError: "この API を登録できませんでした。",
+        testError: "この API をテストできませんでした。",
+        agentPrompt:
+          "このカスタム API クエリを再利用可能なデータプログラムとして保存してください。",
+        keyHint: "認証情報キー：",
+        register: "API を登録",
+        unknown: "不明",
+        rowCount: "行",
+        columns: "列",
+        fields: {
+          label: "名前",
+          baseUrl: "ベース URL",
+          path: "クエリパス",
+          query: "クエリパラメーター",
+          itemsPath: "項目パス",
+          docsUrl: "ドキュメント URL",
+          authType: "認証タイプ",
+          usernameKey: "ユーザー名キー",
+          passwordKey: "パスワードキー",
+          credentialKey: "認証情報キー",
+          headerName: "ヘッダー名",
+        },
+        placeholders: {
+          label: "例：天気 API",
+          baseUrl: "例：https://api.example.com",
+          path: "例：/v1/forecast",
+          query: '例：{ "limit": 100 }',
+          itemsPath: "例：data.items",
+          docsUrl: "例：https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "ライン",
@@ -3099,6 +3517,74 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}} 구성됨",
       searchPlaceholder: "데이터 소스 검색...",
       noMatch: '"{{search}}"와 일치하는 데이터 소스가 없습니다.',
+      customApi: {
+        title: "사용자 지정 API",
+        description:
+          "API 엔드포인트를 연결하고 Analytics에서 데이터를 조회합니다. 공개 HTTPS 엔드포인트를 사용하세요. 호스팅된 Analytics에서는 localhost에 연결할 수 없습니다.",
+        expand: "펼치기",
+        collapse: "접기",
+        endpointLabel: "엔드포인트 URL",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "HTTP 메서드",
+        authLabel: "인증",
+        authNone: "인증 없음",
+        authApiKey: "API 키",
+        authBearer: "Bearer 토큰",
+        apiKeyLabel: "API 키",
+        apiKeyPlaceholder: "API 키 입력",
+        bearerTokenLabel: "Bearer 토큰",
+        bearerTokenPlaceholder: "Bearer 토큰 입력",
+        setup: "연결 설정",
+        save: "연결 저장",
+        test: "연결 테스트",
+        testing: "연결 테스트 중…",
+        saving: "연결 저장 중…",
+        settingsKeyGuidance:
+          "설정에 비밀 키를 저장하면 이 연결을 재사용할 수 있습니다.",
+        openSettings: "설정 열기",
+        connectionResult: "연결 결과",
+        sampleResponse: "샘플 응답",
+        handoffButton: "에이전트에게 설정 완료 요청",
+        handoffPrompt: "이 사용자 지정 API 연결 설정을 완료하도록 도와주세요.",
+        requiredEndpoint: "엔드포인트 URL을 입력하세요.",
+        invalidEndpoint: "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
+        requiredCredential: "이 인증 방식에 사용할 자격 증명을 입력하세요.",
+        testFailed:
+          "연결 테스트에 실패했습니다. 엔드포인트와 자격 증명을 확인하세요.",
+        saveFailed: "연결을 저장하지 못했습니다. 다시 시도하세요.",
+        authBasic: "기본 인증",
+        invalidQuery: "유효한 JSON 쿼리 매개변수를 입력하세요.",
+        registerError: "이 API를 등록할 수 없습니다.",
+        testError: "이 API를 테스트할 수 없습니다.",
+        agentPrompt:
+          "이 사용자 지정 API 쿼리를 재사용 가능한 데이터 프로그램으로 저장하세요.",
+        keyHint: "자격 증명 키:",
+        register: "API 등록",
+        unknown: "알 수 없음",
+        rowCount: "행",
+        columns: "열",
+        fields: {
+          label: "이름",
+          baseUrl: "기본 URL",
+          path: "쿼리 경로",
+          query: "쿼리 매개변수",
+          itemsPath: "항목 경로",
+          docsUrl: "문서 URL",
+          authType: "인증 유형",
+          usernameKey: "사용자 이름 키",
+          passwordKey: "비밀번호 키",
+          credentialKey: "자격 증명 키",
+          headerName: "헤더 이름",
+        },
+        placeholders: {
+          label: "예: 날씨 API",
+          baseUrl: "예: https://api.example.com",
+          path: "예: /v1/forecast",
+          query: '예: { "limit": 100 }',
+          itemsPath: "예: data.items",
+          docsUrl: "예: https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "선",
@@ -3424,6 +3910,74 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}} configurado",
       searchPlaceholder: "Pesquisar fontes de dados...",
       noMatch: 'Nenhuma fonte de dados corresponde a "{{search}}"',
+      customApi: {
+        title: "API personalizada",
+        description:
+          "Conecte um endpoint de API e consulte seus dados no Analytics. Use um endpoint HTTPS público; o Analytics hospedado não pode acessar localhost.",
+        expand: "Expandir",
+        collapse: "Recolher",
+        endpointLabel: "URL do endpoint",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "Método HTTP",
+        authLabel: "Autenticação",
+        authNone: "Sem autenticação",
+        authApiKey: "Chave de API",
+        authBearer: "Token Bearer",
+        apiKeyLabel: "Chave de API",
+        apiKeyPlaceholder: "Insira a chave de API",
+        bearerTokenLabel: "Token Bearer",
+        bearerTokenPlaceholder: "Insira o token Bearer",
+        setup: "Configurar conexão",
+        save: "Salvar conexão",
+        test: "Testar conexão",
+        testing: "Testando conexão…",
+        saving: "Salvando conexão…",
+        settingsKeyGuidance:
+          "Salve os segredos em Configurações para reutilizar esta conexão.",
+        openSettings: "Abrir Configurações",
+        connectionResult: "Resultado da conexão",
+        sampleResponse: "Resposta de exemplo",
+        handoffButton: "Pedir ao agente para concluir",
+        handoffPrompt:
+          "Ajude-me a concluir a configuração desta conexão de API personalizada.",
+        requiredEndpoint: "Insira uma URL de endpoint.",
+        invalidEndpoint: "Insira uma URL HTTP ou HTTPS válida.",
+        requiredCredential: "Insira a credencial deste método de autenticação.",
+        testFailed: "O teste falhou. Verifique o endpoint e as credenciais.",
+        saveFailed: "Não foi possível salvar a conexão. Tente novamente.",
+        authBasic: "Autenticação básica",
+        invalidQuery: "Insira parâmetros JSON válidos.",
+        registerError: "Não foi possível registrar esta API.",
+        testError: "Não foi possível testar esta API.",
+        agentPrompt:
+          "Salve esta consulta de API personalizada como um programa de dados reutilizável.",
+        keyHint: "Chave da credencial:",
+        register: "Registrar API",
+        unknown: "Desconhecido",
+        rowCount: "Linhas",
+        columns: "Colunas",
+        fields: {
+          label: "Nome",
+          baseUrl: "URL base",
+          path: "Caminho da consulta",
+          query: "Parâmetros da consulta",
+          itemsPath: "Caminho dos itens",
+          docsUrl: "URL da documentação",
+          authType: "Tipo de autenticação",
+          usernameKey: "Chave do usuário",
+          passwordKey: "Chave da senha",
+          credentialKey: "Chave da credencial",
+          headerName: "Nome do cabeçalho",
+        },
+        placeholders: {
+          label: "ex.: API de clima",
+          baseUrl: "ex.: https://api.example.com",
+          path: "ex.: /v1/forecast",
+          query: 'ex.: { "limit": 100 }',
+          itemsPath: "ex.: data.items",
+          docsUrl: "ex.: https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "Linha",
@@ -3750,6 +4304,73 @@ const analyticsSliceTranslations: {
       configuredCount: "{{count}} कॉन्फ़िगर किया गया",
       searchPlaceholder: "डेटा स्रोत खोजें...",
       noMatch: 'कोई डेटा स्रोत "{{search}}" से मेल नहीं खाता',
+      customApi: {
+        title: "कस्टम API",
+        description:
+          "API एंडपॉइंट कनेक्ट करें और Analytics में उसका डेटा क्वेरी करें। सार्वजनिक HTTPS एंडपॉइंट का उपयोग करें; होस्टेड Analytics localhost तक नहीं पहुँच सकता।",
+        expand: "विस्तार करें",
+        collapse: "समेटें",
+        endpointLabel: "एंडपॉइंट URL",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "HTTP विधि",
+        authLabel: "प्रमाणीकरण",
+        authNone: "कोई प्रमाणीकरण नहीं",
+        authApiKey: "API कुंजी",
+        authBearer: "Bearer टोकन",
+        apiKeyLabel: "API कुंजी",
+        apiKeyPlaceholder: "API कुंजी दर्ज करें",
+        bearerTokenLabel: "Bearer टोकन",
+        bearerTokenPlaceholder: "Bearer टोकन दर्ज करें",
+        setup: "कनेक्शन सेट अप करें",
+        save: "कनेक्शन सहेजें",
+        test: "कनेक्शन जाँचें",
+        testing: "कनेक्शन जाँचा जा रहा है…",
+        saving: "कनेक्शन सहेजा जा रहा है…",
+        settingsKeyGuidance:
+          "इस कनेक्शन का फिर उपयोग करने के लिए सीक्रेट Settings में सहेजें।",
+        openSettings: "Settings खोलें",
+        connectionResult: "कनेक्शन परिणाम",
+        sampleResponse: "नमूना प्रतिक्रिया",
+        handoffButton: "एजेंट से सेटअप पूरा करवाएँ",
+        handoffPrompt: "इस कस्टम API कनेक्शन का सेटअप पूरा करने में मेरी मदद करें।",
+        requiredEndpoint: "एंडपॉइंट URL दर्ज करें।",
+        invalidEndpoint: "मान्य HTTP या HTTPS URL दर्ज करें।",
+        requiredCredential: "इस प्रमाणीकरण विधि की क्रेडेंशियल दर्ज करें।",
+        testFailed: "कनेक्शन जाँच विफल हुई। एंडपॉइंट और क्रेडेंशियल जाँचें।",
+        saveFailed: "कनेक्शन सहेजा नहीं जा सका। फिर प्रयास करें।",
+        authBasic: "बेसिक प्रमाणीकरण",
+        invalidQuery: "मान्य JSON क्वेरी पैरामीटर दर्ज करें।",
+        registerError: "इस API को पंजीकृत नहीं किया जा सका।",
+        testError: "इस API का परीक्षण नहीं किया जा सका।",
+        agentPrompt:
+          "इस कस्टम API क्वेरी को पुन: उपयोग योग्य डेटा प्रोग्राम के रूप में सहेजें।",
+        keyHint: "क्रेडेंशियल कुंजी:",
+        register: "API पंजीकृत करें",
+        unknown: "अज्ञात",
+        rowCount: "पंक्तियाँ",
+        columns: "कॉलम",
+        fields: {
+          label: "नाम",
+          baseUrl: "बेस URL",
+          path: "क्वेरी पथ",
+          query: "क्वेरी पैरामीटर",
+          itemsPath: "आइटम पथ",
+          docsUrl: "दस्तावेज़ URL",
+          authType: "प्रमाणीकरण प्रकार",
+          usernameKey: "उपयोगकर्ता नाम कुंजी",
+          passwordKey: "पासवर्ड कुंजी",
+          credentialKey: "क्रेडेंशियल कुंजी",
+          headerName: "हेडर नाम",
+        },
+        placeholders: {
+          label: "उदा. मौसम API",
+          baseUrl: "उदा. https://api.example.com",
+          path: "उदा. /v1/forecast",
+          query: 'उदा. { "limit": 100 }',
+          itemsPath: "उदा. data.items",
+          docsUrl: "उदा. https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "रेखा",
@@ -4069,6 +4690,73 @@ const analyticsSliceTranslations: {
       configuredCount: "تكوين {{count}}",
       searchPlaceholder: "البحث في مصادر البيانات...",
       noMatch: 'لا توجد مصادر بيانات تطابق "{{search}}"',
+      customApi: {
+        title: "واجهة API مخصصة",
+        description:
+          "صِل نقطة نهاية API واستعلم عن بياناتها في Analytics. استخدم نقطة نهاية HTTPS عامة؛ لا يمكن لـ Analytics المستضاف الوصول إلى localhost.",
+        expand: "توسيع",
+        collapse: "طي",
+        endpointLabel: "عنوان URL لنقطة النهاية",
+        endpointPlaceholder: "https://api.example.com/v1/data",
+        methodLabel: "طريقة HTTP",
+        authLabel: "المصادقة",
+        authNone: "بلا مصادقة",
+        authApiKey: "مفتاح API",
+        authBearer: "رمز Bearer",
+        apiKeyLabel: "مفتاح API",
+        apiKeyPlaceholder: "أدخل مفتاح API",
+        bearerTokenLabel: "رمز Bearer",
+        bearerTokenPlaceholder: "أدخل رمز Bearer",
+        setup: "إعداد الاتصال",
+        save: "حفظ الاتصال",
+        test: "اختبار الاتصال",
+        testing: "جارٍ اختبار الاتصال…",
+        saving: "جارٍ حفظ الاتصال…",
+        settingsKeyGuidance:
+          "احفظ الأسرار في الإعدادات لإعادة استخدام هذا الاتصال.",
+        openSettings: "فتح الإعدادات",
+        connectionResult: "نتيجة الاتصال",
+        sampleResponse: "استجابة نموذجية",
+        handoffButton: "اطلب من الوكيل إكمال الإعداد",
+        handoffPrompt: "ساعدني في إكمال إعداد اتصال API المخصص هذا.",
+        requiredEndpoint: "أدخل عنوان URL لنقطة النهاية.",
+        invalidEndpoint: "أدخل عنوان URL صالحًا يبدأ بـ HTTP أو HTTPS.",
+        requiredCredential: "أدخل بيانات اعتماد طريقة المصادقة هذه.",
+        testFailed: "فشل اختبار الاتصال. تحقق من نقطة النهاية وبيانات الاعتماد.",
+        saveFailed: "تعذر حفظ الاتصال. حاول مرة أخرى.",
+        authBasic: "مصادقة أساسية",
+        invalidQuery: "أدخل معلمات استعلام JSON صالحة.",
+        registerError: "تعذر تسجيل واجهة API هذه.",
+        testError: "تعذر اختبار واجهة API هذه.",
+        agentPrompt:
+          "احفظ استعلام واجهة API المخصصة هذا كبرنامج بيانات قابل لإعادة الاستخدام.",
+        keyHint: "مفتاح بيانات الاعتماد:",
+        register: "تسجيل واجهة API",
+        unknown: "غير معروف",
+        rowCount: "صفوف",
+        columns: "أعمدة",
+        fields: {
+          label: "الاسم",
+          baseUrl: "عنوان URL الأساسي",
+          path: "مسار الاستعلام",
+          query: "معلمات الاستعلام",
+          itemsPath: "مسار العناصر",
+          docsUrl: "عنوان URL للتوثيق",
+          authType: "نوع المصادقة",
+          usernameKey: "مفتاح اسم المستخدم",
+          passwordKey: "مفتاح كلمة المرور",
+          credentialKey: "مفتاح بيانات الاعتماد",
+          headerName: "اسم الرأس",
+        },
+        placeholders: {
+          label: "مثال: واجهة الطقس",
+          baseUrl: "مثال: https://api.example.com",
+          path: "مثال: /v1/forecast",
+          query: 'مثال: { "limit": 100 }',
+          itemsPath: "مثال: data.items",
+          docsUrl: "مثال: https://docs.example.com",
+        },
+      },
     },
     panelEditor: {
       chartTypeLine: "خط",
@@ -4238,6 +4926,10 @@ function mergeMessages(overrides: {
     common: { ...enUS.common, ...overrides.common },
     dataDictionary: { ...enUS.dataDictionary, ...overrides.dataDictionary },
     dataSources: { ...enUS.dataSources, ...overrides.dataSources },
+    analyticsBackend: {
+      ...enUS.analyticsBackend,
+      ...overrides.analyticsBackend,
+    },
     panelEditor: { ...enUS.panelEditor, ...overrides.panelEditor },
     legacyFusion: { ...enUS.legacyFusion, ...overrides.legacyFusion },
     dashboard: { ...enUS.dashboard, ...overrides.dashboard },
@@ -4418,9 +5110,6 @@ export const messagesByLocale = {
       credentials: "数据源凭据",
       credentialsDescription: "API 密钥和凭据在数据源页面管理。",
       manageDataSources: "管理数据源",
-      dashboardTemplates: "仪表板模板",
-      dashboardTemplatesDescription: "需要起点时，安装受源码管理的仪表板。",
-      openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
       errorEmailNotifications: "通过电子邮件接收新的错误提醒",
@@ -4430,10 +5119,6 @@ export const messagesByLocale = {
       bellSound: "提示音",
       bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
       bellSoundSaveFailed: "无法保存提示音偏好设置。",
-      about: "关于",
-      aboutDescription:
-        "Analytics 用于连接数据源并构建自定义仪表板。连接 Google Analytics、BigQuery、Stripe 等，然后让代理创建仪表板。",
-      aboutUsage: "在数据源页面管理连接。使用查询探索器运行临时 BigQuery SQL。",
     },
     chat: {
       emptyState: "让我分析仪表板、比较趋势或深入查看数据...",
@@ -4642,10 +5327,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Las claves API y credenciales se gestionan en la página Fuentes de datos.",
       manageDataSources: "Gestionar fuentes de datos",
-      dashboardTemplates: "Plantillas de paneles",
-      dashboardTemplatesDescription:
-        "Instala un panel controlado por código fuente cuando necesites un punto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
       errorEmailNotifications: "Recibir nuevas alertas de errores por email",
@@ -4657,11 +5338,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduce un sonido cuando el agente termina una ejecución. Desactivado de forma predeterminada.",
       bellSoundSaveFailed: "No se pudo guardar la preferencia de sonido.",
-      about: "Acerca de",
-      aboutDescription:
-        "Analytics conecta fuentes de datos y crea paneles personalizados. Conecta Google Analytics, BigQuery, Stripe y más, y pide al agente que cree paneles.",
-      aboutUsage:
-        "Usa Fuentes de datos para gestionar conexiones. Usa el Explorador de consultas para SQL ad hoc de BigQuery.",
     },
     chat: {
       emptyState:
@@ -4873,10 +5549,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Les clés API et identifiants sont gérés sur la page Sources de données.",
       manageDataSources: "Gérer les sources de données",
-      dashboardTemplates: "Modèles de tableaux de bord",
-      dashboardTemplatesDescription:
-        "Installez un tableau de bord suivi dans le code source lorsque vous avez besoin d'un point de départ.",
-      openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
       errorEmailNotifications:
@@ -4889,11 +5561,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Jouer un son lorsque l’agent termine une exécution. Désactivé par défaut.",
       bellSoundSaveFailed: "Impossible d’enregistrer la préférence sonore.",
-      about: "À propos",
-      aboutDescription:
-        "Analytics connecte des sources de données et crée des tableaux de bord personnalisés. Connectez Google Analytics, BigQuery, Stripe et plus encore, puis demandez à l'agent de créer des tableaux de bord.",
-      aboutUsage:
-        "Utilisez Sources de données pour gérer les connexions. Utilisez l'explorateur de requêtes pour le SQL BigQuery ad hoc.",
     },
     chat: {
       emptyState:
@@ -5112,10 +5779,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API-Schlüssel und Anmeldedaten werden auf der Seite Datenquellen verwaltet.",
       manageDataSources: "Datenquellen verwalten",
-      dashboardTemplates: "Dashboard-Vorlagen",
-      dashboardTemplatesDescription:
-        "Installiere ein quellkontrolliertes Dashboard, wenn du einen Ausgangspunkt brauchst.",
-      openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
       errorEmailNotifications: "Neue Fehlerwarnungen per E-Mail erhalten",
@@ -5128,11 +5791,6 @@ export const messagesByLocale = {
         "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
       bellSoundSaveFailed:
         "Die Toneinstellung konnte nicht gespeichert werden.",
-      about: "Info",
-      aboutDescription:
-        "Analytics verbindet Datenquellen und erstellt benutzerdefinierte Dashboards. Verbinde Google Analytics, BigQuery, Stripe und mehr und bitte den Agenten, Dashboards zu erstellen.",
-      aboutUsage:
-        "Verwalte Verbindungen auf der Seite Datenquellen. Nutze den Query Explorer für Ad-hoc-BigQuery-SQL.",
     },
     chat: {
       emptyState:
@@ -5342,10 +6000,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API キーと認証情報はデータソースページで管理します。",
       manageDataSources: "データソースを管理",
-      dashboardTemplates: "ダッシュボードテンプレート",
-      dashboardTemplatesDescription:
-        "出発点が必要なときは、ソース管理されたダッシュボードをインストールします。",
-      openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
       errorEmailNotifications: "新しいエラーアラートをメールで受け取る",
@@ -5356,11 +6010,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
       bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
-      about: "概要",
-      aboutDescription:
-        "Analytics はデータソースを接続し、カスタムダッシュボードを作成するツールです。Google Analytics、BigQuery、Stripe などを接続し、エージェントにダッシュボード作成を依頼できます。",
-      aboutUsage:
-        "接続はデータソースページで管理します。アドホックな BigQuery SQL にはクエリエクスプローラーを使います。",
     },
     chat: {
       emptyState:
@@ -5569,10 +6218,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API 키와 자격 증명은 데이터 소스 페이지에서 관리합니다.",
       manageDataSources: "데이터 소스 관리",
-      dashboardTemplates: "대시보드 템플릿",
-      dashboardTemplatesDescription:
-        "시작점이 필요할 때 소스 제어된 대시보드를 설치하세요.",
-      openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
       errorEmailNotifications: "새 오류 알림을 이메일로 받기",
@@ -5583,11 +6228,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
       bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
-      about: "정보",
-      aboutDescription:
-        "Analytics는 데이터 소스를 연결하고 사용자 지정 대시보드를 만드는 도구입니다. Google Analytics, BigQuery, Stripe 등을 연결한 뒤 에이전트에게 대시보드를 만들게 하세요.",
-      aboutUsage:
-        "데이터 소스 페이지에서 연결을 관리합니다. 임시 BigQuery SQL은 쿼리 탐색기를 사용하세요.",
     },
     chat: {
       emptyState:
@@ -5800,10 +6440,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
       manageDataSources: "Gerenciar fontes de dados",
-      dashboardTemplates: "Modelos de dashboard",
-      dashboardTemplatesDescription:
-        "Instale um dashboard controlado por código-fonte quando precisar de um ponto de partida.",
-      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
       errorEmailNotifications: "Receber novos alertas de erro por e-mail",
@@ -5815,11 +6451,6 @@ export const messagesByLocale = {
       bellSoundDescription:
         "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
       bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
-      about: "Sobre",
-      aboutDescription:
-        "Analytics conecta fontes de dados e cria dashboards personalizados. Conecte Google Analytics, BigQuery, Stripe e outros, depois peça ao agente para criar dashboards.",
-      aboutUsage:
-        "Use Fontes de dados para gerenciar conexões. Use o Explorador de consultas para SQL ad hoc do BigQuery.",
     },
     chat: {
       emptyState:
@@ -6027,10 +6658,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "API कुंजियां और क्रेडेंशियल डेटा स्रोत पेज पर प्रबंधित होते हैं।",
       manageDataSources: "डेटा स्रोत प्रबंधित करें",
-      dashboardTemplates: "डैशबोर्ड टेम्पलेट",
-      dashboardTemplatesDescription:
-        "जब आपको शुरुआत का आधार चाहिए, तो स्रोत-नियंत्रित डैशबोर्ड इंस्टॉल करें।",
-      openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
       errorEmailNotifications: "नए त्रुटि अलर्ट ईमेल से प्राप्त करें",
@@ -6040,11 +6667,6 @@ export const messagesByLocale = {
       bellSound: "पूर्णता ध्वनि",
       bellSoundDescription: "एजेंट के रन पूरा करने पर ध्वनि चलाएं। डिफ़ॉल्ट रूप से बंद।",
       bellSoundSaveFailed: "ध्वनि प्राथमिकता सहेजी नहीं जा सकी।",
-      about: "परिचय",
-      aboutDescription:
-        "Analytics डेटा स्रोतों को जोड़ने और कस्टम डैशबोर्ड बनाने का टूल है। Google Analytics, BigQuery, Stripe आदि जोड़ें, फिर एजेंट से डैशबोर्ड बनवाएं।",
-      aboutUsage:
-        "कनेक्शन प्रबंधित करने के लिए डेटा स्रोत पेज का उपयोग करें। ad-hoc BigQuery SQL के लिए Query Explorer उपयोग करें।",
     },
     chat: {
       emptyState:
@@ -6251,10 +6873,6 @@ export const messagesByLocale = {
       credentialsDescription:
         "تتم إدارة مفاتيح API وبيانات الاعتماد من صفحة مصادر البيانات.",
       manageDataSources: "إدارة مصادر البيانات",
-      dashboardTemplates: "قوالب لوحات المعلومات",
-      dashboardTemplatesDescription:
-        "ثبّت لوحة معلومات مضبوطة في المصدر عندما تحتاج إلى نقطة بداية.",
-      openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
       errorEmailNotifications:
@@ -6265,11 +6883,6 @@ export const messagesByLocale = {
       bellSound: "صوت الجرس",
       bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
       bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
-      about: "حول",
-      aboutDescription:
-        "Analytics أداة لربط مصادر البيانات وبناء لوحات معلومات مخصصة. اربط Google Analytics وBigQuery وStripe وغيرها، ثم اطلب من الوكيل إنشاء اللوحات.",
-      aboutUsage:
-        "استخدم صفحة مصادر البيانات لإدارة الاتصالات. استخدم مستكشف الاستعلامات لاستعلامات BigQuery SQL المخصصة.",
     },
     chat: {
       emptyState:
@@ -6326,6 +6939,21 @@ type AnalyticsPartialMessages = {
 
 const translatedAnalyticsDebtTranslations = {
   "zh-CN": {
+    analyticsBackend: {
+      recommendationTitle: "针对大量历史数据使用外部分析后端",
+      recommendationDescription:
+        "Neon 仍是近期运营分析的默认选择。连接 BigQuery 以使用数据仓库 SQL 和历史分析，或连接 Amplitude 进行产品分析、漏斗和留存分析。连接后不会自动迁移 /track 事件或回填现有 Neon 数据。",
+      connectedTitle: "外部分析后端已就绪",
+      connectedDescription:
+        "使用 BigQuery 进行数据仓库 SQL 和历史分析，或使用 Amplitude 进行产品分析、漏斗和留存分析。内置 /track 收集器仍会写入第一方 Analytics，除非你明确配置其他收集路径。",
+      options: "外部选项",
+      monitorDescription:
+        "Neon 目前仍然适合。请关注事件量和查询延迟；如果压力增加，此卡片会建议外部后端。",
+      healthyDescription:
+        "Neon 目前适合这项第一方数据。如果事件量或查询延迟增加，我们会建议 BigQuery 或 Amplitude。",
+      unavailableDescription:
+        "现在无法检查第一方 Analytics 压力。请重新加载后再尝试更换后端。",
+    },
     analyses: {
       allAnalyses: "所有分析",
       backToAnalyses: "返回分析",
@@ -6541,6 +7169,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "es-ES": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Usa un backend de analítica externo para historiales grandes",
+      recommendationDescription:
+        "Neon sigue siendo el valor predeterminado para la analítica operativa reciente. Conecta BigQuery para SQL de almacén y análisis histórico, o Amplitude para analítica de producto, embudos y retención. Conectar uno no mueve automáticamente los eventos de /track ni rellena los datos existentes de Neon.",
+      connectedTitle: "Los backends de analítica externos están listos",
+      connectedDescription:
+        "Usa BigQuery para SQL de almacén y análisis histórico, o Amplitude para analítica de producto, embudos y retención. El recopilador /track integrado sigue escribiendo en Analytics de primera parte salvo que configures explícitamente otra ruta de recopilación.",
+      options: "Opciones externas",
+      monitorDescription:
+        "Neon sigue siendo adecuado. Vigila el volumen de eventos y la latencia de las consultas; esta tarjeta recomendará un backend externo si aumenta la presión.",
+      healthyDescription:
+        "Neon es adecuado para estos datos de primera parte. Recomendaremos BigQuery o Amplitude si aumentan el volumen o la latencia.",
+      unavailableDescription:
+        "No pudimos comprobar la presión de Analytics de primera parte. Recarga e inténtalo de nuevo antes de cambiar de backend.",
+    },
     analyses: {
       allAnalyses: "Todos los análisis",
       backToAnalyses: "Volver a los análisis",
@@ -6768,6 +7412,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "fr-FR": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Utilisez un backend analytique externe pour les historiques volumineux",
+      recommendationDescription:
+        "Neon reste la valeur par défaut pour les analyses opérationnelles récentes. Connectez BigQuery pour le SQL d'entrepôt et l'analyse historique, ou Amplitude pour l'analyse produit, les entonnoirs et la rétention. La connexion ne déplace pas automatiquement les événements /track et ne remplit pas les données Neon existantes.",
+      connectedTitle: "Les backends analytiques externes sont prêts",
+      connectedDescription:
+        "Utilisez BigQuery pour le SQL d'entrepôt et l'analyse historique, ou Amplitude pour l'analyse produit, les entonnoirs et la rétention. Le collecteur /track intégré continue d'écrire dans Analytics propriétaire, sauf si vous configurez explicitement un autre chemin de collecte.",
+      options: "Options externes",
+      monitorDescription:
+        "Neon reste adapté. Surveillez le volume d'événements et la latence des requêtes ; cette carte recommandera un backend externe si la pression augmente.",
+      healthyDescription:
+        "Neon convient actuellement à ces données propriétaires. Nous recommanderons BigQuery ou Amplitude si le volume ou la latence augmente.",
+      unavailableDescription:
+        "Impossible de vérifier la pression d'Analytics propriétaire. Rechargez la page et réessayez avant de changer de backend.",
+    },
     analyses: {
       allAnalyses: "Toutes les analyses",
       backToAnalyses: "Retour aux analyses",
@@ -6999,6 +7659,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "de-DE": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Verwende ein externes Analyse-Backend für große historische Datenmengen",
+      recommendationDescription:
+        "Neon bleibt die Standardeinstellung für aktuelle operative Analysen. Verbinde BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Durch die Verbindung werden /track-Ereignisse nicht automatisch verschoben und vorhandene Neon-Daten nicht nachgefüllt.",
+      connectedTitle: "Externe Analyse-Backends sind bereit",
+      connectedDescription:
+        "Verwende BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Der integrierte /track-Collector schreibt weiterhin in First-Party Analytics, sofern du nicht ausdrücklich einen anderen Erfassungspfad konfigurierst.",
+      options: "Externe Optionen",
+      monitorDescription:
+        "Neon passt weiterhin gut. Behalte Ereignisvolumen und Abfrage-Latenz im Blick; diese Karte empfiehlt bei wachsender Belastung ein externes Backend.",
+      healthyDescription:
+        "Neon passt derzeit zu diesen First-Party-Daten. Bei wachsendem Volumen oder wachsender Latenz empfehlen wir BigQuery oder Amplitude.",
+      unavailableDescription:
+        "Die First-Party-Analytics-Belastung konnte nicht geprüft werden. Lade neu und versuche es erneut, bevor du das Backend wechselst.",
+    },
     analyses: {
       allAnalyses: "Alle Analysen",
       backToAnalyses: "Zurück zu den Analysen",
@@ -7228,6 +7904,21 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "ja-JP": {
+    analyticsBackend: {
+      recommendationTitle: "大量の履歴データには外部分析バックエンドを使用",
+      recommendationDescription:
+        "Neon は最近の運用分析のデフォルトです。BigQuery を接続するとデータウェアハウス SQL と履歴分析を、Amplitude を接続するとプロダクト分析、ファネル、リテンション分析を利用できます。接続しても /track イベントが自動的に移行されたり、既存の Neon データが補完されたりすることはありません。",
+      connectedTitle: "外部分析バックエンドを利用できます",
+      connectedDescription:
+        "BigQuery はデータウェアハウス SQL と履歴分析に、Amplitude はプロダクト分析、ファネル、リテンション分析に使用します。明示的に別の収集経路を設定しない限り、組み込みの /track コレクターは First-party Analytics に書き込み続けます。",
+      options: "外部オプション",
+      monitorDescription:
+        "現在も Neon で問題ありません。イベント量とクエリ遅延を確認してください。負荷が増えると、このカードが外部バックエンドを提案します。",
+      healthyDescription:
+        "現在、この First-party データには Neon が適しています。量やクエリ遅延が増えると BigQuery または Amplitude を提案します。",
+      unavailableDescription:
+        "First-party Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてもう一度お試しください。",
+    },
     analyses: {
       allAnalyses: "すべての分析",
       backToAnalyses: "分析に戻る",
@@ -7453,6 +8144,21 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "ko-KR": {
+    analyticsBackend: {
+      recommendationTitle: "대규모 기록 데이터에는 외부 분석 백엔드 사용",
+      recommendationDescription:
+        "Neon은 최근 운영 분석의 기본값입니다. 웨어하우스 SQL과 기록 분석에는 BigQuery를, 제품 분석과 퍼널 및 리텐션에는 Amplitude를 연결하세요. 연결해도 /track 이벤트가 자동으로 이동하거나 기존 Neon 데이터가 백필되지는 않습니다.",
+      connectedTitle: "외부 분석 백엔드를 사용할 수 있습니다",
+      connectedDescription:
+        "BigQuery는 웨어하우스 SQL과 기록 분석에, Amplitude는 제품 분석과 퍼널 및 리텐션에 사용하세요. 다른 수집 경로를 명시적으로 설정하지 않는 한 내장 /track 수집기는 계속 First-party Analytics에 기록합니다.",
+      options: "외부 옵션",
+      monitorDescription:
+        "현재도 Neon이 적합합니다. 이벤트 양과 쿼리 지연을 확인하세요. 부하가 커지면 이 카드에서 외부 백엔드를 추천합니다.",
+      healthyDescription:
+        "현재 이 First-party 데이터에는 Neon이 적합합니다. 양이나 쿼리 지연이 늘면 BigQuery 또는 Amplitude를 추천합니다.",
+      unavailableDescription:
+        "현재 First-party Analytics 부하를 확인할 수 없습니다. 백엔드를 변경하기 전에 다시 로드해 보세요.",
+    },
     analyses: {
       allAnalyses: "모든 분석",
       backToAnalyses: "분석으로 돌아가기",
@@ -7676,6 +8382,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "pt-BR": {
+    analyticsBackend: {
+      recommendationTitle:
+        "Use um backend de análise externo para históricos grandes",
+      recommendationDescription:
+        "Neon continua sendo o padrão para análises operacionais recentes. Conecte o BigQuery para SQL de warehouse e análise histórica, ou o Amplitude para análise de produto, funis e retenção. Conectar um deles não move eventos de /track automaticamente nem preenche dados existentes do Neon.",
+      connectedTitle: "Os backends de análise externos estão prontos",
+      connectedDescription:
+        "Use o BigQuery para SQL de warehouse e análise histórica, ou o Amplitude para análise de produto, funis e retenção. O coletor /track integrado continua gravando no Analytics próprio, a menos que você configure explicitamente outro caminho de coleta.",
+      options: "Opções externas",
+      monitorDescription:
+        "O Neon ainda é adequado. Acompanhe o volume de eventos e a latência das consultas; este cartão recomendará um backend externo se a pressão aumentar.",
+      healthyDescription:
+        "O Neon é adequado para estes dados próprios no momento. Recomendaremos BigQuery ou Amplitude se o volume ou a latência aumentarem.",
+      unavailableDescription:
+        "Não foi possível verificar a pressão do Analytics próprio. Recarregue e tente novamente antes de trocar de backend.",
+    },
     analyses: {
       allAnalyses: "Todas as análises",
       backToAnalyses: "Voltar às análises",
@@ -7904,6 +8626,22 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "hi-IN": {
+    analyticsBackend: {
+      recommendationTitle:
+        "बड़े ऐतिहासिक डेटा के लिए बाहरी Analytics backend इस्तेमाल करें",
+      recommendationDescription:
+        "हाल के ऑपरेशनल Analytics के लिए Neon अभी भी डिफ़ॉल्ट है। Warehouse SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या product analytics, funnels और retention के लिए Amplitude कनेक्ट करें। कनेक्ट करने से /track इवेंट अपने-आप नहीं जाते और Neon का मौजूदा डेटा backfill नहीं होता।",
+      connectedTitle: "बाहरी Analytics backends तैयार हैं",
+      connectedDescription:
+        "Warehouse SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या product analytics, funnels और retention के लिए Amplitude इस्तेमाल करें। अलग collection path स्पष्ट रूप से कॉन्फ़िगर न करने तक built-in /track collector first-party Analytics में लिखता रहेगा।",
+      options: "बाहरी विकल्प",
+      monitorDescription:
+        "Neon अभी भी उपयुक्त है। Event volume और query latency पर नज़र रखें; दबाव बढ़ने पर यह कार्ड बाहरी backend सुझाएगा।",
+      healthyDescription:
+        "इस first-party डेटा के लिए Neon अभी उपयुक्त है। Volume या query latency बढ़ने पर हम BigQuery या Amplitude सुझाएंगे।",
+      unavailableDescription:
+        "First-party Analytics pressure जाँचा नहीं जा सका। Backend बदलने से पहले reload करके फिर प्रयास करें।",
+    },
     analyses: {
       allAnalyses: "सभी विश्लेषण",
       backToAnalyses: "विश्लेषण पर वापस जाएँ",
@@ -8127,6 +8865,21 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
   "ar-SA": {
+    analyticsBackend: {
+      recommendationTitle: "استخدم واجهة تحليلات خارجية للسجل التاريخي الكبير",
+      recommendationDescription:
+        "يظل Neon الخيار الافتراضي للتحليلات التشغيلية الحديثة. صِل BigQuery لاستخدام SQL المستودع والتحليل التاريخي، أو Amplitude لتحليلات المنتج ومسارات التحويل والاحتفاظ. لا يؤدي الاتصال بأحدهما إلى نقل أحداث /track تلقائياً أو ملء بيانات Neon الحالية.",
+      connectedTitle: "واجهات التحليلات الخارجية جاهزة",
+      connectedDescription:
+        "استخدم BigQuery لـ SQL المستودع والتحليل التاريخي، أو Amplitude لتحليلات المنتج ومسارات التحويل والاحتفاظ. يستمر جامع /track المضمّن في الكتابة إلى Analytics للطرف الأول ما لم تضبط مسار جمع آخر صراحةً.",
+      options: "الخيارات الخارجية",
+      monitorDescription:
+        "لا يزال Neon مناسباً. راقب حجم الأحداث وزمن الاستعلام؛ ستقترح هذه البطاقة واجهة خارجية إذا زاد الضغط.",
+      healthyDescription:
+        "Neon مناسب حالياً لبيانات Analytics للطرف الأول. سنقترح BigQuery أو Amplitude إذا زاد الحجم أو زمن الاستعلام.",
+      unavailableDescription:
+        "تعذّر التحقق من ضغط Analytics للطرف الأول. أعد التحميل وحاول مرة أخرى قبل تغيير الواجهة الخلفية.",
+    },
     analyses: {
       allAnalyses: "جميع التحليلات",
       backToAnalyses: "العودة إلى التحليلات",
@@ -8349,6 +9102,173 @@ const translatedAnalyticsDebtTranslations = {
     },
   },
 } satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+const analyticsBackendTranslations: Partial<
+  Record<LocaleCode, Partial<Messages["analyticsBackend"]>>
+> = {
+  "zh-TW": {
+    recommendationTitle: "大量歷史資料請使用外部分析後端",
+    recommendationDescription:
+      "Neon 仍是近期營運分析的預設選項。連接 BigQuery 以使用資料倉儲 SQL 和歷史分析，或連接 Amplitude 以進行產品分析、漏斗和留存分析。連接後不會自動移轉 /track 事件或回填現有的 Neon 資料。",
+    connectedTitle: "外部分析後端已就緒",
+    connectedDescription:
+      "使用 BigQuery 進行資料倉儲 SQL 和歷史分析，或使用 Amplitude 進行產品分析、漏斗和留存分析。內建的 /track 收集器仍會寫入第一方 Analytics，除非你明確設定其他收集路徑。",
+    options: "外部選項",
+    monitorDescription:
+      "Neon 目前仍然適用。請留意事件量和查詢延遲；壓力增加時，這張卡片會建議外部後端。",
+    healthyDescription:
+      "Neon 目前很適合這些第一方資料。當資料量或查詢延遲增加時，我們會建議 BigQuery 或 Amplitude。",
+    unavailableDescription:
+      "目前無法檢查第一方 Analytics 壓力。請重新載入後再決定是否更換後端。",
+  },
+  "zh-CN": {
+    recommendationTitle: "大量历史数据请使用外部分析后端",
+    recommendationDescription:
+      "Neon 仍是近期运营分析的默认选项。连接 BigQuery 以使用数据仓库 SQL 和历史分析，或连接 Amplitude 以进行产品分析、漏斗和留存分析。连接后不会自动转移 /track 事件或回填现有 Neon 数据。",
+    connectedTitle: "外部分析后端已就绪",
+    connectedDescription:
+      "使用 BigQuery 进行数据仓库 SQL 和历史分析，或使用 Amplitude 进行产品分析、漏斗和留存分析。内置的 /track 收集器仍会写入第一方 Analytics，除非你明确配置其他收集路径。",
+    options: "外部选项",
+    monitorDescription:
+      "Neon 目前仍然适用。请留意事件量和查询延迟；压力增加时，这张卡片会建议外部后端。",
+    healthyDescription:
+      "Neon 目前很适合这些第一方数据。当数据量或查询延迟增加时，我们会建议 BigQuery 或 Amplitude。",
+    unavailableDescription:
+      "目前无法检查第一方 Analytics 压力。请重新加载后再决定是否更换后端。",
+  },
+  "ar-SA": {
+    recommendationTitle: "استخدم خلفية تحليلات خارجية للتاريخ الكبير",
+    recommendationDescription:
+      "يظل Neon الخيار الافتراضي للتحليلات التشغيلية الحديثة. وصّل BigQuery لبيانات المستودع والتحليل التاريخي، أو Amplitude لتحليلات المنتج والقمع والاحتفاظ. لا يؤدي الاتصال إلى نقل أحداث /track أو ملء بيانات Neon الحالية تلقائيًا.",
+    connectedTitle: "الخلفيات التحليلية الخارجية جاهزة",
+    connectedDescription:
+      "استخدم BigQuery لتحليل SQL التاريخي وبيانات المستودع، أو Amplitude لتحليلات المنتج والقمع والاحتفاظ. يواصل جامع /track المدمج الكتابة إلى Analytics التابعة لنا ما لم تضبط مسار جمع آخر صراحةً.",
+    options: "خيارات خارجية",
+    monitorDescription:
+      "لا يزال Neon مناسبًا. راقب حجم الأحداث وزمن الاستعلام؛ ستقترح هذه البطاقة خلفية خارجية عند زيادة الضغط.",
+    healthyDescription:
+      "Neon مناسب حاليًا لهذه البيانات التابعة لنا. سنقترح BigQuery أو Amplitude إذا زاد الحجم أو زمن الاستعلام.",
+    unavailableDescription:
+      "تعذر فحص ضغط Analytics التابعة لنا الآن. أعد التحميل قبل تغيير الخلفيات.",
+  },
+  "de-DE": {
+    recommendationTitle:
+      "Für umfangreiche historische Daten ein externes Analyse-Backend nutzen",
+    recommendationDescription:
+      "Neon bleibt die Standardeinstellung für aktuelle Betriebsanalysen. Verbinde BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Durch die Verbindung werden /track-Ereignisse nicht automatisch verschoben oder vorhandene Neon-Daten nachgeladen.",
+    connectedTitle: "Externe Analyse-Backends sind bereit",
+    connectedDescription:
+      "Nutze BigQuery für Warehouse-SQL und historische Analysen oder Amplitude für Produktanalysen, Funnels und Retention. Der integrierte /track-Sammler schreibt weiterhin in First-Party-Analytics, sofern du keinen anderen Sammelpfad festlegst.",
+    options: "Externe Optionen",
+    monitorDescription:
+      "Neon passt weiterhin gut. Behalte Ereignismenge und Abfragezeit im Blick; diese Karte schlägt bei wachsender Belastung ein externes Backend vor.",
+    healthyDescription:
+      "Neon eignet sich derzeit gut für diese First-Party-Daten. Bei wachsender Menge oder Abfragezeit schlagen wir BigQuery oder Amplitude vor.",
+    unavailableDescription:
+      "Der Druck auf First-Party-Analytics konnte nicht geprüft werden. Lade neu, bevor du Backends änderst.",
+  },
+  "es-ES": {
+    recommendationTitle:
+      "Usa un backend de analítica externo para historiales grandes",
+    recommendationDescription:
+      "Neon sigue siendo la opción predeterminada para la analítica operativa reciente. Conecta BigQuery para SQL de almacén e históricos, o Amplitude para analítica de producto, embudos y retención. La conexión no mueve automáticamente los eventos de /track ni completa los datos existentes de Neon.",
+    connectedTitle: "Los backends de analítica externos están listos",
+    connectedDescription:
+      "Usa BigQuery para SQL de almacén e históricos, o Amplitude para analítica de producto, embudos y retención. El recolector /track integrado sigue escribiendo en Analytics de primera parte salvo que configures otra ruta de recopilación.",
+    options: "Opciones externas",
+    monitorDescription:
+      "Neon sigue siendo adecuado. Vigila el volumen de eventos y la latencia de las consultas; esta tarjeta sugerirá un backend externo si aumenta la presión.",
+    healthyDescription:
+      "Neon es adecuado para estos datos de primera parte. Sugeriremos BigQuery o Amplitude si crecen el volumen o la latencia.",
+    unavailableDescription:
+      "No se pudo comprobar la presión de Analytics de primera parte. Recarga antes de cambiar de backend.",
+  },
+  "fr-FR": {
+    recommendationTitle:
+      "Utiliser un backend analytique externe pour les historiques volumineux",
+    recommendationDescription:
+      "Neon reste la solution par défaut pour les analyses opérationnelles récentes. Connectez BigQuery pour le SQL d'entrepôt et l'historique, ou Amplitude pour les analyses produit, les tunnels et la rétention. La connexion ne déplace pas automatiquement les événements /track et ne complète pas les données Neon existantes.",
+    connectedTitle: "Les backends analytiques externes sont prêts",
+    connectedDescription:
+      "Utilisez BigQuery pour le SQL d'entrepôt et l'historique, ou Amplitude pour les analyses produit, les tunnels et la rétention. Le collecteur /track intégré continue d'écrire dans Analytics first-party, sauf si vous configurez explicitement un autre chemin de collecte.",
+    options: "Options externes",
+    monitorDescription:
+      "Neon reste adapté. Surveillez le volume d'événements et la latence des requêtes ; cette carte suggérera un backend externe si la pression augmente.",
+    healthyDescription:
+      "Neon convient actuellement à ces données first-party. Nous suggérerons BigQuery ou Amplitude si le volume ou la latence augmente.",
+    unavailableDescription:
+      "Impossible de vérifier la pression Analytics first-party. Rechargez avant de changer de backend.",
+  },
+  "hi-IN": {
+    recommendationTitle:
+      "भारी ऐतिहासिक डेटा के लिए बाहरी Analytics बैकएंड उपयोग करें",
+    recommendationDescription:
+      "हाल के ऑपरेशनल Analytics के लिए Neon अभी भी डिफ़ॉल्ट है। वेयरहाउस SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या प्रोडक्ट Analytics, फ़नल और रिटेंशन के लिए Amplitude कनेक्ट करें। कनेक्शन /track इवेंट को अपने-आप स्थानांतरित या मौजूदा Neon डेटा को बैकफ़िल नहीं करता।",
+    connectedTitle: "बाहरी Analytics बैकएंड तैयार हैं",
+    connectedDescription:
+      "वेयरहाउस SQL और ऐतिहासिक विश्लेषण के लिए BigQuery, या प्रोडक्ट Analytics, फ़नल और रिटेंशन के लिए Amplitude उपयोग करें। अंतर्निहित /track कलेक्टर First-Party Analytics में लिखता रहेगा, जब तक आप कोई दूसरा कलेक्शन पथ स्पष्ट रूप से कॉन्फ़िगर न करें।",
+    options: "बाहरी विकल्प",
+    monitorDescription:
+      "Neon अभी भी उपयुक्त है। इवेंट वॉल्यूम और क्वेरी लेटेंसी पर नज़र रखें; दबाव बढ़ने पर यह कार्ड बाहरी बैकएंड सुझाएगा।",
+    healthyDescription:
+      "Neon अभी इन First-Party डेटा के लिए अच्छा है। वॉल्यूम या क्वेरी लेटेंसी बढ़ने पर हम BigQuery या Amplitude सुझाएंगे।",
+    unavailableDescription:
+      "अभी First-Party Analytics दबाव की जाँच नहीं हो सकी। बैकएंड बदलने से पहले फिर लोड करें।",
+  },
+  "ja-JP": {
+    recommendationTitle: "大量の履歴データには外部分析バックエンドを使用",
+    recommendationDescription:
+      "Neon は最近の運用分析の既定値です。ウェアハウス SQL と履歴分析には BigQuery、プロダクト分析、ファネル、リテンションには Amplitude を接続してください。接続しても /track イベントが自動的に移行されたり、既存の Neon データがバックフィルされたりすることはありません。",
+    connectedTitle: "外部分析バックエンドを利用できます",
+    connectedDescription:
+      "ウェアハウス SQL と履歴分析には BigQuery、プロダクト分析、ファネル、リテンションには Amplitude を使用できます。別の収集経路を明示的に設定しない限り、組み込みの /track コレクターは First-Party Analytics への書き込みを続けます。",
+    options: "外部オプション",
+    monitorDescription:
+      "Neon は引き続き適しています。イベント量とクエリ遅延を確認してください。負荷が増えると、このカードが外部バックエンドを提案します。",
+    healthyDescription:
+      "Neon は現在この First-Party データに適しています。量やクエリ遅延が増えると BigQuery または Amplitude を提案します。",
+    unavailableDescription:
+      "現在 First-Party Analytics の負荷を確認できませんでした。バックエンドを変更する前に再読み込みしてください。",
+  },
+  "ko-KR": {
+    recommendationTitle: "대규모 기록 데이터에는 외부 분석 백엔드 사용",
+    recommendationDescription:
+      "Neon은 최근 운영 분석의 기본값입니다. 웨어하우스 SQL 및 기록 분석에는 BigQuery를, 제품 분석과 퍼널 및 리텐션에는 Amplitude를 연결하세요. 연결해도 /track 이벤트가 자동으로 이동하거나 기존 Neon 데이터가 백필되지는 않습니다.",
+    connectedTitle: "외부 분석 백엔드를 사용할 수 있습니다",
+    connectedDescription:
+      "웨어하우스 SQL 및 기록 분석에는 BigQuery를, 제품 분석과 퍼널 및 리텐션에는 Amplitude를 사용하세요. 다른 수집 경로를 명시적으로 설정하지 않는 한 기본 /track 수집기는 계속 First-Party Analytics에 기록합니다.",
+    options: "외부 옵션",
+    monitorDescription:
+      "Neon은 아직 적합합니다. 이벤트 규모와 쿼리 지연 시간을 확인하세요. 부하가 커지면 이 카드가 외부 백엔드를 제안합니다.",
+    healthyDescription:
+      "Neon은 현재 이 First-Party 데이터에 적합합니다. 규모나 쿼리 지연이 증가하면 BigQuery 또는 Amplitude를 제안합니다.",
+    unavailableDescription:
+      "지금은 First-Party Analytics 부하를 확인할 수 없습니다. 백엔드를 변경하기 전에 다시 로드하세요.",
+  },
+  "pt-BR": {
+    recommendationTitle:
+      "Use um backend de análise externo para históricos grandes",
+    recommendationDescription:
+      "Neon continua sendo o padrão para análises operacionais recentes. Conecte o BigQuery para SQL de warehouse e análises históricas, ou o Amplitude para análise de produto, funis e retenção. A conexão não move automaticamente eventos de /track nem preenche dados existentes do Neon.",
+    connectedTitle: "Os backends de análise externos estão prontos",
+    connectedDescription:
+      "Use o BigQuery para SQL de warehouse e análises históricas, ou o Amplitude para análise de produto, funis e retenção. O coletor /track integrado continua gravando no Analytics de primeira parte, a menos que você configure explicitamente outro caminho de coleta.",
+    options: "Opções externas",
+    monitorDescription:
+      "Neon continua adequado. Acompanhe o volume de eventos e a latência das consultas; este cartão sugerirá um backend externo se a pressão crescer.",
+    healthyDescription:
+      "Neon é adequado para estes dados de primeira parte agora. Sugeriremos BigQuery ou Amplitude se o volume ou a latência crescer.",
+    unavailableDescription:
+      "Não foi possível verificar a pressão do Analytics de primeira parte. Recarregue antes de trocar de backend.",
+  },
+};
+
+for (const [locale, section] of Object.entries(
+  analyticsBackendTranslations,
+) as Array<[LocaleCode, Partial<Messages["analyticsBackend"]>]>) {
+  const messages = messagesByLocale[locale];
+  if (messages) Object.assign(messages.analyticsBackend, section);
+}
 
 for (const [locale, overrides] of Object.entries(
   translatedAnalyticsDebtTranslations,

@@ -15,6 +15,8 @@ import {
   IconInfoCircle,
   IconSearch,
   IconServer,
+  IconLoader2,
+  IconRefresh,
 } from "@tabler/icons-react";
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 
@@ -34,6 +36,7 @@ import {
   useCreateMcpServer,
   useDeleteMcpServer,
   useMcpServers,
+  useReconnectMcpServer,
   type McpServer,
 } from "../resources/use-mcp-servers.js";
 import {
@@ -748,7 +751,19 @@ function McpLogo({ integration }: { integration: DefaultMcpIntegration }) {
   );
 }
 
-function McpServerStatus({ server }: { server: McpServer }) {
+function McpServerStatus({
+  server,
+  onReconnect,
+  reconnecting = false,
+  reconnectError,
+}: {
+  server: McpServer;
+  onReconnect?: () => void;
+  reconnecting?: boolean;
+  reconnectError?: string;
+}) {
+  const t = useT();
+
   if (server.status.state === "connected") {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
@@ -760,10 +775,43 @@ function McpServerStatus({ server }: { server: McpServer }) {
   }
   if (server.status.state === "error") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-destructive">
-        <span className="size-1.5 rounded-full bg-destructive" />
-        Connection error
-      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="inline-flex items-center gap-1.5 text-xs text-destructive">
+            <span className="size-1.5 rounded-full bg-destructive" />
+            {t("mcpIntegrations.connectionError")}
+          </div>
+          <p className="mt-1 max-w-3xl break-words text-xs leading-5 text-destructive/85">
+            {t("mcpIntegrations.connectionErrorReason", {
+              reason: server.status.error,
+            })}
+          </p>
+          {reconnectError && (
+            <p className="mt-1 break-words text-xs leading-5 text-destructive">
+              {t("mcpIntegrations.reconnectFailed", {
+                error: reconnectError,
+              })}
+            </p>
+          )}
+        </div>
+        {onReconnect && (
+          <button
+            type="button"
+            onClick={onReconnect}
+            disabled={reconnecting}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-wait disabled:opacity-60"
+          >
+            {reconnecting ? (
+              <IconLoader2 className="size-3.5 animate-spin" />
+            ) : (
+              <IconRefresh className="size-3.5" />
+            )}
+            {reconnecting
+              ? t("mcpIntegrations.reconnecting")
+              : t("mcpIntegrations.reconnect")}
+          </button>
+        )}
+      </div>
     );
   }
   return (
@@ -816,12 +864,18 @@ function McpIntegrationsSection({ query }: { query: string }) {
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
   const deleteServer = useDeleteMcpServer();
+  const reconnectServer = useReconnectMcpServer();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [initialIntegrationId, setInitialIntegrationId] = useState<
     string | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [reconnectingKey, setReconnectingKey] = useState<string | null>(null);
+  const [reconnectError, setReconnectError] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
   const catalog = useMemo(() => getDefaultMcpIntegrations(), []);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredCatalog = useMemo(() => {
@@ -873,6 +927,28 @@ function McpIntegrationsSection({ query }: { query: string }) {
       }
     },
     [deleteServer, deleteTarget],
+  );
+
+  const reconnect = useCallback(
+    async (server: McpServer) => {
+      const key = `${server.scope}:${server.id}`;
+      setReconnectingKey(key);
+      setReconnectError(null);
+      try {
+        await reconnectServer.mutateAsync({
+          id: server.id,
+          scope: server.scope,
+        });
+      } catch (error) {
+        setReconnectError({
+          key,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        setReconnectingKey(null);
+      }
+    },
+    [reconnectServer],
   );
 
   return (
@@ -927,8 +1003,8 @@ function McpIntegrationsSection({ query }: { query: string }) {
                   serversQuery.data?.role === "owner" ||
                   serversQuery.data?.role === "admin";
                 return (
-                  <div key={key} className="flex items-center gap-3 py-3.5">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
+                  <div key={key} className="flex items-start gap-3 py-3.5">
+                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
                       <IconServer className="size-4" />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -942,7 +1018,20 @@ function McpIntegrationsSection({ query }: { query: string }) {
                             : "Organization"}
                         </span>
                       </div>
-                      <McpServerStatus server={server} />
+                      <McpServerStatus
+                        server={server}
+                        onReconnect={
+                          server.status.state === "error"
+                            ? () => void reconnect(server)
+                            : undefined
+                        }
+                        reconnecting={reconnectingKey === key}
+                        reconnectError={
+                          reconnectError?.key === key
+                            ? reconnectError.message
+                            : undefined
+                        }
+                      />
                     </div>
                     {canRemove && (
                       <button

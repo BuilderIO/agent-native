@@ -26,7 +26,6 @@ import {
   IconDatabase,
   IconFolder,
   IconShield,
-  IconShieldLock,
   IconPlugConnected,
   IconTopologyRing2,
   IconLoader2,
@@ -53,6 +52,7 @@ import React, {
 } from "react";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
+import { buildSettingsRoute } from "../../navigation/index.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
 import { agentNativePath } from "../api-path.js";
@@ -164,6 +164,40 @@ function SettingsSkeleton({ lines = 3 }: { lines?: number }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function SettingsLoadingRow({
+  label,
+  description,
+  controlCount = 1,
+}: {
+  label: string;
+  description?: string;
+  controlCount?: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
+      <div className="min-w-0 space-y-2">
+        <div className="text-sm font-medium text-foreground">{label}</div>
+        {description ? (
+          <p className="text-sm leading-5 text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2" aria-hidden="true">
+        {Array.from({ length: controlCount }, (_, index) => (
+          <div
+            key={index}
+            className={cn(
+              "h-9 animate-pulse rounded-md border border-border bg-muted-foreground/10",
+              index === 0 ? "w-28" : "w-20",
+            )}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -1214,9 +1248,11 @@ function LLMSectionInner({
       onToggle={onToggle}
     >
       {initialLoading ? (
-        <div className={cn(isPage && "px-5 py-4 sm:px-6")}>
-          <SettingsSkeleton lines={3} />
-        </div>
+        <SettingsLoadingRow
+          label="Connect an LLM"
+          description="Use Builder.io free credits or your own provider."
+          controlCount={2}
+        />
       ) : (
         <div
           className={cn(
@@ -1647,7 +1683,10 @@ function AppDefaultModelPicker({
 
   const openIntegrations = () => {
     setOpen(false);
-    if (typeof window !== "undefined") window.location.hash = "integrations";
+    if (typeof window !== "undefined") {
+      window.history.pushState(null, "", buildSettingsRoute("integrations"));
+      window.dispatchEvent(new Event("popstate"));
+    }
   };
 
   return (
@@ -1934,7 +1973,10 @@ function AppModelDefaultsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsSkeleton lines={2} />
+        <SettingsLoadingRow
+          label="Default model"
+          description="Choose the model used by this app by default."
+        />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2585,7 +2627,10 @@ function AgentLimitsSectionInner({
       onToggle={onToggle}
     >
       {loading ? (
-        <SettingsSkeleton lines={2} />
+        <SettingsLoadingRow
+          label="Max iterations"
+          description="Set how long a response can work before pausing."
+        />
       ) : settings ? (
         isPage ? (
           <SettingsRow
@@ -2817,6 +2862,8 @@ export interface AgentSettingsTabsOptions {
    * app capability and stay hidden unless the host opts in.
    */
   extensionTools?: boolean;
+  /** Optional page-level settings to show in the Agent section. */
+  agentAdditionalContent?: React.ReactNode;
 }
 
 export function areExtensionSettingsEnabled(
@@ -2913,6 +2960,7 @@ interface SettingsPanelContentProps extends SettingsPanelProps {
   className?: string;
   surface?: SettingsSurface;
   builderConnectionOwnedExternally?: boolean;
+  agentAdditionalContent?: React.ReactNode;
 }
 
 function SettingsPanelContent({
@@ -2924,6 +2972,7 @@ function SettingsPanelContent({
   className,
   surface = "sidebar",
   builderConnectionOwnedExternally = false,
+  agentAdditionalContent,
 }: SettingsPanelContentProps) {
   const { status: builder, loading: builderLoading } = useBuilderStatus({
     enabled: !builderConnectionOwnedExternally,
@@ -2967,6 +3016,7 @@ function SettingsPanelContent({
   );
 
   const isPage = surface === "page";
+  const isWorkspacePage = isPage && sections.includes("hosting");
 
   return (
     <SettingsSurfaceProvider surface={surface}>
@@ -3037,6 +3087,12 @@ function SettingsPanelContent({
             </SettingsGroup>
           )}
 
+        {isPage && agentAdditionalContent ? (
+          <SettingsGroup title="Notifications">
+            {agentAdditionalContent}
+          </SettingsGroup>
+        ) : null}
+
         {isPage &&
           ["automations", "background"].some((section) =>
             shouldShowSection(section as SettingsSectionId),
@@ -3058,7 +3114,7 @@ function SettingsPanelContent({
                     description="Schedule agent tasks or run them from events."
                     control={
                       <a
-                        href="/settings#agent:automations"
+                        href="/settings/agent/automations"
                         className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
                       >
                         Open automations
@@ -3101,6 +3157,143 @@ function SettingsPanelContent({
               )}
             </SettingsGroup>
           )}
+
+        {isWorkspacePage && (
+          <SettingsGroup title="Workspace">
+            {shouldShowSection("demo-mode") && (
+              <SettingsRow
+                id={settingsSectionDomId("demo-mode")}
+                label="Demo mode"
+                description="Use sample data in this browser for presentations."
+                control={<DemoModeSection compact />}
+              />
+            )}
+            {shouldShowSection("hosting") && (
+              <SettingsRow
+                id={settingsSectionDomId("hosting")}
+                label="Hosting"
+                description="Deploy the app to the cloud."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="hosting_settings"
+                      trackingFlow="hosting"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("database") && (
+              <SettingsRow
+                id={settingsSectionDomId("database")}
+                label="Database"
+                description="Connect persistent app storage."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="database_settings"
+                      trackingFlow="database"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Set DATABASE_URL in your .env to connect a supported database."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("uploads") && (
+              <SettingsRow
+                id={settingsSectionDomId("uploads")}
+                label="File uploads"
+                description="Store avatars and chat attachments."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="file_upload_settings"
+                      trackingFlow="file_upload"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Configure your own file or object storage provider."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+            {shouldShowSection("auth") && (
+              <SettingsRow
+                id={settingsSectionDomId("auth")}
+                label="Authentication"
+                description="Set up sign-in and access control."
+                control={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <UseBuilderCard
+                      builderFlow={builderFlow}
+                      connectUrl={connectUrl}
+                      connected={connected}
+                      orgName={orgName}
+                      envManaged={envManaged}
+                      credentialSource={credentialSource}
+                      trackingSource="auth_settings"
+                      trackingFlow="auth"
+                      compact
+                    />
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Configure Better Auth and optional Google or GitHub providers."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                    />
+                  </div>
+                }
+              />
+            )}
+          </SettingsGroup>
+        )}
 
         {!isPage && shouldShowSection("llm") && (
           <LLMSectionInner
@@ -3145,7 +3338,7 @@ function SettingsPanelContent({
         )}
 
         {/* Demo mode */}
-        {shouldShowSection("demo-mode") && (
+        {!isPage && shouldShowSection("demo-mode") && (
           <SettingsSection
             id={settingsSectionDomId("demo-mode")}
             icon={<IconEyeOff size={14} />}
@@ -3190,7 +3383,7 @@ function SettingsPanelContent({
         )}
 
         {/* Hosting */}
-        {shouldShowSection("hosting") && (
+        {!isPage && shouldShowSection("hosting") && (
           <SettingsSection
             id={settingsSectionDomId("hosting")}
             icon={<IconCloud size={14} />}
@@ -3222,7 +3415,7 @@ function SettingsPanelContent({
         )}
 
         {/* Database */}
-        {shouldShowSection("database") && (
+        {!isPage && shouldShowSection("database") && (
           <SettingsSection
             id={settingsSectionDomId("database")}
             icon={<IconDatabase size={14} />}
@@ -3254,7 +3447,7 @@ function SettingsPanelContent({
         )}
 
         {/* File uploads */}
-        {shouldShowSection("uploads") && (
+        {!isPage && shouldShowSection("uploads") && (
           <SettingsSection
             id={settingsSectionDomId("uploads")}
             icon={<IconUpload size={14} />}
@@ -3286,7 +3479,7 @@ function SettingsPanelContent({
         )}
 
         {/* Authentication */}
-        {shouldShowSection("auth") && (
+        {!isPage && shouldShowSection("auth") && (
           <SettingsSection
             id={settingsSectionDomId("auth")}
             icon={<IconShield size={14} />}
@@ -3461,9 +3654,11 @@ export function ConnectionsSettingsContent({
 export function AgentSettingsContent({
   className,
   sections = AGENT_SETTINGS_SECTIONS,
+  agentAdditionalContent,
 }: {
   className?: string;
   sections?: readonly SettingsSectionId[];
+  agentAdditionalContent?: React.ReactNode;
 } = {}) {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const settingsPanelProps = useMemo<SettingsPanelProps>(
@@ -3484,6 +3679,7 @@ export function AgentSettingsContent({
       sections={sections}
       showCapabilityStrip={false}
       className={cn("w-full", className)}
+      agentAdditionalContent={agentAdditionalContent}
     />
   );
 }
@@ -3493,6 +3689,7 @@ export function useAgentSettingsTabs(
 ): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
+  const agentAdditionalContent = options.agentAdditionalContent;
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3641,6 +3838,7 @@ export function useAgentSettingsTabs(
             overview={
               <AgentSettingsContent
                 className="w-full"
+                agentAdditionalContent={agentAdditionalContent}
                 sections={AGENT_SETTINGS_SECTIONS.filter(
                   (section) => section !== "automations" && section !== "a2a",
                 )}
@@ -3701,14 +3899,6 @@ export function useAgentSettingsTabs(
         ],
         content: <AgentWorkspaceContent activeTab="agents" overview={null} />,
       },
-      {
-        id: "agent:access",
-        label: "Access",
-        icon: IconShieldLock,
-        group: "agent",
-        keywords: "access sharing permissions clients",
-        content: <AgentWorkspaceContent activeTab="access" overview={null} />,
-      },
     ];
-  }, [baseProps, extensionToolsEnabled]);
+  }, [agentAdditionalContent, baseProps, extensionToolsEnabled]);
 }
