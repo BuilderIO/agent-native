@@ -1,6 +1,6 @@
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
@@ -179,6 +179,68 @@ export async function listAnalyticsPublicKeys(
     revokedAt: row.revokedAt ?? null,
     orgId: row.orgId ?? null,
   }));
+}
+
+/** How stale the last-used stamp must be before a request pays to refresh it. */
+const LAST_USED_AT_REFRESH_MS = 60_000;
+
+/**
+ * Refresh a public key's last-used stamp without serializing ingest behind it.
+ *
+ * This UPDATE used to sit inside the ingest transaction, so every concurrent
+ * request for one public key took an exclusive row lock on that key's row and
+ * held it until the transaction committed — which meant through the rollup
+ * upsert. Production stacked 36 writers on three hot rows waiting 38-57s each;
+ * that exhausted the connection pool, and the whole app stopped loading while
+ * Postgres reported "no server connection available, client being queued". The
+ * stamp is bookkeeping: it needs neither atomicity with the events nor
+ * second-precision, and losing one is harmless.
+ *
+ * The staleness predicate throttles in SQL rather than in the caller, because
+ * Postgres only locks rows an UPDATE actually matches — a request whose key was
+ * stamped seconds ago matches nothing and takes no lock at all. Doing the same
+ * check in JS would reintroduce the convoy, since every racing request would
+ * still issue its own unconditional write.
+ *
+ * `last_used_at` is TEXT holding ISO-8601 UTC (always `Z`-suffixed), so `lt` is
+ * a lexicographic comparison that happens to be chronological. Storing a local
+ * or offset-bearing timestamp here would silently break this ordering.
+ */
+export async function touchPublicKeyLastUsedAt(
+  keyId: string,
+  receivedAt: string,
+): Promise<void> {
+  const parsed = Date.parse(receivedAt);
+  if (!Number.isFinite(parsed)) {
+    console.warn(
+      "[first-party-analytics] Skipping last-used stamp: unparseable receivedAt",
+      receivedAt,
+    );
+    return;
+  }
+  const staleBefore = new Date(parsed - LAST_USED_AT_REFRESH_MS).toISOString();
+  const db = await getDb();
+  try {
+    await db
+      .update(schema.analyticsPublicKeys)
+      .set({ lastUsedAt: receivedAt })
+      .where(
+        and(
+          eq(schema.analyticsPublicKeys.id, keyId),
+          or(
+            isNull(schema.analyticsPublicKeys.lastUsedAt),
+            lt(schema.analyticsPublicKeys.lastUsedAt, staleBefore),
+          ),
+        ),
+      );
+  } catch (error) {
+    // Best-effort by design: a failed stamp must not reject an ingest whose
+    // events already committed. Loud enough to see if it starts failing always.
+    console.warn(
+      "[first-party-analytics] Failed to refresh key last-used stamp:",
+      error,
+    );
+  }
 }
 
 function parseReplayAllowedOrigins(value: unknown): string[] {
@@ -539,18 +601,11 @@ export async function recordAnalyticsEvents(
   if (rows.length && backend.sink !== "bigquery") {
     await db.transaction(async (tx: any) => {
       await tx.insert(schema.analyticsEvents).values(rows);
-      await tx
-        .update(schema.analyticsPublicKeys)
-        .set({ lastUsedAt: receivedAt })
-        .where(eq(schema.analyticsPublicKeys.id, key.id));
       await upsertFirstPartyAnalyticsRollups(rows, tx);
     });
   }
-  if (rows.length && backend.sink === "bigquery") {
-    await db
-      .update(schema.analyticsPublicKeys)
-      .set({ lastUsedAt: receivedAt })
-      .where(eq(schema.analyticsPublicKeys.id, key.id));
+  if (rows.length) {
+    await touchPublicKeyLastUsedAt(key.id, receivedAt);
   }
 
   // Fork captured exceptions into the dedicated error-capture tables. This is
