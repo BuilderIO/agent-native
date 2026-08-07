@@ -64,7 +64,14 @@ const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
 const PROTECTED_ROUTE = "/settings/general";
 
 interface ViteReloadTracker {
-  /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
+  /**
+   * Wall-clock ms when the latest Vite dependency-optimizer activity log
+   * chunk arrived — bundling start, discovery, or the reload it triggers.
+   * Bundling can run for several seconds before it either reloads the page
+   * or turns out to be a no-op; treating only the reload line as "activity"
+   * lets a quiet-check run and pass during that gap, right before the
+   * reload actually lands.
+   */
   lastReloadAt: number;
 }
 
@@ -87,7 +94,9 @@ function appendAppLog(
   logs.push(chunk);
   if (
     chunk.includes("reloading the page") ||
-    chunk.includes("optimized dependencies changed")
+    chunk.includes("optimized dependencies changed") ||
+    chunk.includes("new dependencies optimized") ||
+    chunk.includes("bundling dependencies")
   ) {
     viteReload.lastReloadAt = Date.now();
   }
