@@ -580,16 +580,19 @@ Rotate signing/session keys by replacing the env var on every instance and redep
 
 ## Production Agent Tools {#production-agent-tools}
 
-Production agents get the app's registered actions plus framework tools from
-the agent chat plugin. SQL inspection is enabled by default, while database
-writes go through typed app actions unless the app explicitly opts into raw
-write tools:
+Production agents get the app's registered actions plus the framework's own
+tools. `frameworkTools` selects which of those framework tools this app exposes.
+Every group defaults to today's behavior, so omitting the option changes
+nothing:
 
 ```ts filename="server/plugins/agent-chat.ts"
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
 });
 ```
 
@@ -599,17 +602,48 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — default. Registers only `db-schema` and `db-query`;
+`database` and `extensions` accept the values the old top-level flags did:
+
+- `database: "read"` — default. Registers only `db-schema` and `db-query`;
   agents inspect data with SQL but must use typed app actions for writes.
-- `databaseTools: "write"` or `true` — additionally registers `db-exec` and
+- `database: "write"` or `true` — additionally registers `db-exec` and
   `db-patch` for deliberate raw SQL maintenance. Writes are scoped to the
   current user/org and schema changes are blocked.
-- `databaseTools: "off"` or `false` — removes raw database tools from the
+- `database: "off"` or `false` — removes raw database tools from the
   agent surface so the app's actions are the only data access path.
-- `extensionTools: true` — opts the app into framework extension-management
+- `extensions: true` — opts the app into framework extension-management
   actions and prompt guidance (`create-extension`, `update-extension`, etc.).
-  Set it on both plugins to also allow authenticated REST creation. Extensions
-  are disabled by default.
+  Set `extensionTools: true` on the core-routes plugin as well to allow
+  authenticated REST creation. Extensions are disabled by default.
+
+The remaining groups are booleans, all on by default: `sharing`, `review`,
+`history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat`, and `email`. Use `frameworkTools: "minimal"` to turn every group off at
+once for a voice-first or single-purpose app, or
+`frameworkTools: { preset: "minimal", resources: true }` to keep just one — an
+explicit group key always wins over the preset.
+
+Switching a group off removes it from the **agent** surfaces only: interactive
+chat, MCP, A2A, and background runs. The matching HTTP action routes stay
+mounted, because the UI reaches them through client hooks — disabling `sharing`
+must not 404 a share dialog that is still on screen. Weigh that parity cost
+before using it: the framework's contract is that anything the UI can do the
+agent can do, so `sharing: false` alongside a visible share button is a
+deliberate break, and only makes sense when the app has no such surface at all.
+
+Framework tools are no longer promoted into the first model request by default,
+independent of this option. They stay in the searchable registry and load
+through `tool-search`, or immediately if the app names them in
+`initialToolNames`.
+
+<Callout tone="warning">
+  The top-level `databaseTools` and `extensionTools` options are deprecated in
+  favor of `frameworkTools.database` and `frameworkTools.extensions`. They are
+  still honored, but setting a top-level flag and its `frameworkTools`
+  equivalent to conflicting values throws at plugin startup rather than booting
+  with a tool surface nobody chose.
+</Callout>
 
 ## Production Code Execution {#production-code-execution}
 

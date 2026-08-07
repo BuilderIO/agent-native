@@ -442,9 +442,10 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,17 +456,40 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — افتراضي. يُسجل `db-schema` و`db-query` فقط؛
+- `database: "read"` — افتراضي. يُسجل `db-schema` و`db-query` فقط؛
   يفحص الوكلاء البيانات باستخدام SQL ويجب أن يستخدموا actions التطبيق المكتوبة للكتابة.
-- `databaseTools: "write"` أو `true` — يسجل أيضًا `db-exec` و`db-patch`
+- `database: "write"` أو `true` — يسجل أيضًا `db-exec` و`db-patch`
   للصيانة الخام المقصودة. يتم تحديد نطاق عمليات الكتابة للمستخدم/المؤسسة الحالية
   ويتم حظر تغييرات المخطط.
-- `databaseTools: "off"` أو `false` — يزيل أدوات قاعدة البيانات الأولية من
+- `database: "off"` أو `false` — يزيل أدوات قاعدة البيانات الأولية من
   سطح الوكيل، لذا فإن actions الخاص بالتطبيق هو المسار الوحيد للوصول إلى البيانات.
-- `extensionTools: true` — يفعّل للتطبيق actions وإرشادات إدارة امتدادات
+- `extensions: true` — يفعّل للتطبيق actions وإرشادات إدارة امتدادات
   إطار العمل (`create-extension` و`update-extension` وغيرها). اضبطه على كلا
   المكوّنين الإضافيين للسماح أيضًا بإنشاء REST الموثق. تكون الامتدادات معطلة
   افتراضيًا.
+
+بقية المجموعات قيم منطقية ومفعّلة افتراضيًا: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`.
+استخدم `frameworkTools: "minimal"` لإيقافها كلها مرة واحدة في تطبيق صوتي أو
+أحادي الغرض، أو `frameworkTools: { preset: "minimal", resources: true }`
+للإبقاء على واحدة فقط — فمفتاح المجموعة الصريح يتقدّم دائمًا على الإعداد المسبق.
+
+إيقاف مجموعة يزيلها من أسطح **الوكيل** فقط: المحادثة التفاعلية وMCP وA2A
+والتشغيل في الخلفية. أما مسارات HTTP الخاصة بتلك actions فتبقى مثبّتة، لأن واجهة
+المستخدم تستدعيها عبر hooks العميل — فإيقاف `sharing` لا يجوز أن يُنتج 404 في
+نافذة مشاركة لا تزال ظاهرة. وازن هذه التكلفة أولًا: عقد الإطار هو أن كل ما تقدر
+عليه الواجهة يقدر عليه الوكيل، لذا فإن `sharing: false` مع زر مشاركة ظاهر هو
+خروج متعمّد عن ذلك، ولا يصح إلا إذا كان التطبيق يخلو من ذلك السطح أصلًا.
+
+وبمعزل عن هذا الخيار، لم تعد أدوات الإطار تُحمَّل افتراضيًا في أول طلب للنموذج.
+فهي تبقى في السجل القابل للبحث وتُحمَّل عبر `tool-search`، أو فورًا إذا سمّاها
+التطبيق في `initialToolNames`.
+
+<Callout tone="warning">
+  الخياران `databaseTools` و`extensionTools` في المستوى الأعلى مهملان لصالح
+  `frameworkTools.database` و`frameworkTools.extensions`. وما زالا يعملان، لكن
+  ضبط خيار في المستوى الأعلى ونظيره في `frameworkTools` على قيمتين متعارضتين
+  يرفع خطأً عند بدء تشغيل plugin بدلًا من الإقلاع بسطح أدوات لم يختره أحد.
+</Callout>
 
 ## تنفيذ كود الإنتاج {#production-code-execution}
 
