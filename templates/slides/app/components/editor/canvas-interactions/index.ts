@@ -2,6 +2,7 @@ export {
   createSlidesCanvasGestureController,
   createSlidesCanvasInteractionCore,
   isWithinSlidesCanvasEdgeMoveBand,
+  resolveSlidesCanvasDragTarget,
   resolveSlidesCanvasPointerIntent,
   slidesCanvasInteractionCore,
   SLIDES_CANVAS_EDGE_MOVE_BAND,

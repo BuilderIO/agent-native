@@ -10,6 +10,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 import { INITIAL_TOOL_NAMES } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
@@ -881,6 +882,10 @@ export async function searchDashboardMentions(query: string, event?: any) {
 
 export default createAgentChatPlugin({
   appId: "analytics",
+  // Resource prompt hydration performs additive schema checks. Keep that
+  // work out of production serverless cold starts; it is not needed for the
+  // dashboard's domain prompt and can contend with the request's DB queries.
+  leanPrompt: isProductionServerlessRuntime(),
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   corpusTools: "lazy",

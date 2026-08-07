@@ -68,6 +68,18 @@ export default defineAction({
         title: row.title || data?.title,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
+        sourceImport: data?.sourceImport
+          ? {
+              mode: data.sourceImport.mode,
+              format: data.sourceImport.format,
+              fidelity: data.sourceImport.fidelity,
+              slideCount: data.sourceImport.slideCount,
+              slideIds: data.sourceImport.slideIds,
+              ...(typeof data.sourceImport.imagesSkipped === "number"
+                ? { imagesSkipped: data.sourceImport.imagesSkipped }
+                : {}),
+            }
+          : null,
         slideCount: slides.length,
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',

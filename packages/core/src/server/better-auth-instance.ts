@@ -37,7 +37,7 @@ import {
   isPgliteUrl,
   loadPgliteDrizzle,
   pgPoolOptions,
-  neonPoolMax,
+  neonPoolOptions,
   attachNeonPoolErrorLogger,
   sharedDbPool,
   onSharedDbPoolsClosed,
@@ -55,6 +55,10 @@ import {
   getRequiredAuthProviderForEmail,
 } from "../org/auth-policy.js";
 import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
@@ -1249,7 +1253,8 @@ async function createBetterAuthInstance(
     emailAndPassword: {
       enabled: true,
       disableSignUp,
-      minPasswordLength: 8,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+      maxPasswordLength: PASSWORD_MAX_LENGTH,
       // Hosted deployments always require a working email provider before
       // password signup can create a session. Local dev/test retain the fast
       // path; hosted deployments without a provider disable password signup.
@@ -1590,7 +1595,7 @@ async function buildDatabaseConfig(
       _neonAuthPool = sharedDbPool(
         "neon",
         url,
-        () => new Pool({ connectionString: url, max: neonPoolMax() }),
+        () => new Pool({ connectionString: url, ...neonPoolOptions() }),
       );
       attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");

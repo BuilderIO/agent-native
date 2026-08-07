@@ -85,7 +85,7 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
-    it("treat an unreadable information_schema as 'unknown' (false)", async () => {
+    it("keeps an unreadable information_schema distinct from an absent object", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { pgTableExists } = await import("./ddl-guard.js");
       const throwing = {
@@ -93,7 +93,7 @@ describe("ddl-guard", () => {
           throw new Error("permission denied for relation");
         },
       } as any;
-      expect(await pgTableExists("app_secrets", throwing)).toBe(false);
+      expect(await pgTableExists("app_secrets", throwing)).toBeUndefined();
     });
   });
 
@@ -121,6 +121,13 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([
         "BEGIN",
         "SET LOCAL lock_timeout = '3s'",
+        // A worker killed mid-transaction never reaches COMMIT or ROLLBACK,
+        // and the pooled connection returns to the pool still holding this
+        // transaction's locks. Production had 11 of these stuck up to 283s,
+        // each one last executing the SET LOCAL above, with ordinary queries
+        // on that database degrading from ~1.5s to 5-7s. This is the only
+        // part of the guard that still applies once the process is gone.
+        "SET LOCAL idle_in_transaction_session_timeout = '30s'",
         "CREATE TABLE foo (id TEXT)",
         "COMMIT",
       ]);
@@ -203,6 +210,21 @@ describe("ddl-guard", () => {
   });
 
   describe("ensureSchemaObject (probe → guarded DDL → re-probe)", () => {
+    it("does not issue DDL when the existence probe is unavailable", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const { client, calls } = recordingClient();
+      await expect(
+        ensureSchemaObject({
+          probe: async () => undefined,
+          ddl: "ALTER TABLE resources ADD COLUMN thread_id TEXT",
+          label: "column resources.thread_id",
+          injectedClient: client,
+        }),
+      ).rejects.toThrow(/refusing to issue DDL/);
+      expect(calls).toEqual([]);
+    });
+
     it("skips DDL entirely when the object already exists (returns false)", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { ensureSchemaObject } = await import("./ddl-guard.js");

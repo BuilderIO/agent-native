@@ -83,6 +83,7 @@ function emitBackgroundWorker(token: string) {
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true;
 globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
@@ -227,6 +228,7 @@ function emitAlertBackgroundWorker(token: string) {
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true;
 globalThis.__AGENT_NATIVE_ANALYTICS_ALERT_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
@@ -344,6 +346,7 @@ function emitUptimeBackgroundWorker(token: string) {
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true;
 globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};
@@ -443,6 +446,7 @@ function emitRollupBackgroundWorker(token: string) {
   rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const source = `globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+globalThis.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true;
 globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ = true;
 
 const CRON_TOKEN = ${JSON.stringify(token)};

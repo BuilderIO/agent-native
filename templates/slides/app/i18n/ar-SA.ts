@@ -702,6 +702,7 @@ const messages = {
     googleSlidesReferenceTitle: "عروض Google Slides",
     googleSlidesReferenceConnect: "صِل Google Drive لاستيراد عرض من Slides.",
     googleSlidesReferenceChoose: "اختيار عرض من Google Slides",
+    googleSlidesReferenceUrl: "ألصق رابط Google Slides",
     googleSlidesReferencePicking: "جارٍ العمل...",
     googleSlidesReferenceConnected:
       "تم الاتصال. اختر عرضًا من Google Slides لاستيراده كمرجع قابل لإعادة الاستخدام.",

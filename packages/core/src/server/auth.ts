@@ -93,10 +93,15 @@ import { putSetting } from "../settings/store.js";
 import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MIN_LENGTH_MESSAGE,
+} from "../shared/password-policy.js";
+import {
   SIGN_IN_CONTINUATION_PARAM,
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
   SIGN_IN_LEGACY_RETURN_PARAM,
+  decodeContinuation,
   normalizeAppPath,
   signInJourney,
 } from "../shared/sign-in-journey.js";
@@ -116,6 +121,7 @@ import {
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -1145,6 +1151,40 @@ function getRequestHost(event: H3Event): string | undefined {
   );
 }
 
+function parseRequestUrl(rawUrl: string | undefined): URL | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl, "http://an.invalid");
+  } catch {
+    // coercion-ok: an invalid request URL has no query context to classify.
+    return null;
+  }
+}
+
+function hasInitialPromptQuery(rawUrl: string | undefined): boolean {
+  return !!parseRequestUrl(rawUrl)?.searchParams.get("initialPrompt")?.trim();
+}
+
+function requestHasInitialPrompt(event: H3Event): boolean {
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  if (hasInitialPromptQuery(rawUrl)) return true;
+
+  const requestUrl = parseRequestUrl(rawUrl);
+  if (!requestUrl) return false;
+  const continuation = requestUrl.searchParams.get(SIGN_IN_CONTINUATION_PARAM);
+  if (
+    continuation &&
+    hasInitialPromptQuery(
+      decodeContinuation(continuation, getConfiguredAppBasePath()) ?? undefined,
+    )
+  ) {
+    return true;
+  }
+
+  const legacyReturn = requestUrl.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM);
+  return legacyReturn ? hasInitialPromptQuery(legacyReturn) : false;
+}
+
 function getOnboardingHtmlOptions(
   options: AuthOptions,
   event?: H3Event,
@@ -1161,6 +1201,7 @@ function getOnboardingHtmlOptions(
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
+    initialPrompt: event ? requestHasInitialPrompt(event) : false,
   };
 }
 
@@ -2000,12 +2041,12 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
-    // Liveness probe: always public so uptime monitors and the keep-warm cron
-    // can reach the DB-warmup route without a session. It exposes no per-user
-    // data (just ok/db/ms) and runs a trivial `SELECT 1`. Without this bypass
-    // the gate below 401s anonymous /_agent-native/* requests before any DB
-    // query, so the database would never get warmed.
-    if (p === "/_agent-native/health") return;
+    // Liveness probes: always public so uptime monitors and the keep-warm cron
+    // can reach them without a session. Ping exposes only a static message;
+    // health exposes only aggregate readiness and a trivial `SELECT 1`.
+    // Without this bypass the gate below 401s anonymous /_agent-native/*
+    // requests before either probe can run.
+    if (p === "/_agent-native/ping" || p === "/_agent-native/health") return;
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
@@ -3525,9 +3566,13 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {
@@ -3803,9 +3848,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
         setResponseStatus(event, 400);
         return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
-      if (!password || typeof password !== "string" || password.length < 8) {
+      if (
+        !password ||
+        typeof password !== "string" ||
+        password.length < PASSWORD_MIN_LENGTH
+      ) {
         setResponseStatus(event, 400);
-        return { error: "Password must be at least 8 characters" };
+        return { error: PASSWORD_MIN_LENGTH_MESSAGE };
       }
 
       if (await isGoogleSignInRequiredForEmail(email)) {

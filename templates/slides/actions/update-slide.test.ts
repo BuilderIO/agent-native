@@ -212,6 +212,44 @@ describe("update-slide", () => {
     expect(deck.slides[0].content).toBe("<div>Fresh</div>");
   });
 
+  it("rejects source-preserving edits that drop imported images", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Imported deck",
+      sourceImport: {
+        mode: "source-preserving",
+        format: "pdf",
+        fidelity: "source-faithful",
+        importedAt: "2026-08-06T00:00:00.000Z",
+        slideCount: 1,
+        slideIds: ["slide-1"],
+        slides: [
+          {
+            id: "slide-1",
+            text: "",
+            notes: "",
+            imageUrls: ["https://files.example/page.png"],
+            editableText: false,
+          },
+        ],
+      },
+      slides: [
+        {
+          id: "slide-1",
+          content: '<div><img src="https://files.example/page.png"></div>',
+        },
+      ],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: "<div><h1>Generic replacement</h1></div>",
+      }),
+    ).rejects.toThrow("remove 1 original image");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
   it("inherits and replaces exact slide provenance without losing other slides", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

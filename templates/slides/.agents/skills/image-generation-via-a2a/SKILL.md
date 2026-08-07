@@ -59,6 +59,12 @@ grounding, the completed-vs-failed task handling, and the ready-to-render
 preview markdown this action returns — which is how image results end up in
 chat as bare links instead of visible images.
 
+Slides owns the semantic job of the image: its slide role, audience, crop, and
+must-preserve content. Assets owns library and preset selection, style anchors,
+generation settings, and provenance. Include the active design system's
+image-style guidance in the prompt context, but do not ask Assets to invent a
+competing brand direction.
+
 Drop the returned `previewUrl` into the slide HTML's `<img src="...">`.
 
 ## Showing the result in chat

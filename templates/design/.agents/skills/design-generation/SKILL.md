@@ -35,7 +35,42 @@ them:
 
 Jumping straight to code is how you get slop. Let the phases (below) do the work.
 
+## Authority and direction record
+
+Before generating, make a compact direction record: the job this surface must
+do, its audience, one-sentence visual thesis, the active design-system id or
+token source, approved references, and any unresolved choice that could change
+the result. This keeps a strong point of view without asking the model to fill
+in the user's intent silently.
+
+Resolve visual authority in this order:
+
+1. The current-turn product, audience, content, accessibility, and explicit
+   brand constraints.
+2. The active Agent-Native design system and its registered tokens, components,
+   type, imagery rules, and custom instructions.
+3. Approved Creative Context assets, components, and examples.
+4. Impeccable-inspired quality heuristics for hierarchy, subtraction,
+   composition, contrast, motion, and bounded review.
+5. Generic defaults only when the sources above are absent.
+
+The active design system is a contract, not a mood board. Do not swap its
+palette, fonts, component grammar, or imagery policy because a generic
+anti-pattern list prefers something else. A user can explicitly request a
+replacement or detachment; do not infer that request from a vague adjective.
+References can guide composition and narrative, but they do not silently
+transfer their tokens or brand identity.
+
+When the source is a transcript, meeting note, or pasted brief, treat it as
+evidence rather than a finished story. Preserve the user's terminology and
+exact claims, separate facts from interpretation and visual references, and
+ask one targeted question or mark an assumption when a missing choice would
+change the design. Never smooth an evidence gap into confident copy.
+
 ## Aesthetic quality bar — beat distributional convergence
+
+The rules in this section are fallback quality heuristics. They do not
+override an active Agent-Native design system or an explicit brand constraint.
 
 You sample toward the "on-distribution" center by default; refuse it. **Every
 "don't" here carries a "do"** — a banned default plus where to go instead —
@@ -276,7 +311,7 @@ screen name.
 }
 ```
 
-Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
+Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **structurally and compositionally distinct** — different layout grammars, hierarchy, density, and focal points — never just color swaps. When a design system is linked, keep its tokens, typography, components, and imagery rules fixed across variants; vary those only when the user explicitly asks to explore a replacement system. Label the directions with concrete names ("Editorial split", not "Variant A").
 
 Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
 
