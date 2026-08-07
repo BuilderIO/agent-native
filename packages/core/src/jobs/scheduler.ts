@@ -626,6 +626,11 @@ export async function runQueuedAutomation(
 ): Promise<{ skipped: boolean; runId?: string; error?: string }> {
   const queued = await getAutomationRun(historyId);
   if (!queued) throw new Error(`Automation run "${historyId}" not found.`);
+  const queuedAppId = queued.appId?.trim() || null;
+  const workerAppId = deps.appId?.trim() || null;
+  if (queuedAppId && queuedAppId !== workerAppId) {
+    return { skipped: true };
+  }
   if (!(await claimAutomationRun(historyId))) {
     return { skipped: true };
   }
