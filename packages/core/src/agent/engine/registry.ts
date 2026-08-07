@@ -894,6 +894,29 @@ export interface ResolveEngineConfig {
 }
 
 /**
+ * Engine name a caller explicitly selected, when {@link resolveEngine} will
+ * honor it as a name. Callers resolve the API key before they call
+ * `resolveEngine`, so they need the same answer the registry will reach:
+ * an untagged "active" key resolved against a different provider's setting
+ * would otherwise ride along to whichever engine this names. Returns
+ * `undefined` for an engine instance, which carries its own credential.
+ */
+export function explicitEngineName(
+  engineOption: ResolveEngineConfig["engineOption"],
+): string | undefined {
+  if (!engineOption) return undefined;
+  if (typeof engineOption === "string") return engineOption;
+  if (
+    typeof engineOption === "object" &&
+    !("stream" in engineOption) &&
+    typeof engineOption.name === "string"
+  ) {
+    return engineOption.name;
+  }
+  return undefined;
+}
+
+/**
  * Return the usable engine explicitly selected by the current user/org.
  *
  * This is intentionally narrower than {@link resolveEngine}: it only inspects
