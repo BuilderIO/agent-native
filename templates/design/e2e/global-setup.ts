@@ -176,7 +176,7 @@ export default async function globalSetup(config: FullConfig) {
   const page = await context.newPage();
 
   try {
-    await page.goto(`${baseURL}/_agent-native/sign-in`, {
+    await page.goto(`${baseURL}/sign-in`, {
       waitUntil: "domcontentloaded",
     });
 

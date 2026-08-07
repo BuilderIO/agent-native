@@ -115,6 +115,7 @@ vi.mock("../server/lib/storage.js", () => ({
 }));
 
 vi.mock("./_helpers.js", () => ({
+  imageArtifactLinks: vi.fn(() => []),
   requireGenerationSessionInLibrary: vi.fn(),
   serializeAsset: vi.fn((asset) => asset),
 }));

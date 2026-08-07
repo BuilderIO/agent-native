@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assetUrls,
   buildAssetLineage,
+  imageArtifactLinks,
   serializeGenerationSessionItems,
 } from "./_helpers.js";
 
@@ -76,6 +77,23 @@ describe("assetUrls", () => {
     expect(urls.thumbnailUrl).toBe(
       "/assets/api/assets/asset-1/content?variant=thumb",
     );
+  });
+});
+
+describe("imageArtifactLinks", () => {
+  it("exposes media URLs for cross-app embedding", () => {
+    expect(
+      imageArtifactLinks({
+        id: "asset-1",
+        runId: "run-1",
+        previewUrl: "https://assets.example/api/assets/asset-1/content",
+        downloadUrl:
+          "https://assets.example/api/assets/asset-1/content?download=1",
+      }),
+    ).toEqual([
+      "previewUrl: https://assets.example/api/assets/asset-1/content (ID: asset-1, Run: run-1)",
+      "downloadUrl: https://assets.example/api/assets/asset-1/content?download=1",
+    ]);
   });
 });
 

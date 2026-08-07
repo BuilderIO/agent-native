@@ -204,7 +204,7 @@ For public pages (share links, embeds, marketing pages) that need anonymous view
 ```ts
 const ret = window.location.pathname + window.location.search;
 window.location.href =
-  "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+  "/sign-in?return=" + encodeURIComponent(ret);
 ```
 
 After successful sign-in (token / email-password / Google OAuth), the framework redirects to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
@@ -230,7 +230,9 @@ will be rejected.
 
 `AppProviders` applies `RequireSession` automatically on its private branch. It
 resolves the session on the client and redirects signed-out visitors to
-`/_agent-native/sign-in?return=…` before mounting the routed shell:
+`/sign-in?return=…` before mounting the routed shell. The legacy
+`/_agent-native/sign-in` path remains supported for older generated apps and
+bookmarks:
 
 ```tsx
 import { AppProviders } from "@agent-native/core/client/hooks";

@@ -194,8 +194,30 @@ export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 210_000;
 // every poll tick and the follow loop never exits (prod: 26 chained runs over
 // 22 minutes, all error:stale_run, user watching a spinner). These bound the
 // whole turn instead, and an identical repeated failure counts as no progress.
-export const MAX_FOLLOWED_BACKGROUND_RUNS = 6;
-export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 10 * 60_000;
+//
+// CLIENT-ABOVE-SERVER INVARIANT (asserted in agent-chat-adapter.spec.ts).
+// These are a backstop for a server that has gone silent in a way the idle
+// timeout misses — NOT the primary limit. They must stay ABOVE the server's
+// own ceilings so the server, which can actually tell progress from looping,
+// always terminates a turn first and writes a truthful terminal reason:
+//   BACKGROUND_SOFT_TIMEOUT_CEILING_MS  (13 min, run-manager.ts)  — one chunk
+//   MAX_TURN_WALL_CLOCK_MS              (90 min, production-agent.ts) — one turn
+//   MAX_BACKGROUND_RUN_CONTINUATIONS    (20,     production-agent.ts)
+//
+// They were originally set to 10 min / 6 runs, which put the whole-turn client
+// budget BELOW the 13-minute ceiling of a single legal chunk. Any turn needing
+// a second full-length chunk was killed by the client while the server was
+// healthy and had 80 minutes left — measured in prod as turns dying at 11-25
+// minutes with `last_progress_at` tracking the abort, i.e. still streaming
+// tokens and completing tools when the client gave up. That is the top
+// non-auth cause of "the chat just stopped" reports.
+//
+// Killing a turn that is NOT progressing is already covered twice over, by
+// mechanisms that read progress rather than a clock: the 210s idle timeout
+// above, and MAX_REPEATED_BACKGROUND_TERMINAL_REASONS below. Do not re-tighten
+// these two to catch a stuck turn — fix the progress signal instead.
+export const MAX_FOLLOWED_BACKGROUND_RUNS = 24;
+export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 95 * 60_000;
 const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 
 // A re-observed terminal run whose outcome would be an ERROR (never a
@@ -1207,6 +1229,74 @@ class AgentStartupTimeoutError extends Error {
     );
     this.name = "AgentStartupTimeoutError";
     this.timeoutMs = timeoutMs;
+  }
+}
+
+type StructuredAgentChatError = {
+  message: string;
+  errorCode?: string;
+  details?: string;
+  retryable?: boolean;
+  upgradeUrl?: string;
+};
+
+/**
+ * Keep the server's error contract intact across the fetch boundary. In
+ * particular, a POST response with `retryable: false` must not be fed into the
+ * generic reconnect/continuation path: replaying a mutation after the server
+ * has started processing it can duplicate work. The previous code discarded
+ * this metadata and exposed the raw JSON body to the user instead.
+ */
+class AgentChatHttpError extends Error {
+  readonly errorCode?: string;
+  readonly details?: string;
+  readonly retryable?: boolean;
+  readonly upgradeUrl?: string;
+
+  constructor(error: StructuredAgentChatError) {
+    super(error.message);
+    this.name = "AgentChatHttpError";
+    this.errorCode = error.errorCode;
+    this.details = error.details;
+    this.retryable = error.retryable;
+    this.upgradeUrl = error.upgradeUrl;
+  }
+}
+
+function parseStructuredAgentChatError(
+  body: string,
+): StructuredAgentChatError | null {
+  if (!body.trim()) return null;
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return null;
+    const message =
+      typeof parsed.error === "string"
+        ? parsed.error
+        : typeof parsed.message === "string"
+          ? parsed.message
+          : "";
+    if (!message) return null;
+    return {
+      message,
+      ...(typeof parsed.code === "string"
+        ? { errorCode: parsed.code }
+        : typeof parsed.errorCode === "string"
+          ? { errorCode: parsed.errorCode }
+          : {}),
+      ...(typeof parsed.details === "string"
+        ? { details: parsed.details }
+        : {}),
+      ...(typeof parsed.retryable === "boolean"
+        ? { retryable: parsed.retryable }
+        : {}),
+      ...(typeof parsed.upgradeUrl === "string"
+        ? { upgradeUrl: parsed.upgradeUrl }
+        : {}),
+    };
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
   }
 }
 
@@ -2701,7 +2791,12 @@ export function createAgentChatAdapter(
               MAX_BACKGROUND_FOLLOW_WALL_TIME_MS
             ) {
               yield* stopBackgroundTurnBeforeReporting({
-                message: `The agent kept restarting this step for ${Math.round(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 60_000)} minutes without finishing it. It was stopped so you can retry from the preserved chat context — a smaller request usually gets through.`,
+                // Says only what this backstop actually knows. It fires on a
+                // clock, so it cannot tell a looping turn from one that was
+                // still working — the old copy asserted "kept restarting
+                // without finishing", which prod runs contradicted: they were
+                // streaming tokens right up to the abort.
+                message: `This turn ran for ${Math.round(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 60_000)} minutes without finishing, so it was stopped. Your chat context is preserved — retrying, or splitting this into smaller requests, usually gets through.`,
                 errorCode: "background_follow_time_budget_exhausted",
                 details: `followed_runs: ${followedRunIds.size}`,
               });
@@ -3336,9 +3431,9 @@ export function createAgentChatAdapter(
             ) {
               try {
                 const body = await res.text();
-                const parsed = JSON.parse(body);
+                const parsed = JSON.parse(body) as { error?: unknown };
                 if (parsed.error) {
-                  throw new Error(parsed.error);
+                  throw new Error(String(parsed.error));
                 }
               } catch (e) {
                 if (
@@ -3481,6 +3576,7 @@ export function createAgentChatAdapter(
               let errorText = `Server error: ${res.status}`;
               try {
                 const body = await res.text();
+                const structuredError = parseStructuredAgentChatError(body);
                 if (isAuthErrorMessage(body)) {
                   if (await tryRecoverAuthOnce()) {
                     continue;
@@ -3524,10 +3620,25 @@ export function createAgentChatAdapter(
                   errorText =
                     "Agent chat endpoint not found. Make sure the agent-chat plugin is loaded in server/plugins/.";
                 } else if (body) {
-                  errorText =
-                    body.length > 200 ? body.slice(0, 200) + "..." : body;
+                  // A non-retryable structured response is a terminal server
+                  // outcome. Preserve its code and stop before the generic
+                  // connection recovery below can POST the same turn again.
+                  if (
+                    structuredError &&
+                    (structuredError.retryable === false ||
+                      structuredError.errorCode === "database_unavailable")
+                  ) {
+                    throw new AgentChatHttpError(structuredError);
+                  }
+                  errorText = structuredError
+                    ? structuredError.message
+                    : body.length > 200
+                      ? body.slice(0, 200) + "..."
+                      : body;
                 }
-              } catch {}
+              } catch (error) {
+                if (error instanceof AgentChatHttpError) throw error;
+              }
               throw new Error(errorText);
             }
             if (!res.body) {
@@ -3721,6 +3832,54 @@ export function createAgentChatAdapter(
               }
               if (abortSignal.aborted) return;
               continue;
+            }
+
+            if (err instanceof AgentChatHttpError) {
+              const normalized = normalizeChatError(err.message, err.errorCode);
+              const details = [err.details, normalized.details]
+                .filter(Boolean)
+                .join("\n\n");
+              const runError = {
+                message: normalized.message,
+                ...(details ? { details } : {}),
+                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+                recoverable: err.retryable === true,
+                ...(runId ? { runId } : {}),
+              };
+              captureChatClientError(err, "server-error", {
+                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+                retryable: err.retryable ?? false,
+              });
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("agent-chat:run-error", {
+                    detail: {
+                      ...runError,
+                      ...(err.upgradeUrl ? { upgradeUrl: err.upgradeUrl } : {}),
+                      tabId,
+                    },
+                  }),
+                );
+              }
+              settleInterruptedToolCalls(content, undefined, {
+                includeActivity: true,
+              });
+              content.push({
+                type: "text",
+                text: `Something went wrong: ${normalized.message}`,
+              });
+              yield {
+                content: [...content],
+                status: {
+                  type: "incomplete" as const,
+                  reason: "error" as const,
+                },
+                metadata: {
+                  custom: { ...(runId ? { runId } : {}), runError },
+                },
+              };
+              clearActiveRun();
+              return;
             }
 
             const errMsg =

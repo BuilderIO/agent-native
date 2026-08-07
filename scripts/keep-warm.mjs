@@ -4,6 +4,13 @@
 // Actions cron runs can be delayed longer than a scale-to-zero database's
 // autosuspend window.
 //
+// /_agent-native/health only proves the database is reachable — it stays
+// green through the single most-repeated production report (15+ times, 9+
+// people, 3 months): the app loads but the agent stalls and nothing renders
+// right. --strict runs also GET the public SSR shell at prodUrl and assert
+// it actually rendered (2xx after redirects, body has `<html`, no known
+// error-page markers), so that outage shows up here instead of only in Slack.
+//
 // Driven off packages/shared-app-config/templates.ts (the single source of
 // truth for prodUrls) so new apps are covered automatically. Pure Node, no
 // dependencies or install step — safe to run on a bare `actions/setup-node`
@@ -11,10 +18,11 @@
 //
 //   node scripts/keep-warm.mjs            # audit every app's prod health route
 //   node scripts/keep-warm.mjs plan mail  # audit only the named apps
-//   node scripts/keep-warm.mjs --strict   # fail when any app is unhealthy
+//   node scripts/keep-warm.mjs --strict   # also fail on an unhealthy or unrendered app
 //
-// Ordinary runs preserve the old best-effort behavior. Use --strict for
-// monitoring so a partial outage cannot be reported as healthy.
+// Ordinary runs preserve the old best-effort behavior (health only, no shell
+// fetch). Use --strict for monitoring so a partial outage cannot be reported
+// as healthy.
 
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -84,6 +92,47 @@ async function pingApp({ name, prodUrl }, strict) {
   return { name, ok: false, error: lastErr };
 }
 
+const SHELL_FAILURE_MARKERS = [
+  "Application error",
+  "Internal Server Error",
+  "502 Bad Gateway",
+  "Service Unavailable",
+  "Deploy failed",
+];
+
+async function fetchShellOnce(prodUrl) {
+  const startedAt = Date.now();
+  const res = await fetch(prodUrl, {
+    method: "GET",
+    headers: { "user-agent": "agent-native-keep-warm" },
+    signal: AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS),
+  });
+  const ms = Date.now() - startedAt;
+  const body = await res.text();
+  if (!res.ok) return { ok: false, ms, error: `HTTP ${res.status}` };
+  if (!body.toLowerCase().includes("<html")) {
+    return { ok: false, ms, error: "response missing <html shell" };
+  }
+  const marker = SHELL_FAILURE_MARKERS.find((m) => body.includes(m));
+  if (marker) return { ok: false, ms, error: `body contains "${marker}"` };
+  return { ok: true, ms };
+}
+
+async function checkShell({ name, prodUrl }) {
+  let lastErr;
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    try {
+      const r = await fetchShellOnce(prodUrl);
+      if (r.ok) return { name, ok: true, ms: r.ms };
+      lastErr = r.error;
+    } catch (err) {
+      lastErr =
+        err?.name === "TimeoutError" ? "timeout" : String(err?.message ?? err);
+    }
+  }
+  return { name, ok: false, error: lastErr };
+}
+
 async function main() {
   const strict = process.argv.includes("--strict");
   const filter = process.argv.slice(2).filter((arg) => arg !== "--strict");
@@ -101,17 +150,29 @@ async function main() {
   const results = await Promise.all(apps.map((app) => pingApp(app, strict)));
   results.sort((a, b) => a.name.localeCompare(b.name));
 
+  // Shell-render check only runs in --strict mode: ordinary runs exist to
+  // warm the function, not to monitor, and shouldn't pay for the extra
+  // request.
+  const shellResults = strict
+    ? await Promise.all(apps.map((app) => checkShell(app)))
+    : [];
+  const shellByName = new Map(shellResults.map((r) => [r.name, r]));
+
   let warmed = 0;
   for (const r of results) {
-    if (r.ok) {
+    const shell = shellByName.get(r.name);
+    const ok = r.ok && (!shell || shell.ok);
+    if (ok) {
       warmed++;
       const dbState =
         r.db === true ? "db:warm" : r.db === false ? "db:none" : "db:?";
+      const shellState = shell ? ` shell:${shell.ms}ms` : "";
       console.log(
-        `  ✓ ${r.name.padEnd(12)} ${String(r.ms).padStart(5)}ms  ${dbState}`,
+        `  ✓ ${r.name.padEnd(12)} ${String(r.ms).padStart(5)}ms  ${dbState}${shellState}`,
       );
     } else {
-      console.log(`  ✗ ${r.name.padEnd(12)} ${r.error}`);
+      const reason = !r.ok ? r.error : `shell: ${shell.error}`;
+      console.log(`  ✗ ${r.name.padEnd(12)} ${reason}`);
     }
   }
   console.log(`\nWarmed ${warmed}/${results.length} apps.`);

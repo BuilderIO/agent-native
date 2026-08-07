@@ -1001,6 +1001,18 @@ switch (command) {
     break;
   }
 
+  case "plugin": {
+    // Import a standard Agent Plugin's Skills and remote MCP entries into the
+    // current Agent-Native workspace.
+    import("./agent-plugin.js")
+      .then((m) => m.runAgentPlugin(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "skills": {
     // Friendly skill install surface. Wraps open skills installation plus MCP.
     import("./skills.js")
@@ -1260,6 +1272,8 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
+  agent-native plugin import <path> [--into <workspace>] [--yes] [--force]
+                                Import standard Agent Plugin Skills and remote MCP servers.
   agent-native skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.

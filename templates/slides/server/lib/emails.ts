@@ -5,7 +5,10 @@
  * and preview them without the app having sent anything yet.
  */
 
-import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
+import {
+  defineTransactionalEmail,
+  getTransactionalEmail,
+} from "@agent-native/core/email-catalog";
 
 import { renderDeckCommentEmail } from "./comment-notifications.js";
 
@@ -14,7 +17,9 @@ export const SLIDES_DECK_COMMENT_EMAIL_ID = "slides.deck-comment";
 let registered = false;
 
 export function registerSlidesEmails(): void {
-  if (registered) return;
+  // Nitro can re-evaluate this module during dev HMR while the core registry
+  // remains alive. Treat the existing Slides-owned entry as already registered.
+  if (registered || getTransactionalEmail(SLIDES_DECK_COMMENT_EMAIL_ID)) return;
   registered = true;
 
   defineTransactionalEmail({

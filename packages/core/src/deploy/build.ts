@@ -2376,6 +2376,10 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
+const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
+  "@sparticuz/chromium",
+  "playwright-core",
+] as const;
 
 // Serverless functions only ever run on 64-bit Linux. The darwin/win32/android
 // and 32-bit-arm prebuilds of these native packages are ~100MB that can never
@@ -2447,6 +2451,148 @@ function nodeModulesAncestors(startDir: string): string[] {
     current = parent;
   }
   return dirs;
+}
+
+function readPackageManifest(
+  packageDir: string,
+): Record<string, unknown> | null {
+  const packageJsonPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) return null;
+  const manifest: unknown = JSON.parse(
+    fs.readFileSync(packageJsonPath, "utf8"),
+  );
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return null;
+  }
+  return manifest as Record<string, unknown>;
+}
+
+function packageRootFromResolvedPath(
+  packageName: string,
+  resolvedPath: string,
+): string | null {
+  let current = path.dirname(resolvedPath);
+  while (true) {
+    const manifest = readPackageManifest(current);
+    if (manifest?.name === packageName) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+export function findInstalledPackageRoot(
+  packageName: string,
+  nodeModulesRoots: string[],
+  fromPackageDir?: string,
+): string | null {
+  if (fromPackageDir) {
+    try {
+      const requireFromPackage = createRequire(
+        path.join(fromPackageDir, "package.json"),
+      );
+      const resolvedPath = requireFromPackage.resolve(packageName);
+      const resolvedRoot = packageRootFromResolvedPath(
+        packageName,
+        resolvedPath,
+      );
+      if (resolvedRoot) return resolvedRoot;
+      // coercion-ok: resolution failure means this optional store lookup is absent.
+    } catch {
+      // The dependency may be available only through the workspace pnpm store.
+    }
+  }
+
+  const packagePath = packageName.split("/");
+  const pnpmPrefix = `${packageName.replace("/", "+")}@`;
+  for (const root of nodeModulesRoots) {
+    const direct = path.join(root, ...packagePath);
+    if (readPackageManifest(direct)?.name === packageName) return direct;
+
+    const pnpmRoot = path.join(root, ".pnpm");
+    if (!fs.existsSync(pnpmRoot)) continue;
+    for (const entry of fs.readdirSync(pnpmRoot)) {
+      if (!entry.startsWith(pnpmPrefix)) continue;
+      const nested = path.join(pnpmRoot, entry, "node_modules", ...packagePath);
+      if (readPackageManifest(nested)?.name === packageName) return nested;
+    }
+  }
+  return null;
+}
+
+function copyRuntimePackageTree(
+  packageName: string,
+  packageDir: string,
+  serverDir: string,
+  nodeModulesRoots: string[],
+  copiedPackages: Set<string>,
+): number {
+  if (copiedPackages.has(packageName)) return 0;
+  copiedPackages.add(packageName);
+
+  const destination = path.join(
+    serverDir,
+    "node_modules",
+    ...packageName.split("/"),
+  );
+  copyDir(packageDir, destination);
+
+  const manifest = readPackageManifest(packageDir);
+  const dependencies = manifest?.dependencies;
+  if (!dependencies || typeof dependencies !== "object") return 1;
+
+  let copiedCount = 1;
+  for (const dependencyName of Object.keys(
+    dependencies as Record<string, unknown>,
+  )) {
+    const dependencyDir = findInstalledPackageRoot(
+      dependencyName,
+      nodeModulesRoots,
+      packageDir,
+    );
+    if (!dependencyDir) {
+      throw new Error(
+        `[deploy] Could not resolve ${dependencyName}, required by ${packageName}, for the serverless browser runtime.`,
+      );
+    }
+    copiedCount += copyRuntimePackageTree(
+      dependencyName,
+      dependencyDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+  return copiedCount;
+}
+
+export function copyInstalledBrowserRuntimePackages(
+  serverDir: string | undefined,
+  projectCwd = cwd,
+): number {
+  if (!serverDir || !fs.existsSync(serverDir)) return 0;
+
+  const nodeModulesRoots = nodeModulesAncestors(projectCwd);
+  const copiedPackages = new Set<string>();
+  let copiedCount = 0;
+  for (const packageName of SERVERLESS_BROWSER_RUNTIME_PACKAGES) {
+    const packageDir = findInstalledPackageRoot(packageName, nodeModulesRoots);
+    if (!packageDir) continue;
+    copiedCount += copyRuntimePackageTree(
+      packageName,
+      packageDir,
+      serverDir,
+      nodeModulesRoots,
+      copiedPackages,
+    );
+  }
+
+  if (copiedCount > 0) {
+    console.log(
+      `[deploy] Copied ${copiedCount} serverless browser runtime package(s) into the server bundle.`,
+    );
+  }
+  return copiedCount;
 }
 
 function findInstalledLibsqlNativePackage(
@@ -2660,8 +2806,6 @@ const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
 
 function siteOrigin(request) {
-  const configured = process.env.URL || process.env.DEPLOY_URL;
-  if (configured) return configured;
   return new URL(request.url).origin;
 }
 
@@ -2768,8 +2912,6 @@ const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
 const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
 
 function siteOrigin(request) {
-  const configured = process.env.URL || process.env.DEPLOY_URL;
-  if (configured) return configured;
   return new URL(request.url).origin;
 }
 
@@ -4253,6 +4395,7 @@ export default bundle;
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
+    copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }

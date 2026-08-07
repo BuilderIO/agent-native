@@ -1199,7 +1199,7 @@ describe("A2AClient", () => {
     );
 
     const result = callAgent("https://slides.agent.test", "make a deck", {
-      timeoutMs: 3,
+      timeoutMs: 50,
       pollIntervalMs: 1,
     });
     const assertion = expect(result).rejects.toMatchObject({

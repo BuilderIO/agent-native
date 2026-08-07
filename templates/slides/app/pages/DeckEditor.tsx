@@ -155,6 +155,7 @@ export default function DeckEditor() {
     getDeck,
     reloadDecks,
     reloadDecksWithStatus,
+    refreshOpenDeck,
     updateDeck,
     updateSlide,
     deleteSlide,
@@ -395,6 +396,22 @@ export default function DeckEditor() {
       setRetryingMissingDeck(false);
     }
   }, [refetchOrg, reloadDecks]);
+
+  // The final generation write can race the last sync event. Pull the
+  // authoritative open deck when the run settles so a stale canvas does not
+  // require a browser refresh to reveal completed slides.
+  useEffect(() => {
+    if (
+      !id ||
+      !shouldClearNewDeckGeneratingState({
+        generating,
+        generationStarted: newDeckGenerationStarted.current,
+      })
+    ) {
+      return;
+    }
+    void refreshOpenDeck(id);
+  }, [generating, id, refreshOpenDeck]);
 
   // Clean up the generating URL param/ref when generation completes or when
   // the first slide lands, so partial progress is visible during long decks.

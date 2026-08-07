@@ -46,6 +46,10 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "forms",
+  // Delegated (A2A) turns served from the foreground hit the 40s
+  // serverless wall; opting in routes them to the background worker,
+  // as every other A2A-serving app in this fleet already does.
+  durableBackgroundRuns: true,
   systemPrompt: FORMS_SYSTEM_PROMPT,
   leanPrompt: true,
   initialToolNames: INITIAL_TOOL_NAMES,

@@ -676,17 +676,18 @@ const messages = {
     deckCount_one: "deck",
     deckCount_many: "decks",
     deckCount_other: "decks",
-    createDeckOrVisual: "Créer un deck ou une visualisation",
+    createDeckOrVisual: "Créer une présentation",
     noMineDecks: "Aucun deck créé par vous pour le moment.",
     deleteDeckTitle: "Supprimer le deck ?",
     deleteDeckDescription:
       "Cela supprimera définitivement ce deck et toutes ses diapositives. Cette action est irréversible.",
     cancel: "Annuler",
     delete: "Supprimer",
-    newDeckPromptTitle: "Nouveau deck",
-    newDeckPlaceholder: "Décrivez votre deck, visualisation ou diagramme...",
+    newDeckPromptTitle: "Nouvelle présentation",
+    newDeckPlaceholder:
+      "Décrivez la présentation que vous souhaitez générer...",
     skipPrompt: "Ignorer le prompt",
-    firstDeckPromptTitle: "Que voulez-vous créer ?",
+    firstDeckPromptTitle: "Quel type de présentation devons-nous générer ?",
     firstDeckSkip: "Ignorer",
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",
@@ -706,6 +707,7 @@ const messages = {
     googleSlidesReferenceConnect:
       "Connectez Google Drive pour importer un deck Slides.",
     googleSlidesReferenceChoose: "Choisir un deck Google Slides",
+    googleSlidesReferenceUrl: "Collez un lien Google Slides",
     googleSlidesReferencePicking: "Traitement...",
     googleSlidesReferenceConnected:
       "Connecté. Choisissez un deck Google Slides à importer comme référence réutilisable.",
@@ -740,7 +742,7 @@ const messages = {
     emptyTitle: "Aucun deck pour le moment",
     createFirstDeck: "Créez votre premier deck",
     emptyDescription:
-      "Créez de belles présentations, des visuels autonomes, des diagrammes et des récits riches en images avec la génération par IA.",
+      "Créez de belles présentations avec la génération par IA.",
   },
 };
 

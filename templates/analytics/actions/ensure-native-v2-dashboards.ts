@@ -235,7 +235,7 @@ export async function ensureNativeV2Dashboards(
 
 export default defineAction({
   description:
-    "Provision the four reusable native Analytics v2 dashboard patterns for the active organization from explicit Data Program bindings. " +
+    "Provision the reusable native Analytics v2 dashboard patterns, including On Demand Billing, for the active organization from explicit Data Program bindings. " +
     "This is an admin-only post-deploy action: it validates every program exists and exposes the manifest's required output columns, shares the bound programs with the organization, creates deterministic native-* dashboard copies, and never changes the legacy extension dashboards. " +
     "Re-running preserves existing v2 dashboard edits unless overwrite=true.",
   schema: z.object({
