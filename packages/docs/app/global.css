@@ -691,8 +691,6 @@ h4 {
 .docs-sig-title {
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--fg-secondary);
   margin: 0 0 8px;
 }
@@ -740,6 +738,12 @@ h4 {
   font-size: 13px;
   color: var(--fg);
   white-space: pre;
+}
+
+.docs-sig-body {
+  border: 1px solid var(--docs-border);
+  border-top: none;
+  border-radius: 0;
 }
 
 .docs-sig-section {

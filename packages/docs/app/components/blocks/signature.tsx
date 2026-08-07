@@ -45,15 +45,11 @@ function FieldRow({
 
 /**
  * Read-only renderer for a `signature` block. Collapsed by default to just the
- * code-style call line; clicking it reveals the parameter/return breakdown. The
- * generic block `title` (falling back to "Signature") renders as a faded label
- * above the whole thing, separate from the clickable header inside it.
+ * code-style call line; clicking it reveals the parameter/return breakdown. A
+ * static "Function signature" label renders as a faded caption above the
+ * whole thing, separate from the clickable header inside it.
  */
-export function SignatureBlock({
-  data,
-  title,
-  ctx,
-}: BlockReadProps<SignatureData>) {
+export function SignatureBlock({ data, ctx }: BlockReadProps<SignatureData>) {
   const [open, setOpen] = useState(false);
   const signatureLine = `${data.name}(${data.params
     .map(paramSignatureText)
@@ -61,7 +57,7 @@ export function SignatureBlock({
 
   return (
     <div className="docs-sig-wrap">
-      <p className="docs-sig-title">{title || "Signature"}</p>
+      <p className="docs-sig-title">Function signature</p>
       <section className="docs-signature">
         <button
           type="button"
@@ -74,7 +70,7 @@ export function SignatureBlock({
         </button>
 
         {open && (
-          <>
+          <div className="docs-sig-body">
             {data.params.length > 0 && (
               <div className="docs-sig-section">
                 <p className="docs-sig-section-label">Parameters</p>
@@ -111,7 +107,7 @@ export function SignatureBlock({
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
       </section>
     </div>
