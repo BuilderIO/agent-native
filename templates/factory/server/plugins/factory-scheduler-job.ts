@@ -5,6 +5,7 @@ import {
   organizationResourceOwner,
   resourceGetByPath,
   resourcePut,
+  resourcePutIfCurrent,
   WORKSPACE_OWNER,
 } from "@agent-native/core/resources";
 import {
@@ -266,12 +267,49 @@ policy. Do not call GitHub write actions directly or claim a merge unless the
 governance action confirms it.
 `,
   },
+  {
+    name: "factory-pr-babysit",
+    schedule: "*/2 * * * *",
+    body: `
+# Factory builder-io-bot PR babysitting
+
+Read the Factory configuration. When GitHub polling is enabled and a repository
+is configured, call poll-github-sources with includeIssues false and
+includePullRequests true. List a bounded page of open github pull-request items.
+
+For each item, call babysit-agent-native-pull-request. That action fetches fresh
+GitHub and ai-services evidence and is the only place allowed to decide whether
+to post the bounded @builderio-bot feedback-fix request. It only acts on open
+non-draft PRs authored by builder-io-bot (including GitHub's bot login variants),
+and skips owner-managed Clips, Design, and Content work. It persists the latest
+feedback fingerprint and quiet window, so repeated scheduler ticks do not spam
+comments. A changed commit, new unresolved feedback, failing or pending CI, or
+merge conflict starts a new bounded request; twenty minutes without new work to
+address ends that babysitting window. The action never approves or merges.
+
+Preserve action errors and never claim that Builder fixed a PR unless fresh
+evidence confirms the resulting state.
+`,
+  },
 ];
 
 function workspaceOwnerEmail(): string | undefined {
   const email = process.env.WORKSPACE_OWNER_EMAIL?.trim().toLowerCase(); // guard:allow-env-credential - deployment owner identity, not a user credential
   if (!email || /[\r\n]/.test(email)) return undefined;
   return email;
+}
+
+function defaultRepository(): string | null {
+  const repository = process.env.FACTORY_DEFAULT_REPOSITORY?.trim(); // guard:allow-env-credential - repository configuration, not a credential
+  if (!repository || /[\r\n]/.test(repository)) return null;
+  return repository;
+}
+
+function defaultGithubPollingEnabled(): 0 | 1 {
+  return process.env.FACTORY_ENABLE_GITHUB_POLLING?.trim().toLowerCase() === // guard:allow-env-credential - deployment feature flag, not a credential
+    "true"
+    ? 1
+    : 0;
 }
 
 function setFrontmatterField(
@@ -327,16 +365,47 @@ async function ensureOrganizationAutomations(
   orgId: string,
 ): Promise<void> {
   const owner = organizationResourceOwner(orgId);
-  for (const seed of AUTOMATION_SEEDS) {
-    const path = `jobs/${seed.name}.md`;
-    if (await resourceGetByPath(owner, path)) continue;
-    await resourcePut(
-      owner,
-      path,
-      automationContent(ownerEmail, orgId, seed),
-      "text/markdown",
-    );
-  }
+  await Promise.all(
+    AUTOMATION_SEEDS.map(async (seed) => {
+      const path = `jobs/${seed.name}.md`;
+      const existing = await resourceGetByPath(owner, path);
+      if (!existing) {
+        await resourcePut(
+          owner,
+          path,
+          automationContent(ownerEmail, orgId, seed),
+          "text/markdown",
+        );
+        return;
+      }
+
+      // Earlier Factory versions created these rows without the metadata the
+      // list and action guards use. Patch only identity metadata and keep the
+      // user's prompt, model, schedule, and enabled state intact.
+      let repaired = existing.content;
+      repaired = setFrontmatterField(repaired, "triggerType", "schedule");
+      repaired = setFrontmatterField(repaired, "domain", "factory");
+      repaired = setFrontmatterField(repaired, "orgId", orgId);
+      repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
+      repaired = setFrontmatterField(repaired, "runAs", "creator");
+      if (repaired === existing.content) return;
+
+      const updated = await resourcePutIfCurrent({
+        owner,
+        path,
+        content: repaired,
+        mimeType: "text/markdown",
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+      });
+      if (!updated) {
+        console.warn(
+          `[factory-scheduler-job] skipped metadata repair for ${path}: the resource changed concurrently`,
+        );
+      }
+    }),
+  );
 }
 
 async function ensureDefaultTriageConfig(
@@ -359,11 +428,11 @@ async function ensureDefaultTriageConfig(
     slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
     slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
     pollingEnabled: 1,
-    githubPollingEnabled: 0,
+    githubPollingEnabled: defaultGithubPollingEnabled(),
     sentryPollingEnabled: 0,
     lastSlackTs: null,
     slackHistoryCursor: null,
-    repository: null,
+    repository: defaultRepository(),
     sentryOrgSlug: null,
     sentryProjectSlug: null,
     sentryEnvironment: null,

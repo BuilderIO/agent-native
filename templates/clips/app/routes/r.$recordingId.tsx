@@ -1473,6 +1473,7 @@ export default function RecordingPage() {
                     >
                       <span>{t(item.labelKey)}</span>
                       {item.tooltipKey ? (
+                        // guard:allow-large-help-icon - menu item tooltip icon
                         <IconHelpCircle
                           aria-hidden="true"
                           className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"

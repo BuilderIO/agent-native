@@ -484,6 +484,8 @@ const messages = {
     newTerminal: "New terminal",
     panelOptions: "Agent panel options",
     collapseSidebar: "Collapse sidebar",
+    widenChat: "Widen chat to 75%",
+    returnChatToLayout: "Return chat to layout",
     expandSidebar: "Expand sidebar",
     hideChats: "Hide chats",
     allChats: "All chats",
@@ -1364,6 +1366,17 @@ const messages = {
       "This page doesn't exist. It may have been moved or deleted.",
     statusTitle: "{{status}} Error",
     goHome: "Go home",
+  },
+  runtimeConfig: {
+    issue_one: "{{count}} issue",
+    issue_other: "{{count}} issues",
+    errorTitle: "Configuration error",
+    warningTitle: "Configuration warning",
+    showDetails: "Show details",
+    hideDetails: "Hide details",
+    copyPrompt: "Copy prompt",
+    copied: "Copied",
+    copyFailed: "Copy failed",
   },
 };
 

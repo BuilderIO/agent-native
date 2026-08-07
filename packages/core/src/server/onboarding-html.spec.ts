@@ -41,6 +41,16 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("Continue as local dev");
     expect(html).toContain("Show full sign in options");
     expect(html).toContain("Only works in local development on this computer.");
+    expect(html).toContain('id="local-dev-help"');
+    expect(html).toContain(
+      'href="https://www.agent-native.com/docs/authentication#local-development-sign-in"',
+    );
+    expect(html).toContain("Learn about local development sign-in");
+    expect(html).toContain('class="local-dev-help-glyph"');
+    expect(html).toContain("width: 1.5rem;");
+    expect(html).toContain("width: 0.625rem;");
+    expect(html).toContain("height: 0.625rem;");
+    expect(html).toContain(".full-auth-options { margin-top: 1rem; }");
     expect(html).toContain("function __anIsLoopbackHostname()");
     expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
     expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");

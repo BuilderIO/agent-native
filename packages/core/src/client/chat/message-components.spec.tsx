@@ -8,10 +8,12 @@ import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
+  completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
   InlineRunErrorNotice,
   isCollapsibleAssistantWorkPart,
+  isMissingFinalResponseWarningText,
   latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
@@ -359,6 +361,43 @@ describe("messageTextFromContent", () => {
         },
       ]),
     ).toBe("Stopped because manage-progress failed 3 times.");
+  });
+});
+
+describe("assistant completion notices", () => {
+  it("recognizes terminal missing-response warnings separately from final text", () => {
+    expect(
+      isMissingFinalResponseWarningText(
+        "The agent completed the view screen action, but stopped before sending a final message.",
+      ),
+    ).toBe(true);
+    expect(isMissingFinalResponseWarningText("The work is complete.")).toBe(
+      false,
+    );
+  });
+
+  it("lists completed tools after the latest assistant text in arrival order", () => {
+    expect(
+      completedAssistantToolNamesAfterLastText([
+        { type: "text", text: "I will inspect the workspace." },
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "view-screen",
+          argsText: "{}",
+          args: {},
+          result: "{}",
+        },
+        {
+          type: "tool-call",
+          toolCallId: "call-2",
+          toolName: "workspace-read",
+          argsText: "{}",
+          args: {},
+          result: "{}",
+        },
+      ]),
+    ).toEqual(["view screen", "workspace read"]);
   });
 });
 

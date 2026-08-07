@@ -147,6 +147,7 @@ function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
+  if (pathname.startsWith("/apps/")) return true;
   return false;
 }
 
@@ -751,6 +752,9 @@ export function Layout({
   const localPathname = localDispatchPath(location.pathname);
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
+  const isWorkspaceAppHostRoute = localPathname.startsWith("/apps/");
+  const sidebarBeforeAppRef = useRef<boolean | null>(null);
+  const sidebarAutoCollapsedRef = useRef(false);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "dispatch",
     activePath: localPathname,
@@ -765,7 +769,29 @@ export function Layout({
   useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (isWorkspaceAppHostRoute) {
+      if (!sidebarAutoCollapsedRef.current) {
+        sidebarAutoCollapsedRef.current = true;
+        sidebarBeforeAppRef.current = sidebarCollapsed;
+      }
+      if (!sidebarCollapsed) setSidebarCollapsed(true);
+      return;
+    }
+
+    if (!sidebarAutoCollapsedRef.current) return;
+    sidebarAutoCollapsedRef.current = false;
+    const previousSidebarState = sidebarBeforeAppRef.current;
+    sidebarBeforeAppRef.current = null;
+    if (
+      previousSidebarState !== null &&
+      previousSidebarState !== sidebarCollapsed
+    ) {
+      setSidebarCollapsed(previousSidebarState);
+    }
+  }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isWorkspaceAppHostRoute) return;
     try {
       window.localStorage.setItem(
         SIDEBAR_COLLAPSE_KEY,
@@ -774,7 +800,7 @@ export function Layout({
     } catch {
       // Ignore storage failures; the in-memory preference still works.
     }
-  }, [sidebarCollapsed]);
+  }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
@@ -800,7 +826,9 @@ export function Layout({
       <main
         className={cn(
           "flex-1",
-          isChatRoute ? "min-h-0 overflow-hidden" : "overflow-y-auto",
+          isChatRoute || isWorkspaceAppHostRoute
+            ? "min-h-0 overflow-hidden"
+            : "overflow-y-auto",
         )}
       >
         {showHeader ? (

@@ -236,6 +236,8 @@ const messages = {
     newTerminal: "Nouvelle borne",
     panelOptions: "Options du panneau d'agent",
     collapseSidebar: "Réduire la barre latérale",
+    widenChat: "Élargir le chat à 75 %",
+    returnChatToLayout: "Remettre le chat dans la mise en page",
     hideChats: "Masquer les discussions",
     allChats: "Toutes les discussions",
     settings: "Paramètres",

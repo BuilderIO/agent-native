@@ -218,7 +218,7 @@ describe("Dispatch NavContent", () => {
     expect(shell?.querySelector('a[href="/admin/apps"]')).toBeNull();
   });
 
-  it("shows ready workspace apps as direct links and highlights the active app", async () => {
+  it("shows ready workspace apps as host links and highlights the active app", async () => {
     clientState.workspaceApps = [
       { id: "calendar", name: "Calendar", path: "/calendar", status: "ready" },
       { id: "pending", name: "Pending", path: "/pending", status: "pending" },
@@ -226,7 +226,7 @@ describe("Dispatch NavContent", () => {
 
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/calendar/events"]}>
+        <MemoryRouter initialEntries={["/apps/calendar"]}>
           <TooltipProvider>
             <NavContent />
           </TooltipProvider>
@@ -239,7 +239,7 @@ describe("Dispatch NavContent", () => {
     expect(rail?.textContent).toContain("Calendar");
     expect(rail?.textContent).not.toContain("Pending");
 
-    const calendarLink = rail?.querySelector('a[href="/calendar"]');
+    const calendarLink = rail?.querySelector('a[href="/apps/calendar"]');
     expect(calendarLink).not.toBeNull();
     expect(calendarLink?.getAttribute("aria-current")).toBe("page");
   });

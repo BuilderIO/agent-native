@@ -232,6 +232,8 @@ const messages = {
     newTerminal: "محطة جديدة",
     panelOptions: "خيارات لوحة الوكيل",
     collapseSidebar: "طي الشريط الجانبي",
+    widenChat: "توسيع الدردشة إلى 75٪",
+    returnChatToLayout: "إعادة الدردشة إلى تخطيط الصفحة",
     hideChats: "إخفاء الدردشات",
     allChats: "جميع الدردشات",
     settings: "الإعدادات",

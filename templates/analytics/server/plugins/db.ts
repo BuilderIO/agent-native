@@ -1439,6 +1439,58 @@ const runAnalyticsMigrations = runMigrations(
         )`,
       },
     },
+    {
+      version: 138,
+      name: "analytics-dashboard-folders",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_folders (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text),
+          updated_at TEXT NOT NULL DEFAULT (now()::text),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          org_id TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private'
+        );
+        CREATE TABLE IF NOT EXISTS dashboard_folder_shares (
+          id TEXT PRIMARY KEY,
+          resource_id TEXT NOT NULL,
+          principal_type TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        );
+        ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS folder_id TEXT;
+        CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
+        CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
+        CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_folders (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          org_id TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private'
+        );
+        CREATE TABLE IF NOT EXISTS dashboard_folder_shares (
+          id TEXT PRIMARY KEY,
+          resource_id TEXT NOT NULL,
+          principal_type TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS folder_id TEXT;
+        CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
+        CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
+        CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

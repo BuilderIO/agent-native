@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
+import { AppOpenActions } from "./app-open-actions";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -61,6 +62,7 @@ export interface WorkspaceTemplateLabels {
   remixError: string;
   appIdRequired: string;
   source: string;
+  openApp: string;
   viewLiveApp: string;
 }
 
@@ -76,6 +78,7 @@ const DEFAULT_LABELS: WorkspaceTemplateLabels = {
   remixError: "Could not add this app",
   appIdRequired: "App ID is required.",
   source: "Source",
+  openApp: "Open app",
   viewLiveApp: "View the live app",
 };
 
@@ -84,6 +87,7 @@ export interface WorkspaceTemplateCardProps {
   defaultAppId?: string;
   labels?: Partial<WorkspaceTemplateLabels>;
   className?: string;
+  catalog?: boolean;
   onRemixSuccess?: (
     result: unknown,
     template: CuratedWorkspaceTemplate,
@@ -131,6 +135,7 @@ export function WorkspaceTemplateCard({
   defaultAppId,
   labels: labelOverrides,
   className,
+  catalog = false,
   onRemixSuccess,
 }: WorkspaceTemplateCardProps) {
   const labels = useMemo(() => mergeLabels(labelOverrides), [labelOverrides]);
@@ -208,7 +213,19 @@ export function WorkspaceTemplateCard({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        {liveUrl ? (
+        {catalog ? (
+          <AppOpenActions
+            name={template.name}
+            href={liveUrl ?? null}
+            target="_blank"
+            rel="noreferrer"
+            labels={{
+              addApp: labels.remix,
+              openApp: labels.openApp,
+            }}
+            onAddApp={() => setOpen(true)}
+          />
+        ) : liveUrl ? (
           <Button variant="ghost" size="sm" className="shrink-0" asChild>
             <a href={liveUrl} target="_blank" rel="noreferrer">
               {labels.viewLiveApp}
@@ -223,12 +240,14 @@ export function WorkspaceTemplateCard({
             if (!remix.isPending) setOpen(nextOpen);
           }}
         >
-          <DialogTrigger asChild>
-            <Button type="button" variant="outline" size="sm">
-              <IconPlus />
-              {labels.remix}
-            </Button>
-          </DialogTrigger>
+          {!catalog ? (
+            <DialogTrigger asChild>
+              <Button type="button" variant="outline" size="sm">
+                <IconPlus />
+                {labels.remix}
+              </Button>
+            </DialogTrigger>
+          ) : null}
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>{template.name}</DialogTitle>
@@ -295,6 +314,8 @@ export interface WorkspaceTemplatesSectionProps {
   labels?: Partial<WorkspaceTemplateLabels>;
   className?: string;
   cardClassName?: string;
+  listClassName?: string;
+  catalog?: boolean;
   onRemixSuccess?: (
     result: unknown,
     template: CuratedWorkspaceTemplate,
@@ -314,6 +335,8 @@ export function WorkspaceTemplatesSection({
   labels,
   className,
   cardClassName,
+  listClassName,
+  catalog = false,
   onRemixSuccess,
 }: WorkspaceTemplatesSectionProps) {
   const templates = getTemplateItems(result);
@@ -323,13 +346,14 @@ export function WorkspaceTemplatesSection({
   return (
     <section className={cn("flex flex-col gap-3", className)}>
       {title ? <div className="text-sm font-semibold">{title}</div> : null}
-      <div className="overflow-hidden rounded-2xl bg-card">
+      <div className={cn("overflow-hidden rounded-2xl bg-card", listClassName)}>
         {templates.map((template) => (
           <WorkspaceTemplateCard
             key={templateIdFor(template)}
             template={template}
             defaultAppId={defaultAppId}
             labels={labels}
+            catalog={catalog}
             className={cardClassName}
             onRemixSuccess={onRemixSuccess}
           />

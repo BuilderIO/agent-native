@@ -1853,6 +1853,34 @@ describe("RanToolsSummary", () => {
 
     expect(container.textContent).toContain("Older tool call");
   });
+
+  it("keeps the summary label in place when its count changes", () => {
+    const render = (toolCount: number) => (
+      <RanToolsSummary toolCount={toolCount}>
+        <div>Older tool call</div>
+      </RanToolsSummary>
+    );
+
+    act(() => root.render(render(1)));
+    const initialLabel = container.querySelector(".agent-tool-summary__label");
+    expect(initialLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(1)));
+    expect(container.querySelector(".agent-tool-summary__label")).toBe(
+      initialLabel,
+    );
+    expect(initialLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(2)));
+    const changedLabel = container.querySelector(".agent-tool-summary__label");
+    expect(changedLabel).toBe(initialLabel);
+    expect(changedLabel?.className).not.toContain("--changing");
+
+    act(() => root.render(render(2)));
+    expect(container.querySelector(".agent-tool-summary__label")).toBe(
+      changedLabel,
+    );
+  });
 });
 
 describe("ToolCallStackMotion", () => {
@@ -1984,7 +2012,12 @@ describe("ToolCallStackMotion", () => {
     ).toContain("agent-tool-call--stack-entering");
     expect(
       container.querySelector("[data-agent-tool-summary]")?.classList,
-    ).toContain("agent-tool-summary--entering");
+    ).not.toContain("agent-tool-summary--entering");
+    expect(
+      animations.some(
+        ({ element }) => element.dataset.agentToolSummary !== undefined,
+      ),
+    ).toBe(false);
     expect(
       document.querySelector(".agent-tool-call-stack__exit"),
     ).not.toBeNull();

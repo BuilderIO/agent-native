@@ -213,13 +213,20 @@ should make the repeated path obvious without hiding the agent's judgment:
 - Give each important repeated moment a clear button, such as “Analyze,”
   “Suggest options,” “Draft,” “Review,” or “Publish.” Use the source's actual
   vocabulary when it is clear.
-- Put deterministic reads, writes, approvals, and publishing in `actions/`
-  with `defineAction`. The UI and agent must call the same action surface.
+- Put deterministic reads, writes, approvals, provider fetches, and publishing
+  in focused `actions/` with `defineAction`. The UI and agent must call the
+  same action surface.
+- If a workflow is framed as research, analysis, generation, recommendation,
+  or synthesis, start it in the AgentSidebar and let the agent orchestrate
+  those actions. Do not hide an AI-shaped multi-step workflow behind one
+  opaque action just because the implementation is deterministic.
 - Use application state for the current screen, selected item, and focused
   object so the agent can see where the user is.
-- Use `sendToAgentChat({ message, context, submit: true })` for intentional
-  button-triggered agent work. Use `submit: false` when the user should review
-  or edit the proposed prompt first.
+- Use `sendToAgentChat({ message, context, submit: true, openSidebar: true })`
+  for intentional button-triggered agent work. Use `submit: false` when the
+  user should review or edit the proposed prompt in the AgentSidebar first.
+  Keep follow-up and revision prompts in that same thread; do not add a second
+  freeform textbox beside the result.
 - Pass IDs, URLs, and bounded summaries in context. Do not paste large provider
   dumps into prompts, call an LLM directly from the browser, or invent fake
   progress.

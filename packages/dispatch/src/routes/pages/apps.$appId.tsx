@@ -1,23 +1,41 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import {
   IconArrowLeft,
-  IconArrowUpRight,
   IconClockHour4,
+  IconExternalLink,
 } from "@tabler/icons-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
-import { DispatchShell } from "../../components/dispatch-shell";
+import { AppIcon } from "../../components/app-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
+import { Spinner } from "../../components/ui/spinner";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
+
+interface EmbedSessionResult {
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}
+
+interface EmbedSessionInput {
+  app: string;
+  path?: string;
+  url?: string;
+  chrome: "minimal";
+}
 
 export function meta() {
   return [{ title: "Workspace app - Dispatch" }];
@@ -36,37 +54,88 @@ export default function WorkspaceAppRoute() {
     [appId, apps],
   );
   const href = app ? workspaceAppHref(app) : null;
+  const [embedUrl, setEmbedUrl] = useState<string | null>(null);
+  const [embedError, setEmbedError] = useState<Error | null>(null);
+  const [embedAttempt, setEmbedAttempt] = useState(0);
+  const createEmbedSession = useActionMutation<
+    EmbedSessionResult,
+    EmbedSessionInput
+  >("create_embed_session", {
+    skipActionQueryInvalidation: true,
+  });
+  const embedInput = useMemo<EmbedSessionInput | null>(() => {
+    if (!app || !href) return null;
+    const path = app.path.trim();
+    if (path.startsWith("/")) {
+      return { app: app.id, path, chrome: "minimal" };
+    }
+    return { app: app.id, url: href, chrome: "minimal" };
+  }, [app?.id, app?.path, href]);
 
   useEffect(() => {
-    if (!app || app.status === "pending" || !href) return;
-    window.location.assign(href);
-  }, [app, href]);
+    if (!app || app.status === "pending" || !embedInput) return;
+    let cancelled = false;
+    setEmbedUrl(null);
+    setEmbedError(null);
+    void createEmbedSession
+      .mutateAsync(embedInput)
+      .then((result) => {
+        if (!cancelled) setEmbedUrl(result.startUrl);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setEmbedError(
+            cause instanceof Error ? cause : new Error(String(cause)),
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    app?.id,
+    app?.path,
+    app?.status,
+    createEmbedSession.mutateAsync,
+    embedAttempt,
+    embedInput,
+  ]);
 
-  return (
-    <DispatchShell
-      title={app?.name || t("dispatch.pages.workspaceAppFallback")}
-      description={t("dispatch.pages.workspaceAppDescription")}
-    >
-      <div className="max-w-2xl rounded-lg bg-card p-5">
-        <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
-          <Link to="/apps">
-            <IconArrowLeft size={15} className="mr-1.5" />
-            {t("dispatch.nav.apps")}
-          </Link>
-        </Button>
-
-        {appsQuery.isError ? (
+  if (appsQuery.isError) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center p-6">
+        <div className="w-full max-w-2xl">
           <ActionQueryError
             error={appsQuery.error}
             onRetry={() => void appsQuery.refetch()}
           />
-        ) : isLoading && !app ? (
-          <div className="space-y-3">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-2/3" />
-          </div>
-        ) : !app ? (
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading && !app) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center p-6">
+        <div className="w-full max-w-2xl space-y-3 rounded-xl border bg-card p-6">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!app) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center p-6">
+        <div className="w-full max-w-2xl rounded-xl border bg-card p-6">
+          <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
+            <Link to="/apps">
+              <IconArrowLeft size={15} className="mr-1.5" />
+              {t("dispatch.nav.apps")}
+            </Link>
+          </Button>
           <div className="space-y-3">
             <h2 className="text-base font-semibold text-foreground">
               {t("dispatch.pages.appNotFound")}
@@ -75,7 +144,21 @@ export default function WorkspaceAppRoute() {
               {t("dispatch.pages.pageNotFoundDescription")}
             </p>
           </div>
-        ) : app.status === "pending" ? (
+        </div>
+      </div>
+    );
+  }
+
+  if (app.status === "pending") {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center p-6">
+        <div className="w-full max-w-2xl rounded-xl border bg-card p-6">
+          <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
+            <Link to="/apps">
+              <IconArrowLeft size={15} className="mr-1.5" />
+              {t("dispatch.nav.apps")}
+            </Link>
+          </Button>
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-base font-semibold text-foreground">
@@ -110,31 +193,76 @@ export default function WorkspaceAppRoute() {
                   rel="noreferrer"
                 >
                   {t("dispatch.pages.openBuilderBranch")}
-                  <IconArrowUpRight size={15} className="ml-1.5" />
                 </a>
               </Button>
             ) : null}
           </div>
-        ) : (
-          <div className="space-y-3">
-            <h2 className="text-base font-semibold text-foreground">
-              {t("dispatch.pages.openingApp", { name: app.name })}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {t("dispatch.pages.redirectingTo")}{" "}
-              <span className="font-mono text-foreground">{app.path}</span>.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-dispatch-workspace-app-host
+      className="flex h-full min-h-0 flex-col bg-background"
+    >
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
+        <Button asChild variant="ghost" size="icon">
+          <Link to="/apps" aria-label={t("dispatch.nav.apps")}>
+            <IconArrowLeft size={17} />
+          </Link>
+        </Button>
+        <AppIcon id={app.id} name={app.name} size="sm" />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold text-foreground">
+            {app.name}
+          </h1>
+          {app.description ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {app.description}
             </p>
-            {href ? (
-              <Button asChild>
-                <a href={href}>
-                  {t("dispatch.pages.openApp")}
-                  <IconArrowUpRight size={15} className="ml-1.5" />
-                </a>
-              </Button>
-            ) : null}
+          ) : null}
+        </div>
+        {href ? (
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            aria-label={t("dispatch.pages.openApp")}
+            title={t("dispatch.pages.openApp")}
+          >
+            <a href={href} target="_blank" rel="noreferrer">
+              <IconExternalLink size={16} />
+            </a>
+          </Button>
+        ) : null}
+      </div>
+      <div className="min-h-0 flex-1 bg-muted/20">
+        {embedUrl ? (
+          <iframe
+            data-dispatch-workspace-app-frame
+            src={embedUrl}
+            title={app.name}
+            referrerPolicy="no-referrer"
+            className="h-full w-full border-0 bg-background"
+          />
+        ) : embedError ? (
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="w-full max-w-2xl">
+              <ActionQueryError
+                error={embedError}
+                onRetry={() => setEmbedAttempt((attempt) => attempt + 1)}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <Spinner className="size-5 text-muted-foreground" />
+            <span className="sr-only">{t("dispatch.pages.loading")}</span>
           </div>
         )}
       </div>
-    </DispatchShell>
+    </div>
   );
 }

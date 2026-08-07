@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
-  IconArrowUpRight,
   IconCalendar,
   IconChevronDown,
   IconChevronRight,
@@ -33,6 +32,7 @@ import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
 import { AppKeysPanel } from "./app-keys-popover";
 import { AppListRow } from "./app-list-row";
+import { AppOpenActions } from "./app-open-actions";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -70,7 +70,6 @@ export function WorkspaceAppCard({
   const t = useT();
   const { formatDate } = useFormatters();
   const href = workspaceAppHref(app);
-  const openInNewTab = isPendingBuilderHref(app);
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";
   const isArchived = !!app.archived;
@@ -180,22 +179,7 @@ export function WorkspaceAppCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {href ? (
-            <Button asChild size="sm">
-              <a
-                href={href}
-                target={openInNewTab ? "_blank" : undefined}
-                rel={openInNewTab ? "noreferrer" : undefined}
-              >
-                Open app
-                <IconArrowUpRight />
-              </a>
-            </Button>
-          ) : (
-            <Button size="sm" disabled>
-              Open app
-            </Button>
-          )}
+          <WorkspaceAppOpenActions app={app} href={href} />
           <WorkspaceAppSettings
             app={app}
             formatDate={formatDate}
@@ -279,6 +263,35 @@ export function WorkspaceAppCard({
         onOpenChange={setResourcesOpen}
       />
     </>
+  );
+}
+
+function WorkspaceAppOpenActions({
+  app,
+  href,
+}: {
+  app: WorkspaceAppSummary;
+  href: string | null;
+}) {
+  const openInNewTab = isPendingBuilderHref(app);
+
+  if (!href) {
+    return (
+      <Button size="sm" variant="outline" disabled>
+        Open app
+      </Button>
+    );
+  }
+
+  return (
+    <AppOpenActions
+      name={app.name}
+      href={href}
+      target={openInNewTab ? "_blank" : undefined}
+      rel={openInNewTab ? "noreferrer" : undefined}
+      showInlineOption
+      showNewTabOption
+    />
   );
 }
 

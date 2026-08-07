@@ -153,6 +153,35 @@ describe("WorkspaceTemplateCard", () => {
     );
   });
 
+  it("keeps add app inside the catalog split-button menu", async () => {
+    await act(async () => {
+      root.render(<WorkspaceTemplateCard template={template} catalog />);
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Add app"),
+      ),
+    ).toBe(false);
+
+    const optionsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open options for Weekly report"]',
+    );
+    expect(optionsButton).not.toBeNull();
+    await act(async () => {
+      optionsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    const addItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Add app"));
+    expect(addItem).not.toBeUndefined();
+    await act(async () => addItem?.click());
+    expect(document.body.textContent).toContain("Choose the URL-safe id");
+  });
+
   it("accepts the list action envelope and renders installed state", async () => {
     await act(async () => {
       root.render(

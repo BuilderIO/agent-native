@@ -124,6 +124,7 @@ const EN_AUTH_COPY = {
   localNoteSuffix: ", not a third-party service.",
   localDevButton: "Continue as local dev",
   localDevDescription: "Only works in local development on this computer.",
+  localDevHelp: "Learn about local development sign-in",
   localDevSigningIn: "Signing in locally…",
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
@@ -231,6 +232,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNoteSuffix: "，而不是第三方服务。",
     localDevButton: "以本地开发身份继续",
     localDevDescription: "仅在此计算机的本地开发环境中有效。",
+    localDevHelp: "了解本地开发登录",
     localDevSigningIn: "正在本地登录…",
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
@@ -333,6 +335,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNoteSuffix: "，而不是第三方服務。",
     localDevButton: "以本機開發身分繼續",
     localDevDescription: "僅在這台電腦的本機開發環境中有效。",
+    localDevHelp: "了解本機開發登入",
     localDevSigningIn: "正在本機登入…",
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
@@ -438,6 +441,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNoteSuffix: ", no en un servicio de terceros.",
     localDevButton: "Continuar como desarrollador local",
     localDevDescription: "Solo funciona en el desarrollo local de este equipo.",
+    localDevHelp: "Más información sobre el inicio de sesión local",
     localDevSigningIn: "Iniciando sesión localmente…",
     localDevFailed:
       "El inicio de sesión de desarrollo local no está disponible.",
@@ -550,6 +554,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevButton: "Continuer comme développeur local",
     localDevDescription:
       "Fonctionne uniquement en développement local sur cet ordinateur.",
+    localDevHelp: "En savoir plus sur la connexion locale",
     localDevSigningIn: "Connexion locale…",
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
@@ -662,6 +667,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevButton: "Als lokale Entwicklung fortfahren",
     localDevDescription:
       "Funktioniert nur in der lokalen Entwicklung auf diesem Computer.",
+    localDevHelp: "Mehr über die lokale Anmeldung erfahren",
     localDevSigningIn: "Lokale Anmeldung…",
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
@@ -772,6 +778,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNoteSuffix: "。サードパーティサービスには保存されません。",
     localDevButton: "ローカル開発として続行",
     localDevDescription: "このコンピューターのローカル開発でのみ利用できます。",
+    localDevHelp: "ローカル開発サインインについて詳しく見る",
     localDevSigningIn: "ローカルでサインイン中…",
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
@@ -882,6 +889,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNoteSuffix: ", 타사 서비스가 아닙니다.",
     localDevButton: "로컬 개발자로 계속",
     localDevDescription: "이 컴퓨터의 로컬 개발 환경에서만 작동합니다.",
+    localDevHelp: "로컬 개발 로그인 자세히 보기",
     localDevSigningIn: "로컬로 로그인하는 중…",
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
@@ -989,6 +997,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevButton: "Continuar como desenvolvedor local",
     localDevDescription:
       "Funciona apenas no desenvolvimento local deste computador.",
+    localDevHelp: "Saiba mais sobre o login de desenvolvimento local",
     localDevSigningIn: "Entrando localmente…",
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
@@ -1097,6 +1106,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNoteSuffix: ", किसी third-party सेवा में नहीं।",
     localDevButton: "स्थानीय डेवलपर के रूप में जारी रखें",
     localDevDescription: "यह केवल इस कंप्यूटर के स्थानीय विकास में काम करता है।",
+    localDevHelp: "स्थानीय विकास साइन-इन के बारे में जानें",
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
@@ -1202,6 +1212,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localNoteSuffix: "، وليس في خدمة خارجية.",
     localDevButton: "المتابعة كمطور محلي",
     localDevDescription: "يعمل فقط أثناء التطوير المحلي على هذا الكمبيوتر.",
+    localDevHelp: "تعرف على تسجيل دخول التطوير المحلي",
     localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
@@ -1671,7 +1682,10 @@ ${googleNoticeRunLocalPanelHtml}
   const localDevHtml = `
   <div class="local-dev-signin" id="local-dev-signin" hidden>
     <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
-    <p class="local-dev-description" id="local-dev-description"${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</p>
+    <p class="local-dev-description" id="local-dev-description">
+      <span${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</span>
+      <a class="local-dev-help" id="local-dev-help" href="https://www.agent-native.com/docs/authentication#local-development-sign-in" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
+    </p>
     <button type="button" class="local-dev-full-options" id="local-dev-full-options" hidden${i18nAttr("localDevFullOptions")}>${esc(t("localDevFullOptions"))}</button>
     <p class="msg error" id="local-dev-msg" role="status" aria-live="polite"></p>
   </div>`;
@@ -2309,11 +2323,43 @@ ${
   }
   .btn-local-dev:disabled { opacity: 0.5; cursor: wait; }
   .local-dev-description {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
     margin: 0.5rem 0 0;
     color: color-mix(in srgb, currentColor 50%, transparent);
     font-size: 0.6875rem;
     line-height: 1.45;
     text-align: center;
+  }
+  .local-dev-help {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: -0.375rem;
+    color: inherit;
+    text-decoration: none;
+  }
+  .local-dev-help-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.625rem;
+    height: 0.625rem;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 0.4375rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .local-dev-help:hover { color: currentColor; }
+  .local-dev-help:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
   }
   .local-dev-full-options {
     display: block;
@@ -2329,6 +2375,7 @@ ${
   }
   .local-dev-full-options:hover { color: currentColor; }
   .local-dev-full-options[hidden] { display: none; }
+  .full-auth-options { margin-top: 1rem; }
   .full-auth-options[hidden] { display: none; }
   .legal-note {
     margin-top: 0.375rem;

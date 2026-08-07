@@ -44,6 +44,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { useAuth } from "@/components/auth/AuthProvider";
 import { getIdToken } from "@/lib/auth";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
@@ -143,6 +144,7 @@ import { useUserPref } from "@/hooks/use-user-pref";
 import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
+  dashboardCacheScope,
   sqlDashboardPrefetchKey,
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
@@ -1124,17 +1126,22 @@ async function fetchSqlDashboards(
 ): Promise<SqlDashboardListItem[]> {
   const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
   return (Array.isArray(rows) ? rows : [])
-    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .filter(
+      (d: any) =>
+        d &&
+        typeof d.id === "string" &&
+        d.id.length > 0 &&
+        (d.visibility === "private" ||
+          d.visibility === "org" ||
+          d.visibility === "public"),
+    )
     .map((d: any) => ({
       id: d.id,
       name:
         typeof d.name === "string" && d.name.trim().length > 0
           ? d.name
           : t("sidebar.untitledDashboard"),
-      visibility:
-        d.visibility === "org" || d.visibility === "public"
-          ? (d.visibility as Visibility)
-          : ("private" as Visibility),
+      visibility: d.visibility as Visibility,
       parentId:
         typeof d.parentId === "string" && d.parentId.trim().length > 0
           ? d.parentId
@@ -1463,6 +1470,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
+  const { auth } = useAuth();
+  const dashboardScope = dashboardCacheScope(auth);
 
   const isAskRoute = location.pathname === "/ask";
   const activeDashboardId = useMemo(() => {
@@ -1623,10 +1632,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     isError: sqlDashboardsError,
     refetch: refetchSqlDashboards,
   } = useQuery({
-    queryKey: ["sql-dashboards-sidebar", dashboardsSync],
+    queryKey: ["sql-dashboards-sidebar", dashboardScope, dashboardsSync],
     queryFn: () => fetchSqlDashboards(t),
     staleTime: 30_000,
-    placeholderData: (prev) => prev,
   });
 
   const {
@@ -1655,7 +1663,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const prefetchDashboard = useCallback(
     (d: SidebarDashboard) => {
       if (d.source !== "sql") return;
-      const queryKey = sqlDashboardPrefetchKey(d.id);
+      const queryKey = sqlDashboardPrefetchKey(d.id, dashboardScope);
       const cached =
         queryClient.getQueryData<
           PrefetchSnapshot<PrefetchedSqlDashboard | null>
@@ -1670,7 +1678,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         staleTime: cached?.syncVersion === dashboardsSync ? 30_000 : 0,
       });
     },
-    [dashboardsSync, queryClient, t],
+    [dashboardScope, dashboardsSync, queryClient, t],
   );
 
   const visibleDashboards = useMemo<SidebarDashboard[]>(() => {
@@ -1824,7 +1832,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       // Optimistic: remove from the sidebar query cache immediately so the row
       // disappears without waiting for the DELETE round-trip. Snapshot the
       // prior value so we can roll back on failure.
-      const activeKey = ["sql-dashboards-sidebar"] as const;
+      const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
@@ -1835,14 +1843,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await deleteSqlDashboard({ id: d.id });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey: activeKey });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prevActive);
         throw err;
       }
     },
-    [deleteAnalysisMut, deleteSqlDashboard, queryClient],
+    [dashboardScope, deleteAnalysisMut, deleteSqlDashboard, queryClient],
   );
 
   const handleDashboardArchive = useCallback(
@@ -1855,7 +1865,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         setHiddenIds(getHiddenDashboards());
         return;
       }
-      const activeKey = ["sql-dashboards-sidebar"] as const;
+      const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         activeKey,
@@ -1866,7 +1876,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await archiveDashboardMut({ id: d.id, archived: true });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey: activeKey });
         toast.success(t("sidebar.archivedName", { name: d.name }));
       } catch (err) {
@@ -1874,7 +1886,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient, archiveDashboardMut, t],
+    [dashboardScope, queryClient, archiveDashboardMut, t],
   );
 
   const handleDashboardRename = useCallback(
@@ -1901,7 +1913,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return;
       }
 
-      const queryKey = ["sql-dashboards-sidebar"] as const;
+      const queryKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
         queryKey,
@@ -1913,17 +1925,19 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       );
       try {
         await renameDashboard({ id: d.id, name: trimmed });
-        queryClient.removeQueries({ queryKey: sqlDashboardPrefetchKey(d.id) });
+        queryClient.removeQueries({
+          queryKey: sqlDashboardPrefetchKey(d.id, dashboardScope),
+        });
         queryClient.invalidateQueries({ queryKey });
         queryClient.invalidateQueries({
-          queryKey: ["sql-dashboards-palette"],
+          queryKey: ["sql-dashboards-palette", dashboardScope],
         });
       } catch (err) {
         restoreQuerySnapshots(queryClient, prev);
         throw err;
       }
     },
-    [queryClient, renameAnalysis, renameDashboard],
+    [dashboardScope, queryClient, renameAnalysis, renameDashboard],
   );
 
   const handleDashboardSetVisibility = useCallback(
@@ -1946,6 +1960,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
       const queryKey = [
         "sql-dashboards-sidebar",
+        dashboardScope,
         dashboardsSyncRef.current,
       ] as const;
       const prev = getQuerySnapshots<SqlDashboardListItem[]>(
@@ -1974,7 +1989,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         throw err;
       }
     },
-    [queryClient, setResourceVisibility, t],
+    [dashboardScope, queryClient, setResourceVisibility, t],
   );
 
   const sensors = useSensors(

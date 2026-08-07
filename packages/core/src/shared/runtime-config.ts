@@ -155,6 +155,7 @@ function isLoopbackUrl(url: string): boolean {
       hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
     );
   } catch {
+    // coercion-ok: malformed URLs are not loopback; validation reports the config issue.
     return false;
   }
 }

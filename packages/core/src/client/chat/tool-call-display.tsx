@@ -43,6 +43,7 @@ import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
 import {
   BashCell,
@@ -75,7 +76,6 @@ export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
 const TOOL_CALL_ENTRY_DURATION_MS = 220;
 const TOOL_CALL_STACK_MOTION_DURATION_MS = 220;
 const TOOL_CALL_STACK_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-const TOOL_CALL_ENTRY_DISTANCE_PX = 6;
 
 type ToolStackMotionSnapshot = {
   top: number;
@@ -234,6 +234,7 @@ export function ToolCallStackMotion({
       if (!before) {
         const node = elementsByKey.get(key);
         if (!node) continue;
+        if (node.dataset.agentToolSummary !== undefined) continue;
         if (
           node.dataset.agentToolCallId !== undefined &&
           !node.classList.contains("agent-tool-call--entering")
@@ -241,11 +242,6 @@ export function ToolCallStackMotion({
           node.classList.add("agent-tool-call--stack-entering");
           window.setTimeout(() => {
             node.classList.remove("agent-tool-call--stack-entering");
-          }, TOOL_CALL_ENTRY_DURATION_MS);
-        } else if (node.dataset.agentToolSummary !== undefined) {
-          node.classList.add("agent-tool-summary--entering");
-          window.setTimeout(() => {
-            node.classList.remove("agent-tool-summary--entering");
           }, TOOL_CALL_ENTRY_DURATION_MS);
         }
         continue;
@@ -257,6 +253,7 @@ export function ToolCallStackMotion({
 
       const node = elementsByKey.get(key);
       if (!node) continue;
+      if (node.dataset.agentToolSummary !== undefined) continue;
       const animation = startToolStackAnimation(node, [
         { transform: `translate3d(${dx}px, ${dy}px, 0)` },
         { transform: "translate3d(0, 0, 0)" },
@@ -570,28 +567,33 @@ type ToolIconComponent = React.ComponentType<{
 
 const brandIcons = new Map<string, ToolIconComponent>();
 
-function brandToolIcon(logoUrl: string, name: string): ToolIconComponent {
-  const cached = brandIcons.get(logoUrl);
+function brandToolIcon(
+  logoUrl: string,
+  name: string,
+  integrationId?: string,
+): ToolIconComponent {
+  const cacheKey = integrationId ? `${integrationId}:${logoUrl}` : logoUrl;
+  const cached = brandIcons.get(cacheKey);
   if (cached) return cached;
   const Icon: ToolIconComponent = ({ className, size }) => (
-    <img
-      src={logoUrl}
-      alt=""
-      aria-hidden
-      width={size}
-      height={size}
+    <McpIntegrationLogo
+      name={name}
+      logoUrl={logoUrl}
+      integrationId={integrationId}
+      className={cn("size-4 rounded-[3px] border-0", className)}
+      imageClassName="size-full"
+      style={size === undefined ? undefined : { width: size, height: size }}
       title={name}
-      className={cn("rounded-[3px] object-contain", className)}
     />
   );
-  brandIcons.set(logoUrl, Icon);
+  brandIcons.set(cacheKey, Icon);
   return Icon;
 }
 
 function resolveToolIcon(toolName: string): ToolIconComponent {
   const integration = findMcpIntegrationForToolName(toolName);
   if (integration) {
-    return brandToolIcon(integration.logoUrl, integration.name);
+    return brandToolIcon(integration.logoUrl, integration.name, integration.id);
   }
   const name = toolName.toLowerCase();
   if (name.includes("slack")) return IconBrandSlack;
@@ -1902,12 +1904,7 @@ export function RanToolsSummary({
         aria-expanded={open}
         className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span
-          key={toolCount}
-          className="agent-tool-summary__label agent-tool-summary__label--changing"
-        >
-          {label}
-        </span>
+        <span className="agent-tool-summary__label">{label}</span>
         <IconChevronRight
           className={cn(
             "size-3.5 shrink-0 transition-transform",

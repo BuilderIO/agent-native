@@ -63,9 +63,29 @@ describe("WorkspaceAppCard", () => {
     );
     expect(appLink).not.toBeNull();
     expect(appLink?.textContent).toContain("Open app");
+    expect(appLink?.className).toContain("bg-accent");
     expect(appLink?.getAttribute("target")).toBeNull();
     expect(appLink?.getAttribute("rel")).toBeNull();
+    expect(appLink?.querySelector("svg")).toBeNull();
     expect(container.textContent).not.toContain("/analytics");
+
+    const openOptionsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open options for Analytics"]',
+    );
+    expect(openOptionsButton).not.toBeNull();
+    await act(async () => {
+      openOptionsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const openInlineLink = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>('[role="menu"] a'),
+    ).find((anchor) => anchor.textContent?.includes("Open inline"));
+    const openNewTabLink = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>('[role="menu"] a'),
+    ).find((anchor) => anchor.textContent?.includes("Open in new tab"));
+    expect(openInlineLink?.getAttribute("target")).toBeNull();
+    expect(openNewTabLink?.getAttribute("target")).toBe("_blank");
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Settings for Analytics"]',

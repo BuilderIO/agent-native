@@ -234,6 +234,8 @@ const messages = {
     newTerminal: "Novo terminal",
     panelOptions: "Opções do painel do agente",
     collapseSidebar: "Recolher barra lateral",
+    widenChat: "Ampliar o chat para 75%",
+    returnChatToLayout: "Retornar o chat ao layout",
     hideChats: "Ocultar bate-papos",
     allChats: "Todos os bate-papos",
     settings: "Configurações",

@@ -233,7 +233,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "const writeRollups = async (tx: any) => {",
     );
     const lockIdx = analyticsRollupsTsSource.lastIndexOf(
-      "FIRST_PARTY_ANALYTICS_ROLLUP_LOCK_SQL",
+      "pg_advisory_xact_lock",
     );
     expect(writeIdx).toBeGreaterThan(-1);
     expect(lockIdx).toBeGreaterThan(writeIdx);

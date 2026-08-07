@@ -225,6 +225,8 @@ const messages = {
     newTerminal: "새로운 터미널",
     panelOptions: "상담원 패널 옵션",
     collapseSidebar: "사이드바 접기",
+    widenChat: "채팅을 75% 너비로 넓히기",
+    returnChatToLayout: "채팅을 레이아웃으로 되돌리기",
     hideChats: "채팅 숨기기",
     allChats: "모든 채팅",
     settings: "설정",

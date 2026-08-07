@@ -67,6 +67,7 @@ export interface DashboardSummaryRecord {
   catalogTemplateId: string | null;
   demoId: string | null;
   parentId: string | null;
+  folderId: string | null;
   ownerEmail: string;
   orgId: string | null;
   visibility: "private" | "org" | "public";
@@ -615,6 +616,7 @@ export async function listDashboardSummaries(
         ? { configName, catalogTemplateId, demoId }
         : {}),
       parentId,
+      folderId: schema.dashboards.folderId,
       ownerEmail: schema.dashboards.ownerEmail,
       orgId: schema.dashboards.orgId,
       visibility: schema.dashboards.visibility,
@@ -634,6 +636,7 @@ export async function listDashboardSummaries(
       typeof row.catalogTemplateId === "string" ? row.catalogTemplateId : null,
     demoId: typeof row.demoId === "string" ? row.demoId : null,
     parentId: typeof row.parentId === "string" ? row.parentId : null,
+    folderId: typeof row.folderId === "string" ? row.folderId : null,
     orgId: row.orgId ?? null,
     archivedAt: row.archivedAt ?? null,
     hiddenAt: row.hiddenAt ?? null,
@@ -685,6 +688,7 @@ export async function listDashboardSummaries(
         description: configDescriptionFromValue(config),
         ...catalogMetadata,
         parentId: typeof config.parentId === "string" ? config.parentId : null,
+        folderId: null,
         ownerEmail: ctx.email,
         orgId,
         visibility,

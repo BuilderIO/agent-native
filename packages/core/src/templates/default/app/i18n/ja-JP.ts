@@ -230,6 +230,8 @@ const messages = {
     newTerminal: "新しいターミナル",
     panelOptions: "エージェントパネルのオプション",
     collapseSidebar: "サイドバーを折りたたむ",
+    widenChat: "チャットを75%に広げる",
+    returnChatToLayout: "チャットをレイアウトに戻す",
     hideChats: "チャットを非表示にする",
     allChats: "すべてのチャット",
     settings: "設定",

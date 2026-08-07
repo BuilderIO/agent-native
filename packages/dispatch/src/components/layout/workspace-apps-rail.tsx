@@ -1,10 +1,11 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { cn } from "../../lib/utils";
 import {
+  workspaceAppRoute,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -25,6 +26,11 @@ function pathFromValue(value: string | null | undefined): string | null {
 }
 
 function appMatchesPath(app: WorkspaceAppSummary, pathname: string): boolean {
+  const appRoute = workspaceAppRoute(app.id);
+  if (pathname === appRoute || pathname.startsWith(`${appRoute}/`)) {
+    return true;
+  }
+
   const candidatePaths = [app.path, app.url]
     .map(pathFromValue)
     .filter((path): path is string => !!path);
@@ -74,8 +80,8 @@ export function WorkspaceAppsRail({
     const label = appLabel(app);
     const active = appMatchesPath(app, location.pathname);
     const link = (
-      <a
-        href={href}
+      <Link
+        to={workspaceAppRoute(app.id)}
         aria-current={active ? "page" : undefined}
         aria-label={collapsed ? label : undefined}
         onClick={onNavigate}
@@ -94,7 +100,7 @@ export function WorkspaceAppsRail({
           className={cn("size-5 rounded-md", active && "ring-1 ring-ring/30")}
         />
         {!collapsed ? <span className="truncate">{label}</span> : null}
-      </a>
+      </Link>
     );
 
     if (!collapsed) return link;
