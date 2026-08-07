@@ -4209,10 +4209,12 @@ export default function SlideEditor({
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
             <div className="relative h-full bg-background">
-              <ExcalidrawExitButton
-                onExit={() => onUpdateSlide({ excalidrawData: undefined })}
-                label={t("raw.exitExcalidrawCanvas")}
-              />
+              {!readOnly && (
+                <ExcalidrawExitButton
+                  onExit={() => onUpdateSlide({ excalidrawData: undefined })}
+                  label={t("raw.exitExcalidrawCanvas")}
+                />
+              )}
               <ExcalidrawSlide
                 initialData={slide.excalidrawData}
                 onChange={(data) => onUpdateSlide({ excalidrawData: data })}
