@@ -103,9 +103,7 @@ function formatComparison(data: Record<string, unknown>): string {
     .map((side) => {
       const row = asRecord(side);
       const label = asString(row.label) ?? "Option";
-      return [`#### ${label}`, asString(row.body)]
-        .filter(Boolean)
-        .join("\n\n");
+      return [`#### ${label}`, asString(row.body)].filter(Boolean).join("\n\n");
     })
     .join("\n\n");
 }

@@ -91,6 +91,10 @@
   --approaches-good: #15803d;
   --approaches-warn: #b45309;
   --approaches-bad: #b91c1c;
+  /* Destructive badge red needs to be darker than the accent red on a near-
+     white chip to clear WCAG AA (4.5:1); the bright accent red is only
+     legible enough against the dark-theme near-black chip. */
+  --docs-badge-red-text: #bf3636;
 }
 
 :root[data-theme="dark"] {
@@ -110,6 +114,7 @@
   --approaches-good: #86efac;
   --approaches-warn: #fcd34d;
   --approaches-bad: #fca5a5;
+  --docs-badge-red-text: #ef4444;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -130,6 +135,7 @@
     --approaches-good: #86efac;
     --approaches-warn: #fcd34d;
     --approaches-bad: #fca5a5;
+    --docs-badge-red-text: #ef4444;
   }
 }
 
@@ -716,7 +722,8 @@ h4 {
   gap: 12px;
   margin: 24px 0;
   padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--tone-color) 35%, var(--docs-border));
+  border: 1px solid
+    color-mix(in srgb, var(--tone-color) 35%, var(--docs-border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--tone-color) 10%, var(--bg));
 }
@@ -765,7 +772,8 @@ h4 {
   gap: 8px;
   margin: 0 0 24px;
   padding: 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--tone-color) 35%, var(--docs-border));
+  border: 1px solid
+    color-mix(in srgb, var(--tone-color) 35%, var(--docs-border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--tone-color) 8%, var(--bg));
   font-size: 13px;
@@ -891,29 +899,34 @@ h4 {
   background: var(--bg-secondary);
   color: var(--fg-secondary);
 }
+/* Text mix percentages below are each tuned per hue for >=4.5:1 contrast
+   against their own tinted background in both themes (WCAG AA for small
+   text) — a flat 85% color / 15% fg ratio cleared AA for none of them in the
+   light theme (measured 2.25-4.38:1). Lower % = more --fg mixed in = darker,
+   higher-contrast text. */
 .docs-badge[data-color="blue"] {
   background: color-mix(in srgb, #3b82f6 15%, var(--bg));
-  color: color-mix(in srgb, #3b82f6 85%, var(--fg));
+  color: color-mix(in srgb, #3b82f6 70%, var(--fg));
 }
 .docs-badge[data-color="green"] {
   background: color-mix(in srgb, #22c55e 15%, var(--bg));
-  color: color-mix(in srgb, #22c55e 85%, var(--fg));
+  color: color-mix(in srgb, #22c55e 52%, var(--fg));
 }
 .docs-badge[data-color="yellow"] {
   background: color-mix(in srgb, #eab308 18%, var(--bg));
-  color: color-mix(in srgb, #eab308 85%, var(--fg));
+  color: color-mix(in srgb, #eab308 48%, var(--fg));
 }
 .docs-badge[data-color="orange"] {
   background: color-mix(in srgb, #f97316 15%, var(--bg));
-  color: color-mix(in srgb, #f97316 85%, var(--fg));
+  color: color-mix(in srgb, #f97316 60%, var(--fg));
 }
 .docs-badge[data-color="red"] {
   background: color-mix(in srgb, #ef4444 15%, var(--bg));
-  color: color-mix(in srgb, #ef4444 85%, var(--fg));
+  color: color-mix(in srgb, #ef4444 72%, var(--fg));
 }
 .docs-badge[data-color="purple"] {
   background: color-mix(in srgb, #8b5cf6 15%, var(--bg));
-  color: color-mix(in srgb, #8b5cf6 85%, var(--fg));
+  color: color-mix(in srgb, #8b5cf6 78%, var(--fg));
 }
 .docs-badge[data-color="white"] {
   background: #fff;
@@ -926,13 +939,17 @@ h4 {
   border-color: var(--docs-border);
 }
 .docs-badge[data-color="white-destructive"] {
+  /* Background is always white regardless of theme, so the text needs the
+     always-dark red, not the theme-aware --docs-badge-red-text (which goes
+     bright for the dark-theme near-black background and would fail AA
+     against this fixed white chip). */
   background: #fff;
-  color: #ef4444;
+  color: #bf3636;
   border-color: #ebebeb;
 }
 .docs-badge[data-color="surface-destructive"] {
   background: var(--bg-secondary);
-  color: #ef4444;
+  color: var(--docs-badge-red-text);
   border-color: var(--docs-border);
 }
 

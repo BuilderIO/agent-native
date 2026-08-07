@@ -24,7 +24,10 @@ import {
   comparisonSchema,
   comparisonMdx,
 } from "../app/components/blocks/comparison.config";
-import { noticeSchema, noticeMdx } from "../app/components/blocks/notice.config";
+import {
+  noticeSchema,
+  noticeMdx,
+} from "../app/components/blocks/notice.config";
 import { stepsSchema, stepsMdx } from "../app/components/blocks/steps.config";
 
 const BLOCK_TYPE_ALIASES: Record<string, string> = {
