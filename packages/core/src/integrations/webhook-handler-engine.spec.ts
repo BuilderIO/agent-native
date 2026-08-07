@@ -14,8 +14,7 @@ const setThreadSourceIfMissingMock = vi.hoisted(() => vi.fn());
 const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
-const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
-const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
+const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 // The integration run goes through the resume wrapper. Delegate to the loop
 // mock so every assertion below still reads the options the loop was called
@@ -141,12 +140,7 @@ function fakeFilterInitialEngineTools(
 }
 
 vi.mock("../agent/production-agent.js", () => ({
-  getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
-  getOwnerApiKey: getOwnerApiKeyMock,
-  engineToProvider: (engineName: string) =>
-    engineName.startsWith("ai-sdk:")
-      ? engineName.slice("ai-sdk:".length)
-      : engineName,
+  resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
   filterInitialEngineTools: fakeFilterInitialEngineTools,
@@ -336,8 +330,10 @@ describe("integration webhook handler engine resolution", () => {
     isInBackgroundFunctionRuntimeMock.mockReturnValue(false);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     getOrgA2ASecretMock.mockResolvedValue(null);
-    getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
-    getOwnerApiKeyMock.mockResolvedValue(undefined);
+    resolveOwnerEngineApiKeyMock.mockResolvedValue({
+      apiKey: undefined,
+      apiKeyEnvVar: undefined,
+    });
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
@@ -690,10 +686,15 @@ describe("integration webhook handler engine resolution", () => {
         ownerEmail: task.ownerEmail,
       });
 
-      expect(getOwnerActiveApiKeyMock).toHaveBeenCalledWith(task.ownerEmail);
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: undefined,
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "",
+      });
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: undefined,
         apiKey: undefined,
+        apiKeyEnvVar: undefined,
         model: "claude-sonnet-4-6",
       });
       expect(runAgentLoopMock).toHaveBeenCalledWith(
@@ -1301,7 +1302,10 @@ describe("integration webhook handler engine resolution", () => {
       const sendResponse = vi.fn(async () => ({
         status: "delivered" as const,
       }));
-      getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
+      resolveOwnerEngineApiKeyMock.mockResolvedValue({
+        apiKey: "openai-user-key",
+        apiKeyEnvVar: "OPENAI_API_KEY",
+      });
       const task: PendingTask = {
         id: "task-openai",
         platform: "fake",
@@ -1337,11 +1341,11 @@ describe("integration webhook handler engine resolution", () => {
         ownerEmail: task.ownerEmail,
       });
 
-      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
-        "openai",
-        task.ownerEmail,
-      );
-      expect(getOwnerActiveApiKeyMock).not.toHaveBeenCalled();
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: "ai-sdk:openai",
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "deploy-anthropic-key",
+      });
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: "ai-sdk:openai",
         apiKey: "openai-user-key",
@@ -1366,7 +1370,10 @@ describe("integration webhook handler engine resolution", () => {
         expect(getRequestOrgId()).toBe("org-qa");
         return "anthropic";
       });
-      getOwnerApiKeyMock.mockResolvedValue("anthropic-org-key");
+      resolveOwnerEngineApiKeyMock.mockResolvedValue({
+        apiKey: "anthropic-org-key",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      });
       getStoredModelForEngineMock.mockResolvedValueOnce("claude-sonnet-4-6");
       resolveEngineMock.mockResolvedValueOnce({
         name: "anthropic",
@@ -1394,10 +1401,11 @@ describe("integration webhook handler engine resolution", () => {
       expect(getConfiguredEngineNameForRequestMock).toHaveBeenCalledWith({
         appId: "dispatch",
       });
-      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
-        "anthropic",
-        task.ownerEmail,
-      );
+      expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        ownerEmail: task.ownerEmail,
+        anthropicFallback: "",
+      });
       expect(resolveEngineMock).toHaveBeenCalledWith({
         engineOption: "anthropic",
         apiKey: "anthropic-org-key",
@@ -1457,111 +1465,6 @@ describe("integration webhook handler engine resolution", () => {
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
     expect(sentText).toContain("Manage agent > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
-  });
-
-  it("uses the explicit provider env key when no owner key exists in single-tenant mode", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
-    readDeployCredentialEnvMock.mockImplementation((key: string) =>
-      key === "OPENAI_API_KEY" ? "openai-env-key" : undefined,
-    );
-    const task: PendingTask = {
-      id: "task-openai-env",
-      platform: "fake",
-      externalEventKey: "fake:thread-env:1005",
-      externalThreadId: "thread-env",
-      payload: JSON.stringify({
-        incoming: {
-          platform: "fake",
-          externalThreadId: "thread-env",
-          text: "hello from slack",
-          senderName: "QA User",
-          platformContext: { channel: "C123" },
-          timestamp: 1005,
-        },
-      }),
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      status: "processing",
-      attempts: 1,
-      errorMessage: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      completedAt: null,
-    };
-
-    await processIntegrationTask(task, {
-      adapter: createAdapter(sendResponse),
-      systemPrompt: "system",
-      actions: {},
-      model: "gpt-5.2",
-      apiKey: "",
-      engine: "ai-sdk:openai",
-      ownerEmail: task.ownerEmail,
-    });
-
-    expect(readDeployCredentialEnvMock).toHaveBeenCalledWith("OPENAI_API_KEY");
-    expect(resolveEngineMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        engineOption: "ai-sdk:openai",
-        apiKey: "openai-env-key",
-      }),
-    );
-  });
-
-  it("does not fall back to deployment LLM keys in production shared mode", async () => {
-    const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
-    process.env.NODE_ENV = "production";
-    isLocalDatabaseMock.mockReturnValue(false);
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
-    readDeployCredentialEnvMock.mockImplementation((key: string) =>
-      key === "OPENAI_API_KEY" ? "openai-hosted-key" : undefined,
-    );
-    const task: PendingTask = {
-      id: "task-multitenant",
-      platform: "fake",
-      externalEventKey: "fake:thread-mt:1006",
-      externalThreadId: "thread-mt",
-      payload: JSON.stringify({
-        incoming: {
-          platform: "fake",
-          externalThreadId: "thread-mt",
-          text: "hello from slack",
-          senderName: "QA User",
-          platformContext: { channel: "C123" },
-          timestamp: 1006,
-        },
-      }),
-      ownerEmail: "dispatch+qa@integration.local",
-      orgId: "org-qa",
-      status: "processing",
-      attempts: 1,
-      errorMessage: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      completedAt: null,
-    };
-
-    await processIntegrationTask(task, {
-      adapter: createAdapter(sendResponse),
-      systemPrompt: "system",
-      actions: {},
-      model: "gpt-5.2",
-      apiKey: "deploy-key",
-      engine: "ai-sdk:openai",
-      ownerEmail: task.ownerEmail,
-    });
-
-    expect(readDeployCredentialEnvMock).not.toHaveBeenCalledWith(
-      "OPENAI_API_KEY",
-    );
-    expect(resolveEngineMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        engineOption: "ai-sdk:openai",
-        apiKey: undefined,
-      }),
-    );
   });
 
   it("prefers stored model settings over the integration plugin default", async () => {

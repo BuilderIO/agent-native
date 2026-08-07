@@ -12,10 +12,7 @@ const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const isDuplicateEventErrorMock = vi.hoisted(() => vi.fn(() => false));
 const recordDispatchAttemptMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
-const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
-const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
-const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
-const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
+const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./pending-tasks-store.js", () => ({
   insertPendingTask: insertPendingTaskMock,
@@ -33,9 +30,7 @@ vi.mock("../agent/production-agent.js", async () => {
   >("../agent/production-agent.js");
   return {
     actionsToEngineTools: vi.fn(() => []),
-    engineToProvider: vi.fn((engineName: string) => engineName),
-    getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
-    getOwnerApiKey: getOwnerApiKeyMock,
+    resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
     runAgentLoop: vi.fn(),
     filterInitialEngineTools: actual.filterInitialEngineTools,
   };
@@ -43,12 +38,6 @@ vi.mock("../agent/production-agent.js", async () => {
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: vi.fn(),
-}));
-
-vi.mock("../server/credential-provider.js", () => ({
-  canUseDeployCredentialFallbackForRequest:
-    canUseDeployCredentialFallbackForRequestMock,
-  readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
 vi.mock("./internal-token.js", () => ({
@@ -104,10 +93,10 @@ describe("integration webhook handler", () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     insertPendingTaskMock.mockResolvedValue(undefined);
     isDuplicateEventErrorMock.mockReturnValue(false);
-    getOwnerApiKeyMock.mockResolvedValue(undefined);
-    getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
-    readDeployCredentialEnvMock.mockReturnValue(undefined);
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
+    resolveOwnerEngineApiKeyMock.mockResolvedValue({
+      apiKey: undefined,
+      apiKeyEnvVar: undefined,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -405,59 +394,14 @@ describe("integration webhook handler", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("does not use deploy-level fallback keys for guarded integration runs", async () => {
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
-    readDeployCredentialEnvMock.mockReturnValue("deploy-provider-key");
-
-    await expect(
-      resolveIntegrationApiKey(
-        "anthropic",
-        "alice+qa@agent-native.test",
-        "plugin-api-key",
-      ),
-    ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
-    expect(readDeployCredentialEnvMock).not.toHaveBeenCalled();
-  });
-
-  it("allows scoped integration owner keys before deploy fallback policy", async () => {
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
-    getOwnerApiKeyMock.mockResolvedValue("scoped-owner-key");
-
-    await expect(
-      resolveIntegrationApiKey(
-        "anthropic",
-        "alice+qa@agent-native.test",
-        "plugin-api-key",
-      ),
-    ).resolves.toEqual({
-      apiKey: "scoped-owner-key",
-      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+  it("resolves the integration key for the engine the plugin selected", async () => {
+    // Provenance lives in `resolveOwnerEngineApiKey` (see
+    // owner-engine-api-key.spec.ts); this only guards the pass-through, since
+    // dropping `engineOption` here would silently restore the untagged key.
+    resolveOwnerEngineApiKeyMock.mockResolvedValue({
+      apiKey: "sk-openai-deploy",
+      apiKeyEnvVar: "OPENAI_API_KEY",
     });
-  });
-
-  it("tags the Anthropic plugin fallback so a non-Anthropic engine cannot receive it", async () => {
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
-    getOwnerApiKeyMock.mockResolvedValue(undefined);
-    readDeployCredentialEnvMock.mockReturnValue(undefined);
-
-    await expect(
-      resolveIntegrationApiKey(
-        "openai",
-        "alice+qa@agent-native.test",
-        "sk-ant-plugin-key",
-      ),
-    ).resolves.toEqual({
-      apiKey: "sk-ant-plugin-key",
-      apiKeyEnvVar: "ANTHROPIC_API_KEY",
-    });
-  });
-
-  it("pairs an explicit OpenAI engine with the OpenAI deploy key", async () => {
-    canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
-    getOwnerApiKeyMock.mockResolvedValue(undefined);
-    readDeployCredentialEnvMock.mockImplementation((key: string) =>
-      key === "OPENAI_API_KEY" ? "sk-openai-deploy" : undefined,
-    );
 
     await expect(
       resolveIntegrationApiKey(
@@ -468,6 +412,11 @@ describe("integration webhook handler", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-deploy",
       apiKeyEnvVar: "OPENAI_API_KEY",
+    });
+    expect(resolveOwnerEngineApiKeyMock).toHaveBeenCalledWith({
+      engineOption: "openai",
+      ownerEmail: "alice+qa@agent-native.test",
+      anthropicFallback: "sk-ant-plugin-key",
     });
   });
 });
