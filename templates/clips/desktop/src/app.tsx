@@ -980,6 +980,7 @@ export function App() {
   );
   const [rewindHomeOpen, setRewindHomeOpen] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const recordingStartAbortRef = useRef<AbortController | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [shortcutRegistrationError, setShortcutRegistrationError] = useState<
@@ -2267,14 +2268,14 @@ export function App() {
       try {
         await invoke("show_toolbar");
         if (cancelled) return;
-        // Seed disabled — previous recordings may have latched it on in
-        // the toolbar's React state (the window is destroyed on
-        // `hide_overlays`, so this is mostly defensive, but free).
-        emit("clips:toolbar-enabled", false).catch(() => {});
       } catch (err) {
         console.error("[clips-popover] show_toolbar failed:", err);
       }
     })();
+    // Seed disabled before the asynchronous window creation. A late seed can
+    // otherwise arrive after the recorder's enabled event and strand the
+    // toolbar at 0:00.
+    emit("clips:toolbar-enabled", false).catch(() => {});
     return () => {
       cancelled = true;
       // In screen-only mode the bubble effect never runs, so its
@@ -2889,6 +2890,9 @@ export function App() {
 
     let handle: RecorderHandle | null = null;
     let startError: unknown = null;
+    const startController = new AbortController();
+    recordingStartAbortRef.current = startController;
+    let parkPopoverTimer: number | null = null;
     try {
       // Per Steve: "when we hit Start Recording the popover should disappear
       // BEFORE the screen picker shows up — otherwise you might accidentally
@@ -2940,11 +2944,11 @@ export function App() {
         preAcquiredCameraStream,
         preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
         preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
+        signal: startController.signal,
       });
-      // macOS: park the popover to its 2×2 pinhole IMMEDIATELY so it
-      // doesn't appear in the screen picker window list. The native
-      // Rust recorder used for full-screen doesn't need getDisplayMedia
-      // at all, so parking is always safe on macOS.
+      // macOS: give WebKit a short window to dispatch getDisplayMedia before
+      // parking the popover. Parking synchronously can leave the picker
+      // request pending in a long-lived tray webview.
       //
       // Windows: do NOT park before getDisplayMedia resolves. On Windows,
       // the WebView2 screen picker UI renders within the popover webview —
@@ -2953,24 +2957,25 @@ export function App() {
       // popover itself (line ~2165) AFTER the streams are acquired, which
       // is the correct time on Windows.
       if (isMacPlatform()) {
-        invoke("park_popover_offscreen").catch(() => {});
-        emit("clips:popover-visible", false).catch(() => {});
+        parkPopoverTimer = window.setTimeout(() => {
+          if (!startController.signal.aborted && recordingFlowGateRef.current) {
+            invoke("park_popover_offscreen").catch(() => {});
+            emit("clips:popover-visible", false).catch(() => {});
+          }
+        }, 250);
       }
-
-      // No watchdog — the macOS screen picker can stay open indefinitely
-      // (a user deciding which window to capture may take 20, 60, 180
-      // seconds). A false-positive timeout here fires recovery mid-setup,
-      // which flips `recordingFlowActive` back to false → the bubble
-      // session effect's cleanup runs and stops the popover-owned camera
-      // stream → the recorder ends up with a dead track when the screen
-      // picker finally resolves. If the user actually wants to abort,
-      // canceling the picker throws NotAllowedError and we recover through
-      // the normal error path.
       handle = await recordingPromise;
       console.log("[clips-popover] recorder handle received");
     } catch (err) {
       startError = err;
     } finally {
+      if (parkPopoverTimer !== null) {
+        window.clearTimeout(parkPopoverTimer);
+        parkPopoverTimer = null;
+      }
+      if (recordingStartAbortRef.current === startController) {
+        recordingStartAbortRef.current = null;
+      }
       // If the recorder handle was NEVER set, ALWAYS run recovery here —
       // even if downstream code throws before reaching the failure
       // branch. This makes the tray-dead symptom impossible: regardless
@@ -3063,6 +3068,29 @@ export function App() {
   // start flow through this ref keeps that dependency list from having to
   // include a function that is recreated every render.
   handleStartRecordingRef.current = handleStartRecording;
+
+  // The toolbar exists before a recorder handle does. Keep its Cancel action
+  // useful during capture setup, when the normal recorder event listener has
+  // not been installed yet.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    listen("clips:recorder-cancel", () => {
+      recordingStartAbortRef.current?.abort();
+    })
+      .then((nextUnlisten) => {
+        if (cancelled) {
+          nextUnlisten();
+          return;
+        }
+        unlisten = nextUnlisten;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Gates every start-recording gesture (button, global shortcut, permission
   // retry) on the mic toggle. When the mic is off we hold the actual

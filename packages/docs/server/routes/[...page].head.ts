@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import {
   createH3SSRHandler,
   resolveSsrCacheHeaders,
+  resolveSsrCacheKeyHeaders,
 } from "@agent-native/core/server/ssr-handler";
 import { getRequestURL, setHeader, type H3Event } from "h3";
 
@@ -38,7 +39,16 @@ export default async function docsHeadHandler(event: H3Event) {
     return "";
   }
 
-  return ssrHandler(event);
+  const response = await ssrHandler(event);
+  const headers = new Headers(response.headers);
+  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+    headers.set(k, v);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function setSsrCacheHeaders(event: H3Event) {
@@ -47,6 +57,9 @@ function setSsrCacheHeaders(event: H3Event) {
   // CDN SWR and Netlify durable caching without local header blocks.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
+  }
+  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
+    setHeader(event, k, v);
   }
 }
 

@@ -107,4 +107,21 @@ describe("<GoogleDriveConnectionCta>", () => {
     });
     expect(openedTab.close).toHaveBeenCalledOnce();
   });
+
+  it("surfaces a status failure instead of hiding the connection problem", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "OAuth status unavailable" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    render(<GoogleDriveConnectionCta />);
+
+    expect(await screen.findByText("OAuth status unavailable")).toBeTruthy();
+  });
 });

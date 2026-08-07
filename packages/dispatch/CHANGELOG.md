@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.18.0
+
+### Minor Changes
+
+- d3f8794: Add a compact workspace app rail to Dispatch navigation for ready workspace apps.
+
+### Patch Changes
+
+- d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
+- Updated dependencies [d3f8794]
+  - @agent-native/toolkit@0.13.3
+
 ## 0.17.6
 
 ### Patch Changes

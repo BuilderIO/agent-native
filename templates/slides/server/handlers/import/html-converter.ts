@@ -52,6 +52,13 @@ export function buildFullBleedImageSlideHtml(
 </div>`;
 }
 
+/** Render a rasterized source page without changing its layout or text. */
+export function buildFullPageImageSlideHtml(imageUrl: string): string {
+  return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden; background: hsl(var(--background));">
+    <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;" />
+</div>`;
+}
+
 /** Wrap text in formatting tags based on run properties. */
 function formatRun(run: ParsedTextRun): string {
   let text = esc(run.content);

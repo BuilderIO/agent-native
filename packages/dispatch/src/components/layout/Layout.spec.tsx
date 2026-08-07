@@ -11,6 +11,7 @@ const clientState = vi.hoisted(() => ({
   createThread: vi.fn<() => Promise<string | null>>(),
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
+  workspaceApps: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -39,7 +40,11 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => ({ data: undefined }),
+  useActionQuery: (action: string) => ({
+    data:
+      action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -48,6 +53,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.nav.chat": "Chat",
       "dispatch.nav.overview": "Overview",
       "dispatch.nav.apps": "Apps",
+      "dispatch.pages.workspaceApps": "Workspace apps",
       "dispatch.nav.operate": "Operate",
       "dispatch.nav.advanced": "Advanced",
       "dispatch.sidebar.newChat": "New chat",
@@ -118,6 +124,7 @@ describe("Dispatch NavContent", () => {
         source: { platform: "slack", url: "https://example.slack.com/thread" },
       },
     ];
+    clientState.workspaceApps = [];
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -168,6 +175,32 @@ describe("Dispatch NavContent", () => {
     expect(lists[2].className).toContain("gap-1");
     expect(lists[3].querySelector('a[href="/settings"]')).not.toBeNull();
     expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
+  });
+
+  it("shows ready workspace apps as direct links and highlights the active app", async () => {
+    clientState.workspaceApps = [
+      { id: "calendar", name: "Calendar", path: "/calendar", status: "ready" },
+      { id: "pending", name: "Pending", path: "/pending", status: "pending" },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/calendar/events"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const rail = container.querySelector("[data-dispatch-apps-rail]");
+    expect(rail).not.toBeNull();
+    expect(rail?.textContent).toContain("Calendar");
+    expect(rail?.textContent).not.toContain("Pending");
+
+    const calendarLink = rail?.querySelector('a[href="/calendar"]');
+    expect(calendarLink).not.toBeNull();
+    expect(calendarLink?.getAttribute("aria-current")).toBe("page");
   });
 
   it("keeps Dispatch branding and anchors Settings above the organization picker", async () => {

@@ -2,10 +2,13 @@ import path from "path";
 
 import type { AgentChatAttachment } from "@agent-native/core/server";
 
-import { isSlidesReferenceFileExtension } from "../../shared/upload-types.js";
+import {
+  isSlidesReferenceFileExtension,
+  MAX_REFERENCE_FILE_BYTES,
+} from "../../shared/upload-types.js";
 import { saveUploadedReferenceFile } from "../handlers/uploads.js";
 
-const MAX_CHAT_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_CHAT_UPLOAD_BYTES = MAX_REFERENCE_FILE_BYTES;
 const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function decodeDataUrl(data: string | undefined): {
@@ -117,7 +120,7 @@ export async function prepareSlidesChatAttachments(args: {
           "File handling rules:",
           "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
           '- PPTX files: call `import-pptx --filePath "<path>" --deckId <deckId>` when updating the visible deck, or omit deckId only when the user explicitly wants a new deck.',
-          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating slides. The returned text is capped for reliability; re-run with maxChars only if more context is needed. If the user wants a direct replacement import, pass `--importIntoDeck true` as well.',
+          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned extracted text as source material before creating editable slides. For a visual PDF that the user wants preserved, beautified, or restyled from its original layout, pass `--importIntoDeck true` so each page is imported source-faithfully first; the source text is persisted in slide notes for later inspection.',
           '- Figma `.fig` files: call `import-file --filePath "<path>" --format fig` to start Builder design-system indexing. Do not create a local design system directly from the upload.',
           "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
           '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
