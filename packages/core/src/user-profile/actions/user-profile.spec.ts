@@ -169,8 +169,18 @@ describe("user profile actions", () => {
         { currentPassword: shortPassword, newPassword: validPassword },
         context,
       ),
+    ).resolves.toEqual({ status: true });
+    expect(auth.api.changePassword).toHaveBeenCalledWith({
+      body: { currentPassword: shortPassword, newPassword: validPassword },
+      headers: context.requestHeaders,
+    });
+
+    await expect(
+      changePassword.run(
+        { currentPassword: "", newPassword: validPassword },
+        context,
+      ),
     ).rejects.toThrow();
-    expect(auth.api.changePassword).not.toHaveBeenCalled();
   });
 
   it("requires an authenticated request with headers for password actions", async () => {

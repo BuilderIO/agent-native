@@ -7,7 +7,8 @@ import {
   PASSWORD_MIN_LENGTH,
 } from "../../shared/password-policy.js";
 
-const passwordSchema = z
+const currentPasswordSchema = z.string().min(1).max(PASSWORD_MAX_LENGTH);
+const newPasswordSchema = z
   .string()
   .min(PASSWORD_MIN_LENGTH)
   .max(PASSWORD_MAX_LENGTH);
@@ -15,8 +16,8 @@ const passwordSchema = z
 export default defineAction({
   description: "Change the password for the signed-in user's account.",
   schema: z.object({
-    currentPassword: passwordSchema,
-    newPassword: passwordSchema,
+    currentPassword: currentPasswordSchema,
+    newPassword: newPasswordSchema,
   }),
   agentTool: false,
   toolCallable: false,
