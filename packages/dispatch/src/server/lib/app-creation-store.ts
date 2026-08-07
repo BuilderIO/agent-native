@@ -27,7 +27,7 @@ import {
   recordAudit,
   resolveLinkedOwner,
 } from "./dispatch-store.js";
-import { createRequest, listSecrets } from "./vault-store.js";
+import { createRequest, listSecretOptions } from "./vault-store.js";
 import {
   grantWorkspaceResourcesToApp,
   listWorkspaceResourceOptions,
@@ -2013,7 +2013,7 @@ export async function startWorkspaceAppCreation(input: {
   }
 
   const selectedKeys = input.secretIds?.length
-    ? (await listSecrets())
+    ? (await listSecretOptions())
         .filter((secret) => input.secretIds?.includes(secret.id))
         .map((secret) => secret.credentialKey)
     : [];
