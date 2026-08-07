@@ -1,6 +1,6 @@
 {
   "name": "agent-native-turn-into-app",
-  "version": "1.0.0+codex.c346c7114828",
+  "version": "1.0.0+codex.a55ffa90a78a",
   "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app with a focused UI, visible agent handoffs, local verification, and deployment guidance.",
   "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://dispatch.agent-native.com",

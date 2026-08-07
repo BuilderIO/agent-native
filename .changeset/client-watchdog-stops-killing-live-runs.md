@@ -6,7 +6,7 @@ Stop the chat client from durably aborting background runs that are still
 working.
 
 The kill verdict was rendered against a `/runs/active` snapshot fetched
-*before* the SSE attach that had just blocked for its whole duration, so any
+_before_ the SSE attach that had just blocked for its whole duration, so any
 progress that landed during the attach was invisible to the decision. Fleet
 data: 23 of 24 client-watchdog kills hit runs that had made server-authoritative
 progress within the previous 90 seconds. The client now takes a second reading
