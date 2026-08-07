@@ -4,16 +4,11 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
-import {
-  IconArrowLeft,
-  IconClockHour4,
-  IconExternalLink,
-} from "@tabler/icons-react";
+import { IconArrowLeft, IconClockHour4 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
-import { AppIcon } from "../../components/app-icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -207,37 +202,6 @@ export default function WorkspaceAppRoute() {
       data-dispatch-workspace-app-host
       className="flex h-full min-h-0 flex-col bg-background"
     >
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
-        <Button asChild variant="ghost" size="icon">
-          <Link to="/apps" aria-label={t("dispatch.nav.apps")}>
-            <IconArrowLeft size={17} />
-          </Link>
-        </Button>
-        <AppIcon id={app.id} name={app.name} size="sm" />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold text-foreground">
-            {app.name}
-          </h1>
-          {app.description ? (
-            <p className="truncate text-xs text-muted-foreground">
-              {app.description}
-            </p>
-          ) : null}
-        </div>
-        {href ? (
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            aria-label={t("dispatch.pages.openApp")}
-            title={t("dispatch.pages.openApp")}
-          >
-            <a href={href} target="_blank" rel="noreferrer">
-              <IconExternalLink size={16} />
-            </a>
-          </Button>
-        ) : null}
-      </div>
       <div className="min-h-0 flex-1 bg-muted/20">
         {embedUrl ? (
           <iframe
