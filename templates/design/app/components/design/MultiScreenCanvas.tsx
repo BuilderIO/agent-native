@@ -187,7 +187,7 @@ function hasScreenChildLayers(content: string): boolean {
   const editableMarkup = body
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(
-      /<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>|<(link|meta|base)\b[^>]*>/gi,
+      /<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>|<(link|meta|base)\b[^>]*>/gi, // i18n-ignore regex removes non-rendered document elements
       "",
     )
     .trim();
