@@ -227,6 +227,21 @@ describe("walkPageGraphics", () => {
     expect(graphics.textColors).toEqual(["#0000ff"]);
   });
 
+  it("skips a zero-glyph showText op instead of pushing a stray color entry, since getTextContent never reports an item for one", async () => {
+    const page = fakePage(
+      [
+        OPS.setFillRGBColor,
+        OPS.showText,
+        OPS.showText,
+        OPS.setFillRGBColor,
+        OPS.showText,
+      ],
+      [["#ffffff"], [[{}]], [[]], ["#18b6f6"], [[{}]]],
+    );
+    const graphics = await walkPageGraphics(page, VIEWPORT);
+    expect(graphics.textColors).toEqual(["#ffffff", "#18b6f6"]);
+  });
+
   it("marks the color unknown after a named Pattern fill (scn with a pattern name), instead of reusing a stale value", async () => {
     const page = fakePage(
       [OPS.setFillColorN, OPS.showText],

@@ -394,8 +394,13 @@ async function buildTextElements(
   linkRects: LinkRect[],
 ): Promise<ParsedElement[]> {
   const content = await page.getTextContent();
+  // `getTextContent()` can report a stray empty-string item for a
+  // zero-glyph run that pdf.js otherwise merges away (a leftover artifact
+  // of a style-boundary split in the source PDF) — `walkPageGraphics`
+  // already skips those same zero-glyph ops when building `textColors`, so
+  // the two timelines only line up once both drop them the same way.
   const rawItems = content.items.filter(
-    (item): item is TextItem => "str" in item,
+    (item): item is TextItem => "str" in item && item.str.trim().length > 0,
   );
   // Only trust the color timeline when it lines up 1:1 with the text items —
   // pdf.js can split one showText op into multiple items (or vice versa) for
@@ -530,7 +535,16 @@ export async function walkPageGraphics(
       });
       imageRects.push(rectFromCorners(deviceCorners));
     } else if (TEXT_SHOWING_OPS.has(fn)) {
-      textColors.push(fillColorKnown ? fillColor : undefined);
+      // A zero-glyph showText (a leftover empty run from a style-boundary
+      // split in the source PDF) never produces an item from
+      // `getTextContent()` — pushing a color entry for it anyway would
+      // desync `textColors` from `rawItems`, and just one such run on a
+      // page silently discards every real color the whole page recovered
+      // (see `colorsAlign` in `buildTextElements`).
+      const glyphs = args[0];
+      if (!Array.isArray(glyphs) || glyphs.length > 0) {
+        textColors.push(fillColorKnown ? fillColor : undefined);
+      }
     } else if (fn === OPS.constructPath) {
       const paintOp = args[0];
       const bbox = args[2] as number[] | undefined;
