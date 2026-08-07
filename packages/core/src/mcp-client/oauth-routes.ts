@@ -149,7 +149,13 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = query.scope === "org" ? "org" : "user";
+  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope);
+  if (!requestedScope) {
+    setResponseStatus(event, 400);
+    return {
+      error: "Managed MCP OAuth connections must use personal scope.",
+    };
+  }
   const requestedOrgId = text(query.orgId);
   const org =
     requestedScope === "org"
@@ -242,6 +248,16 @@ function isManagedMcpOAuthServer(serverUrl: URL): boolean {
   return MANAGED_MCP_OAUTH_CLIENTS.some(
     (client) => client.serverOrigin === serverUrl.origin,
   );
+}
+
+export function resolveMcpOAuthScope(
+  serverUrl: URL,
+  requestedScope: unknown,
+): RemoteMcpScope | null {
+  if (isManagedMcpOAuthServer(serverUrl) && requestedScope === "org") {
+    return null;
+  }
+  return requestedScope === "org" ? "org" : "user";
 }
 
 export async function resolveManagedMcpOAuthClient(

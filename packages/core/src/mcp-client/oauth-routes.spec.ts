@@ -12,6 +12,7 @@ import {
   isValidMcpOAuthFlow,
   readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
+  resolveMcpOAuthScope,
   resolveManagedMcpOAuthClient,
   setMcpOAuthFlowCookie,
   type McpOAuthFlow,
@@ -196,6 +197,18 @@ describe("MCP OAuth callback flow validation", () => {
 });
 
 describe("managed MCP OAuth clients", () => {
+  it("rejects organization scope for managed MCP OAuth servers", () => {
+    expect(
+      resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org"),
+    ).toBeNull();
+    expect(
+      resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "user"),
+    ).toBe("user");
+    expect(
+      resolveMcpOAuthScope(new URL("https://mcp.example.com"), "org"),
+    ).toBe("org");
+  });
+
   it("resolves the workspace HubSpot client without exposing its secret to the browser", async () => {
     resolveSecretMock.mockImplementation(async (key: string) => {
       if (key === "HUBSPOT_MCP_CLIENT_ID") return "hubspot-client-id";

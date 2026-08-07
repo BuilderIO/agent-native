@@ -21,8 +21,12 @@
 import { createHash } from "node:crypto";
 
 import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE } from "../agent/engine/credential-errors.js";
-import { isLocalDatabase, isTransientDatabaseError } from "../db/client.js";
-import { getOrgSetting } from "../settings/index.js";
+import {
+  getDbExec,
+  isLocalDatabase,
+  isTransientDatabaseError,
+} from "../db/client.js";
+import { getOrgSetting } from "../settings/org-settings.js";
 import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
@@ -34,12 +38,46 @@ const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
  */
 async function canReadDesignatedVaultFallback(
   vaultOrgId: string,
+  credentialKey: string,
 ): Promise<boolean> {
   const access = await getOrgSetting(
     vaultOrgId,
     DISPATCH_VAULT_ACCESS_SETTINGS_KEY,
   );
-  return access?.mode !== "manual";
+  if (access?.mode !== "manual") return true;
+
+  // Manual mode is still usable across a Dispatch vault org and a separate
+  // app org, but only for this app's explicit active grant. The app identity
+  // comes from deployment configuration, never from request input.
+  const appId = [
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID,
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,
+    process.env.AGENT_NATIVE_APP_ID,
+    process.env.APP_NAME,
+  ]
+    .find((value) => value?.trim())
+    ?.trim();
+  if (!appId) return false;
+
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT 1
+        FROM vault_grants AS grants
+        INNER JOIN vault_secrets AS secrets ON secrets.id = grants.secret_id
+        WHERE grants.org_id = ?
+          AND grants.app_id = ?
+          AND grants.status = 'active'
+          AND secrets.org_id = grants.org_id
+          AND secrets.credential_key = ?
+        LIMIT 1`,
+      args: [vaultOrgId, appId, credentialKey],
+    });
+    return result.rows.length > 0;
+  } catch {
+    // A missing/unreadable grant table must fail closed. The app can still
+    // resolve a locally scoped credential or retry after the store recovers.
+    return false;
+  }
 }
 
 /**
@@ -1500,7 +1538,7 @@ export async function resolveSecretDetailed(
       if (
         vaultOrgId &&
         vaultOrgId !== orgId &&
-        (await canReadDesignatedVaultFallback(vaultOrgId))
+        (await canReadDesignatedVaultFallback(vaultOrgId, key))
       ) {
         const [vaultOrgRead, vaultWorkspaceRead] = await Promise.allSettled([
           readAppSecret({ key, scope: "org", scopeId: vaultOrgId }),

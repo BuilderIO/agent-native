@@ -73,6 +73,15 @@ function ctxScope<T extends { ownerEmail: any; orgId: any }>(
   return or(eq(table.ownerEmail, ctx.ownerEmail), eq(table.orgId, ctx.orgId));
 }
 
+/** Scope an approval operation to the active tenant, never just the owner email. */
+function tenantScope<T extends { ownerEmail: any; orgId: any }>(
+  table: T,
+  ctx: VaultCtx,
+) {
+  if (ctx.orgId) return eq(table.orgId, ctx.orgId);
+  return and(eq(table.ownerEmail, ctx.ownerEmail), isNull(table.orgId));
+}
+
 /** Build a ctx that scopes to a specific row's owner/org (used when a
  * request approver acts on behalf of the original requester so the
  * created secret lands in the request's org). */
@@ -170,7 +179,7 @@ export async function assertCanManageVault(): Promise<void> {
   }
 }
 
-async function canManageVault(): Promise<boolean> {
+export async function canManageVault(): Promise<boolean> {
   try {
     await assertCanManageVault();
     return true;
@@ -1127,6 +1136,21 @@ export async function getRequest(
   return row ?? null;
 }
 
+async function getRequestForTenant(requestId: string, ctx: VaultCtx) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.vaultRequests)
+    .where(
+      and(
+        eq(schema.vaultRequests.id, requestId),
+        tenantScope(schema.vaultRequests, ctx),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export async function createRequest(input: {
   credentialKey: string;
   appId: string;
@@ -1172,7 +1196,7 @@ export async function approveRequest(
 ) {
   await assertCanManageVault();
   const db = getDb();
-  const request = await getRequest(requestId, ctx);
+  const request = await getRequestForTenant(requestId, ctx);
   if (!request) throw new Error("Request not found");
 
   const timestamp = now();
@@ -1195,7 +1219,7 @@ export async function approveRequest(
     .where(
       and(
         eq(schema.vaultRequests.id, requestId),
-        ctxScope(schema.vaultRequests, ctx),
+        tenantScope(schema.vaultRequests, ctx),
         or(
           eq(schema.vaultRequests.status, "pending"),
           and(
@@ -1208,7 +1232,7 @@ export async function approveRequest(
     .returning();
 
   if (claimed.length === 0) {
-    const current = await getRequest(requestId, ctx);
+    const current = await getRequestForTenant(requestId, ctx);
     if (current?.status === "applying") {
       throw new Error("Vault request is already being applied");
     }
@@ -1256,7 +1280,7 @@ export async function approveRequest(
       .where(
         and(
           eq(schema.vaultRequests.id, requestId),
-          ctxScope(schema.vaultRequests, ctx),
+          tenantScope(schema.vaultRequests, ctx),
           eq(schema.vaultRequests.status, "applying"),
         ),
       );
@@ -1274,7 +1298,7 @@ export async function approveRequest(
     .where(
       and(
         eq(schema.vaultRequests.id, requestId),
-        ctxScope(schema.vaultRequests, ctx),
+        tenantScope(schema.vaultRequests, ctx),
         eq(schema.vaultRequests.status, "applying"),
       ),
     );
@@ -1286,7 +1310,7 @@ export async function approveRequest(
     metadata: { requestId, reviewer },
   });
 
-  return getRequest(requestId, ctx);
+  return getRequestForTenant(requestId, ctx);
 }
 
 export async function denyRequest(
@@ -1296,7 +1320,7 @@ export async function denyRequest(
 ) {
   await assertCanManageVault();
   const db = getDb();
-  const request = await getRequest(requestId, ctx);
+  const request = await getRequestForTenant(requestId, ctx);
   if (!request) throw new Error("Request not found");
 
   const timestamp = now();
@@ -1313,14 +1337,14 @@ export async function denyRequest(
     .where(
       and(
         eq(schema.vaultRequests.id, requestId),
-        ctxScope(schema.vaultRequests, ctx),
+        tenantScope(schema.vaultRequests, ctx),
         eq(schema.vaultRequests.status, "pending"),
       ),
     )
     .returning();
 
   if (claimed.length === 0) {
-    return getRequest(requestId, ctx);
+    return getRequestForTenant(requestId, ctx);
   }
 
   const claimedRequest = claimed[0];
@@ -1332,7 +1356,7 @@ export async function denyRequest(
     metadata: { requestId, reviewer, reason },
   });
 
-  return getRequest(requestId, ctx);
+  return getRequestForTenant(requestId, ctx);
 }
 
 // ─── Integrations Catalog ────────────────────────────────────────
@@ -1359,7 +1383,7 @@ export interface AppIntegrations {
 export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
   const access = await getVaultAccessSettings();
   const agents = await discoverAgents("dispatch");
-  const grants = await listGrants();
+  const grants = (await canManageVault()) ? await listGrants() : [];
   const secrets = await listSecretOptions();
 
   const secretByKey = new Map(secrets.map((s) => [s.credentialKey, s]));
@@ -1443,9 +1467,10 @@ export async function listIntegrationsCatalog(): Promise<AppIntegrations[]> {
 // ─── Vault Overview (for dashboard) ──────────────────────────────
 
 export async function listVaultOverview() {
+  const isAdmin = await canManageVault();
   const [secrets, grants, requests, access] = await Promise.all([
     listSecretOptions(),
-    listGrants(),
+    isAdmin ? listGrants() : Promise.resolve([]),
     listRequests(),
     getVaultAccessSettings(),
   ]);
@@ -1455,8 +1480,12 @@ export async function listVaultOverview() {
     accessMode: access.mode,
     secretCount: secrets.length,
     activeGrantCount:
-      access.mode === "all-apps" ? secrets.length : manualGrantCount,
-    manualGrantCount,
+      access.mode === "all-apps"
+        ? secrets.length
+        : isAdmin
+          ? manualGrantCount
+          : 0,
+    manualGrantCount: isAdmin ? manualGrantCount : 0,
     pendingRequestCount: requests.filter((r) => r.status === "pending").length,
   };
 }

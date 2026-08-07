@@ -26,6 +26,7 @@ import {
   listGrants,
   listRequests,
   getVaultAccessSettings,
+  canManageVault,
 } from "../server/lib/vault-store.js";
 import {
   listWorkspaceResourceOptions,
@@ -170,9 +171,10 @@ export default defineAction({
       }
     }
     if (navigation?.view === "vault" || navigation?.view === "new-app") {
+      const isVaultAdmin = await canManageVault();
       const [secrets, grants, requests, access] = await Promise.all([
         listSecretOptions(),
-        listGrants(),
+        isVaultAdmin ? listGrants() : Promise.resolve([]),
         listRequests({ status: "pending" }),
         getVaultAccessSettings(),
       ]);
