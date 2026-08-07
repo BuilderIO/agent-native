@@ -137,6 +137,7 @@ describe("listDashboardSummaries", () => {
         id: "child",
         kind: "sql",
         name: "Child dashboard",
+        description: "Used for catalog ranking",
         parentId: "parent",
         ownerEmail: ctx.email,
         orgId: undefined,
@@ -156,6 +157,7 @@ describe("listDashboardSummaries", () => {
 
     expect(state.projection).not.toHaveProperty("config");
     expect(state.projection?.name).toEqual({ name: "title" });
+    expect(state.projection).toHaveProperty("description");
     expect(state.projection).toHaveProperty("configName");
     expect(state.projection).toHaveProperty("catalogTemplateId");
     expect(state.projection).toHaveProperty("demoId");
@@ -163,6 +165,7 @@ describe("listDashboardSummaries", () => {
     expect(result[0]).toMatchObject({
       id: "child",
       name: "Child dashboard",
+      description: "Used for catalog ranking",
       parentId: "parent",
       orgId: null,
       archivedAt: null,

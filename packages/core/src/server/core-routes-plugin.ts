@@ -99,6 +99,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { getRuntimeConfigReport } from "../shared/runtime-config.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
@@ -158,6 +159,7 @@ import {
   readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
+import { probeDbPressure, type DbPressure } from "./db-pressure.js";
 import {
   resolveDeployEnvironment,
   resolveServerRelease,
@@ -489,6 +491,11 @@ export interface DbHealthProbeResult {
   };
   /** Optional metadata-only schema compatibility check. */
   schema?: DatabaseSchemaHealthResult;
+  /**
+   * Optional `pg_stat_activity` pressure counters. Present only when asked for,
+   * and shaped so "could not measure" cannot be read as "nothing wrong".
+   */
+  pressure?: DbPressure;
 }
 
 /**
@@ -503,10 +510,11 @@ export interface DbHealthProbeResult {
  */
 export async function runDbHealthProbe(
   exec: () => { execute: (sql: string) => Promise<unknown> } = getDbExec,
-  options: { schema?: boolean } = {},
+  options: { schema?: boolean; pressure?: boolean } = {},
 ): Promise<DbHealthProbeResult> {
   const startedAt = Date.now();
   let db = false;
+  let trivialQueryMs: number | undefined;
   let schema: DatabaseSchemaHealthResult | undefined;
   const dbExec = exec();
   let dbTimedOut = false;
@@ -524,8 +532,10 @@ export async function runDbHealthProbe(
       );
     });
     try {
+      const trivialQueryStartedAt = Date.now();
       await Promise.race([dbExec.execute("SELECT 1"), deadline]);
       db = true;
+      trivialQueryMs = Date.now() - trivialQueryStartedAt;
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -539,6 +549,14 @@ export async function runDbHealthProbe(
     });
   }
   const database = getDatabaseRuntimeFingerprint();
+  // Measured on the connection `SELECT 1` just warmed, so the number reflects
+  // the database's own load rather than a serverless cold start.
+  let pressure: DbPressure | undefined;
+  if (options.pressure) {
+    pressure = db
+      ? await probeDbPressure(dbExec, database.dialect, { trivialQueryMs })
+      : { measured: false, reason: "database unreachable" };
+  }
   return {
     ok: true,
     ready: db && (!schema || schema.ok),
@@ -555,6 +573,7 @@ export async function runDbHealthProbe(
       netlifyDatabaseUrlConfigured: database.netlifyDatabaseUrlConfigured,
     },
     ...(schema ? { schema } : {}),
+    ...(pressure ? { pressure } : {}),
   };
 }
 const DEFAULT_BUILDER_WAITLIST_FORM_ID = "DYTHuM0jlV";
@@ -1329,7 +1348,7 @@ export async function readLegacyCoreRouteInitSettings(
  * Routes:
  *   GET    /_agent-native/poll                          — polling endpoint for change detection
  *   GET    /_agent-native/events (or custom)            — SSE endpoint for real-time sync
- *   GET    /_agent-native/ping                          — health check
+ *   GET    /_agent-native/ping                          — health check; add ?configuration=1 for redacted deploy diagnostics
  *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
@@ -1818,9 +1837,31 @@ export function createCoreRoutesPlugin(
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
-          defineEventHandler(() => ({
-            message: process.env.PING_MESSAGE ?? "pong",
-          })),
+          defineEventHandler((event) => {
+            const message = process.env.PING_MESSAGE ?? "pong";
+            const configuration =
+              event.url?.searchParams.get("configuration") === "1" ||
+              event.url?.searchParams.get("configuration") === "true";
+            if (!configuration) return { message };
+
+            // Custom required keys must come from server-side app configuration;
+            // never let an anonymous caller turn this into an env-name oracle.
+            const requirements = {
+              ...(event.url?.searchParams.get("auth") === "0"
+                ? { authEnabled: false }
+                : {}),
+              ...(event.url?.searchParams.get("database") === "0"
+                ? { databaseRequired: false }
+                : {}),
+            };
+            return {
+              message,
+              configuration: getRuntimeConfigReport(process.env, requirements, {
+                phase: "runtime",
+                appName: process.env.APP_NAME,
+              }),
+            };
+          }),
         );
       }
 
@@ -1940,7 +1981,19 @@ export function createCoreRoutesPlugin(
               event.url?.searchParams.get("strict") === "1" ||
               event.url?.searchParams.get("strict") === "true" ||
               process.env.AGENT_NATIVE_HEALTH_STRICT_SCHEMA === "true";
-            const result = await runDbHealthProbe(getDbExec, { schema });
+            // Off by default: the one-minute warm cron does not need it, and
+            // an extra `pg_stat_activity` read every minute per app is waste.
+            // Pressure deliberately does NOT change `ready` or the status
+            // code — a pressured database is still serving, and an uptime
+            // monitor that pages on it would learn to ignore this route. The
+            // fleet audit reads the counters and decides.
+            const pressure =
+              event.url?.searchParams.get("pressure") === "1" ||
+              event.url?.searchParams.get("pressure") === "true";
+            const result = await runDbHealthProbe(getDbExec, {
+              schema,
+              pressure,
+            });
             if (strict && !result.ready) setResponseStatus(event, 503);
             return result;
           }),

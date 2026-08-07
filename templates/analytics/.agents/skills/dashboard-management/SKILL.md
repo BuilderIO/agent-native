@@ -2,7 +2,8 @@
 name: dashboard-management
 description: >-
   How analytics dashboards are stored, created, and modified. Covers SQL dashboard tables,
-  legacy settings migration, valid panel sources, layout shape, and safe update patterns.
+  legacy settings migration, folders, valid panel sources, layout shape, and safe update
+  patterns. Use when creating, organizing, sharing, or modifying Analytics dashboards.
 ---
 
 # Dashboard Management
@@ -16,14 +17,29 @@ Current storage:
 | Table              | Purpose                                      |
 | ------------------ | -------------------------------------------- |
 | `dashboards`       | Explorer and SQL dashboard records           |
+| `dashboard_folders` | Personal and shared SQL dashboard folders  |
 | `dashboard_views`  | Saved filter presets per dashboard           |
 | `dashboard_shares` | Standard framework share grants              |
+| `dashboard_folder_shares` | Standard folder share grants          |
 | `dashboard_revisions` | Bounded dashboard history snapshots       |
 | `analyses`         | Saved ad-hoc analysis records                |
 | `analysis_revisions` | Bounded analysis history snapshots        |
 | `analysis_shares`  | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
+
+## Dashboard folders
+
+Dashboard folders are SQL-backed, access-scoped containers for organizing SQL
+dashboards from `/dashboards`:
+
+- `personal` folders are private to their owner.
+- `shared` folders are organization-visible and require an active organization.
+- Use `list-dashboard-folders`, `create-dashboard-folder`, and
+  `set-dashboard-folder` for folder reads and membership changes.
+- A folder never expands dashboard access. A personal folder can contain only
+  an owned private dashboard; a shared folder can contain only an org-visible
+  dashboard. Use the normal dashboard sharing actions separately.
 
 For organization-wide consolidation, use `migrate-analytics-artifacts` first
 with `dryRun: true`. The write requires an organization owner/admin and the

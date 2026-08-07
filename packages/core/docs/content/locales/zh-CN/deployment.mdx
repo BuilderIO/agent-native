@@ -428,14 +428,14 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 数据库连接变量（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每个应用程序 `<APP_NAME>_DATABASE_URL`）位于 [Database](/docs/database#production) 中。
 
-### 生产中需要 {#env-required-prod}
+### 生产敏感配置 {#env-required-prod}
 
-这些必须在将应用程序升级到真正的产品部署之前设置。缺失值要么失败关闭（框架拒绝启动/拒绝处理请求），要么回退到较弱的行为并发出响亮的警告。
+这些设置涵盖生产敏感行为。使用框架身份验证的独立应用需要稳定的 `BETTER_AUTH_SECRET` 和持久数据库；未设置公开 auth URL 时，框架会根据请求、模板或托管平台上下文推断。Workspace 和 A2A 设置取决于使用的功能。缺失值要么安全失败，要么在发出明确警告后回退到较弱行为。
 
 | 变量                                        | 描述                                                                                                                                                                                      |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                        | 32+ 字符的随机字符串。签署会话 cookie，并作为 `OAUTH_STATE_SECRET` 和应用本地加密值的后备。它也是读取现有共享保管库密文的旧版候选项。生产环境中必需。                                     |
-| `BETTER_AUTH_URL`                           | 此应用程序的公共来源（例如 `https://mail.example.com`）。用于cookie域和OAuth重定向构造。                                                                                                  |
+| `BETTER_AUTH_URL`                           | 此应用程序公共来源的可选覆盖值（例如 `https://mail.example.com`）。未设置时，框架会根据请求、模板和托管平台上下文推断。                                                                   |
 | `ANTHROPIC_API_KEY`                         | API 嵌入式生产代理密钥。 **在多租户部署中**，当用户没有每用户密钥时，框架拒绝回退到此 - 需要自带密钥。单租户自托管安装将其用作全局密钥。                                                  |
 | `OAUTH_STATE_SECRET`                        | 用于 OAuth 状态信封（Google、Atlassian、Zoom）的专用 HMAC 密钥。未设置时回落到 `BETTER_AUTH_SECRET`，但建议使用专用值，以便旋转一个值不会使另一个值无效。通过`openssl rand -hex 32`生成。 |
 | `A2A_SECRET`                                | 应用间 A2A JSON-RPC 的共享 HMAC。未设置专用工作区密钥时，共享保管库使用由此值按用途派生的密钥，因此轮换它也会轮换保管库密钥。                                                             |

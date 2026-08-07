@@ -82,7 +82,8 @@ before adapting shared UI: configure → compose → eject → propose.
   `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
-  with `type="dashboard-panel"`.
+  with `type="dashboard-panel"`. Read `dashboard-management` for the
+  `/dashboards` overview and folder actions.
 
 ## Skills
 

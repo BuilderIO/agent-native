@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,6 +204,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — 為此提示建立一個單獨的聊天對話串。
 - **`background`** — 使用 `newTab`，執行時無需聚焦新對話串。隱藏執行在 `RunsTray` 中進行跟蹤。
 - **`openSidebar`** — 設定為 `false` 以進行背景/靜默傳送。預設開啟側邊欄，以便使用者看到回應。
+- **對於使用者發起且需要可見的 AI 工作**，請使用 `openSidebar: true`。僅對明確靜默的背景或系統發起工作使用 `false`，並將後續操作保留在同一個 AgentSidebar 對話串中。
 - **`type`** — `"content"`（預設）將工作保留在使用應用程式工具的嵌入式代理中。`"code"` 會路由到獨立的程式碼能力 frame 以變更程式碼庫原始檔；只有當主機有意授予 repository/workspace 工具時才提供寫入權限。參見 [Frames](/docs/frames)。
 
 `sendToAgentChat` 返回一個穩定的 `tabId`，您可以使用它來跟蹤聊天執行。
@@ -222,6 +224,7 @@ sendToAgentChat({
 
 這仍然是一個使用工具、actions、對話串狀態和執行執行的完整代理
 跟蹤。它根本不會從使用者目前的側邊欄狀態中竊取焦點。
+請將後續和修訂提示保留在現有的側邊欄對話串中。不要在結果旁新增第二個自由文字輸入框；本地表單僅用於介面必須驗證的結構化值。
 
 當嵌入相同的路由作為 MCP App 時，提交
 `sendToAgentChat()` 呼叫將轉發至支援的聊天主機；參見
@@ -258,6 +261,10 @@ const { send, isGenerating } = useSendToAgentChat();
 並避免從產品 UI 直接發布到 `/_agent-native/agent-chat`。如果一個
 真正的自訂表面缺少指定的助手，請先新增該助手
 用戶端程式碼不會學習第二個臨時傳輸。
+
+## 選擇代理聊天還是操作 {#agent-or-action}
+
+對於 CRUD、驗證、提供者讀取和持久化等確定性的本地操作，請直接使用 `useActionQuery` 或 `useActionMutation`。如果使用者將流程體驗為研究、分析、生成、推薦、綜合或多步驟推理，請使用 `sendToAgentChat({ openSidebar: true })` 啟動，並讓代理編排專注的操作。實作是確定性的，不能單獨成為將類似 AI 的流程隱藏在不透明操作中的理由。
 
 ## 來自 UI 的型別安全 actions：`useActionMutation()` {#use-action-mutation}
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >

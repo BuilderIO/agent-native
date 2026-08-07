@@ -793,6 +793,7 @@ export function useBuilderConnectFlow(
             if (!mountedRef.current) return;
             if (s) {
               setHasFetchedStatus(true);
+              setStatusResolved(true);
               setConfigured(!!s.configured);
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
@@ -833,6 +834,7 @@ export function useBuilderConnectFlow(
             }
             if (s) {
               setHasFetchedStatus(true);
+              setStatusResolved(true);
               setConfigured(!!s.configured);
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
@@ -903,6 +905,7 @@ export function useBuilderConnectFlow(
       if (started == null) return;
       const s = await fetchStatus(signal);
       if (!mountedRef.current) return;
+      if (s) setStatusResolved(true);
       if (s?.configured) {
         setConfigured(true);
         setEnvManaged(!!s.envManaged);
@@ -995,6 +998,7 @@ export function useBuilderConnectFlow(
           : null;
         setHasFetchedStatus(true);
         if (s) {
+          setStatusResolved(true);
           setConfigured(false);
           setEnvManaged(!!s.envManaged);
           setBuilderEnabled(!!s.builderEnabled);
@@ -1013,6 +1017,7 @@ export function useBuilderConnectFlow(
         return;
       }
       setHasFetchedStatus(true);
+      setStatusResolved(true);
       setConfigured(true);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);

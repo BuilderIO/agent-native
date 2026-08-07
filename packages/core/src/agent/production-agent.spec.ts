@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -103,6 +104,26 @@ function actionEntry(opts: {
 }
 
 describe("resolveAgentRequestReasoningEffort", () => {
+  it("narrates a retry the user waited through, and stays silent on a blip", async () => {
+    // Three silent 90s retries wiped the visible output at 92s/182s/272s and
+    // left a blank screen for 4.5 minutes — reported as "the chat froze". The
+    // `clear` must be explained once the silence is long enough to notice,
+    // and must stay silent for a fast provider blip.
+    const src = readFileSync(
+      new URL("./production-agent.ts", import.meta.url),
+      "utf8",
+    );
+    const idx = src.indexOf("const stalledMs = Date.now() - attemptStartedAt;");
+    expect(idx).toBeGreaterThan(0);
+    const block = src.slice(idx, idx + 600);
+    // Gated on elapsed time, not fired on every retry.
+    expect(block).toContain("VISIBLE_RETRY_THRESHOLD_MS");
+    // And the explanation must precede the wipe, not follow it.
+    expect(block.indexOf("Model did not respond")).toBeLessThan(
+      block.indexOf('send({ type: "clear" })'),
+    );
+  });
+
   it("defaults missing reasoning to Medium", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),

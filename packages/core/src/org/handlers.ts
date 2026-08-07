@@ -199,7 +199,9 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** GET /_agent-native/org/members — list org members */
 export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return { members: [], hasMore: false, nextOffset: null };
+  if (!ctx.orgId) {
+    return { members: [], totalCount: 0, hasMore: false, nextOffset: null };
+  }
 
   const url = getRequestURL(event);
   const search = (
@@ -221,10 +223,14 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const args: unknown[] = [ctx.orgId];
+  const countArgs: unknown[] = [ctx.orgId];
   let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
+  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members WHERE org_id = ?`;
   if (search) {
     sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
     args.push(`%${escapeLike(search)}%`);
+    countSql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
+    countArgs.push(`%${escapeLike(search)}%`);
   }
   sql += ` ORDER BY LOWER(email) ASC`;
   if (limit !== null) {
@@ -232,12 +238,23 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     args.push(limit + 1, offset);
   }
 
+  const totalCountResult =
+    limit === null
+      ? undefined
+      : await e.execute({ sql: countSql, args: countArgs });
   const { rows } = await e.execute({
     sql,
     args,
   });
   const pageRows = limit !== null ? rows.slice(0, limit) : rows;
   const hasMore = limit !== null && rows.length > limit;
+  const totalCount =
+    totalCountResult === undefined
+      ? pageRows.length
+      : Number((totalCountResult.rows[0] as any)?.totalCount);
+  if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
+    throw new Error("Organization member count was not returned");
+  }
   const members = pageRows.map((r: any) => ({
     email: String(r.email),
     role: String(r.role) as OrgRole,
@@ -245,6 +262,7 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   }));
   return {
     members,
+    totalCount,
     hasMore,
     nextOffset: hasMore ? offset + members.length : null,
   };

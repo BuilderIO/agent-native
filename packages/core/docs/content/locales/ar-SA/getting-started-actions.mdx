@@ -1,0 +1,92 @@
+---
+title: "إضافة إجراء"
+description: "عرّف أول إجراء لك واعرض نتيجته كمخطط مباشرةً داخل المحادثة."
+---
+
+# إضافة إجراء
+
+هذا هو الجزء الثاني من سلسلة الخطوات الأولى. في [الخطوات الأولى](/docs/getting-started)
+أنشأت تطبيق Chat. ستعرّف هنا محلّل نصوص محدد الأنواع وتعرض نتيجته في المحادثة.
+
+## إضافة إجراء {#add-an-action}
+
+الإجراء عملية محددة الأنواع يمكن لكل من الوكيل وواجهة المستخدم استدعاؤها. توجد
+الإجراءات في دليل `actions/`، وهو سطح العمليات المشترك للمحادثة ومكونات React
+وCLI والمستدعين الآخرين.
+
+أنشئ `actions/analyze-text.ts`:
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z.string().default("The quick brown fox jumps over the lazy dog."),
+  }),
+  outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
+    title: "Text stats",
+  },
+  readOnly: true,
+  run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
+    const points = [
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
+      {
+        label: "Sentences",
+        value: summary.sentences,
+      },
+      {
+        label: "Paragraphs",
+        value: summary.paragraphs,
+      },
+    ];
+
+    return createDataChartWidgetResult({
+      title: "Text statistics",
+      summary,
+      chartSeries: {
+        type: "bar",
+        xKey: "label",
+        series: [{ key: "value", label: "Count" }],
+        data: points,
+      },
+    });
+  },
+});
+```
+
+شغّله من الطرفية:
+
+```bash
+pnpm action analyze-text --text "Hello world. How are you today?"
+```
+
+أو اطلب من الوكيل في المحادثة:
+
+> Run the analyze-text action on "Hello world. How are you today?"
+
+يحوّل عارض `data-chart` المضمّن النتيجة المنظَّمة إلى مخطط في سجل المحادثة. لا
+يوجد ملف عارض أو استيراد `app/root.tsx` لإضافته. للمكونات الأصلية المخصصة، راجع
+[واجهة المحادثة الأصلية](/docs/native-chat-ui).
+
+## المتابعة
+
+تابع إلى [إضافة صفحة](/docs/getting-started-pages) لاستخدام الإجراء نفسه خارج
+سجل المحادثة. عندما تحتاج النتائج إلى الاستمرار بين المحادثات، ارجع إلى
+[حفظ البيانات في SQL](/docs/getting-started-database).

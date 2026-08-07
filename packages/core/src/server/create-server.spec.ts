@@ -74,6 +74,40 @@ describe("createServer", () => {
     ]);
   });
 
+  it("returns redacted built-in runtime diagnostics without an env-name oracle", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
+    vi.stubEnv("BETTER_AUTH_SECRET", "a".repeat(64));
+    const { app } = createServer();
+
+    const res = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1&requiredEnv=NOTION_API_KEY",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.configuration.status).toBe("ok");
+    expect(body.configuration.issues).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("NOTION_API_KEY");
+    expect(JSON.stringify(body)).not.toContain("a".repeat(64));
+  });
+
+  it("honors app opt-outs in the public configuration probe", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { app } = createServer();
+
+    const res = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1&auth=0&database=0",
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).configuration).toMatchObject({
+      ok: true,
+      status: "ok",
+      issues: [],
+    });
+  });
+
   it("rejects env-var writes outside the configured key list", async () => {
     const { app } = createServer({
       envKeys: [{ key: "GOOGLE_CLIENT_ID", label: "Google client ID" }],

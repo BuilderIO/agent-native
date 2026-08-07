@@ -1,5 +1,85 @@
 # @agent-native/core
 
+## 0.145.7
+
+### Patch Changes
+
+- 25e1bcf: Reset the poll backoff when sync health-gates from the hosted gateway to local. The failure count earned against an unreachable gateway was carried into local mode, delaying the first local poll by up to 8 minutes even though the app's own origin was reachable.
+
+## 0.145.6
+
+### Patch Changes
+
+- 1d5bab1: Keep the chat and prompt composer visible while assistant-ui recovers from a transient render error.
+- 1d5bab1: Stop cold-started processes from replaying the entire durable action-marker
+  history. `seedVersionFromDb` rewound the marker watermark to `0` so a marker
+  written just before boot still reached the first poll, but the replay filter is
+  `updated_at > watermark` and the `__action_change__` table is one never-pruned
+  row per identity that has ever run a mutating action — so every boot re-emitted
+  all of it. On one production app that was 2,188 rows replayed ~32 times a
+  minute: 1,169 sync events/sec against ~1.7/sec of real traffic, and a 47 GB
+  `sync_events` table. The rewind is now bounded to a 60-second replay window,
+  which preserves its purpose, and the marker read is bounded by the same
+  watermark instead of selecting the whole table.
+
+  Also enables `deterministicEventIds` for the default sync state so concurrent
+  processes detecting the same external write collapse via `ON CONFLICT (id) DO
+NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
+  rather than the table-wide maximum. That mechanism defaulted off and was never
+  set anywhere, so every `dedupeKey` in the poll path had been inert.
+
+  `manage-agent-engine` now classifies `test` and `get-app-default` as reads
+  alongside `list`, so those calls no longer announce a change.
+
+- 1d5bab1: Fix MCP integration logos so every catalog entry uses a real mark and dark marks stay legible.
+- 1d5bab1: Accept OAuth client metadata documents that advertise additional extension grant types, including Claude's JWT bearer grant, while preserving the server's authorization-code flow.
+- 1d5bab1: Stop the chat client from durably aborting background runs that are still
+  working.
+
+  The kill verdict was rendered against a `/runs/active` snapshot fetched
+  _before_ the SSE attach that had just blocked for its whole duration, so any
+  progress that landed during the attach was invisible to the decision. Fleet
+  data: 23 of 24 client-watchdog kills hit runs that had made server-authoritative
+  progress within the previous 90 seconds. The client now takes a second reading
+  after the attach, and only on the path that would otherwise condemn the run —
+  the healthy path pays nothing.
+
+  A failed or unparseable `/runs/active` poll no longer counts as "no active run".
+  Unreadable and absent were the same value, and the absent branch reached the
+  durable abort without consulting progress at all, so one flaky tick could end a
+  live turn.
+
+  A model-stream retry the user waited through is now narrated instead of silently
+  wiping the transcript. Three 90-second retries used to blank the screen at 92s,
+  182s, and 272s with no explanation — the shape people report as "the chat froze".
+  Fast provider blips stay silent.
+
+- 1d5bab1: Add an opt-in database-pressure reading to `/_agent-native/health?pressure=1`.
+  The route reports the three `pg_stat_activity` signals that preceded the
+  2026-08-06 analytics outage — idle-in-transaction pileup, slow trivial queries,
+  and one query stampeding — so a scheduled fleet audit can watch them without
+  holding any production database credential of its own. A dialect or connection
+  that cannot answer reports `measured: false` with a reason rather than a clean
+  zero, and pressure never changes `ready` or the response status.
+- 1d5bab1: Preserve incomplete provider-corpus coverage when a paginated search stops at a page cap.
+- 1d5bab1: Preserve OAuth authentication for legacy MCP endpoint configurations.
+- 1d5bab1: Keep the magic-link onboarding form as the default view when outbound email is ready, while preserving explicit password sign-in fallbacks.
+- 1d5bab1: Keep inline help affordances visually subordinate to the text they explain.
+- 1d5bab1: Paginate long organization member lists in settings.
+- 1d5bab1: Add shared production configuration diagnostics, deploy guidance, and an
+  in-app warning chip with a copyable AI remediation prompt. Agent-Native app
+  configuration now supports deep-merged runtime requirements and typed
+  `agent-native.ts` aliases alongside `agent-native.json`.
+- 1d5bab1: Fix the `sync_events` retention prune, which planned as a sequential scan of
+  the entire table. It now deletes by the already-indexed `version` column
+  (monotonic epoch milliseconds) in bounded batches, oldest first, and reports a
+  failure instead of swallowing it. On one production app the old statement was
+  scanning a 47 GB table roughly 60 times concurrently, and a prune that never
+  succeeded was indistinguishable from one with nothing to do.
+- 1d5bab1: Polish streaming tool-call motion so new calls fade in, retained rows slide with
+  the stack, and older calls visibly settle into the collapsed tool summary.
+- 1d5bab1: Add a keyboard-accessible 75% chat drawer while keeping the app layout stable.
+
 ## 0.145.5
 
 ### Patch Changes

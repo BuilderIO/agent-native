@@ -39,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -131,9 +132,26 @@ export function IntelligenceSettings() {
       </div>
 
       {trackersQuery.isLoading ? (
-        <p className="mt-8 text-sm text-muted-foreground">
-          {t("intelligence.loading")}
-        </p>
+        <div
+          className="mt-8 space-y-2"
+          role="status"
+          aria-busy="true"
+          aria-label={t("intelligence.loading")}
+        >
+          {[0, 1, 2].map((item) => (
+            <div
+              key={item}
+              className="flex items-center gap-4 rounded-lg border border-border/70 bg-card px-4 py-3.5"
+            >
+              <Skeleton className="size-4" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="size-5 rounded-full" />
+            </div>
+          ))}
+        </div>
       ) : trackers.length ? (
         <div className="mt-8 divide-y divide-border/70 rounded-lg border border-border/70 bg-card">
           {trackers.map((tracker) => {

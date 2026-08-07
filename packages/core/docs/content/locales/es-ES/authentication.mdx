@@ -102,6 +102,14 @@ Algunas banderas sintonizan esto; Los detalles completos se encuentran en la tab
 
 </Callout>
 
+## Inicio de sesión en desarrollo local {#local-development-sign-in}
+
+En un servidor de desarrollo con una dirección de bucle local, la página compartida de inicio de sesión muestra primero **Continue as local dev**. Crea o reutiliza la cuenta y la sesión de desarrollo reales de Better Auth, por lo que sigue el mismo flujo autenticado que se usa en el resto de la aplicación.
+
+Selecciona **Show full sign in options** para mostrar las opciones normales de registro, contraseña, magic link y proveedores sociales. Si no se puede crear la sesión local, la página muestra esas opciones automáticamente para que puedas continuar con la autenticación estándar.
+
+Esta comodidad solo está disponible cuando el navegador se conecta mediante `localhost`, `127.0.0.0/8` o `::1` en desarrollo o pruebas. Está desactivada en las vistas previas de despliegue y en la producción alojada. No es una omisión de autenticación. Establece `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` para no usarla y mostrar la página de inicio de sesión normal durante el desarrollo local.
+
 ## Mejor autenticación (predeterminada) {#better-auth}
 
 De forma predeterminada, Better Auth potencia la autenticación. Proporciona:

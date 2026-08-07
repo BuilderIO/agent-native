@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.20.0
+
+### Minor Changes
+
+- 1d5bab1: Simplify the Dispatch Admin overview and Apps catalog with shared icon cards, app colors, and lighter progressive disclosure.
+
 ## 0.19.2
 
 ### Patch Changes

@@ -102,6 +102,23 @@ A few flags tune this; full details are in the [Environment Variables](#environm
 
 </Callout>
 
+## Local development sign-in {#local-development-sign-in}
+
+On a loopback development server, the shared sign-in page puts **Continue as
+local dev** first. It creates or reuses the real Better Auth development
+account and session, so this is the same authenticated path used elsewhere.
+
+Choose **Show full sign in options** to reveal normal signup, password, magic
+link, and social-provider options. If the local session cannot be created, the
+page reveals those options automatically so you can continue with standard
+authentication.
+
+This convenience is available only when the browser connects through
+`localhost`, `127.0.0.0/8`, or `::1` in development or test. It is disabled for
+deploy previews and hosted production. It is not an authentication bypass.
+Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out and show the normal
+sign-in page in local development.
+
 ## Better Auth (Default) {#better-auth}
 
 By default, Better Auth powers authentication. When outbound email is ready,

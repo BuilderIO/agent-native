@@ -54,6 +54,12 @@ function writeFixture(root: string): string {
     ].join("\n"),
     "utf-8",
   );
+  fs.mkdirSync(path.join(skillRoot, "references"), { recursive: true });
+  fs.writeFileSync(
+    path.join(skillRoot, "references", "project-context.md"),
+    "Keep project context bounded and preserve its provenance.\n",
+    "utf-8",
+  );
 
   const manifestFile = path.join(root, "agent-native.app-skill.json");
   fs.writeFileSync(
@@ -192,6 +198,25 @@ describe("app skill packaging", () => {
         )
         .startsWith("---\nname: assets\n"),
     ).toBe(true);
+    for (const skillPath of [
+      path.join(outDir, "skills", "assets"),
+      path.join(
+        outDir,
+        "adapters",
+        "claude-marketplace",
+        "plugins",
+        "agent-native-assets",
+        "skills",
+        "assets",
+      ),
+      path.join(outDir, "adapters", "vercel-skills", "skills", "assets"),
+      path.join(outDir, "adapters", "plain-skill", "skills", "assets"),
+      path.join(outDir, "adapters", "claude-skill", "skills", "assets"),
+    ]) {
+      expect(
+        fs.existsSync(path.join(skillPath, "references", "project-context.md")),
+      ).toBe(true);
+    }
     expect(fs.existsSync(path.join(outDir, "app", "package.json"))).toBe(true);
     expect(
       JSON.parse(
