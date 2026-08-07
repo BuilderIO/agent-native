@@ -2979,10 +2979,17 @@ export function App() {
           // below — the toolbar reads the pick to place itself on the
           // chosen screen the first time it's shown.
           await pickFullscreenRecordingDisplay();
-        } catch {
-          // User cancelled the screen picker (Escape) — abort silently,
-          // same as dismissing the native macOS screen picker.
+        } catch (err) {
           recordingFlowGateRef.current = false;
+          if (err instanceof Error && err.name === "AbortError") {
+            // User cancelled the screen picker (Escape) — abort silently,
+            // same as dismissing the native macOS screen picker.
+            return null;
+          }
+          // A real failure (picker window construction, persisting the
+          // pick, etc.) — surface it instead of silently aborting like a
+          // cancel, or the user has no idea why nothing happened.
+          setRecError(err instanceof Error ? err.message : String(err));
           return null;
         }
       }

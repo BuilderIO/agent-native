@@ -1520,6 +1520,15 @@ pub async fn native_fullscreen_recording_begin(
                 .unwrap_or(false)
         };
         if !is_warmed {
+            // A warm task can still be mid-`SCShareableContent` lookup on a
+            // blocking-pool thread right now — that's exactly why nothing is
+            // installed yet. Bump the generation before building our own
+            // session below: without this, when that warm task eventually
+            // finishes, it sees no cancel occurred, assumes its generation is
+            // still current, and silently replaces the live session we're
+            // about to install with its own (never actually attached)
+            // deferred-output one.
+            state.warm_generation.fetch_add(1, Ordering::SeqCst);
             let info = start_native_session_locked(
                 &app,
                 &state,
@@ -2137,6 +2146,7 @@ pub(crate) fn kill_active_screencapture_child(state: &NativeFullscreenRecordingS
 pub async fn native_fullscreen_recording_cancel(
     app: AppHandle,
     state: State<'_, NativeFullscreenRecordingState>,
+    preserve_display_override: Option<bool>,
 ) -> Result<(), String> {
     // Bump BEFORE taking the session: a warm task on a blocking-pool thread
     // may still be mid-setup right now, with nothing installed yet for this
@@ -2153,7 +2163,11 @@ pub async fn native_fullscreen_recording_cancel(
     // An aborted start (countdown/warm cancelled before `begin`) never reaches
     // `hide_recording_chrome`, so the picker's monitor override must also be
     // cleared here or it would wrongly apply to the next recording attempt.
-    crate::state::SelectedRecordingDisplay::set(&app, None);
+    // A native restart is the exception — see `hide_recording_chrome`'s
+    // matching `preserve_display_override` doc comment.
+    if !preserve_display_override.unwrap_or(false) {
+        crate::state::SelectedRecordingDisplay::set(&app, None);
+    }
     Ok(())
 }
 

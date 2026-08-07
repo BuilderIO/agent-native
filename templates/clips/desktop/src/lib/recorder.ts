@@ -3595,7 +3595,16 @@ async function startNativeFullscreenRecording(
         );
       });
     await localCameraExport?.cancel().catch(() => {});
-    await invoke("native_fullscreen_recording_cancel").catch((err) =>
+    // A restart discards this take and immediately starts a replacement on
+    // the SAME screen without re-running the monitor picker (native restarts
+    // hand off the live capture, not a browser display stream — see
+    // `pickFullscreenRecordingDisplay`'s skip condition in app.tsx). Without
+    // `preserveDisplayOverride`, these calls would clear the pick before the
+    // replacement recording ever reads it, silently falling back to the
+    // tray-anchor screen.
+    await invoke("native_fullscreen_recording_cancel", {
+      preserveDisplayOverride: forRestart,
+    }).catch((err) =>
       console.warn("[clips-recorder] native fullscreen cancel failed:", err),
     );
     if (bubbleCaptureExcluded) {
@@ -3609,7 +3618,9 @@ async function startNativeFullscreenRecording(
     }
     streamCleanups.forEach((cleanup) => cleanup());
     if (forRestart) {
-      await invoke("hide_recording_chrome").catch(() => {});
+      await invoke("hide_recording_chrome", {
+        preserveDisplayOverride: true,
+      }).catch(() => {});
     } else {
       await endSession();
     }

@@ -1235,7 +1235,10 @@ pub async fn hide_overlays(
 /// by the popover's session effect (show on popover-open, hide on
 /// popover-close).
 #[tauri::command]
-pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
+pub async fn hide_recording_chrome(
+    app: AppHandle,
+    preserve_display_override: Option<bool>,
+) -> Result<(), String> {
     stop_countdown_control_tracking();
     // The countdown + toolbar always tear down on recording stop. The region
     // guides only tear down when they aren't pinned on-screen via the always-on
@@ -1256,7 +1259,13 @@ pub async fn hide_recording_chrome(app: AppHandle) -> Result<(), String> {
     // A recording that used the multi-monitor picker is over — clear its
     // display override so the NEXT recording (which might skip the picker
     // entirely on a single monitor) doesn't inherit a stale target screen.
-    crate::state::SelectedRecordingDisplay::set(&app, None);
+    // A native restart is the one exception: it discards this take and
+    // immediately starts a replacement on the SAME screen without re-running
+    // the picker (see `pickFullscreenRecordingDisplay`'s skip condition in
+    // recorder.ts), so the caller passes `preserve_display_override: true`.
+    if !preserve_display_override.unwrap_or(false) {
+        crate::state::SelectedRecordingDisplay::set(&app, None);
+    }
     // If meeting or voice flows showed a recording pill, auto-hide it after
     // recording stops. Bail early if a new recording came up in the meantime.
     let app_for_pill = app.clone();
