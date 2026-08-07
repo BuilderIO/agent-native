@@ -37,8 +37,9 @@ export default function planMcpPlugin(nitroApp: any) {
       {
         ...loadActionsFromStaticRegistry(actionsRegistry),
         ...(frameworkTools.isEnabled("automation")
-          ? createAutomationToolEntries(() =>
-              requireMcpOwner("manage automations"),
+          ? createAutomationToolEntries(
+              () => requireMcpOwner("manage automations"),
+              "plan",
             )
           : {}),
       },

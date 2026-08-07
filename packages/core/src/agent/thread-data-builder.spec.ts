@@ -285,6 +285,51 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("persists the approval affordance after a gated tool pauses", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "publish-call",
+            tool: "publish",
+            input: { value: "branch update" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "publish",
+            toolCallId: "publish-call",
+            approvalKey: "publish:approval",
+            input: { value: "branch update" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "publish-call",
+            tool: "publish",
+            result: "Awaiting human approval. This action did NOT execute.",
+          },
+        },
+      ],
+      "run-publish-approval",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "publish",
+        result: "Awaiting human approval. This action did NOT execute.",
+        approval: { approvalKey: "publish:approval" },
+      }),
+    ]);
+  });
+
   it("falls back to legacy name matching when a done id has no matching start", () => {
     const message = buildAssistantMessage(
       [

@@ -47,6 +47,8 @@ export interface JobFrontmatter {
   mode?: JobExecutionMode;
   /** Domain tag for filtering in per-template UIs. */
   domain?: string;
+  /** Explicit application owner used by the recurring-job scheduler. */
+  appId?: string;
   /**
    * Optional application-owned policy id carried into actions by the trusted
    * trigger dispatcher. It is not model-supplied action input.
@@ -212,6 +214,9 @@ function parseKnownField(
     case "domain":
       meta.domain = value;
       break;
+    case "appId":
+      meta.appId = value || undefined;
+      break;
     case "delegatedPolicyId":
       meta.delegatedPolicyId = value || undefined;
       break;
@@ -301,6 +306,7 @@ export function buildJobResourceContent(
   pushString(lines, "condition", meta.condition);
   if (meta.mode) lines.push(`mode: ${meta.mode}`);
   pushString(lines, "domain", meta.domain);
+  pushString(lines, "appId", meta.appId);
   pushString(lines, "delegatedPolicyId", meta.delegatedPolicyId);
   // Keep the long-standing human-readable owner shape used by existing
   // resources and diagnostics; values that can contain free-form text use

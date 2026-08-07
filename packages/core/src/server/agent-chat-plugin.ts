@@ -1021,8 +1021,9 @@ export function createAgentChatPlugin(
         if (automationGroupEnabled) {
           const { createAutomationToolEntries } =
             await import("../triggers/actions.js");
-          automationTools = createAutomationToolEntries(() =>
-            requireCurrentRunOwner("manage automations"),
+          automationTools = createAutomationToolEntries(
+            () => requireCurrentRunOwner("manage automations"),
+            options?.appId,
           );
         }
       } catch {}
@@ -2873,7 +2874,7 @@ export function createAgentChatPlugin(
       try {
         if (automationGroupEnabled) {
           const { createJobTools } = await import("../jobs/tools.js");
-          jobTools = createJobTools();
+          jobTools = createJobTools(options?.appId);
         }
       } catch {}
 

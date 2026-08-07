@@ -100,7 +100,10 @@ export async function authorizeJobMutation(
   return "Only the job's creator (or an org admin) can update or delete it.";
 }
 
-async function runCreate(args: Record<string, any>): Promise<string> {
+async function runCreate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, schedule, instructions, scope, runAs, model } = args;
   const requestedTimezone = args.timezone;
 
@@ -147,6 +150,7 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     enabled: true,
     createdBy: getOwner(),
     orgId: getRequestOrgId() || undefined,
+    appId: appId?.trim() || undefined,
     runAs: runAs === "shared" ? "shared" : "creator",
     nextRun: next.toISOString(),
     ...(integration?.scopeId ? { originScopeId: integration.scopeId } : {}),
@@ -233,7 +237,10 @@ async function runList(args: Record<string, any>): Promise<string> {
   return JSON.stringify(scheduledJobs, null, 2);
 }
 
-async function runUpdate(args: Record<string, any>): Promise<string> {
+async function runUpdate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, schedule, instructions, enabled, scope, runAs, model } = args;
   const path = `jobs/${name}.md`;
 
@@ -263,6 +270,8 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   if (denied) {
     return JSON.stringify({ error: denied });
   }
+
+  if (!meta.appId && appId?.trim()) meta.appId = appId.trim();
 
   if (schedule) {
     if (!isValidCron(schedule)) {
@@ -362,7 +371,7 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   return JSON.stringify({ deleted: true, name });
 }
 
-export function createJobTools(): Record<string, ActionEntry> {
+export function createJobTools(appId?: string): Record<string, ActionEntry> {
   return {
     "manage-jobs": {
       tool: {
@@ -446,11 +455,11 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
       run: async (args) => {
         switch (args.action) {
           case "create":
-            return runCreate(args);
+            return runCreate(args, appId);
           case "list":
             return runList(args);
           case "update":
-            return runUpdate(args);
+            return runUpdate(args, appId);
           case "delete":
             return runDelete(args);
           default:

@@ -79,6 +79,16 @@ const IDENTITY_FAILURE_RETRY_MS = 5 * 60_000;
 const _activeScheduledJobs = new Set<string>();
 const _preflightingScheduledJobs = new Set<string>();
 
+function jobBelongsToApp(
+  meta: JobFrontmatter,
+  appId: string | undefined,
+): boolean {
+  const ownerAppId = meta.appId?.trim();
+  if (!ownerAppId) return true;
+  const schedulerAppId = appId?.trim();
+  return Boolean(schedulerAppId && ownerAppId === schedulerAppId);
+}
+
 // Skip the DB query on every tick if we recently confirmed no jobs exist.
 // `_hasJobsCache` is invalidated whenever a `jobs/*` resource is written or
 // deleted (subscribed below), and refreshed at most every 5 minutes.
@@ -197,6 +207,11 @@ export async function processRecurringJobs(deps: SchedulerDeps): Promise<void> {
       if (resource.path.endsWith(".keep")) continue;
 
       const { meta, body } = parseJobFrontmatter(resource.content);
+      // Jobs written before app ownership was persisted remain compatible with
+      // the shared scheduler. Once a job declares an owner, only that app may
+      // evaluate or execute it. Without this boundary every app's scheduled
+      // worker can claim the same organization resource.
+      if (!jobBelongsToApp(meta, deps.appId)) continue;
       healthOrgIds.add(meta.orgId ?? null);
 
       // Skip disabled or missing schedule

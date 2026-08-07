@@ -22,6 +22,7 @@ import {
 export interface RunAutomationNowInput {
   userEmail: string;
   orgId?: string | null;
+  appId?: string | null;
   scope: AutomationScope;
   name: string;
 }

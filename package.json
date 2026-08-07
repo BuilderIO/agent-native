@@ -52,6 +52,7 @@
     "oxlint": "oxlint --config .oxlintrc.json .",
     "dev:cli": "tsx packages/core/src/cli/index.ts",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",
+    "guard:no-pnpm-patches": "tsx scripts/guard-no-pnpm-patches.ts",
     "guard:no-empty-migrations": "tsx scripts/guard-no-empty-migrations.ts",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",
     "guard:no-env-credentials": "node scripts/guard-no-env-credentials.mjs",

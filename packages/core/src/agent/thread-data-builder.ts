@@ -30,6 +30,7 @@ interface ContentPart {
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }
 
 interface BuildAssistantMessageOptions {
@@ -194,6 +195,41 @@ export function buildAssistantMessage(
         argsText: JSON.stringify(args),
         args,
       });
+      continue;
+    }
+
+    if (event.type === "approval_required") {
+      let matchingIndex = -1;
+      if (event.toolCallId) {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolCallId === event.toolCallId &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
+          }
+        }
+      } else {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolName === event.tool &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
+          }
+        }
+      }
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.approval = { approvalKey: event.approvalKey };
+      }
       continue;
     }
 

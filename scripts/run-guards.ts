@@ -3,6 +3,7 @@ import os from "node:os";
 
 const guards = [
   "guard:no-drizzle-push",
+  "guard:no-pnpm-patches",
   "guard:no-empty-migrations",
   "guard:no-unscoped-queries",
   "guard:no-env-credentials",
