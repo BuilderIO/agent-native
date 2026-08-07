@@ -276,6 +276,8 @@ export interface ActionRouteAuthAdapter {
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
+  /** Hosting app/template id used for app-owned action resources. */
+  appId?: string;
   /** Resolve display name from the H3 event, when available. */
   getUserNameFromEvent?: (
     event: any,
@@ -589,6 +591,7 @@ export function mountActionRoutes(
               const result = await entry.run(params, {
                 userEmail,
                 orgId: orgId ?? null,
+                appId: options?.appId,
                 caller,
                 requestHeaders: event.headers,
                 actionName: name,

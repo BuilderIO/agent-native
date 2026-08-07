@@ -348,6 +348,15 @@ function isServerlessRequestRuntime(): boolean {
 }
 
 /**
+ * Whether this deployment has a release-time migration runner. Request-path
+ * migration skipping is safe only when that runner owns schema setup.
+ */
+function appMigratesAtRelease(): boolean {
+  const raw = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim();
+  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
+/**
  * A runtime that is ALLOWED to migrate: release scripts, scheduled jobs, and
  * durable background workers, which are off the request path and may take as
  * long as they need. Claimed with {@link withMigrationRuntime}.
@@ -445,6 +454,7 @@ export function runMigrations(
     if (
       options?.runInServerlessRequest !== true &&
       isServerlessRequestRuntime() &&
+      appMigratesAtRelease() &&
       !isMigrationAuthorizedRuntime()
     ) {
       console.info(

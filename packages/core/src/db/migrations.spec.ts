@@ -157,6 +157,7 @@ describe("runMigrations – serverless request runtime", () => {
   for (const key of ENV_KEYS) {
     it(`does not touch the database when ${key} marks a serverless request`, async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
       vi.stubEnv(key, key === "NETLIFY" ? "true" : "1");
 
       const plugin = runMigrations(migrations, { table: "guard_migrations" });
@@ -166,6 +167,18 @@ describe("runMigrations – serverless request runtime", () => {
       expect(createDbExec).not.toHaveBeenCalled();
     });
   }
+
+  it("keeps request-time migrations when no release runner is configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
 
   it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
     // The Netlify BUILD environment sets NETLIFY=true, so the release
