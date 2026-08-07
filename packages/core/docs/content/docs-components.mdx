@@ -253,6 +253,8 @@ Aligning an image left or right turns it into a two-column row. The image sits o
 
 `alt` is required. `align` is `"full"` (the default), `"left"`, or `"right"`. `width` is an optional pixel hint for the image column when aligned, and has no effect on `"full"`. `caption` renders in small muted text under the image. Anything between the open and close tags is markdown, and becomes the paired text next to the image when aligned, or plain content below it when full width. Omit the children entirely for a self-closing `<Image ... />` with no paired text.
 
+Hovering the image reveals a top-right expand button that opens it in a larger popup. If the image has paired text (or a caption), the popup stacks it below the image instead of beside it, since the two-column layout only makes sense at the inline aligned size.
+
 For a plain full-width image with no paired text, omit `align` (or set it to `"full"`) and skip the children entirely:
 
 <Image

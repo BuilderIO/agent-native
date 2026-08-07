@@ -882,6 +882,108 @@ h4 {
   background: var(--bg-secondary);
 }
 
+.docs-media-figure-inner {
+  position: relative;
+}
+
+.docs-media-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--docs-border);
+  background: var(--bg);
+  color: var(--fg-secondary);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+}
+
+.docs-media-figure-inner:hover .docs-media-expand,
+.docs-media-expand:focus-visible {
+  opacity: 1;
+}
+
+.docs-media-expand:hover {
+  color: var(--fg);
+}
+
+.docs-media-expand-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.docs-media-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 24px;
+  cursor: zoom-out;
+}
+
+.docs-media-lightbox-panel {
+  max-height: 100%;
+  width: 100%;
+  max-width: 960px;
+  cursor: default;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.docs-media-lightbox-panel img,
+.docs-media-lightbox-panel video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--docs-border);
+}
+
+.docs-media-lightbox-panel .docs-media-caption,
+.docs-media-lightbox-panel .docs-media-text {
+  margin-top: 12px;
+}
+
+.docs-media-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  cursor: pointer;
+}
+
+.docs-media-lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.docs-media-lightbox-close-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .docs-media-caption {
   margin-top: 8px;
   font-size: 12px;
