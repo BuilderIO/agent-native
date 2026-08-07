@@ -1476,7 +1476,7 @@ export default async (nitroApp: any): Promise<void> => {
     Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
     Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
     Boolean(process.env.LAMBDA_TASK_ROOT);
-  if (isNetlifyServerlessRuntime) {
+  if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {
     console.info(
       "[db] Skipping Analytics migrations in production serverless runtime",
     );

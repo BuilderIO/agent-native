@@ -74,7 +74,7 @@ describe("createServer", () => {
     ]);
   });
 
-  it("returns redacted runtime configuration diagnostics from the public ping", async () => {
+  it("returns redacted built-in runtime diagnostics without an env-name oracle", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
     vi.stubEnv("BETTER_AUTH_SECRET", "a".repeat(64));
@@ -86,13 +86,9 @@ describe("createServer", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.configuration.status).toBe("error");
-    expect(body.configuration.issues).toEqual([
-      expect.objectContaining({
-        code: "missing-required-env",
-        envKeys: ["NOTION_API_KEY"],
-      }),
-    ]);
+    expect(body.configuration.status).toBe("ok");
+    expect(body.configuration.issues).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("NOTION_API_KEY");
     expect(JSON.stringify(body)).not.toContain("a".repeat(64));
   });
 

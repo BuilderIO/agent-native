@@ -6,6 +6,12 @@ const state = vi.hoisted(() => ({
   getDbExec: vi.fn(),
 }));
 
+declare global {
+  var __AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__:
+    | boolean
+    | undefined;
+}
+
 vi.mock("@agent-native/core/db", () => ({
   ensureAdditiveColumns: state.ensureAdditiveColumns,
   getDbExec: state.getDbExec,
@@ -24,6 +30,8 @@ const originalEnv = { ...process.env };
 describe("Analytics database plugin boot contract", () => {
   beforeEach(() => {
     process.env = { ...originalEnv, NODE_ENV: "production", NETLIFY: "true" };
+    globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ =
+      undefined;
     state.migrationPlugin.mockReset();
     state.ensureAdditiveColumns.mockClear();
     state.getDbExec.mockReset();
@@ -32,6 +40,8 @@ describe("Analytics database plugin boot contract", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ =
+      undefined;
   });
 
   it("does not touch the database in a production serverless boot", async () => {
@@ -42,6 +52,16 @@ describe("Analytics database plugin boot contract", () => {
     expect(state.migrationPlugin).not.toHaveBeenCalled();
     expect(state.ensureAdditiveColumns).not.toHaveBeenCalled();
     expect(state.getDbExec).not.toHaveBeenCalled();
+  });
+
+  it("runs migrations in the designated scheduled rollup worker", async () => {
+    globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ = true;
+    const register = (await import("./db")).default;
+
+    await register({});
+
+    expect(state.migrationPlugin).toHaveBeenCalledTimes(1);
+    expect(state.ensureAdditiveColumns).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the migration path available to an explicitly long-lived runtime", async () => {

@@ -72,14 +72,24 @@ describe("analytics rollup backfill job registration", () => {
     expect(intervalSpy).not.toHaveBeenCalled();
   });
 
-  it("does not start an interval in production Lambda runtimes", async () => {
+  it("keeps the interval enabled in production Lambda runtimes without a scheduler", async () => {
     process.env.NODE_ENV = "production";
     process.env.AWS_LAMBDA_FUNCTION_NAME = "analytics-handler";
 
     const register = await loadRegister();
     register();
 
-    expect(intervalSpy).not.toHaveBeenCalled();
+    expect(intervalSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the interval enabled in production Vercel runtimes without a scheduler", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.VERCEL = "1";
+
+    const register = await loadRegister();
+    register();
+
+    expect(intervalSpy).toHaveBeenCalledTimes(1);
   });
 
   it("uses the generated scheduled worker when its runtime marker is set", async () => {
