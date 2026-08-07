@@ -43,6 +43,10 @@ const BUILDER_WORKSPACE_REPO_URL_ENV = "AGENT_NATIVE_WORKSPACE_REPO_URL";
 const DEFAULT_BUILDER_WORKSPACE_REPO_URL =
   "https://github.com/BuilderIO/builder-agent-native-workspace";
 const DEFAULT_BUILDER_WORKSPACE_PROJECT_NAME = "Agent-Native Workspace";
+const APP_CREATION_SETTINGS_AUTHORIZATION_MESSAGE =
+  "Only organization owners and admins can update app creation settings.";
+const APP_CREATION_SETTINGS_REQUIRED_MESSAGE =
+  "An organization owner or admin must configure the Builder workspace project before members can create apps.";
 const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
@@ -57,6 +61,13 @@ const pendingBuilderProjectProvisioning = new Map<
   string,
   Promise<{ projectId: string }>
 >();
+
+class AppCreationSettingsAuthorizationError extends Error {
+  constructor() {
+    super(APP_CREATION_SETTINGS_AUTHORIZATION_MESSAGE);
+    this.name = "AppCreationSettingsAuthorizationError";
+  }
+}
 
 type WorkspaceAppAudience = "internal" | "public";
 
@@ -1665,6 +1676,7 @@ async function ensureBuilderProjectForWorkspace(): Promise<{
       return { projectId: current.builderProjectId };
     }
 
+    await assertCanManageAppCreationSettings();
     const project = await ensureBuilderProject({
       name: DEFAULT_BUILDER_WORKSPACE_PROJECT_NAME,
       repoUrl: builderWorkspaceRepoUrl(),
@@ -1777,9 +1789,7 @@ async function assertCanManageAppCreationSettings(): Promise<void> {
   if (!orgId) return;
   const role = await requestOwnerRole();
   if (role !== "owner" && role !== "admin") {
-    throw new Error(
-      "Only organization owners and admins can update app creation settings.",
-    );
+    throw new AppCreationSettingsAuthorizationError();
   }
 }
 
@@ -2007,6 +2017,7 @@ async function grantSelectedWorkspaceResources(input: {
  */
 export type AppCreationUnavailableReason =
   | "identity-not-linked"
+  | "settings-management-required"
   | "builder-not-connected"
   | "credential-store-unavailable"
   | "builder-error";
@@ -2173,6 +2184,15 @@ export async function startWorkspaceAppCreation(input: {
     try {
       builderProjectId = (await ensureBuilderProjectForWorkspace()).projectId;
     } catch (err) {
+      if (err instanceof AppCreationSettingsAuthorizationError) {
+        return {
+          mode: "builder-unavailable",
+          appId: built.appId,
+          reason: "settings-management-required",
+          projectId: "",
+          message: APP_CREATION_SETTINGS_REQUIRED_MESSAGE,
+        };
+      }
       const detail =
         err instanceof Error && err.message
           ? err.message

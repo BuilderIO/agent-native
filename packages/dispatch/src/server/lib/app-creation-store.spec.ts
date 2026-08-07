@@ -473,8 +473,13 @@ describe("startWorkspaceAppCreation", () => {
     };
   }
 
-  function create(appId = "onboarding") {
-    return runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+  function create(
+    appId = "onboarding",
+    ctx: { userEmail: string; orgId?: string } = {
+      userEmail: "dev@example.test",
+    },
+  ) {
+    return runWithRequestContext(ctx, () =>
       startWorkspaceAppCreation({ prompt: "Track onboarding tasks", appId }),
     );
   }
@@ -591,6 +596,31 @@ describe("startWorkspaceAppCreation", () => {
         value: "project-provisioned",
       }),
     );
+  });
+
+  it("does not let an organization member persist an auto-provisioned project", async () => {
+    stubHostedRuntime();
+    mocks.state.orgRole = "member";
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "builder_io",
+    })) as any;
+
+    expect(result).toMatchObject({
+      mode: "builder-unavailable",
+      reason: "settings-management-required",
+    });
+    expect(mocks.ensureBuilderProject).not.toHaveBeenCalled();
+    expect(mocks.putSetting).not.toHaveBeenCalled();
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 });
 
