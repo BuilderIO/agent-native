@@ -4991,6 +4991,137 @@ describe("server/auth", () => {
     });
   });
 
+  describe("local dev auth convenience", () => {
+    it("mounts the route and reuses the existing auto dev account session", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+
+      const createBetterAuthSessionForEmail = vi.fn(async (email: string) =>
+        email === "dev@local.test"
+          ? { email, token: "better-auth-dev-session", userId: "dev-user" }
+          : null,
+      );
+      const signUpEmail = vi.fn();
+      vi.doMock("./better-auth-instance.js", () => ({
+        createBetterAuthSessionForEmail,
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+        isDeployPreview: vi.fn(() => false),
+      }));
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const localDevHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/local-dev",
+      )?.[1];
+      expect(localDevHandler).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/_agent-native/auth/local-dev",
+      });
+      const socket = { remoteAddress: "127.0.0.1" };
+      event.req.context = { clientAddress: "127.0.0.1" };
+      event.req.ip = "127.0.0.1";
+      event.node.req.socket = socket;
+      event.node.req.connection = socket;
+      event.req.method = "POST";
+      event.node.req.method = "POST";
+
+      await expect(localDevHandler(event)).resolves.toEqual({ ok: true });
+      expect(createBetterAuthSessionForEmail).toHaveBeenCalledWith(
+        "dev@local.test",
+        expect.any(Object),
+      );
+      expect(signUpEmail).not.toHaveBeenCalled();
+      expect(event.res.headers.get("set-cookie")).toContain(
+        "better-auth-dev-session",
+      );
+    });
+
+    it("keeps the endpoint out of custom auth and rejects production, previews, and remote peers", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      delete process.env.AUTH_DISABLED;
+      delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+      delete process.env.CONTEXT;
+      delete process.env.AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT;
+      const authModule = await import("./auth.js");
+      const localEvent = createMockEvent({
+        path: "/_agent-native/auth/local-dev",
+      });
+      const localSocket = { remoteAddress: "127.0.0.1" };
+      localEvent.req.context = { clientAddress: "127.0.0.1" };
+      localEvent.req.ip = "127.0.0.1";
+      localEvent.node.req.socket = localSocket;
+      localEvent.node.req.connection = localSocket;
+
+      expect(authModule.isLocalDevAuthAllowed(localEvent)).toBe(true);
+
+      vi.stubEnv("NODE_ENV", "production");
+      expect(authModule.isLocalDevAuthAllowed(localEvent)).toBe(false);
+
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AGENT_NATIVE_BUILD_DEPLOY_CONTEXT", "deploy-preview");
+      expect(authModule.isLocalDevAuthAllowed(localEvent)).toBe(false);
+
+      delete process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT;
+      const remoteEvent = createMockEvent({
+        path: "/_agent-native/auth/local-dev",
+      });
+      remoteEvent.node.req.socket = { remoteAddress: "203.0.113.5" };
+      remoteEvent.node.req.connection = remoteEvent.node.req.socket;
+      expect(authModule.isLocalDevAuthAllowed(remoteEvent)).toBe(false);
+
+      const app = createMockApp();
+      await authModule.autoMountAuth(app, {
+        getSession: async () => null,
+      });
+      expect(
+        app.use.mock.calls.some(
+          (call: any[]) => call[0] === "/_agent-native/auth/local-dev",
+        ),
+      ).toBe(false);
+    });
+
+    it("mounts the local-dev route in the fallback route set", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => {
+          throw new Error("auth init failed");
+        }),
+        getBetterAuthSync: vi.fn(() => undefined),
+        isDeployPreview: vi.fn(() => false),
+      }));
+      const authModule = await import("./auth.js");
+      const app = createMockApp();
+      await authModule.autoMountAuth(app);
+
+      expect(
+        app.use.mock.calls.some(
+          (call: any[]) => call[0] === "/_agent-native/auth/local-dev",
+        ),
+      ).toBe(true);
+    });
+  });
+
   // Regression guard: better-auth 1.6.0 validates emails with Zod v4's
   // `z.email()`. The original auto dev-account email `dev@local` has no
   // TLD and is rejected as INVALID_EMAIL, which silently broke the

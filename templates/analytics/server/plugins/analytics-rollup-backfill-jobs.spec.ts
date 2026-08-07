@@ -16,6 +16,7 @@ function resetEnv() {
   delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   delete process.env.LAMBDA_TASK_ROOT;
   delete process.env.AWS_EXECUTION_ENV;
+  delete process.env.CF_PAGES;
   delete process.env.VERCEL;
   delete process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS;
   delete process.env.RUN_BACKGROUND_JOBS;
@@ -71,14 +72,24 @@ describe("analytics rollup backfill job registration", () => {
     expect(intervalSpy).not.toHaveBeenCalled();
   });
 
-  it("keeps the fallback interval enabled for production Lambda runtimes", async () => {
+  it("keeps the interval disabled in production Lambda runtimes without an explicit flag", async () => {
     process.env.NODE_ENV = "production";
     process.env.AWS_LAMBDA_FUNCTION_NAME = "analytics-handler";
 
     const register = await loadRegister();
     register();
 
-    expect(intervalSpy).toHaveBeenCalledTimes(1);
+    expect(intervalSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the interval disabled in production Vercel runtimes without an explicit flag", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.VERCEL = "1";
+
+    const register = await loadRegister();
+    register();
+
+    expect(intervalSpy).not.toHaveBeenCalled();
   });
 
   it("uses the generated scheduled worker when its runtime marker is set", async () => {
@@ -91,8 +102,18 @@ describe("analytics rollup backfill job registration", () => {
     expect(intervalSpy).not.toHaveBeenCalled();
   });
 
-  it("keeps intervals enabled for long-lived production servers", async () => {
+  it("requires an explicit flag for long-lived production servers", async () => {
     process.env.NODE_ENV = "production";
+
+    const register = await loadRegister();
+    register();
+
+    expect(intervalSpy).not.toHaveBeenCalled();
+  });
+
+  it("enables the interval only when explicitly requested", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS = "1";
 
     const register = await loadRegister();
     register();

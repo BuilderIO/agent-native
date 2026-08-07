@@ -126,6 +126,7 @@ const {
   handleMcpOAuthProtectedResourceMetadata,
   getMcpOAuthAudiences,
 } = await import("./oauth-route.js");
+const { MCP_LEGACY_ROUTE_PREFIX } = await import("./route-paths.js");
 const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 function event(
@@ -241,6 +242,19 @@ describe("MCP OAuth route", () => {
     ]);
   });
 
+  it("preserves the legacy resource identity during OAuth discovery", async () => {
+    const protectedRes = handleMcpOAuthProtectedResourceMetadata(
+      event({ query: { resource: MCP_LEGACY_ROUTE_PREFIX } }),
+    );
+    await expect(protectedRes.json()).resolves.toMatchObject({
+      resource: `https://mail.agent-native.com${MCP_LEGACY_ROUTE_PREFIX}`,
+      authorization_servers: ["https://mail.agent-native.com"],
+    });
+    expect(buildMcpOAuthChallenge(event(), MCP_LEGACY_ROUTE_PREFIX)).toContain(
+      `resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=%2F_agent-native%2Fmcp"`,
+    );
+  });
+
   it("registers public OAuth clients with safe redirect URIs", async () => {
     const res = await handleMcpOAuth(
       event({
@@ -310,7 +324,11 @@ describe("MCP OAuth route", () => {
           client_id: clientId,
           client_name: "Claude",
           redirect_uris: [redirectUri],
-          grant_types: ["authorization_code", "refresh_token"],
+          grant_types: [
+            "authorization_code",
+            "refresh_token",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+          ],
           response_types: ["code"],
           token_endpoint_auth_method: "none",
           application_type: "native",

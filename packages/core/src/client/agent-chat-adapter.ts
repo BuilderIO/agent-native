@@ -2803,20 +2803,41 @@ export function createAgentChatAdapter(
               return "completed";
             }
             let active: Record<string, unknown> | null = null;
+            // "The poll failed" and "the server reports no active run" are
+            // different facts. Only the second one is evidence the run is
+            // gone; coercing the first into the second lets a flaky network
+            // tick drive a durable abort of a run that is still working.
+            let activeUnreadable = false;
             try {
               const activeRes = await fetch(
                 `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId!)}`,
                 { signal: abortSignal },
               );
               if (activeRes.ok) {
-                active = await activeRes.json().catch(() => null);
+                active = await activeRes.json().catch(() => {
+                  activeUnreadable = true;
+                  return null;
+                });
+              } else {
+                // A 5xx/404 from this route is the route failing, not the run
+                // ending.
+                activeUnreadable = true;
               }
             } catch (pollErr: unknown) {
               if (pollErr instanceof Error && pollErr.name === "AbortError") {
                 clearActiveRun();
                 return "completed";
               }
-              // Transient poll failure — counts as "no active run" this tick.
+              activeUnreadable = true;
+            }
+            if (activeUnreadable) {
+              // Unreadable: learn nothing, decide nothing, wait and re-ask.
+              await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
+              if (abortSignal.aborted) {
+                clearActiveRun();
+                return "completed";
+              }
+              continue;
             }
 
             const activeRunId =
@@ -2960,11 +2981,73 @@ export function createAgentChatAdapter(
                 });
                 return "completed";
               }
-              const activeProgressAt =
+              // Progress read from the PRE-attach snapshot first...
+              const snapshotProgressAt =
                 typeof active?.lastProgressAt === "number" &&
                 Number.isFinite(active.lastProgressAt)
                   ? active.lastProgressAt
                   : null;
+              const snapshotSaysStalled =
+                lastObservedServerProgressAt !== null &&
+                (snapshotProgressAt === null ||
+                  snapshotProgressAt <= lastObservedServerProgressAt);
+              // ...and re-read ONLY when that snapshot would condemn the run.
+              //
+              // `active` was fetched at the top of this iteration and the attach
+              // above blocked for its whole duration, so judging progress from
+              // it asks "did the server advance before we started listening?" —
+              // never the question. A run that streamed text and a complete
+              // tool-argument payload DURING the attach still looked frozen, and
+              // the client durably aborted it. Measured fleet-wide: 23 of 24
+              // client-watchdog kills landed on runs that had made
+              // server-authoritative progress within the previous 90 seconds.
+              //
+              // Re-reading only on the condemning path keeps the extra request
+              // off the healthy path entirely: a run already observed to be
+              // advancing needs no second opinion.
+              let activeProgressAt = snapshotProgressAt;
+              // Set when the second opinion could not be obtained. The
+              // snapshot is NOT a safe fallback here: it is precisely the
+              // value that condemns the run, so falling back to it turns a
+              // network blip into a kill.
+              let secondOpinionUnreadable = false;
+              if (snapshotSaysStalled) {
+                try {
+                  const freshRes = await fetch(
+                    `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId!)}`,
+                    { signal: abortSignal },
+                  );
+                  if (!freshRes.ok) {
+                    // The route failing is not the run ending.
+                    secondOpinionUnreadable = true;
+                  } else {
+                    const fresh = await freshRes.json().catch(() => {
+                      secondOpinionUnreadable = true;
+                      return null;
+                    });
+                    const freshProgressAt =
+                      typeof fresh?.lastProgressAt === "number" &&
+                      Number.isFinite(fresh.lastProgressAt)
+                        ? fresh.lastProgressAt
+                        : null;
+                    if (freshProgressAt !== null) {
+                      activeProgressAt =
+                        snapshotProgressAt === null
+                          ? freshProgressAt
+                          : Math.max(snapshotProgressAt, freshProgressAt);
+                    }
+                  }
+                } catch (refetchErr: unknown) {
+                  if (
+                    refetchErr instanceof Error &&
+                    refetchErr.name === "AbortError"
+                  ) {
+                    clearActiveRun();
+                    return "completed";
+                  }
+                  secondOpinionUnreadable = true;
+                }
+              }
               const runChanged = activeRunId !== lastObservedActiveRunId;
               const serverProgressAdvanced =
                 activeProgressAt !== null &&
@@ -2993,7 +3076,11 @@ export function createAgentChatAdapter(
               // existing timeout below.
               const awaitingRedispatch = active?.awaitingRedispatch === true;
               const madeProgress = runChanged || serverProgressAdvanced;
-              if (madeProgress || awaitingRedispatch) {
+              if (
+                madeProgress ||
+                awaitingRedispatch ||
+                secondOpinionUnreadable
+              ) {
                 // Only server-authoritative progress resets the idle window:
                 // a successor run or a newer lastProgressAt timestamp. Raw
                 // sequence advancement is not enough — keepalives and retry

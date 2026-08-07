@@ -303,6 +303,32 @@ describe("useBuilderConnectFlow", () => {
     );
   });
 
+  it("treats a successful click-time status refresh as authoritative", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new Error("status unavailable"))
+      .mockResolvedValueOnce(jsonResponse(connectedBuilderStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured idle unresolved");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("configured connecting resolved");
+  });
+
   it("does not probe Builder status when disabled", async () => {
     await act(async () => {
       root.render(<BuilderConnectProbe enabled={false} />);

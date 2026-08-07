@@ -38,6 +38,7 @@ export const dashboards = table("dashboards", {
   /** Hidden dashboards are omitted from default navigation but remain openable. */
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
+  folderId: text("folder_id"),
   /** Last authenticated user who changed dashboard metadata/config, if tracked. */
   updatedBy: text("updated_by"),
   ...ownableColumns(),
@@ -54,6 +55,19 @@ export const dashboardNameLocks = table("dashboard_name_locks", {
 });
 
 export const dashboardShares = createSharesTable("dashboard_shares");
+
+export const dashboardFolders = table("dashboard_folders", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  scope: text("scope", { enum: ["personal", "shared"] }).notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const dashboardFolderShares = createSharesTable(
+  "dashboard_folder_shares",
+);
 
 /**
  * Bounded dashboard history. Each row snapshots the previous dashboard config

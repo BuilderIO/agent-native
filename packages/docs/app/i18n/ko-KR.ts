@@ -1484,7 +1484,6 @@ const koKR = {
     templatesSection: "앱",
     gettingStarted: "시작하기",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "Agent-Native란?",
     agentSurfaces: "Agent 표면",

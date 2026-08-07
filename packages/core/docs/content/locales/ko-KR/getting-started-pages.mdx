@@ -1,0 +1,65 @@
+---
+title: "페이지 추가하기"
+description: "액션을 호출하고 그 결과를 표시하는 React 라우트를 만드세요."
+---
+
+# 페이지 추가하기
+
+시작하기 시리즈의 세 번째 단계입니다. [액션 추가하기](/docs/getting-started-actions)에서 `analyze-text`를 만들었습니다. 여기서는 동일한 액션을 라우트에서 호출합니다. 아직 데이터베이스는 필요하지 않습니다. 도메인 데이터를 저장해야 할 때를 위해 Chat에는 SQL 런타임이 이미 포함되어 있습니다.
+
+## 라우트 만들기 {#add-a-page}
+
+`app/routes/`의 라우트 파일은 자동으로 인식됩니다. `app/routes/text-analyses.tsx`를 만들면 `http://localhost:8080/text-analyses`에서 사용할 수 있습니다.
+
+```tsx filename="app/routes/text-analyses.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+type TextAnalysis = {
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
+};
+
+export default function TextAnalysesRoute() {
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
+  );
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">The same action, on a page.</p>
+      </header>
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery`는 에이전트가 사용하는 것과 동일한 읽기 전용 액션을 호출합니다. 이 페이지에는 사용자 지정 API 라우트, 별도의 데이터 계층, SQL이 아직 필요하지 않습니다.
+
+`http://localhost:8080/text-analyses`를 열거나 에이전트에게 다음과 같이 요청하세요:
+
+> Navigate to `/text-analyses`.
+
+이 튜토리얼에서는 라우트만으로 충분합니다. 주요 워크플로가 되면 나중에 사이드바 항목을 추가하세요. 전체 `view-screen`, `navigate`, 애플리케이션 상태 패턴은 [컨텍스트 인식](/docs/context-awareness)에서 확인할 수 있습니다.
+
+## 다음 단계
+
+동일한 소스를 호출하는 액션과 페이지가 있는 채팅 앱을 만들었습니다. [핵심 개념](/docs/key-concepts)과 [에이전트 표면](/docs/agent-surfaces)에서 아키텍처를 살펴보세요.

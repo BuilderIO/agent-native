@@ -60,6 +60,18 @@ registerShareableResource({
 });
 
 registerShareableResource({
+  type: "dashboard-folder",
+  resourceTable: schema.dashboardFolders,
+  sharesTable: schema.dashboardFolderShares,
+  displayName: "Dashboard folder",
+  titleColumn: "name",
+  getResourcePath: (folder) => `/dashboards?folder=${folder.id}`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
+  getDb,
+});
+
+registerShareableResource({
   type: "analysis",
   resourceTable: schema.analyses,
   sharesTable: schema.analysisShares,

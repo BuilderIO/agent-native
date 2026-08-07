@@ -41,7 +41,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import { cn } from "../../lib/utils";
 import {
@@ -147,6 +147,7 @@ function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
     return true;
+  if (pathname.startsWith("/apps/")) return true;
   return false;
 }
 
@@ -556,7 +557,7 @@ export function NavContent({
         {collapsed ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <NavLink
+              <Link
                 to={dispatchNavLinkTarget(item.to)}
                 onClick={(event) => {
                   if (
@@ -578,27 +579,24 @@ export function NavContent({
                   onNavigate?.();
                 }}
                 aria-label={label}
-                className={({ isActive }) => {
-                  const active = isActive || itemMatchesLocalPath;
-                  return cn(
-                    "flex h-8 w-8 items-center justify-center rounded-md text-sm",
-                    active
-                      ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  );
-                }}
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-md text-sm",
+                  itemMatchesLocalPath
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                )}
               >
                 {Icon ? (
                   <Icon size={16} className="shrink-0" />
                 ) : (
                   <span className="h-4 w-4 shrink-0" aria-hidden="true" />
                 )}
-              </NavLink>
+              </Link>
             </TooltipTrigger>
             <TooltipContent side="right">{label}</TooltipContent>
           </Tooltip>
         ) : (
-          <NavLink
+          <Link
             to={dispatchNavLinkTarget(item.to)}
             onClick={(event) => {
               if (
@@ -619,15 +617,12 @@ export function NavContent({
               }
               onNavigate?.();
             }}
-            className={({ isActive }) => {
-              const active = isActive || itemMatchesLocalPath;
-              return cn(
-                "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-                active
-                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              );
-            }}
+            className={cn(
+              "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+              itemMatchesLocalPath
+                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            )}
           >
             {Icon ? (
               <Icon size={16} className="shrink-0" />
@@ -635,7 +630,7 @@ export function NavContent({
               <span className="h-4 w-4 shrink-0" aria-hidden="true" />
             )}
             <span className="truncate">{label}</span>
-          </NavLink>
+          </Link>
         )}
         {!collapsed && item.id === "chat" && itemMatchesLocalPath ? (
           <DispatchChatsSection onNavigate={onNavigate} />
@@ -646,46 +641,55 @@ export function NavContent({
 
   return (
     <>
-      <div className={cn("border-b py-3", collapsed ? "px-1" : "px-4")}>
+      <div
+        className={cn(
+          "flex h-12 shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "justify-center px-0" : "px-4",
+        )}
+      >
         <div
           className={cn(
             "flex items-center",
             collapsed ? "justify-center" : "gap-2",
           )}
         >
+          <img
+            src={appPath("/agent-native-icon-light.svg")}
+            alt=""
+            aria-hidden="true"
+            width={35}
+            height={20}
+            className={cn(
+              "block shrink-0 object-contain object-center dark:hidden",
+              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
+            )}
+          />
+          <img
+            src={appPath("/agent-native-icon-dark.svg")}
+            alt=""
+            aria-hidden="true"
+            width={35}
+            height={20}
+            className={cn(
+              "hidden shrink-0 object-contain object-center dark:block",
+              collapsed ? "h-4 w-7" : "h-5 w-[35px]",
+            )}
+          />
           {!collapsed && (
-            <>
-              <img
-                src={appPath("/agent-native-icon-light.svg")}
-                alt=""
-                aria-hidden="true"
-                width={35}
-                height={20}
-                className="block h-5 w-[35px] shrink-0 object-contain object-center dark:hidden"
-              />
-              <img
-                src={appPath("/agent-native-icon-dark.svg")}
-                alt=""
-                aria-hidden="true"
-                width={35}
-                height={20}
-                className="hidden h-5 w-[35px] shrink-0 object-contain object-center dark:block"
-              />
-              <div className="min-w-0 flex-1">
-                <div
-                  data-dispatch-sidebar-label
-                  className="truncate text-lg font-bold tracking-tight text-foreground"
-                >
-                  {DISPATCH_SIDEBAR_LABEL}
-                </div>
+            <div className="min-w-0 flex-1">
+              <div
+                data-dispatch-sidebar-label
+                className="truncate text-lg font-bold tracking-tight text-foreground"
+              >
+                {DISPATCH_SIDEBAR_LABEL}
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <nav className={cn("py-3", collapsed ? "px-1" : "px-2")}>
+        <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
           <ul
             className={cn(
               collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
@@ -698,7 +702,7 @@ export function NavContent({
         </nav>
 
         <div className="mt-auto shrink-0">
-          <nav className={cn("py-1", collapsed ? "px-1" : "px-2")}>
+          <nav className={cn("py-1", collapsed ? "px-1.5" : "px-2")}>
             <ul
               className={cn(
                 collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
@@ -751,6 +755,9 @@ export function Layout({
   const localPathname = localDispatchPath(location.pathname);
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
+  const isWorkspaceAppHostRoute = localPathname.startsWith("/apps/");
+  const sidebarBeforeAppRef = useRef<boolean | null>(null);
+  const sidebarAutoCollapsedRef = useRef(false);
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "dispatch",
     activePath: localPathname,
@@ -765,7 +772,29 @@ export function Layout({
   useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (isWorkspaceAppHostRoute) {
+      if (!sidebarAutoCollapsedRef.current) {
+        sidebarAutoCollapsedRef.current = true;
+        sidebarBeforeAppRef.current = sidebarCollapsed;
+      }
+      if (!sidebarCollapsed) setSidebarCollapsed(true);
+      return;
+    }
+
+    if (!sidebarAutoCollapsedRef.current) return;
+    sidebarAutoCollapsedRef.current = false;
+    const previousSidebarState = sidebarBeforeAppRef.current;
+    sidebarBeforeAppRef.current = null;
+    if (
+      previousSidebarState !== null &&
+      previousSidebarState !== sidebarCollapsed
+    ) {
+      setSidebarCollapsed(previousSidebarState);
+    }
+  }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || isWorkspaceAppHostRoute) return;
     try {
       window.localStorage.setItem(
         SIDEBAR_COLLAPSE_KEY,
@@ -774,7 +803,7 @@ export function Layout({
     } catch {
       // Ignore storage failures; the in-memory preference still works.
     }
-  }, [sidebarCollapsed]);
+  }, [isWorkspaceAppHostRoute, sidebarCollapsed]);
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
@@ -800,7 +829,9 @@ export function Layout({
       <main
         className={cn(
           "flex-1",
-          isChatRoute ? "min-h-0 overflow-hidden" : "overflow-y-auto",
+          isChatRoute || isWorkspaceAppHostRoute
+            ? "min-h-0 overflow-hidden"
+            : "overflow-y-auto",
         )}
       >
         {showHeader ? (
@@ -840,7 +871,7 @@ export function Layout({
           <aside
             data-collapsed={sidebarCollapsed ? "true" : "false"}
             className={cn(
-              "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+              "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
               sidebarCollapsed ? "w-14" : "w-56",
             )}
           >

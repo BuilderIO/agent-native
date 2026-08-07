@@ -6,7 +6,8 @@ const mocks = vi.hoisted(() => ({
   getBackend: vi.fn(),
   saveBackend: vi.fn(),
   assertReady: vi.fn(),
-  backfill: vi.fn(),
+  getJob: vi.fn(),
+  queueJob: vi.fn(),
   requireAnalyticsAdminContext: vi.fn(),
 }));
 
@@ -21,7 +22,10 @@ vi.mock("../server/lib/first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsBackend: mocks.getBackend,
   saveFirstPartyAnalyticsBackend: mocks.saveBackend,
   assertFirstPartyAnalyticsBigQueryReady: mocks.assertReady,
-  backfillFirstPartyAnalyticsBatch: mocks.backfill,
+}));
+vi.mock("../server/jobs/analytics-bigquery-backfill.js", () => ({
+  getFirstPartyAnalyticsBigQueryBackfillJob: mocks.getJob,
+  queueFirstPartyAnalyticsBigQueryBackfill: mocks.queueJob,
 }));
 vi.mock("../server/lib/db-admin-connections.js", () => ({
   requireAnalyticsAdminContext: mocks.requireAnalyticsAdminContext,
@@ -38,7 +42,8 @@ beforeEach(() => {
   mocks.getBackend.mockReset();
   mocks.saveBackend.mockReset();
   mocks.assertReady.mockReset();
-  mocks.backfill.mockReset();
+  mocks.getJob.mockReset();
+  mocks.queueJob.mockReset();
   mocks.requireAnalyticsAdminContext.mockReset();
   mocks.getRequestOrgId.mockReturnValue("org_builder");
   mocks.getRequestUserEmail.mockReturnValue("owner@builder.io");
@@ -63,6 +68,23 @@ beforeEach(() => {
     rowCount: 0,
   });
   mocks.saveBackend.mockResolvedValue(undefined);
+  mocks.getJob.mockResolvedValue(null);
+  mocks.queueJob.mockResolvedValue({
+    id: "first-party-analytics:org_builder",
+    orgId: "org_builder",
+    ownerEmail: "owner@builder.io",
+    table,
+    batchSize: 250,
+    cursor: null,
+    status: "pending",
+    copied: 0,
+    leaseToken: null,
+    leaseExpiresAt: null,
+    nextRunAt: "2026-08-07T00:00:00.000Z",
+    lastError: null,
+    completedAt: null,
+    updatedAt: "2026-08-07T00:00:00.000Z",
+  });
 });
 
 describe("migrate-first-party-analytics-to-bigquery action", () => {
@@ -79,12 +101,12 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
     expect(migrateAction.needsApproval({ mode: "backfill" })).toBe(false);
   });
 
-  it("accepts a larger bounded backfill batch without allowing unbounded input", () => {
+  it("accepts a bounded worker batch without allowing unbounded input", () => {
     expect(() =>
-      migrateAction.schema.parse({ mode: "backfill", limit: 5_000 }),
+      migrateAction.schema.parse({ mode: "backfill", limit: 750 }),
     ).not.toThrow();
     expect(() =>
-      migrateAction.schema.parse({ mode: "backfill", limit: 5_001 }),
+      migrateAction.schema.parse({ mode: "backfill", limit: 751 }),
     ).toThrow();
   });
 
@@ -94,6 +116,12 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
     ).resolves.toMatchObject({ sink: "dual", table });
 
     expect(mocks.assertReady).toHaveBeenCalledWith(table);
+    expect(mocks.queueJob).toHaveBeenCalledWith(
+      { userEmail: "owner@builder.io", orgId: "org_builder" },
+      table,
+      undefined,
+      null,
+    );
     expect(mocks.saveBackend).toHaveBeenCalledWith(
       { userEmail: "owner@builder.io", orgId: "org_builder" },
       {
@@ -105,38 +133,91 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
     );
   });
 
-  it("advances the bounded backfill cursor", async () => {
+  it("preserves the legacy cursor when recovering a dual-write migration", async () => {
+    const legacyCursor = JSON.stringify({
+      receivedAt: "2026-08-07T00:00:00.000Z",
+      id: "evt_last",
+    });
     mocks.getBackend.mockResolvedValueOnce({
       sink: "dual",
       table,
-      backfillCursor: "evt_previous",
+      backfillCursor: legacyCursor,
       backfillCompleted: false,
     });
-    mocks.backfill.mockResolvedValueOnce({
-      nextCursor: "evt_next",
-      copied: 100,
-      complete: false,
+    mocks.assertReady.mockResolvedValueOnce({
+      table: {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified: table,
+      },
+      rowCount: 9_141_896,
     });
 
     await expect(
-      migrateAction.run({ mode: "backfill", limit: 100 }),
-    ).resolves.toMatchObject({ nextCursor: "evt_next", next: "backfill" });
+      migrateAction.run({ mode: "prepare", table }),
+    ).resolves.toMatchObject({ sink: "dual", table });
 
-    expect(mocks.backfill).toHaveBeenCalledWith(
-      { userEmail: "owner@builder.io", orgId: "org_builder" },
-      "evt_previous",
-      100,
-      table,
-    );
     expect(mocks.saveBackend).toHaveBeenCalledWith(
       { userEmail: "owner@builder.io", orgId: "org_builder" },
       {
         sink: "dual",
         table,
-        backfillCursor: "evt_next",
+        backfillCursor: legacyCursor,
         backfillCompleted: false,
       },
     );
+    expect(mocks.queueJob).toHaveBeenCalledWith(
+      { userEmail: "owner@builder.io", orgId: "org_builder" },
+      table,
+      undefined,
+      legacyCursor,
+    );
+  });
+
+  it("refuses to restart a dual-write migration with rows but no cursor", async () => {
+    mocks.getBackend.mockResolvedValueOnce({
+      sink: "dual",
+      table,
+      backfillCursor: null,
+      backfillCompleted: false,
+    });
+    mocks.assertReady.mockResolvedValueOnce({
+      table: {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified: table,
+      },
+      rowCount: 1,
+    });
+
+    await expect(migrateAction.run({ mode: "prepare", table })).rejects.toThrow(
+      "without its legacy cursor",
+    );
+    expect(mocks.saveBackend).not.toHaveBeenCalled();
+    expect(mocks.queueJob).not.toHaveBeenCalled();
+  });
+
+  it("queues the durable backfill worker instead of running in the request", async () => {
+    mocks.getBackend.mockResolvedValueOnce({
+      sink: "dual",
+      table,
+      backfillCursor: null,
+      backfillCompleted: false,
+    });
+    mocks.getJob.mockResolvedValueOnce({
+      status: "pending" as const,
+      table,
+      cursor: null,
+    });
+
+    await expect(
+      migrateAction.run({ mode: "backfill", limit: 100 }),
+    ).resolves.toMatchObject({ queued: true, next: "backfill", table });
+
+    expect(mocks.queueJob).not.toHaveBeenCalled();
+    expect(mocks.saveBackend).not.toHaveBeenCalled();
   });
 
   it("refuses cutover until the backfill is complete and confirmed", async () => {
@@ -146,6 +227,7 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
       backfillCursor: "evt_next",
       backfillCompleted: false,
     });
+    mocks.getJob.mockResolvedValueOnce({ status: "pending" });
 
     await expect(migrateAction.run({ mode: "cutover" })).rejects.toThrow(
       "confirm=true",
@@ -159,7 +241,11 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
       sink: "dual",
       table,
       backfillCursor: "evt_last",
-      backfillCompleted: true,
+      backfillCompleted: false,
+    });
+    mocks.getJob.mockResolvedValueOnce({
+      status: "completed",
+      cursor: "evt_last",
     });
 
     await expect(

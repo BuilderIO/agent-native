@@ -82,6 +82,8 @@ export interface SharedDeckResponse {
   title: string;
   slides: SharedDeckSlide[];
   aspectRatio?: import("./aspect-ratios").AspectRatio;
+  /** Resolved at share creation so public links keep the deck's styling. */
+  designSystem?: DesignSystemData;
 }
 
 export type SharedSlideTransition =

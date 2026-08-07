@@ -872,13 +872,14 @@ export async function loadResourcesForPrompt(
       addSection(block, "required");
     }
 
-    // 2. Template AGENTS.md — always included (critical template instructions).
-    if (bundle.agentsMd.trim()) {
+    // 2. Runtime instruction file — always included when configured.
+    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+    if (runtimeAgentsMd.trim()) {
       const block = promptResourceBlock({
         name: "AGENTS.md",
         scope: "template",
         path: "AGENTS.md",
-        content: bundle.agentsMd,
+        content: runtimeAgentsMd,
         maxChars: promptResourceMaxChars,
         readHint:
           'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',

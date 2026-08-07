@@ -24,6 +24,11 @@ describe("Dispatch agent chat plugin", () => {
       expect.objectContaining({
         appId: "dispatch",
         durableBackgroundRuns: true,
+        mcp: {
+          connectorCatalog: expect.arrayContaining([
+            "start-workspace-app-creation",
+          ]),
+        },
       }),
     );
   });

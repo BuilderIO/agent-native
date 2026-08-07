@@ -1,16 +1,15 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
-  applyText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
-import {
   buildDeepLink,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import {
+  DASHBOARD_COLLAB_SYNC_TIMEOUT_MS,
+  queueDashboardCollabSync,
+} from "../server/lib/dashboard-collab-sync";
 import {
   getDashboard,
   upsertDashboardWithRetry,
@@ -169,24 +168,6 @@ function resolveDashboardId(args: { dashboardId?: string; id?: string }) {
 
 function cloneConfig(config: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
-}
-
-async function syncToCollab(
-  dashboardId: string,
-  config: Record<string, unknown>,
-): Promise<void> {
-  const docId = `dash-${dashboardId}`;
-  const configStr = JSON.stringify(config);
-  try {
-    const exists = await hasCollabState(docId);
-    if (exists) {
-      await applyText(docId, configStr, "content", "agent");
-    } else {
-      await seedFromText(docId, configStr);
-    }
-  } catch {
-    // SQL remains the source of truth; live collab sync is best-effort.
-  }
 }
 
 function sqlValidationScope(
@@ -399,7 +380,10 @@ export default defineAction({
       // structurally identical to the winning attempt's `root`, but reflects
       // exactly what was saved.
       root = saved.config as Record<string, unknown>;
-      await syncToCollab(dashboardId, root);
+      // SQL is the durable source of truth. Collab sync is a convenience for
+      // already-open editors, so it must never hold the saved mutation hostage
+      // behind an unavailable database or a stale per-document write lock.
+      queueDashboardCollabSync(dashboardId, root, "agent");
     }
 
     const compact = compactDashboardResult(root, movedPanelIdsFrom(operations));
@@ -421,6 +405,14 @@ export default defineAction({
       insertedPanelIds: mutation.insertedPanelIds,
       removedPanelIds: mutation.removedPanelIds,
       dashboardFieldsChanged: mutation.dashboardFieldsChanged,
+      ...(args.dryRun === true
+        ? { collabSync: { status: "skipped" as const } }
+        : {
+            collabSync: {
+              status: "queued" as const,
+              timeoutMs: DASHBOARD_COLLAB_SYNC_TIMEOUT_MS,
+            },
+          }),
       ...(args.returnConfig === true ? { config: root } : {}),
       ...(args.returnTypes === true
         ? {

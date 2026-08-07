@@ -459,7 +459,7 @@ function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
               title={docsLabel ?? `Open ${label} documentation`}
               className="inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
             >
-              <IconHelpCircle className="size-3" />
+              <IconHelpCircle className="size-2.5" />
             </a>
           )}
         </div>

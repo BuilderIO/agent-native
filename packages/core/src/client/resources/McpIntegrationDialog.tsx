@@ -36,6 +36,7 @@ import {
   shouldOfferMcpOrganizationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
+import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
   formatMcpServerError,
   getMcpUrlValidationError,
@@ -62,40 +63,6 @@ export interface McpIntegrationDialogProps {
 interface TestResult {
   ok: boolean;
   message: string;
-}
-
-function IntegrationLogo({ name, logoUrl }: { name: string; logoUrl: string }) {
-  const [loaded, setLoaded] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
-
-  useEffect(() => {
-    setLoaded(false);
-    setLoadFailed(false);
-  }, [logoUrl]);
-
-  return (
-    <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground">
-      <span aria-hidden="true" hidden={loaded}>
-        {name.slice(0, 1)}
-      </span>
-      <img
-        src={logoUrl}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        className="absolute inset-1 h-6 w-6 object-contain"
-        hidden={loadFailed}
-        onLoad={() => {
-          setLoadFailed(false);
-          setLoaded(true);
-        }}
-        onError={() => {
-          setLoadFailed(true);
-          setLoaded(false);
-        }}
-      />
-    </div>
-  );
 }
 
 function parseHeaderLines(text: string): Record<string, string> | undefined {
@@ -573,9 +540,12 @@ export function McpIntegrationDialog({
                       className="flex min-h-[128px] flex-col rounded-md border border-border bg-card p-4 transition-colors hover:border-border/80 hover:bg-accent/20"
                     >
                       <div className="flex items-center gap-3">
-                        <IntegrationLogo
+                        <McpIntegrationLogo
                           name={integration.name}
                           logoUrl={integration.logoUrl}
+                          integrationId={integration.id}
+                          className="size-8 rounded-md"
+                          imageClassName="size-6"
                         />
                         <div className="min-w-0">
                           <h3 className="truncate text-[13px] font-semibold text-foreground">

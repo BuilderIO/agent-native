@@ -41,6 +41,12 @@ export {
   type SettingsRowProps,
 } from "./SettingsRow.js";
 export {
+  SettingsLoadingRow,
+  SettingsSkeleton,
+  type SettingsLoadingRowProps,
+  type SettingsSkeletonProps,
+} from "./SettingsSkeleton.js";
+export {
   normalizeSettingsSection,
   settingsSectionDomId,
   useSettingsPanelController,

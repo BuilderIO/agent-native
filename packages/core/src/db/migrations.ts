@@ -187,6 +187,14 @@ function splitSqlStatements(sql: string): string[] {
 
 export interface RunMigrationsOptions {
   /**
+   * Run migrations even inside a serverless request runtime. Off by default:
+   * see the guard in {@link runMigrations} for why request-path DDL is what
+   * took analytics down. Only set this when the caller has no scheduled or
+   * background runtime that could migrate instead.
+   */
+  runInServerlessRequest?: boolean;
+
+  /**
    * Name of the migrations bookkeeping table. REQUIRED — there is intentionally
    * no default. Two templates that share a database (e.g. via the same Neon URL)
    * each have their own version space starting at v1, and a single shared
@@ -319,6 +327,86 @@ function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
  * extend the same list concurrently), giving new entries a name is what makes
  * them immune to the collision class described above.
  */
+/**
+ * True in a production serverless runtime that serves user REQUESTS.
+ *
+ * Deliberately mirrors the analytics template's own predicate rather than
+ * importing it: `packages/core/src/db` must not depend on a template, and the
+ * agent/background modules that carry the sibling predicates would introduce a
+ * cycle here.
+ */
+function isServerlessRequestRuntime(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  return (
+    process.env.NETLIFY === "true" ||
+    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT) ||
+    process.env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+    process.env.VERCEL === "1"
+  );
+}
+
+/**
+ * Whether this app migrates at RELEASE time, so skipping on the request path
+ * is safe.
+ *
+ * Without this, "skip in serverless" silently means "never migrate" for any app
+ * that has no release entrypoint — and at the time this was written exactly one
+ * of seventeen templates had one. Existing tables keep working, so nothing
+ * fails; a newly added migration just never applies, and a fresh deploy comes
+ * up with missing tables. That is a skip indistinguishable from success, which
+ * is the failure mode this repo bans.
+ *
+ * So the request-path skip is opt-in per app. An app sets this once it owns a
+ * release migration step (see templates/analytics/scripts/migrate-production.ts
+ * and the `migrate:production` build step in its netlify.toml).
+ */
+function appMigratesAtRelease(): boolean {
+  const raw = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim();
+  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+}
+
+/**
+ * A runtime that is ALLOWED to migrate: release scripts, scheduled jobs, and
+ * durable background workers, which are off the request path and may take as
+ * long as they need. Claimed with {@link withMigrationRuntime}.
+ */
+function isMigrationAuthorizedRuntime(): boolean {
+  return (
+    (
+      globalThis as typeof globalThis & {
+        __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+      }
+    ).__AGENT_NATIVE_MIGRATION_RUNTIME__ === true
+  );
+}
+
+/**
+ * Run an explicit release-time migration job with migration duty enabled.
+ *
+ * The flag is process-local and restored even when the job fails, so a build
+ * step can opt in without creating a permanent escape hatch for request code.
+ */
+export async function withMigrationRuntime<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  const runtime = globalThis as typeof globalThis & {
+    __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+  };
+  const previous = runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+  runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = true;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+    } else {
+      runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = previous;
+    }
+  }
+}
+
 export function runMigrations(
   migrations: Array<MigrationEntry>,
   options: RunMigrationsOptions,
@@ -360,6 +448,31 @@ export function runMigrations(
   const namedTable = `${table}_named`;
 
   return async () => {
+    // Migrations are schema DDL plus an introspection pass. On serverless
+    // "first touch" is EVERY cold start, so this lands on the critical path of
+    // a user request — measured at ~5.5-8.6s for the version check alone on a
+    // 180-table database, with 4-6 copies running concurrently under load.
+    //
+    // Guarded HERE rather than at each call site on purpose. The analytics
+    // template guarded its own runner in #2708; three core plugins
+    // (org, context-xray, observational-memory) kept calling this unguarded,
+    // so the probe storm survived the fix that was supposed to end it. A
+    // fourth special case would have shipped the same bug a fourth time.
+    //
+    // Schema still has to exist: a scheduled/background runtime sets
+    // `__AGENT_NATIVE_MIGRATION_RUNTIME__`, and `runInServerlessRequest` is
+    // the explicit opt-in for a caller that genuinely cannot defer.
+    if (
+      options?.runInServerlessRequest !== true &&
+      isServerlessRequestRuntime() &&
+      appMigratesAtRelease() &&
+      !isMigrationAuthorizedRuntime()
+    ) {
+      console.info(
+        `[migrations] Skipping "${table}" migrations in a serverless request runtime`,
+      );
+      return;
+    }
     try {
       // Check for Cloudflare D1 binding (only if DATABASE_URL not set)
       const d1 =
