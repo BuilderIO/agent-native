@@ -2,6 +2,7 @@ import {
   chooseFallbackAudioInput,
   enumerateAudioInputDevices,
   isLikelyPhoneMicLabel,
+  normalizedMediaDeviceId,
   type AudioInputFallback,
 } from "../../../shared/media-device-selection";
 
@@ -204,7 +205,20 @@ export async function getAudioStreamWithFallback(
     const stream = await getVoiceFocusedAudioStream(id);
     return id ? stream : replacePhoneDefaultMicIfPossible(stream);
   } catch (err) {
-    if (!isMediaConstraintFailure(err)) throw err;
+    const deviceGone =
+      Boolean(id) &&
+      err instanceof DOMException &&
+      err.name === "NotAllowedError" &&
+      !(await enumerateAudioInputDevices()).some(
+        (device) => normalizedMediaDeviceId(device.deviceId) === id,
+      );
+    if (deviceGone) {
+      console.warn(
+        "[clips-recorder] saved mic no longer enumerated after NotAllowedError; falling back",
+        { deviceId: id },
+      );
+    }
+    if (!isMediaConstraintFailure(err) && !deviceGone) throw err;
     if (id) {
       const fallback = await tryFallbackAudioInput(savedLabel, [id]);
       if (fallback) return fallback;
