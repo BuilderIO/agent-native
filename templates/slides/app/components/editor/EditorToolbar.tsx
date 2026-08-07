@@ -96,7 +96,10 @@ interface EditorToolbarProps {
   onShowHistory: () => void;
   historyButtonRef: React.RefObject<HTMLButtonElement | null>;
   currentSlide?: Slide;
-  onUpdateSlide?: (updates: Partial<Omit<Slide, "id">>) => void;
+  onUpdateSlide?: (
+    updates: Partial<Omit<Slide, "id">>,
+    slideIdOverride?: string,
+  ) => void;
   /** Active users on the current slide (from collab awareness) */
   activeUsers?: CollabUser[];
   /** Whether the agent has a durable presence entry on this slide */
@@ -653,6 +656,10 @@ export default function EditorToolbar({
               <button
                 onClick={async () => {
                   if (!onUpdateSlide || !currentSlide) return;
+                  // Pin the slide this insert targets before the async
+                  // import/parse below, so navigating to another slide in the
+                  // meantime can't redirect where the diagram lands.
+                  const targetSlideId = currentSlide.id;
                   const defaultMermaidDefinition = `graph TD
     A[Start] --> B{Decision}
     B -->|Yes| C[Action A]
@@ -665,7 +672,7 @@ export default function EditorToolbar({
                     const data = await convertMermaidToExcalidraw(
                       defaultMermaidDefinition,
                     );
-                    onUpdateSlide({ excalidrawData: data });
+                    onUpdateSlide({ excalidrawData: data }, targetSlideId);
                     setLayoutOpen(false);
                   } catch (err) {
                     console.error("Insert Mermaid diagram failed:", err);
@@ -702,6 +709,8 @@ export default function EditorToolbar({
                   <button
                     onClick={async () => {
                       if (!onUpdateSlide || !currentSlide) return;
+                      // Same pinning as the insert handler above.
+                      const targetSlideId = currentSlide.id;
                       try {
                         const match = currentSlide.content.match(
                           /<div\s+class="mermaid"[^>]*>([\s\S]*?)<\/div>/i,
@@ -712,7 +721,7 @@ export default function EditorToolbar({
                         const data = await convertMermaidToExcalidraw(
                           match[1].trim(),
                         );
-                        onUpdateSlide({ excalidrawData: data });
+                        onUpdateSlide({ excalidrawData: data }, targetSlideId);
                         setLayoutOpen(false);
                       } catch (err) {
                         console.error("Mermaid to Excalidraw failed:", err);
