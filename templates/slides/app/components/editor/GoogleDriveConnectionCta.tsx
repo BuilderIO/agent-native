@@ -82,6 +82,7 @@ export function GoogleDriveConnectionCta({
           );
         }
         setStatus(result.data);
+        setError(null);
         return result.data;
       } catch (caught) {
         setStatus(null);
@@ -153,7 +154,9 @@ export function GoogleDriveConnectionCta({
     }
   }, [connecting, onConnected, refreshStatus]);
 
-  if (loading || !status || status.connected) return null;
+  if (loading || status?.connected) return null;
+
+  const displayStatus = status ?? { configured: false, connected: false };
 
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs">
@@ -169,13 +172,13 @@ export function GoogleDriveConnectionCta({
           Google Drive {/* i18n-ignore stable provider label */}
         </p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-          {status.configured
+          {displayStatus.configured
             ? t("home.googleSlidesReferenceConnect")
             : t("raw.googleOAuthNotConfigured")}
         </p>
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
-      {status.configured && (
+      {displayStatus.configured && (
         <Button
           type="button"
           size="sm"

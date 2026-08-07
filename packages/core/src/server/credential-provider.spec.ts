@@ -87,6 +87,8 @@ beforeEach(() => {
   delete process.env.AGENT_ENGINE;
   delete process.env.AGENT_NATIVE_WORKSPACE;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  delete process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
+  delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
   delete process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV;
   delete process.env.AGENT_VAULT_ORG_ID;
   delete process.env.FUSION_ENVIRONMENT;
@@ -1249,6 +1251,25 @@ describe("resolveSecret (generic)", () => {
         ([call]) => call.scope === "org" && call.scopeId === "dispatch-vault",
       ),
     ).toBe(true);
+  });
+
+  it("does not bypass manual vault grants through the designated fallback", async () => {
+    process.env.AGENT_VAULT_ORG_ID = "dispatch-vault";
+    mockGetRequestUserEmail.mockReturnValue("builder@b.com");
+    mockGetRequestOrgId.mockReturnValue("app-org");
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === "o:dispatch-vault:dispatch-vault-access-settings"
+        ? { mode: "manual" }
+        : null,
+    );
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).toBeNull();
+    expect(
+      mockReadAppSecret.mock.calls.some(
+        ([call]) => call.scopeId === "dispatch-vault",
+      ),
+    ).toBe(false);
   });
 
   it("recovers the org-scoped row when request org context is transiently missing", async () => {

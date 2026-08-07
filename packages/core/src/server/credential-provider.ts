@@ -22,7 +22,25 @@ import { createHash } from "node:crypto";
 
 import { CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE } from "../agent/engine/credential-errors.js";
 import { isLocalDatabase, isTransientDatabaseError } from "../db/client.js";
+import { getOrgSetting } from "../settings/index.js";
 import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
+
+const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
+
+/**
+ * The designated vault fallback is an all-apps compatibility path. Manual
+ * mode must use the per-app sync path instead, or a known key name would be
+ * enough to read the whole vault from an ungranted workspace app.
+ */
+async function canReadDesignatedVaultFallback(
+  vaultOrgId: string,
+): Promise<boolean> {
+  const access = await getOrgSetting(
+    vaultOrgId,
+    DISPATCH_VAULT_ACCESS_SETTINGS_KEY,
+  );
+  return access?.mode !== "manual";
+}
 
 /**
  * Decide which `app_secrets` scope a Builder/credential write should use.
@@ -1479,7 +1497,11 @@ export async function resolveSecretDetailed(
       // a shared key. This fallback keeps workspace apps from requiring every
       // builder to copy a vault key into app-local settings.
       const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
-      if (vaultOrgId && vaultOrgId !== orgId) {
+      if (
+        vaultOrgId &&
+        vaultOrgId !== orgId &&
+        (await canReadDesignatedVaultFallback(vaultOrgId))
+      ) {
         const [vaultOrgRead, vaultWorkspaceRead] = await Promise.allSettled([
           readAppSecret({ key, scope: "org", scopeId: vaultOrgId }),
           readAppSecret({ key, scope: "workspace", scopeId: vaultOrgId }),

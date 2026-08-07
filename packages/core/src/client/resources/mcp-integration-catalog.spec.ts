@@ -143,14 +143,14 @@ describe("MCP integration catalog", () => {
     });
     expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
     expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(27);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(36);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(27);
+    ).toBe(36);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
-        /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
+        /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon)(?:;base64,|,)/,
       );
       expect(["verified", "preflight-only", "restricted"]).toContain(
         integration.verification,
@@ -216,6 +216,33 @@ describe("MCP integration catalog", () => {
     });
   });
 
+  it("includes first-party remote MCPs represented in the organization vault", () => {
+    const expected = [
+      ["amplitude", "https://mcp.amplitude.com/mcp", "ready"],
+      ["apollo", "https://mcp.apollo.io/mcp", "ready"],
+      ["common-room", "https://mcp.commonroom.io/mcp", "ready"],
+      ["exa", "https://mcp.exa.ai/mcp", "ready"],
+      ["gong", "https://mcp.gong.io/mcp", "provider-setup"],
+      ["grafana", "https://mcp.grafana.com/mcp", "beta"],
+      [
+        "google-workspace",
+        "https://workspacemcp.googleapis.com/mcp/v1",
+        "beta",
+      ],
+      ["pylon", "https://mcp.usepylon.com/", "provider-setup"],
+      ["builder-cms", "https://mcp.builder.io/mcp/publish", "ready"],
+    ] as const;
+
+    for (const [id, url, availability] of expected) {
+      expect(
+        DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === id),
+      ).toMatchObject({
+        url,
+        availability,
+      });
+    }
+  });
+
   it("matches MCP tool names to their preset for brand icons", () => {
     expect(findMcpIntegrationForToolName("mcp__slack__search")?.id).toBe(
       "slack",
@@ -269,7 +296,7 @@ describe("MCP integration catalog", () => {
     expect(findMcpIntegrationForText("Pull my meeting recordings")).toBeNull();
     expect(
       findMcpIntegrationForText("Find call transcripts from Gong"),
-    ).toBeNull();
+    ).toMatchObject({ id: "gong" });
     expect(
       findMcpIntegrationForText(
         "Make the action items and decisions larger on this slide",

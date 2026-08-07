@@ -1072,6 +1072,12 @@ const messages = {
         setupNote:
           "FullStory MCP is currently beta and requires StoryAI features plus the Model Context Protocol toggle to be enabled by a FullStory organization admin.",
       },
+      amplitude: {
+        description: "Read and work with Amplitude product analytics.",
+        useCase: "Product analytics, charts, dashboards, cohorts, experiments",
+        setupNote:
+          "Amplitude MCP uses OAuth over streaming HTTP. The default endpoint is for US data residency; use Amplitude's EU endpoint when the account requires EU residency.",
+      },
       notion: {
         description: "Search pages and team knowledge.",
         useCase: "Documentation, knowledge management, notes, content creation",
@@ -1085,6 +1091,13 @@ const messages = {
         setupNote:
           "The Granola integration uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
       },
+      gong: {
+        description:
+          "Search Gong calls and generate account and deal insights.",
+        useCase: "Sales calls, transcripts, deal insights, account summaries",
+        setupNote:
+          "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+      },
       semgrep: {
         description: "Scan code for security findings.",
         useCase: "Security scanning, vulnerability detection, code analysis",
@@ -1092,6 +1105,26 @@ const messages = {
       linear: {
         description: "Read and write Linear issues.",
         useCase: "Project management, issue tracking, planning, bug reports",
+      },
+      apollo: {
+        description: "Search, enrich, and manage Apollo GTM data.",
+        useCase:
+          "Prospecting, enrichment, contacts, sequences, account research",
+        setupNote:
+          "Apollo MCP uses user OAuth and does not require an Apollo API key. Apollo plan permissions, credits, and the provider's model-training restrictions still apply.",
+      },
+      commonRoom: {
+        description: "Research buyer signals, contacts, and organizations.",
+        useCase:
+          "Buyer intelligence, product signals, intent, contact enrichment",
+        setupNote:
+          "Common Room MCP uses per-user OAuth and respects the authorized user's workspace role. An administrator may need to enable the MCP connection for the instance.",
+      },
+      exa: {
+        description: "Search the web and fetch pages with Exa.",
+        useCase: "Web search, research, code search, page fetching",
+        setupNote:
+          "Exa's remote MCP endpoint supports basic free usage without a key. Add an Exa API key through the provider's header configuration when higher limits or additional tools are needed.",
       },
       supabase: {
         description: "Manage data, auth, and backend services.",
@@ -1119,6 +1152,21 @@ const messages = {
           "DNS, Workers, domains, security, observability, platform APIs",
         setupNote:
           "Cloudflare's managed integration directory contains product-specific integrations as well as the broad API integration. Review the scopes and choose the narrowest endpoint that fits your workflow.",
+      },
+      grafana: {
+        description:
+          "Query Grafana Cloud metrics, logs, and observability data.",
+        useCase: "Observability, metrics, logs, traces, dashboards",
+        setupNote:
+          "Grafana Cloud MCP is in public preview and requires Grafana Cloud Assistant MCP access. It is hosted Grafana Cloud only; self-hosted Grafana needs the local MCP server.",
+      },
+      googleWorkspace: {
+        description:
+          "Search Google Workspace data through its remote MCP server.",
+        useCase:
+          "Workspace search across Gmail, Drive, Calendar, Chat, Docs, Sheets, Slides",
+        setupNote:
+          "Google Workspace MCP is in Developer Preview. Enable the relevant Google Workspace and MCP APIs, configure an OAuth consent screen and client, then authorize the products you want to use.",
       },
       gitlab: {
         description:
@@ -1177,6 +1225,12 @@ const messages = {
         setupNote:
           "When a workspace-managed HubSpot MCP Auth App is configured, any member can connect a personal HubSpot account with OAuth and PKCE. Otherwise, create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
       },
+      pylon: {
+        description: "Search and update Pylon support data.",
+        useCase: "Customer support, issues, accounts, contacts, conversations",
+        setupNote:
+          "Enable Pylon MCP access for the relevant users and turn on the MCP server in Pylon before connecting. Pylon requires a Member or Admin seat and uses user OAuth only.",
+      },
       intercom: {
         description: "Search conversations and customer support knowledge.",
         useCase:
@@ -1207,6 +1261,12 @@ const messages = {
         useCase: "Files, folders, enterprise content, search, collaboration",
         setupNote:
           "The Box integration is beta and requires an administrator to enable it. Custom clients also need Box Integration Credentials, a redirect URI, and approved scopes.",
+      },
+      builder: {
+        description: "Search Builder Publish and Hybrid Space content.",
+        useCase: "Content models, pages, entries, Publish and Hybrid Spaces",
+        setupNote:
+          "Builder CMS MCP uses OAuth with dynamic client registration. It only connects to Publish or Hybrid Spaces, and the authorization flow asks you to select the Space.",
       },
       netlify: {
         description: "Inspect and operate Netlify sites and deployments.",

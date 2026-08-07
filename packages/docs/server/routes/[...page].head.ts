@@ -11,6 +11,7 @@ import { getRequestURL, setHeader, type H3Event } from "h3";
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
 
 const SITE_URL = "https://www.agent-native.com";
+const DOCS_NETLIFY_VARY = "query=_data|index";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ssrHandler = createH3SSRHandler(
@@ -38,7 +39,14 @@ export default async function docsHeadHandler(event: H3Event) {
     return "";
   }
 
-  return ssrHandler(event);
+  const response = await ssrHandler(event);
+  const headers = new Headers(response.headers);
+  headers.set("netlify-vary", DOCS_NETLIFY_VARY);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 function setSsrCacheHeaders(event: H3Event) {
@@ -48,6 +56,7 @@ function setSsrCacheHeaders(event: H3Event) {
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
+  setHeader(event, "netlify-vary", DOCS_NETLIFY_VARY);
 }
 
 function readHeadAssetForRequest(

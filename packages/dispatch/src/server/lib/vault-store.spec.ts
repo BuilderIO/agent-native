@@ -59,6 +59,8 @@ import {
   cleanupSyncedCredentialKeysIfUnused,
   credentialStoreScopeForVaultCtx,
   isTrustedEnvVarSyncAgentUrl,
+  getGrant,
+  listGrants,
   resyncAllVaultSecretsToCredentialStore,
   syncGrantsToApp,
   syncSecretsToCredentialStore,
@@ -103,6 +105,22 @@ describe("vault authorization", () => {
     await expect(assertCanManageVault()).rejects.toThrow(
       "Only organization owners and admins can manage the workspace vault.",
     );
+  });
+
+  it("rejects organization members before listing or reading grants", async () => {
+    mocks.currentOrgId.mockReturnValue("org_123");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
+    });
+
+    await expect(listGrants()).rejects.toThrow(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+    await expect(getGrant("grant-1")).rejects.toThrow(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+    expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
   it.each(["owner", "admin"])(

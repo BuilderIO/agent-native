@@ -33,7 +33,7 @@ export default defineAction({
     "Import a file (PPTX, DOCX, PDF, FIG) and extract content for creating slides or slide design systems. " +
     "For PPTX files, returns parsed slides with text and layout info ready for conversion. " +
     "For DOCX files, returns structured sections extracted from the document. " +
-    "For PDF files, returns extracted text organized by page. " +
+    "For PDF files, returns extracted text organized by page, or source-faithful page-image slides when importIntoDeck is true. " +
     "For Figma .fig files, requires Builder.io (free tier available) and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
     "The agent can then use the extracted content to create a deck via create-deck or add-slide, or tell the user where Builder is indexing the design system.",
   schema: z.object({
@@ -54,7 +54,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe(
-        "If true, append slides converted from the file to the end of deckId's existing slides.",
+        "If true, append slides to deckId. PDF pages are imported as source-faithful images that preserve their original layout and aspect ratio; use the default false when editable extracted source text is needed.",
       ),
     maxChars: z.coerce
       .number()
@@ -342,7 +342,7 @@ async function importPdfPagesAsFullBleedSlides(args: {
   canvasFactory: object;
 }) {
   const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
-  const { buildFullBleedImageSlideHtml, convertSectionsToSlides } =
+  const { buildFullPageImageSlideHtml, convertSectionsToSlides } =
     await import("../server/handlers/import/html-converter.js");
 
   const pdf = new PDFParse({
@@ -350,31 +350,26 @@ async function importPdfPagesAsFullBleedSlides(args: {
     CanvasFactory: canvasFactory,
   });
   let pages: { num: number; text: string }[];
-  let imagesByPage: Map<
+  let screenshotsByPage: Map<
     number,
     { data: Uint8Array; width: number; height: number }
   >;
   try {
     pages = normalizePdfPages(await pdf.getText());
-    // Reuse the page's own embedded photo rather than rasterizing the whole
-    // page: headless canvas text rendering depends on the PDF's embedded
-    // fonts resolving in this runtime, which is unreliable, so real
-    // extracted text is drawn as HTML below instead of trusting the render.
-    const imageResult = await pdf.getImage({
+    // Rasterize the complete page so positioned text, vector shapes, logos,
+    // photos, and the source page proportions survive the import together.
+    const screenshotResult = await pdf.getScreenshot({
+      desiredWidth: 1600,
       imageBuffer: true,
       imageDataUrl: false,
     });
-    imagesByPage = new Map();
-    for (const page of imageResult.pages) {
-      const largest = page.images.reduce<
-        { data: Uint8Array; width: number; height: number } | undefined
-      >((best, image) => {
-        if (!best || image.width * image.height > best.width * best.height) {
-          return { data: image.data, width: image.width, height: image.height };
-        }
-        return best;
-      }, undefined);
-      if (largest) imagesByPage.set(page.pageNumber, largest);
+    screenshotsByPage = new Map();
+    for (const page of screenshotResult.pages) {
+      screenshotsByPage.set(page.pageNumber, {
+        data: page.data,
+        width: page.width,
+        height: page.height,
+      });
     }
   } finally {
     await pdf.destroy();
@@ -382,12 +377,12 @@ async function importPdfPagesAsFullBleedSlides(args: {
 
   // Source decks (e.g. Instagram carousel exports) are commonly portrait or
   // square, not the deck editor's 16:9 default — match the canvas to the
-  // first embedded photo's own proportions instead of stretching/cropping it.
-  const firstImage = pages
-    .map((page) => imagesByPage.get(page.num))
+  // first rendered page's own proportions instead of stretching/cropping it.
+  const firstScreenshot = pages
+    .map((page) => screenshotsByPage.get(page.num))
     .find((image): image is NonNullable<typeof image> => Boolean(image));
-  const aspectRatio = firstImage
-    ? nearestAspectRatio(firstImage.width, firstImage.height)
+  const aspectRatio = firstScreenshot
+    ? nearestAspectRatio(firstScreenshot.width, firstScreenshot.height)
     : undefined;
 
   const ownerEmail = getRequestUserEmail();
@@ -397,9 +392,9 @@ async function importPdfPagesAsFullBleedSlides(args: {
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter(Boolean);
-      const backgroundImage = imagesByPage.get(page.num);
+      const screenshot = screenshotsByPage.get(page.num);
 
-      if (!backgroundImage) {
+      if (!screenshot) {
         const [content] = convertSectionsToSlides([
           { heading: lines[0] ?? `Page ${page.num}`, content: page.text },
         ]);
@@ -412,7 +407,7 @@ async function importPdfPagesAsFullBleedSlides(args: {
       }
 
       const uploadResult = await uploadFile({
-        data: Buffer.from(backgroundImage.data),
+        data: Buffer.from(screenshot.data),
         filename: `slide-import-${Date.now()}-p${page.num}.png`,
         mimeType: "image/png",
         ownerEmail: ownerEmail ?? undefined,
@@ -423,22 +418,9 @@ async function importPdfPagesAsFullBleedSlides(args: {
           "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before importing PDF slides.",
         );
       }
-      // pdf-parse breaks wrapped text across lines with no way to tell a
-      // wrapped title from a heading followed by a body paragraph. Treat a
-      // couple of short lines as one wrapped title (join them so the
-      // sentence isn't cut off); three or more lines as a heading plus body
-      // text, rendered with distinct sizes so they don't collapse into one
-      // flat paragraph.
-      const heading =
-        lines.length > 2 ? lines[0] : lines.join(" ") || undefined;
-      const subtitle = lines.length > 2 ? lines.slice(1).join(" ") : undefined;
       return {
         id: newSlideId(),
-        content: buildFullBleedImageSlideHtml(
-          uploadResult.url,
-          heading,
-          subtitle,
-        ),
+        content: buildFullPageImageSlideHtml(uploadResult.url),
         layout: "full-image",
         notes: page.text,
       };

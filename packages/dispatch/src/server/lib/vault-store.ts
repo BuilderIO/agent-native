@@ -587,6 +587,7 @@ export async function listGrants(filter?: {
   secretId?: string;
   appId?: string;
 }) {
+  await assertCanManageVault();
   const db = getDb();
   const conditions = [scopedFilter(schema.vaultGrants)];
   if (filter?.secretId) {
@@ -606,6 +607,7 @@ export async function getGrant(
   grantId: string,
   ctx: VaultCtx = requireVaultCtx(),
 ) {
+  await assertCanManageVault();
   const db = getDb();
   const [row] = await db
     .select()
