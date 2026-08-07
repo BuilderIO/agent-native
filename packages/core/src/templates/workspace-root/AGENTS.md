@@ -69,6 +69,9 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 - Keep the first viewport focused: one primary action, progressive disclosure,
   concise copy, and domain-specific navigation. Never use sparkle, wand,
   magic, or robot icons as AI affordances.
+- Page and section data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
 - Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
   type for content previews. Give the AgentSidebar a subtle surface/divider
   boundary, and stack original/generated review vertically by default.

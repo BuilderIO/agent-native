@@ -215,6 +215,23 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
+    it("skips schema probes automatically in a production function", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const { client, calls } = introspectingClient({});
+
+      await expect(
+        ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
+          injectedClient: client,
+          dialectIsPostgres: true,
+        }),
+      ).resolves.toBe(false);
+      expect(calls).toEqual([]);
+    });
+
     it("is OFF unless explicitly enabled", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       for (const value of ["", "0", "false", "off"]) {

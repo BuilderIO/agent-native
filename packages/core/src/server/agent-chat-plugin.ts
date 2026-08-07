@@ -6121,10 +6121,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         );
       }
 
-      // A non-Netlify self-dispatch only waits for the request to leave the
-      // current invocation. Keep the durable history row as a retryable queue
-      // so a frozen serverless handoff is recovered on the next sweep.
-      if (!isBackgroundRuntime && !sweepsDisabled) {
+      // A synchronous self-dispatch only waits for the request to leave the
+      // current invocation. Long-lived runtimes keep this retryable-queue
+      // backstop; serverless runtimes use their durable scheduler instead.
+      if (
+        !isBackgroundRuntime &&
+        !disableRecurringJobsRuntime &&
+        !sweepsDisabled
+      ) {
         (() => {
           let inFlight = false;
           const sweep = async () => {

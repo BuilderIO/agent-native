@@ -29,7 +29,12 @@
  * behaviour there.
  */
 
-import { isPostgres, getDbExec, type DbExec } from "./client.js";
+import {
+  getDbExec,
+  isPostgres,
+  isProductionServerlessFunctionRuntime,
+  type DbExec,
+} from "./client.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -48,6 +53,7 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * down the DDL path this flag exists to avoid.
  */
 function schemaEnsureDisabled(): boolean {
+  if (isProductionServerlessFunctionRuntime()) return true;
   const raw = process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES?.trim();
   return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
 }
