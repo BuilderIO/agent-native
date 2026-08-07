@@ -165,7 +165,9 @@ export function ToolCallStackMotion({
 }) {
   const stackRef = useRef<HTMLDivElement>(null);
   const previousRef = useRef<Map<string, ToolStackMotionSnapshot>>(new Map());
-  const activeMotionsRef = useRef<Map<string, ToolStackActiveMotion>>(new Map());
+  const activeMotionsRef = useRef<Map<string, ToolStackActiveMotion>>(
+    new Map(),
+  );
   const exitAnimationsRef = useRef<Map<HTMLElement, Animation>>(new Map());
 
   useLayoutEffect(() => {

@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Recurring-jobs runtime gating: decide whether this process should run the
-// local recurring-job scheduler loop (disabled by default on hosted runtimes
-// that already run a dedicated sweep, enabled by default for local/dev).
+// local recurring-job scheduler loop (disabled by default on hosted/serverless
+// runtimes, enabled by default for local/dev).
 // ---------------------------------------------------------------------------
 
 type RecurringJobsRuntimeEnvKey =
@@ -9,6 +9,7 @@ type RecurringJobsRuntimeEnvKey =
   | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
   | "APP_URL"
   | "BETTER_AUTH_URL"
+  | "CF_PAGES"
   | "DEPLOY_URL"
   | "AWS_EXECUTION_ENV"
   | "AWS_LAMBDA_FUNCTION_NAME"
@@ -72,6 +73,7 @@ export function shouldDisableRecurringJobsRuntime(
       env.NITRO_PRESET === "netlify" ||
       Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ||
       env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+      isTruthyEnv(env.CF_PAGES) ||
       isTruthyEnv(env.VERCEL));
   if (isServerlessRuntime) return true;
 

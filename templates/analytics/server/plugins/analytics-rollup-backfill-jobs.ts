@@ -1,4 +1,5 @@
 import { runAnalyticsRollupBackfillOnce } from "../jobs/analytics-rollup-backfill";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime";
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
 let skippingLogged = false;
@@ -11,8 +12,7 @@ declare global {
 
 function platformSchedulerOwnsBackfill(): boolean {
   return (
-    process.env.NETLIFY === "true" ||
-    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
+    isProductionServerlessRuntime() ||
     process.env.NITRO_PRESET === "netlify" ||
     globalThis.__AGENT_NATIVE_ANALYTICS_ROLLUP_BACKFILL_SCHEDULED_RUNTIME__ ===
       true

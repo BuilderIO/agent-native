@@ -16,6 +16,7 @@ function resetEnv() {
   delete process.env.AWS_LAMBDA_FUNCTION_NAME;
   delete process.env.LAMBDA_TASK_ROOT;
   delete process.env.AWS_EXECUTION_ENV;
+  delete process.env.CF_PAGES;
   delete process.env.VERCEL;
   delete process.env.ANALYTICS_ROLLUP_BACKFILL_JOBS;
   delete process.env.RUN_BACKGROUND_JOBS;
@@ -71,14 +72,14 @@ describe("analytics rollup backfill job registration", () => {
     expect(intervalSpy).not.toHaveBeenCalled();
   });
 
-  it("keeps the fallback interval enabled for production Lambda runtimes", async () => {
+  it("does not start an interval in production Lambda runtimes", async () => {
     process.env.NODE_ENV = "production";
     process.env.AWS_LAMBDA_FUNCTION_NAME = "analytics-handler";
 
     const register = await loadRegister();
     register();
 
-    expect(intervalSpy).toHaveBeenCalledTimes(1);
+    expect(intervalSpy).not.toHaveBeenCalled();
   });
 
   it("uses the generated scheduled worker when its runtime marker is set", async () => {

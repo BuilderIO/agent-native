@@ -150,9 +150,11 @@ export function WorkspaceAppCard({
           <h3 className="truncate text-sm font-semibold text-foreground">
             {app.name}
           </h3>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {app.description || pendingLabel}
-          </p>
+          {app.description || isPending ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {app.description || pendingLabel}
+            </p>
+          ) : null}
           <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             {isPending ? (
               <span className="inline-flex min-w-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5">

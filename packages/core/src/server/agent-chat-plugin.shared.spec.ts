@@ -162,6 +162,12 @@ describe("recurring jobs runtime startup", () => {
     expect(
       shouldDisableRecurringJobsRuntime({
         NODE_ENV: "production",
+        CF_PAGES: "1",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
         NETLIFY: "true",
         NETLIFY_LOCAL: "true",
       }),

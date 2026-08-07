@@ -136,7 +136,7 @@ import {
 } from "../chat-threads/store.js";
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { isServerlessRuntime, isTransientDatabaseError } from "../db/client.js";
+import { isTransientDatabaseError } from "../db/client.js";
 import {
   verifyInternalToken,
   extractBearerToken,
@@ -5869,14 +5869,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
       const isBackgroundRuntime = isInBackgroundFunctionRuntime();
       const disableRecurringJobsRuntime =
-        isBackgroundRuntime ||
-        isServerlessRuntime() ||
-        shouldDisableRecurringJobsRuntime();
+        isBackgroundRuntime || shouldDisableRecurringJobsRuntime();
 
       // ─── Recurring Jobs Scheduler ──────────────────────────────────────
       // Poll every 60 seconds for due recurring jobs and execute them.
-      // Uses setInterval so it works in all deployment environments without
-      // requiring Nitro experimental tasks configuration.
+      // Long-lived runtimes use setInterval; serverless runtimes rely on a
+      // platform-owned sweep because an invocation cannot own a durable loop.
       try {
         const { processRecurringJobs } = await import("../jobs/scheduler.js");
 

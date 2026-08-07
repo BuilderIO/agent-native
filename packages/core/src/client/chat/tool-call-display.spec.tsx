@@ -789,7 +789,8 @@ describe("ToolCallDisplay native renderers", () => {
         "Still working. Large updates can take a minute or two.",
       );
       expect(
-        container.querySelector(".agent-tool-call > div:last-child")?.className,
+        container.querySelector(".agent-tool-call > div > div:last-child")
+          ?.className,
       ).toContain("pb-2");
 
       act(() => {
@@ -1858,7 +1859,7 @@ describe("ToolCallStackMotion", () => {
   let container: HTMLDivElement;
   let root: Root;
   let originalRect: PropertyDescriptor | undefined;
-  let originalRequestAnimationFrame: PropertyDescriptor | undefined;
+  let originalAnimate: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -1870,9 +1871,9 @@ describe("ToolCallStackMotion", () => {
       HTMLElement.prototype,
       "getBoundingClientRect",
     );
-    originalRequestAnimationFrame = Object.getOwnPropertyDescriptor(
-      window,
-      "requestAnimationFrame",
+    originalAnimate = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "animate",
     );
   });
 
@@ -1888,14 +1889,10 @@ describe("ToolCallStackMotion", () => {
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, "getBoundingClientRect");
     }
-    if (originalRequestAnimationFrame) {
-      Object.defineProperty(
-        window,
-        "requestAnimationFrame",
-        originalRequestAnimationFrame,
-      );
+    if (originalAnimate) {
+      Object.defineProperty(HTMLElement.prototype, "animate", originalAnimate);
     } else {
-      Reflect.deleteProperty(window, "requestAnimationFrame");
+      Reflect.deleteProperty(HTMLElement.prototype, "animate");
     }
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -1908,7 +1905,6 @@ describe("ToolCallStackMotion", () => {
       ["tool-b", 24],
       ["tool-c", 48],
     ]);
-    let frames: FrameRequestCallback[] = [];
     Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
       configurable: true,
       value(this: HTMLElement) {
@@ -1931,11 +1927,25 @@ describe("ToolCallStackMotion", () => {
         } as DOMRect;
       },
     });
-    Object.defineProperty(window, "requestAnimationFrame", {
+    const animations: Array<{
+      element: HTMLElement;
+      keyframes: Keyframe[];
+      animation: {
+        cancel: () => void;
+        oncancel: (() => void) | null;
+        onfinish: (() => void) | null;
+      };
+    }> = [];
+    Object.defineProperty(HTMLElement.prototype, "animate", {
       configurable: true,
-      value(callback: FrameRequestCallback) {
-        frames.push(callback);
-        return frames.length;
+      value(this: HTMLElement, keyframes: Keyframe[]) {
+        const animation = {
+          cancel: vi.fn(),
+          oncancel: null,
+          onfinish: null,
+        };
+        animations.push({ element: this, keyframes, animation });
+        return animation as unknown as Animation;
       },
     });
 
@@ -1960,10 +1970,15 @@ describe("ToolCallStackMotion", () => {
     layout.set("tool-d", 96);
     act(() => root.render(render(["tool-b", "tool-c", "tool-d"], true)));
 
-    expect(
-      container.querySelector('[data-agent-tool-call-id="tool-b"]')?.style
-        .transform,
-    ).toBe("translate3d(0px, -24px, 0)");
+    const retainedRowAnimation = animations.find(
+      ({ element }) => element.dataset.agentToolCallId === "tool-b",
+    );
+    expect(retainedRowAnimation?.keyframes[0]?.transform).toBe(
+      "translate3d(0px, -24px, 0)",
+    );
+    expect(retainedRowAnimation?.keyframes[1]?.transform).toBe(
+      "translate3d(0, 0, 0)",
+    );
     expect(
       container.querySelector('[data-agent-tool-call-id="tool-d"]')?.classList,
     ).toContain("agent-tool-call--stack-entering");
@@ -1974,14 +1989,12 @@ describe("ToolCallStackMotion", () => {
       document.querySelector(".agent-tool-call-stack__exit"),
     ).not.toBeNull();
 
-    for (const frame of frames) frame(0);
-    expect(
-      container.querySelector('[data-agent-tool-call-id="tool-b"]')?.style
-        .transform,
-    ).toBe("translate3d(0, 0, 0)");
-    expect(
-      document.querySelector(".agent-tool-call-stack__exit")?.style.opacity,
-    ).toBe("0");
+    const exitAnimation = animations.find(({ element }) =>
+      element.classList.contains("agent-tool-call-stack__exit"),
+    );
+    expect(exitAnimation).toBeDefined();
+    exitAnimation?.animation.onfinish?.();
+    expect(document.querySelector(".agent-tool-call-stack__exit")).toBeNull();
   });
 });
 

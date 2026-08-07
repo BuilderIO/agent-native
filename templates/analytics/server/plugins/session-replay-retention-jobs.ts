@@ -6,17 +6,16 @@ let skippingLogged = false;
 
 export default function registerSessionReplayRetentionJobs(): void {
   const isProd = process.env.NODE_ENV === "production";
+  const isServerless = isProductionServerlessRuntime();
   const flag =
     process.env.ANALYTICS_SESSION_REPLAY_RETENTION_JOBS ??
     process.env.RUN_BACKGROUND_JOBS;
-  const enabled =
-    !isProductionServerlessRuntime() &&
-    (flag === "1" || (isProd && flag !== "0"));
+  const enabled = !isServerless && (flag === "1" || (isProd && flag !== "0"));
 
   if (!enabled) {
     if (!skippingLogged) {
       console.log(
-        isProductionServerlessRuntime()
+        isServerless
           ? "[session-replay] Skipping in-process retention job because production serverless runtimes rely on scheduled/background sweeps."
           : "[session-replay] Skipping retention job (set ANALYTICS_SESSION_REPLAY_RETENTION_JOBS=1 or RUN_BACKGROUND_JOBS=1 to enable in dev; on by default in production)",
       );
