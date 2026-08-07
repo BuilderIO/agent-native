@@ -38,7 +38,7 @@ import {
   loadPgliteDrizzle,
   pgPoolOptions,
   neonPoolOptions,
-  attachNeonPoolErrorLogger,
+  guardNeonPool,
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
@@ -1560,7 +1560,7 @@ async function buildDatabaseConfig(
         url,
         () => new Pool({ connectionString: url, ...neonPoolOptions() }),
       );
-      attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
+      guardNeonPool(_neonAuthPool, url, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
       const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
         schema: pgAuthSchema,

@@ -1492,6 +1492,48 @@ export const runAnalyticsMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
       },
     },
+    {
+      version: 139,
+      name: "analytics-bigquery-backfill-jobs",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_jobs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (now()::text),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
+      ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_jobs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_jobs_due_idx
+      ON analytics_bigquery_backfill_jobs (status, next_run_at, lease_expires_at, updated_at)`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );
