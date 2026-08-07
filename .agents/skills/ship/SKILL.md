@@ -26,6 +26,17 @@ below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
+When concurrent work is active, `/ship` is incremental. Once the ready PR
+exists, do not wait for full prep or the final merge soak before publishing the
+next complete safe slice. Batch changes for at most five minutes, then inspect
+the worktree and immediately commit and push every branch-owned file that has
+stayed unchanged and is not held by a live lease. Open or update the same PR so
+CI and review agents see each slice in parallel. Never stage a file that is
+actively being edited, a partial hunk, or private/generated `bridge/**` or
+local `data/**` artifacts. If no complete safe slice exists at a tick, explain
+why and push the next safe slice as soon as it becomes available. This cadence
+does not relax the final `pnpm run prep`, review, or clean merge-soak gates.
+
 If the branch updates templates or publishable packages, shipping does not stop
 at merge. Treat the work as shipped only after the affected templates are live in
 production and affected packages have successfully published/released. If a
@@ -50,10 +61,12 @@ code/config fix and ship that follow-up until production is live.
    push and let GitHub Actions be the validation gate that `/babysit-pr`
    monitors.
 
-4. **Stage and commit**: stage all changed/untracked files except `learnings.md`
-   or gitignored personal files. Write a concise, descriptive commit message
-   based on the actual diff. Never add `Co-Authored-By` or other agent
-   attribution.
+4. **Stage and commit a complete safe slice**: stage all stable,
+   branch-owned changed/untracked files except `learnings.md`, gitignored
+   personal files, private/generated `bridge/**`, and local `data/**` database
+   or asset artifacts. Leave actively edited files for the next slice. Write a
+   concise, descriptive commit message based on the actual diff. Never add
+   `Co-Authored-By` or other agent attribution.
 
 5. **Push**: push the current branch. If the branch has no upstream, set it with
    `git push -u origin <branch>`.
@@ -66,6 +79,10 @@ code/config fix and ship that follow-up until production is live.
 6. **Open or update a ready PR immediately after the first push**: use the
    current branch. PRs are ready for review by default, not drafts. Do not put
    `codex`, `[codex]`, or similar agent labels in the title/body.
+
+   For every later safe slice, update this same PR immediately after pushing;
+   do not create a second PR or wait for prep to finish before handing the
+   slice to CI and review.
 
 7. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
