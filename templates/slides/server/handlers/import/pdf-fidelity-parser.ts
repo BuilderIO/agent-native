@@ -444,6 +444,21 @@ export function groupIntoBlocks<T extends Rect & { fontSize: number }>(
   return blocks;
 }
 
+/**
+ * A line's own `top`/`bottom` still carry its real position from the PDF at
+ * this point in the pipeline — the source's actual line spacing (which can
+ * be looser than a flat CSS line-height) shows up as the gap between this
+ * line's top and the previous line's bottom. Returns 0 for a block's first
+ * line (its position is already the block's own placement, not extra
+ * spacing) or when there's no real gap to preserve.
+ */
+export function lineSpacingBeforePt(
+  line: Rect,
+  previousLine: Rect | undefined,
+): number {
+  return previousLine ? Math.max(0, line.top - previousLine.bottom) : 0;
+}
+
 /** A run needs to overlap most of a candidate background image to inherit its "assume dark" contrast — a run merely near a small inset photo shouldn't be treated as sitting on top of it. */
 const BACKGROUND_IMAGE_OVERLAP_RATIO = 0.5;
 
@@ -618,18 +633,25 @@ async function buildTextElements(
     const top = Math.min(...blockLines.map((l) => l.top));
     const right = Math.max(...blockLines.map((l) => l.right));
     const bottom = Math.max(...blockLines.map((l) => l.bottom));
-    const paragraphs: ParsedParagraph[] = blockLines.map((line) => ({
-      runs: line.runs.map((run) => ({
-        content: run.text,
-        fontSize: run.fontSize,
-        color: run.color,
-        bold: run.bold,
-        italic: run.italic,
-        underline: run.underline,
-        href: run.href,
-      })),
-      alignment: "left",
-    }));
+    const paragraphs: ParsedParagraph[] = blockLines.map((line, lineIndex) => {
+      const spaceBeforePt = lineSpacingBeforePt(
+        line,
+        blockLines[lineIndex - 1],
+      );
+      return {
+        runs: line.runs.map((run) => ({
+          content: run.text,
+          fontSize: run.fontSize,
+          color: run.color,
+          bold: run.bold,
+          italic: run.italic,
+          underline: run.underline,
+          href: run.href,
+        })),
+        alignment: "left",
+        ...(spaceBeforePt > 0 ? { spaceBeforePt } : {}),
+      };
+    });
     return {
       id: `pdf-text-${pageNumber}-${index}`,
       kind: "text",

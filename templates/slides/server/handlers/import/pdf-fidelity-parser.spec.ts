@@ -8,6 +8,7 @@ import {
   groupIntoBlocks,
   groupIntoLines,
   groupIntoStyledLines,
+  lineSpacingBeforePt,
   mergeLine,
   mergeLineRuns,
   textItemToBox,
@@ -249,6 +250,26 @@ describe("groupIntoBlocks", () => {
     ];
     const blocks = groupIntoBlocks(lines);
     expect(blocks).toHaveLength(2);
+  });
+});
+
+describe("lineSpacingBeforePt", () => {
+  it("returns 0 for a block's first line", () => {
+    expect(lineSpacingBeforePt(box({ top: 50, bottom: 62 }), undefined)).toBe(
+      0,
+    );
+  });
+
+  it("returns the real gap between this line's top and the previous line's bottom", () => {
+    const previousLine = box({ top: 0, bottom: 12 });
+    const line = box({ top: 17, bottom: 29 });
+    expect(lineSpacingBeforePt(line, previousLine)).toBeCloseTo(5);
+  });
+
+  it("clamps to 0 instead of a negative gap when lines slightly overlap", () => {
+    const previousLine = box({ top: 0, bottom: 12 });
+    const line = box({ top: 10, bottom: 22 });
+    expect(lineSpacingBeforePt(line, previousLine)).toBe(0);
   });
 });
 
