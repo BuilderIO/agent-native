@@ -1,3 +1,4 @@
+import { Skeleton } from "@agent-native/toolkit/design-system";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,6 +71,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
+import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
 import { cn } from "../utils.js";
 import {
   useOrg,
@@ -652,18 +654,20 @@ function MembersTableCard({
       )}
       <div className="divide-y divide-border/60 border-t border-border/60">
         {isLoadingMembers && members.length === 0 ? (
-          [0, 1, 2].map((i) => (
-            <div key={i} className="flex items-center gap-3 px-5 py-4">
-              <div className="size-8 animate-pulse rounded-full bg-muted" />
-              <div className="space-y-2">
-                <div
-                  className="h-3.5 animate-pulse rounded bg-muted"
-                  style={{ width: `${180 + i * 48}px` }}
-                />
-                <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+          <div role="status" aria-busy="true" aria-label="Loading members">
+            {["w-44", "w-56", "w-64"].map((nameWidth) => (
+              <div
+                key={nameWidth}
+                className="flex items-center gap-3 px-5 py-4"
+              >
+                <Skeleton className="size-8 rounded-full bg-muted" />
+                <div className="space-y-2">
+                  <Skeleton className={cn("h-3.5 bg-muted", nameWidth)} />
+                  <Skeleton className="h-3 w-20 bg-muted" />
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         ) : members.length === 0 && pendingInvites.length === 0 ? (
           <div className="px-5 py-10 text-center text-sm text-muted-foreground">
             {t("org.noMembers")}
@@ -2166,9 +2170,7 @@ export function TeamPage({
 
       {isLoading && (
         <section className="rounded-lg border border-border bg-card p-6">
-          <div className="text-sm text-muted-foreground">
-            {t("org.loading")}
-          </div>
+          <SettingsSkeleton lines={3} />
         </section>
       )}
 

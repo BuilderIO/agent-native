@@ -49,6 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -311,13 +312,30 @@ export function FieldsSettings() {
               </TableBody>
             </Table>
           </div>
+        ) : connectionsQuery.isLoading ||
+          listsQuery.isLoading ||
+          attributesQuery.isLoading ? (
+          <div
+            className="mt-4 space-y-2"
+            role="status"
+            aria-busy="true"
+            aria-label={t("fields.loading")}
+          >
+            {[0, 1, 2, 3].map((item) => (
+              <div
+                key={item}
+                className="grid grid-cols-4 gap-4 rounded-lg border border-border/70 bg-card px-4 py-3.5"
+              >
+                <Skeleton className="h-4 w-36" />
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="mt-4 rounded-lg border border-dashed border-border px-4 py-10 text-center">
-            <p className="text-sm font-medium">
-              {attributesQuery.isLoading
-                ? t("fields.loading")
-                : t("fields.emptyTitle")}
-            </p>
+            <p className="text-sm font-medium">{t("fields.emptyTitle")}</p>
             <p className="mt-1 text-sm text-muted-foreground">
               {t("fields.emptyDescription")}
             </p>
