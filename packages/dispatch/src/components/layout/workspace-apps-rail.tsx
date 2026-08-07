@@ -1,13 +1,15 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconApps } from "@tabler/icons-react";
-import { useLocation } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { cn } from "../../lib/utils";
 import {
+  workspaceAppRoute,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
+import { AppIcon } from "../app-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 function pathFromValue(value: string | null | undefined): string | null {
@@ -24,6 +26,11 @@ function pathFromValue(value: string | null | undefined): string | null {
 }
 
 function appMatchesPath(app: WorkspaceAppSummary, pathname: string): boolean {
+  const appRoute = workspaceAppRoute(app.id);
+  if (pathname === appRoute || pathname.startsWith(`${appRoute}/`)) {
+    return true;
+  }
+
   const candidatePaths = [app.path, app.url]
     .map(pathFromValue)
     .filter((path): path is string => !!path);
@@ -31,10 +38,6 @@ function appMatchesPath(app: WorkspaceAppSummary, pathname: string): boolean {
   return candidatePaths.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
-}
-
-function appInitial(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "A";
 }
 
 function appLabel(app: WorkspaceAppSummary): string {
@@ -77,31 +80,27 @@ export function WorkspaceAppsRail({
     const label = appLabel(app);
     const active = appMatchesPath(app, location.pathname);
     const link = (
-      <a
-        href={href}
+      <Link
+        to={workspaceAppRoute(app.id)}
         aria-current={active ? "page" : undefined}
         aria-label={collapsed ? label : undefined}
         onClick={onNavigate}
         className={cn(
-          "flex h-8 items-center rounded-md text-sm transition-colors",
-          collapsed ? "w-8 justify-center" : "w-full gap-2 px-2 text-start",
+          "flex h-9 items-center rounded-md text-sm transition-colors",
+          collapsed ? "w-9 justify-center" : "w-full gap-2 px-2 text-start",
           active
             ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
         )}
       >
-        <span
-          className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold",
-            active
-              ? "bg-sidebar-primary text-sidebar-primary-foreground"
-              : "bg-sidebar-accent text-sidebar-foreground/70",
-          )}
-        >
-          {appInitial(label)}
-        </span>
+        <AppIcon
+          id={app.id}
+          name={label}
+          size="sm"
+          className={cn("size-5 rounded-md", active && "ring-1 ring-ring/30")}
+        />
         {!collapsed ? <span className="truncate">{label}</span> : null}
-      </a>
+      </Link>
     );
 
     if (!collapsed) return link;
@@ -118,7 +117,7 @@ export function WorkspaceAppsRail({
     <div
       className={cn(
         "mt-4 border-t border-sidebar-border pt-3",
-        collapsed ? "px-1" : "px-2",
+        collapsed ? "px-1.5" : "px-2",
       )}
       data-dispatch-apps-rail
     >

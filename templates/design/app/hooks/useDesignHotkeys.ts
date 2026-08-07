@@ -277,6 +277,18 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
+/** Chat bodies and panel labels are selectable but not editable targets, so the
+ * editable guard never sees them. Canvas layers live in the preview iframe and
+ * produce no parent-document range, so this cannot mask a real layer copy. */
+export function hasDocumentTextSelection() {
+  if (typeof window === "undefined" || !window.getSelection) return false;
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+  return selection.toString().trim().length > 0;
+}
+
 export function isShowKeyboardShortcutsHotkey(event: KeyboardEvent) {
   if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey) {
     return false;
@@ -526,7 +538,7 @@ export function handleDesignHotkey(
   if (primary && event.shiftKey && key === "x") {
     return run(props.onToggleStrikethrough);
   }
-  if (primary && key === "x") {
+  if (primary && key === "x" && !hasDocumentTextSelection()) {
     return runSharedCanvasCommand() || run(props.onCut);
   }
   // Figma's Cmd+U — toggle underline. No existing binding claims plain "u".
@@ -559,6 +571,7 @@ export function handleDesignHotkey(
   if (primary && key === "c") {
     if (event.altKey) return run(props.onCopyProps);
     if (event.shiftKey) return run(props.onCopyAsPng);
+    if (hasDocumentTextSelection()) return false;
     return runSharedCanvasCommand() || run(props.onCopy);
   }
   if (primary && key === "v") {

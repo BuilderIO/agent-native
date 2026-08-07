@@ -45,3 +45,6 @@ timeout = 120
 [functions.analytics-rollup-backfill-background]
 timeout = 300
 memory = "2gb"
+
+[functions.session-replay-retention-sweep-background]
+timeout = 120

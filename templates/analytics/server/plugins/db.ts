@@ -1439,6 +1439,58 @@ const runAnalyticsMigrations = runMigrations(
         )`,
       },
     },
+    {
+      version: 138,
+      name: "analytics-dashboard-folders",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_folders (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text),
+          updated_at TEXT NOT NULL DEFAULT (now()::text),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          org_id TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private'
+        );
+        CREATE TABLE IF NOT EXISTS dashboard_folder_shares (
+          id TEXT PRIMARY KEY,
+          resource_id TEXT NOT NULL,
+          principal_type TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        );
+        ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS folder_id TEXT;
+        CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
+        CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
+        CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_folders (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          org_id TEXT,
+          visibility TEXT NOT NULL DEFAULT 'private'
+        );
+        CREATE TABLE IF NOT EXISTS dashboard_folder_shares (
+          id TEXT PRIMARY KEY,
+          resource_id TEXT NOT NULL,
+          principal_type TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'viewer',
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS folder_id TEXT;
+        CREATE INDEX IF NOT EXISTS dashboard_folders_owner_org_idx ON dashboard_folders (owner_email, org_id);
+        CREATE INDEX IF NOT EXISTS dashboard_folder_shares_resource_idx ON dashboard_folder_shares (resource_id);
+        CREATE INDEX IF NOT EXISTS dashboards_folder_idx ON dashboards (folder_id)`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1476,29 +1528,17 @@ export default async (nitroApp: any): Promise<void> => {
     Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
     Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
     Boolean(process.env.LAMBDA_TASK_ROOT);
-  if (
-    isNetlifyServerlessRuntime &&
-    process.env.ANALYTICS_SKIP_BOOT_MIGRATIONS === "1"
-  ) {
+  if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {
     console.info(
-      "[db] Skipping Analytics migrations in production serverless runtime by explicit incident flag",
+      "[db] Skipping Analytics migrations in production serverless runtime",
     );
     return;
   }
   // The schema must exist before the first query. Measured cost on this
   // database (180 tables): ~5.5s for the version check alone, which is why the
-  // serverless runtime skips this entirely via ANALYTICS_SKIP_BOOT_MIGRATIONS
-  // above rather than paying it on every cold start.
+  // serverless runtime never runs it on cold starts.
   // guard:allow-boot-data-work — schema must exist before the first query
   await runAnalyticsMigrations(nitroApp);
-  if (isNetlifyServerlessRuntime) {
-    // The migration list is authoritative; repeating repair and schema
-    // introspection on every function cold start only adds pool pressure.
-    console.info(
-      "[db] Skipping post-migration schema convergence in production serverless runtime",
-    );
-    return;
-  }
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

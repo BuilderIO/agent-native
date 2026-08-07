@@ -1,0 +1,96 @@
+---
+title: "Eine Aktion hinzufügen"
+description: "Definieren Sie Ihre erste Aktion und rendern Sie ihr Ergebnis direkt im Chat als Diagramm."
+---
+
+# Eine Aktion hinzufügen
+
+Dies ist der zweite Teil der Reihe „Erste Schritte“. In [Erste Schritte](/docs/getting-started)
+haben Sie eine Chat-App erstellt. Hier definieren Sie einen typisierten
+Textanalysator und rendern sein Ergebnis im Chat.
+
+## Eine Aktion hinzufügen {#add-an-action}
+
+Eine Aktion ist eine typisierte Operation, die sowohl der Agent als auch Ihre UI
+aufrufen können. Aktionen liegen im Verzeichnis `actions/` und bilden die
+gemeinsame Operationsoberfläche für Chat, React-Komponenten, die CLI und andere
+Aufrufer.
+
+Erstellen Sie `actions/analyze-text.ts`:
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z.string().default("The quick brown fox jumps over the lazy dog."),
+  }),
+  outputSchema: dataChartWidgetResultSchema,
+  http: { method: "GET" },
+  chatUI: {
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
+    title: "Text stats",
+  },
+  readOnly: true,
+  run: async ({ text }) => {
+    const summary = {
+      characters: text.length,
+      words: text.split(/\s+/).filter(Boolean).length,
+      sentences: text.split(/[.!?]+/).filter(Boolean).length,
+      paragraphs: text.split(/\n\n+/).filter(Boolean).length,
+    };
+    const points = [
+      { label: "Characters", value: summary.characters },
+      { label: "Words", value: summary.words },
+      {
+        label: "Sentences",
+        value: summary.sentences,
+      },
+      {
+        label: "Paragraphs",
+        value: summary.paragraphs,
+      },
+    ];
+
+    return createDataChartWidgetResult({
+      title: "Text statistics",
+      summary,
+      chartSeries: {
+        type: "bar",
+        xKey: "label",
+        series: [{ key: "value", label: "Count" }],
+        data: points,
+      },
+    });
+  },
+});
+```
+
+Führen Sie die Aktion im Terminal aus:
+
+```bash
+pnpm action analyze-text --text "Hello world. How are you today?"
+```
+
+Oder bitten Sie den Agenten im Chat:
+
+> Run the analyze-text action on "Hello world. How are you today?"
+
+Der integrierte `data-chart`-Renderer wandelt das strukturierte Ergebnis in ein
+Diagramm im Transkript um. Sie müssen weder eine Renderer-Datei noch einen
+Import in `app/root.tsx` hinzufügen. Benutzerdefinierte native Komponenten
+finden Sie unter [Nativer Chat-Oberfläche](/docs/native-chat-ui).
+
+## Weiter
+
+Fahren Sie mit [Eine Seite hinzufügen](/docs/getting-started-pages) fort, um
+dieselbe Aktion außerhalb des Transkripts zu verwenden. Wenn Ergebnisse über
+Gespräche hinweg erhalten bleiben müssen, kehren Sie zu [Daten in SQL speichern](/docs/getting-started-database)
+zurück.

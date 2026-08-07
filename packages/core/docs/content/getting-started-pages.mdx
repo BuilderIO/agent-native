@@ -1,13 +1,14 @@
 ---
 title: "Add a Page"
-description: "Build a React route that displays your saved data and lets the agent open it."
+description: "Build a React route that calls your action and displays its result."
 ---
 
 # Add a Page
 
-This is part four of the Getting Started series. In [Persist Data in SQL](/docs/getting-started-database)
-you saved analysis results. Here you'll build a route that reads those same rows
-through `list-text-analyses`.
+This is part three of the Getting Started series. In [Add an Action](/docs/getting-started-actions)
+you created `analyze-text`. Here you'll call that same action from a route. No
+database is needed yet: Chat already includes the SQL runtime for when you need
+to persist domain data.
 
 ## Create the route {#add-a-page}
 
@@ -19,50 +20,45 @@ Route files in `app/routes/` are picked up automatically. Create
 import { useActionQuery } from "@agent-native/core/client/hooks";
 
 type TextAnalysis = {
-  id: string;
-  input: string;
-  charCount: number;
-  wordCount: number;
-  sentenceCount: number;
-  paragraphCount: number;
-  createdAt: string;
+  summary: {
+    characters: number;
+    words: number;
+    sentences: number;
+    paragraphs: number;
+  };
 };
 
 export default function TextAnalysesRoute() {
-  const { data: analyses = [] } = useActionQuery<TextAnalysis[]>(
-    "list-text-analyses",
-    {},
+  const { data: analysis, isLoading } = useActionQuery<TextAnalysis>(
+    "analyze-text",
+    { text: "Hello world. How are you today?" },
   );
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <header>
         <h1 className="text-2xl font-semibold">Text analyses</h1>
-        <p className="text-muted-foreground">Results saved by the agent.</p>
+        <p className="text-muted-foreground">The same action, on a page.</p>
       </header>
-      <section className="flex flex-col gap-3">
-        {analyses.length === 0 && (
-          <p className="text-muted-foreground">No analyses saved yet.</p>
-        )}
-        {analyses.map((analysis) => (
-          <article key={analysis.id} className="rounded-lg border p-4">
-            <p className="text-sm font-medium">{analysis.input}</p>
-            <p className="text-xs text-muted-foreground">
-              {analysis.wordCount} words, {analysis.charCount} characters,{" "}
-              {analysis.sentenceCount} sentences, {analysis.paragraphCount}{" "}
-              paragraphs
-            </p>
-          </article>
-        ))}
+      <section className="grid gap-3 sm:grid-cols-2">
+        {isLoading && <p className="text-muted-foreground">Analyzing...</p>}
+        {analysis &&
+          Object.entries(analysis.summary).map(([label, value]) => (
+            <article key={label} className="rounded-lg border p-4">
+              <p className="text-sm capitalize text-muted-foreground">
+                {label}
+              </p>
+              <p className="text-2xl font-semibold">{value}</p>
+            </article>
+          ))}
       </section>
     </main>
   );
 }
 ```
 
-`useActionQuery` calls the same action the agent uses. It also refreshes when a
-mutating action completes, so a newly saved analysis appears without a custom
-API route or a second data layer.
+`useActionQuery` calls the same read-only action the agent uses. The page does
+not need a custom API route, a second data layer, or SQL yet.
 
 Open `http://localhost:8080/text-analyses`, or ask the agent:
 
@@ -74,6 +70,7 @@ patterns, see [Context Awareness](/docs/context-awareness).
 
 ## Continue
 
-You've built a chat app with an action, SQL-backed data, and a page that reads
-the same source of truth. Continue with [Key Concepts](/docs/key-concepts) or
-[Agent Surfaces](/docs/agent-surfaces) to explore the architecture behind it.
+You've built a chat app with an action and a page that calls the same source of
+truth. Continue with [Persist Data in SQL](/docs/getting-started-database) when
+results need to persist, or explore [Key Concepts](/docs/key-concepts) and
+[Agent Surfaces](/docs/agent-surfaces).

@@ -2111,6 +2111,155 @@ async function selectRegionForRecording(): Promise<RegionCaptureRect> {
   }
 }
 
+class MonitorPickerCancelledError extends Error {
+  constructor() {
+    super("Full-screen monitor selection cancelled");
+    this.name = "AbortError";
+  }
+}
+
+/**
+ * Safety net only — a normal pick takes as long as the user needs. This
+ * guards against the picker windows being torn down by something other than
+ * a click or Escape (a monitor disconnecting mid-pick, some other teardown)
+ * with neither selection event ever firing, which would otherwise hang the
+ * recording-start flow forever. Matches the "abandon after a while" window
+ * used elsewhere in this file (see `CUE_IDLE_CLEANUP_MS` in audio-cue.ts).
+ */
+const MONITOR_PICKER_SELECTION_TIMEOUT_MS = 5 * 60_000;
+
+function waitForMonitorPickerSelection(): {
+  promise: Promise<number | null>;
+  cleanup: () => void;
+} {
+  let settled = false;
+  const unlistens: UnlistenFn[] = [];
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const cleanup = () => {
+    settled = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    for (const unlisten of unlistens.splice(0)) {
+      try {
+        unlisten();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const promise = new Promise<number | null>((resolve, reject) => {
+    const finish = (cancelled: boolean, displayId: number | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (cancelled) reject(new MonitorPickerCancelledError());
+      else resolve(displayId);
+    };
+
+    timer = setTimeout(() => {
+      finish(true, null);
+    }, MONITOR_PICKER_SELECTION_TIMEOUT_MS);
+
+    const track = (listener: Promise<UnlistenFn>) => {
+      listener
+        .then((unlisten) => {
+          if (settled) {
+            try {
+              unlisten();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+          unlistens.push(unlisten);
+        })
+        .catch((err) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(err);
+        });
+    };
+
+    track(
+      listen<{ displayId?: number | null }>(
+        "clips:monitor-picker-selected",
+        (event) => {
+          const raw = event.payload?.displayId;
+          const displayId =
+            typeof raw === "number" && Number.isFinite(raw) && raw > 0
+              ? raw
+              : null;
+          finish(false, displayId);
+        },
+      ),
+    );
+    track(
+      listen("clips:monitor-picker-cancelled", () => {
+        finish(true, null);
+      }),
+    );
+  });
+
+  return { promise, cleanup };
+}
+
+/**
+ * When more than one monitor is connected, shows a small "record this
+ * screen" popup centered on each one and waits for the user to pick one —
+ * or cancel with Escape, which aborts the whole recording start. Resolves
+ * immediately with no popup when there's only one monitor, matching the
+ * prior single-monitor behavior.
+ *
+ * Callers must await this BEFORE flipping any "recording is starting" UI
+ * state (toolbar, timer, etc.) — that chrome positions itself on whatever
+ * `tray_monitor_physical_rect` returns at the moment it's shown, which
+ * reads this pick. Called from `startNativeFullscreenRecording` instead,
+ * the toolbar was already up (and pinned to the wrong screen) by the time
+ * the user finished picking.
+ */
+export async function pickFullscreenRecordingDisplay(): Promise<void> {
+  // Registered BEFORE showing the picker windows: a fast click (or keyboard
+  // activation) can otherwise fire the selection event before these
+  // listeners exist, and Tauri does not replay events to a listener
+  // registered after the fact — the wait would then sit until its timeout.
+  const selection = waitForMonitorPickerSelection();
+  let shown: boolean;
+  try {
+    shown = await invoke<boolean>("show_monitor_picker");
+  } catch (err) {
+    selection.cleanup();
+    throw err;
+  }
+  if (!shown) {
+    selection.cleanup();
+    return;
+  }
+  let displayId: number | null = null;
+  try {
+    displayId = await selection.promise;
+  } catch (err) {
+    selection.cleanup();
+    await invoke("close_monitor_picker").catch(() => {});
+    throw err;
+  }
+  try {
+    // Deliberately not swallowed: if this fails, `tray_display_id` falls
+    // back to the tray-anchor screen with no way for the caller to tell
+    // that happened, silently recording a different screen than the one
+    // the user just picked. Propagate so the caller aborts the start
+    // instead.
+    await invoke("set_recording_display_override", { displayId });
+  } finally {
+    selection.cleanup();
+    await invoke("close_monitor_picker").catch(() => {});
+  }
+}
+
 async function prepareCountdownEventWaiter(
   timeoutMs = 4000,
   signal?: AbortSignal,
@@ -3063,6 +3212,9 @@ async function startNativeFullscreenRecording(
       // down on stop, cancel, and the error paths below.
       await showRegionRecordBorder(captureRegion);
     }
+    // Full-screen's monitor pick already happened in the caller, before
+    // `recordingFlowActive`/the toolbar went up — see
+    // `pickFullscreenRecordingDisplay`'s doc comment for why.
 
     if (localOnly && localRecordingMode === "separate" && wantsCamera) {
       localCameraStream =
@@ -3443,7 +3595,16 @@ async function startNativeFullscreenRecording(
         );
       });
     await localCameraExport?.cancel().catch(() => {});
-    await invoke("native_fullscreen_recording_cancel").catch((err) =>
+    // A restart discards this take and immediately starts a replacement on
+    // the SAME screen without re-running the monitor picker (native restarts
+    // hand off the live capture, not a browser display stream — see
+    // `pickFullscreenRecordingDisplay`'s skip condition in app.tsx). Without
+    // `preserveDisplayOverride`, these calls would clear the pick before the
+    // replacement recording ever reads it, silently falling back to the
+    // tray-anchor screen.
+    await invoke("native_fullscreen_recording_cancel", {
+      preserveDisplayOverride: forRestart,
+    }).catch((err) =>
       console.warn("[clips-recorder] native fullscreen cancel failed:", err),
     );
     if (bubbleCaptureExcluded) {
@@ -3457,7 +3618,9 @@ async function startNativeFullscreenRecording(
     }
     streamCleanups.forEach((cleanup) => cleanup());
     if (forRestart) {
-      await invoke("hide_recording_chrome").catch(() => {});
+      await invoke("hide_recording_chrome", {
+        preserveDisplayOverride: true,
+      }).catch(() => {});
     } else {
       await endSession();
     }
