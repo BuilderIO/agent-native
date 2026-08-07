@@ -8,6 +8,7 @@ import {
   type CredentialContext,
 } from "./credentials-context";
 import { getAccessToken } from "./gcloud";
+import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 
 async function getProjectContext(): Promise<{
   projectId: string;
@@ -394,33 +395,53 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
   const token = await getAccessToken();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      configuration: {
-        dryRun: true,
-        query: { query: resolvedSql, useLegacySql: false },
-      },
-    }),
-  });
-
-  if (res.ok) return null;
-
-  const text = await res.text();
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutMessage = `BigQuery validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`;
   try {
-    const parsed = JSON.parse(text) as {
-      error?: { message?: string };
-    };
-    const msg = parsed.error?.message?.trim();
-    if (msg) return msg;
-  } catch {
-    // Fall through
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        reject(new Error(timeoutMessage));
+      }, DASHBOARD_SQL_VALIDATION_TIMEOUT_MS);
+    });
+    const request = fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        configuration: {
+          dryRun: true,
+          query: { query: resolvedSql, useLegacySql: false },
+        },
+      }),
+      signal: controller.signal,
+    });
+    const res = await Promise.race([request, timeout]);
+
+    if (res.ok) return null;
+
+    const text = await res.text();
+    try {
+      const parsed = JSON.parse(text) as {
+        error?: { message?: string };
+      };
+      const msg = parsed.error?.message?.trim();
+      if (msg) return msg;
+    } catch {
+      // Fall through
+    }
+    return `BigQuery validation failed (${res.status})`;
+  } catch (error) {
+    if (timedOut) return timeoutMessage;
+    throw error;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
-  return `BigQuery validation failed (${res.status})`;
 }
 
 export async function runQuery(
