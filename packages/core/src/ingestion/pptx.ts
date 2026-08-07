@@ -166,6 +166,10 @@ export async function parsePptxPresentation(
         .sort((a, b) => slideNumber(a) - slideNumber(b)),
     );
   }
+  // Deck-wide fallback, used when a slide's own layout→master chain can't be
+  // resolved (missing rels, unusual authoring tools) — see
+  // `resolveSlideMasterContext` below for the per-slide resolution that
+  // presentations with more than one slide master actually need.
   const theme = await parseTheme(zip, parseXml);
   const masterColorInfo = slideMasterRelationship
     ? await parseMasterColorInfo({
@@ -191,6 +195,11 @@ export async function parsePptxPresentation(
     title: resolveFillsByLevel(masterColorInfo.titleFillByLevel),
     body: resolveFillsByLevel(masterColorInfo.bodyFillByLevel),
   };
+  const themeCache = new Map<string, Promise<ThemeInfo>>();
+  const masterInfoCache = new Map<
+    string,
+    ReturnType<typeof parseMasterColorInfo>
+  >();
   const slides: ParsedPptxSlide[] = [];
   for (const slidePath of slidePaths) {
     const xml = await zip.file(slidePath)?.async("string");
@@ -214,6 +223,18 @@ export async function parsePptxPresentation(
     const slideRelationships = slideRelationshipsXml
       ? parseRelationships(parseXml(slideRelationshipsXml))
       : new Map<string, { target: string; type: string }>();
+    // Presentations can mix multiple masters (e.g. combined templates), each
+    // with its own color map / theme / placeholder defaults — resolve this
+    // slide's own layout→master chain instead of reusing whichever master
+    // happened to be first in the presentation, falling back to the
+    // deck-wide default above only when that chain can't be resolved.
+    const slideMasterContext = (await resolveSlideMasterContext({
+      zip,
+      parseXml,
+      slideRelationships,
+      themeCache,
+      masterInfoCache,
+    })) ?? { colorContext, placeholderDefaults };
     elements = await parseSlideElements({
       xml,
       parseXml,
@@ -223,8 +244,8 @@ export async function parsePptxPresentation(
       slideWidthEmu,
       slideHeightEmu,
       images,
-      colorContext,
-      placeholderDefaults,
+      colorContext: slideMasterContext.colorContext,
+      placeholderDefaults: slideMasterContext.placeholderDefaults,
     });
     const texts = flattenElementText(elements);
     const number = slideNumber(slidePath);
@@ -247,7 +268,10 @@ export async function parsePptxPresentation(
       elements,
       widthEmu: slideWidthEmu,
       heightEmu: slideHeightEmu,
-      backgroundColor: extractSlideBackgroundColor(slide, colorContext),
+      backgroundColor: extractSlideBackgroundColor(
+        slide,
+        slideMasterContext.colorContext,
+      ),
       ...(backgroundGrid ? { backgroundGrid } : {}),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
@@ -354,6 +378,121 @@ async function parseMasterGrid(args: {
     offsetXEmu,
     offsetYEmu,
     lineWidthEmu,
+  };
+}
+
+/** Resolves an OOXML relationship `Target` (package-absolute like "/ppt/foo.xml", or relative like "../slideMasters/slideMaster1.xml") against the directory of the part that declared it. */
+function resolvePptxRelationshipPath(baseDir: string, target: string): string {
+  if (target.startsWith("/")) return target.slice(1);
+  const segments = `${baseDir}/${target}`.split("/");
+  const resolved: string[] = [];
+  for (const segment of segments) {
+    if (segment === "." || segment === "") continue;
+    if (segment === "..") resolved.pop();
+    else resolved.push(segment);
+  }
+  return resolved.join("/");
+}
+
+/** The `_rels/<file>.rels` part that carries relationships for a given OOXML part path. */
+function relsPathForPptxPart(path: string): string {
+  const slashIndex = path.lastIndexOf("/");
+  const dir = slashIndex >= 0 ? path.slice(0, slashIndex) : "";
+  const file = slashIndex >= 0 ? path.slice(slashIndex + 1) : path;
+  return `${dir ? `${dir}/` : ""}_rels/${file}.rels`;
+}
+
+/**
+ * Walks this slide's own `slideLayout` → `slideMaster` → `theme` relationship
+ * chain so slides that belong to a different master than the deck's first
+ * one (a presentation with more than one master) resolve `schemeClr`
+ * aliases and placeholder defaults against their own palette instead of an
+ * unrelated master's. Returns `undefined` when any hop in that chain is
+ * missing, letting the caller fall back to the deck-wide default.
+ */
+async function resolveSlideMasterContext(args: {
+  zip: ZipArchive;
+  parseXml: (xml: string) => unknown;
+  slideRelationships: Map<string, { target: string; type: string }>;
+  themeCache: Map<string, Promise<ThemeInfo>>;
+  masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
+}): Promise<
+  | { colorContext: ColorContext; placeholderDefaults: PlaceholderDefaultColors }
+  | undefined
+> {
+  const layoutRelationship = [...args.slideRelationships.values()].find(
+    (relationship) => relationship.type.endsWith("/slideLayout"),
+  );
+  if (!layoutRelationship) return undefined;
+  const layoutPath = resolvePptxRelationshipPath(
+    "ppt/slides",
+    layoutRelationship.target,
+  );
+  const layoutRelsXml = await args.zip
+    .file(relsPathForPptxPart(layoutPath))
+    ?.async("string");
+  if (!layoutRelsXml) return undefined;
+  const layoutRelationships = parseRelationships(args.parseXml(layoutRelsXml));
+  const masterRelationship = [...layoutRelationships.values()].find(
+    (relationship) => relationship.type.endsWith("/slideMaster"),
+  );
+  if (!masterRelationship) return undefined;
+  const masterPath = resolvePptxRelationshipPath(
+    "ppt/slideLayouts",
+    masterRelationship.target,
+  );
+
+  let masterInfoPromise = args.masterInfoCache.get(masterPath);
+  if (!masterInfoPromise) {
+    masterInfoPromise = parseMasterColorInfo({
+      zip: args.zip,
+      target: masterRelationship.target,
+      parseXml: args.parseXml,
+    });
+    args.masterInfoCache.set(masterPath, masterInfoPromise);
+  }
+  const masterInfo = await masterInfoPromise;
+
+  const masterRelsXml = await args.zip
+    .file(relsPathForPptxPart(masterPath))
+    ?.async("string");
+  const masterRelationships = masterRelsXml
+    ? parseRelationships(args.parseXml(masterRelsXml))
+    : new Map<string, { target: string; type: string }>();
+  const themeRelationship = [...masterRelationships.values()].find(
+    (relationship) => relationship.type.endsWith("/theme"),
+  );
+  if (!themeRelationship) return undefined;
+  const themePath = resolvePptxRelationshipPath(
+    "ppt/slideMasters",
+    themeRelationship.target,
+  );
+  let themePromise = args.themeCache.get(themePath);
+  if (!themePromise) {
+    themePromise = parseThemeFromPath(args.zip, args.parseXml, themePath);
+    args.themeCache.set(themePath, themePromise);
+  }
+  const theme = await themePromise;
+
+  const colorContext: ColorContext = {
+    themeColorsByName: theme.colorsByName,
+    clrMap: masterInfo.clrMap,
+  };
+  const resolveFillsByLevel = (
+    fillsByLevel: Record<number, Record<string, unknown> | null>,
+  ): Record<number, string | undefined> =>
+    Object.fromEntries(
+      Object.entries(fillsByLevel).map(([level, fill]) => [
+        Number(level),
+        parseColor(fill, colorContext),
+      ]),
+    );
+  return {
+    colorContext,
+    placeholderDefaults: {
+      title: resolveFillsByLevel(masterInfo.titleFillByLevel),
+      body: resolveFillsByLevel(masterInfo.bodyFillByLevel),
+    },
   };
 }
 
@@ -1220,7 +1359,15 @@ async function parseTheme(
   zip: ZipArchive,
   parseXml: (xml: string) => unknown,
 ): Promise<ThemeInfo> {
-  const xml = await zip.file("ppt/theme/theme1.xml")?.async("string");
+  return parseThemeFromPath(zip, parseXml, "ppt/theme/theme1.xml");
+}
+
+async function parseThemeFromPath(
+  zip: ZipArchive,
+  parseXml: (xml: string) => unknown,
+  themePath: string,
+): Promise<ThemeInfo> {
+  const xml = await zip.file(themePath)?.async("string");
   if (!xml) return { colors: [], colorsByName: {}, fonts: [] };
   const root = record(parseXml(xml));
   const elements = record(record(root?.["a:theme"])?.["a:themeElements"]);

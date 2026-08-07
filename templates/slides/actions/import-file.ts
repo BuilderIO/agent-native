@@ -408,6 +408,23 @@ async function importPdfPagesWithFidelity(args: {
     throw new Error("The PDF renderer returned no importable pages.");
   }
 
+  // A page with neither extracted text nor a fidelity element is only ever
+  // produced when nothing on it could be recovered (e.g. a scanned/image
+  // page and canvas rendering was unavailable or failed) — if that's true of
+  // every page, importing anyway would silently create a deck of blank
+  // placeholder slides and report success, matching the earlier
+  // text-extraction path's "needs OCR" failure keeps that lossy import from
+  // going unnoticed.
+  const hasRecoverableContent = pages.some((page) => {
+    const fidelity = fidelityPages.find((p) => p.pageNumber === page.num);
+    return page.text.trim().length > 0 || (fidelity?.elements.length ?? 0) > 0;
+  });
+  if (!hasRecoverableContent) {
+    throw new Error(
+      "No importable text or images found in this PDF. Scanned PDFs need OCR first.",
+    );
+  }
+
   // Source decks (e.g. Instagram carousel exports) are commonly portrait or
   // square, not the deck editor's 16:9 default — match the canvas to the
   // PDF's own real page proportions instead of stretching/cropping it.

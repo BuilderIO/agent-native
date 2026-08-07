@@ -258,6 +258,28 @@ describe("import-file PDF source extraction", () => {
     ).rejects.toThrow("No importable text found in this PDF");
   });
 
+  it("fails clearly instead of importing a scanned PDF as blank placeholder slides", async () => {
+    mockPdfText.mockResolvedValue({ pages: [{ num: 1, text: "" }] });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: undefined,
+        elements: [],
+      },
+    ]);
+
+    await expect(
+      action.run({
+        filePath: "scanned-no-canvas.pdf",
+        format: "pdf",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      }),
+    ).rejects.toThrow("No importable text or images found in this PDF");
+  });
+
   it("imports PDF pages using positioned text/image fidelity parsing instead of flattening their layout", async () => {
     mockPdfText.mockResolvedValue({
       pages: [{ num: 1, text: "Source title\nSource body" }],

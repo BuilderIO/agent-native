@@ -701,11 +701,14 @@ export async function walkPageGraphics(
   const underlineRects: UnderlineRect[] = [];
   let backgroundColor: string | undefined;
   let fillColor = DEFAULT_TEXT_COLOR;
-  // False whenever the color was set through an operator this walk doesn't
-  // decode (a pattern/separation/ICC colorspace fill via `scn`/`SCN`, common
-  // for exact brand colors) — `fillColor` is then a stale guess, not a real
-  // reading, and must not be trusted for text or background detection.
-  let fillColorKnown = false;
+  // Starts true: the PDF spec's initial nonstroking color IS black, so text
+  // painted before any explicit color-setting operator is legitimately
+  // black, not "unknown." This flips to false whenever the color is set
+  // through an operator this walk doesn't decode (a pattern/separation/ICC
+  // colorspace fill via `scn`/`SCN`, common for exact brand colors) —
+  // `fillColor` is then a stale guess, not a real reading, and must not be
+  // trusted for text or background detection.
+  let fillColorKnown = true;
   let ctm: Mat = [1, 0, 0, 1, 0, 0];
   const stack: { ctm: Mat; fillColor: string; fillColorKnown: boolean }[] = [];
 
