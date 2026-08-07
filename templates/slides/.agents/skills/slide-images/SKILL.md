@@ -34,8 +34,13 @@ legacy image action directly:
    image syntax (`![Variation 1](url)`), not a plain link (`[Variation 1](url)`)
    — the chat renders `![]()` as an actual image but `[]()` as a bare link.
 4. Preserve the returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
-5. Insert the chosen image into the slide content through the normal action.
-6. For feedback, refine the same asset rather than starting an unrelated run.
+5. For direct insertion, call `generate-image-api` with `insertIntoSlide: true`,
+   `deckId`, and `slideId`. Only say the image was added when it returns
+   `inserted: true`; a preview URL is not proof of a slide write.
+6. For preview-only variations, place the chosen URL with `update-slide`, then
+   re-read that slide with `get-deck` and confirm the persisted HTML contains
+   the image source before reporting success.
+7. For feedback, refine the same asset rather than starting an unrelated run.
 
 ### Context to pass
 
@@ -72,4 +77,6 @@ pnpm action search-images --q "Acme logo transparent" --count 5
 - Use `.fmd-img-placeholder` divs in slides before real images are generated
 - Use one canonical provider action per conceptual search; do not loop legacy
   provider scripts or manually guess provider URLs
-- After inserting an image, update the deck via the API
+- Never claim image insertion from a generation response alone; require the
+  verified `inserted: true` response, or an `update-slide` plus `get-deck`
+  verification for preview-only placement

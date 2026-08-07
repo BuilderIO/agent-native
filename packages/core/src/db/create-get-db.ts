@@ -17,7 +17,7 @@ import {
   sqliteFilenameFromUrl,
   pgPoolOptions,
   neonPoolOptions,
-  attachNeonPoolErrorLogger,
+  guardNeonPool,
   withDbTimeout,
   retryOnConnectionError,
   dbOpTimeoutMs,
@@ -506,7 +506,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             url,
             () => new Pool({ connectionString: url, ...neonPoolOptions() }),
           );
-          attachNeonPoolErrorLogger(rawPool);
+          guardNeonPool(rawPool, url);
           // Wrap the pool with the resilience layer so Drizzle queries get the
           // same withDbTimeout + retryOnConnectionError protection as the raw
           // DbExec path in client.ts. Reads retry freely; writes only retry on

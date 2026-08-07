@@ -1941,7 +1941,7 @@ function LocalModeBadge() {
         >
           <span className="size-1.5 rounded-full bg-emerald-500" />
           <span>{t("plansPage.localMode.badge")}</span>
-          <IconHelpCircle className="size-3.5 opacity-75" />
+          <IconHelpCircle className="size-3 opacity-75" />
         </a>
       </TooltipTrigger>
       <TooltipContent align="end" side="bottom" className="max-w-xs p-3">
@@ -5331,6 +5331,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                           target="_blank"
                           rel="noreferrer"
                         >
+                          {/* guard:allow-large-help-icon - menu action icon */}
                           <IconHelpCircle className="size-4" />
                           {t("plansPage.reader.openDocs")}
                         </a>

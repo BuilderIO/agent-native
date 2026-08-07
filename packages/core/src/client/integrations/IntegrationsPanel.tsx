@@ -32,6 +32,7 @@ import {
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
   useCreateMcpServer,
   useDeleteMcpServer,
@@ -730,27 +731,6 @@ function compareMcpUrl(value: string): string {
   }
 }
 
-function McpLogo({ integration }: { integration: DefaultMcpIntegration }) {
-  const [failed, setFailed] = useState(false);
-
-  return (
-    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-background text-xs font-semibold text-muted-foreground">
-      {failed ? (
-        integration.name.slice(0, 1)
-      ) : (
-        <img
-          src={integration.logoUrl}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="size-7 object-contain"
-          onError={() => setFailed(true)}
-        />
-      )}
-    </span>
-  );
-}
-
 function McpServerStatus({
   server,
   onReconnect,
@@ -833,7 +813,11 @@ function McpCatalogItem({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-3 border-b border-border/60 py-4 last:border-b-0">
-      <McpLogo integration={integration} />
+      <McpIntegrationLogo
+        name={integration.name}
+        logoUrl={integration.logoUrl}
+        integrationId={integration.id}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium text-foreground">

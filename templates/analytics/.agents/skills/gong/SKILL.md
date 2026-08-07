@@ -106,12 +106,30 @@ For account or deal deep dives:
    quoting, debugging, or export.
 6. Ground qualitative findings in the transcript excerpts and state how many
    calls were inspected.
-7. Page through calls using `cursor`/offset when you need bounded account
-   coverage — do NOT stop at the first page. For broad scans, do not use
+7. For bounded account coverage, use `cursor`/offset only when the cohort is
+   intentionally bounded. If the action reports truncation, treat coverage as
+   incomplete and switch to tracker staging with `provider-api-request` plus
+   `query-staged-dataset` or a Data Program, or to `provider-corpus-job` when
+   raw transcript bodies are required. Do not increase the limit or keep
+   paging `gong-calls` for broad scans. Do not use
    `gong-calls(exhaustive=true)` or one blocking `provider-api-request` call as
    the analysis. Stage the raw response and reduce it with a Data Program or
    `query-staged-dataset`; use `provider-corpus-job` for checkpointed transcript
    batches when raw bodies are necessary.
+
+## Quota and Coverage Rules
+
+- Every Gong list or transcript page consumes provider quota. Budget pages and
+  transcript batches before starting a broad scan; do not spend quota retrying
+  the same bounded action after it reports incomplete coverage.
+- A terminal HTTP 429 is terminal for that attempt. The shared provider
+  transport may perform bounded cooldown/retry handling from `Retry-After`, but
+  the agent must not add another retry loop. Report the rate-limit failure and
+  switch to the staged tracker or checkpointed `provider-corpus-job` path only
+  if that route is still appropriate.
+- Exhaustive, count, and absence claims require complete coverage of the stated
+  cohort. If any page, transcript batch, or provider request fails or is
+  truncated, report the gap and do not make the claim.
 
 Example:
 
@@ -138,7 +156,8 @@ debugging/export, and never pass raw transcript payloads into `save-analysis`.
 
 When the question is "do ANY of these calls mention X?" or "how many calls across
 this cohort mention X?" — where missing a single call makes the answer wrong — do
-NOT conclude absence from a sampled `includeTranscripts` result. Choose the
+NOT conclude absence from a sampled `includeTranscripts` result. Exhaustive
+claims require complete coverage of every call in the stated cohort. Choose the
 smallest complete path for the bounded cohort:
 
 1. **Configured keyword tracker.** If the requested term is already a Gong

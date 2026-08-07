@@ -92,7 +92,7 @@ type DragState = {
   startPosition: { x: number; y: number };
 };
 
-const DRAG_THRESHOLD = 3;
+const DRAG_THRESHOLD = 6;
 
 export function FactoryCanvas({
   graph,

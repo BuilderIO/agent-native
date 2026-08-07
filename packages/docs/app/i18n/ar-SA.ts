@@ -1479,7 +1479,6 @@ const arSA = {
     templatesSection: "التطبيقات",
     gettingStarted: "البدء",
     gettingStartedActions: "Add an Action",
-    gettingStartedDatabase: "Persist Data in SQL",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "ما هو Agent-Native؟",
     agentSurfaces: "واجهات Agent",

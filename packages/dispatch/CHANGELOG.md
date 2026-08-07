@@ -1,5 +1,24 @@
 # @agent-native/dispatch
 
+## 0.20.2
+
+### Patch Changes
+
+- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
+- 6071f7d: Keep language selection in Settings instead of the Dispatch header.
+
+## 0.20.1
+
+### Patch Changes
+
+- c440e50: Route Turn Into App requests from Claude Web, ChatGPT Web, and web Projects to Builder through Dispatch instead of building in the host sandbox.
+
+## 0.20.0
+
+### Minor Changes
+
+- 1d5bab1: Simplify the Dispatch Admin overview and Apps catalog with shared icon cards, app colors, and lighter progressive disclosure.
+
 ## 0.19.2
 
 ### Patch Changes
