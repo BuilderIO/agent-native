@@ -52,6 +52,7 @@ const { chromium } = requireFromCore(
 
 const templateDir = path.join(repoRoot, "templates", "chat");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-sign-in-matrix-"));
+const isCi = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
 const appPort = Number(process.env.SIGN_IN_MATRIX_SMOKE_PORT || 9351);
 const embedPort = Number(process.env.SIGN_IN_MATRIX_EMBED_PORT || 9353);
 const qaEmail = "qa-sign-in-matrix@example.test";
@@ -62,6 +63,11 @@ const SIGN_IN_LEGACY_ENTRY_PATH = "/_agent-native/sign-in";
 /** The protected route the anonymous visitor asks for, query and hash included. */
 const PROTECTED_ROUTE = "/settings/general";
 
+interface ViteReloadTracker {
+  /** Wall-clock ms when the latest Vite full-page reload log chunk arrived. */
+  lastReloadAt: number;
+}
+
 interface RunningApp {
   origin: string;
   /** `""` for the root deploy, `/chatapp` for the base-path deploy. */
@@ -70,6 +76,48 @@ interface RunningApp {
   appUrl: string;
   child: ChildProcessWithoutNullStreams;
   logs: string[];
+  viteReload: ViteReloadTracker;
+}
+
+function appendAppLog(
+  logs: string[],
+  chunk: string,
+  viteReload: ViteReloadTracker,
+): void {
+  logs.push(chunk);
+  if (
+    chunk.includes("reloading the page") ||
+    chunk.includes("optimized dependencies changed")
+  ) {
+    viteReload.lastReloadAt = Date.now();
+  }
+}
+
+/**
+ * Wait until no Vite full-page reload log chunk has arrived for `quietMs`.
+ * A cold Vite dep-optimize can reload the page out from under an in-flight
+ * click, which surfaces as a real element failing Playwright's actionability
+ * check ("not visible") rather than as a navigation error.
+ */
+async function waitForViteDepsQuiet(
+  viteReload: ViteReloadTracker,
+  logs: string[],
+  options: { quietMs?: number; timeoutMs?: number } = {},
+): Promise<void> {
+  const quietMs = options.quietMs ?? (isCi ? 8_000 : 4_000);
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (viteReload.lastReloadAt === 0) return;
+    if (Date.now() - viteReload.lastReloadAt >= quietMs) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(
+    `Vite dep optimization did not settle within ${timeoutMs}ms ` +
+      `(lastReloadAt=${viteReload.lastReloadAt}).\n${logs.slice(-120).join("")}`,
+  );
 }
 
 /**
@@ -149,6 +197,7 @@ async function startApp(basePath: string): Promise<RunningApp> {
   const appUrl = `${origin}${basePath}`;
   const dbPath = path.join(tmpRoot, `chat${basePath.replace(/\//g, "-")}.db`);
   const logs: string[] = [];
+  const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   cleanGeneratedFiles();
   // Vite directly, not `pnpm dev`: `agent-native dev` is a passthrough to this
   // same binary, the template's `dev` script adds `--open` (which would launch
@@ -166,8 +215,12 @@ async function startApp(basePath: string): Promise<RunningApp> {
       detached: true,
     },
   );
-  child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
-  child.stderr.on("data", (chunk) => logs.push(chunk.toString()));
+  child.stdout.on("data", (chunk) =>
+    appendAppLog(logs, chunk.toString(), viteReload),
+  );
+  child.stderr.on("data", (chunk) =>
+    appendAppLog(logs, chunk.toString(), viteReload),
+  );
   child.on("exit", (code, signal) => {
     logs.push(`\n[chat] exited code=${code} signal=${signal}\n`);
   });
@@ -181,7 +234,7 @@ async function startApp(basePath: string): Promise<RunningApp> {
     doc.includes(`var configured = ${JSON.stringify(basePath)};`),
     `the server on ${appUrl} is not serving base path ${JSON.stringify(basePath)}`,
   );
-  return { origin, basePath, appUrl, child, logs };
+  return { origin, basePath, appUrl, child, logs, viteReload };
 }
 
 async function portIsFree(): Promise<boolean> {
@@ -346,12 +399,35 @@ async function reachSignIn(page: Page, url: string): Promise<URL> {
   );
 }
 
-async function signInThroughTheRealForm(page: Page): Promise<void> {
-  await page.click('.tab[data-tab="signup"]');
-  await page.fill("#s-email", qaEmail);
-  await page.fill("#s-pass", qaPassword);
-  await page.fill("#s-pass2", qaPassword);
-  await page.click("#signup-form button[type=submit]");
+async function signInThroughTheRealForm(
+  page: Page,
+  app: RunningApp,
+): Promise<void> {
+  // The sign-in document can still be mid Vite dep-optimize when we land on
+  // it; a reload firing under an in-flight click surfaces as the resolved
+  // element failing the "visible" actionability check, not a nav error. Wait
+  // for quiet first, then retry the whole interaction if a reload still
+  // slips in between the quiet check and the click completing.
+  const attempts = isCi ? 3 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    await waitForViteDepsQuiet(app.viteReload, app.logs);
+    const reloadAtStart = app.viteReload.lastReloadAt;
+    try {
+      await page.click('.tab[data-tab="signup"]', { timeout: 15_000 });
+      await page.fill("#s-email", qaEmail);
+      await page.fill("#s-pass", qaPassword);
+      await page.fill("#s-pass2", qaPassword);
+      await page.click("#signup-form button[type=submit]");
+      return;
+    } catch (err) {
+      lastError = err;
+      const reloadedDuringAttempt =
+        app.viteReload.lastReloadAt !== reloadAtStart;
+      if (!reloadedDuringAttempt || attempt === attempts - 1) throw err;
+    }
+  }
+  throw lastError;
 }
 
 /** Surfaces 1 and 2: top-level app at root, and under a non-root base path. */
@@ -391,7 +467,7 @@ async function runDeploySuite(
   );
 
   // 2. Signing in through the real login document lands back on that route.
-  await signInThroughTheRealForm(page);
+  await signInThroughTheRealForm(page, app);
   await page.waitForURL((url) => pathnameOf(url.toString()) === protectedPath, {
     timeout: 60_000,
   });
