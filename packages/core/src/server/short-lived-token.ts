@@ -338,7 +338,8 @@ export function verifyRealtimeSubscribeToken(
     if (typeof claims.absExp !== "number") {
       return { ok: false, reason: "bad_payload" };
     }
-    if (claims.absExp * 1000 < Date.now()) {
+    // `<=`, not `<`: a ceiling is not valid at the instant it is reached.
+    if (claims.absExp * 1000 <= Date.now()) {
       return { ok: false, reason: "session_expired" };
     }
   }
