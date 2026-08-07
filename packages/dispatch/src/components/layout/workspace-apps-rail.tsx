@@ -18,6 +18,7 @@ function pathFromValue(value: string | null | undefined): string | null {
     const pathname = new URL(trimmed, "https://dispatch.local").pathname;
     return pathname.replace(/\/+$/, "") || "/";
   } catch {
+    // coercion-ok: malformed app URLs cannot match a workspace route.
     return null;
   }
 }

@@ -31,6 +31,14 @@ import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
 
+type DesignatedVaultFallbackAccess =
+  | { status: "allowed" }
+  | {
+      status: "denied";
+      reason: "missing-app-id" | "no-active-grant";
+    }
+  | { status: "unavailable"; cause: unknown };
+
 /**
  * The designated vault fallback is an all-apps compatibility path. Manual
  * mode must use the per-app sync path instead, or a known key name would be
@@ -39,12 +47,12 @@ const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
 async function canReadDesignatedVaultFallback(
   vaultOrgId: string,
   credentialKey: string,
-): Promise<boolean> {
+): Promise<DesignatedVaultFallbackAccess> {
   const access = await getOrgSetting(
     vaultOrgId,
     DISPATCH_VAULT_ACCESS_SETTINGS_KEY,
   );
-  if (access?.mode !== "manual") return true;
+  if (access?.mode !== "manual") return { status: "allowed" };
 
   // Manual mode is still usable across a Dispatch vault org and a separate
   // app org, but only for this app's explicit active grant. The app identity
@@ -57,7 +65,9 @@ async function canReadDesignatedVaultFallback(
   ]
     .find((value) => value?.trim())
     ?.trim();
-  if (!appId) return false;
+  if (!appId) {
+    return { status: "denied", reason: "missing-app-id" };
+  }
 
   try {
     const result = await getDbExec().execute({
@@ -72,11 +82,13 @@ async function canReadDesignatedVaultFallback(
         LIMIT 1`,
       args: [vaultOrgId, appId, credentialKey],
     });
-    return result.rows.length > 0;
-  } catch {
+    return result.rows.length > 0
+      ? { status: "allowed" }
+      : { status: "denied", reason: "no-active-grant" };
+  } catch (cause) {
     // A missing/unreadable grant table must fail closed. The app can still
     // resolve a locally scoped credential or retry after the store recovers.
-    return false;
+    return { status: "unavailable", cause };
   }
 }
 
@@ -1535,36 +1547,42 @@ export async function resolveSecretDetailed(
       // a shared key. This fallback keeps workspace apps from requiring every
       // builder to copy a vault key into app-local settings.
       const vaultOrgId = process.env.AGENT_VAULT_ORG_ID?.trim();
-      if (
-        vaultOrgId &&
-        vaultOrgId !== orgId &&
-        (await canReadDesignatedVaultFallback(vaultOrgId, key))
-      ) {
-        const [vaultOrgRead, vaultWorkspaceRead] = await Promise.allSettled([
-          readAppSecret({ key, scope: "org", scopeId: vaultOrgId }),
-          readAppSecret({ key, scope: "workspace", scopeId: vaultOrgId }),
-        ]);
-        const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
-          if (settled.status === "rejected") throw settled.reason;
-          return settled.value;
-        };
-        const vaultOrgSecret = unwrap(vaultOrgRead);
-        if (vaultOrgSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=org-vault hit=true`,
-            );
-          }
-          return { value: vaultOrgSecret.value, lookupFailed: false };
+      if (vaultOrgId && vaultOrgId !== orgId) {
+        const designatedVaultAccess = await canReadDesignatedVaultFallback(
+          vaultOrgId,
+          key,
+        );
+        if (designatedVaultAccess.status === "unavailable") {
+          lookupFailed = true;
+          cause = designatedVaultAccess.cause;
         }
-        const vaultWorkspaceSecret = unwrap(vaultWorkspaceRead);
-        if (vaultWorkspaceSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=workspace-vault hit=true`,
-            );
+        if (designatedVaultAccess.status === "allowed") {
+          const [vaultOrgRead, vaultWorkspaceRead] = await Promise.allSettled([
+            readAppSecret({ key, scope: "org", scopeId: vaultOrgId }),
+            readAppSecret({ key, scope: "workspace", scopeId: vaultOrgId }),
+          ]);
+          const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
+            if (settled.status === "rejected") throw settled.reason;
+            return settled.value;
+          };
+          const vaultOrgSecret = unwrap(vaultOrgRead);
+          if (vaultOrgSecret?.value) {
+            if (traceLookup) {
+              console.log(
+                `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=org-vault hit=true`,
+              );
+            }
+            return { value: vaultOrgSecret.value, lookupFailed: false };
           }
-          return { value: vaultWorkspaceSecret.value, lookupFailed: false };
+          const vaultWorkspaceSecret = unwrap(vaultWorkspaceRead);
+          if (vaultWorkspaceSecret?.value) {
+            if (traceLookup) {
+              console.log(
+                `[resolve-secret] key=${key} email=${email} vaultOrgId=${vaultOrgId} scope=workspace-vault hit=true`,
+              );
+            }
+            return { value: vaultWorkspaceSecret.value, lookupFailed: false };
+          }
         }
       }
     } catch (err) {
