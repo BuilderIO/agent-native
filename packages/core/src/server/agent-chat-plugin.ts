@@ -2207,6 +2207,17 @@ export function createAgentChatPlugin(
               ownerEmail,
               anthropicFallback: options?.apiKey,
             });
+            // `ask_app` runs outside the interactive handler, so nothing seeds
+            // the run context for it — and `onEngineResolved` never fires on
+            // this path either. Without the resolved key and its provenance
+            // here, an agent-team sub-agent spawned from an MCP run falls back
+            // to the plugin host key while the parent bills the owner's BYO
+            // credential. Same reason the A2A branch above seeds it.
+            const mcpRunContext = ensureRequestRunContext();
+            if (mcpRunContext) {
+              mcpRunContext.userApiKey = ownerApiKey.apiKey;
+              mcpRunContext.userApiKeyEnvVar = ownerApiKey.apiKeyEnvVar;
+            }
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,
               apiKey: ownerApiKey.apiKey,
