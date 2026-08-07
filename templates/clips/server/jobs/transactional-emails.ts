@@ -49,6 +49,7 @@ const SENDING_LEASE_MS = 2 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 60_000;
 let skippingLogged = false;
+let running = false;
 
 type DirectShare = {
   id: string;
@@ -1304,9 +1305,15 @@ export default function registerTransactionalEmailsJob(): void {
     return;
   }
   setInterval(() => {
-    runTransactionalEmailsOnce().catch((error) =>
-      console.error("[transactional-emails] interval failed:", error),
-    );
+    if (running) return;
+    running = true;
+    runTransactionalEmailsOnce()
+      .catch((error) =>
+        console.error("[transactional-emails] interval failed:", error),
+      )
+      .finally(() => {
+        running = false;
+      });
   }, JOB_INTERVAL_MS);
   console.log(
     `[transactional-emails] Recurring reconciliation and delivery every ${JOB_INTERVAL_MS / 1000}s.`,

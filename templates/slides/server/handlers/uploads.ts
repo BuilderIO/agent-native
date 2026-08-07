@@ -9,9 +9,11 @@ import {
 import { nanoid } from "nanoid";
 
 import {
+  MAX_FIG_REFERENCE_FILE_BYTES,
+  MAX_REFERENCE_FILE_BYTES,
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
-} from "../../shared/upload-types";
+} from "../../shared/upload-types.js";
 import { tenantUploadDir } from "../lib/tenant-files.js";
 import {
   isHostedSlidesRuntime,
@@ -23,8 +25,10 @@ import {
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
-export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
-export const MAX_FIG_REFERENCE_FILE_BYTES = 200 * 1024 * 1024;
+export {
+  MAX_FIG_REFERENCE_FILE_BYTES,
+  MAX_REFERENCE_FILE_BYTES,
+} from "../../shared/upload-types.js";
 const FIG_LOCAL_COPY_SIGNATURE = new Uint8Array([
   0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
 ]);

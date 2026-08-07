@@ -165,8 +165,12 @@ function SessionUnavailableNotice({ retry }: { retry: () => void }) {
   return (
     <div className="flex h-screen w-full flex-col items-center justify-center gap-4 px-6 text-center">
       <p className="max-w-md text-sm text-muted-foreground">
-        We couldn&apos;t reach the server to confirm you&apos;re signed in. This
-        is usually temporary.
+        We couldn&apos;t reach the server to confirm your session. This is
+        usually temporary.
+      </p>
+      <p className="max-w-md text-xs text-muted-foreground">
+        Retry connection checks your session here. Reload page starts the app
+        over.
       </p>
       <div className="flex gap-2">
         <button
@@ -174,7 +178,7 @@ function SessionUnavailableNotice({ retry }: { retry: () => void }) {
           onClick={retry}
           className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground"
         >
-          Try again
+          Retry connection
         </button>
         <button
           type="button"

@@ -175,7 +175,7 @@ export default function ApprovalPreviewRoute() {
               size="sm"
               variant="outline"
               className="mt-4 gap-1.5"
-              onClick={() => postNavigate(appPath("/approvals"))}
+              onClick={() => postNavigate(appPath("/admin/approvals"))}
             >
               <IconArrowUpRight size={14} />
               View all approvals
@@ -288,7 +288,7 @@ export default function ApprovalPreviewRoute() {
               size="sm"
               variant="ghost"
               className="gap-1.5 text-muted-foreground"
-              onClick={() => postNavigate(appPath("/approvals"))}
+              onClick={() => postNavigate(appPath("/admin/approvals"))}
             >
               <IconArrowUpRight size={14} />
               Open in app

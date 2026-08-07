@@ -1496,7 +1496,17 @@ export function useDbSync(
             // the independent framework prefixes, while pure action batches
             // retain their narrow storm-resistant invalidation.
             if (!hasActionEvent) {
-              invalidateWithoutCancel({ queryKey: ["action"] });
+              // Honour the app's predicate here too. Without it the contract was
+              // silently conditional: a batch carrying an `action` event
+              // respected the predicate (above), while a batch carrying only
+              // `db`/`collab`/`settings`/`screen-refresh` blew away every
+              // ["action"] query regardless of what the app opted out of — and
+              // an app cannot work around it, because both the prefix and this
+              // call are framework-owned.
+              const predicate = actionInvalidatePredicateRef.current;
+              invalidateWithoutCancel(
+                predicate ? { predicate } : { queryKey: ["action"] },
+              );
             }
             if (!hasActionEvent || hasFrameworkPrefixEvent) {
               invalidateWithoutCancel({ queryKey: ["extension"] });
