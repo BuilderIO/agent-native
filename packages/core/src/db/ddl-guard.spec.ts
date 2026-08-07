@@ -586,4 +586,48 @@ describe("ddl-guard", () => {
       expect(isLockTimeoutError(null)).toBe(false);
     });
   });
+
+  it("creates concurrent indexes without opening a transaction", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    const { ensureIndexExistsConcurrently } = await import("./ddl-guard.js");
+    let created = false;
+    const calls: string[] = [];
+    const client = {
+      execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+        const text = typeof sql === "string" ? sql : sql.sql;
+        calls.push(text);
+        if (/FROM information_schema\.columns/.test(text)) {
+          return {
+            rows: [{ table_name: "sync_events", column_name: "id" }],
+            rowsAffected: 0,
+          };
+        }
+        if (/FROM pg_indexes/.test(text)) {
+          return {
+            rows: created
+              ? [{ indexname: "sync_events_created_at_id_idx" }]
+              : [],
+            rowsAffected: 0,
+          };
+        }
+        if (/CREATE INDEX CONCURRENTLY/.test(text)) created = true;
+        return { rows: [], rowsAffected: 0 };
+      },
+      transaction: async () => {
+        throw new Error("concurrent index creation must not use a transaction");
+      },
+    } as any;
+
+    await expect(
+      ensureIndexExistsConcurrently(
+        "sync_events_created_at_id_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+        { injectedClient: client, dialectIsPostgres: true },
+      ),
+    ).resolves.toBe(true);
+    expect(calls.some((sql) => /CREATE INDEX CONCURRENTLY/.test(sql))).toBe(
+      true,
+    );
+    expect(calls).not.toContain("BEGIN");
+  });
 });

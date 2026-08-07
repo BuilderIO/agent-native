@@ -478,6 +478,52 @@ export async function ensureIndexExists(
   });
 }
 
+/**
+ * Ensure an additive Postgres index with `CREATE INDEX CONCURRENTLY`.
+ *
+ * This is deliberately separate from `ensureIndexExists`: the normal helper
+ * wraps DDL in a transaction so it can scope `lock_timeout`, but PostgreSQL
+ * forbids `CREATE INDEX CONCURRENTLY` inside a transaction. The caller must
+ * supply the concurrent form of the statement; direct execution keeps the
+ * build outside a transaction and avoids blocking writes on a large table.
+ */
+export async function ensureIndexExistsConcurrently(
+  indexName: string,
+  createIndexSql: string,
+  options: {
+    injectedClient?: DbExec;
+    dialectIsPostgres?: boolean;
+  } = {},
+): Promise<boolean> {
+  if (!(options.dialectIsPostgres ?? isPostgres())) return false;
+  const client = options.injectedClient ?? getDbExec();
+  const initiallyExists = await pgIndexExists(
+    indexName,
+    client,
+    options.dialectIsPostgres,
+  );
+  if (initiallyExists === true) return false;
+  if (initiallyExists === undefined) {
+    throw new Error(
+      `ensureIndexExistsConcurrently: could not probe required index "${indexName}"; refusing to issue DDL`,
+    );
+  }
+
+  await client.execute(createIndexSql);
+  invalidateSchemaSnapshot(client);
+  const existsAfterCreate = await pgIndexExists(
+    indexName,
+    client,
+    options.dialectIsPostgres,
+  );
+  if (existsAfterCreate !== true) {
+    throw new Error(
+      `ensureIndexExistsConcurrently: index "${indexName}" is still missing after CREATE INDEX CONCURRENTLY`,
+    );
+  }
+  return true;
+}
+
 /** True when an error looks like a Postgres `lock_timeout` (SQLSTATE 55P03). */
 export function isLockTimeoutError(err: unknown): boolean {
   const anyErr = err as { code?: unknown; message?: unknown } | null;

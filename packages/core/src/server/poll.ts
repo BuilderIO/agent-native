@@ -32,7 +32,11 @@ import {
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
 import { type DbExec, getDbExec, isPostgres } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureIndexExists,
+  ensureIndexExistsConcurrently,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -597,9 +601,9 @@ export class AppSyncState {
             "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
             guardOptions,
           );
-          await ensureIndexExists(
+          await ensureIndexExistsConcurrently(
             "sync_events_created_at_id_idx",
-            "CREATE INDEX IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
             guardOptions,
           );
           if (this.dbAssignedVersions) {
