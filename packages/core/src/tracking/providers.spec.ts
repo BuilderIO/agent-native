@@ -129,6 +129,33 @@ describe("tracking providers", () => {
     });
   });
 
+  it("flushes PostHog, Mixpanel, Amplitude, and webhook events immediately in serverless runtimes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("MIXPANEL_TOKEN", "mp_test");
+    vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+    vi.stubEnv("TRACKING_WEBHOOK_URL", "https://hooks.example.test/track");
+    vi.stubEnv("NETLIFY", "true");
+    const { registerBuiltinProviders, track } = await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("http.response", { status_code: 500 });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+    const calledUrls = fetchMock.mock.calls.map((call) => call[0]).sort();
+    expect(calledUrls).toEqual(
+      [
+        "https://api.mixpanel.com/track",
+        "https://api2.amplitude.com/2/httpapi",
+        "https://hooks.example.test/track",
+        "https://us.i.posthog.com/capture/",
+      ].sort(),
+    );
+  });
+
   it("sends PostHog AI observability events to the AI event endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
