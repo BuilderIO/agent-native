@@ -16,6 +16,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { formatGoogleOAuthError } from "../lib/google-docs-error.js";
 import {
   disconnectGoogleDocs,
   exchangeGoogleDocsCode,
@@ -25,21 +26,7 @@ import {
   isGoogleDocsOAuthConfigured,
   listGoogleDocsAccounts,
 } from "../lib/google-docs-oauth.js";
-
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "slides";
-
-function permissionMessage(error: unknown): string {
-  const message =
-    error instanceof Error ? error.message : String(error || "Unknown error");
-  if (
-    message.includes("Insufficient Permission") ||
-    message.includes("insufficient_scope") ||
-    message.includes("access_denied")
-  ) {
-    return "Google Docs access was denied. Connect again and approve the requested Google Drive file permission.";
-  }
-  return message;
-}
 
 async function requireSessionEmail(event: H3Event): Promise<string | null> {
   const session = await getSession(event);
@@ -105,7 +92,7 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
       return { url };
     } catch (error) {
       setResponseStatus(event, 500);
-      return { error: permissionMessage(error) };
+      return { error: formatGoogleOAuthError(error) };
     }
   },
 );
@@ -127,7 +114,7 @@ export const handleGoogleDocsCallback = defineEventHandler(
       if (googleError) {
         const errorDesc =
           (query.error_description as string | undefined) || googleError;
-        return oauthErrorPage(permissionMessage(new Error(errorDesc)));
+        return oauthErrorPage(formatGoogleOAuthError(new Error(errorDesc)));
       }
 
       const code = query.code as string | undefined;
@@ -157,7 +144,7 @@ export const handleGoogleDocsCallback = defineEventHandler(
       });
     } catch (error) {
       return oauthErrorPage(
-        `Google Docs connection failed: ${permissionMessage(error)}`,
+        `Google Docs connection failed: ${formatGoogleOAuthError(error)}`,
       );
     }
   },
@@ -183,7 +170,7 @@ export const getGoogleDocsStatus = defineEventHandler(
       };
     } catch (error) {
       setResponseStatus(event, 500);
-      return { error: permissionMessage(error) };
+      return { error: formatGoogleOAuthError(error) };
     }
   },
 );
@@ -230,7 +217,7 @@ export const getGoogleDocsPickerToken = defineEventHandler(
       };
     } catch (error) {
       setResponseStatus(event, 401);
-      return { error: permissionMessage(error) };
+      return { error: formatGoogleOAuthError(error) };
     }
   },
 );
@@ -247,7 +234,7 @@ export const disconnectGoogleDocsHandler = defineEventHandler(
       return { ok: true };
     } catch (error) {
       setResponseStatus(event, 500);
-      return { error: permissionMessage(error) };
+      return { error: formatGoogleOAuthError(error) };
     }
   },
 );

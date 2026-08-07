@@ -50,6 +50,17 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("recognizes Admin routes without losing the underlying view", () => {
+    expect(buildDispatchNavigationState("/admin/metrics")).toEqual({
+      view: "metrics",
+      path: "/admin/metrics",
+    });
+    expect(buildDispatchNavigationState("/admin")).toEqual({
+      view: "admin",
+      path: "/admin",
+    });
+  });
+
   it("preserves thread debug filters and selection", () => {
     expect(
       buildDispatchNavigationState(

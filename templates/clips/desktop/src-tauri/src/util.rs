@@ -2,7 +2,8 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 
 use crate::dlog;
 use crate::state::{
-    DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
+    DictationActive, PopoverShownAt, RecordingActive, SelectedRecordingDisplay, TrayAnchor,
+    VoiceWakePopover,
 };
 
 const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
@@ -369,6 +370,16 @@ pub fn present_interactive_window(window: &WebviewWindow) {
 /// instead of `primary_monitor_physical_size` for any overlay that should appear
 /// on the same screen as the recording.
 pub fn tray_monitor_physical_rect(app: &AppHandle) -> (i32, i32, u32, u32) {
+    // A monitor picked in the multi-monitor screen picker wins over the tray
+    // icon's monitor for every overlay shown during that recording
+    // (countdown, toolbar, finalizing, region guides, ...) — see
+    // `SelectedRecordingDisplay`'s doc comment for its lifecycle.
+    if let Some(id) = SelectedRecordingDisplay::get(app) {
+        if let Some(rect) = crate::native_screen::monitor_rect_for_display_id(app, id) {
+            return rect;
+        }
+    }
+
     let tray_rect = app
         .try_state::<TrayAnchor>()
         .and_then(|a| a.0.lock().ok().and_then(|g| *g));

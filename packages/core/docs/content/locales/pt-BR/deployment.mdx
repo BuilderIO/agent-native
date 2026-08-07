@@ -302,6 +302,37 @@ npx @agent-native/core@latest deploy --preset netlify
 
 A construção do espaço de trabalho grava ativos estáticos em `dist/_workspace_static/` e roteia cada aplicativo para sua própria função Netlify sem redirecionamentos forçados de ativos, de modo que arquivos como `/mail/assets/...` sejam servidos estaticamente antes que a função do servidor lide com as rotas do aplicativo.
 
+### Keep-warm e bancos de dados com escala a zero {#netlify-keep-warm}
+
+O build do Netlify emite uma função agendada que solicita `/_agent-native/health` **a cada minuto**. Isso mantém a função de servidor e seu banco de dados aquecidos, para que o próximo visitante após um período de inatividade não pague uma inicialização a frio (1–5 s no Neon). Em computação provisionada, esse é o padrão correto.
+
+**Em um banco de dados medido com escala a zero, é o padrão errado.** Um despertar por minuto significa que a autossuspensão nunca ocorre, então o banco cobra e limita a cota como se estivesse acordado continuamente sem ninguém usando o app. Em um Neon de nível gratuito isso esgota a cota de computação, e o banco passa a rejeitar **todas** as leituras no meio da sessão — o sintoma é um app morto, não lento.
+
+| Variável                                    | Efeito                                                                                                                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Ignora a função agendada por completo. O banco de dados fica livre para autossuspender; o próximo visitante após um período de inatividade paga sua inicialização a frio.                        |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Substitui a cadência por uma expressão cron de 5 campos, por ex. `*/5 * * * *`. Um valor não analisável **faz o build falhar** em vez de voltar silenciosamente para uma vez por minuto.         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Descarta apenas o aquecimento da função em segundo plano e mantém o servidor aquecido. Aquecer `server` é uma requisição; aquecer `-background` inicia um contêiner novo que re-sonda o esquema. |
+
+Se você está em um nível de banco de dados gratuito ou limitado por cota, defina `AGENT_NATIVE_DISABLE_KEEP_WARM=1` ou escolha uma cadência mais lenta.
+
+### DDL de esquema sob demanda {#skip-ensure-tables}
+
+Cada store chama `ensureTable()` no primeiro contato com o banco, o que sonda `information_schema` / `pg_indexes` e emite `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX` apenas para o que realmente falta. Em um servidor Node de longa duração esse custo é pago uma vez por boot e é invisível. Em serverless, o «primeiro contato» acontece a **cada inicialização a frio**, em ~57 stores — então uma requisição a frio pode pagar algumas centenas de idas e voltas em série antes de qualquer trabalho real.
+
+Duas coisas reduzem isso:
+
+- As sondagens são respondidas a partir de **uma única passagem de introspecção por banco** (duas consultas), em vez de uma consulta por tabela, coluna e índice. É automático e não exige configuração.
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` ignora por completo a maquinaria de sondagem e DDL, o maior ganho de latência de inicialização a frio disponível.
+
+Defina `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` quando o esquema do seu banco já estiver migrado e você não quiser que o boot da aplicação crie ou altere tabelas — o caso normal de um deploy de produção com uma etapa de migração real.
+
+<Callout tone="risk">
+
+**Esta flag não falha de forma fechada, e não pode.** Se o esquema realmente estiver ausente, a primeira consulta real falha de forma ruidosa em vez de ser reparada em tempo de execução — que é o objetivo, mas significa que a migração é sua responsabilidade. Não a defina em um deploy que dependa do boot da aplicação para provisionar suas tabelas.
+
+</Callout>
+
 ## Páginas Cloudflare {#cloudflare-pages}
 
 ```ts
@@ -387,6 +418,11 @@ Três coisas a ter em mente:
 | `APP_BASE_PATH`                             | Monte o aplicativo sob um prefixo (por exemplo, `/mail`). Definido automaticamente por `npx @agent-native/core@latest deploy`; deixe sem definição para autônomo.                                                                                                                                                                                                                                                                                      |
 | `AGENT_PROD_CODE_EXECUTION`                 | Modo de execução de código de produção opcional: `off` (padrão), `sandboxed` ou `trusted`. Consulte [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                           |
 | `AGENT_NATIVE_SSR_CACHE`                    | Política de cache do shell SSR para toda a implantação: não definido/`on` mantém o cache rígido padrão, `off` envia `no-store`, ou uma duração como `30s` / `5m` define um frescor mais curto. Consulte [SSR Caching](#ssr-caching).                                                                                                                                                                                                                   |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Ignora a função agendada de keep-warm do Netlify para que um banco de dados com escala a zero possa autossuspender. Ver [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                                               |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Substitui a cadência de keep-warm por uma expressão cron de 5 campos (padrão `* * * * *`). Um valor não analisável faz o build falhar. Ver [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Descarta apenas o aquecimento da função em segundo plano e mantém o servidor aquecido. Ver [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Desliga os temporizadores de varredura de retaguarda em processo (redespacho de automações, reconciliação de agent-teams, recuperação de execuções em sandbox). Em serverless eles rodam por contêiner aquecido, então sua taxa de consultas escala com o número de instâncias. Defina **apenas** onde um agendador durável já conduz a mesma recuperação, ou o trabalho em fila não será repetido.                                                    |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Ignora o DDL de esquema sob demanda por completo. Remove as idas e voltas de sondagem de esquema que cada inicialização a frio paga antes de qualquer trabalho. Requer esquema já migrado — ver [DDL de esquema sob demanda](#skip-ensure-tables).                                                                                                                                                                                                     |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Segredo HMAC compartilhado e dedicado de 32 caracteres ou mais para a retransmissão segura da autorização do Builder para prévias. Defina o mesmo valor na implantação de callback corporativa aprovada e nas implantações de prévia somente quando a autorização precisar ser salva em um banco de dados de prévia isolado.                                                                                                                           |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Lista separada por vírgulas de origens de prévia confiáveis e exatas, exclusiva do callback corporativo (por exemplo, `https://0123456789abcdef01234567--content.netlify.app`). Defina-a somente na implantação do callback corporativo. As origens da Netlify devem usar um permalink imutável e específico da implantação com um ID hexadecimal de 24 caracteres; aliases mutáveis `deploy-preview-*`, curingas e sufixos de domínio são rejeitados. |
 
@@ -442,9 +478,10 @@ passam por actions tipadas do app, a menos que o app habilite explicitamente fer
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: true,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
@@ -455,17 +492,45 @@ export default createCoreRoutesPlugin({
 });
 ```
 
-- `databaseTools: "read"` — padrão. Registra apenas `db-schema` e `db-query`;
+- `database: "read"` — padrão. Registra apenas `db-schema` e `db-query`;
   os agentes inspecionam dados com SQL, mas devem usar actions tipadas do app para gravar.
-- `databaseTools: "write"` ou `true` — também registra `db-exec` e `db-patch`
+- `database: "write"` ou `true` — também registra `db-exec` e `db-patch`
   para manutenção SQL bruta deliberada. As gravações são limitadas ao usuário/
   organização atual e alterações de esquema são bloqueadas.
-- `databaseTools: "off"` ou `false` — remove ferramentas de banco de dados brutos do
+- `database: "off"` ou `false` — remove ferramentas de banco de dados brutos do
   superfície do agente para que o actions do aplicativo seja o único caminho de acesso aos dados.
-- `extensionTools: true` — habilita no aplicativo as actions e orientações de
+- `extensions: true` — habilita no aplicativo as actions e orientações de
   gerenciamento de extensões (`create-extension`, `update-extension` etc.).
   Defina-o nos dois plugins para permitir também a criação REST autenticada. As
   extensões ficam desativadas por padrão.
+
+Os demais grupos são booleanos e vêm ativados por padrão: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`. Use
+`frameworkTools: "minimal"` para desativar todos de uma vez em um app de voz ou
+de propósito único, ou `frameworkTools: { preset: "minimal", resources: true }`
+para manter apenas um: uma chave de grupo explícita sempre vence o preset.
+
+Desativar um grupo o remove apenas das superfícies do **agente**: chat
+interativo, MCP, A2A e execuções em background. As rotas HTTP correspondentes
+continuam montadas, porque a UI as chama por hooks de cliente — desativar
+`sharing` não deve causar 404 em um diálogo de compartilhamento ainda visível.
+Considere esse custo de paridade: o contrato do framework é que tudo que a UI
+faz o agente também faz, então `sharing: false` ao lado de um botão de
+compartilhar visível é uma quebra deliberada, e só faz sentido quando o app não
+tem essa superfície.
+
+Independentemente desta opção, as ferramentas do framework não são mais
+carregadas na primeira requisição ao modelo por padrão. Elas permanecem no
+registro pesquisável e chegam via `tool-search`, ou imediatamente se o app as
+nomear em `initialToolNames`.
+
+<Callout tone="warning">
+  As opções de nível superior `databaseTools` e `extensionTools` estão
+  descontinuadas em favor de `frameworkTools.database` e
+  `frameworkTools.extensions`. Elas continuam funcionando, mas definir uma opção
+  de nível superior e seu equivalente em `frameworkTools` com valores
+  conflitantes lança erro na inicialização do plugin em vez de subir com uma
+  superfície de ferramentas que ninguém escolheu.
+</Callout>
 
 ## Execução de código de produção {#production-code-execution}
 
