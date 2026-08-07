@@ -13,10 +13,26 @@ async function run(): Promise<void> {
       process.argv.slice(2),
       { stdout: process.stdout, signal },
       {
-        run: executeExistingCodeAgentRun,
-        approve: executePendingCodeAgentApproval,
-        approveAlways: executeApproveAlwaysCodeAgentApproval,
-        deny: executeDenyCodeAgentApproval,
+        run: (runId, options) =>
+          executeExistingCodeAgentRun(runId, {
+            ...options,
+            streamToolOutputToStdout: false,
+          }),
+        approve: (runId, options) =>
+          executePendingCodeAgentApproval(runId, {
+            ...options,
+            streamToolOutputToStdout: false,
+          }),
+        approveAlways: (runId, options) =>
+          executeApproveAlwaysCodeAgentApproval(runId, {
+            ...options,
+            streamToolOutputToStdout: false,
+          }),
+        deny: (runId, options) =>
+          executeDenyCodeAgentApproval(runId, {
+            ...options,
+            streamToolOutputToStdout: false,
+          }),
       },
     );
   });

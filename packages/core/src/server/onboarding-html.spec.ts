@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
+import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
-import { getOnboardingHtml } from "./onboarding-html.js";
+import { getOnboardingHtml, getResetPasswordHtml } from "./onboarding-html.js";
 
 describe("getOnboardingHtml", () => {
   afterEach(() => {
@@ -139,6 +140,18 @@ describe("getOnboardingHtml", () => {
       "body: JSON.stringify({ email: email, password: pass })",
     );
     expect(html).toContain("password: document.getElementById('l-pass').value");
+  });
+
+  it("renders the policy password minimum in signup and reset forms", () => {
+    const html = getOnboardingHtml();
+    const resetHtml = getResetPasswordHtml();
+
+    expect(html).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(html).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
+    expect(html).not.toContain('minlength="8"');
+    expect(resetHtml).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(resetHtml).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
+    expect(resetHtml).not.toContain('minlength="8"');
   });
 
   it("keeps the password flow unchanged by default", () => {

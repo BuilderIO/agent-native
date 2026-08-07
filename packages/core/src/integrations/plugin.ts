@@ -15,6 +15,7 @@ import {
   isInBackgroundFunctionRuntime,
 } from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
+import { isServerlessRuntime } from "../db/client.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -3425,12 +3426,16 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // Background agent and scheduled recovery functions mount the same Nitro
-    // app, but they are workers rather than hosts for recurring integration
-    // jobs. Starting these timers in every worker multiplies recovery sweeps
-    // and pollers across concurrent runs, exhausting the shared database
-    // precisely while those runs are trying to checkpoint and deliver replies.
-    if (!isInBackgroundFunctionRuntime() && !isInIntegrationRecoveryRuntime()) {
+    // Serverless functions mount the same Nitro app as the durable workers,
+    // but they are not a stable host for recurring integration jobs. Starting
+    // these timers in every cold-started instance multiplies recovery sweeps
+    // and pollers against the shared database; scheduled/background workers
+    // own this work on hosted deployments.
+    if (
+      !isInBackgroundFunctionRuntime() &&
+      !isInIntegrationRecoveryRuntime() &&
+      !isServerlessRuntime()
+    ) {
       // ─── Start pending-tasks retry sweeper ────────────────────────
       // Sweeps the integration_pending_tasks queue every 60s and re-fires the
       // processor for any tasks that got stuck (initial dispatch lost or

@@ -196,6 +196,7 @@ function createPostHogProvider(
         properties: {
           distinct_id: distinctId,
           ...properties,
+          ...(event.sessionId ? { $session_id: event.sessionId } : {}),
           timestamp: event.timestamp,
         },
       }),
@@ -235,6 +236,7 @@ function createPostHogProvider(
           distinct_id: distinctId,
           properties: {
             ...event.properties,
+            ...(event.sessionId ? { $session_id: event.sessionId } : {}),
             timestamp: event.timestamp,
           },
         }),
@@ -308,6 +310,9 @@ function createMixpanelProvider(token: string): TrackingProvider {
             ? new Date(event.timestamp).getTime() / 1000
             : undefined,
           ...event.properties,
+          // Mixpanel's own `$session_id` is numeric and assigned by its SDK, so
+          // the browser session lands as a plain property here.
+          ...(event.sessionId ? { session_id: event.sessionId } : {}),
         },
       };
       enqueue("https://api.mixpanel.com/track", JSON.stringify([data]));
@@ -338,7 +343,11 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
           {
             event_type: event.name,
             user_id: event.userId || "anonymous",
-            event_properties: event.properties,
+            // Amplitude's top-level `session_id` must be a numeric epoch, so
+            // the browser session ships as an event property instead.
+            event_properties: event.sessionId
+              ? { ...event.properties, session_id: event.sessionId }
+              : event.properties,
             time: event.timestamp
               ? new Date(event.timestamp).getTime()
               : undefined,
@@ -382,6 +391,7 @@ function createWebhookProvider(
           event: event.name,
           properties: event.properties,
           userId: event.userId,
+          sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),
         extra,
@@ -423,6 +433,7 @@ function createAgentNativeAnalyticsProvider(
           properties: event.properties ?? {},
           userId: event.userId,
           anonymousId: event.anonymousId,
+          sessionId: event.sessionId,
           timestamp: event.timestamp,
         }),
         undefined,
