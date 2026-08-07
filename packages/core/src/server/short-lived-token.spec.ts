@@ -185,6 +185,55 @@ describe("realtime subscribe token", () => {
       ),
     ).not.toThrow();
   });
+
+  it("rejects a token past its absolute ceiling even when exp is live", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    // exp deliberately outlives the ceiling: the ceiling must be what stops it.
+    const absExp = Math.floor(Date.now() / 1000) + 60;
+    const token = signRealtimeSubscribeToken(
+      {
+        projectId: "proj_a",
+        owner: "alice@example.com",
+        ttlSeconds: 600,
+        absExp,
+      },
+      KEY_A,
+    );
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toMatchObject({ ok: true, absExp });
+
+    vi.advanceTimersByTime(61_000);
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toEqual({ ok: false, reason: "session_expired" });
+  });
+
+  it("rejects at the exact ceiling instant, not one tick after", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    const absExp = Math.floor(Date.now() / 1000) + 60;
+    const token = signRealtimeSubscribeToken(
+      {
+        projectId: "proj_a",
+        owner: "alice@example.com",
+        ttlSeconds: 600,
+        absExp,
+      },
+      KEY_A,
+    );
+
+    vi.setSystemTime(absExp * 1000 - 1);
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toMatchObject({ ok: true });
+
+    vi.setSystemTime(absExp * 1000);
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toEqual({ ok: false, reason: "session_expired" });
+  });
 });
 
 describe("gateway access-check token", () => {
